@@ -1,6 +1,6 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, consumeManaFromPool, deriveCreatureSpellHasteFromManaSpent, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, resolveActivatedAbilityLineById, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, addCastSpellPaymentProducedMana, buildManaTotalsIncludingEligibleRestricted, consumeManaFromPool, consumeManaFromPoolForPurpose, deriveCreatureSpellHasteFromManaSpent, getFloatingPaymentPoolColorKey, getOrInitManaPool, calculateTotalAvailableMana, parseFloatingPaymentPermanentId, validateManaPayment, validateSelectedFloatingPoolMana, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, resolveActivatedAbilityLineById, resolvePaymentManaAbilitySpendRestriction, restrictedManaSpendRestrictionAllowsPurpose, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower, type RestrictedManaSpendPurpose } from "./util";
 import { emitResolutionStepPrompt, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
@@ -27,6 +27,10 @@ import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificePermanent } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
+import {
+  buildBeholdSelectionOptions,
+  deriveCavernUncounterableForCreatureCast,
+} from "../state/modules/chosen-creature-type.js";
 import { PAY_X_LIFE_CARDS, cardManaValue, getMaxPayableLife, validateLifePayment, uid, oracleTextReferencesCard } from "../state/utils";
 import { continueCastFromGraveyardAbility, detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../state/resolution/index.js";
@@ -35,7 +39,8 @@ import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
-import { queueShockLandPaymentStep } from "./optional-payment-prompts.js";
+import { queueOptionalPaymentStep, queueShockLandPaymentStep } from "./optional-payment-prompts.js";
+import { tryQueueMoxDiamondBeforeStackResolve } from "../state/modules/mox-diamond-choice.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
@@ -46,6 +51,15 @@ import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from ".
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { buildCostAdjustmentPlan, buildLiveSpellCostAdjustment } from "../state/modules/cost-adjustments.js";
 import { buildNormalizedManaPaymentModel, stringifyParsedManaCost, type NormalizedManaPaymentModel } from "../state/modules/mana-check.js";
+import {
+  consumeConvokeGrantsAfterCast,
+  consumeChosenTypeFlashGrantsAfterCast,
+  getActiveConvokeGrantSources,
+  getDynamicBattlefieldCostReduction,
+  getMiracleCastInfo,
+  spellHasChosenTypeFlashGrant,
+  spellHasConvokeForCast,
+} from "../state/modules/casting-modifiers.js";
 import { processMillTriggers } from "../state/modules/zones.js";
 import { queueLifegainTriggers } from "../state/modules/triggers/lifegain.js";
 import { queueLifeLossTriggers } from "../state/modules/triggers/life-loss.js";
@@ -89,17 +103,8 @@ function getLeaveBattlefieldReplacementHint(permanent: any, destination: 'gravey
   };
 }
 
-function getFloatingPaymentPoolKey(permanentId: string, mana: string): string | null {
-  const rawId = String(permanentId || '').trim();
-  if (!rawId.startsWith(FLOATING_MANA_PAYMENT_PREFIX)) return null;
-
-  const encodedKey = rawId.slice(FLOATING_MANA_PAYMENT_PREFIX.length).split(':')[0];
-  const normalized = String(encodedKey || '').trim().toLowerCase();
-  if (['white', 'blue', 'black', 'red', 'green', 'colorless'].includes(normalized)) {
-    return normalized;
-  }
-
-  return MANA_COLOR_NAMES[String(mana || '').toUpperCase()] || null;
+function getFloatingPaymentPoolKey(permanentId: string, mana: string, pool?: any): string | null {
+  return getFloatingPaymentPoolColorKey(permanentId, mana, pool);
 }
 
 function getRequestedLandPlayCandidate(
@@ -911,13 +916,31 @@ function consumeExplicitSelectedCastSpellMana(
   selectedAvailable: Record<string, number>,
   coloredCost: Record<string, number>,
   genericCost: number,
+  purpose?: RestrictedManaSpendPurpose,
 ): { consumed: Record<string, number> } | { error: string } {
-  const selectedPool = snapshotCastSpellManaPool(selectedAvailable);
-  const validationError = validateManaPayment(selectedPool, coloredCost, genericCost);
+  const totalsForValidation = purpose
+    ? buildManaTotalsIncludingEligibleRestricted(
+        { ...snapshotCastSpellManaPool(selectedAvailable), restricted: pool?.restricted } as any,
+        purpose,
+      )
+    : snapshotCastSpellManaPool(selectedAvailable);
+  const validationError = validateManaPayment(totalsForValidation, coloredCost, genericCost);
   if (validationError) {
     return { error: validationError };
   }
 
+  if (purpose) {
+    const { consumed } = consumeManaFromPoolForPurpose(
+      pool,
+      coloredCost,
+      genericCost,
+      purpose,
+      '[castSpellFromHand][selectedPayment]',
+    );
+    return { consumed };
+  }
+
+  const selectedPool = snapshotCastSpellManaPool(selectedAvailable);
   const manaConsumption = consumeManaFromPool(
     selectedPool,
     coloredCost,
@@ -2496,19 +2519,17 @@ export function calculateCostReduction(
         }
       }
       
-      // Urza's Incubator: Creature spells of the chosen type cost {2} less
-      if (permName.includes("urza's incubator") && chosenType) {
-        if (isCreature && (cardCreatureTypes.includes(chosenType) || cardTypeLine.includes(chosenType))) {
-          reduction.generic += 2;
-          reduction.messages.push(`Urza's Incubator: -{2} (${chosenType})`);
-        }
-      }
-      
-      // Herald's Horn: Creature spells of the chosen type cost {1} less
-      if (permName.includes("herald's horn") && chosenType) {
-        if (isCreature && (cardCreatureTypes.includes(chosenType) || cardTypeLine.includes(chosenType))) {
-          reduction.generic += 1;
-          reduction.messages.push(`Herald's Horn: -{1} (${chosenType})`);
+      if (chosenType) {
+        const chosenTypeCostReduction = permOracle.match(/creature spells of the chosen type cost \{(\d+)\} less/)
+          || permOracle.match(/spells of the chosen type cost \{(\d+)\} less/);
+        if (chosenTypeCostReduction) {
+          const amount = parseInt(chosenTypeCostReduction[1], 10);
+          const creatureOnly = chosenTypeCostReduction[0].includes('creature spells');
+          const matchesType = cardCreatureTypes.includes(chosenType) || cardTypeLine.includes(chosenType);
+          if (Number.isFinite(amount) && amount > 0 && matchesType && (!creatureOnly || isCreature)) {
+            reduction.generic += amount;
+            reduction.messages.push(`${perm.card?.name || 'Permanent'}: -{${amount}} (${chosenType})`);
+          }
         }
       }
       
@@ -2913,6 +2934,13 @@ export function calculateCostReduction(
     debugWarn(1, "[costReduction] Error calculating cost reduction:", err);
   }
 
+  const dynamicBattlefieldReduction = getDynamicBattlefieldCostReduction(game.state, playerId as PlayerID, card);
+  reduction.generic += dynamicBattlefieldReduction.generic;
+  for (const [color, amount] of Object.entries(dynamicBattlefieldReduction.colors)) {
+    reduction.colors[color] = (reduction.colors[color] || 0) + (Number(amount) || 0);
+  }
+  reduction.messages.push(...dynamicBattlefieldReduction.messages);
+
   const sharedStaticAdjustment = getSharedStaticCostAdjustments(game, playerId, card);
   reduction.generic += sharedStaticAdjustment.reduction.generic;
   for (const [color, amount] of Object.entries(sharedStaticAdjustment.reduction.colors)) {
@@ -2949,7 +2977,8 @@ function calculateStaticSourceGenericTax(
 export function calculateConvokeOptions(
   game: any,
   playerId: string,
-  card: any
+  card: any,
+  castSourceZone?: string,
 ): {
   availableCreatures: Array<{
     id: string;
@@ -2958,6 +2987,7 @@ export function calculateConvokeOptions(
     canTapFor: string[]; // List of mana types this creature can contribute
   }>;
   messages: string[];
+  grantSources?: string[];
 } {
   const options = {
     availableCreatures: [] as Array<{
@@ -2967,40 +2997,18 @@ export function calculateConvokeOptions(
       canTapFor: string[];
     }>,
     messages: [] as string[],
+    grantSources: [] as string[],
   };
 
   try {
     const battlefield = game.state?.battlefield || [];
-    const cardOracleText = (card.oracle_text || "").toLowerCase();
-
-    // Check if card has convoke
-    if (!cardOracleText.includes("convoke")) {
+    if (!spellHasConvokeForCast(game.state, playerId as PlayerID, card, castSourceZone)) {
       return options;
     }
 
-    // CRITICAL: Exclude cards that GRANT convoke to other spells but don't have it themselves
-    // These patterns indicate the card gives convoke to OTHER spells, not itself
-    const grantsConvokePatterns = [
-      /the next spell you cast[^.]*has convoke/i,           // Wand of the Worldsoul
-      /spells you cast[^.]*have convoke/i,                  // General granting pattern
-      /creature spells you cast[^.]*have convoke/i,         // Elven Chorus style
-      /whenever[^.]*cast[^.]*convoke/i,                     // Triggered grant pattern
-      /nontoken creatures you control[^.]*have[^.]*convoke/i, // Creature-based granting
-    ];
-    
-    for (const pattern of grantsConvokePatterns) {
-      if (pattern.test(cardOracleText)) {
-        // This card grants convoke to other spells, it doesn't have convoke itself
-        return options;
-      }
-    }
-    
-    // Additional check: If the word "convoke" appears but is NOT in the format of a keyword
-    // (i.e., not at the start of a line or after a period), it might be granting convoke
-    const convokeKeywordPattern = /(?:^|\.|\n)\s*convoke(?:\s*\(|$|\s)/i;
-    if (!convokeKeywordPattern.test(cardOracleText)) {
-      // "convoke" appears but not as a standalone keyword - likely grants to another spell
-      return options;
+    options.grantSources = getActiveConvokeGrantSources(game.state, playerId as PlayerID, card, castSourceZone);
+    if (options.grantSources.length > 0) {
+      options.messages.push(`Convoke granted by: ${options.grantSources.join(', ')}`);
     }
 
     // Find all untapped creatures controlled by the player
@@ -3115,6 +3123,10 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
         return spellSubtypes.includes(trigger.tribalType.toLowerCase()) ||
           spellTypeLine.includes(trigger.tribalType.toLowerCase());
       }
+      case 'color': {
+        if (!trigger.tribalType) return false;
+        return spellColors.map((color) => String(color).toLowerCase()).includes(trigger.tribalType.toLowerCase());
+      }
       default:
         return false;
     }
@@ -3141,6 +3153,14 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
           })
           .length;
         shouldTrigger = matchingSpellsCastThisTurn === 1;
+      }
+
+      if (shouldTrigger && trigger.firstSpellDuringOpponentTurn === true) {
+        const activePlayer = String(game.state?.activePlayer || '');
+        const controllerId = String(permanent.controller || '');
+        const spellsCastThisTurnByCaster = (Array.isArray(game.state?.spellsCastThisTurn) ? game.state.spellsCastThisTurn : [])
+          .filter((castEntry: any) => String(castEntry?.casterId || '') === String(casterId)).length;
+        shouldTrigger = activePlayer !== controllerId && spellsCastThisTurnByCaster === 1;
       }
       
       if (shouldTrigger) {
@@ -3206,9 +3226,113 @@ export function recordSpellCastThisTurn(
         ...(castSourceZone ? { castSourceZone } : {}),
       },
     });
+    consumeConvokeGrantsAfterCast(game.state, casterId as PlayerID, spellCard, castSourceZone);
+    consumeChosenTypeFlashGrantsAfterCast(game.state, casterId as PlayerID, spellCard);
   } catch (err) {
     debugWarn(2, '[recordSpellCastThisTurn] Failed to track spellsCastThisTurn:', err);
   }
+}
+
+function createSpellCastTriggerToken(game: any, io: Server, gameId: string, casterId: string, trigger: SpellCastTrigger): void {
+  if (!trigger.createsToken || !trigger.tokenDetails) return;
+
+  const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  let oracleText = '';
+  const abilitiesText = trigger.tokenDetails.abilities
+    ? trigger.tokenDetails.abilities.map((ability) => ability.charAt(0).toUpperCase() + ability.slice(1)).join(', ')
+    : '';
+  if (abilitiesText) {
+    oracleText = abilitiesText;
+  }
+
+  const token = {
+    id: tokenId,
+    controller: casterId,
+    owner: casterId,
+    tapped: false,
+    counters: {},
+    basePower: trigger.tokenDetails.power,
+    baseToughness: trigger.tokenDetails.toughness,
+    summoningSickness: true,
+    isToken: true,
+    card: {
+      id: tokenId,
+      name: trigger.tokenDetails.name,
+      type_line: trigger.tokenDetails.types,
+      power: String(trigger.tokenDetails.power),
+      toughness: String(trigger.tokenDetails.toughness),
+      oracle_text: oracleText,
+      zone: 'battlefield',
+    },
+  };
+  game.state.battlefield = game.state.battlefield || [];
+  game.state.battlefield.push(token as any);
+
+  const abilitiesDisplay = abilitiesText ? ` with ${abilitiesText}` : '';
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${trigger.cardName}: ${getPlayerName(game, casterId)} creates a ${trigger.tokenDetails.power}/${trigger.tokenDetails.toughness} ${trigger.tokenDetails.name}${abilitiesDisplay}.`,
+    ts: Date.now(),
+  });
+}
+
+function resolveSpellCastOptionalPaymentChoice(
+  io: Server,
+  game: any,
+  gameId: string,
+  playerId: string,
+  trigger: SpellCastTrigger,
+  payMana: boolean,
+): void {
+  const manaCost = String(trigger.optionalPaymentCost || '').trim();
+  if (payMana) {
+    if (manaCost) {
+      const parsedCost = parseManaCost(manaCost);
+      const pool = getOrInitManaPool(game.state, playerId as PlayerID);
+      const totalAvailable = calculateTotalAvailableMana(pool, []);
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        emitToPlayer(io, playerId as PlayerID, 'error', {
+          code: 'INSUFFICIENT_MANA',
+          message: `Cannot pay ${manaCost}: ${validationError}`,
+        });
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, playerId)} couldn't pay ${manaCost} for ${trigger.cardName}'s trigger.`,
+          ts: Date.now(),
+        });
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
+      }
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[spellCastTriggerPayment:${trigger.cardName}]`);
+      broadcastManaPoolUpdate(io, gameId, playerId as PlayerID, pool as any, `Spell-cast trigger payment for ${trigger.cardName}`, game);
+    }
+
+    createSpellCastTriggerToken(game, io, gameId, playerId, trigger);
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} paid ${manaCost} for ${trigger.cardName}'s trigger.`,
+      ts: Date.now(),
+    });
+  } else {
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} declined to pay ${manaCost} for ${trigger.cardName}'s trigger.`,
+      ts: Date.now(),
+    });
+  }
+
+  if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+  broadcastGame(io, game, gameId);
 }
 
 export function processSpellCastTriggersForCast(
@@ -3335,13 +3459,58 @@ export function processSpellCastTriggersForCast(
       });
       const routesThroughDirectSpellCopy = trigger.copiesSpell === true;
 
+      if (trigger.optionalPaymentCost && !trigger.mandatory) {
+        const triggerControllerId = String(trigger.controllerId || casterId);
+        const sourcePermForPayment = (game.state?.battlefield || []).find((perm: any) => perm && perm.id === trigger.permanentId);
+        const cardImageUrl =
+          sourcePermForPayment?.card?.image_uris?.small || sourcePermForPayment?.card?.image_uris?.normal;
+        const manaCost = String(trigger.optionalPaymentCost || '').trim();
+
+        queueOptionalPaymentStep(gameId, {
+          playerId: triggerControllerId,
+          sourceId: String(trigger.permanentId || ''),
+          sourceName: trigger.cardName,
+          sourceImage: cardImageUrl,
+          description: trigger.description || `${trigger.cardName}: You may pay ${manaCost}.`,
+          mandatory: false,
+          minSelections: 0,
+          maxSelections: 1,
+          priority: -1,
+          payChoiceId: 'pay_mana',
+          payLabel: `Pay ${manaCost}`,
+          payDescription: `If you do: ${trigger.effect || 'resolve effect'}`,
+          declineChoiceId: 'decline',
+          declineLabel: 'Decline',
+          declineDescription: 'Do not pay the optional cost.',
+          validationKind: 'mana',
+          manaCost,
+          stepData: {
+            spellCastTriggerOptionalPaymentChoice: true,
+            permanentId: trigger.permanentId,
+            cardName: trigger.cardName,
+            manaCost,
+            effect: trigger.effect,
+            triggerDescription: trigger.description,
+            tokenDetails: trigger.tokenDetails,
+            createsToken: trigger.createsToken === true,
+          },
+          onPay: async () => {
+            resolveSpellCastOptionalPaymentChoice(io, game, gameId, triggerControllerId, trigger, true);
+          },
+          onDecline: async () => {
+            resolveSpellCastOptionalPaymentChoice(io, game, gameId, triggerControllerId, trigger, false);
+          },
+        });
+        continue;
+      }
+
       const effectLowerForShortcut = trigger.effect.toLowerCase();
       const hasShortcut = (
         effectLowerForShortcut.includes('draw a card') || effectLowerForShortcut.includes('draw cards') || effectLowerForShortcut.includes('draws a card') ||
         effectLowerForShortcut.includes('untap') ||
         trigger.copiesSpell === true ||
         trigger.cardName.toLowerCase().includes('consuming aberration') || effectLowerForShortcut.includes('until they reveal a land card') ||
-        (trigger.createsToken && trigger.tokenDetails)
+        (trigger.createsToken && trigger.tokenDetails && trigger.mandatory)
       );
 
       if (
@@ -3494,46 +3663,7 @@ export function processSpellCastTriggersForCast(
       }
 
       if (trigger.createsToken && trigger.tokenDetails) {
-        const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        let oracleText = '';
-        const abilitiesText = trigger.tokenDetails.abilities
-          ? trigger.tokenDetails.abilities.map((ability) => ability.charAt(0).toUpperCase() + ability.slice(1)).join(', ')
-          : '';
-        if (abilitiesText) {
-          oracleText = abilitiesText;
-        }
-
-        const token = {
-          id: tokenId,
-          controller: casterId,
-          owner: casterId,
-          tapped: false,
-          counters: {},
-          basePower: trigger.tokenDetails.power,
-          baseToughness: trigger.tokenDetails.toughness,
-          summoningSickness: true,
-          isToken: true,
-          card: {
-            id: tokenId,
-            name: trigger.tokenDetails.name,
-            type_line: trigger.tokenDetails.types,
-            power: String(trigger.tokenDetails.power),
-            toughness: String(trigger.tokenDetails.toughness),
-            oracle_text: oracleText,
-            zone: 'battlefield',
-          },
-        };
-        game.state.battlefield = game.state.battlefield || [];
-        game.state.battlefield.push(token as any);
-
-        const abilitiesDisplay = abilitiesText ? ` with ${abilitiesText}` : '';
-        io.to(gameId).emit('chat', {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: 'system',
-          message: `${trigger.cardName}: ${getPlayerName(game, casterId)} creates a ${trigger.tokenDetails.power}/${trigger.tokenDetails.toughness} ${trigger.tokenDetails.name}${abilitiesDisplay}.`,
-          ts: Date.now(),
-        });
+        createSpellCastTriggerToken(game, io, gameId, casterId, trigger);
       }
 
       if (trigger.addsLoyaltyCounters && trigger.addsLoyaltyCounters > 0) {
@@ -4783,31 +4913,32 @@ export function permanentHasKeyword(permanent: any, battlefield: any[], controll
  * @param card The card to check
  * @returns Object with hasMiracle boolean and miracleCost string if applicable
  */
-function checkMiracle(card: any): { hasMiracle: boolean; miracleCost: string | null } {
-  if (!card) return { hasMiracle: false, miracleCost: null };
-  
+function checkMiracle(
+  card: any,
+  game?: any,
+  playerId?: string,
+): { hasMiracle: boolean; miracleCost: string | null; source?: 'native' | 'granted' | null; sourceName?: string } {
+  if (!card) return { hasMiracle: false, miracleCost: null, source: null };
+  if (game?.state && playerId) {
+    return getMiracleCastInfo(game.state, playerId as PlayerID, card);
+  }
+
   const oracleText = (card.oracle_text || "").toLowerCase();
-  
-  // Check for miracle keyword
   if (!oracleText.includes('miracle')) {
-    return { hasMiracle: false, miracleCost: null };
+    return { hasMiracle: false, miracleCost: null, source: null };
   }
-  
-  // Extract miracle cost - pattern: "Miracle {cost}" or "miracleΓÇö{cost}"
-  // Handles regular mana symbols, X costs, hybrid mana like {w/u}, and Phyrexian mana like {w/p}
-  const miracleMatch = oracleText.match(/miracle[ΓÇöΓÇô\s]*(\{[^}]+\}(?:\{[^}]+\})*)/i);
+
+  const miracleMatch = oracleText.match(/miracle[—–\s]*(\{[^}]+\}(?:\{[^}]+\})*)/i);
   if (miracleMatch) {
-    return { hasMiracle: true, miracleCost: miracleMatch[1] };
+    return { hasMiracle: true, miracleCost: miracleMatch[1], source: 'native', sourceName: String(card?.name || '') };
   }
-  
-  // Alternative pattern - broader mana symbol matching
-  // Includes: numbers (1-20), WUBRGC colors, X costs, hybrid (w/u), Phyrexian (w/p)
+
   const altMatch = oracleText.match(/miracle\s+(\{(?:[wubrgcx]|[0-9]+|[wubrg]\/[wubrgp])\}(?:\{(?:[wubrgcx]|[0-9]+|[wubrg]\/[wubrgp])\})*)/i);
   if (altMatch) {
-    return { hasMiracle: true, miracleCost: altMatch[1] };
+    return { hasMiracle: true, miracleCost: altMatch[1], source: 'native', sourceName: String(card?.name || '') };
   }
-  
-  return { hasMiracle: true, miracleCost: null };
+
+  return { hasMiracle: true, miracleCost: null, source: 'native', sourceName: String(card?.name || '') };
 }
 
 function getSuspendCastInfo(card: any): { hasSuspend: boolean; suspendCost: string; timeCounters: number } {
@@ -4850,11 +4981,12 @@ function checkAndPromptMiracle(
   const firstCard = drawnCards[0];
   if (!firstCard || !firstCard.isFirstDrawnThisTurn) return;
   
-  const { hasMiracle, miracleCost } = checkMiracle(firstCard);
-  if (!hasMiracle) return;
+  const { hasMiracle, miracleCost, sourceName } = checkMiracle(firstCard, game, playerId);
+  if (!hasMiracle || !miracleCost) return;
   
   // Emit miracle prompt to the player
   const cardName = firstCard.name || "Unknown Card";
+  const grantSuffix = sourceName && sourceName !== cardName ? ` via ${sourceName}` : '';
   const cardImageUrl = firstCard.image_uris?.small || firstCard.image_uris?.normal;
   
   debug(2, `[miracle] ${cardName} was drawn as first card this turn - prompting for miracle cost ${miracleCost}`);
@@ -4870,7 +5002,7 @@ function checkAndPromptMiracle(
       sourceId: String(firstCard.id),
       sourceName: cardName,
       sourceImage: cardImageUrl,
-      description: `Miracle: You may cast ${cardName} for ${miracleCost || 'its miracle cost'}.`,
+      description: `Miracle${grantSuffix}: You may cast ${cardName} for ${miracleCost || 'its miracle cost'}.`,
       mandatory: false,
       options: [
         { id: 'cast_miracle', label: `Cast for Miracle ${miracleCost ? `(${miracleCost})` : ''}`.trim() },
@@ -5488,7 +5620,7 @@ export async function requestCastSpellForSocket(
         return;
       }
 
-      const miracleInfo = checkMiracle(cardInHand);
+      const miracleInfo = checkMiracle(cardInHand, game, playerId);
       if (!miracleInfo.hasMiracle || !miracleInfo.miracleCost) {
         socket.emit('error', {
           code: 'NO_MIRACLE',
@@ -5770,7 +5902,7 @@ export async function requestCastSpellForSocket(
       const paymentCostAdjustment = castSourceZone === 'command'
         ? buildCommandZonePaymentCostAdjustment(game, playerId, cardForCast, commanderCandidate, resolvedManaCost)
         : undefined;
-      const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
+      const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast, castSourceZone);
       const harmonizeOptions = calculateHarmonizeOptions(game, playerId, cardForCast);
 
       (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
@@ -6473,7 +6605,7 @@ export async function requestCastSpellForSocket(
 
     // No targets needed — still need to handle additional costs before payment.
     const paymentMetadata = buildPendingCastCostMetadata(game, playerId, cardForCast, castSourceZone);
-    const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
+    const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast, castSourceZone);
     const harmonizeOptions = calculateHarmonizeOptions(game, playerId, cardForCast);
     const paymentManaCost = appendManaCost(
       castSourceZone === 'command'
@@ -8259,6 +8391,11 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
         }
       }
+
+      if (!hasFlash && spellHasChosenTypeFlashGrant(game.state, playerId as PlayerID, cardInHand)) {
+        hasFlash = true;
+        debug(2, `[castSpellFromHand] ${cardInHand.name} has flash via chosen-type flash grant`);
+      }
       
       const isSorcerySpeed = !isInstant && !hasFlash;
       
@@ -8801,7 +8938,181 @@ export function registerGameActions(io: Server, socket: Socket) {
         return; // Wait for graveyard selection via Resolution Queue
       }
 
-      if (!shouldSkipAllPrompts && additionalCost && !additionalCostPaid) {
+      if (!shouldSkipAllPrompts && additionalCost?.type === 'behold_chosen_type') {
+        const beholdMarker = (payment as any[])?.find((p: any) => p && p.beholdResolved === true);
+        const beholdResolved =
+          beholdMarker?.beholdResolved === true ||
+          (targets as any)?.beholdResolved === true ||
+          (cardInHand as any)?.beholdResolved === true;
+        const chosenTypeForBehold = String(
+          (cardInHand as any)?.chosenCreatureType ||
+          (targets as any)?.chosenCreatureType ||
+          beholdMarker?.chosenCreatureType ||
+          '',
+        ).trim();
+
+        if (!beholdResolved) {
+          const existingBeholdPrompt = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) =>
+              String((s as any)?.spellBeholdCastCardId || (s as any)?.beholdCastCardId || '') === String(cardId) &&
+              (
+                (s as any)?.spellBeholdCastPrompt === true ||
+                (s as any)?.type === ResolutionStepType.CREATURE_TYPE_CHOICE ||
+                (
+                  (s as any)?.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT &&
+                  String((s as any)?.costType || '') === 'behold'
+                )
+              ),
+            );
+
+          if (existingBeholdPrompt) {
+            debug(2, `[castSpellFromHand] Waiting on behold prompt for ${cardInHand.name}`);
+            return;
+          }
+
+          if (!chosenTypeForBehold && additionalCost.beholdIsOptional !== false) {
+            const beholdOptionStep = ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.OPTION_CHOICE,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: `Optional additional cost for ${cardInHand.name}: You may choose a creature type and behold ${additionalCost.amount} creatures of that type.`,
+              mandatory: false,
+              options: [
+                { id: 'behold', label: `Behold ${additionalCost.amount} creatures` },
+                { id: 'skip', label: 'Skip behold' },
+              ],
+              minSelections: 1,
+              maxSelections: 1,
+              spellBeholdCastPrompt: true,
+              spellBeholdCastCardId: cardId,
+              spellBeholdCount: additionalCost.amount,
+              castSpellFromHandArgs: {
+                cardId,
+                payment,
+                targets,
+                xValue,
+                alternateCostId,
+                convokeTappedCreatures,
+              },
+            } as any);
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              queuedResolutionStep: {
+                ...(beholdOptionStep as any),
+              },
+            });
+            debug(2, `[castSpellFromHand] Queued optional behold prompt for ${cardInHand.name}`);
+            return;
+          }
+
+          if (!chosenTypeForBehold) {
+            const beholdTypeStep = ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: `Choose a creature type to behold for ${cardInHand.name}`,
+              mandatory: true,
+              beholdCastCardId: cardId,
+              cardName: cardInHand.name,
+              castSpellFromHandArgs: {
+                cardId,
+                payment,
+                targets,
+                xValue,
+                alternateCostId,
+                convokeTappedCreatures,
+              },
+            } as any);
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              queuedResolutionStep: {
+                ...(beholdTypeStep as any),
+              },
+            });
+            debug(2, `[castSpellFromHand] Queued behold creature type choice for ${cardInHand.name}`);
+            return;
+          }
+
+          if (!additionalCostPaid) {
+            const beholdCount = Math.max(1, Number(additionalCost.amount || 2));
+            const { handCards, battlefieldCreatures } = buildBeholdSelectionOptions(
+              game.state,
+              String(playerId),
+              chosenTypeForBehold,
+              zones.hand,
+              cardId,
+            );
+            const totalBeholdOptions = handCards.length + battlefieldCreatures.length;
+            if (totalBeholdOptions < beholdCount) {
+              socket.emit('error', {
+                code: 'CANNOT_PAY_COST',
+                message: `Cannot behold ${beholdCount} ${chosenTypeForBehold} creature(s) for ${cardInHand.name}: you only have ${totalBeholdOptions} available.`,
+              });
+              return;
+            }
+
+            const beholdPaymentStep = ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: `Behold ${beholdCount} ${chosenTypeForBehold} creature${beholdCount === 1 ? '' : 's'} to cast ${cardInHand.name}. Reveal matching cards from your hand and/or choose creatures you control.`,
+              mandatory: true,
+              cardId,
+              cardName: cardInHand.name,
+              costType: 'behold',
+              amount: beholdCount,
+              chosenCreatureType: chosenTypeForBehold,
+              title: `Behold ${beholdCount} ${chosenTypeForBehold} creature${beholdCount === 1 ? '' : 's'}`,
+              imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              availableCards: handCards.map((c: any) => ({
+                id: c.id,
+                name: c.name,
+                imageUrl: c.image_uris?.small || c.image_uris?.normal,
+                typeLine: c.type_line,
+                zone: 'hand',
+              })),
+              availableTargets: battlefieldCreatures.map((p: any) => ({
+                id: p.id,
+                name: p.card?.name || 'Unknown',
+                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+                typeLine: p.card?.type_line,
+                zone: 'battlefield',
+              })),
+              castSpellFromHandArgs: {
+                cardId,
+                payment,
+                targets,
+                xValue,
+                alternateCostId,
+                convokeTappedCreatures,
+              },
+            } as any);
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              queuedResolutionStep: {
+                ...(beholdPaymentStep as any),
+              },
+            });
+            debug(2, `[castSpellFromHand] Queued behold payment for ${cardInHand.name} (${chosenTypeForBehold})`);
+            return;
+          }
+        }
+      }
+
+      if (!shouldSkipAllPrompts && additionalCost && additionalCost.type !== 'behold_chosen_type' && !additionalCostPaid) {
         // Need to prompt for additional cost payment
         if (additionalCost.type === 'discard') {
           // Check if player has enough cards to discard
@@ -9707,6 +10018,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Calculate total mana cost for spell from hand (using reduced cost)
       const totalGeneric = payableCost.generic;
       const totalColored = payableCost.colors;
+      const castingCreatureSpell = String(cardInHand?.type_line || '').toLowerCase().includes('creature');
+      const restrictedManaPurpose: RestrictedManaSpendPurpose = castingCreatureSpell
+        ? { isCreature: true, spellCard: cardInHand }
+        : { spellCard: cardInHand };
       
       // Get existing mana pool (floating mana from previous spells)
       const existingPool = getOrInitManaPool(game.state, playerId);
@@ -9726,14 +10041,19 @@ export function registerGameActions(io: Server, socket: Socket) {
             colorless: existingPool.colorless || 0,
           };
       const selectedFloatingMana: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+      const selectedFloatingRestricted: Record<number, number> = {};
       
       // Add mana from payment sources, using calculateManaProduction for accurate amounts
       if (payment && payment.length > 0) {
         const projectedTapPermanentIds = new Set<string>();
         for (const { permanentId, mana, count, abilityId, producedColors } of payment) {
-          const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''));
-          if (floatingPoolKey) {
+          const floatingRef = parseFloatingPaymentPermanentId(String(permanentId || ''));
+          const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''), existingPool);
+          if (floatingRef && floatingPoolKey) {
             const amount = Math.max(1, Number(count || 1));
+            if (floatingRef.kind === 'restricted') {
+              selectedFloatingRestricted[floatingRef.index] = (selectedFloatingRestricted[floatingRef.index] || 0) + amount;
+            }
             selectedFloatingMana[floatingPoolKey] = (selectedFloatingMana[floatingPoolKey] || 0) + amount;
             totalAvailable[floatingPoolKey] = (totalAvailable[floatingPoolKey] || 0) + amount;
             continue;
@@ -9776,8 +10096,24 @@ export function registerGameActions(io: Server, socket: Socket) {
               manaAmount = manaInfo.totalAmount;
             }
 
+            const spendRestriction = resolvePaymentManaAbilitySpendRestriction(
+              game.state,
+              permanent,
+              playerId,
+              abilityId,
+            );
+            if (
+              spendRestriction &&
+              !restrictedManaSpendRestrictionAllowsPurpose(spendRestriction, restrictedManaPurpose)
+            ) {
+              continue;
+            }
+
             if (Array.isArray(producedColors) && producedColors.length > 0) {
-              addCastSpellManaTotals(totalAvailable, getPaymentItemProducedManaTotals(mana, manaAmount, producedColors));
+              addCastSpellManaTotals(
+                totalAvailable,
+                getPaymentItemProducedManaTotals(mana, manaAmount, producedColors),
+              );
               continue;
             }
             
@@ -9788,14 +10124,18 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
         }
 
-        for (const [poolKey, amount] of Object.entries(selectedFloatingMana)) {
-          if ((existingPool as any)[poolKey] < amount) {
-            socket.emit('error', {
-              code: 'INSUFFICIENT_MANA',
-              message: `Not enough ${poolKey} mana selected from your pool.`,
-            });
-            return;
-          }
+        const floatingPoolValidationError = validateSelectedFloatingPoolMana(
+          existingPool as any,
+          selectedFloatingMana,
+          selectedFloatingRestricted,
+          restrictedManaPurpose,
+        );
+        if (floatingPoolValidationError) {
+          socket.emit('error', {
+            code: 'INSUFFICIENT_MANA',
+            message: floatingPoolValidationError,
+          });
+          return;
         }
       }
       
@@ -9808,10 +10148,14 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Calculate total required cost
       const coloredCostTotal = Object.values(totalColored).reduce((a: number, b: number) => a + b, 0);
       const totalCost = coloredCostTotal + totalGeneric;
+      const manaTotalsForValidation = buildManaTotalsIncludingEligibleRestricted(
+        { ...totalAvailable, restricted: existingPool.restricted } as any,
+        restrictedManaPurpose,
+      );
       
       // Validate if total available mana can pay the cost
       if (totalCost > 0) {
-        const validationError = validateManaPayment(totalAvailable, totalColored, totalGeneric);
+        const validationError = validateManaPayment(manaTotalsForValidation, totalColored, totalGeneric);
         if (validationError) {
           socket.emit("error", {
             code: "INSUFFICIENT_MANA",
@@ -9871,6 +10215,14 @@ export function registerGameActions(io: Server, socket: Socket) {
       // CONVOKE: Tap creatures to help pay for spell
       // ======================================================================
       if (!isForceAltCostPaid && convokeTappedCreatures && convokeTappedCreatures.length > 0) {
+        if (!spellHasConvokeForCast(game.state, playerId as PlayerID, cardInHand, castSourceZone)) {
+          socket.emit("error", {
+            code: "NO_CONVOKE",
+            message: "This spell does not have convoke",
+          });
+          return;
+        }
+
         debug(2, `[castSpellFromHand] Processing convoke: tapping ${convokeTappedCreatures.length} creature(s)`);
         
         const globalBattlefield = game.state?.battlefield || [];
@@ -9901,18 +10253,6 @@ export function registerGameActions(io: Server, socket: Socket) {
             socket.emit("error", {
               code: "CONVOKE_NOT_CREATURE",
               message: `${creatureCard.name || 'Permanent'} is not a creature`,
-            });
-            return;
-          }
-          
-          // Check summoning sickness
-          const hasHaste = creatureHasHaste(creature, globalBattlefield, playerId);
-          const enteredThisTurn = (creature as any).enteredThisTurn === true;
-          
-          if (!hasHaste && enteredThisTurn) {
-            socket.emit("error", {
-              code: "CONVOKE_SUMMONING_SICKNESS",
-              message: `${creatureCard.name || 'Creature'} has summoning sickness`,
             });
             return;
           }
@@ -9996,8 +10336,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Process each payment item: apply the mana ability cost, then add mana to pool
         for (const { permanentId, mana, count, abilityId, sacrificedPermanentIds, producedColors } of payment) {
-          const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''));
-          if (floatingPoolKey) {
+          const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''), existingPool);
+          if (floatingPoolKey && parseFloatingPaymentPermanentId(String(permanentId || ''))) {
             const amount = Math.max(1, Number(count || 1));
             selectedPaymentAvailableTotals[floatingPoolKey] = (selectedPaymentAvailableTotals[floatingPoolKey] || 0) + amount;
             continue;
@@ -10205,6 +10545,22 @@ export function registerGameActions(io: Server, socket: Socket) {
           const explicitProducedManaTotals = Array.isArray(producedColors) && producedColors.length > 0
             ? getPaymentItemProducedManaTotals(mana, producedAmount, producedColors)
             : undefined;
+          const spendRestriction = resolvePaymentManaAbilitySpendRestriction(
+            game.state,
+            permanent,
+            playerId,
+            abilityId,
+          );
+          if (
+            spendRestriction &&
+            !restrictedManaSpendRestrictionAllowsPurpose(spendRestriction, restrictedManaPurpose)
+          ) {
+            abortCastSpellPayment({
+              code: 'INVALID_RESTRICTED_MANA',
+              message: `${permCard.name || 'Permanent'} produces mana that cannot be spent to cast ${cardInHand.name}.`,
+            });
+            return;
+          }
           
           const poolKey = manaColorMap[mana];
           if (explicitProducedManaTotals) {
@@ -10221,8 +10577,15 @@ export function registerGameActions(io: Server, socket: Socket) {
               return;
             }
 
-            addCastSpellManaTotals(game.state.manaPool[playerId], explicitProducedManaTotals);
-            addCastSpellManaTotals(selectedPaymentAvailableTotals, explicitProducedManaTotals);
+            addCastSpellPaymentProducedMana(
+              game.state,
+              playerId,
+              game.state.manaPool[playerId],
+              selectedPaymentAvailableTotals,
+              explicitProducedManaTotals,
+              spendRestriction,
+              { id: String(permanentId || ''), name: String(permCard.name || '') },
+            );
 
             for (const [explicitPoolKey, amount] of Object.entries(explicitProducedManaTotals)) {
               if (amount <= 0) continue;
@@ -10242,8 +10605,15 @@ export function registerGameActions(io: Server, socket: Socket) {
               debug(2, `[castSpellFromHand] Added ${amount} ${explicitPoolKey} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
             }
           } else if (poolKey && producedAmount > 0) {
-            (game.state.manaPool[playerId] as any)[poolKey] += producedAmount;
-            selectedPaymentAvailableTotals[poolKey] = (selectedPaymentAvailableTotals[poolKey] || 0) + producedAmount;
+            addCastSpellPaymentProducedMana(
+              game.state,
+              playerId,
+              game.state.manaPool[playerId],
+              selectedPaymentAvailableTotals,
+              { [poolKey]: producedAmount },
+              spendRestriction,
+              { id: String(permanentId || ''), name: String(permCard.name || '') },
+            );
             if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
               recordCreatureSpellHasteManaProduced(game.state, String(playerId), String(poolKey) as any, producedAmount);
             }
@@ -10270,8 +10640,15 @@ export function registerGameActions(io: Server, socket: Socket) {
               continue;
             }
 
-            (game.state.manaPool[playerId] as any)[bonusPoolKey] += bonus.amount;
-            selectedPaymentAvailableTotals[bonusPoolKey] = (selectedPaymentAvailableTotals[bonusPoolKey] || 0) + bonus.amount;
+            addCastSpellPaymentProducedMana(
+              game.state,
+              playerId,
+              game.state.manaPool[playerId],
+              selectedPaymentAvailableTotals,
+              { [bonusPoolKey]: bonus.amount },
+              spendRestriction,
+              { id: String(permanentId || ''), name: String(permCard.name || '') },
+            );
             if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
               recordCreatureSpellHasteManaProduced(game.state, String(playerId), String(bonusPoolKey) as any, bonus.amount);
             }
@@ -10305,6 +10682,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 selectedPaymentAvailableTotals,
                 totalColored,
                 totalGeneric,
+                restrictedManaPurpose,
               );
               if ('error' in selectedConsumption) {
                 abortCastSpellPayment({
@@ -10316,7 +10694,9 @@ export function registerGameActions(io: Server, socket: Socket) {
 
               return { consumed: { ...selectedConsumption.consumed } };
             })()
-          : consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]');
+          : (castingCreatureSpell
+            ? consumeManaFromPoolForPurpose(pool, totalColored, totalGeneric, restrictedManaPurpose, '[castSpellFromHand]')
+            : consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]'));
 
       if (!manaConsumption) {
         return;
@@ -10337,6 +10717,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       );
       const spellIsCreature = String(cardInHand?.type_line || '').toLowerCase().includes('creature');
       let gainsHasteUntilEndOfTurnFromManaSpent = false;
+      let cantBeCounteredFromCavern = false;
       if (spellIsCreature) {
         gainsHasteUntilEndOfTurnFromManaSpent = deriveCreatureSpellHasteFromManaSpent(game.state, String(playerId), {
           poolBeforePayment: explicitPaymentSelected ? poolBeforeSpellPayment : poolBeforePayment,
@@ -10345,6 +10726,12 @@ export function registerGameActions(io: Server, socket: Socket) {
             ? creatureSpellHasteLowerBoundBeforeSpellPayment
             : creatureSpellHasteLowerBoundBeforePayment,
         });
+        cantBeCounteredFromCavern = deriveCavernUncounterableForCreatureCast(
+          game.state,
+          String(playerId),
+          cardInHand,
+          payment,
+        );
       }
       
       // Calculate converge value (number of different mana colors spent)
@@ -10872,7 +11259,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               type: "castSpell",
               playerId,
               cardId,
-              card: { ...cardInHand, ...(castSourceZone === 'command' ? { isCommander: true } : {}) },
+              card: {
+                ...cardInHand,
+                ...(castSourceZone === 'command' ? { isCommander: true } : {}),
+                ...(cantBeCounteredFromCavern ? { cantBeCountered: true } : {}),
+              },
               targets: targets || [],
               xValue,
               ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
@@ -10927,6 +11318,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                     gainsHasteUntilEndOfTurnFromManaSpent: true,
                   }
                 : {}),
+              ...(cantBeCounteredFromCavern ? { cantBeCountered: true } : {}),
               ...(snowManaSpentByColor
                 ? {
                     snowManaSpentByColor: { ...snowManaSpentByColor },
@@ -11087,6 +11479,13 @@ export function registerGameActions(io: Server, socket: Socket) {
                 }
               }
 
+              if (cantBeCounteredFromCavern) {
+                (topStackItem as any).cantBeCountered = true;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.cantBeCountered = true;
+                }
+              }
+
               // Intervening-if support: snow mana spent (positive-only lower bound).
               if (snowManaSpentByColor) {
                 (topStackItem as any).snowManaSpentByColor = { ...snowManaSpentByColor };
@@ -11170,6 +11569,18 @@ export function registerGameActions(io: Server, socket: Socket) {
                   (topStackItem as any).card.evidenceCollected = true;
                   (topStackItem as any).card.evidenceWasCollected = true;
                   (topStackItem as any).card.collectedEvidence = true;
+                }
+              }
+
+              const castChosenCreatureType = String(
+                (cardInHand as any)?.chosenCreatureType ||
+                (targets as any)?.chosenCreatureType ||
+                '',
+              ).trim();
+              if (castChosenCreatureType) {
+                (topStackItem as any).chosenCreatureType = castChosenCreatureType;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.chosenCreatureType = castChosenCreatureType;
                 }
               }
               debug(1, `[castSpellFromHand] Added converge data to stack item: ${convergeValue} colors (${(topStackItem as any).manaColorsSpent.join(', ')})`);
@@ -11271,6 +11682,18 @@ export function registerGameActions(io: Server, socket: Socket) {
                   (topStackItem as any).card.collectedEvidence = true;
                 }
               }
+
+              const castChosenCreatureTypeFallback = String(
+                (cardInHand as any)?.chosenCreatureType ||
+                (targets as any)?.chosenCreatureType ||
+                '',
+              ).trim();
+              if (castChosenCreatureTypeFallback) {
+                (topStackItem as any).chosenCreatureType = castChosenCreatureTypeFallback;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.chosenCreatureType = castChosenCreatureTypeFallback;
+                }
+              }
             }
 
             // Track per-turn "cast from hand" (best-effort)
@@ -11340,6 +11763,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               card: {
                 ...cardInHand,
                 zone: "stack",
+                ...(cantBeCounteredFromCavern ? { cantBeCountered: true } : {}),
                 ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
                 ...(giftPromisedForCast === true
                   ? {
@@ -11360,6 +11784,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                   }
                 : {}),
               ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
+              ...(cantBeCounteredFromCavern ? { cantBeCountered: true } : {}),
               ...(additionalCost && typeof additionalCostPaid === 'boolean'
                 ? {
                     additionalCostPaidKnown: true,
@@ -12354,49 +12779,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         const resolvedCard = topItem?.card;
         const resolvedController = topItem?.controller;
         
-        // Check for Mox Diamond replacement effect BEFORE resolving
-        // "If Mox Diamond would enter the battlefield, you may discard a land card instead."
-        const isMoxDiamondCard = (resolvedCard?.name || '').toLowerCase().trim() === 'mox diamond';
-        if (resolvedCard && resolvedController && isMoxDiamondCard) {
-          const zones = game.state?.zones?.[resolvedController];
-          const hand = Array.isArray(zones?.hand) ? zones.hand : [];
-          const landCardsInHand = hand
-            .filter((c: any) => c && /\bland\b/i.test(c.type_line || ''))
-            .map((c: any) => ({
-              id: c.id,
-              label: `Discard ${c.name || 'Land'}`,
-              imageUrl: c.image_uris?.small || c.image_uris?.normal,
-            }));
-
-          const existing = ResolutionQueueManager
-            .getStepsForPlayer(gameId, resolvedController as any)
-            .find((s: any) => (s as any)?.moxDiamondChoice === true && String((s as any)?.stackItemId || '') === String(topItem.id));
-          if (existing) {
-            debug(2, `[passPriority] Mox Diamond replacement effect: step already exists for ${resolvedController}`);
-            if (typeof game.bumpSeq === 'function') game.bumpSeq();
-            broadcastGame(io, game, gameId);
-            return;
-          }
-          
-          ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.OPTION_CHOICE,
-            playerId: resolvedController as PlayerID,
-            description: 'Mox Diamond ΓÇö Discard a land to put it onto the battlefield, or decline to put it into the graveyard',
-            mandatory: true,
-            sourceId: topItem.id,
-            sourceName: resolvedCard.name || 'Mox Diamond',
-            options: [
-              ...landCardsInHand,
-              { id: 'decline_mox_diamond', label: 'DonΓÇÖt discard (put Mox Diamond into graveyard)' },
-            ],
-            minSelections: 1,
-            maxSelections: 1,
-            moxDiamondChoice: true,
-            stackItemId: topItem.id,
-          } as any);
-          
-          debug(2, `[passPriority] Mox Diamond replacement effect: queued option choice for ${resolvedController}`);
-          
+        if (tryQueueMoxDiamondBeforeStackResolve(game)) {
           if (typeof game.bumpSeq === 'function') {
             game.bumpSeq();
           }

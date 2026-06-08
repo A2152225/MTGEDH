@@ -114,6 +114,79 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
     return triggers;
   }
   
+  const enchantedOpponentEndStepMatch = oracleText.match(
+    /at the beginning of enchanted opponent's end step,?\s*([^.]+)/i,
+  );
+  if (enchantedOpponentEndStepMatch) {
+    const effect = String(enchantedOpponentEndStepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: effect,
+      effect: effect,
+      mandatory: !effect.toLowerCase().includes('you may'),
+      requiresChoice: detectRequiresChoice(effect),
+      affectsAllPlayers: false,
+    });
+  }
+
+  const enchantedPlayerEndStepMatch = oracleText.match(
+    /at the beginning of enchanted player's end step,?\s*([^.]+)/i,
+  );
+  if (enchantedPlayerEndStepMatch) {
+    const effect = String(enchantedPlayerEndStepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: effect,
+      effect: effect,
+      mandatory: !effect.toLowerCase().includes('you may'),
+      requiresChoice: detectRequiresChoice(effect),
+      affectsAllPlayers: false,
+    });
+  }
+
+  const monarchEndStepMatch = oracleText.match(
+    /at the beginning of the monarch's end step,?\s*([^.]+)/i,
+  );
+  if (monarchEndStepMatch) {
+    const effect = String(monarchEndStepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: effect,
+      effect: effect,
+      mandatory: !effect.toLowerCase().includes('you may'),
+      requiresChoice: detectRequiresChoice(effect),
+      affectsAllPlayers: false,
+    });
+  }
+
+  const yourOpponentsEndStepMatch = oracleText.match(
+    /at the beginning of your opponents['']? end step,?\s*([^.]+)/i,
+  );
+  if (yourOpponentsEndStepMatch) {
+    const effect = String(yourOpponentsEndStepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: effect,
+      effect: effect,
+      mandatory: !effect.toLowerCase().includes('you may'),
+      triggersOnOpponentEndStep: true,
+      requiresChoice: detectRequiresChoice(effect),
+      affectsAllPlayers: detectAffectsAllPlayers(effect),
+    });
+  }
+
   // Pattern for "each opponent's end step" (Keeper of the Accord style)
   const opponentEndStepMatch = oracleText.match(/at the beginning of each opponent['']?s end step,?\s*([^.]+)/i);
   if (opponentEndStepMatch) {
@@ -135,7 +208,27 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
   
   // Pattern for regular end step triggers: "At the beginning of your/each end step"
   // Match until the end of the sentence (period followed by space or end of string)
-  const endStepMatch = oracleText.match(/at the beginning of (?:each|your) end step,?\s*([^.]+\.?)/i);
+  const thatTurnEndStepMatch = oracleText.match(
+    /\[?at the beginning of that turn's end step,?\s*([^\].]+)/i,
+  );
+  if (thatTurnEndStepMatch) {
+    const effect = String(thatTurnEndStepMatch[1] || '').trim().replace(/\]$/, '');
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: effect,
+      effect: effect,
+      mandatory: !effect.toLowerCase().includes('you may'),
+      requiresChoice: detectRequiresChoice(effect),
+      affectsAllPlayers: false,
+    });
+  }
+
+  const endStepMatch = oracleText.match(
+    /at the beginning of (?:(?:the )?next|your next|each(?: player's)?|your|the) end step,?\s*(?:if\s+[^,]+,\s*)?([^.]+\.?)/i,
+  );
   if (endStepMatch) {
     const effect = endStepMatch[1].trim();
     triggers.push({
@@ -151,6 +244,204 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
     });
   }
   
+  return triggers;
+}
+
+/**
+ * Detect beginning-of-first-main-phase triggers (parser may omit leading "At").
+ */
+export function detectPrecombatMainTriggers(card: any, permanent: any): EndStepTrigger[] {
+  const triggers: EndStepTrigger[] = [];
+  const { cardName, oracleText } = getActivePermanentCardFace(card, permanent);
+  const permanentId = permanent?.id || '';
+  const controllerId = permanent?.controller || '';
+
+  const nextMainThisTurnMatch = oracleText.match(
+    /at the beginning of the next main phase this turn,?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
+  );
+  if (nextMainThisTurnMatch) {
+    const effect = String(nextMainThisTurnMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'end_step_effect',
+        description: effect,
+        effect,
+        mandatory: !effect.toLowerCase().includes('you may'),
+        requiresChoice: detectRequiresChoice(effect),
+        affectsAllPlayers: detectAffectsAllPlayers(effect),
+      });
+    }
+  }
+
+  const nextMainMatch = oracleText.match(
+    /at the beginning of your next(?: first)? main phase,?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
+  );
+  if (nextMainMatch) {
+    const effect = String(nextMainMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'end_step_effect',
+        description: effect,
+        effect,
+        mandatory: !effect.toLowerCase().includes('you may'),
+        requiresChoice: detectRequiresChoice(effect),
+        affectsAllPlayers: detectAffectsAllPlayers(effect),
+      });
+    }
+  }
+
+  const hordeFirstMainMatch = oracleText.match(
+    /at the beginning of the horde's first main phase,?\s*([^.]+)/i,
+  );
+  if (hordeFirstMainMatch) {
+    const effect = String(hordeFirstMainMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'end_step_effect',
+        description: effect,
+        effect,
+        mandatory: !effect.toLowerCase().includes('you may'),
+        requiresChoice: detectRequiresChoice(effect),
+        affectsAllPlayers: false,
+      });
+    }
+  }
+
+  const eachYourMainPhasesMatch = oracleText.match(
+    /at the beginning of each of your main phases,?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
+  );
+  if (eachYourMainPhasesMatch) {
+    const effect = String(eachYourMainPhasesMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'end_step_effect',
+        description: effect,
+        effect,
+        mandatory: !effect.toLowerCase().includes('you may'),
+        requiresChoice: detectRequiresChoice(effect),
+        affectsAllPlayers: false,
+      });
+    }
+  }
+
+  const eachPlayerFirstMainMatch = oracleText.match(
+    /at the beginning of each player's first main phase,?\s*([^.]+)/i,
+  );
+  if (eachPlayerFirstMainMatch) {
+    const effect = String(eachPlayerFirstMainMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'end_step_effect',
+        description: effect,
+        effect,
+        mandatory: !effect.toLowerCase().includes('you may'),
+        requiresChoice: detectRequiresChoice(effect),
+        affectsAllPlayers: true,
+      });
+    }
+  }
+
+  const firstMainMatch = oracleText.match(
+    /(?:at the beginning of|the beginning of) (?:your )?first main phase,?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
+  );
+  if (firstMainMatch) {
+    const effect = String(firstMainMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'end_step_effect',
+        description: effect,
+        effect,
+        mandatory: !effect.toLowerCase().includes('you may'),
+        requiresChoice: detectRequiresChoice(effect),
+        affectsAllPlayers: detectAffectsAllPlayers(effect),
+      });
+    }
+  }
+
+  return triggers;
+}
+
+/**
+ * Detect beginning-of-postcombat-main / second-main-phase triggers.
+ */
+export function detectPostcombatMainTriggers(card: any, permanent: any): EndStepTrigger[] {
+  const triggers: EndStepTrigger[] = [];
+  const { cardName, oracleText } = getActivePermanentCardFace(card, permanent);
+  const permanentId = permanent?.id || '';
+  const controllerId = permanent?.controller || '';
+
+  const enchantedPlayerPostcombatMatch = oracleText.match(
+    /at the beginning of each of enchanted player's postcombat main phases?,?\s*([^.]+)/i,
+  );
+  if (enchantedPlayerPostcombatMatch) {
+    const effect = enchantedPlayerPostcombatMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: effect,
+      effect,
+      mandatory: !effect.toLowerCase().includes('you may'),
+      requiresChoice: detectRequiresChoice(effect),
+      affectsAllPlayers: detectAffectsAllPlayers(effect),
+    });
+  }
+
+  const eachPostcombatMainMatch = oracleText.match(
+    /at the beginning of each postcombat main phase,?\s*([^.]+)/i,
+  );
+  if (eachPostcombatMainMatch) {
+    const effect = eachPostcombatMainMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: effect,
+      effect,
+      mandatory: !effect.toLowerCase().includes('you may'),
+      requiresChoice: detectRequiresChoice(effect),
+      affectsAllPlayers: detectAffectsAllPlayers(effect),
+    });
+  }
+
+  const postcombatMatch = oracleText.match(
+    /at the beginning of (?:(?:each of )?your )?(?:post-?combat|second) main phases?,?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
+  );
+  if (postcombatMatch && !enchantedPlayerPostcombatMatch && !eachPostcombatMainMatch) {
+    const effect = postcombatMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'end_step_effect',
+      description: effect,
+      effect,
+      mandatory: !effect.toLowerCase().includes('you may'),
+      requiresChoice: detectRequiresChoice(effect),
+      affectsAllPlayers: detectAffectsAllPlayers(effect),
+    });
+  }
+
   return triggers;
 }
 
@@ -326,44 +617,50 @@ export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigg
     'teferi\'s puzzle box', // Puzzlebox
   ];
   
-  // Check if this is a known replacement effect card
-  if (replacementEffectCards.some(name => cardName.includes(name))) {
-    // This is a replacement effect, not a trigger - return empty
-    return triggers;
-  }
-  
-  // Check if the text is just modifying draws (replacement effect pattern)
-  // Pattern: "that player draws X additional cards" or "draw X additional cards"
   const lowerOracle = oracleText.toLowerCase();
-  if (lowerOracle.includes('draw') && (lowerOracle.includes('additional card') || lowerOracle.includes('an extra card'))) {
-    // This looks like a replacement effect that modifies draws
-    // Don't treat it as a trigger
+  const isKnownReplacementCard = replacementEffectCards.some(name => cardName.includes(name));
+  const hasExplicitDrawStepTrigger = /at the beginning of (?:your|each(?: player's)?) draw step/i.test(oracleText);
+  if (
+    !hasExplicitDrawStepTrigger &&
+    lowerOracle.includes('draw') &&
+    (lowerOracle.includes('additional card') || lowerOracle.includes('an extra card'))
+  ) {
     return triggers;
   }
   
+  const eachOfYourDrawMatch = oracleText.match(/at the beginning of each of your draw steps,?\s*([^.]+)/i);
+  if (eachOfYourDrawMatch) {
+    const effect = eachOfYourDrawMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName: card?.name || 'Unknown',
+      controllerId,
+      description: effect,
+      effect,
+      mandatory: true,
+    });
+  }
+
   // "At the beginning of your draw step" - actual triggers
   const yourDrawMatch = oracleText.match(/at the beginning of your draw step,?\s*([^.]+)/i);
   if (yourDrawMatch) {
     const effect = yourDrawMatch[1].trim();
-    // Double-check it's not a draw modification
-    if (!effect.toLowerCase().includes('draw') || !effect.toLowerCase().includes('additional')) {
-      triggers.push({
-        permanentId,
-        cardName: card?.name || "Unknown",
-        controllerId,
-        description: effect,
-        effect: effect,
-        mandatory: true,
-      });
-    }
+    triggers.push({
+      permanentId,
+      cardName: card?.name || "Unknown",
+      controllerId,
+      description: effect,
+      effect: effect,
+      mandatory: true,
+    });
   }
-  
+
   // "At the beginning of each player's draw step" - actual triggers
   const eachDrawMatch = oracleText.match(/at the beginning of each player's draw step,?\s*([^.]+)/i);
   if (eachDrawMatch) {
     const effect = eachDrawMatch[1].trim();
-    // Double-check it's not a draw modification
-    if (!effect.toLowerCase().includes('draw') || !effect.toLowerCase().includes('additional')) {
+    const isReplacementDraw = /\bdraw(?:s)? (?:\w+ )?additional cards?\b/i.test(effect);
+    if (hasExplicitDrawStepTrigger || !isKnownReplacementCard || isReplacementDraw) {
       triggers.push({
         permanentId,
         cardName: card?.name || "Unknown",
@@ -371,7 +668,8 @@ export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigg
         description: effect,
         effect: effect,
         mandatory: true,
-      });
+        triggerType: (isReplacementDraw || isKnownReplacementCard) ? ('replacement_draw' as any) : undefined,
+      } as DrawStepTrigger);
     }
   }
   

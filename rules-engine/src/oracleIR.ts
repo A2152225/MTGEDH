@@ -35,6 +35,8 @@ export type OraclePlayerSelector =
   | { readonly kind: 'each_of_those_opponents' }
   | { readonly kind: 'target_player' }
   | { readonly kind: 'target_opponent' }
+  /** Player enchanted by this Aura (curse/player auras). */
+  | { readonly kind: 'enchanted_player' }
   /** Special-case selector used by move_zone battlefield control overrides. */
   | { readonly kind: 'owner_of_moved_cards' }
   | { readonly kind: 'unknown'; readonly raw: string };
@@ -147,6 +149,7 @@ export type OracleEffectStep =
       readonly kind: 'draw';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -320,6 +323,7 @@ export type OracleEffectStep =
       readonly kind: 'impulse_exile_top';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       /** When the exiled cards can be played until. */
       readonly duration:
         | 'this_turn'
@@ -532,6 +536,7 @@ export type OracleEffectStep =
       readonly kind: 'scry';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -540,6 +545,7 @@ export type OracleEffectStep =
       readonly kind: 'surveil';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -685,6 +691,7 @@ export type OracleEffectStep =
       readonly kind: 'look_top';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -693,6 +700,7 @@ export type OracleEffectStep =
       readonly kind: 'reveal_top';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -793,6 +801,7 @@ export type OracleEffectStep =
       readonly kind: 'mill';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -929,6 +938,7 @@ export type OracleEffectStep =
       readonly kind: 'discard';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly target?: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
@@ -952,6 +962,7 @@ export type OracleEffectStep =
       readonly kind: 'gain_life';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -960,6 +971,7 @@ export type OracleEffectStep =
       readonly kind: 'lose_life';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -967,6 +979,7 @@ export type OracleEffectStep =
   | {
       readonly kind: 'deal_damage';
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly source?: OracleObjectSelector;
       readonly target: OracleObjectSelector;
       readonly division?: 'as_you_choose' | 'evenly_rounded_down';
@@ -978,6 +991,7 @@ export type OracleEffectStep =
       readonly kind: 'modify_damage';
       readonly mode: 'add' | 'subtract';
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly sourceFilter?: string;
       readonly targetFilter?: string;
       readonly damageFilter?: 'combat' | 'noncombat' | 'any';

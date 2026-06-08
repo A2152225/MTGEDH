@@ -9,6 +9,8 @@ import {
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
+import { isSacrificeCreatureOfChosenTypeCost } from "../state/modules/chosen-creature-type.js";
+import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility, detectHideawayAbility } from "../state/modules/triggered-abilities";
 import { movePermanentToGraveyard, trackPermanentSacrificedThisTurn } from "../state/modules/counters_tokens.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
@@ -3202,6 +3204,20 @@ export function resolveManaAbilityActivationShape(
   };
 }
 
+function getChosenTypeManaSelectionFields(ability: any): {
+  manaRestriction?: string;
+  manaRestrictedTo?: string;
+} {
+  const spendRestriction = ability?.spendRestriction;
+  if (!spendRestriction?.restriction) {
+    return {};
+  }
+  return {
+    manaRestriction: spendRestriction.restriction,
+    manaRestrictedTo: spendRestriction.restrictedTo,
+  };
+}
+
 export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Scry: Peek and reorder library cards
   // Legacy scry handlers removed - now using resolution queue system
@@ -4890,6 +4906,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               cardName,
               amount: finalTotal,
               allowedColors: produces.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase())),
+              ...getChosenTypeManaSelectionFields(ability),
             } as any);
             
             io.to(gameId).emit("chat", {
@@ -8147,6 +8164,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const allowedColors = Array.isArray(manaProduction.colors)
           ? manaProduction.colors.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase()))
           : [];
+        const activatedManaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
+        const activatedManaAbility = activatedManaAbilities.find((entry) => entry.id === abilityId) || activatedManaAbilities[0];
         const queuedManaChoiceStep = createResolutionStep({
           type: ResolutionStepType.MANA_COLOR_SELECTION,
           playerId: pid as PlayerID,
@@ -8161,6 +8180,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           amount: manaAmount,
           allowedColors: allowedColors.length > 0 ? allowedColors : undefined,
           abilityId,
+          ...getChosenTypeManaSelectionFields(activatedManaAbility),
           lifeToPayForCost: lifePaymentForCost > 0 ? lifePaymentForCost : undefined,
           tappedPermanentsForCost: [permanentId],
           manaLifeLossAmount: manaLifeEffect.amount > 0 ? manaLifeEffect.amount : undefined,
@@ -8903,6 +8923,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ? String(activatedLines[selectedAbilityIndex] || '').trim()
         : selectedAbilityFullText;
     })();
+
+    if (
+      isSacrificeCreatureOfChosenTypeCost(selectedAbilityFullText)
+      || isSacrificeCreatureOfChosenTypeCost(selectedAbilityOracleLine)
+    ) {
+      sacrificeType = 'creature';
+      sacrificeCount = sacrificeCount || 1;
+      const chosenType = String((permanent as any)?.chosenCreatureType || '').trim();
+      if (!chosenType) {
+        socket.emit('error', {
+          code: 'NO_CHOSEN_TYPE',
+          message: `${cardName} has no chosen creature type yet.`,
+        });
+        return;
+      }
+      sacrificeSubtype = chosenType;
+    }
+
     const selectedAbilityMatchIndex = selectedAbilityIndex < abilities.length
       ? (() => {
           const parsedFullText = String(abilities[selectedAbilityIndex]?.fullText || '').trim();
@@ -9875,6 +9913,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             }
             if (!matchesType) return false;
             if (sacrificeSubtype) {
+              if (sacrificeType === 'creature') {
+                return permanentHasCreatureTypeNow(p, sacrificeSubtype);
+              }
               const subtypeLower = sacrificeSubtype.toLowerCase();
               return permTypeLine.includes(subtypeLower);
             }
@@ -9991,12 +10032,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (!matchesType) return false;
         
         // If there's a creature subtype requirement, also check that
-        // Subtypes like "Soldier", "Goblin", etc. appear in the type_line after the em-dash
-        // Example: "Token Creature — Human Soldier" contains "Soldier" subtype
         if (sacrificeSubtype) {
+          if (sacrificeType === 'creature') {
+            return permanentHasCreatureTypeNow(p, sacrificeSubtype);
+          }
           const subtypeLower = sacrificeSubtype.toLowerCase();
-          // Check if the type line contains the subtype
-          // Type line format: "Creature — Human Soldier" or "Token Creature — Goblin Warrior"
           return permTypeLine.includes(subtypeLower);
         }
         
@@ -12731,6 +12771,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               manaLifeLossAmount: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossAmount : undefined,
               manaLifeLossIsDamage: pendingManaLifeLossAmount > 0 ? pendingManaLifeLossIsDamage : undefined,
               ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
+              ...getChosenTypeManaSelectionFields(ability),
             } as any);
 
             try {

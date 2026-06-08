@@ -407,6 +407,15 @@ describe('Rule 701: Keyword Actions - Part 2', () => {
       expect(result).not.toBeNull();
       expect(result?.count).toBe(10);
     });
+
+    it('should parse Increasing Confusion mills-X wording', () => {
+      const result = parseMillFromOracleText('Target player mills X cards.');
+
+      expect(result).not.toBeNull();
+      expect(result?.targetType).toBe('player');
+      expect(result?.requiresTarget).toBe(true);
+      expect(hasMillEffect('Target player mills X cards.')).toBe(true);
+    });
     
     it('should detect mill effects with hasMillEffect', () => {
       expect(hasMillEffect('Target player mills three cards.')).toBe(true);

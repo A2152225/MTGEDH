@@ -256,6 +256,59 @@ export const KNOWN_LIFEGAIN_TRIGGERS: Record<string, {
  * - "Whenever you gain life for the first time, [effect]"
  * - Counter-based, token creation, card draw, and special effects
  */
+export function detectGainedLifeTriggersFromOracle(card: any, permanent: any): Array<{
+  permanentId: string;
+  cardName: string;
+  controllerId: string;
+  triggerType: 'you_gain_life' | 'opponent_gain_life' | 'player_gain_life';
+  effect: string;
+  mandatory: boolean;
+}> {
+  const triggers: Array<{
+    permanentId: string;
+    cardName: string;
+    controllerId: string;
+    triggerType: 'you_gain_life' | 'opponent_gain_life' | 'player_gain_life';
+    effect: string;
+    mandatory: boolean;
+  }> = [];
+  const oracleText = String(card?.oracle_text || '');
+  const permanentId = String(permanent?.id || '');
+  const controllerId = String(permanent?.controller || '');
+  const cardName = String(card?.name || 'Unknown');
+
+  const patterns: Array<{ pattern: RegExp; triggerType: 'you_gain_life' | 'opponent_gain_life' | 'player_gain_life' }> = [
+    { pattern: /whenever a white instant or sorcery spell causes you to gain life,?\s*([^.]+)/gi, triggerType: 'you_gain_life' },
+    { pattern: /when you gain life for the first time each turn,?\s*([^.]+)/gi, triggerType: 'you_gain_life' },
+    { pattern: /whenever you gain life,?\s*([^.]+)/gi, triggerType: 'you_gain_life' },
+    { pattern: /whenever an opponent who controls [^,]+ gains life during their turn,?\s*([^.]+)/gi, triggerType: 'opponent_gain_life' },
+    { pattern: /whenever an opponent gains life,?\s*([^.]+)/gi, triggerType: 'opponent_gain_life' },
+    { pattern: /whenever a player gains life,?\s*([^.]+)/gi, triggerType: 'player_gain_life' },
+    { pattern: /whenever another player loses the game,?\s*([^.]+)/gi, triggerType: 'you_gain_life' },
+  ];
+
+  for (const { pattern, triggerType } of patterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effect = String(match[1] || '').trim();
+      if (!effect || triggers.some((trigger) => trigger.triggerType === triggerType && trigger.effect === effect)) {
+        continue;
+      }
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType,
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+      });
+    }
+  }
+
+  return triggers;
+}
+
 export function detectLifegainTriggers(
   ctx: GameContext,
   playerId: string,

@@ -763,4 +763,39 @@ describe('Oracle IR gap batch 23 support', () => {
     expect(bottomRandom.abilities).toEqual([]);
     expect(bottomAny.abilities).toEqual([]);
   });
+
+  it('parses trigger-effect fragments surfaced by coverage audit gaps', () => {
+    const cases = [
+      ['Bloodroot Apothecary', 'you and target opponent each create a treasure token'],
+      ['Sword of the Ages', 'that player loses half their life, rounded down'],
+      ['Exploration', 'then if an opponent controls more lands than you, repeat this process once'],
+      ['Firestorm', 'x life and you gain x'],
+      ['Evil Presence', 'two target lands become swamps'],
+      ['Lair of the Ashen Idol', 'transform this land'],
+      ['Goblin Game', 'any number of target players mulligan'],
+      ['Exquisite Blood', 'the amount of life they lost this turn'],
+      ['Honden of Lifes Gate', 'you gain 2 life for each shrine you control'],
+      ['Mikaeus, the Unhallowed', 'you gain 2 life for each age counter on it'],
+      ['Reverse the Sands', 'you may have two target players exchange life totals'],
+      ['Wildfire Eternal', 'add {r} at the beginning of your next main phase this turn'],
+      ['Ad Nauseam', 'your life total becomes 7'],
+      ['Explore reminder', '(to have it explore, reveal the top card of your library'],
+    ] as const;
+
+    for (const [name, effect] of cases) {
+      const ir = parseOracleTextToIR(effect, name);
+      expect(collectUnknowns(ir.abilities), name).toEqual([]);
+    }
+
+    const tokenSteps = collectSteps(parseOracleTextToIR('you and target opponent each create a Treasure token.', 'Bloodroot Apothecary').abilities);
+    expect(tokenSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'create_token', token: 'Treasure' }),
+    ]));
+
+    const lifeSteps = collectSteps(parseOracleTextToIR('x life and you gain x', 'Firestorm').abilities);
+    expect(lifeSteps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'lose_life' }),
+      expect.objectContaining({ kind: 'gain_life' }),
+    ]));
+  });
 });

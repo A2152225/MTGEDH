@@ -25,7 +25,182 @@ export function detectExiledFromBattlefieldTriggers(card: any, permanent: any): 
   const controllerId = String(permanent?.controller || '');
   const cardName = String(card?.name || 'Unknown');
 
-  const matches = oracleText.matchAll(/whenever a (creature|permanent) is exiled from the battlefield,\s*([^.]+)/gi);
+  const selfExilePatterns = [
+    /when (?:~|this creature|this permanent|this artifact|this enchantment) is exiled from the battlefield[^,]*,?\s*([^.]+)/gi,
+    /whenever (?:~|this creature|this permanent|this artifact|this enchantment) is exiled from the battlefield[^,]*,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of selfExilePatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effect = String(match[1] || '').trim().replace(/\s+/g, ' ');
+      if (!effect || triggers.some((t) => t.effect === effect && t.triggerType === 'creature_exiled_from_battlefield')) continue;
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'creature_exiled_from_battlefield',
+        oracleClause: String(match[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        targetFilter: 'creature',
+      });
+    }
+  }
+
+  const playExiledWithPatterns = [
+    /whenever a player plays a card exiled with ([^,]+),?\s*([^.]+)/gi,
+    /whenever (?:a |an )?opponent plays a card exiled with ([^,]+),?\s*([^.]+)/gi,
+    /when you play a card exiled with (?:~|this creature),?\s*([^.]+)/gi,
+    /whenever you play a card with the same name as one of the exiled cards,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of playExiledWithPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effect = String(match[match.length - 1] || '').trim().replace(/\s+/g, ' ');
+      if (!effect || triggers.some((t) => t.effect === effect)) continue;
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'creature_exiled_from_battlefield',
+        oracleClause: String(match[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        targetFilter: 'creature',
+      });
+    }
+  }
+
+  const warpedExileMatch = oracleText.match(/whenever a card is exiled because it was warped,?\s*([^.]+)/i);
+  if (warpedExileMatch) {
+    const effect = String(warpedExileMatch[1] || '').trim().replace(/\s+/g, ' ');
+    if (effect && !triggers.some((t) => t.effect === effect)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'permanent_exiled_from_battlefield',
+        oracleClause: String(warpedExileMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        targetFilter: 'permanent',
+      });
+    }
+  }
+
+  const unearthedCreatureExiledMatch = oracleText.match(
+    /whenever a creature you control is exiled,?\s*if it was unearthed,?\s*([^.]+)/i,
+  );
+  if (unearthedCreatureExiledMatch) {
+    const effect = String(unearthedCreatureExiledMatch[1] || '').trim().replace(/\s+/g, ' ');
+    if (effect && !triggers.some((t) => t.triggerType === 'unearthed_creature_exiled')) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'creature_exiled_from_battlefield',
+        oracleClause: String(unearthedCreatureExiledMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        targetFilter: 'creature',
+      });
+    }
+  }
+
+  const creatureCardExiledThisWayMatch = oracleText.match(/when a creature card is exiled this way,?\s*([^.]+)/i);
+  if (creatureCardExiledThisWayMatch) {
+    const effect = String(creatureCardExiledThisWayMatch[1] || '').trim().replace(/\s+/g, ' ');
+    if (effect && !triggers.some((t) => t.effect === effect)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'creature_exiled_from_battlefield',
+        oracleClause: String(creatureCardExiledThisWayMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        targetFilter: 'creature',
+      });
+    }
+  }
+
+  const exiledThisWayMatch = oracleText.match(/when one or more ([^ ]+) cards are exiled this way,?\s*([^.]+)/i);
+  if (exiledThisWayMatch) {
+    const effect = String(exiledThisWayMatch[2] || '').trim().replace(/\s+/g, ' ');
+    if (effect && !triggers.some((t) => t.effect === effect)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'permanent_exiled_from_battlefield',
+        oracleClause: String(exiledThisWayMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        targetFilter: 'permanent',
+      });
+    }
+  }
+
+  const controlledCreaturesOrGraveyardCardsExiledMatch = oracleText.match(
+    /whenever one or more creatures you control and\/or creature cards in your graveyard are put into exile,?\s*([^.]+)/i,
+  );
+  if (controlledCreaturesOrGraveyardCardsExiledMatch) {
+    const effect = String(controlledCreaturesOrGraveyardCardsExiledMatch[1] || '').trim().replace(/\s+/g, ' ');
+    if (effect && !triggers.some((t) => t.oracleClause === controlledCreaturesOrGraveyardCardsExiledMatch[0].trim())) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'creature_exiled_from_battlefield',
+        oracleClause: String(controlledCreaturesOrGraveyardCardsExiledMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        targetFilter: 'creature',
+      });
+    }
+  }
+
+  const cardsExiledFromHandMatch = oracleText.match(
+    /whenever one or more cards are put into exile from your hand(?: or a spell or ability you control exiles one or more cards from an opponent's hand)?,?\s*([^.]+)/i,
+  );
+  if (cardsExiledFromHandMatch) {
+    const effect = String(cardsExiledFromHandMatch[1] || '').trim().replace(/\s+/g, ' ');
+    if (effect && !triggers.some((t) => t.effect === effect)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'permanent_exiled_from_battlefield',
+        oracleClause: String(cardsExiledFromHandMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        targetFilter: 'permanent',
+      });
+    }
+  }
+
+  const loseControlThatEquipmentMatch = oracleText.match(
+    /when you lose control of that equipment(?: this turn)?,?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
+  );
+  if (loseControlThatEquipmentMatch) {
+    const effect = String(loseControlThatEquipmentMatch[1] || '').trim().replace(/\s+/g, ' ');
+    if (effect && !triggers.some((t) => t.effect === effect)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'permanent_exiled_from_battlefield',
+        oracleClause: String(loseControlThatEquipmentMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        targetFilter: 'permanent',
+      });
+    }
+  }
+
+  const matches = oracleText.matchAll(/whenever a (creature|permanent) is exiled from the battlefield,?\s*([^.]+)/gi);
   for (const match of matches) {
     const targetFilter = String(match[1] || '').trim().toLowerCase() === 'creature' ? 'creature' : 'permanent';
     const effect = String(match[2] || '').trim().replace(/\s+/g, ' ');
@@ -219,23 +394,309 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
   const controllerId = String(permanent?.controller || '');
   const cardName = String(card?.name || 'Unknown');
 
+  const yourGraveyardCreatureCardsFromAnywhereMatch = oracleText.match(
+    /whenever one or more creature cards are put into your graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (yourGraveyardCreatureCardsFromAnywhereMatch) {
+    const effect = String(yourGraveyardCreatureCardsFromAnywhereMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: yourGraveyardCreatureCardsFromAnywhereMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'your',
+        creatureCardOnly: true,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const landCardYourGraveyardFromLibraryMatch = oracleText.match(
+    /whenever a land card is put into your graveyard from your library,?\s*([^.]+)/i,
+  );
+  if (landCardYourGraveyardFromLibraryMatch) {
+    const effect = String(landCardYourGraveyardFromLibraryMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: landCardYourGraveyardFromLibraryMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'your',
+        creatureCardOnly: false,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const landCardYourGraveyardFromAnywhereMatch = oracleText.match(
+    /whenever a land card is put into your graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (landCardYourGraveyardFromAnywhereMatch) {
+    const effect = String(landCardYourGraveyardFromAnywhereMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: landCardYourGraveyardFromAnywhereMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'your',
+        creatureCardOnly: false,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const landCardGraveyardFromAnywhereMatch = oracleText.match(
+    /whenever a land card is put into a graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (landCardGraveyardFromAnywhereMatch && !/put into your graveyard/i.test(oracleText)) {
+    const effect = String(landCardGraveyardFromAnywhereMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: landCardGraveyardFromAnywhereMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'any',
+        creatureCardOnly: false,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const graveyardsFromAnywhereMatch = oracleText.match(
+    /whenever one or more creature cards are put into graveyards from anywhere,?\s*([^.]+)/i,
+  );
+  if (graveyardsFromAnywhereMatch) {
+    const effect = String(graveyardsFromAnywhereMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: graveyardsFromAnywhereMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'any',
+        creatureCardOnly: true,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const creatureCardOpponentGraveyardLibraryMatch = oracleText.match(
+    /whenever a creature card is put into an opponent's graveyard from their library,?\s*([^.]+)/i,
+  );
+  if (creatureCardOpponentGraveyardLibraryMatch) {
+    const effect = String(creatureCardOpponentGraveyardLibraryMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: creatureCardOpponentGraveyardLibraryMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'opponent',
+        creatureCardOnly: true,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const creatureCardOpponentGraveyardAnywhereMatch = oracleText.match(
+    /whenever a creature card is put into an opponent's graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (creatureCardOpponentGraveyardAnywhereMatch) {
+    const effect = String(creatureCardOpponentGraveyardAnywhereMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: creatureCardOpponentGraveyardAnywhereMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'opponent',
+        creatureCardOnly: true,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const permanentOpponentGraveyardMatch = oracleText.match(
+    /whenever a permanent is put into an opponent's graveyard,?\s*([^.]+)/i,
+  );
+  if (permanentOpponentGraveyardMatch) {
+    const effect = String(permanentOpponentGraveyardMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: permanentOpponentGraveyardMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'opponent',
+        creatureCardOnly: false,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const enchantedLandGraveyardMatch = oracleText.match(
+    /whenever enchanted land is put into (?:a )?graveyard,?\s*([^.]+)/i,
+  );
+  if (enchantedLandGraveyardMatch) {
+    const effect = String(enchantedLandGraveyardMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: enchantedLandGraveyardMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'any',
+        creatureCardOnly: false,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const nonBlackCreatureAnyGraveyardFromPlayMatch = oracleText.match(
+    /whenever a non-black creature is put into any graveyard from play,?\s*([^.]+)/i,
+  );
+  if (nonBlackCreatureAnyGraveyardFromPlayMatch) {
+    const effect = String(nonBlackCreatureAnyGraveyardFromPlayMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: nonBlackCreatureAnyGraveyardFromPlayMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'any',
+        creatureCardOnly: true,
+        nonblackOnly: true,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const fromPlayMatch = oracleText.match(
+    /whenever a (non-?black )?creature is put into (?:a |any )?graveyard from play,?\s*([^.]+)/i,
+  );
+  if (fromPlayMatch) {
+    const effect = String(fromPlayMatch[2] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: fromPlayMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'any',
+        creatureCardOnly: false,
+        nonblackOnly: Boolean(fromPlayMatch[1]),
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const powerFromBattlefieldMatch = oracleText.match(
+    /whenever a creature with power (\d+) or less is put into your graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (powerFromBattlefieldMatch) {
+    const effect = String(powerFromBattlefieldMatch[2] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: powerFromBattlefieldMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'your',
+        creatureCardOnly: true,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
+  const fromLibraryMatch = oracleText.match(
+    /whenever a land card is put into (?:a )?graveyard from your library,?\s*([^.]+)/i,
+  );
+  if (fromLibraryMatch) {
+    const effect = String(fromLibraryMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: fromLibraryMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'your',
+        creatureCardOnly: false,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
+  }
+
   const matches = oracleText.matchAll(
-    /(?:whenever|or) (?:a|one or more) ((?:nonblack\s+)?(?:creature\s+)?cards?) (?:is|are) put into (an opponent's|a player's|a|any|your) graveyard from anywhere( other than the battlefield)?,\s*([^.]+)/gi,
+    /(?:whenever|or) (?:a|one or more) ((?:nonblack\s+)?(?:creature\s+)?cards?) (?:is|are) put into (?:an opponent's|a player's|a|any|your )?graveyards? from anywhere( other than the battlefield)?,?\s*([^.]+)/gi,
   );
   for (const match of matches) {
     const subject = String(match[1] || '').toLowerCase();
-    const scopeText = String(match[2] || '').toLowerCase();
-    let effect = String(match[4] || '').trim().replace(/\s+/g, ' ');
+    const clauseText = String(match[0] || '').toLowerCase();
+    let effect = String(match[3] || '').trim().replace(/\s+/g, ' ');
     if (/^or\b/i.test(effect) && effect.includes(',')) {
       effect = effect.slice(effect.lastIndexOf(',') + 1).trim();
     }
     if (!effect) continue;
 
-    const graveyardScope: PutIntoGraveyardTrigger['graveyardScope'] = scopeText.includes('opponent')
+    const graveyardScope: PutIntoGraveyardTrigger['graveyardScope'] = clauseText.includes("opponent's")
       ? 'opponent'
-      : scopeText === 'your'
+      : clauseText.includes('your ')
         ? 'your'
-        : scopeText.includes('player')
+        : clauseText.includes("player's")
           ? 'player'
           : 'any';
 
@@ -250,8 +711,30 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
       graveyardScope,
       creatureCardOnly: /\bcreature\s+card/.test(subject),
       nonblackOnly: /\bnonblack\b/.test(subject),
-      excludesBattlefield: Boolean(match[3]),
+      excludesBattlefield: Boolean(match[2]),
     });
+  }
+
+  const exileFromGraveyardMatch = oracleText.match(
+    /whenever one or more (?:creatures and\/or )?cards? (?:is|are) put into exile from graveyards?,?\s*([^.]+)/i,
+  );
+  if (exileFromGraveyardMatch) {
+    const effect = String(exileFromGraveyardMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: exileFromGraveyardMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'any',
+        creatureCardOnly: false,
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    }
   }
 
   return triggers;
@@ -411,8 +894,67 @@ export function detectLeftGraveyardTriggers(card: any, permanent: any): LeftGrav
   const controllerId = String(permanent?.controller || '');
   const cardName = String(card?.name || 'Unknown');
 
+  const landCardLeavesGyMatch = oracleText.match(/whenever a land card leaves your graveyard,?\s*([^.]+)/i);
+  if (landCardLeavesGyMatch && !triggers.some((t) => t.oracleClause?.includes('land card leaves your graveyard'))) {
+    const effect = String(landCardLeavesGyMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_left_graveyard',
+        oracleClause: landCardLeavesGyMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'your',
+        creatureCardOnly: false,
+        oneOrMore: false,
+      });
+    }
+  }
+
+  const nonlandCardLeavesGyMatch = oracleText.match(/whenever a nonland card leaves your graveyard,?\s*([^.]+)/i);
+  if (nonlandCardLeavesGyMatch && !triggers.some((t) => t.oracleClause?.includes('nonland card leaves your graveyard'))) {
+    const effect = String(nonlandCardLeavesGyMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_left_graveyard',
+        oracleClause: nonlandCardLeavesGyMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'your',
+        creatureCardOnly: false,
+        oneOrMore: false,
+      });
+    }
+  }
+
+  const artifactOrCreatureLeaveMatch = oracleText.match(
+    /whenever one or more artifact and\/or creature cards leave your graveyard(?: during your turn)?,?\s*([^.]+)/i,
+  );
+  if (artifactOrCreatureLeaveMatch) {
+    const effect = String(artifactOrCreatureLeaveMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'card_left_graveyard',
+        oracleClause: artifactOrCreatureLeaveMatch[0].trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: 'your',
+        creatureCardOnly: false,
+        oneOrMore: true,
+      });
+    }
+  }
+
   const matches = oracleText.matchAll(
-    /(?:whenever|or) (a|one or more) ((?:creature\s+)?cards?) leaves? (an opponent's|a player's|a|any|your) graveyard,\s*([^.]+)/gi,
+    /(?:whenever|or) (a|one or more) ((?:creature\s+)?cards?) leaves? (an opponent's|a player's|a|any|your) graveyard,?\s*([^.]+)/gi,
   );
 
   for (const match of matches) {

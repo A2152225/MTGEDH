@@ -426,9 +426,123 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     }
   }
   
-  // "At the beginning of your upkeep" - most common pattern
-  const yourUpkeepMatch = oracleText.match(/at the beginning of your upkeep,?\s*([^.]+)/i);
-  if (yourUpkeepMatch && !triggers.some(t => t.triggerType === 'upkeep_effect')) {
+  const nextTurnUpkeepMatch = oracleText.match(
+    /at the beginning of the next turn's upkeep,?\s*([^.]+)/i,
+  );
+  if (nextTurnUpkeepMatch && !triggers.some((t) => t.triggerType === 'next_turn_upkeep')) {
+    const effectText = String(nextTurnUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'next_turn_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controllerTrigger: true,
+      anyPlayerTrigger: true,
+    });
+  }
+
+  const embeddedNextTurnUpkeepMatch = oracleText.match(
+    /([^.]+) at the beginning of the next turn's upkeep/i,
+  );
+  if (
+    embeddedNextTurnUpkeepMatch &&
+    !triggers.some((t) => t.triggerType === 'next_turn_upkeep')
+  ) {
+    const effectText = String(embeddedNextTurnUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'next_turn_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controllerTrigger: true,
+      anyPlayerTrigger: true,
+    });
+  }
+
+  const planeswalkAndUpkeepMatch = oracleText.match(
+    /when you planeswalk here and at the beginning (?:of )?your upkeep,?\s*([^.]+)/i,
+  );
+  if (planeswalkAndUpkeepMatch && !triggers.some((t) => t.triggerType === 'planeswalk_and_upkeep')) {
+    const effectText = String(planeswalkAndUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'planeswalk_and_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controllerTrigger: true,
+      anyPlayerTrigger: false,
+    });
+  }
+
+  const reboundUpkeepMatch = oracleText.match(
+    /at the beginning of your next upkeep,?\s*you may cast this card from exile[^.]*\.?/i,
+  );
+  if (reboundUpkeepMatch && !triggers.some((trigger) => trigger.triggerType === 'rebound')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'rebound',
+      description: 'You may cast this card from exile without paying its mana cost',
+      effect: 'You may cast this card from exile without paying its mana cost',
+      mandatory: false,
+      requiresChoice: true,
+      controllerTrigger: true,
+      anyPlayerTrigger: false,
+    });
+  }
+
+  if (
+    /\brebound\b/i.test(oracleText) &&
+    !triggers.some((trigger) => trigger.triggerType === 'rebound' || trigger.triggerType === 'your_next_upkeep')
+  ) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'rebound',
+      description: 'You may cast this card from exile without paying its mana cost at the beginning of your next upkeep',
+      effect: 'You may cast this card from exile without paying its mana cost at the beginning of your next upkeep',
+      mandatory: false,
+      requiresChoice: true,
+      controllerTrigger: true,
+      anyPlayerTrigger: false,
+    });
+  }
+
+  const enchantedControllerUpkeepMatch = oracleText.match(
+    /at the beginning of the upkeep of enchanted (?:creature|land|enchantment|permanent|artifact)'s controller,?\s*([^.]+)/i,
+  );
+  if (enchantedControllerUpkeepMatch && !triggers.some((trigger) => trigger.triggerType === 'enchanted_controller_upkeep')) {
+    const effectText = String(enchantedControllerUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enchanted_controller_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiresChoice: effectText.toLowerCase().includes('you may'),
+      controllerTrigger: false,
+      anyPlayerTrigger: true,
+    });
+  }
+
+  const yourUpkeepPatterns = [
+    /at the beginning of each of your upkeeps?,?\s*([^.]+)/i,
+    /at the beginning of your next upkeep,?\s*([^.]+)/i,
+    /at the beginning of your upkeep,?\s*([^.]+)/i,
+  ];
+  let yourUpkeepMatch: RegExpMatchArray | null = null;
+  for (const pattern of yourUpkeepPatterns) {
+    yourUpkeepMatch = oracleText.match(pattern);
+    if (yourUpkeepMatch) break;
+  }
+  if (yourUpkeepMatch) {
     const effectText = extendUpkeepEffectText(
       oracleText,
       yourUpkeepMatch[0],
@@ -437,8 +551,12 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     );
     const hasCost = effectText.toLowerCase().includes("pay") || effectText.toLowerCase().includes("sacrifice");
     const isOptional = effectText.toLowerCase().includes("you may") || effectText.toLowerCase().includes("may ");
-    
-    triggers.push({
+    const alreadyHasEffect = triggers.some((trigger) =>
+      trigger.triggerType === 'upkeep_effect' &&
+      String(trigger.effect || trigger.description || '').trim().toLowerCase() === effectText.trim().toLowerCase()
+    );
+
+    if (!alreadyHasEffect) triggers.push({
       permanentId,
       cardName,
       triggerType: 'upkeep_effect',
@@ -451,6 +569,86 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     });
   }
   
+  const enchantedPlayerFirstUpkeepMatch = oracleText.match(
+    /at the beginning of enchanted player's first upkeep each turn,?\s*([^.]+)/i,
+  );
+  if (
+    enchantedPlayerFirstUpkeepMatch &&
+    !triggers.some((t) => t.triggerType === 'enchanted_player_first_upkeep')
+  ) {
+    const effectText = String(enchantedPlayerFirstUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enchanted_player_first_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controllerTrigger: false,
+      anyPlayerTrigger: true,
+    });
+  }
+
+  const enchantedPlayerUpkeepMatch = oracleText.match(/at the beginning of enchanted player's upkeep,?\s*([^.]+)/i);
+  if (enchantedPlayerUpkeepMatch && !triggers.some((t) => t.triggerType === 'enchanted_player_upkeep')) {
+    const effectText = String(enchantedPlayerUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enchanted_player_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controllerTrigger: false,
+      anyPlayerTrigger: true,
+    });
+  }
+
+  const firstUpkeepMatch = oracleText.match(/at the beginning of the first upkeep,?\s*([^.]+)/i);
+  if (firstUpkeepMatch && !triggers.some((t) => t.triggerType === 'first_upkeep')) {
+    const effectText = String(firstUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'first_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controllerTrigger: true,
+      anyPlayerTrigger: false,
+    });
+  }
+
+  const yourFirstUpkeepMatch = oracleText.match(/at the beginning of your first upkeep,?\s*([^.]+)/i);
+  if (yourFirstUpkeepMatch && !triggers.some((t) => t.triggerType === 'your_first_upkeep')) {
+    const effectText = String(yourFirstUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'your_first_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controllerTrigger: true,
+      anyPlayerTrigger: false,
+    });
+  }
+
+  const chosenPlayerUpkeepMatch = oracleText.match(/at the beginning of the chosen player's upkeep,?\s*([^.]+)/i);
+  if (chosenPlayerUpkeepMatch && !triggers.some((t) => t.triggerType === 'chosen_player_upkeep')) {
+    const effectText = String(chosenPlayerUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'chosen_player_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controllerTrigger: true,
+      anyPlayerTrigger: true,
+    });
+  }
+
   // "At the beginning of each player's upkeep"
   const eachPlayerUpkeepMatch = oracleText.match(/at the beginning of each player's upkeep,?\s*([^.]+)/i);
   if (eachPlayerUpkeepMatch) {
@@ -483,6 +681,75 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     });
   }
   
+  const eachParticipantUpkeepMatch = oracleText.match(
+    /at the beginning of the upkeep of each participant in this game[^,]*,?\s*([^.]+)/i,
+  );
+  if (eachParticipantUpkeepMatch && !triggers.some((t) => t.triggerType === 'each_participant_upkeep')) {
+    const effectText = String(eachParticipantUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'each_participant_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: true,
+      controllerTrigger: false,
+      anyPlayerTrigger: true,
+    });
+  }
+
+  const eachOtherPlayerUpkeepMatch = oracleText.match(
+    /at the beginning of each other player's upkeep,?\s*([^.]+)/i,
+  );
+  if (eachOtherPlayerUpkeepMatch && !triggers.some((t) => t.triggerType === 'each_other_player_upkeep')) {
+    const effectText = String(eachOtherPlayerUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'each_other_player_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiresChoice: effectText.toLowerCase().includes('you may'),
+      controllerTrigger: false,
+      anyPlayerTrigger: true,
+    });
+  }
+
+  const exiledCardOwnerUpkeepMatch = oracleText.match(
+    /at the beginning of the upkeep of the exiled card's owner,?\s*([^.]+)/i,
+  );
+  if (exiledCardOwnerUpkeepMatch && !triggers.some((t) => t.triggerType === 'exiled_card_owner_upkeep')) {
+    const effectText = String(exiledCardOwnerUpkeepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'exiled_card_owner_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controllerTrigger: false,
+      anyPlayerTrigger: true,
+    });
+  }
+
+  const eachOfThatPlayerUpkeepsMatch = oracleText.match(
+    /at the beginning of each of that player's upkeeps,?\s*([^.]+)/i,
+  );
+  if (eachOfThatPlayerUpkeepsMatch && !triggers.some((t) => t.triggerType === 'each_of_that_player_upkeep')) {
+    const effectText = String(eachOfThatPlayerUpkeepsMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'each_of_that_player_upkeep',
+      description: effectText,
+      effect: effectText,
+      mandatory: true,
+      controllerTrigger: false,
+      anyPlayerTrigger: true,
+    });
+  }
+
   // "At the beginning of each opponent's upkeep"
   const opponentUpkeepMatch = oracleText.match(/at the beginning of each opponent's upkeep,?\s*([^.]+)/i);
   if (opponentUpkeepMatch) {

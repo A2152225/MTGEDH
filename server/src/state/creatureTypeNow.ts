@@ -173,3 +173,15 @@ export function permanentHasCreatureTypeNow(permanent: any, creatureType: string
   if (types.has('*')) return true;
   return types.has(wanted);
 }
+
+export function cardHasCreatureType(card: any, creatureType: string): boolean {
+  const wanted = normalizeCreatureType(creatureType);
+  if (!wanted || !card) return false;
+
+  const oracleText = String(card.oracle_text || '');
+  if (/\bchangeling\b/i.test(oracleText)) return true;
+
+  const typeLine = String(card.type_line || '');
+  const subTypes = (typeLine.split(/\s*[—–-]\s*/)[1] || '').toLowerCase();
+  return subTypes.split(/\s+/).some((part) => normalizeCreatureType(part) === wanted);
+}

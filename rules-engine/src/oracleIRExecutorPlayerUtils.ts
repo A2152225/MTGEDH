@@ -669,6 +669,27 @@ export function resolvePlayers(
       if (bound && opponentIdSet.has(bound)) return [bound];
       return opponents.length === 1 ? [opponents[0]] : [];
     }
+    case 'enchanted_player': {
+      const bound = normalizeId(ctx.selectorContext?.targetPlayerId);
+      if (bound && allPlayerIds.has(bound)) return [bound];
+
+      const sourceId = String(ctx.sourceId || '').trim();
+      if (sourceId) {
+        const sourcePermanent = (state.battlefield || []).find(
+          (permanent: any) => String(permanent?.id || '').trim() === sourceId
+        ) as any;
+        const attachedTo = String(
+          sourcePermanent?.attachedTo ||
+            sourcePermanent?.enchanting ||
+            sourcePermanent?.enchantedPlayerId ||
+            ''
+        ).trim();
+        if (attachedTo && allPlayerIds.has(attachedTo as PlayerID)) {
+          return [attachedTo as PlayerID];
+        }
+      }
+      return [];
+    }
     case 'target_player': {
       const bound = normalizeId(ctx.selectorContext?.targetPlayerId);
       if (bound && allPlayerIds.has(bound)) return [bound];
@@ -1230,16 +1251,16 @@ export function millCardsForPlayer(
   state: GameState,
   playerId: PlayerID,
   count: number
-): { state: GameState; log: string[] } {
+): { state: GameState; log: string[]; milledCards: any[] } {
   const log: string[] = [];
   const player = state.players.find(p => p.id === playerId);
-  if (!player) return { state, log: [`Player not found: ${playerId}`] };
+  if (!player) return { state, log: [`Player not found: ${playerId}`], milledCards: [] };
 
   const library = [...((player as any).library || [])];
   const graveyard = [...((player as any).graveyard || [])];
 
   const n = Math.max(0, count | 0);
-  if (n === 0) return { state, log };
+  if (n === 0) return { state, log, milledCards: [] };
 
   const actual = Math.min(n, library.length);
   const milled = library.splice(0, actual);
@@ -1247,7 +1268,7 @@ export function millCardsForPlayer(
 
   const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, library, graveyard } : p));
   log.push(`${playerId} mills ${actual} card(s)`);
-  return { state: { ...state, players: updatedPlayers as any }, log };
+  return { state: { ...state, players: updatedPlayers as any }, log, milledCards: milled };
 }
 
 export function addManaToPoolForPlayer(

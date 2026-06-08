@@ -111,13 +111,30 @@ export function hasValidTargetsForSpell(
     return true;
   }
 
-  // Quick exit for spells that don't require targeting.
-  if (!requiresTargeting(oracleTextRaw)) {
-    return true;
-  }
-
   // Prefer the dynamic heuristic spell categorizer (it aligns with our target selector).
   const spellSpec = categorizeSpell(cardName, oracleText);
+
+  // Counterspells and similar stack-targeting effects must have legal targets on the stack,
+  // even when requiresTargeting() misses oracle phrasing like "target instant or sorcery spell".
+  if (spellSpec && specNeedsStack(spellSpec)) {
+    const stack = Array.isArray(state?.stack) ? state.stack : [];
+    if (stack.length === 0) {
+      return false;
+    }
+  }
+
+  // Quick exit for spells that don't require targeting.
+  if (!requiresTargeting(oracleTextRaw)) {
+    if (spellSpec && specNeedsStack(spellSpec)) {
+      try {
+        const possibleTargets = evaluateTargeting(state, playerId, spellSpec);
+        return possibleTargets.length >= (spellSpec.minTargets || 1);
+      } catch {
+        return conservative;
+      }
+    }
+    return true;
+  }
 
   // Fallback: use template parser to infer basic targeting requirements.
   const targetReqs = parseTargetRequirements(oracleTextRaw, {
@@ -131,7 +148,10 @@ export function hasValidTargetsForSpell(
 
   if (spellSpec && !preferParsedTargetReqs) {
     if (specNeedsPlayers(spellSpec) && !ctx.hasPlayers) return conservative;
-    if (specNeedsStack(spellSpec) && !ctx.hasStack) return conservative;
+    if (specNeedsStack(spellSpec)) {
+      const stack = Array.isArray(state?.stack) ? state.stack : [];
+      if (stack.length === 0) return false;
+    }
     if (specNeedsBattlefield(spellSpec) && !ctx.hasBattlefield) return conservative;
 
     try {
@@ -155,7 +175,10 @@ export function hasValidTargetsForSpell(
   const needsBattlefield = !needsPlayers && !needsStack && !needsGraveyard;
 
   if (needsPlayers && !ctx.hasPlayers) return conservative;
-  if (needsStack && !ctx.hasStack) return conservative;
+  if (needsStack) {
+    const stack = Array.isArray(state?.stack) ? state.stack : [];
+    if (stack.length === 0) return false;
+  }
   if (needsGraveyard && !ctx.hasZones) return conservative;
   if (needsBattlefield && !ctx.hasBattlefield) return conservative;
 

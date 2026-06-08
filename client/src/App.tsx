@@ -370,6 +370,7 @@ export function App() {
 
   // Combat selection modal state
   const [combatModalOpen, setCombatModalOpen] = useState(false);
+  const [combatModalMinimized, setCombatModalMinimized] = useState(false);
   const [combatMode, setCombatMode] = useState<'attackers' | 'blockers'>('attackers');
   const [combatModalReadOnly, setCombatModalReadOnly] = useState(false);
   const [combatModalError, setCombatModalError] = useState<string | null>(null);
@@ -599,7 +600,6 @@ export function App() {
   // Track if we've already auto-skipped attackers for this combat step
   const hasAutoSkippedAttackers = React.useRef<string | null>(null);
   // Track if we've already shown the attackers modal for this combat step (prevents re-opening after selection)
-  const hasShownAttackersModal = React.useRef<string | null>(null);
   // Track if we've already shown the blockers modal for this defend step (prevents re-opening after selection)
   const hasShownBlockersModal = React.useRef<string | null>(null);
   // External control for deck manager visibility in TableLayout
@@ -1646,11 +1646,6 @@ export function App() {
       }
 
       if (isYourTurn) {
-        // Don't show the modal if we've already shown it for this step
-        if (hasShownAttackersModal.current === turnId) {
-          return;
-        }
-        
         // Check if there are any valid creatures that can attack
         const validAttackers = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
           if (!you) return false;
@@ -1676,7 +1671,6 @@ export function App() {
           setCombatMode('attackers');
           setCombatModalReadOnly(false);
           setCombatModalOpen(true);
-          hasShownAttackersModal.current = turnId; // Mark that we've shown the modal
         }
       } else {
         const battlefield = (safeView.battlefield || []) as BattlefieldPermanent[];
@@ -1784,15 +1778,12 @@ export function App() {
     else {
       setCombatControlModalOpen(false);
       setCombatModalOpen(false);
+      setCombatModalMinimized(false);
       setCombatModalError(null);
       setCombatModalReadOnly(false);
       // Reset auto-skip tracker when we leave combat steps
       if (hasAutoSkippedAttackers.current) {
         hasAutoSkippedAttackers.current = null;
-      }
-      // Reset shown attackers modal tracker when we leave combat steps
-      if (hasShownAttackersModal.current) {
-        hasShownAttackersModal.current = null;
       }
       // Reset shown blockers modal tracker when we leave combat steps
       if (hasShownBlockersModal.current) {
@@ -4106,6 +4097,7 @@ export function App() {
       attackers,
     });
     setCombatModalOpen(false);
+    setCombatModalMinimized(false);
   };
 
   const handleDeclareBlockers = (blockers: BlockerSelection[]) => {
@@ -4124,6 +4116,7 @@ export function App() {
     if (combatMode === 'attackers') {
       socket.emit("skipDeclareAttackers", { gameId: safeView.id });
       setCombatModalOpen(false);
+      setCombatModalMinimized(false);
     } else {
       setCombatModalError(null);
       socket.emit("skipDeclareBlockers", { gameId: safeView.id });
@@ -6650,6 +6643,9 @@ export function App() {
       {/* Combat Selection Modal */}
       <CombatSelectionModal
         open={combatModalOpen}
+        minimized={combatModalMinimized}
+        onMinimize={() => setCombatModalMinimized(true)}
+        onRestore={() => setCombatModalMinimized(false)}
         mode={combatMode}
         readOnly={combatModalReadOnly}
         availableCreatures={
@@ -6691,9 +6687,12 @@ export function App() {
           }
         }}
         onSkip={handleSkipCombat}
-        // For blockers mode, don't provide onCancel to prevent accidental closure
-        // The modal can only be closed by confirming or skipping blockers
-        onCancel={combatMode === 'attackers' && !combatModalReadOnly ? () => setCombatModalOpen(false) : undefined}
+        // Minimize (not close) so the player can reopen during the same combat step
+        onCancel={
+          combatModalOpen && !combatModalReadOnly
+            ? () => setCombatModalMinimized(true)
+            : undefined
+        }
       />
 
       {/* Combat Control Modal (Master Warcraft / Odric) */}

@@ -54,7 +54,25 @@ export function detectMillTriggers(card: any, permanent: any): MillTrigger[] {
   const permanentId = String(permanent?.id || '');
   const controllerId = String(permanent?.controller || '');
 
-  const matches = oracleText.matchAll(/whenever (a player|an opponent|you) mill(?:s)? ([^,]+),\s*([^.]+)/gi);
+  const nonlandMilledMatch = oracleText.match(/whenever one or more nonland cards are milled,?\s*([^.]+)/i);
+  if (nonlandMilledMatch) {
+    const effect = String(nonlandMilledMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'player_mills',
+        oracleClause: String(nonlandMilledMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        frequency: 'per_event',
+        cardFilter: 'nonland',
+      });
+    }
+  }
+
+  const matches = oracleText.matchAll(/whenever (a player|an opponent|you) mill(?:s)? ([^,]+?),?\s*([^.]+)/gi);
   for (const match of matches) {
     const subject = String(match[1] || '').trim().toLowerCase();
     const parsedCondition = parseMillCondition(String(match[2] || ''));

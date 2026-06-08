@@ -12,6 +12,7 @@ import { parsePT, calculateVariablePT, calculateAllPTBonuses, calculateAllPTBonu
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { computeContinuousEffects } from "../../rules-engine/staticEffects.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
+import { maskFaceDownExileCardForViewer } from "./impulse-exile-utils.js";
 
 /**
  * Determine if `viewer` can see `owner`'s hidden zones (hand, library top, etc.)
@@ -309,6 +310,9 @@ export function viewFor(
         } as any;
     }
 
+    const rawExile = Array.isArray((z as any).exile) ? (z as any).exile : [];
+    const visibleExile = rawExile.map((card: any) => maskFaceDownExileCardForViewer(card, viewer));
+
     filteredZones[p.id] = {
       hand: visibleHand,
       handCount: visibleHandCount,
@@ -316,7 +320,8 @@ export function viewFor(
       graveyard: z.graveyard,
       graveyardCount:
         (z as any).graveyardCount ?? (z.graveyard as any[])?.length ?? 0,
-      exile: (z as any).exile,
+      exile: visibleExile,
+      exileCount: (z as any).exileCount ?? visibleExile.length,
       ...(libraryTop ? { libraryTop } : {}),
     } as any;
 

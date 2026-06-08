@@ -25,21 +25,27 @@ export function resolveTapOrUntapTargetIds(
   ctx: OracleIRExecutionContext
 ): string[] {
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
-  const explicitPermanentId = String(ctx.targetPermanentId || '').trim();
-  if (explicitPermanentId) {
-    const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitPermanentId);
-    return matched ? [explicitPermanentId] : [];
-  }
-
-  const explicitCreatureId = String(ctx.targetCreatureId || '').trim();
-  if (explicitCreatureId) {
-    const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitCreatureId);
-    return matched ? [explicitCreatureId] : [];
-  }
+  const sourceId = String(ctx.sourceId || '').trim();
 
   if (target?.kind !== 'raw') return [];
   const text = String(target?.text || '').trim().toLowerCase();
   if (!text) return [];
+
+  const isAnotherTarget = /^(?:another|other)\s+target\b/.test(text);
+
+  if (!isAnotherTarget) {
+    const explicitPermanentId = String(ctx.targetPermanentId || '').trim();
+    if (explicitPermanentId) {
+      const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitPermanentId);
+      return matched ? [explicitPermanentId] : [];
+    }
+
+    const explicitCreatureId = String(ctx.targetCreatureId || '').trim();
+    if (explicitCreatureId) {
+      const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitCreatureId);
+      return matched ? [explicitCreatureId] : [];
+    }
+  }
 
   const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
     ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
@@ -48,10 +54,28 @@ export function resolveTapOrUntapTargetIds(
     const requiredType = parseSimplePermanentTypeFromText(text);
     const chosenMatches = battlefield.filter((perm: any) => {
       const permanentId = String((perm as any)?.id || '').trim();
-      return chosenObjectIds.includes(permanentId) && permanentMatchesTapTargetType(perm, requiredType);
+      if (!chosenObjectIds.includes(permanentId)) return false;
+      if (isAnotherTarget && sourceId && permanentId === sourceId) return false;
+      return permanentMatchesTapTargetType(perm, requiredType);
     });
     if (chosenMatches.length > 0) {
-      return chosenMatches.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean);
+      const ids = chosenMatches.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean);
+      return isAnotherTarget ? ids.slice(0, 1) : ids;
+    }
+  }
+
+  if (isAnotherTarget) {
+    const requiredType = parseSimplePermanentTypeFromText(text) || 'creature';
+    const excludeIds = new Set(
+      [sourceId, String(ctx.targetCreatureId || '').trim(), String(ctx.targetPermanentId || '').trim()].filter(Boolean)
+    );
+    const remaining = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!permanentId || excludeIds.has(permanentId)) return false;
+      return permanentMatchesTapTargetType(perm, requiredType);
+    });
+    if (remaining.length === 1) {
+      return [String((remaining[0] as any)?.id || '').trim()].filter(Boolean);
     }
   }
 
@@ -193,6 +217,26 @@ export function permanentMatchesSelector(
 
   if (sel.controllerFilter === 'opponents') {
     if (!permanentControllerId || permanentControllerId === normalizedControllerId) return false;
+  }
+
+  if (sel.controllerFilter === 'target_player') {
+    const targetPlayerId = String(ctx.selectorContext?.targetPlayerId || ctx.targetPlayerId || '').trim() as PlayerID;
+    if (!targetPlayerId || permanentControllerId !== targetPlayerId) return false;
+  }
+
+  if (sel.colorsAnyOf && sel.colorsAnyOf.length > 0) {
+    const permColors = Array.isArray((perm as any)?.colors)
+      ? (perm as any).colors
+      : Array.isArray((perm as any)?.card?.colors)
+        ? (perm as any).card.colors
+        : [];
+    if (!sel.colorsAnyOf.some(color => permColors.includes(color))) return false;
+  }
+
+  if (sel.excludeSourceId) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (sourceId && permanentId === sourceId) return false;
   }
 
   if (sel.types.includes('permanent')) return true;

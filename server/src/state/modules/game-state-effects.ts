@@ -46,7 +46,9 @@ import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { grantTelepathyForPlayer, revokeTelepathyForPlayer } from "./telepathy.js";
 import { getDurableLibraryPermissionForCard } from "./durable-permissions.js";
+import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { cardHasCreatureType } from "../creatureTypeNow.js";
 
 /**
  * Check if a permanent is an actual Treasure token/artifact (not just a card that creates treasures)
@@ -1366,6 +1368,8 @@ interface TopOfLibraryEffect {
   noncreatureOnly?: boolean;    // Only noncreature spells can be cast
   allowColorlessNonland?: boolean; // Can also cast colorless nonland cards
   creatureTypeFilter?: string;  // Only creatures of this type (e.g., 'Goblin')
+  tribalSpellFilter?: string;   // Any spell whose type line includes tribe (e.g., 'Merfolk')
+  chosenTypeCastFromTop?: boolean; // Creature spells of permanent.chosenCreatureType (Realmwalker)
   conditionCheck?: string;      // Condition to cast (e.g., 'coven' for Augur of Autumn)
   grantsFlash?: boolean;        // Matching spells can be cast as though they had flash
 }
@@ -1483,6 +1487,29 @@ const TOP_OF_LIBRARY_CARDS: Record<string, TopOfLibraryEffect> = {
     noncreatureOnly: true,
     grantsFlash: true,
   },
+  // Elven Chorus - look at top any time; cast creature spells from top
+  "elven chorus": {
+    lookAtTop: true,
+    castFromTop: true,
+    castTypes: ['creature'],
+  },
+  // Emperor Mihail II - look at top; cast Merfolk spells from top
+  "emperor mihail ii": {
+    lookAtTop: true,
+    castFromTop: true,
+    tribalSpellFilter: 'merfolk',
+  },
+  // Realmwalker - look at top; cast creature spells of the chosen type from top
+  "realmwalker": {
+    lookAtTop: true,
+    castFromTop: true,
+    castTypes: ['creature'],
+    chosenTypeCastFromTop: true,
+  },
+  // Ulvenwald Channelers - play with top revealed (visibility handled in view.ts)
+  "ulvenwald channelers": {
+    lookAtTop: true,
+  },
 };
 
 type TopOfLibraryCardInput = string | {
@@ -1510,10 +1537,103 @@ function hasGenericTopLibraryLandPermissionText(oracleText: string): boolean {
     || oracleText.includes('you may play the top card of your library');
 }
 
+function hasGenericTopLibraryLookPermissionText(oracleText: string): boolean {
+  return oracleText.includes('look at the top card of your library any time')
+    || oracleText.includes('play with the top card of your library revealed');
+}
+
 function hasGenericTopLibrarySpellPermissionText(oracleText: string): boolean {
   return oracleText.includes('you may cast the top card of your library')
     || oracleText.includes('you may cast spells from the top of your library')
     || oracleText.includes('you may play the top card of your library');
+}
+
+type ParsedTopLibraryCastRestriction = {
+  castTypes?: string[];
+  noncreatureOnly?: boolean;
+  creatureTypeFilter?: string;
+  tribalSpellFilter?: string;
+  unrestricted?: boolean;
+};
+
+function parseTopLibraryCastRestrictionFromOracle(oracleText: string): ParsedTopLibraryCastRestriction | null {
+  const text = String(oracleText || '').toLowerCase();
+  if (!text) return null;
+
+  if (text.includes('cast creature spells from the top of your library')) {
+    return { castTypes: ['creature'] };
+  }
+  if (text.includes('cast instant and sorcery spells from the top of your library')) {
+    return { castTypes: ['instant', 'sorcery'] };
+  }
+  if (text.includes('cast noncreature spells from the top of your library')) {
+    return { noncreatureOnly: true };
+  }
+
+  const tribalMatch = text.match(/cast ([a-z]+) spells from the top of your library/);
+  if (tribalMatch) {
+    const tribe = String(tribalMatch[1] || '').trim().toLowerCase();
+    const knownTypes = new Set([
+      'creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker', 'battle',
+    ]);
+    if (tribe && !knownTypes.has(tribe)) {
+      return { tribalSpellFilter: tribe };
+    }
+  }
+
+  if (hasGenericTopLibrarySpellPermissionText(text)) {
+    return { unrestricted: true };
+  }
+
+  return null;
+}
+
+function topLibraryCastRestrictionMatchesCard(
+  restriction: ParsedTopLibraryCastRestriction,
+  typeLine: string,
+  card: TopOfLibraryCardInput | undefined,
+  sourceName: string,
+  restrictions: string[],
+): boolean {
+  const hasCardContext = Boolean(card);
+  if (!hasCardContext) return true;
+
+  if (restriction.unrestricted) {
+    return true;
+  }
+
+  if (restriction.tribalSpellFilter) {
+    if (!typeLine.includes(restriction.tribalSpellFilter)) {
+      restrictions.push(`${sourceName} only allows ${restriction.tribalSpellFilter} spells`);
+      return false;
+    }
+    return true;
+  }
+
+  if (restriction.noncreatureOnly) {
+    if (typeLine.includes('creature')) {
+      restrictions.push(`${sourceName} only allows noncreature spells`);
+      return false;
+    }
+    return true;
+  }
+
+  if (restriction.castTypes && restriction.castTypes.length > 0) {
+    const typeMatches = restriction.castTypes.some((entry) => typeLine.includes(entry));
+    if (!typeMatches) {
+      restrictions.push(`${sourceName} only allows: ${restriction.castTypes.join(', ')}`);
+      return false;
+    }
+  }
+
+  if (restriction.creatureTypeFilter && typeLine.includes('creature')) {
+    if (!typeLine.includes(restriction.creatureTypeFilter)) {
+      restrictions.push(`${sourceName} only allows ${restriction.creatureTypeFilter} creatures`);
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -1528,12 +1648,19 @@ export function canLookAtTopOfLibrary(ctx: GameContext, playerId: string): { can
     if (perm.controller !== playerId) continue;
     
     const cardName = (perm.card?.name || "").toLowerCase();
+    const oracleText = String(perm.card?.oracle_text || '').toLowerCase();
+    let matched = false;
     
     for (const [knownName, effect] of Object.entries(TOP_OF_LIBRARY_CARDS)) {
       if (cardName.includes(knownName) && effect.lookAtTop) {
         sources.push(perm.card?.name || knownName);
+        matched = true;
         break;
       }
+    }
+
+    if (!matched && hasGenericTopLibraryLookPermissionText(oracleText)) {
+      sources.push(perm.card?.name || 'Top-of-library effect');
     }
   }
   
@@ -1657,6 +1784,25 @@ export function canCastFromTop(
             continue;
           }
         }
+
+        if (effect.tribalSpellFilter) {
+          if (!typeLine.includes(effect.tribalSpellFilter)) {
+            restrictions.push(`${perm.card?.name || knownName} only allows ${effect.tribalSpellFilter} spells`);
+            continue;
+          }
+        }
+
+        if (effect.chosenTypeCastFromTop) {
+          const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
+          if (!chosenType) {
+            restrictions.push(`${perm.card?.name || knownName}: no creature type chosen`);
+            continue;
+          }
+          if (hasCardContext && (!typeLine.includes('creature') || !cardHasCreatureType(card, chosenType))) {
+            restrictions.push(`${perm.card?.name || knownName} only allows ${chosenType} creature spells from the top of your library`);
+            continue;
+          }
+        }
         
         // Check condition (e.g., coven for Augur of Autumn)
         if (effect.conditionCheck === 'coven') {
@@ -1675,8 +1821,30 @@ export function canCastFromTop(
       }
     }
 
-    if (!matched && hasGenericTopLibrarySpellPermissionText(oracleText)) {
-      sources.push(perm.card?.name || 'Top-of-library effect');
+    if (!matched && oracleText.includes('cast creature spells of the chosen type from the top of your library')) {
+      const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
+      const sourceName = perm.card?.name || 'Permanent';
+      if (!chosenType) {
+        restrictions.push(`${sourceName}: no creature type chosen`);
+      } else if (!hasCardContext) {
+        sources.push(sourceName);
+        matched = true;
+      } else if (typeLine.includes('creature') && cardHasCreatureType(card, chosenType)) {
+        sources.push(sourceName);
+        matched = true;
+      } else {
+        restrictions.push(`${sourceName} only allows ${chosenType} creature spells from the top of your library`);
+      }
+    }
+
+    if (!matched) {
+      const parsedRestriction = parseTopLibraryCastRestrictionFromOracle(oracleText);
+      if (parsedRestriction) {
+        const sourceName = perm.card?.name || 'Top-of-library effect';
+        if (topLibraryCastRestrictionMatchesCard(parsedRestriction, typeLine, card, sourceName, restrictions)) {
+          sources.push(sourceName);
+        }
+      }
     }
   }
 
@@ -1711,6 +1879,32 @@ export function canCastFromTop(
     ...(costMode ? { costMode } : {}),
     ...(spendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
   };
+}
+
+/**
+ * Read the top card of a player's library from authoritative state stores.
+ */
+export function getLibraryTopCardFromState(state: any, playerId: string): any | null {
+  const libraries = state?.libraries;
+  if (libraries && typeof libraries.get === 'function') {
+    const library = libraries.get(playerId);
+    if (Array.isArray(library) && library.length > 0) {
+      return library[0] ?? null;
+    }
+  }
+
+  const zoneLibrary = state?.zones?.[playerId]?.library;
+  if (Array.isArray(zoneLibrary) && zoneLibrary.length > 0) {
+    return zoneLibrary[0] ?? null;
+  }
+
+  return null;
+}
+
+export function libraryTopCardHasType(state: any, playerId: string, cardType: string): boolean {
+  const topCard = getLibraryTopCardFromState(state, playerId);
+  const typeLine = String(topCard?.type_line || topCard?.typeLine || '').toLowerCase();
+  return typeLine.includes(String(cardType || '').toLowerCase());
 }
 
 /**
@@ -1938,12 +2132,19 @@ export function calculateModifiedDamage(
   ctx: GameContext,
   damageAmount: number,
   damageDealer: string,
-  damageReceiver: string
+  damageReceiver: string,
+  damageSourcePermanentId?: string
 ): { amount: number; modifiers: string[] } {
   const isToOpponent = damageDealer !== damageReceiver;
   
   // Detect all replacement effects that apply
-  const effects = detectDamageReplacementEffects(ctx, damageDealer, damageReceiver, isToOpponent);
+  const effects = detectDamageReplacementEffects(
+    ctx,
+    damageDealer,
+    damageReceiver,
+    isToOpponent,
+    damageSourcePermanentId
+  );
   
   if (effects.length === 0) {
     return { amount: damageAmount, modifiers: [] };
@@ -1989,14 +2190,32 @@ export interface CombatDamageReplacementEffect {
   damageToPlayer?: boolean;
   /** Only applies when damage would be dealt to a player (not creatures) */
   onlyToPlayers?: boolean;
+  /** True for "would deal damage to an opponent" (Mindskinner) — applies outside combat too */
+  appliesToNonCombatDamage?: boolean;
 }
+
+export type OpponentDamageReplacementResult = {
+  damageDealt: number;
+  prevented: boolean;
+  effectsApplied: string[];
+  millAmount?: number;
+  millTargets?: string[];
+  drawAmount?: number;
+  drawTargets?: string[];
+};
+
+export type DetectedPreventDamageMillReplacement = {
+  effect: CombatDamageReplacementEffect;
+  sourceName: string;
+};
 
 const COMBAT_DAMAGE_REPLACEMENT_CARDS: Record<string, CombatDamageReplacementEffect> = {
   "the mindskinner": {
-    description: "Prevent combat damage, each opponent mills that many cards",
+    description: "Prevent damage to an opponent, each opponent mills that many cards",
     preventsDamage: true,
     millAllOpponents: true,
-    onlyToPlayers: true,
+    onlyToPlayers: false,
+    appliesToNonCombatDamage: true,
   },
   // Szadek, Lord of Secrets - similar effect but only mills defending player
   "szadek, lord of secrets": {
@@ -2035,59 +2254,390 @@ function collectCombatDamageReplacementTexts(attackerCard: any, attackerPermanen
   return [...new Set(collected.filter(Boolean))];
 }
 
+function parsePreventDamageMillFromOracle(replacementText: string): CombatDamageReplacementEffect | null {
+  if (!replacementText.includes('prevent that damage')) {
+    return null;
+  }
+
+  const wouldDealCombatDamage =
+    replacementText.includes('would deal combat damage') ||
+    replacementText.includes('would deal combat damage to a player');
+  const wouldDealDamageToOpponent = replacementText.includes('would deal damage to an opponent');
+  if (!wouldDealCombatDamage && !wouldDealDamageToOpponent) {
+    return null;
+  }
+
+  if (
+    replacementText.includes("this creature's controller and that player each draw half that many cards") ||
+    replacementText.includes('this creature’s controller and that player each draw half that many cards')
+  ) {
+    return {
+      description: 'Prevent combat damage, controller and damaged player each draw half that many cards',
+      preventsDamage: true,
+      drawHalfForControllerAndDamagedPlayer: true,
+      onlyToPlayers: true,
+      appliesToNonCombatDamage: false,
+    };
+  }
+
+  if (replacementText.includes('mills') || replacementText.includes('mill cards equal')) {
+    const millsAllOpponents =
+      replacementText.includes('each opponent mills') ||
+      replacementText.includes('each opponent mills cards');
+    return {
+      description: wouldDealDamageToOpponent
+        ? 'Prevent damage to an opponent, each opponent mills that many cards'
+        : 'Prevent combat damage, mill effect',
+      preventsDamage: true,
+      millAllOpponents: millsAllOpponents,
+      onlyToPlayers: !wouldDealDamageToOpponent,
+      appliesToNonCombatDamage: wouldDealDamageToOpponent,
+    };
+  }
+
+  return null;
+}
+
+function detectPreventDamageMillFromPermanent(
+  perm: any
+): DetectedPreventDamageMillReplacement | null {
+  const cardName = String(perm?.card?.name || '').toLowerCase();
+  for (const [knownName, effect] of Object.entries(COMBAT_DAMAGE_REPLACEMENT_CARDS)) {
+    if (cardName.includes(knownName)) {
+      return { effect, sourceName: String(perm?.card?.name || 'Effect') };
+    }
+  }
+
+  const replacementTexts = collectCombatDamageReplacementTexts(perm?.card, perm);
+  for (const replacementText of replacementTexts) {
+    const parsed = parsePreventDamageMillFromOracle(replacementText);
+    if (parsed) {
+      return { effect: parsed, sourceName: String(perm?.card?.name || 'Effect') };
+    }
+  }
+
+  return null;
+}
+
 /**
- * Check if a creature has a combat damage replacement effect
- * Returns the replacement effect if found, null otherwise
+ * Scan the battlefield for static "prevent that damage and mill" effects controlled by a player.
+ * Mindskinner applies here even when another creature is dealing the damage.
+ */
+export function detectPreventDamageMillReplacementForController(
+  ctx: GameContext,
+  sourceControllerId: string,
+  options?: { nonCombatOnly?: boolean }
+): DetectedPreventDamageMillReplacement | null {
+  const controllerId = String(sourceControllerId || '').trim();
+  if (!controllerId) return null;
+
+  const battlefield = getActivePermanents(ctx);
+  for (const perm of battlefield) {
+    if (String(perm?.controller || '') !== controllerId) continue;
+    const detected = detectPreventDamageMillFromPermanent(perm);
+    if (!detected) continue;
+
+    if (options?.nonCombatOnly && !detected.effect.appliesToNonCombatDamage) {
+      continue;
+    }
+
+    return detected;
+  }
+
+  return null;
+}
+
+function isOpponentOfController(
+  ctx: GameContext,
+  controllerId: string,
+  targetPlayerId: string
+): boolean {
+  const players = (ctx.state?.players as any[]) || [];
+  return players.some(
+    (p: any) =>
+      p &&
+      String(p.id) === String(targetPlayerId) &&
+      String(p.id) !== String(controllerId) &&
+      !p.hasLost
+  );
+}
+
+/**
+ * @deprecated Prefer detectPreventDamageMillReplacementForController — scans the whole battlefield.
  */
 export function detectCombatDamageReplacement(
   ctx: GameContext,
   attackerCard: any,
   attackerPermanent: any
 ): CombatDamageReplacementEffect | null {
-  const cardName = (attackerCard?.name || "").toLowerCase();
+  const controllerId = String(attackerPermanent?.controller || attackerCard?.controller || '').trim();
+  if (controllerId) {
+    const fromBattlefield = detectPreventDamageMillReplacementForController(ctx, controllerId, {
+      combatContext: true,
+    });
+    if (fromBattlefield) return fromBattlefield.effect;
+  }
+
   const replacementTexts = collectCombatDamageReplacementTexts(attackerCard, attackerPermanent);
-  
-  // Check known cards first
-  for (const [knownName, effect] of Object.entries(COMBAT_DAMAGE_REPLACEMENT_CARDS)) {
-    if (cardName.includes(knownName)) {
-      return effect;
-    }
-  }
-  
-  // Dynamic detection via oracle text patterns
-  // Pattern: "If ~ would deal combat damage to a player, prevent that damage"
-  // followed by a supported replacement payload like milling or card draw.
   for (const replacementText of replacementTexts) {
-    if (!replacementText.includes('would deal combat damage') || !replacementText.includes('prevent that damage')) {
-      continue;
+    const parsed = parsePreventDamageMillFromOracle(replacementText);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+export function millAllOpponentsForController(
+  ctx: GameContext,
+  sourceControllerId: string,
+  count: number
+): { opponentId: string; milled: number }[] {
+  const millCount = Math.max(0, Math.floor(Number(count) || 0));
+  if (millCount <= 0) return [];
+
+  const results: { opponentId: string; milled: number }[] = [];
+  const players = (ctx.state?.players as any[]) || [];
+  const opponents = players.filter(
+    (p: any) => p?.id && String(p.id) !== String(sourceControllerId) && !p.hasLost
+  );
+
+  for (const opponent of opponents) {
+    const opponentId = String(opponent.id);
+    let milled = 0;
+
+    const lib = ctx.libraries?.get?.(opponentId);
+    if (lib && Array.isArray(lib)) {
+      const milledCards: any[] = [];
+      for (let i = 0; i < millCount && lib.length > 0; i += 1) {
+        const card = lib.pop();
+        if (card) milledCards.push(card);
+      }
+      ctx.libraries?.set(opponentId, lib);
+      milled = milledCards.length;
+
+      const zones = (ctx as any).state?.zones || {};
+      const oppZones = (zones[opponentId] = zones[opponentId] || {
+        hand: [],
+        graveyard: [],
+        library: [],
+        libraryCount: 0,
+        graveyardCount: 0,
+      });
+      oppZones.graveyard = oppZones.graveyard || [];
+      for (const card of milledCards) {
+        card.zone = 'graveyard';
+        oppZones.graveyard.push(card);
+        recordCardPutIntoGraveyardThisTurn(ctx, opponentId, card, { fromBattlefield: false });
+      }
+      oppZones.libraryCount = lib.length;
+      oppZones.graveyardCount = (oppZones.graveyard || []).length;
+    } else {
+      const zones = (ctx as any).state?.zones?.[opponentId];
+      if (zones && Array.isArray(zones.library)) {
+        for (let i = 0; i < millCount && zones.library.length > 0; i += 1) {
+          const card = zones.library.shift();
+          if (!card) break;
+          zones.graveyard = zones.graveyard || [];
+          const milledCard = { ...card, zone: 'graveyard' };
+          zones.graveyard.push(milledCard);
+          recordCardPutIntoGraveyardThisTurn(ctx, opponentId, milledCard, { fromBattlefield: false });
+          milled += 1;
+        }
+        zones.libraryCount = zones.library.length;
+        zones.graveyardCount = (zones.graveyard || []).length;
+      }
     }
 
-    if (
-      replacementText.includes("this creature's controller and that player each draw half that many cards") ||
-      replacementText.includes('this creature’s controller and that player each draw half that many cards')
-    ) {
-      return {
-        description: 'Prevent combat damage, controller and damaged player each draw half that many cards',
-        preventsDamage: true,
-        drawHalfForControllerAndDamagedPlayer: true,
-        onlyToPlayers: true,
-      };
-    }
-
-    // Check for mill effect
-    if (replacementText.includes('mills') || replacementText.includes('mill cards equal')) {
-      const millsAllOpponents = replacementText.includes('each opponent mills') ||
-                                 replacementText.includes('each opponent mills cards');
-      return {
-        description: 'Prevent combat damage, mill effect',
-        preventsDamage: true,
-        millAllOpponents: millsAllOpponents,
-        onlyToPlayers: true,
-      };
+    if (milled > 0) {
+      results.push({ opponentId, milled });
     }
   }
-  
-  return null;
+
+  return results;
+}
+
+function buildPreventDamageMillReplacementResult(
+  ctx: GameContext,
+  args: {
+    sourceControllerId: string;
+    targetPlayerId: string;
+    damageAmount: number;
+    replacement: CombatDamageReplacementEffect;
+    replacementSourceName: string;
+    sourceCard?: any;
+  }
+): OpponentDamageReplacementResult {
+  const result: OpponentDamageReplacementResult = {
+    damageDealt: args.damageAmount,
+    prevented: false,
+    effectsApplied: [],
+  };
+
+  const canPrevent = canDamageBePrevented(ctx, args.sourceCard || {}, args.targetPlayerId);
+
+  if (args.replacement.preventsDamage && canPrevent) {
+    result.damageDealt = 0;
+    result.prevented = true;
+    result.effectsApplied.push(`${args.replacementSourceName}: damage prevented`);
+  } else if (args.replacement.preventsDamage && !canPrevent) {
+    result.effectsApplied.push(`${args.replacementSourceName}: damage could not be prevented`);
+  }
+
+  if (args.replacement.millAllOpponents && args.damageAmount > 0) {
+    const players = (ctx.state?.players as any[]) || [];
+    result.millAmount = args.damageAmount;
+    result.millTargets = players
+      .filter((p: any) => p?.id && String(p.id) !== String(args.sourceControllerId) && !p.hasLost)
+      .map((p: any) => String(p.id));
+    result.effectsApplied.push(`Each opponent mills ${args.damageAmount} cards`);
+  }
+
+  if (args.replacement.drawHalfForControllerAndDamagedPlayer && args.damageAmount > 0) {
+    const drawAmount = Math.floor(args.damageAmount / 2);
+    if (drawAmount > 0) {
+      result.drawAmount = drawAmount;
+      result.drawTargets = [...new Set([args.sourceControllerId, args.targetPlayerId].filter(Boolean))];
+      result.effectsApplied.push(
+        `Controller and damaged player each draw ${drawAmount} card(s)`
+      );
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Applies Mindskinner-style "prevent damage to an opponent, each opponent mills" replacements
+ * for any damage from sources controlled by sourceControllerId.
+ */
+export type ResolvedOpponentDirectedDamage = OpponentDamageReplacementResult & {
+  readonly preReplacementAmount: number;
+  readonly damageModifiers: string[];
+};
+
+/**
+ * Applies 616.1-ordered damage modifiers (Gisela, etc.) then prevent-and-mill replacements
+ * (Mindskinner) for damage directed at a player.
+ */
+export function resolveOpponentDirectedDamage(
+  ctx: GameContext,
+  args: {
+    sourceControllerId: string;
+    targetPlayerId: string;
+    damageAmount: number;
+    sourceCard?: any;
+    sourcePermanentId?: string;
+    executeMills?: boolean;
+  }
+): ResolvedOpponentDirectedDamage {
+  const { amount, modifiers } = calculateModifiedDamage(
+    ctx,
+    Math.max(0, Number(args.damageAmount) || 0),
+    String(args.sourceControllerId || ''),
+    String(args.targetPlayerId || ''),
+    args.sourcePermanentId
+  );
+  const replacement = applyOpponentDamageReplacement(ctx, {
+    ...args,
+    damageAmount: amount,
+  });
+  return {
+    ...replacement,
+    preReplacementAmount: amount,
+    damageModifiers: modifiers,
+  };
+}
+
+export function applyOpponentDamageReplacement(
+  ctx: GameContext,
+  args: {
+    sourceControllerId: string;
+    targetPlayerId: string;
+    damageAmount: number;
+    sourceCard?: any;
+    executeMills?: boolean;
+  }
+): OpponentDamageReplacementResult {
+  const empty: OpponentDamageReplacementResult = {
+    damageDealt: args.damageAmount,
+    prevented: false,
+    effectsApplied: [],
+  };
+
+  const sourceControllerId = String(args.sourceControllerId || '').trim();
+  const targetPlayerId = String(args.targetPlayerId || '').trim();
+  const damageAmount = Math.max(0, Number(args.damageAmount) || 0);
+  if (!sourceControllerId || !targetPlayerId || damageAmount <= 0) {
+    return empty;
+  }
+
+  if (!isOpponentOfController(ctx, sourceControllerId, targetPlayerId)) {
+    return empty;
+  }
+
+  const detected = detectPreventDamageMillReplacementForController(ctx, sourceControllerId, {
+    nonCombatOnly: true,
+  });
+  if (!detected) {
+    return empty;
+  }
+
+  const result = buildPreventDamageMillReplacementResult(ctx, {
+    sourceControllerId,
+    targetPlayerId,
+    damageAmount,
+    replacement: detected.effect,
+    replacementSourceName: detected.sourceName,
+    sourceCard: args.sourceCard,
+  });
+
+  if (args.executeMills !== false && result.millAmount && result.millTargets) {
+    millAllOpponentsForController(ctx, sourceControllerId, result.millAmount);
+  }
+
+  return result;
+}
+
+/**
+ * Applies combat damage modifiers then prevent-and-mill replacements for damage to a player.
+ */
+export function resolveCombatDamageToOpponent(
+  ctx: GameContext,
+  args: {
+    attackerCard: any;
+    attackerPermanent: any;
+    attackerController: string;
+    damageAmount: number;
+    defendingPlayerId: string;
+    executeMills?: boolean;
+  }
+): ResolvedOpponentDirectedDamage {
+  const { amount, modifiers } = calculateModifiedDamage(
+    ctx,
+    Math.max(0, Number(args.damageAmount) || 0),
+    String(args.attackerController || ''),
+    String(args.defendingPlayerId || ''),
+    String(args.attackerPermanent?.id || '')
+  );
+
+  const replacement = applyCombatDamageReplacement(
+    ctx,
+    args.attackerCard,
+    args.attackerPermanent,
+    args.attackerController,
+    amount,
+    args.defendingPlayerId
+  );
+
+  if (args.executeMills !== false && replacement.millAmount) {
+    millAllOpponentsForController(ctx, args.attackerController, replacement.millAmount);
+  }
+
+  return {
+    ...replacement,
+    preReplacementAmount: amount,
+    damageModifiers: modifiers,
+  };
 }
 
 /**
@@ -2154,67 +2704,27 @@ export function applyCombatDamageReplacement(
   attackerController: string,
   damageAmount: number,
   defendingPlayerId: string
-): {
-  damageDealt: number;
-  prevented: boolean;
-  effectsApplied: string[];
-  millAmount?: number;
-  millTargets?: string[];
-  drawAmount?: number;
-  drawTargets?: string[];
-} {
-  const result = {
+): OpponentDamageReplacementResult {
+  const empty: OpponentDamageReplacementResult = {
     damageDealt: damageAmount,
     prevented: false,
-    effectsApplied: [] as string[],
-    millAmount: undefined as number | undefined,
-    millTargets: undefined as string[] | undefined,
-    drawAmount: undefined as number | undefined,
-    drawTargets: undefined as string[] | undefined,
+    effectsApplied: [],
   };
-  
-  const replacement = detectCombatDamageReplacement(ctx, attackerCard, attackerPermanent);
-  if (!replacement) {
-    return result;
-  }
-  
-  // Check if damage can be prevented
-  const canPrevent = canDamageBePrevented(ctx, attackerCard, defendingPlayerId);
-  
-  if (replacement.preventsDamage && canPrevent) {
-    // Prevent the damage
-    result.damageDealt = 0;
-    result.prevented = true;
-    result.effectsApplied.push(`${attackerCard.name || 'Effect'}: combat damage prevented`);
-  } else if (replacement.preventsDamage && !canPrevent) {
-    // Damage cannot be prevented - deal normal damage
-    // But the mill effect should still happen!
-    result.effectsApplied.push(`${attackerCard.name || 'Effect'}: damage could not be prevented`);
-  }
-  
-  // Apply mill effect regardless of whether damage was prevented
-  // (The Mindskinner mills based on damage "that would have been dealt")
-  if (replacement.millAllOpponents && damageAmount > 0) {
-    const players = (ctx.state?.players as any[]) || [];
-    const opponents = players
-      .filter((p: any) => p && p.id !== attackerController && !p.hasLost)
-      .map((p: any) => p.id);
-    
-    result.millAmount = damageAmount;
-    result.millTargets = opponents;
-    result.effectsApplied.push(`Each opponent mills ${damageAmount} cards`);
+
+  const detected = detectPreventDamageMillReplacementForController(ctx, attackerController);
+  if (!detected) {
+    return empty;
   }
 
-  if (replacement.drawHalfForControllerAndDamagedPlayer && damageAmount > 0) {
-    const drawAmount = Math.floor(damageAmount / 2);
-    if (drawAmount > 0) {
-      const drawTargets = [...new Set([attackerController, defendingPlayerId].filter(Boolean))];
-      result.drawAmount = drawAmount;
-      result.drawTargets = drawTargets;
-      result.effectsApplied.push(`Controller and damaged player each draw ${drawAmount} card(s)`);
-    }
-  }
-  
+  const result = buildPreventDamageMillReplacementResult(ctx, {
+    sourceControllerId: attackerController,
+    targetPlayerId: defendingPlayerId,
+    damageAmount,
+    replacement: detected.effect,
+    replacementSourceName: detected.sourceName,
+    sourceCard: attackerCard,
+  });
+
   return result;
 }
 
@@ -2554,7 +3064,8 @@ export function detectDamageReplacementEffects(
   ctx: GameContext,
   damageDealer: string,
   damageReceiver: string,
-  isToOpponent: boolean
+  isToOpponent: boolean,
+  damageSourcePermanentId?: string
 ): ReplacementEffect[] {
   const effects: ReplacementEffect[] = [];
   const battlefield = getActivePermanents(ctx);
@@ -2641,7 +3152,11 @@ export function detectDamageReplacementEffects(
     
     // The Sound of Drums - double combat damage from enchanted creature
     // Oracle text: "If enchanted creature would deal combat damage to a permanent or player, it deals double that damage instead."
-    if (cardName.includes("sound of drums") && perm.attachedTo === damageDealer) {
+    const sourcePermanentId = String(damageSourcePermanentId || '').trim();
+    if (
+      cardName.includes("sound of drums") &&
+      (perm.attachedTo === damageDealer || (sourcePermanentId && String(perm.attachedTo || '') === sourcePermanentId))
+    ) {
       effects.push({
         type: 'double',
         source: "The Sound of Drums",

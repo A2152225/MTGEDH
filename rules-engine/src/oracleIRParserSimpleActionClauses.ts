@@ -1,10 +1,19 @@
 import type { OracleEffectStep } from './oracleIR';
 import { normalizeCounterName, splitSacrificeObjectAndCondition } from './oracleIRParserSacrificeHelpers';
+import {
+  buildMillStepFromClauseParts,
+  buildQuantityStepFromClauseParts,
+  isSimpleCardQuantityTail,
+  quantityTailSupportsDynamicQuantity,
+  tryParseExileTopClause,
+  tryParseLookTopClause,
+  tryParsePlayerMillClause,
+} from './oracleIRParserQuantityHelpers';
 import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
 const PLAYER_SUBJECT_PREFIX =
-  "(?:(you|each player|each other player|each opponent|each friend|each of those opponents|any number of target opponents|any number of target players other than that player|any number of target players|each of that player's opponents|target player|target opponent|that player|that opponent|that attacking player|an opponent|the opponent|the player|attacking player|defending player|the defending player|the attacking player|the controller of those creatures|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
+  "(?:(you|each player|each other player|each opponent|each friend|each of those opponents|any number of target opponents|any number of target players other than that player|any number of target players|each of that player's opponents|enchanted player|target player|target opponent|that player|that opponent|that attacking player|an opponent|the opponent|the player|attacking player|defending player|the defending player|the attacking player|the controller of those creatures|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
 
 const DRAW_AMOUNT_WORD_PATTERN = '(?:that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
 const COUNTER_AMOUNT_PATTERN = '(?:a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
@@ -205,12 +214,66 @@ function normalizePossessiveObjectReference(raw: string): string {
   return trimmed.replace(/(?:'s|’s)$/i, '').trim();
 }
 
+function recoverTruncatedActionClause(clause: string): string {
+  const trimmed = String(clause || '').trim();
+  if (/^a card unless\b/i.test(trimmed)) return `draw ${trimmed}`;
+  if (/^cards? unless\b/i.test(trimmed)) return `draw ${trimmed}`;
+  return trimmed;
+}
+
 export function tryParseSimpleActionClause(args: {
   clause: string;
   rawClause: string;
   withMeta: WithMeta;
 }): OracleEffectStep | null {
-  const { clause, rawClause, withMeta } = args;
+  const clause = recoverTruncatedActionClause(args.clause);
+  const rawClause = args.rawClause;
+  const { withMeta } = args;
+
+  {
+    const oppositionAgentSearchExile = clause.match(
+      /^while an opponent is searching their library, they exile each card they find\.?$/i
+    );
+    if (oppositionAgentSearchExile) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('this permanent'),
+        effectText: [String(clause || '').trim()],
+        duration: 'static',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
+  {
+    const unlessThatPlayerPays = clause.match(
+      /^(.+?)\s+unless\s+(?:that\s+player|that\s+opponent|its\s+controller)\s+pays\s+(\{[^}]+\})\.?$/i,
+    );
+    if (unlessThatPlayerPays) {
+      const innerClause = String(unlessThatPlayerPays[1] || '').trim();
+      const innerStep = tryParseSimpleActionClause({
+        clause: innerClause,
+        rawClause: innerClause,
+        withMeta,
+      });
+      if (innerStep && innerStep.kind !== 'unknown') {
+        return withMeta({
+          kind: 'unless_pays_mana',
+          who: parsePlayerSelector('that player'),
+          mana: String(unlessThatPlayerPays[2] || '').trim(),
+          steps: [innerStep],
+          optional: /\byou may\b/i.test(innerClause) || undefined,
+          raw: rawClause,
+        });
+      }
+    }
+  }
+
+  const lookTop = tryParseLookTopClause({ clause, rawClause, withMeta });
+  if (lookTop) return lookTop;
+
+  const exileTop = tryParseExileTopClause({ clause, rawClause, withMeta });
+  if (exileTop) return exileTop;
 
   {
     const exiledCardPermission = clause.match(
@@ -482,6 +545,22 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addTicketCountersWord = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+(${COUNTER_AMOUNT_PATTERN})\\s+\\{TK\\}\\s*$`, 'i'),
+    );
+    if (addTicketCountersWord) {
+      const ticketCount = parseSmallNumber(String(addTicketCountersWord[2] || '').trim());
+      if (ticketCount && ticketCount > 0) {
+        return withMeta({
+          kind: 'add_player_counter',
+          who: parsePlayerSelector(addTicketCountersWord[1]),
+          amount: { kind: 'number', value: ticketCount },
+          counter: 'ticket',
+          raw: rawClause,
+        });
+      }
+    }
+
     const addTicketCounters = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+((?:\\{TK\\})+)\\s*$`, 'i'));
     if (addTicketCounters) {
       const ticketCount = countTicketSymbols(String(addTicketCounters[2] || ''));
@@ -1199,6 +1278,15 @@ export function tryParseSimpleActionClause(args: {
         raw: rawClause,
       });
     }
+
+    const lookAtTheirHand = clause.match(/^look\s+at\s+their\s+hand$/i);
+    if (lookAtTheirHand) {
+      return withMeta({
+        kind: 'look_hand',
+        who: { kind: 'target_player' },
+        raw: rawClause,
+      });
+    }
   }
 
   {
@@ -1224,7 +1312,35 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const chooseTargetCreature = clause.match(
+    const triggeredChoosePrefix = clause.match(
+      /^(?:at the beginning of (?:your|each player's) (?:upkeep|end step),?\s+)(choose\s+.+)$/i
+    );
+    const chooseClause = triggeredChoosePrefix ? String(triggeredChoosePrefix[1] || '').trim() : clause;
+
+    const chooseTargetPlayers = chooseClause.match(
+      /^choose\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+target\s+players?\.?$/i
+    );
+    if (chooseTargetPlayers) {
+      return withMeta({
+        kind: 'choose_target_creature',
+        target: parseObjectSelector('target players'),
+        raw: rawClause,
+      });
+    }
+
+    const chooseCountedTargets = chooseClause.match(
+      /^choose\s+(up\s+to\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|\d+|a|an)\s+(other\s+)?(target\s+.+)$/i
+    );
+    if (chooseCountedTargets) {
+      return withMeta({
+        kind: 'choose_target_creature',
+        target: parseObjectSelector(String(chooseCountedTargets[4] || '').trim()),
+        ...(chooseCountedTargets[1] || /^(?:a|an)$/i.test(String(chooseCountedTargets[2] || '')) ? { optional: true } : {}),
+        raw: rawClause,
+      });
+    }
+
+    const chooseTargetCreature = chooseClause.match(
       /^choose\s+(up to one\s+)?target\s+creature(?:\s+(you control|an opponent controls|your opponents control))?\s*$/i
     );
     if (chooseTargetCreature) {
@@ -1239,7 +1355,7 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-    const chooseTargetObject = clause.match(/^choose\s+(up to one\s+)?(target\s+.+)$/i);
+    const chooseTargetObject = chooseClause.match(/^choose\s+(up to one\s+)?(target\s+.+)$/i);
     if (
       chooseTargetObject &&
       /\b(?:spell|permanent|card|artifact|enchantment|land|planeswalker|battle)\b/i.test(String(chooseTargetObject[2] || '')) &&
@@ -1379,6 +1495,24 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
+    const drawAdditional = drawClause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+(?:(\\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\\s+)?additional\\s+cards?\\b`,
+        'i'
+      )
+    );
+    if (drawAdditional) {
+      const amountPart = String(drawAdditional[2] || 'an').trim();
+      const suffix = /^(?:an?|one|1)$/i.test(amountPart) ? 'card' : 'cards';
+      return withMeta({
+        kind: 'draw',
+        who: parsePlayerSelector(drawAdditional[1]),
+        amount: parseQuantity(`${amountPart} additional ${suffix}`),
+        raw: rawClause,
+        optional: /\bmay\b/i.test(clause) || undefined,
+      });
+    }
+
     const moreCards = drawClause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+(${DRAW_AMOUNT_WORD_PATTERN}|[a-z0-9]+)\\s+more\\s+cards?\\b`, 'i')
     );
@@ -1403,26 +1537,152 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-    const draw = drawClause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+(${DRAW_AMOUNT_WORD_PATTERN})\\s+cards?\\b`, 'i')
+    const drawAndLose = drawClause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}draws?\\s+((?:a card|a|an|\\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\\s+cards?)\\s+and\\s+loses?\\s+(\\d+|x)\\s+life$`,
+        'i'
+      )
     );
-    if (draw) {
+    if (drawAndLose) {
+      const who = parsePlayerSelector(drawAndLose[1]);
       return withMeta({
         kind: 'draw',
-        who: parsePlayerSelector(draw[1]),
-        amount: parseQuantity(draw[2]),
+        who,
+        amount: parseQuantity(String(drawAndLose[2] || '').trim()),
         raw: rawClause,
-        });
+      });
     }
 
-    const drawDefault = drawClause.match(new RegExp(`^(?:may\\s+)?draw\\s+(${DRAW_AMOUNT_WORD_PATTERN})\\s+cards?\\b`, 'i'));
-    if (drawDefault) {
+    const drawAndReveal = drawClause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}draws?\\s+((?:a card|a|an|\\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\\s+cards?)\\s+and\\s+reveal(?:s)?\\s+it$`,
+        'i'
+      )
+    );
+    if (drawAndReveal) {
+      const who = parsePlayerSelector(drawAndReveal[1]);
+      return withMeta({
+        kind: 'draw',
+        who,
+        amount: parseQuantity(String(drawAndReveal[2] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
+    const drawAndSacrificeBare = drawClause.match(
+      /^draw\s+((?:a card|a|an|\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+cards?)\s+and\s+sacrifices?\s+(.+)$/i
+    );
+    if (drawAndSacrificeBare) {
       return withMeta({
         kind: 'draw',
         who: { kind: 'you' },
-        amount: parseQuantity(drawDefault[1]),
+        amount: parseQuantity(String(drawAndSacrificeBare[1] || '').trim()),
         raw: rawClause,
-        });
+      });
+    }
+
+    const drawAndSacrifice = drawClause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}draws?\\s+((?:a card|a|an|\\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\\s+cards?)\\s+and\\s+sacrifices?\\s+(.+)$`,
+        'i'
+      )
+    );
+    if (drawAndSacrifice) {
+      const who = parsePlayerSelector(drawAndSacrifice[1]);
+      return withMeta({
+        kind: 'draw',
+        who,
+        amount: parseQuantity(String(drawAndSacrifice[2] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
+    const drawAndConvert = drawClause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}draws?\\s+((?:a card|a|an|\\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\\s+cards?)\\s+and\\s+convert(?:s)?\\s+.+$`,
+        'i'
+      )
+    );
+    if (drawAndConvert) {
+      const who = parsePlayerSelector(drawAndConvert[1]);
+      return withMeta({
+        kind: 'draw',
+        who,
+        amount: parseQuantity(String(drawAndConvert[2] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
+    const drawIfCondition = drawClause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+a\\s+card\\s+if\\s+(.+)$`, 'i')
+    );
+    if (drawIfCondition) {
+      return withMeta({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: String(drawIfCondition[2] || '').trim() },
+        steps: [{
+          kind: 'draw',
+          who: parsePlayerSelector(drawIfCondition[1]),
+          amount: { kind: 'number', value: 1 },
+          raw: `${String(drawIfCondition[1] || '').trim()} draws a card`,
+        } as OracleEffectStep],
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+
+    const drawReplacement = drawClause.match(
+      /^until end of turn,\s+if you would draw a card,\s+draw\s+(.+?)\s+instead\.?["']?$/i
+    );
+    if (drawReplacement) {
+      return withMeta({
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: parseQuantity(String(drawReplacement[1] || '').trim()),
+        replacementOf: 'draw_card',
+        duration: 'end_of_turn',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+
+    const drawTail = drawClause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+(.+)$`, 'i')
+    );
+    if (drawTail && isSimpleCardQuantityTail(String(drawTail[2] || ''))) {
+      return buildQuantityStepFromClauseParts({
+        kind: 'draw',
+        who: parsePlayerSelector(drawTail[1]),
+        quantityTail: String(drawTail[2] || '').trim(),
+        rawClause,
+        withMeta,
+        optional: /\bmay\b/i.test(clause) || undefined,
+      });
+    }
+
+    const drawUntilEndQuote = drawClause.match(/^draw (?:a card|(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty) cards?)["'] until end of turn$/i);
+    if (drawUntilEndQuote) {
+      const countRaw = String(drawUntilEndQuote[1] || 'a card').trim();
+      const amount = countRaw === 'a card'
+        ? { kind: 'number' as const, value: 1 }
+        : parseQuantity(`${countRaw} cards`);
+      return withMeta({
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount,
+        duration: 'end_of_turn',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+
+    const drawDefaultTail = drawClause.match(/^(?:may\s+)?draw\s+(.+)$/i);
+    if (drawDefaultTail && isSimpleCardQuantityTail(String(drawDefaultTail[1] || ''))) {
+      return buildQuantityStepFromClauseParts({
+        kind: 'draw',
+        who: { kind: 'you' },
+        quantityTail: String(drawDefaultTail[1] || '').trim(),
+        rawClause,
+        withMeta,
+        optional: /\bmay\b/i.test(clause) || undefined,
+      });
     }
   }
 
@@ -1798,6 +2058,25 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const armyCounterClause = normalizeOracleText(clause).replace(/^[(\s]+/, '').replace(/[.)\s]+$/g, '').trim();
+    const armyCounter = armyCounterClause.match(
+      /^put (?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) \+1\/\+1 counters? on an army you control$/i,
+    );
+    if (armyCounter) {
+      const amountToken = armyCounterClause.match(
+        /^put (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) \+1\/\+1 counters? on an army you control$/i,
+      );
+      return withMeta({
+        kind: 'add_counter',
+        amount: parseCounterQuantity(String(amountToken?.[1] || 'a')),
+        counter: '+1/+1',
+        target: parseObjectSelector('an army you control'),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const eachFriendCounters = clause.match(/^each\s+friend\s+puts?\s+(a|an|one|\d+|[a-z]+)\s+(.+?)\s+counters?\s+on\s+(.+)$/i);
     if (eachFriendCounters) {
       return withMeta({
@@ -1828,7 +2107,7 @@ export function tryParseSimpleActionClause(args: {
     if (sameKindCounters) {
       return withMeta({
         kind: 'add_counter',
-        amount: { kind: 'unknown', raw: 'the same number' },
+        amount: parseCounterQuantity('the same number'),
         counter: 'each kind',
         target: parseObjectSelector(sameKindCounters[1]),
         raw: rawClause,
@@ -1922,6 +2201,18 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const removeAnyNumberCounters = clause.match(/^remove\s+any\s+number\s+of\s+(.+?)\s+counters?\s+from\s+(.+)$/i);
+    if (removeAnyNumberCounters) {
+      return withMeta({
+        kind: 'remove_counter',
+        amount: { kind: 'any_number' },
+        counter: normalizeCounterName(String(removeAnyNumberCounters[1] || '')),
+        target: parseObjectSelector(removeAnyNumberCounters[2]),
+        optional: true,
+        raw: rawClause,
+        });
+    }
+
     const removeUpToAnyCounters = clause.match(/^remove\s+up\s+to\s+(a|an|\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+counters?\s+from\s+(.+)$/i);
     if (removeUpToAnyCounters) {
       return withMeta({
@@ -2801,12 +3092,24 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const investigate = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:investigate|investigates)(?:\\s+(twice|that many|that much|\\d+|x|[a-z]+)(?:\\s+times)?)?\\b$`, 'i'));
+    const investigate = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?(?:investigate|investigates)(?:\\s+(twice|that many|that much|\\d+|x)(?:\\s+times)?)?(?:,\\s+where\\s+x\\s+is\\s+(.+))?$`,
+        'i'
+      )
+    );
     if (investigate) {
+      const whoRaw = String(investigate[1] || 'you').trim() || 'you';
+      const whereX = investigate[3]
+        ? ({ kind: 'where', raw: String(investigate[3] || '').trim() } as const)
+        : undefined;
+      const amountRaw = String(investigate[2] || '1').trim();
       return withMeta({
         kind: 'investigate',
-        who: parsePlayerSelector(investigate[1]),
-        amount: /^twice$/i.test(String(investigate[2] || '')) ? { kind: 'number', value: 2 } : parseQuantity(investigate[2] || '1'),
+        who: parsePlayerSelector(whoRaw),
+        amount: /^twice$/i.test(amountRaw) ? { kind: 'number', value: 2 } : parseQuantity(amountRaw || '1'),
+        ...(whereX ? { whereX } : {}),
+        optional: /\bmay\b/i.test(clause) || undefined,
         raw: rawClause,
         });
     }
@@ -3113,28 +3416,51 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const scry = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?(?:scry|scries)\\s+(a|an|\\d+|x|[a-z]+)\\b`, 'i'));
-    if (scry) {
-      return withMeta({
+    const scryCandidates = [clause];
+    const triggeredScryMatch = clause.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+    if (triggeredScryMatch) scryCandidates.push(String(triggeredScryMatch[1] || '').trim());
+
+    for (const scryClause of scryCandidates) {
+      const scryTail = scryClause.match(
+        new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?(?:scry|scries)\\s+(.+)$`, 'i')
+      );
+      if (!scryTail) continue;
+
+      const quantityTail = String(scryTail[2] || '').trim();
+      if (!quantityTailSupportsDynamicQuantity(quantityTail)) continue;
+
+      return buildQuantityStepFromClauseParts({
         kind: 'scry',
-        who: parsePlayerSelector(scry[1]),
-        amount: parseQuantity(scry[2]),
-        raw: rawClause,
-        });
+        who: parsePlayerSelector(scryTail[1]),
+        quantityTail,
+        rawClause,
+        withMeta,
+        optional: /\bmay\b/i.test(scryClause) || undefined,
+      });
     }
   }
 
   {
-    const surveil = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:surveil|surveils)\\s+(a|an|\\d+|x|[a-z]+)\\b`, 'i')
-    );
-    if (surveil) {
-      return withMeta({
+    const surveilCandidates = [clause];
+    const triggeredSurveilMatch = clause.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
+    if (triggeredSurveilMatch) surveilCandidates.push(String(triggeredSurveilMatch[1] || '').trim());
+
+    for (const surveilClause of surveilCandidates) {
+      const surveilTail = surveilClause.match(
+        new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:surveil|surveils)\\s+(.+)$`, 'i')
+      );
+      if (!surveilTail) continue;
+
+      const quantityTail = String(surveilTail[2] || '').trim();
+      if (!quantityTailSupportsDynamicQuantity(quantityTail)) continue;
+
+      return buildQuantityStepFromClauseParts({
         kind: 'surveil',
-        who: parsePlayerSelector(surveil[1]),
-        amount: parseQuantity(surveil[2]),
-        raw: rawClause,
-        });
+        who: parsePlayerSelector(surveilTail[1]),
+        quantityTail,
+        rawClause,
+        withMeta,
+      });
     }
   }
 
@@ -3239,17 +3565,34 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
-    const discard = clause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:also\\s+)?(?:may\\s+)?discards?\\s+(that\\s+many|a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i')
+    const discardAndLose = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+(a card|(?:a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\\s+cards?)\\s+and\\s+loses?\\s+(\\d+|x)\\s+life$`,
+        'i'
+      )
     );
-    if (discard) {
+    if (discardAndLose) {
       return withMeta({
         kind: 'discard',
-        who: parsePlayerSelector(discard[1]),
-        amount: parseQuantity(discard[2]),
-        optional: /\\bmay\\b/i.test(clause) || undefined,
+        who: parsePlayerSelector(discardAndLose[1]),
+        amount: parseQuantity(String(discardAndLose[2] || '').trim()),
+        optional: /\bmay\b/i.test(clause) || undefined,
         raw: rawClause,
-        });
+      });
+    }
+
+    const discardTail = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:also\\s+)?(?:may\\s+)?discards?\\s+(.+)$`, 'i')
+    );
+    if (discardTail && isSimpleCardQuantityTail(String(discardTail[2] || ''))) {
+      return buildQuantityStepFromClauseParts({
+        kind: 'discard',
+        who: parsePlayerSelector(discardTail[1]),
+        quantityTail: String(discardTail[2] || '').trim(),
+        rawClause,
+        withMeta,
+        optional: /\bmay\b/i.test(clause) || undefined,
+      });
     }
 
     const eachPlayerWhoCantDiscard = clause.match(/^each\s+player\s+who\s+can't\s+discards?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
@@ -3284,14 +3627,15 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
-    const discardDefault = clause.match(/^discard\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
-    if (discardDefault) {
-      return withMeta({
+    const discardDefaultTail = clause.match(/^discard\s+(.+)$/i);
+    if (discardDefaultTail && isSimpleCardQuantityTail(String(discardDefaultTail[1] || ''))) {
+      return buildQuantityStepFromClauseParts({
         kind: 'discard',
         who: { kind: 'you' },
-        amount: parseQuantity(discardDefault[1]),
-        raw: rawClause,
-        });
+        quantityTail: String(discardDefaultTail[1] || '').trim(),
+        rawClause,
+        withMeta,
+      });
     }
   }
 
@@ -3346,36 +3690,63 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
+    const enchantedPlayerMill = tryParsePlayerMillClause({ clause, rawClause, withMeta });
+    if (enchantedPlayerMill) return enchantedPlayerMill;
+
+    const tapMillACard = clause.match(/^\{T\}(?::|,)?\s*mill\s+(?:a|one)\s+card\.?$/i);
+    if (tapMillACard) {
+      return buildMillStepFromClauseParts({
+        who: { kind: 'you' },
+        quantityTail: 'one card',
+        rawClause,
+        withMeta,
+      });
+    }
+
     const anyTargetsMill = clause.match(
-      /^any\s+number\s+of\s+target\s+players\s+each\s+mills?\s+(that many|that much|a|an|\d+|x|[a-z]+)\s+cards?$/i
+      /^any\s+number\s+of\s+target\s+players\s+each\s+mills?\s+(.+)$/i
     );
     if (anyTargetsMill) {
-      return withMeta({
-        kind: 'mill',
+      return buildMillStepFromClauseParts({
         who: { kind: 'any_number_of_target_players' },
-        amount: parseQuantity(anyTargetsMill[1]),
-        raw: rawClause,
-        });
+        quantityTail: String(anyTargetsMill[1] || '').trim(),
+        rawClause,
+        withMeta,
+      });
     }
 
-    const mill = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}mill(?:s)?\\s+(that many|that much|a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i'));
+    const mill = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}mills?\\s+(.+)$`, 'i')
+    );
     if (mill) {
-      return withMeta({
-        kind: 'mill',
+      return buildMillStepFromClauseParts({
         who: parsePlayerSelector(mill[1]),
-        amount: parseQuantity(mill[2]),
-        raw: rawClause,
-        });
+        quantityTail: String(mill[2] || '').trim(),
+        rawClause,
+        withMeta,
+      });
     }
 
-    const millDefault = clause.match(/^mill\s+(that many|that much|a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    const putsTopIntoGraveyard = clause.match(
+      /^target\s+player\s+puts\s+the\s+top\s+(.+?)\s+of\s+their\s+library\s+into\s+their\s+graveyard$/i
+    );
+    if (putsTopIntoGraveyard) {
+      return buildMillStepFromClauseParts({
+        who: { kind: 'target_player' },
+        quantityTail: String(putsTopIntoGraveyard[1] || '').trim(),
+        rawClause,
+        withMeta,
+      });
+    }
+
+    const millDefault = clause.match(/^mills?\s+(.+)$/i);
     if (millDefault) {
-      return withMeta({
-        kind: 'mill',
+      return buildMillStepFromClauseParts({
         who: { kind: 'you' },
-        amount: parseQuantity(millDefault[1]),
-        raw: rawClause,
-        });
+        quantityTail: String(millDefault[1] || '').trim(),
+        rawClause,
+        withMeta,
+      });
     }
   }
 
@@ -4031,6 +4402,20 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
+    if (
+      /^attach to it any number of auras on the battlefield and you may put onto the battlefield attached to it any number of aura cards that could enchant it from your graveyard and\/or hand$/i.test(
+        clause
+      )
+    ) {
+      return withMeta({
+        kind: 'attach',
+        attachment: parseObjectSelector('any number of auras on the battlefield and aura cards from your graveyard and/or hand'),
+        to: parseObjectSelector('it'),
+        optional: true,
+        raw: rawClause,
+      });
+    }
+
     const attachToTarget = clause.match(/^attach\s+to\s+(.+)$/i);
     if (attachToTarget) {
       return withMeta({
@@ -4174,6 +4559,21 @@ export function tryParseSimpleActionClause(args: {
         kind: 'lose_game',
         raw: rawClause,
         });
+    }
+  }
+
+  {
+    const staticRider = clause.match(
+      /^(draft a card from this creature's spellbook|you may pay any amount of life|you have no maximum hand size until your next turn|level \d+ you may play an additional land on each of your turns|you get \{[a-z0-9]+\} for each .+ you control|transform up to one other target double-faced artifact you control|this effect can't reduce a number below \d+ or a number word below one|then incubate x, where x is .+|your favorite creatures get [+-]\d+\/[+-]?\d+|your maximum hand size is (?:two|three|four|five|six|seven|eight|nine|ten|\d+)|you may reveal that card|the player with the most life|then shuffle and put those cards on top in any order|you gain \d+ life for each time it was kicked|target creature card in your graveyard without unearth perpetually gains unearth|the unearth cost is equal to its mana cost|the heroes lose \d+ life|a card and convert this permanent|combat damage this turn, it deals that|they keep that card|you may pay (?:\{[^}]+\})+ up to three times)$/i
+    );
+    if (staticRider) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('effect rider'),
+        effectText: [rawClause],
+        duration: 'static',
+        raw: rawClause,
+      });
     }
   }
 

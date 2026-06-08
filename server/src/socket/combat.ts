@@ -24,6 +24,20 @@ import { inferTriggeredAbilityTargetMetadata } from "../state/modules/stack.js";
 import { getEnergyCount, spendEnergyCounters } from "../state/utils.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 
+function getDefendingPlayerIdFromAttackDeclaration(
+  attackers: Array<{ targetPlayerId?: string; targetPermanentId?: string }>,
+  battlefield: any[],
+): string | undefined {
+  const first = attackers[0];
+  if (!first) return undefined;
+  if (first.targetPlayerId) return String(first.targetPlayerId);
+  if (first.targetPermanentId) {
+    const targetPerm = battlefield.find((p: any) => p?.id === first.targetPermanentId);
+    if (targetPerm?.controller) return String(targetPerm.controller);
+  }
+  return undefined;
+}
+
 function persistTriggeredAbilityPush(
   gameId: string,
   game: any,
@@ -2064,9 +2078,11 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           attackerIds.includes(perm.id)
         );
         
-        // Get the first defender as the default defending player
-        const firstDefender = (attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>)[0]?.targetPlayerId;
-        
+        const firstDefender = getDefendingPlayerIdFromAttackDeclaration(
+          attackers as Array<{ targetPlayerId?: string; targetPermanentId?: string }>,
+          battlefield,
+        );
+
         if (attackingCreatures.length > 0 && firstDefender) {
           // Create a minimal context for trigger detection
           const ctx = {
@@ -3420,7 +3436,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // Process attack triggers for controlled combat declarations
       try {
         const attackingCreatures = battlefield.filter((perm: any) => attackerIds.includes(perm.id));
-        const firstDefender = attackers[0]?.targetPlayerId;
+        const firstDefender = getDefendingPlayerIdFromAttackDeclaration(attackers, battlefield);
 
         if (attackingCreatures.length > 0 && firstDefender) {
           const ctx = {

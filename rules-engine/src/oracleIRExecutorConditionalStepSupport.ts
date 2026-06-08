@@ -2,7 +2,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
-import { getAmountOfManaSpent } from './oracleIRExecutorManaUtils';
+import { getAmountOfManaSpent, getAmountOfSpecificManaSymbolSpent } from './oracleIRExecutorManaUtils';
 import { evaluateModifyPtCondition } from './oracleIRExecutorModifyPtCondition';
 import { findObjectByIdInState, getCreatureSubtypeKeys } from './oracleIRExecutorModifyPtWhereUtils';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
@@ -226,6 +226,149 @@ function getTopLibraryCard(nextState: GameState, ownerId: string): any | null {
   return Array.isArray(player?.library) && player.library.length > 0 ? player.library[0] : null;
 }
 
+function getBattlefieldCreaturePower(perm: any): number {
+  if (typeof perm?.effectivePower === 'number' && Number.isFinite(perm.effectivePower)) {
+    return perm.effectivePower;
+  }
+  const basePower = perm?.power ?? perm?.card?.power ?? perm?.basePower;
+  let power = Number.parseInt(String(basePower ?? '0'), 10);
+  if (!Number.isFinite(power)) power = 0;
+  const counters = ((perm as any)?.counters || {}) as Record<string, unknown>;
+  power += Number(counters['+1/+1'] ?? 0);
+  power -= Number(counters['-1/-1'] ?? 0);
+  return power;
+}
+
+function controllerAttackedThisTurn(nextState: GameState, playerId: PlayerID): boolean {
+  const normalizedPlayerId = String(playerId || '').trim();
+  const attackersByPlayer = (nextState as any)?.attackersDeclaredThisCombatByPlayer;
+  if (attackersByPlayer && typeof attackersByPlayer === 'object') {
+    const attackers = (attackersByPlayer as Record<string, unknown>)[normalizedPlayerId];
+    if (Array.isArray(attackers) && attackers.length > 0) return true;
+  }
+
+  const battlefield = getProcessedBattlefield(nextState) as any[];
+  return battlefield.some(
+    (perm: any) =>
+      String(perm?.controller || '').trim() === normalizedPlayerId &&
+      (perm?.attackedThisTurn === true || Boolean(perm?.attacking) || perm?.isAttacking === true)
+  );
+}
+
+function controllerAttackedWithPowerAtLeast(
+  nextState: GameState,
+  playerId: PlayerID,
+  threshold: number
+): boolean {
+  const normalizedPlayerId = String(playerId || '').trim();
+  const battlefield = getProcessedBattlefield(nextState) as any[];
+  return battlefield.some((perm: any) => {
+    if (String(perm?.controller || '').trim() !== normalizedPlayerId) return false;
+    if (
+      perm?.attackedThisTurn !== true &&
+      !perm?.attacking &&
+      perm?.isAttacking !== true
+    ) {
+      return false;
+    }
+    return !battlefieldObjectHasType(perm, 'creature')
+      ? false
+      : getBattlefieldCreaturePower(perm) >= threshold;
+  });
+}
+
+function controllerControlsGreatestPowerCreature(nextState: GameState, playerId: PlayerID): boolean {
+  const normalizedPlayerId = String(playerId || '').trim();
+  const battlefield = getProcessedBattlefield(nextState) as any[];
+  const creatures = battlefield.filter((perm: any) => battlefieldObjectHasType(perm, 'creature'));
+  if (creatures.length === 0) return false;
+
+  const maxPower = Math.max(...creatures.map((perm: any) => getBattlefieldCreaturePower(perm)));
+  return creatures.some(
+    (perm: any) =>
+      String(perm?.controller || '').trim() === normalizedPlayerId &&
+      getBattlefieldCreaturePower(perm) === maxPower
+  );
+}
+
+function countControlledCreaturesWithSubtype(
+  nextState: GameState,
+  controllerId: PlayerID,
+  subtype: string
+): number {
+  const normalizedSubtype = String(subtype || '').trim().toLowerCase();
+  if (!normalizedSubtype) return 0;
+  const battlefield = getProcessedBattlefield(nextState) as any[];
+  return battlefield.filter((perm: any) => {
+    if (String(perm?.controller || '').trim() !== String(controllerId || '').trim()) return false;
+    if (!battlefieldObjectHasType(perm, 'creature')) return false;
+    const subtypes = getCreatureSubtypeKeys(perm, getExecutorTypeLineLower);
+    return subtypes.some((entry: string) => entry.toLowerCase() === normalizedSubtype);
+  }).length;
+}
+
+function controllerHasFullParty(nextState: GameState, controllerId: PlayerID): boolean {
+  const roles = ['cleric', 'rogue', 'warrior', 'wizard'];
+  return roles.every(role => countControlledCreaturesWithSubtype(nextState, controllerId, role) > 0);
+}
+
+function getPlayerPoisonCounters(nextState: GameState, playerId: string): number {
+  const normalizedPlayerId = String(playerId || '').trim();
+  const map = (nextState as any)?.poisonCounters;
+  if (map && typeof map === 'object' && Number.isFinite(Number((map as Record<string, unknown>)[normalizedPlayerId]))) {
+    return Number((map as Record<string, unknown>)[normalizedPlayerId]);
+  }
+  const player = (nextState.players || []).find(
+    (entry: any) => String(entry?.id || '').trim() === normalizedPlayerId
+  ) as any;
+  const direct = Number(player?.poisonCounters);
+  return Number.isFinite(direct) ? direct : 0;
+}
+
+function resolveKickedStatus(nextState: GameState, ctx: OracleIRExecutionContext, sourceRef: any): boolean | null {
+  const candidates = [
+    sourceRef,
+    ((nextState as any)?.stack || []).find(
+      (entry: any) => String(entry?.id || '').trim() === String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim()
+    ),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const explicit = (candidate as any)?.wasKicked ?? (candidate as any)?.card?.wasKicked;
+    if (typeof explicit === 'boolean') return explicit;
+    const count =
+      (candidate as any)?.kickerPaidCount ??
+      (candidate as any)?.timesKicked ??
+      (candidate as any)?.kickedTimes ??
+      (candidate as any)?.card?.kickerPaidCount ??
+      (candidate as any)?.card?.timesKicked ??
+      (candidate as any)?.card?.kickedTimes;
+    if (typeof count === 'number') return count > 0;
+  }
+
+  return null;
+}
+
+function resolveTargetSpellManaValue(nextState: GameState, ctx: OracleIRExecutionContext): number | null {
+  if (typeof ctx.referenceSpellManaValue === 'number' && Number.isFinite(ctx.referenceSpellManaValue)) {
+    return ctx.referenceSpellManaValue;
+  }
+
+  const selectorSpellManaValue = Number(ctx.selectorContext?.spellManaValue);
+  if (Number.isFinite(selectorSpellManaValue)) {
+    return selectorSpellManaValue;
+  }
+
+  const targetSpellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+  if (!targetSpellId) return null;
+
+  const stackSpell = ((nextState as any)?.stack || []).find(
+    (entry: any) => String(entry?.id || '').trim() === targetSpellId
+  );
+  if (!stackSpell) return null;
+  return getCardManaValue(stackSpell.card || stackSpell);
+}
+
 function topCardSharesCreatureTypeWithSource(nextState: GameState, ownerId: string, sourceRef: any): boolean {
   const topCard = getTopLibraryCard(nextState, ownerId);
   if (!topCard || !sourceRef) return false;
@@ -246,12 +389,27 @@ export function evaluateConditionalWrapperCondition(params: {
   controllerId: PlayerID;
   ctx: OracleIRExecutionContext;
   lastActionOutcome: LastActionOutcome;
+  lastStepOutcome?: LastActionOutcome;
   lastConditionalEvaluation?: boolean | null;
   pendingSteps?: readonly OracleEffectStep[];
   lastMovedCards?: readonly any[];
   lastDiscardedCards?: readonly any[];
 }): boolean | null {
-  const { condition, nextState, controllerId, ctx, lastActionOutcome, lastConditionalEvaluation, pendingSteps, lastMovedCards, lastDiscardedCards } = params;
+  const {
+    condition,
+    nextState,
+    controllerId,
+    ctx,
+    lastActionOutcome,
+    lastStepOutcome = null,
+    lastConditionalEvaluation,
+    pendingSteps,
+    lastMovedCards,
+    lastDiscardedCards,
+  } = params;
+
+  const getAffirmativeAntecedentOutcome = (): LastActionOutcome =>
+    lastActionOutcome ?? lastStepOutcome;
   if (condition.kind !== 'if' && condition.kind !== 'as_long_as') return null;
 
   const raw = String(condition.raw || '').trim().toLowerCase();
@@ -302,10 +460,34 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   {
+    const youDiscardThisWayMatch = normalizedRaw.match(/^you discard (?:a|an) (.+?) card this way$/i);
+    if (youDiscardThisWayMatch) {
+      if (lastActionOutcome?.kind === 'impossible') return false;
+      if (lastActionOutcome?.stepKind !== 'discard') return null;
+
+      const descriptor = String(youDiscardThisWayMatch[1] || '').trim().toLowerCase();
+      const discardedCards = Array.isArray(lastDiscardedCards) ? lastDiscardedCards : [];
+      return discardedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
+    }
+  }
+
+  {
+    const putIntoExileThisWayMatch = normalizedRaw.match(/^(?:a|an)\s+(.+?)\s+is put into exile this way$/i);
+    if (putIntoExileThisWayMatch) {
+      if (lastActionOutcome?.kind === 'impossible') return false;
+      if (lastActionOutcome?.stepKind !== 'move_zone' && lastActionOutcome?.stepKind !== 'exile') return null;
+
+      const descriptor = String(putIntoExileThisWayMatch[1] || '').trim().toLowerCase();
+      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+      return movedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
+    }
+  }
+
+  {
     const exiledThisWayMatch = normalizedRaw.match(/^(.*?)\s+card\s+(?:was exiled|is exiled|is put into exile)\s+this way$/i);
     if (exiledThisWayMatch) {
       if (lastActionOutcome?.kind === 'impossible') return false;
-      if (lastActionOutcome?.stepKind !== 'move_zone') return null;
+      if (lastActionOutcome?.stepKind !== 'move_zone' && lastActionOutcome?.stepKind !== 'exile') return null;
 
       const rawDescriptor = String(exiledThisWayMatch[1] || '').trim().toLowerCase();
       const descriptor = rawDescriptor.replace(/^an?\s+/i, '').trim();
@@ -313,6 +495,311 @@ export function evaluateConditionalWrapperCondition(params: {
       if (!descriptor || rawDescriptor === 'a' || rawDescriptor === 'an') return movedCards.length > 0;
       return movedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
     }
+  }
+
+  {
+    const milledThisWayMatch = normalizedRaw.match(/^(?:a|an)\s+(.+?)\s+card\s+was\s+milled\s+this\s+way$/i);
+    if (milledThisWayMatch) {
+      const descriptor = String(milledThisWayMatch[1] || '').trim().toLowerCase();
+      const milledCards = Array.isArray(ctx.lastMilledCards) ? ctx.lastMilledCards : [];
+      return milledCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
+    }
+  }
+
+  {
+    const unlessNotMatch = normalizedRaw.match(/^not \((.+)\)$/i);
+    if (unlessNotMatch) {
+      const inner = String(unlessNotMatch[1] || '').trim().toLowerCase();
+      const manaSpentUnlessMatch = inner.match(/^\{([wubrgcs])\} was spent to cast it$/);
+      const satisfied = manaSpentUnlessMatch
+        ? (() => {
+            const sourceRef = getContextSourceObject(ctx, (idRaw: string) =>
+              findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, idRaw)
+            );
+            const spent = getAmountOfSpecificManaSymbolSpent(sourceRef, manaSpentUnlessMatch[1]);
+            return spent === null ? null : spent > 0;
+          })()
+        : /^you discard (?:a|an) /.test(inner) ||
+            /^you exile (?:a|an) card from your graveyard/.test(inner) ||
+            /^you exile the top creature card of your graveyard/.test(inner) ||
+            /^you return (?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) /.test(inner) ||
+            /^you return another creature you control to its owner's hand/.test(inner) ||
+            /^you sacrifice (?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) /.test(inner)
+          ? true
+          : /^you pay \{/.test(inner)
+            ? false
+            : null;
+      if (satisfied === null) return null;
+      return !satisfied;
+    }
+  }
+
+  if (normalizedRaw === 'an opponent controls more lands than you') {
+    const battlefield = getProcessedBattlefield(nextState) as any[];
+    const countLands = (playerId: string): number =>
+      battlefield.filter(
+        (perm: any) =>
+          String(perm?.controller || '').trim() === playerId && battlefieldObjectHasType(perm, 'land')
+      ).length;
+    const youLands = countLands(String(controllerId || '').trim());
+    const opponentIds = (nextState.players || [])
+      .map((player: any) => String(player?.id || '').trim())
+      .filter((playerId: string) => playerId && playerId !== String(controllerId || '').trim());
+    return opponentIds.some((opponentId: string) => countLands(opponentId) > youLands);
+  }
+
+  if (
+    normalizedRaw === 'this is the second time this ability has resolved this turn' ||
+    normalizedRaw === "it's the second time"
+  ) {
+    const count = Number(ctx.abilityResolveCountThisTurn);
+    return Number.isFinite(count) ? count >= 2 : false;
+  }
+
+  if (normalizedRaw === "it's the third time") {
+    const count = Number(ctx.abilityResolveCountThisTurn);
+    return Number.isFinite(count) ? count >= 3 : false;
+  }
+
+  if (
+    normalizedRaw === 'a permanent left the battlefield under your control this turn' ||
+    normalizedRaw === 'a permanent you controlled left the battlefield this turn'
+  ) {
+    const map = (nextState as any)?.permanentLeftBattlefieldThisTurn;
+    return typeof map?.[controllerId] === 'boolean' ? map[controllerId] : null;
+  }
+
+  if (normalizedRaw === 'you attacked this turn') {
+    return controllerAttackedThisTurn(nextState, controllerId);
+  }
+
+  {
+    const attackedWithPowerMatch = normalizedRaw.match(
+      /^you attacked this turn with a creature with power (\d+) or greater$/
+    );
+    if (attackedWithPowerMatch) {
+      const threshold = Number.parseInt(String(attackedWithPowerMatch[1] || ''), 10);
+      return Number.isFinite(threshold)
+        ? controllerAttackedWithPowerAtLeast(nextState, controllerId, threshold)
+        : null;
+    }
+  }
+
+  if (normalizedRaw === 'you control the creature with the greatest power or tied for the greatest power') {
+    return controllerControlsGreatestPowerCreature(nextState, controllerId);
+  }
+
+  if (
+    normalizedRaw === "you didn't put a card into your hand this way" ||
+    normalizedRaw === 'you did not put a card into your hand this way'
+  ) {
+    if (lastActionOutcome?.kind === 'impossible') return true;
+    if (
+      lastActionOutcome?.stepKind === 'look_choose_from_top' ||
+      lastActionOutcome?.stepKind === 'move_zone' ||
+      lastActionOutcome?.stepKind === 'search_library'
+    ) {
+      if (lastActionOutcome.kind === 'applied') {
+        const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+        return movedCards.length === 0;
+      }
+      if (lastActionOutcome.kind === 'impossible') return true;
+      return lastActionOutcome.kind !== 'applied';
+    }
+    return null;
+  }
+
+  if (
+    normalizedRaw === 'this creature would die' ||
+    normalizedRaw === 'this permanent would die' ||
+    normalizedRaw === 'it would die'
+  ) {
+    return true;
+  }
+
+  if (
+    normalizedRaw === "it isn't a creature" ||
+    normalizedRaw === 'it is not a creature' ||
+    normalizedRaw === "this permanent isn't a creature" ||
+    normalizedRaw === 'this permanent is not a creature'
+  ) {
+    const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+    if (!referencedObject) return null;
+    return !battlefieldObjectHasType(referencedObject, 'creature');
+  }
+
+  if (normalizedRaw === "it's suspected" || normalizedRaw === 'it is suspected' || normalizedRaw === 'this creature is suspected') {
+    const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+    if (!referencedObject) return null;
+    return Boolean(
+      (referencedObject as any)?.suspected ??
+        (referencedObject as any)?.isSuspected ??
+        (referencedObject as any)?.card?.suspected ??
+        (referencedObject as any)?.card?.isSuspected
+    );
+  }
+
+  if (normalizedRaw === 'it was attacking' || normalizedRaw === 'this creature was attacking') {
+    const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+    if (!referencedObject) return null;
+    return (
+      (referencedObject as any)?.attackedThisTurn === true ||
+      Boolean((referencedObject as any)?.attacking) ||
+      (referencedObject as any)?.isAttacking === true
+    );
+  }
+
+  {
+    const spellMvMatch = normalizedRaw.match(/^that spell(?:'s)? (?:has )?mana value (?:is )?(\d+) or greater$/);
+    if (spellMvMatch) {
+      const threshold = Number.parseInt(String(spellMvMatch[1] || ''), 10);
+      const manaValue = resolveTargetSpellManaValue(nextState, ctx);
+      if (!Number.isFinite(threshold) || manaValue === null) return null;
+      return manaValue >= threshold;
+    }
+  }
+
+  if (normalizedRaw === 'that player has more cards in hand than you') {
+    const thatPlayerId = String(
+      ctx.selectorContext?.targetOpponentId || ctx.selectorContext?.targetPlayerId || ''
+    ).trim();
+    if (!thatPlayerId) return null;
+    const youPlayer = (nextState.players || []).find(
+      (player: any) => String(player?.id || '').trim() === String(controllerId || '').trim()
+    ) as any;
+    const thatPlayer = (nextState.players || []).find(
+      (player: any) => String(player?.id || '').trim() === thatPlayerId
+    ) as any;
+    const yourHandCount = Array.isArray(youPlayer?.hand) ? youPlayer.hand.length : 0;
+    const theirHandCount = Array.isArray(thatPlayer?.hand) ? thatPlayer.hand.length : 0;
+    return theirHandCount > yourHandCount;
+  }
+
+  {
+    const graveyardTypeMatch = normalizedRaw.match(/^there is an? ([a-z0-9' -]+) card in your graveyard$/i);
+    if (graveyardTypeMatch) {
+      const descriptor = String(graveyardTypeMatch[1] || '').trim().toLowerCase();
+      const graveyard = getYourGraveyardCards(nextState, controllerId);
+      return graveyard.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
+    }
+  }
+
+  if (normalizedRaw === 'that creature is legendary' || normalizedRaw === 'that permanent is legendary') {
+    const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+    if (!referencedObject) return null;
+    return (
+      battlefieldObjectHasType(referencedObject, 'legendary') ||
+      matchesTypeLine(getExecutorTypeLineLower(referencedObject), 'legendary')
+    );
+  }
+
+  if (normalizedRaw === 'you controlled it') {
+    const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+    if (!referencedObject) return true;
+    return String((referencedObject as any)?.controller || '').trim() === String(controllerId || '').trim();
+  }
+
+  if (normalizedRaw === 'a creature an opponent controls would die') {
+    return true;
+  }
+
+  if (normalizedRaw === "each opponent who didn't discard a nonland card this way") {
+    if (lastActionOutcome?.kind === 'impossible') return false;
+    if (lastActionOutcome?.stepKind === 'discard' && lastActionOutcome.kind === 'applied') return true;
+    return true;
+  }
+
+  if (
+    normalizedRaw === 'a card or token would be put into your graveyard from anywhere' ||
+    normalizedRaw === 'a spell cast this way would be put into a graveyard'
+  ) {
+    return true;
+  }
+
+  if (normalizedRaw === 'this is the first time this ability has resolved this turn') {
+    const count = Number(ctx.abilityResolveCountThisTurn);
+    return Number.isFinite(count) ? count >= 1 : true;
+  }
+
+  if (normalizedRaw === 'they guessed wrong') {
+    const guessCorrect = (ctx as { readonly lastGuessCorrect?: boolean }).lastGuessCorrect;
+    return typeof guessCorrect === 'boolean' ? !guessCorrect : false;
+  }
+
+  if (normalizedRaw === 'you control that creature' || normalizedRaw === 'you control that permanent') {
+    const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+    if (!referencedObject) return null;
+    return String((referencedObject as any)?.controller || '').trim() === String(controllerId || '').trim();
+  }
+
+  if (
+    normalizedRaw === 'that creature would die this turn' ||
+    normalizedRaw === 'that permanent would die this turn'
+  ) {
+    return true;
+  }
+
+  if (normalizedRaw === 'that spell is countered this way') {
+    if (lastActionOutcome?.kind === 'impossible') return false;
+    if (lastActionOutcome?.stepKind === 'counter_spell' && lastActionOutcome.kind === 'applied') return true;
+    if (lastActionOutcome?.stepKind === 'counter_spell') return false;
+    return null;
+  }
+
+  if (normalizedRaw === 'you have a full party') {
+    return controllerHasFullParty(nextState, controllerId);
+  }
+
+  {
+    const poisonMatch = normalizedRaw.match(/^an opponent has (three|[a-z0-9]+) or more poison counters$/);
+    if (poisonMatch) {
+      const threshold = parseSmallNumberWord(String(poisonMatch[1] || '').trim());
+      if (threshold === null) return null;
+      const opponentIds = (nextState.players || [])
+        .map((player: any) => String(player?.id || '').trim())
+        .filter((playerId: string) => playerId && playerId !== String(controllerId || '').trim());
+      return opponentIds.some((opponentId: string) => getPlayerPoisonCounters(nextState, opponentId) >= threshold);
+    }
+  }
+
+  if (
+    normalizedRaw === 'a nonland permanent left the battlefield this turn or a spell was warped this turn'
+  ) {
+    const leftMap = (nextState as any)?.permanentLeftBattlefieldThisTurn;
+    const leftBattlefield =
+      typeof leftMap?.[controllerId] === 'boolean' ? leftMap[controllerId] : false;
+    const warpedMap = (nextState as any)?.spellWarpedThisTurn;
+    const warped =
+      typeof warpedMap?.[controllerId] === 'boolean'
+        ? warpedMap[controllerId]
+        : Boolean((nextState as any)?.spellWarpedThisTurn);
+    return leftBattlefield || warped;
+  }
+
+  {
+    const genericCounterThresholdMatch = normalizedRaw.match(
+      /^it has (three|[a-z0-9]+) or more ([a-z0-9/+ -]+) counters on it$/i
+    );
+    if (genericCounterThresholdMatch) {
+      const threshold = parseSmallNumberWord(String(genericCounterThresholdMatch[1] || '').trim());
+      const counterName = String(genericCounterThresholdMatch[2] || '').trim().toLowerCase();
+      if (threshold !== null && counterName) {
+        const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+        if (!referencedObject) return null;
+        const counters = ((referencedObject as any)?.counters || {}) as Record<string, unknown>;
+        const count = Number(counters[counterName] ?? 0);
+        return (Number.isFinite(count) ? count : 0) >= threshold;
+      }
+    }
+  }
+
+  const sourceRefForEarlyChecks = getContextSourceObject(ctx, (idRaw: string) =>
+    findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, idRaw)
+  );
+
+  if (normalizedRaw === 'it was kicked' || normalizedRaw === 'this spell was kicked') {
+    const kicked = resolveKickedStatus(nextState, ctx, sourceRefForEarlyChecks);
+    return kicked === null ? null : kicked;
   }
 
   const andParts = splitCompositeCondition(normalizedRaw, 'and');
@@ -358,20 +845,79 @@ export function evaluateConditionalWrapperCondition(params: {
     }
   }
 
-  if (/^you (?:don't|do not)\b/i.test(normalizedRaw)) {
+  if (
+    /^you (?:don't|do not)\b/i.test(normalizedRaw) ||
+    /^they (?:don't|do not)\b/i.test(normalizedRaw) ||
+    /^the player (?:doesn't|does not)\b/i.test(normalizedRaw) ||
+    /^that player (?:doesn't|does not)\b/i.test(normalizedRaw) ||
+    /^a player (?:doesn't|does not)\b/i.test(normalizedRaw) ||
+    /^each opponent who (?:doesn't|does not)\b/i.test(normalizedRaw) ||
+    /^the player can't\b/i.test(normalizedRaw) ||
+    normalizedRaw === "it doesn't" ||
+    normalizedRaw === 'it does not'
+  ) {
     if (lastActionOutcome?.kind === 'impossible') return true;
     if (lastActionOutcome?.kind === 'applied') return false;
+    if (lastActionOutcome) return true;
+    if (normalizedRaw === "you don't" || normalizedRaw === 'you do not') return true;
     return null;
   }
 
-  if (normalizedRaw === 'you do') {
-    if (lastActionOutcome?.kind === 'applied' && lastActionOutcome.stepKind === 'tap_matching_permanents') {
-      const count = Number(lastActionOutcome.count ?? 0);
+  if (
+    normalizedRaw === 'you do' ||
+    normalizedRaw === 'the player does' ||
+    normalizedRaw === 'a player does' ||
+    normalizedRaw === 'they do' ||
+    normalizedRaw === 'that player does'
+  ) {
+    const antecedent = getAffirmativeAntecedentOutcome();
+    if (antecedent?.kind === 'applied' && antecedent.stepKind === 'tap_matching_permanents') {
+      const count = Number(antecedent.count ?? 0);
       return Number.isFinite(count) ? count > 0 : true;
     }
-    if (lastActionOutcome?.kind === 'applied') return true;
-    if (lastActionOutcome?.kind === 'impossible' || lastActionOutcome?.kind === 'choice_required') return false;
+    if (antecedent?.kind === 'applied') return true;
+    if (antecedent) return false;
     return null;
+  }
+
+  if (
+    normalizedRaw === 'you search your library this way' ||
+    normalizedRaw === 'they search their library this way' ||
+    normalizedRaw === 'that player searches their library this way' ||
+    normalizedRaw === 'an opponent searches their library this way' ||
+    normalizedRaw === 'you searched your library this way'
+  ) {
+    if (ctx.searchedLibraryThisWay === true) return true;
+    const antecedent = getAffirmativeAntecedentOutcome();
+    if (antecedent?.stepKind === 'search_library' && antecedent.kind === 'applied') return true;
+    if (antecedent?.stepKind === 'search_library' || ctx.searchedLibraryThisWay === false) return false;
+    return null;
+  }
+
+  if (
+    normalizedRaw === 'that spell would be put into a graveyard' ||
+    normalizedRaw === 'that spell would be put into a graveyard from anywhere' ||
+    normalizedRaw === 'it would be put into a graveyard' ||
+    normalizedRaw === 'this spell would be put into a graveyard'
+  ) {
+    const antecedent = getAffirmativeAntecedentOutcome();
+    if (
+      antecedent?.kind === 'applied' &&
+      (antecedent.stepKind === 'grant_graveyard_permission' ||
+        antecedent.stepKind === 'cast_spell' ||
+        antecedent.stepKind === 'copy_spell')
+    ) {
+      return true;
+    }
+    if (antecedent) return false;
+    return null;
+  }
+
+  if (
+    normalizedRaw === 'this permanent would be put into a graveyard from anywhere' ||
+    normalizedRaw === 'this creature would be put into a graveyard from anywhere'
+  ) {
+    return true;
   }
 
   if (normalizedRaw === "you can't" || normalizedRaw === 'you cannot') {
@@ -725,21 +1271,62 @@ export function evaluateConditionalWrapperCondition(params: {
     return provenance.castFromZone !== 'graveyard';
   }
 
+  {
+    const hadNoCountersMatch = normalizedRaw.match(/^it had no ([+-]1\/[+-]1) counters on it$/i);
+    if (hadNoCountersMatch) {
+      const counterName = String(hadNoCountersMatch[1] || '').trim();
+      const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
+      if (!referencedObject) return null;
+      const counters = ((referencedObject as any)?.counters || {}) as Record<string, unknown>;
+      const count = Number(counters[counterName] ?? 0);
+      return (Number.isFinite(count) ? count : 0) === 0;
+    }
+  }
+
+  {
+    const hasCountersThresholdMatch = normalizedRaw.match(
+      /^it has (three|[a-z0-9]+) or more ([+-]1\/[+-]1) counters on it$/i
+    );
+    if (hasCountersThresholdMatch) {
+      const threshold = parseSmallNumberWord(String(hasCountersThresholdMatch[1] || '').trim());
+      const counterName = String(hasCountersThresholdMatch[2] || '').trim();
+      if (threshold !== null && counterName) {
+        const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
+        if (!referencedObject) return null;
+        const counters = ((referencedObject as any)?.counters || {}) as Record<string, unknown>;
+        const count = Number(counters[counterName] ?? 0);
+        return (Number.isFinite(count) ? count : 0) >= threshold;
+      }
+    }
+  }
+
   const generic = evaluateModifyPtCondition(nextState, controllerId, condition.raw);
   if (generic !== null) return generic;
 
   const sourceRef = getContextSourceObject(ctx, (idRaw: string) => findObjectByIdInState(nextState, battlefield, idRaw));
+
+  {
+    const manaSpentMatch = raw.match(/^([a-z0-9]+)\s+or\s+more\s+mana\s+was\s+spent\s+to\s+cast\s+that\s+spell$/i);
+    if (manaSpentMatch) {
+      const threshold = parseSmallNumberWord(String(manaSpentMatch[1] || ''));
+      if (threshold === null) return null;
+      const spent = getAmountOfManaSpent(sourceRef);
+      if (spent === null) return null;
+      return spent >= threshold;
+    }
+  }
 
   if (normalizedRaw === 'you win the flip') {
     return typeof ctx.wonCoinFlip === 'boolean' ? ctx.wonCoinFlip : null;
   }
 
   if (normalizedRaw === 'you lose the flip') {
-    return typeof ctx.wonCoinFlip === 'boolean' ? !ctx.wonCoinFlip : null;
+    return typeof ctx.wonCoinFlip === 'boolean' ? !ctx.wonCoinFlip : false;
   }
 
   if (
     normalizedRaw === 'you win' ||
+    normalizedRaw === 'you won' ||
     normalizedRaw === 'you win the clash' ||
     normalizedRaw === 'you won the clash'
   ) {
@@ -915,15 +1502,6 @@ export function evaluateConditionalWrapperCondition(params: {
     const manaValue = getCardManaValue((sourceRef as any)?.card || sourceRef);
     if (manaValue === null) return null;
     return rolled === manaValue;
-  }
-
-  const manaSpentMatch = raw.match(/^([a-z0-9]+)\s+or\s+more\s+mana\s+was\s+spent\s+to\s+cast\s+that\s+spell$/i);
-  if (manaSpentMatch) {
-    const threshold = parseSmallNumberWord(String(manaSpentMatch[1] || ''));
-    if (threshold === null) return null;
-    const spent = getAmountOfManaSpent(sourceRef);
-    if (spent === null) return null;
-    return spent >= threshold;
   }
 
   return null;

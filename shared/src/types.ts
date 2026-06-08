@@ -958,6 +958,9 @@ export type ManaRestrictionType =
   | 'commander'           // Can only be spent on commander costs (e.g., Command Tower in some interpretations)
   | 'activated_abilities' // Can only be spent to activate abilities of a specific permanent type
   | 'instant_sorcery'     // Can only be spent on instants and sorceries
+  | 'chosen_type_creature_spell' // Cavern of Souls, Unclaimed Territory, etc.
+  | 'chosen_type_creature_source' // Secluded Courtyard — creature spells + creature-source abilities
+  | 'chosen_type_spell'   // Echoing Cavern — any spell of the chosen type
   | 'specific_card';      // Can only be spent on a specific card or permanent (stored in restrictedTo)
 
 /**

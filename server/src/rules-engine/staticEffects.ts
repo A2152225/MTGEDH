@@ -150,7 +150,7 @@ const KNOWN_STATIC_EFFECT_CARDS: Record<string, {
   "cryptolith rite": { grantsToCreatures: ['tap_for_any_color'] },
   "citanul hierophants": { grantsToCreatures: ['tap_for_green'] },
   "chromatic lantern": { }, // Lands have "tap: add one mana of any color"
-  "elven chorus": { grantsToCreatures: ['tap_for_any_color'] }, // Nontoken creatures have convoke
+  "elven chorus": { grantsToCreatures: ['tap_for_any_color'] }, // Creatures have "{T}: Add one mana of any color."
 };
 
 function parseBuffSegment(seg: string): { p: number; t: number } | null {
@@ -713,6 +713,48 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
           }
         }
       }
+
+      const globalChosenTypeAbilitiesMatch = oracle.match(/creatures of the chosen type have\s+([^.]+)/i);
+      if (globalChosenTypeAbilitiesMatch) {
+        const abilities = resolveGrantedAbilities(source, globalChosenTypeAbilitiesMatch[1]);
+        for (const perm of state.battlefield) {
+          if (isCreature(perm) && hasCreatureType(perm, chosenType)) {
+            const agg = perPermanent.get(perm.id)!;
+            for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+      }
+
+      const globalChosenTypeBuffMatch = oracle.match(/creatures of the chosen type get\s+(\+\d+\s*\/\s*\+\d+)/i);
+      if (globalChosenTypeBuffMatch) {
+        const buff = parseBuffSegment(globalChosenTypeBuffMatch[1]);
+        if (buff) {
+          for (const perm of state.battlefield) {
+            if (isCreature(perm) && hasCreatureType(perm, chosenType)) {
+              const agg = perPermanent.get(perm.id)!;
+              agg.pDelta += buff.p;
+              agg.tDelta += buff.t;
+            }
+          }
+        }
+      }
+
+      const controlledChosenTypeBuffMatch = oracle.match(/creatures you control of the chosen type get\s+(\+\d+\s*\/\s*\+\d+)/i);
+      if (controlledChosenTypeBuffMatch) {
+        const buff = parseBuffSegment(controlledChosenTypeBuffMatch[1]);
+        if (buff) {
+          for (const perm of state.battlefield) {
+            if (perm.controller === controller
+              && isCreature(perm)
+              && hasCreatureType(perm, chosenType)) {
+              const agg = perPermanent.get(perm.id)!;
+              agg.pDelta += buff.p;
+              agg.tDelta += buff.t;
+            }
+          }
+        }
+      }
+
     }
   }
 

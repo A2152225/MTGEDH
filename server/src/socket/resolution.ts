@@ -38,6 +38,7 @@ import {
   clearHumanAutoPassPauseOnAction,
   getMaxGenericManaAvailable,
   payGenericManaWithAvailableSources,
+  getFloatingPaymentPoolColorKey,
 } from "./util.js";
 import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
@@ -68,8 +69,8 @@ import type { GameContext } from "../state/context.js";
 import { handleKynaiosChoiceResponse as handleKynaiosChoiceResponseBatched } from "../state/resolution/handlers/kynaiosChoice.js";
 import { applyTriggerOrderToStack } from "../state/resolution/handlers/triggerOrder.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
-import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
-import { applyDredgeDrawReplacementChoice, drawCards as drawCardsFromZones, movePermanentToHand } from "../state/modules/zones.js";
+import { cardHasCreatureType, permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
+import { applyDredgeDrawReplacementChoice, applyZursWeirdingOpponentChoice, drawCards as drawCardsFromZones, movePermanentToHand } from "../state/modules/zones.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
 import { getDiscardTriggers } from "../state/modules/triggers/discard.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
@@ -435,17 +436,8 @@ const resolutionStepTimeouts = new Map<string, NodeJS.Timeout>();
 let priorityResolutionHandlerInitialized = false;
 let priorityResolutionHandlerIo: Server | null = null;
 
-function getFloatingPaymentPoolKey(permanentId: string, mana: string): string | null {
-  const rawId = String(permanentId || '').trim();
-  if (!rawId.startsWith(FLOATING_MANA_PAYMENT_PREFIX)) return null;
-
-  const encodedKey = rawId.slice(FLOATING_MANA_PAYMENT_PREFIX.length).split(':')[0];
-  const normalized = String(encodedKey || '').trim().toLowerCase();
-  if (['white', 'blue', 'black', 'red', 'green', 'colorless'].includes(normalized)) {
-    return normalized;
-  }
-
-  return MANA_POOL_KEY_BY_SYMBOL[String(mana || '').toUpperCase()] || null;
+function getFloatingPaymentPoolKey(permanentId: string, mana: string, pool?: any): string | null {
+  return getFloatingPaymentPoolColorKey(permanentId, mana, pool);
 }
 
 function getFightAbilityDescription(step: any): string {
@@ -5201,6 +5193,18 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           .map((id) => availableCards.find((c: any) => String(c?.id) === String(id)))
           .filter(Boolean);
 
+        const chosenTypeSelectionFilter = String(stepAny.chosenTypeSelectionFilter || '').trim();
+        if (chosenTypeSelectionFilter && selectedCards.length > 0) {
+          const invalidSelection = (selectedCards as any[]).some((card) => !cardHasCreatureType(card, chosenTypeSelectionFilter));
+          if (invalidSelection) {
+            socket.emit('error', {
+              code: 'INVALID_SELECTION',
+              message: `Selected cards must be of type ${chosenTypeSelectionFilter}`,
+            });
+            return;
+          }
+        }
+
         // Enforce optional constraints that the handler also enforces.
         // Doing this here prevents consuming the step if the selection violates constraints.
         if (selectedIds.length > 0) {
@@ -5349,7 +5353,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     if (step.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT) {
       const stepAny = step as any;
       const mandatory = Boolean(stepAny.mandatory);
-      const costType = String(stepAny.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal';
+      const costType = String(stepAny.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal' | 'behold';
       const amount = Math.max(0, Number(stepAny.amount ?? 0));
 
       if (cancelled) {
@@ -5404,6 +5408,19 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
               }
               if (enforceAvailable && !availableIdSet.has(String(id))) {
                 socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected card is not a valid choice' });
+                return;
+              }
+            }
+          } else if (costType === 'behold') {
+            const availableCards: any[] = Array.isArray(stepAny.availableCards) ? stepAny.availableCards : [];
+            const availableTargets: any[] = Array.isArray(stepAny.availableTargets) ? stepAny.availableTargets : [];
+            const availableIdSet = new Set([
+              ...availableCards.map((c: any) => String(c?.id || '')).filter(Boolean),
+              ...availableTargets.map((t: any) => String(t?.id || '')).filter(Boolean),
+            ]);
+            for (const id of selectedIds) {
+              if (!availableIdSet.has(String(id))) {
+                socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected card or creature is not a valid behold choice' });
                 return;
               }
             }
@@ -10147,9 +10164,8 @@ async function handleStepResponse(
         }
 
         if (manaOnly) {
-          const { getOrInitManaPool, validateAndConsumeManaCostFromPool } = await import('./util.js');
-          const pool = getOrInitManaPool(game.state, controllerId) as any;
-          const paid = validateAndConsumeManaCostFromPool(pool, manaOnly, { logPrefix: '[tapOtherAbilityAsCost]' });
+          const { payAbilityManaCostFromPool } = await import('./util.js');
+          const paid = payAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm, '[tapOtherAbilityAsCost]');
           if (!paid.ok) {
             emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });
             break;
@@ -10969,12 +10985,29 @@ async function handleStepResponse(
           amount = calculateDevotion(game.state, controllerId, chosenCode as 'W' | 'U' | 'B' | 'R' | 'G') * multiplier;
         }
 
-        manaPool[poolKey] = Number(manaPool[poolKey] || 0) + amount;
-        addedMana[String(poolKey)] = (addedMana[String(poolKey)] || 0) + amount;
-        if (isTreasureSource) {
-          try {
-            recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, amount);
-          } catch {}
+        const manaRestriction = String(stepData.manaRestriction || '').trim();
+        const manaRestrictedTo = String(stepData.manaRestrictedTo || '').trim() || undefined;
+        if (manaRestriction) {
+          const { addRestrictedManaToPool } = await import('./util.js');
+          addRestrictedManaToPool(
+            game.state,
+            pid,
+            poolKey as any,
+            amount,
+            manaRestriction as any,
+            manaRestrictedTo,
+            permanentId || step.sourceId,
+            cardName || step.sourceName,
+          );
+          addedMana[String(poolKey)] = (addedMana[String(poolKey)] || 0) + amount;
+        } else {
+          manaPool[poolKey] = Number(manaPool[poolKey] || 0) + amount;
+          addedMana[String(poolKey)] = (addedMana[String(poolKey)] || 0) + amount;
+          if (isTreasureSource) {
+            try {
+              recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, amount);
+            } catch {}
+          }
         }
 
         io.to(gameId).emit('chat', {
@@ -10982,7 +11015,7 @@ async function handleStepResponse(
           gameId,
           from: 'system',
           message: amount > 0
-            ? `${getPlayerName(game, pid)} added {${chosenCode.repeat(amount)}} to their mana pool from ${cardName || 'an ability'}.`
+            ? `${getPlayerName(game, pid)} added {${chosenCode.repeat(amount)}} to their mana pool from ${cardName || 'an ability'}${manaRestriction ? ' (restricted)' : ''}.`
             : `${getPlayerName(game, pid)} added no mana from ${cardName || 'an ability'} (devotion was 0).`,
           ts: Date.now(),
         });
@@ -13249,7 +13282,7 @@ async function handleStepResponse(
       const castArgs = stepData.castSpellFromHandArgs as any;
       const cardId = String(stepData.cardId || stepData.sourceId || castArgs?.cardId || '');
       const cardName = String(stepData.cardName || stepData.sourceName || 'Spell');
-      const costType = String(stepData.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal';
+      const costType = String(stepData.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal' | 'behold';
       const additionalCostKeyword = String(stepData.additionalCostKeyword || '').toLowerCase().trim();
       const isBargain = additionalCostKeyword === 'bargain';
 
@@ -13542,6 +13575,57 @@ async function handleStepResponse(
           message: `${getPlayerName(game, pid)} reveals ${revealedNames.join(', ')} as an additional cost to cast ${cardName}.`,
           ts: Date.now(),
         });
+      } else if (costType === 'behold') {
+        const chosenType = String(stepData.chosenCreatureType || (spellCard as any)?.chosenCreatureType || '').trim();
+        const availableCardIds = new Set(
+          (Array.isArray(stepData.availableCards) ? stepData.availableCards : [])
+            .map((entry: any) => String(entry?.id || ''))
+            .filter(Boolean),
+        );
+        const revealedNamesForBehold: string[] = [];
+        const chosenNamesForBehold: string[] = [];
+
+        for (const selectedId of selectedIds) {
+          if (availableCardIds.has(String(selectedId))) {
+            const revealed = (zones.hand as any[]).find((card: any) => card && String(card.id || '') === String(selectedId));
+            if (revealed) {
+              revealedNamesForBehold.push(String(revealed.name || 'Unknown'));
+            }
+            continue;
+          }
+
+          const battlefield = Array.isArray((game.state as any).battlefield) ? (game.state as any).battlefield : [];
+          const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === String(selectedId));
+          if (permanent) {
+            chosenNamesForBehold.push(String(permanent?.card?.name || 'Unknown'));
+          }
+        }
+
+        const beholdParts = [
+          revealedNamesForBehold.length > 0 ? `reveals ${revealedNamesForBehold.join(', ')}` : '',
+          chosenNamesForBehold.length > 0 ? `chooses ${chosenNamesForBehold.join(', ')}` : '',
+        ].filter(Boolean);
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} beholds ${chosenType || 'creatures'} (${beholdParts.join(' and ') || 'none'}) as an additional cost to cast ${cardName}.`,
+          ts: Date.now(),
+        });
+
+        (spellCard as any).beholdResolved = true;
+        (spellCard as any).wasBeheld = true;
+        if (chosenType) {
+          (spellCard as any).chosenCreatureType = chosenType;
+        }
+        if (requestCastPending) {
+          requestCastPending.beholdResolved = true;
+          requestCastPending.wasBeheld = true;
+          if (chosenType) {
+            requestCastPending.chosenCreatureType = chosenType;
+          }
+        }
       }
 
       if (isBargain) {
@@ -13551,13 +13635,20 @@ async function handleStepResponse(
           requestCastPending.bargainResolved = true;
           requestCastPending.wasBargained = true;
         }
-      } else {
+      } else if (costType !== 'behold') {
         // Mark as paid on the card, and resume the cast with an explicit payment marker to avoid re-prompt loops.
         (spellCard as any).additionalCostPaid = true;
         (spellCard as any).additionalCostMethod = costType;
         if (requestCastPending) {
           requestCastPending.additionalCostPaid = true;
           requestCastPending.additionalCostMethod = costType;
+        }
+      } else {
+        (spellCard as any).additionalCostPaid = true;
+        (spellCard as any).additionalCostMethod = 'behold';
+        if (requestCastPending) {
+          requestCastPending.additionalCostPaid = true;
+          requestCastPending.additionalCostMethod = 'behold';
         }
       }
 
@@ -13598,9 +13689,20 @@ async function handleStepResponse(
                     bargainResolved: true,
                     wasBargained: true,
                   }
-                : {
-                    additionalCostPaid: true,
-                  },
+                : costType === 'behold'
+                  ? {
+                      additionalCostPaid: true,
+                      beholdResolved: true,
+                      wasBeheld: true,
+                      ...(String(stepData.chosenCreatureType || (spellCard as any)?.chosenCreatureType || '').trim()
+                        ? {
+                            chosenCreatureType: String(stepData.chosenCreatureType || (spellCard as any)?.chosenCreatureType || '').trim(),
+                          }
+                        : {}),
+                    }
+                  : {
+                      additionalCostPaid: true,
+                    },
             }
           : {}),
         ...(requestCastPending
@@ -15748,9 +15850,8 @@ async function handleDiscardResponse(
       }
 
       if (manaOnly) {
-        const { getOrInitManaPool, validateAndConsumeManaCostFromPool } = await import('./util.js');
-        const pool = getOrInitManaPool(game.state, controllerId) as any;
-        const paid = validateAndConsumeManaCostFromPool(pool, manaOnly, { logPrefix: '[discardAbilityAsCost]' });
+        const { payAbilityManaCostFromPool } = await import('./util.js');
+        const paid = payAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm, '[discardAbilityAsCost]');
         if (!paid.ok) {
           emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });
           return;
@@ -15987,9 +16088,8 @@ async function handleDiscardResponse(
       }
 
       if (manaOnly) {
-        const { getOrInitManaPool, validateAndConsumeManaCostFromPool } = await import('./util.js');
-        const pool = getOrInitManaPool(game.state, controllerId) as any;
-        const paid = validateAndConsumeManaCostFromPool(pool, manaOnly, { logPrefix: '[exileFromHandAbilityAsCost]' });
+        const { payAbilityManaCostFromPool } = await import('./util.js');
+        const paid = payAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm, '[exileFromHandAbilityAsCost]');
         if (!paid.ok) {
           emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });
           return;
@@ -17499,29 +17599,18 @@ async function handleTargetSelectionResponse(
 
     let consumeMana: (() => Promise<void>) | undefined;
     if (manaOnly) {
-      const { resolveManaCostForPoolPayment, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
-      const pool = getOrInitManaPool(game.state, controllerId) as any;
-      const resolved = resolveManaCostForPoolPayment(pool, manaOnly);
-      if (!resolved.ok) {
+      const { validateAbilityManaCostFromPool, payAbilityManaCostFromPool } = await import('./util.js');
+      const validated = validateAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm);
+      if (!validated.ok) {
         emitToPlayer(io, controllerId, 'error', {
           code: 'INSUFFICIENT_MANA',
-          message: (resolved as any).error || 'Insufficient mana.',
-        });
-        return;
-      }
-
-      const totalAvailable = calculateTotalAvailableMana(pool, undefined);
-      const validationError = validateManaPayment(totalAvailable, resolved.coloredCost, resolved.genericCost);
-      if (validationError) {
-        emitToPlayer(io, controllerId, 'error', {
-          code: 'INSUFFICIENT_MANA',
-          message: validationError,
+          message: validated.error || 'Insufficient mana.',
         });
         return;
       }
 
       consumeMana = async () => {
-        consumeManaFromPool(pool, resolved.coloredCost, resolved.genericCost, '[sacrificeAbilityAsCost]');
+        payAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm, '[sacrificeAbilityAsCost]');
       };
     }
 
@@ -17818,9 +17907,8 @@ async function handleTargetSelectionResponse(
       return;
     }
     if (manaOnly) {
-      const { getOrInitManaPool, validateAndConsumeManaCostFromPool } = await import('./util.js');
-      const pool = getOrInitManaPool(game.state, controllerId) as any;
-      const paid = validateAndConsumeManaCostFromPool(pool, manaOnly, { logPrefix: '[removeCountersAbilityAsCost]' });
+      const { payAbilityManaCostFromPool } = await import('./util.js');
+      const paid = payAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm, '[removeCountersAbilityAsCost]');
       if (!paid.ok) {
         emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });
         return;
@@ -17989,23 +18077,15 @@ async function handleTargetSelectionResponse(
     }
     let consumeMana: (() => Promise<void>) | undefined;
     if (manaOnly) {
-      const { resolveManaCostForPoolPayment, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
-      const pool = getOrInitManaPool(game.state, controllerId) as any;
-      const resolved = resolveManaCostForPoolPayment(pool, manaOnly);
-      if (!resolved.ok) {
-        emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (resolved as any).error || 'Insufficient mana.' });
-        return;
-      }
-
-      const totalAvailable = calculateTotalAvailableMana(pool, undefined);
-      const validationError = validateManaPayment(totalAvailable, resolved.coloredCost, resolved.genericCost);
-      if (validationError) {
-        emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: validationError });
+      const { validateAbilityManaCostFromPool, payAbilityManaCostFromPool } = await import('./util.js');
+      const validated = validateAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm);
+      if (!validated.ok) {
+        emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: validated.error || 'Insufficient mana.' });
         return;
       }
 
       consumeMana = async () => {
-        consumeManaFromPool(pool, resolved.coloredCost, resolved.genericCost, '[returnToHandAbilityAsCost]');
+        payAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm, '[returnToHandAbilityAsCost]');
       };
     }
 
@@ -18756,9 +18836,8 @@ async function handleTargetSelectionResponse(
         }
 
         if (manaOnly) {
-          const { getOrInitManaPool, validateAndConsumeManaCostFromPool } = await import('./util.js');
-          const pool = getOrInitManaPool(game.state, controllerId) as any;
-          const paid = validateAndConsumeManaCostFromPool(pool, manaOnly);
+          const { payAbilityManaCostFromPool } = await import('./util.js');
+          const paid = payAbilityManaCostFromPool(game.state, controllerId, manaOnly, perm, '[blightAbilityAsCost]');
           if (!paid.ok) {
             emitToPlayer(io, controllerId, 'error', {
               code: 'INSUFFICIENT_MANA',
@@ -23836,6 +23915,19 @@ async function handleLibrarySearchResponse(
   const selectedCards = selectedIds.map(id => takeCard(id)).filter(Boolean);
     const createdPermanentIds: string[] = [];
 
+  const chosenTypeBattlefieldIfPaid = (searchStep as any).chosenTypeBattlefieldIfPaid as
+    | { chosenType?: string; additionalCostPaid?: boolean }
+    | undefined;
+  if (
+    chosenTypeBattlefieldIfPaid?.additionalCostPaid === true
+    && String(chosenTypeBattlefieldIfPaid.chosenType || '').trim()
+    && selectedCards.length === 1
+    && cardHasCreatureType(selectedCards[0], String(chosenTypeBattlefieldIfPaid.chosenType))
+  ) {
+    destination = 'battlefield';
+    debug(2, `[Resolution] ${sourceName}: additional cost paid and card matches ${chosenTypeBattlefieldIfPaid.chosenType}; putting onto battlefield`);
+  }
+
   // Optional additional constraints (used by some planeswalker templates)
   const maxTypes = (searchStep as any).maxTypes as Record<string, number> | undefined;
   if (maxTypes && selectedCards.length > 0) {
@@ -24610,10 +24702,135 @@ async function handleCreatureTypeChoiceResponse(
     return;
   }
   
-  const { applyCreatureTypeSelection } = await import("./creature-type.js");
   const permanentId = (step as any).permanentId || (step as any).sourceId;
+  const spellId = (step as any).spellId;
+  const beholdCastCardId = String((step as any).beholdCastCardId || '').trim();
   const cardName = (step as any).cardName || (step as any).sourceName || 'Permanent';
-  
+  const state = game.state || {};
+
+  if (beholdCastCardId) {
+    const zones = (state as any)?.zones?.[pid];
+    const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+    const spellCard = hand.find((card: any) => card && String(card.id || '') === beholdCastCardId);
+    if (!spellCard) {
+      debugWarn(2, `[Resolution] Behold cast creature type choice: card ${beholdCastCardId} not found in hand`);
+      return;
+    }
+
+    (spellCard as any).chosenCreatureType = selection;
+    const castArgs = (step as any).castSpellFromHandArgs || {};
+    const beholdCount = Math.max(1, Number((step as any).spellBeholdCount || 2));
+    const { buildBeholdSelectionOptions } = await import('../state/modules/chosen-creature-type.js');
+    const { handCards, battlefieldCreatures } = buildBeholdSelectionOptions(
+      state,
+      String(pid),
+      selection,
+      hand,
+      beholdCastCardId,
+    );
+
+    if (handCards.length + battlefieldCreatures.length < beholdCount) {
+      emitToPlayer(io, pid as any, 'error', {
+        code: 'CANNOT_PAY_COST',
+        message: `Cannot behold ${beholdCount} ${selection} creature(s): only ${handCards.length + battlefieldCreatures.length} available.`,
+      });
+      return;
+    }
+
+    const beholdPaymentStep = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+      playerId: pid as any,
+      sourceId: beholdCastCardId,
+      sourceName: cardName,
+      sourceImage: (step as any).sourceImage,
+      description: `Behold ${beholdCount} ${selection} creature${beholdCount === 1 ? '' : 's'} to cast ${cardName}.`,
+      mandatory: true,
+      cardId: beholdCastCardId,
+      cardName,
+      costType: 'behold',
+      amount: beholdCount,
+      chosenCreatureType: selection,
+      title: `Behold ${beholdCount} ${selection} creature${beholdCount === 1 ? '' : 's'}`,
+      imageUrl: (step as any).sourceImage,
+      availableCards: handCards.map((card: any) => ({
+        id: card.id,
+        name: card.name,
+        imageUrl: card.image_uris?.small || card.image_uris?.normal,
+        typeLine: card.type_line,
+        zone: 'hand',
+      })),
+      availableTargets: battlefieldCreatures.map((perm: any) => ({
+        id: perm.id,
+        name: perm.card?.name || 'Unknown',
+        imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+        typeLine: perm.card?.type_line,
+        zone: 'battlefield',
+      })),
+      castSpellFromHandArgs: castArgs,
+    } as any);
+
+    appendCastSpellContinuationEvent(gameId, game, {
+      playerId: pid,
+      cardId: beholdCastCardId,
+      queuedResolutionStep: {
+        ...(beholdPaymentStep as any),
+      },
+    });
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} chose ${selection} to behold for ${cardName}.`,
+      ts: Date.now(),
+    });
+    return;
+  }
+
+  if (spellId) {
+    const stack = Array.isArray(state.stack) ? state.stack : [];
+    const spellOnStack = stack.find((stackItem: any) => stackItem && (stackItem.id === spellId || stackItem.cardId === spellId));
+
+    if (!spellOnStack) {
+      debugWarn(2, `[Resolution] Creature type choice: spell ${spellId} not found on stack`);
+      return;
+    }
+
+    (spellOnStack as any).chosenCreatureType = selection;
+    if (spellOnStack.card && typeof spellOnStack.card === 'object') {
+      (spellOnStack.card as any).chosenCreatureType = selection;
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'creatureTypeSelected', {
+        playerId: pid,
+        resolvedStepId: String(step.id || '').trim(),
+        resolvedStepType: String(step.type || '').trim(),
+        spellId,
+        cardName,
+        creatureType: selection,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] Failed to persist spell creature type choice event:', e);
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} chose ${selection} for ${cardName}.`,
+      ts: Date.now(),
+    });
+
+    debug(2, `[Resolution] Spell creature type choice completed: ${cardName} -> ${selection}`);
+    return;
+  }
+
+  const { applyCreatureTypeSelection } = await import("./creature-type.js");
   applyCreatureTypeSelection(io, game, gameId, pid, permanentId, cardName, selection, false, {
     resolvedStepId: String(step.id || '').trim(),
     resolvedStepType: String(step.type || '').trim(),
@@ -26194,6 +26411,200 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  if (stepData?.spellBeholdCastPrompt === true) {
+    const cardId = String(stepData?.spellBeholdCastCardId || stepData?.sourceId || '').trim();
+    const castArgs = stepData?.castSpellFromHandArgs || {};
+    const choiceId = String(extractId(selectedOption) || '').trim().toLowerCase();
+    const zones = (game.state as any)?.zones?.[playerId];
+    const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+    const spellCard = hand.find((card: any) => card && String(card.id || '') === cardId);
+    if (!spellCard) {
+      debugWarn(1, `[Resolution] spellBeholdCastPrompt: card ${cardId} not found in hand`);
+      return;
+    }
+
+    const resumeCastAfterBeholdChoice = async (updates: Record<string, unknown>) => {
+      Object.assign(spellCard as any, updates);
+      appendCastSpellContinuationEvent(gameId, game, {
+        playerId,
+        cardId,
+        cardUpdates: updates,
+      });
+      const { socket: restartCastSocket } = createForwardingGameActionSocket(io, gameId, String(playerId));
+      await requestCastSpellForSocket(
+        io,
+        restartCastSocket as any,
+        {
+          gameId,
+          cardId,
+          faceIndex: Number.isFinite(castArgs?.faceIndex) ? Number(castArgs.faceIndex) : undefined,
+          fromZone: 'hand',
+        },
+        {
+          xValue: Number.isFinite(castArgs?.xValue) ? Number(castArgs.xValue) : undefined,
+          forcedAlternateCostId: String(castArgs?.alternateCostId || '').trim() || undefined,
+          castWithoutPayingManaCost: castArgs?.castWithoutPayingManaCost === true,
+          bypassExilePermissionCheck: castArgs?.bypassExilePermissionCheck === true,
+          ignoreTimingRestrictions: castArgs?.ignoreTimingRestrictions === true,
+        },
+      );
+    };
+
+    if (response.cancelled || !choiceId || choiceId === 'skip') {
+      await resumeCastAfterBeholdChoice({
+        beholdResolved: true,
+        wasBeheld: false,
+        additionalCostPaid: false,
+      });
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} declines the behold additional cost for ${spellCard.name || stepData?.sourceName || 'this spell'}.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    if (choiceId === 'behold') {
+      const beholdCount = Math.max(1, Number(stepData?.spellBeholdCount || 2));
+      const typeStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+        playerId: playerId as any,
+        sourceId: cardId,
+        sourceName: spellCard.name || stepData?.sourceName,
+        sourceImage: stepData?.sourceImage,
+        description: `Choose a creature type to behold for ${spellCard.name || 'this spell'}`,
+        mandatory: true,
+        beholdCastCardId: cardId,
+        spellBeholdCount: beholdCount,
+        cardName: spellCard.name,
+        castSpellFromHandArgs: castArgs,
+      } as any);
+      appendCastSpellContinuationEvent(gameId, game, {
+        playerId,
+        cardId,
+        queuedResolutionStep: {
+          ...(typeStep as any),
+        },
+      });
+      return;
+    }
+
+    debugWarn(1, `[Resolution] spellBeholdCastPrompt: unexpected choice '${choiceId}'`);
+    return;
+  }
+
+  if (stepData.zursWeirdingOpponentChoice === true) {
+    const rawChoiceId = String(extractId(selectedOption) || 'decline').trim();
+    const normalizedChoiceId = rawChoiceId.toLowerCase();
+    const resolvedStepId = String((step as any).id || '').trim();
+    const drawingPlayerId = String(stepData?.drawingPlayerId || '').trim();
+    const decidingOpponentId = String(stepData?.decidingOpponentId || playerId || '').trim();
+    const opponentIndex = Math.max(0, Math.floor(Number(stepData?.opponentIndex || 0)));
+    const remainingDrawCountAfterChoice = Math.max(0, Math.floor(Number(stepData?.remainingDrawCountAfterChoice || 0)));
+    const opponents = Array.isArray(stepData?.opponents) ? stepData.opponents : [];
+    const revealedCardName = String(stepData?.revealedCard?.name || 'a card').trim() || 'a card';
+
+    if (response.cancelled || normalizedChoiceId === 'decline') {
+      const result = applyZursWeirdingOpponentChoice(game as any, {
+        drawingPlayerId,
+        decidingOpponentId,
+        opponentIndex,
+        choiceId: 'decline',
+        remainingDrawCountAfterChoice,
+        opponents,
+      });
+
+      if (!result.applied) {
+        emitToPlayer(io, playerId as any, 'error', {
+          code: 'ZURS_WEIRDING_REPLACEMENT_FAILED',
+          message: 'Unable to apply Zur\'s Weirding replacement choice.',
+        });
+        return;
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, decidingOpponentId)} declines to pay 2 life for Zur's Weirding (${revealedCardName}).`,
+        ts: Date.now(),
+      });
+
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'zursWeirdingDrawReplacementResolve', {
+          playerId: decidingOpponentId,
+          drawingPlayerId,
+          resolvedStepId,
+          choiceId: 'decline',
+          opponentIndex,
+          remainingDrawCountAfterChoice,
+          revealedCardId: String(stepData?.revealedCard?.id || '').trim() || undefined,
+          revealedCardName,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] Failed to persist zursWeirdingDrawReplacementResolve event:', err);
+      }
+
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    if (normalizedChoiceId === 'pay_2_life' || normalizedChoiceId === 'pay') {
+      const result = applyZursWeirdingOpponentChoice(game as any, {
+        drawingPlayerId,
+        decidingOpponentId,
+        opponentIndex,
+        choiceId: 'pay_2_life',
+        remainingDrawCountAfterChoice,
+        opponents,
+      });
+
+      if (!result.applied) {
+        emitToPlayer(io, playerId as any, 'error', {
+          code: 'ZURS_WEIRDING_REPLACEMENT_FAILED',
+          message: result.reason === 'insufficient_life'
+            ? 'Not enough life to pay 2.'
+            : 'Unable to apply Zur\'s Weirding replacement choice.',
+        });
+        return;
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, decidingOpponentId)} pays 2 life. Zur's Weirding puts ${revealedCardName} into ${getPlayerName(game, drawingPlayerId)}'s graveyard.`,
+        ts: Date.now(),
+      });
+
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'zursWeirdingDrawReplacementResolve', {
+          playerId: decidingOpponentId,
+          drawingPlayerId,
+          resolvedStepId,
+          choiceId: 'pay_2_life',
+          opponentIndex,
+          remainingDrawCountAfterChoice,
+          revealedCardId: String(stepData?.revealedCard?.id || '').trim() || undefined,
+          revealedCardName,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] Failed to persist zursWeirdingDrawReplacementResolve event:', err);
+      }
+
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    emitToPlayer(io, playerId as any, 'error', {
+      code: 'INVALID_CHOICE',
+      message: 'Invalid Zur\'s Weirding choice.',
+    });
+    return;
+  }
 
   if (stepData.dredgeDrawReplacementChoice === true) {
     const rawChoiceId = String(extractId(selectedOption) || 'draw').trim();
@@ -33453,9 +33864,8 @@ async function handleGraveyardSelectionResponse(
       }
 
       if (manaOnly) {
-        const { getOrInitManaPool, validateAndConsumeManaCostFromPool } = await import('./util.js');
-        const pool = getOrInitManaPool(game.state, controllerId) as any;
-        const paid = validateAndConsumeManaCostFromPool(pool, manaOnly, { logPrefix: '[graveyardExileAbilityAsCost]' });
+        const { payAbilityManaCostFromPool } = await import('./util.js');
+        const paid = payAbilityManaCostFromPool(game.state, controllerId, manaOnly, sourcePerm, '[graveyardExileAbilityAsCost]');
         if (!paid.ok) {
           emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });
           return;

@@ -27,15 +27,18 @@ import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRe
 import { hasValidTargetsForSpell } from "../rules-engine/target-availability.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
 import { canCastFromTop } from "../state/modules/game-state-effects.js";
+import { cardHasCreatureType, getCreatureTypesNow } from "../state/creatureTypeNow.js";
 import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
 import { debug, debugWarn, debugError, debugEnv } from "../utils/debug.js";
 import { BOOT_ID } from "../utils/bootId.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
+import { tryQueueMoxDiamondBeforeStackResolve } from "../state/modules/mox-diamond-choice.js";
 import { pruneObsoleteResolutionQueueAfterReplay } from "../state/resolution/replayCleanup.js";
 import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
 import { getTopTriggeredAbilityAutoPassReason } from "./trigger-shortcuts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { evaluateLibrarySearchReplacementEvent } from "../state/modules/replacement-effects.js";
+import { countControlledCreaturesOfChosenType } from "../state/modules/chosen-creature-type.js";
 
 // ============================================================================
 // Constants
@@ -2247,11 +2250,14 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
             // Handle stack resolution or step advancement if needed
             if (result.resolvedNow) {
               debug(2, `[checkAndTriggerAutoPass] Stack resolved after auto-pass for ${priority}`);
-              if (typeof (game as any).resolveTopOfStack === 'function') {
+              const deferredMox = tryQueueMoxDiamondBeforeStackResolve(game);
+              if (!deferredMox && typeof (game as any).resolveTopOfStack === 'function') {
                 (game as any).resolveTopOfStack();
                 runPostResolutionPermanentPromptChecks(io, game, gameId);
               }
-              appendGameEvent(game, gameId, "resolveTopOfStack", { auto: true });
+              if (!deferredMox) {
+                appendGameEvent(game, gameId, "resolveTopOfStack", { auto: true });
+              }
             }
             
             if (result.advanceStep) {
@@ -2562,13 +2568,15 @@ function doAutoPass(
     appendGameEvent(game, gameId, "passPriority", { by: playerId, reason });
 
     if (resolvedNow) {
-      // Directly call resolveTopOfStack to ensure the spell resolves
-      if (typeof (game as any).resolveTopOfStack === "function") {
+      const deferredMox = tryQueueMoxDiamondBeforeStackResolve(game);
+      if (!deferredMox && typeof (game as any).resolveTopOfStack === "function") {
         (game as any).resolveTopOfStack();
         runPostResolutionPermanentPromptChecks(io, game, gameId);
         debug(2, `[doAutoPass] Stack resolved for game ${gameId}`);
       }
-      appendGameEvent(game, gameId, "resolveTopOfStack");
+      if (!deferredMox) {
+        appendGameEvent(game, gameId, "resolveTopOfStack");
+      }
       try {
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -3839,18 +3847,138 @@ function orderHybridOptions(options: string[]): string[] {
 export function validateAndConsumeManaCostFromPool(
   pool: ManaPool | Record<string, number>,
   manaCost: string,
-  opts?: { logPrefix?: string }
+  opts?: { logPrefix?: string; purpose?: RestrictedManaSpendPurpose }
 ): ValidateConsumeManaCostResult {
-  const resolved = resolveManaCostForPoolPayment(pool, manaCost);
+  const poolForResolution = opts?.purpose
+    ? buildManaTotalsIncludingEligibleRestricted(pool as ManaPool, opts.purpose)
+    : getPoolNumericSnapshot(pool);
+  const resolved = resolveManaCostForPoolPayment(poolForResolution, manaCost);
   if (!resolved.ok) return { ok: false, error: (resolved as any).error || 'Insufficient mana.' };
 
-  const poolSnapshot = getPoolNumericSnapshot(pool);
-  const totalAvailable = calculateTotalAvailableMana(poolSnapshot as any, undefined);
+  const totalAvailable = opts?.purpose
+    ? poolForResolution
+    : calculateTotalAvailableMana(getPoolNumericSnapshot(pool) as any, undefined);
   const validationError = validateManaPayment(totalAvailable as any, resolved.coloredCost, resolved.genericCost);
   if (validationError) return { ok: false, error: validationError };
 
-  const { consumed, remaining } = consumeManaFromPool(pool, resolved.coloredCost, resolved.genericCost, opts?.logPrefix);
+  const { consumed, remaining } = opts?.purpose
+    ? consumeManaFromPoolForPurpose(
+        pool as ManaPool,
+        resolved.coloredCost,
+        resolved.genericCost,
+        opts.purpose,
+        opts?.logPrefix,
+      )
+    : consumeManaFromPool(pool, resolved.coloredCost, resolved.genericCost, opts?.logPrefix);
   return { ok: true, consumed, remaining };
+}
+
+export function resolvePaymentManaAbilitySpendRestriction(
+  gameState: any,
+  permanent: any,
+  playerId: string,
+  abilityId?: string | null,
+): { restriction: ManaRestrictionType; restrictedTo?: string } | null {
+  const ability = resolveLegacyManaAbilityById(gameState, permanent, playerId, abilityId);
+  const spendRestriction = ability?.spendRestriction;
+  if (!spendRestriction?.restriction) return null;
+  return {
+    restriction: spendRestriction.restriction,
+    restrictedTo: spendRestriction.restrictedTo,
+  };
+}
+
+export function restrictedManaSpendRestrictionAllowsPurpose(
+  spendRestriction: { restriction: ManaRestrictionType; restrictedTo?: string } | null | undefined,
+  purpose: RestrictedManaSpendPurpose,
+): boolean {
+  if (!spendRestriction?.restriction) return true;
+  return canUseRestrictedMana(
+    {
+      type: 'colorless',
+      amount: 1,
+      restriction: spendRestriction.restriction,
+      restrictedTo: spendRestriction.restrictedTo,
+    },
+    purpose,
+  );
+}
+
+export function buildActivatedAbilityRestrictedManaPurpose(sourcePermanent: any): RestrictedManaSpendPurpose {
+  const typeLine = String(sourcePermanent?.card?.type_line || '').toLowerCase();
+  if (!typeLine.includes('creature')) {
+    return { isActivatedAbility: true, abilitySourceIsCreature: false };
+  }
+  for (const creatureType of getCreatureTypesNow(sourcePermanent)) {
+    if (!creatureType || creatureType === '*') continue;
+    return {
+      isActivatedAbility: true,
+      abilitySourceIsCreature: true,
+      abilitySourceCreatureType: creatureType,
+      creatureType,
+    };
+  }
+  return { isActivatedAbility: true, abilitySourceIsCreature: true };
+}
+
+export function validateAbilityManaCostFromPool(
+  gameState: any,
+  controllerId: string,
+  manaCost: string,
+  sourcePermanent: any,
+): { ok: true } | { ok: false; error: string } {
+  const pool = getOrInitManaPool(gameState, controllerId);
+  const purpose = buildActivatedAbilityRestrictedManaPurpose(sourcePermanent);
+  const poolForResolution = buildManaTotalsIncludingEligibleRestricted(pool as ManaPool, purpose);
+  const resolved = resolveManaCostForPoolPayment(poolForResolution, manaCost);
+  if (!resolved.ok) {
+    return { ok: false, error: (resolved as any).error || 'Insufficient mana.' };
+  }
+  const validationError = validateManaPayment(poolForResolution as any, resolved.coloredCost, resolved.genericCost);
+  if (validationError) return { ok: false, error: validationError };
+  return { ok: true };
+}
+
+export function payAbilityManaCostFromPool(
+  gameState: any,
+  controllerId: string,
+  manaCost: string,
+  sourcePermanent: any,
+  logPrefix?: string,
+): ValidateConsumeManaCostResult {
+  const pool = getOrInitManaPool(gameState, controllerId);
+  const purpose = buildActivatedAbilityRestrictedManaPurpose(sourcePermanent);
+  return validateAndConsumeManaCostFromPool(pool, manaCost, { logPrefix, purpose });
+}
+
+export function addCastSpellPaymentProducedMana(
+  gameState: any,
+  playerId: string,
+  pool: any,
+  selectedTotals: Record<string, number>,
+  additions: Record<string, number>,
+  spendRestriction: { restriction: ManaRestrictionType; restrictedTo?: string } | null,
+  source?: { id?: string; name?: string },
+): void {
+  for (const [colorKey, amount] of Object.entries(additions)) {
+    const normalizedAmount = Number(amount || 0);
+    if (normalizedAmount <= 0) continue;
+    if (spendRestriction?.restriction) {
+      addRestrictedManaToPool(
+        gameState,
+        playerId,
+        colorKey as any,
+        normalizedAmount,
+        spendRestriction.restriction,
+        spendRestriction.restrictedTo,
+        source?.id,
+        source?.name,
+      );
+    } else {
+      pool[colorKey] = Number(pool[colorKey] || 0) + normalizedAmount;
+    }
+    selectedTotals[colorKey] = (selectedTotals[colorKey] || 0) + normalizedAmount;
+  }
 }
 
 /**
@@ -4348,14 +4476,7 @@ export function calculateManaProduction(
     const chosenCreatureType = (permanent?.chosenCreatureType || '').toLowerCase();
 
     if (selectedThreeTreeIsDynamicLine && chosenCreatureType) {
-      // Count creatures of the chosen type
-      const creatureCount = battlefield.filter((p: any) => {
-        if (!p || p.controller !== playerId) return false;
-        const typeLine = (p.card?.type_line || '').toLowerCase();
-        if (!typeLine.includes('creature')) return false;
-        // Check if the creature has the chosen type
-        return typeLine.includes(chosenCreatureType);
-      }).length;
+      const creatureCount = countControlledCreaturesOfChosenType({ battlefield }, playerId, chosenCreatureType);
       
       result.isDynamic = true;
       result.baseAmount = creatureCount;
@@ -5411,20 +5532,27 @@ export function getTotalManaOfColorInPool(
 /**
  * Check if restricted mana can be used for a specific purpose
  */
+export type RestrictedManaSpendPurpose = {
+  isCreature?: boolean;
+  isAbility?: boolean;
+  isColorless?: boolean;
+  isArtifact?: boolean;
+  isLegendary?: boolean;
+  isMulticolored?: boolean;
+  isCommander?: boolean;
+  isActivatedAbility?: boolean;
+  isInstantOrSorcery?: boolean;
+  cardId?: string;
+  creatureType?: string;
+  spellType?: string;
+  spellCard?: any;
+  abilitySourceIsCreature?: boolean;
+  abilitySourceCreatureType?: string;
+};
+
 export function canUseRestrictedMana(
   entry: RestrictedManaEntry,
-  purpose: {
-    isCreature?: boolean;
-    isAbility?: boolean;
-    isColorless?: boolean;
-    isArtifact?: boolean;
-    isLegendary?: boolean;
-    isMulticolored?: boolean;
-    isCommander?: boolean;
-    isActivatedAbility?: boolean;
-    isInstantOrSorcery?: boolean;
-    cardId?: string;
-  }
+  purpose: RestrictedManaSpendPurpose,
 ): boolean {
   switch (entry.restriction) {
     case 'creatures':
@@ -5445,11 +5573,199 @@ export function canUseRestrictedMana(
       return purpose.isActivatedAbility === true;
     case 'instant_sorcery':
       return purpose.isInstantOrSorcery === true;
+    case 'chosen_type_creature_spell':
+    case 'chosen_type_creature_source':
+      if (purpose.isCreature !== true) {
+        if (entry.restriction === 'chosen_type_creature_source' && purpose.isActivatedAbility === true) {
+          if (purpose.abilitySourceIsCreature !== true) return false;
+          return !entry.restrictedTo
+            || purpose.creatureType === entry.restrictedTo
+            || purpose.abilitySourceCreatureType === entry.restrictedTo;
+        }
+        return false;
+      }
+      if (!entry.restrictedTo) return true;
+      if (purpose.creatureType === entry.restrictedTo) return true;
+      if (purpose.spellCard && cardHasCreatureType(purpose.spellCard, entry.restrictedTo)) {
+        return true;
+      }
+      return false;
+    case 'chosen_type_spell':
+      if (!entry.restrictedTo) return true;
+      if (purpose.creatureType === entry.restrictedTo || purpose.spellType === entry.restrictedTo) return true;
+      if (purpose.spellCard && cardHasCreatureType(purpose.spellCard, entry.restrictedTo)) return true;
+      return false;
     case 'specific_card':
       return entry.restrictedTo === purpose.cardId;
     default:
       return false;
   }
+}
+
+export function parseFloatingPaymentPermanentId(permanentId: string):
+  | { kind: 'regular'; colorKey: string }
+  | { kind: 'restricted'; index: number }
+  | null {
+  const rawId = String(permanentId || '').trim();
+  if (!rawId.startsWith('__pool__:')) return null;
+
+  const parts = rawId.slice('__pool__:'.length).split(':');
+  const encodedKey = String(parts[0] || '').trim().toLowerCase();
+  if (encodedKey === 'restricted') {
+    const index = Number.parseInt(parts[1] ?? '', 10);
+    return Number.isFinite(index) && index >= 0 ? { kind: 'restricted', index } : null;
+  }
+  if (['white', 'blue', 'black', 'red', 'green', 'colorless'].includes(encodedKey)) {
+    return { kind: 'regular', colorKey: encodedKey };
+  }
+  return null;
+}
+
+export function getFloatingPaymentPoolColorKey(
+  permanentId: string,
+  mana: string,
+  pool?: ManaPool,
+): string | null {
+  const parsed = parseFloatingPaymentPermanentId(permanentId);
+  if (!parsed) return null;
+  if (parsed.kind === 'regular') return parsed.colorKey;
+  const entry = pool?.restricted?.[parsed.index];
+  if (entry) return getManaEntryColor(entry);
+  return MANA_COLOR_NAMES[String(mana || '').toUpperCase()] || null;
+}
+
+export function validateSelectedFloatingPoolMana(
+  pool: ManaPool,
+  selectedFloatingMana: Record<string, number>,
+  selectedFloatingRestricted: Record<number, number>,
+  purpose?: RestrictedManaSpendPurpose,
+): string | null {
+  for (const [indexStr, amount] of Object.entries(selectedFloatingRestricted)) {
+    const index = Number(indexStr);
+    const needed = Number(amount || 0);
+    if (needed <= 0) continue;
+    const entry = pool.restricted?.[index];
+    if (!entry || entry.amount < needed) {
+      return 'Not enough restricted mana selected from your pool.';
+    }
+    if (purpose && !canUseRestrictedMana(entry, purpose)) {
+      return 'Selected restricted mana cannot be spent on this payment.';
+    }
+  }
+
+  for (const [poolKey, amount] of Object.entries(selectedFloatingMana)) {
+    const needed = Number(amount || 0);
+    if (needed <= 0) continue;
+    const regularAvailable = Number((pool as any)[poolKey] || 0);
+    let restrictedAvailable = 0;
+    for (const entry of pool.restricted || []) {
+      if (getManaEntryColor(entry) !== poolKey) continue;
+      if (purpose && !canUseRestrictedMana(entry, purpose)) continue;
+      restrictedAvailable += entry.amount;
+    }
+    if (regularAvailable + restrictedAvailable < needed) {
+      return `Not enough ${poolKey} mana selected from your pool.`;
+    }
+  }
+
+  return null;
+}
+
+export function buildManaTotalsIncludingEligibleRestricted(
+  pool: ManaPool,
+  purpose: RestrictedManaSpendPurpose,
+): Record<string, number> {
+  const totals = calculateTotalAvailableMana(pool, undefined);
+  for (const entry of pool.restricted || []) {
+    if (!canUseRestrictedMana(entry, purpose)) continue;
+    const color = getManaEntryColor(entry);
+    totals[color] = (totals[color] || 0) + entry.amount;
+  }
+  return totals;
+}
+
+export function consumeManaFromPoolForPurpose(
+  pool: ManaPool,
+  coloredCost: Record<string, number>,
+  genericCost: number,
+  purpose: RestrictedManaSpendPurpose,
+  logPrefix?: string,
+): { consumed: Record<string, number> } {
+  const mutablePool = pool as any;
+  const restricted = Array.isArray(mutablePool.restricted) ? mutablePool.restricted as RestrictedManaEntry[] : [];
+  const workingTotals = buildManaTotalsIncludingEligibleRestricted(pool, purpose);
+  const validationError = validateManaPayment(workingTotals, coloredCost, genericCost);
+  if (validationError) {
+    return consumeManaFromPool(pool, coloredCost, genericCost, logPrefix);
+  }
+
+  const consumed: Record<string, number> = {
+    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0,
+  };
+
+  const takeFromRestricted = (colorKey: string, needed: number): number => {
+    let remaining = needed;
+    for (let index = restricted.length - 1; index >= 0 && remaining > 0; index -= 1) {
+      const entry = restricted[index];
+      if (!entry || !canUseRestrictedMana(entry, purpose)) continue;
+      if (getManaEntryColor(entry) !== colorKey) continue;
+      const use = Math.min(entry.amount, remaining);
+      if (use <= 0) continue;
+      entry.amount -= use;
+      remaining -= use;
+      consumed[colorKey] = (consumed[colorKey] || 0) + use;
+      if (entry.amount <= 0) {
+        restricted.splice(index, 1);
+      }
+    }
+    if (restricted.length === 0) {
+      delete mutablePool.restricted;
+    } else {
+      mutablePool.restricted = restricted;
+    }
+    return needed - remaining;
+  };
+
+  for (const color of MANA_COLORS) {
+    const colorKey = MANA_COLOR_NAMES[color];
+    const needed = Number((coloredCost as any)[color] || 0);
+    if (!colorKey || needed <= 0) continue;
+    const fromRestricted = takeFromRestricted(colorKey, needed);
+    const stillNeeded = needed - fromRestricted;
+    if (stillNeeded > 0 && Number(mutablePool[colorKey] || 0) >= stillNeeded) {
+      mutablePool[colorKey] = Number(mutablePool[colorKey] || 0) - stillNeeded;
+      consumed[colorKey] = (consumed[colorKey] || 0) + stillNeeded;
+    }
+  }
+
+  let genericLeft = genericCost;
+  if (genericLeft > 0 && Number(mutablePool.colorless || 0) > 0) {
+    const useColorless = Math.min(Number(mutablePool.colorless || 0), genericLeft);
+    mutablePool.colorless = Number(mutablePool.colorless || 0) - useColorless;
+    consumed.colorless = (consumed.colorless || 0) + useColorless;
+    genericLeft -= useColorless;
+  }
+
+  for (const color of MANA_COLORS) {
+    if (genericLeft <= 0) break;
+    const colorKey = MANA_COLOR_NAMES[color];
+    if (!colorKey) continue;
+    const fromRestricted = takeFromRestricted(colorKey, genericLeft);
+    genericLeft -= fromRestricted;
+    if (genericLeft <= 0) break;
+    const available = Number(mutablePool[colorKey] || 0);
+    if (available <= 0) continue;
+    const useColor = Math.min(available, genericLeft);
+    mutablePool[colorKey] = available - useColor;
+    consumed[colorKey] = (consumed[colorKey] || 0) + useColor;
+    genericLeft -= useColor;
+  }
+
+  if (logPrefix) {
+    debug(2, `${logPrefix} Consumed mana with restricted-purpose spending: ${JSON.stringify(consumed)}`);
+  }
+
+  return { consumed };
 }
 
 /**

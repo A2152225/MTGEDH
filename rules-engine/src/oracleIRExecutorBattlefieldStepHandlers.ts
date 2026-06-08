@@ -2,7 +2,11 @@ import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src
 import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
 import type { OracleBattlefieldObjectCondition, OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
-import { parseSimpleBattlefieldSelector, parseSimplePermanentTypeFromText } from './oracleIRExecutorBattlefieldParser';
+import {
+  parseSimpleBattlefieldSelector,
+  parseSimplePermanentTypeFromText,
+  type SimpleBattlefieldSelector,
+} from './oracleIRExecutorBattlefieldParser';
 import { parseQuantity } from './oracleIRParserUtils';
 import {
   moveTargetedCardFromExile,
@@ -32,11 +36,14 @@ import { createLastKnownPermanentSnapshot, type LastKnownPermanentSnapshot } fro
 import {
   resolveBolsterTargetCreatureIdFromBattlefield,
   getProcessedBattlefield,
+  resolveCreatureTargetIds,
   resolveMentorTargetCreatureIdFromBattlefield,
   resolveSingleCreatureTargetId,
 } from './oracleIRExecutorCreatureStepUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { getCardManaValue, getCardTypeLineLower, quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
+import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
 import { canTargetPermanent } from './permanentTargeting';
 import { AIRBEND_ALTERNATE_COST } from './keywordActions/airbend';
 import { EARTHBENDED_PROPERTIES } from './keywordActions/earthbend';
@@ -236,7 +243,12 @@ function normalizeWhereQualifiedTarget(
   if (!target || target.kind !== 'raw') return target;
   const rawText = String((target as any).text || '').trim();
   if (!rawText) return target;
-  const normalizedText = rawText.replace(/\s*,\s*where\s+x\s+is\s+.+$/i, '').trim();
+  const normalizedText = rawText
+    .replace(/\s*,\s*where\s+x\s+is\s+.+$/i, '')
+    .replace(/\s+equal\s+to\s+the\s+number\s+of\s+.+$/i, '')
+    .replace(/\s+for each .+$/i, '')
+    .replace(/^another\s+(target\s+.+)$/i, '$1')
+    .trim();
   if (!normalizedText || normalizedText === rawText) return target;
   return {
     ...target,
@@ -375,25 +387,65 @@ function findCardZoneLocation(state: GameState, targetCardId: string): CardZoneL
   return matches.length === 1 ? matches[0] : null;
 }
 
+function exileCardFromZoneLocation(
+  state: GameState,
+  location: CardZoneLocation,
+  cardId: string
+): BattlefieldStepHandlerResult | null {
+  if (location.zone === 'exile') {
+    return { applied: true, state, log: [`${cardId} is already exiled`] };
+  }
+
+  const result =
+    location.zone === 'graveyard'
+      ? moveTargetedCardFromGraveyard(state, location.playerId, cardId, { cardType: 'any' }, 'exile')
+      : location.zone === 'hand'
+        ? moveTargetedCardFromHand(state, location.playerId, cardId, 'any', 'exile')
+        : null;
+
+  if (!result || result.kind === 'impossible') return null;
+  return { applied: true, state: result.state, log: result.log };
+}
+
 function exileContextualSourceCardFromZone(
   state: GameState,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult | null {
   const sourceId = String(ctx.sourceId || '').trim();
-  if (!sourceId) return null;
+  const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+  const sourceName = normalizeSelfReferenceText(String(ctx.sourceName || ''));
 
-  const location = findCardZoneLocation(state, sourceId);
-  if (!location) return null;
+  const candidateIds = Array.from(
+    new Set([sourceId, 'gy-source-self', 'exile-source-self'].map(id => String(id || '').trim()).filter(Boolean))
+  );
 
-  const result =
-    location.zone === 'graveyard'
-      ? moveTargetedCardFromGraveyard(state, location.playerId, sourceId, { cardType: 'any' }, 'exile')
-      : location.zone === 'hand'
-        ? moveTargetedCardFromHand(state, location.playerId, sourceId, 'any', 'exile')
-        : null;
+  for (const cardId of candidateIds) {
+    const location = findCardZoneLocation(state, cardId);
+    if (!location) continue;
+    const exiled = exileCardFromZoneLocation(state, location, cardId);
+    if (exiled) return exiled;
+  }
 
-  if (!result || result.kind === 'impossible') return null;
-  return { applied: true, state: result.state, log: result.log };
+  if (!sourceName) return null;
+  const controller = (state.players || []).find(
+    (player: any) => String(player?.id || '').trim() === String(controllerId || '').trim()
+  ) as any;
+  if (!controller) return null;
+
+  for (const zone of ['graveyard', 'hand', 'exile'] as const) {
+    const cards = Array.isArray(controller?.[zone]) ? controller[zone] : [];
+    const namedMatches = cards.filter((card: any) => {
+      const cardName = normalizeSelfReferenceText(String(card?.name || card?.card?.name || ''));
+      return cardName && cardName === sourceName;
+    });
+    if (namedMatches.length !== 1) continue;
+    const cardId = String((namedMatches[0] as any)?.id || '').trim();
+    if (!cardId) continue;
+    const exiled = exileCardFromZoneLocation(state, { playerId: controllerId, zone }, cardId);
+    if (exiled) return exiled;
+  }
+
+  return null;
 }
 
 function annotateBattlefieldExilesWithSource(
@@ -497,7 +549,7 @@ function parseSacrificeWhat(what: { readonly kind: string; readonly text?: strin
     return { mode: 'self' };
   }
 
-  if (/^(?:that creature|the creature)$/i.test(normalized)) {
+  if (/^(?:that creature|the creature|the creature dealt damage)$/i.test(normalized)) {
     return { mode: 'contextual', type: 'creature' };
   }
 
@@ -691,6 +743,319 @@ function normalizeSelfReferenceText(value: string): string {
     .trim();
 }
 
+function normalizeBattlefieldTargetReferenceText(value: string): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .trim()
+    .replace(/\s+instead$/i, '')
+    .replace(/\s+at end of combat$/i, '')
+    .replace(/\s+this turn$/i, '')
+    .replace(/\s+doesn['']t untap during its controller(?:'s)? next untap step$/i, '')
+    .replace(/[.\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function inferGrantTemporaryAbilityTargetFromRaw(raw: string): string {
+  const normalized = String(raw || '')
+    .replace(/\u2019/g, "'")
+    .replace(/\s+/g, ' ')
+    .replace(/^-\s*/i, '')
+    .replace(/^(?:\{[^}]+\}\s*)+-\s*/i, '')
+    .replace(/^(?:until end of turn,\s*|until your next turn,\s*|until the end of\b[^,]+,\s*)?/i, '')
+    .replace(/^(?:whenever this creature attacks,\s*|whenever a creature enters under your control,\s*)?/i, '')
+    .replace(/^(?:[ivxlcdm]+|\d+\s*-\s*\d+)\s*[-|]\s*/i, '')
+    .replace(/^(?:bull rush|standoff|daybound)\s*-?\s*/i, '')
+    .replace(/\s+(?:also\s+)?(?:get|gain)\s+.+$/i, '')
+    .replace(/\s+gets?\s+.+$/i, '')
+    .replace(/\s+can't be blocked.*$/i, '')
+    .replace(/\s+assigns combat damage.*$/i, '')
+    .trim();
+  if (!normalized) return '';
+  if (/creatures of the creature type of your choice/i.test(normalized)) {
+    return 'creatures of the chosen creature type you control';
+  }
+  if (/^this (?:creature|permanent)\b/i.test(normalized)) return 'this creature';
+  if (/^(?:it|he)\b/i.test(normalized)) return 'it';
+  if (/^that artifact\b/i.test(normalized)) return 'that artifact';
+  if (/^enchanted creature\b/i.test(normalized)) return 'enchanted creature';
+  if (/^you\b/i.test(normalized)) return 'you';
+  if (/^each opponent\b/i.test(normalized)) return 'each opponent';
+  if (/^the next\b/i.test(normalized)) {
+    const nextSpellMatch = normalized.match(/^(the next (?:.+?\s+)?spell you cast(?: this turn)?)/i);
+    return nextSpellMatch ? String(nextSpellMatch[1] || '').trim() : 'the next spell you cast';
+  }
+  if (/^the creature dealt damage\b/i.test(normalized)) return 'that creature';
+  if (/^all damage\b/i.test(normalized)) return 'enchanted creature';
+  if (/^face-down spells\b/i.test(normalized)) return 'you';
+  if (/^creature cards in your graveyard\b/i.test(normalized)) return 'creature cards in your graveyard';
+  if (/^creatures named this permanent\b/i.test(normalized)) return 'creatures named this permanent';
+  if (/^all creatures banded with it\b/i.test(normalized)) return 'all creatures banded with it';
+  const equippedMatch = normalized.match(/(?:during your turn,\s*)?(equipped creature)\s+(?:gets?|gains?|has)\b/i);
+  if (equippedMatch) return String(equippedMatch[1] || '').trim();
+  const attackingYouControl = normalized.match(/^(attacking creatures you control)\b/i);
+  if (attackingYouControl) return String(attackingYouControl[1] || '').trim();
+  const attackingMassMatch = normalized.match(/^(attacking creatures)\s+(?:get|gain)\b/i);
+  if (attackingMassMatch) return String(attackingMassMatch[1] || '').trim();
+  const otherAttackingMatch = normalized.match(/^(other(?: red)? attacking creatures(?: you control)?)\b/i);
+  if (otherAttackingMatch) return String(otherAttackingMatch[1] || '').trim();
+  const withQualifierMass = normalized.match(/^(creatures you control with [^,]+?)(?:\s+(?:get|gain)\b|$)/i);
+  if (withQualifierMass) return String(withQualifierMass[1] || '').trim();
+  const multiSubtypeMatch = normalized.match(
+    /^each ([a-z][a-z -]+(?:,\s*[a-z][a-z -]+)*(?:,?\s+and\s+[a-z][a-z -]+)?) you control$/i
+  );
+  if (multiSubtypeMatch) return `each ${String(multiSubtypeMatch[1] || '').trim()} you control`;
+  const eachWithQualifier = normalized.match(/^each (creatures you control with [^,]+)$/i);
+  if (eachWithQualifier) return String(eachWithQualifier[1] || '').trim();
+  const eachSingularWithQualifier = normalized.match(
+    /^each creature you control with ([^,]+?)(?:\s+(?:assigns?|gain|get)\b|$)/i
+  );
+  if (eachSingularWithQualifier) {
+    return `creatures you control with ${String(eachSingularWithQualifier[1] || '').trim()}`;
+  }
+  const subtypeMassMatch = normalized.match(/^([a-z][a-z -]+) creatures you control(?: also)?$/i);
+  if (subtypeMassMatch) return `${String(subtypeMassMatch[1] || '').trim()} creatures you control`;
+  const subtypeYouControlMatch = normalized.match(/^([a-z][a-z -]+) you control(?: also)?$/i);
+  if (subtypeYouControlMatch && !/creatures?$/i.test(String(subtypeYouControlMatch[1] || ''))) {
+    return `${String(subtypeYouControlMatch[1] || '').trim()} you control`;
+  }
+  const globalSubtypeMatch = normalized.match(/^([a-z][a-z -]+) creatures\s+(?:gain|get)\b/i);
+  if (globalSubtypeMatch) return `${String(globalSubtypeMatch[1] || '').trim()} creatures`;
+  const tokenMassMatch = normalized.match(/^(creature tokens you control)\s+gain\b/i);
+  if (tokenMassMatch) return String(tokenMassMatch[1] || '').trim();
+  const compoundMassMatch = normalized.match(/^(gorgons and snakes you control)\b/i);
+  if (compoundMassMatch) return String(compoundMassMatch[1] || '').trim();
+  const upToAttackingMatch = normalized.match(/^(up to x target attacking creatures)\b/i);
+  if (upToAttackingMatch) return String(upToAttackingMatch[1] || '').trim();
+  const massYouControl = normalized.match(/^(creatures you control(?:\s+other\s+than\s+this\s+creature)?)\s+(?:get|gain)\b/i);
+  if (massYouControl) return String(massYouControl[1] || '').trim();
+  const otherMass = normalized.match(/^(other creatures you control)\s+(?:get|gain)\b/i);
+  if (otherMass) return String(otherMass[1] || '').trim();
+  const faceUpMass = normalized.match(/^(face-up nontoken creatures you control)\b/i);
+  if (faceUpMass) return String(faceUpMass[1] || '').trim();
+  return '';
+}
+
+function battlefieldPermanentHasFlying(perm: BattlefieldPermanent): boolean {
+  if (/\bflying\b/i.test(getExecutorTypeLineLower(perm))) return true;
+  const keywordValues: unknown[] = [
+    ...(Array.isArray((perm as any)?.keywords) ? (perm as any).keywords : []),
+    ...(Array.isArray((perm as any)?.card?.keywords) ? (perm as any).card.keywords : []),
+    ...(Array.isArray((perm as any)?.grantedAbilities) ? (perm as any).grantedAbilities : []),
+  ];
+  return keywordValues.some(value => /\bflying\b/i.test(String(value || '')));
+}
+
+function isAttackingBattlefieldPermanent(perm: BattlefieldPermanent): boolean {
+  return Boolean(
+    (perm as any)?.attacking ||
+    (perm as any)?.attackedThisTurn ||
+    (perm as any)?.attackingPlayerId
+  );
+}
+
+function permanentHasBattlefieldCounters(perm: BattlefieldPermanent): boolean {
+  return Object.entries(((perm as any)?.counters || {}) as Record<string, number>).some(
+    ([, count]) => Number(count) > 0
+  );
+}
+
+function normalizeGrantTemporaryAbilityTargetText(value: string, stepRaw = ''): string {
+  const trimmed = normalizeBattlefieldTargetReferenceText(value)
+    .replace(/\s+and\s*$/i, '')
+    .replace(/^-\s*/i, '')
+    .replace(/^whenever this creature attacks,\s*/i, '')
+    .replace(/^activate only as a sorcery\.?\s*["']?\s*(?:\{[^}]+\}(?:,\s*[^:]{0,120})?:\s*)+/i, '')
+    .replace(/^choose one at random\s*-\s*•\s*/i, '')
+    .replace(/^you may have\s+/i, '')
+    .replace(/^have\s+/i, '')
+    .replace(/^until end of turn,\s*/i, '')
+    .replace(/^until the end of your next turn,\s*/i, '')
+    .replace(/^until your next turn,\s*/i, '')
+    .replace(/^during your turn,\s*/i, '')
+    .replace(/^(?:[ivxlcdm]+|\d+\s*-\s*\d+)\s*[-|]\s*/i, '')
+    .replace(/^(?:bull rush|standoff|daybound)\s*-\s*/i, '')
+    .replace(/\s+each\s+get\s+[+-]?\d+\s*\/\s*[+-]?\d(?:\s+and)?\s*$/i, '')
+    .replace(/\s+gets?\s+[+-]?\d+\s*\/\s*[+-]?\d(?:\s+and)?\s*$/i, '')
+    .replace(
+      /\s+assigns\s+combat\s+damage\s+equal\s+to\s+its\s+toughness\s+rather\s+than\s+its\s+power(?:\s+and)?\s*$/i,
+      ''
+    )
+    .replace(/\s+and$/i, '')
+    .trim();
+  if (/^each creature you control with defender$/i.test(trimmed)) {
+    return 'creatures you control with defender';
+  }
+  if (/^this creature(?:'s base power)?$/i.test(trimmed)) return 'this creature';
+  const selfBecome = trimmed.match(/^(this (?:enchantment|permanent|creature))(?:\s+becomes|\s+become)\b/i);
+  if (selfBecome) return String(selfBecome[1] || '').trim();
+  const itBecome = trimmed.match(/^(it)\s+become\b/i);
+  if (itBecome) return String(itBecome[1] || '').trim();
+  const mass = trimmed.match(/^(creatures you control(?:\s+other\s+than\s+this\s+creature)?)\s+get\b/i);
+  if (mass) return String(mass[1] || '').trim();
+  const otherMass = trimmed.match(/^(other .+ you control)(?: with .+)?\s+(?:get|gain)\b/i);
+  if (otherMass) return String(otherMass[1] || '').trim();
+  const self = trimmed.match(/^(this creature)\s+(?:gets?|has\s+base\s+power)\b/i);
+  if (self) return String(self[1] || '').trim();
+  const enchanted = trimmed.match(/^(enchanted creature)\s+(?:gets?|gains?)\b/i);
+  if (enchanted) return String(enchanted[1] || '').trim();
+  const contextual = trimmed.match(
+    /^(that creature|that permanent|that card|that vehicle|that planeswalker|they)\s+(?:gets?|gains?)\b/i
+  );
+  if (contextual) return String(contextual[1] || '').trim();
+  const pronounOnly = trimmed.match(/^(they)\s+(?:gets?|gains?)\b/i);
+  if (pronounOnly) return String(pronounOnly[1] || '').trim();
+  const counterMass = trimmed.match(/^(each creature you control with a counter on it)\s+gains?\b/i);
+  if (counterMass) return String(counterMass[1] || '').trim();
+  const compoundMass = trimmed.match(/^(it and zombies you control)\s+gain\b/i);
+  if (compoundMass) return String(compoundMass[1] || '').trim();
+  const playerSpell = trimmed.match(/^(the next (?:.+?\s+)?spell you cast)(?: this turn)?\s+costs?\b/i);
+  if (playerSpell) return String(playerSpell[1] || '').trim();
+  if (/^the creature dealt damage\b/i.test(trimmed)) return 'that creature';
+  const haveMass = trimmed.match(/^have (treasures you control)\b/i);
+  if (haveMass) return String(haveMass[1] || '').trim();
+  const graveyardCards = trimmed.match(/^(creature cards in your graveyard)\s+gain\b/i);
+  if (graveyardCards) return String(graveyardCards[1] || '').trim();
+  const otherResult = trimmed.match(/^for each other result, (it)\b/i);
+  if (otherResult) return 'it';
+  const attackingHuman = trimmed.match(/^(each attacking human)(?:\s+(?:gets?|gains?|gain))\b/i);
+  if (attackingHuman) return String(attackingHuman[1] || '').trim();
+  const chosenTypeMass = trimmed.match(/^creatures of the creature type of your choice\s+(?:get|gain)\b/i);
+  if (chosenTypeMass) return 'creatures of the chosen creature type you control';
+  if (/^other clues you control$/i.test(trimmed)) return 'other clues you control';
+  const otherClues = trimmed.match(/^(other clues you control)\s+become\b/i);
+  if (otherClues) return String(otherClues[1] || '').trim();
+  const targetCreatureBuff = trimmed.match(/^(target creature you control)\s+get\b/i);
+  if (targetCreatureBuff) return String(targetCreatureBuff[1] || '').trim();
+  if (/^the chosen creature$/i.test(trimmed)) return 'the chosen creature';
+  if (/^the creature that attacked$/i.test(trimmed)) return 'the creature that attacked';
+  if (/^that mount or vehicle$/i.test(trimmed)) return 'that mount or vehicle';
+  if (/^creature tokens you control$/i.test(trimmed)) return 'creature tokens you control';
+  if (/^attacking creatures$/i.test(trimmed)) return 'attacking creatures';
+  const subtypeCreatures = trimmed.match(/^([a-z][a-z -]+) creatures you control$/i);
+  if (subtypeCreatures) return `${String(subtypeCreatures[1] || '').trim()} creatures you control`;
+  if (/^gorgons and snakes you control$/i.test(trimmed)) return 'gorgons and snakes you control';
+  if (/^that player$/i.test(trimmed)) return 'that player';
+  if (/^that attacking creature$/i.test(trimmed)) return 'that attacking creature';
+  const otherThanSelfMass = trimmed.match(
+    /^([a-z][a-z -]+) you control other than this creature(?:\s+(?:get|gain)\b.*)?$/i
+  );
+  if (otherThanSelfMass) return `${String(otherThanSelfMass[1] || '').trim()} you control other than this creature`;
+  const withQualifierMass = trimmed.match(/^(creatures you control with [^,]+?)(?:\s+(?:get|gain)\b.*)?$/i);
+  if (withQualifierMass) return String(withQualifierMass[1] || '').trim();
+  const subtypeYouControl = trimmed.match(/^([a-z][a-z -]+) you control$/i);
+  if (subtypeYouControl && !/creatures?$/i.test(String(subtypeYouControl[1] || ''))) {
+    return `${String(subtypeYouControl[1] || '').trim()} you control`;
+  }
+  const upToAttackingOnly = trimmed.match(/^(up to x target attacking creatures)/i);
+  if (upToAttackingOnly) return String(upToAttackingOnly[1] || '').trim();
+  const globalSubtype = trimmed.match(/^([a-z][a-z -]+) creatures$/i);
+  if (globalSubtype && !/^up to\b/i.test(trimmed)) return `${String(globalSubtype[1] || '').trim()} creatures`;
+  if (/^attacking creatures you control$/i.test(trimmed)) return 'attacking creatures you control';
+  if (/^other red attacking creatures you control$/i.test(trimmed)) return 'other red attacking creatures you control';
+  if (/^other attacking creatures(?: gain)?$/i.test(trimmed)) return 'other attacking creatures';
+  if (/^face-up nontoken creatures you control$/i.test(trimmed)) return 'face-up nontoken creatures you control';
+  if (/^each opponent$/i.test(trimmed)) return 'each opponent';
+  if (/^he$/i.test(trimmed)) return 'it';
+  if (/^that artifact$/i.test(trimmed)) return 'that artifact';
+  const cleaned = trimmed
+    .replace(/\s+get\s+[+-]?\d+\s*\/\s*[+-]?\d.*$/i, '')
+    .replace(/\s+gain\s+.+$/i, '')
+    .trim();
+  if (!cleaned || /whenever|attacks,/i.test(cleaned)) {
+    const inferred = inferGrantTemporaryAbilityTargetFromRaw(stepRaw || value);
+    if (inferred) return inferred;
+  }
+  return cleaned;
+}
+
+function normalizeAnimatePermanentTargetText(value: string): string {
+  const trimmed = normalizeBattlefieldTargetReferenceText(value)
+    .replace(/^up to one\s+/i, '')
+    .replace(/^one\s+/i, '')
+    .replace(/\s+becomes?\s+an?\s+.+$/i, '')
+    .trim();
+  const haveTarget = trimmed.match(/^have\s+(target\s+.+)$/i);
+  if (haveTarget) return String(haveTarget[1] || '').trim();
+  const otherLand = trimmed.match(/^other\s+(target\s+land you control)$/i);
+  if (otherLand) return String(otherLand[1] || '').trim();
+  if (/^land you control$/i.test(trimmed)) return 'target land you control';
+  return trimmed;
+}
+
+function normalizeExileTargetReferenceText(value: string): string {
+  return normalizeBattlefieldTargetReferenceText(value)
+    .replace(/^exile\s+/i, '')
+    .replace(
+      /\s+with\s+(?:\d+|a|an|x|one|two|three|four|five|six|seven|eight|nine|ten)\s+time\s+counters?\s+on\s+it$/i,
+      ''
+    )
+    .replace(/\s+if\s+it(?:'s| is)\s+an?\s+(?:instant|sorcery)(?:\s+or\s+(?:instant|sorcery))?\s+card$/i, '')
+    .replace(/\s+until\s+this\s+(?:creature|permanent|card|aura|enchantment|artifact)\s+leaves\s+the\s+battlefield$/i, '')
+    .replace(/\s+instead\s+of\s+putting\s+it\s+into\s+(?:its owner's|your|a)\s+graveyard(?:\s+as\s+it\s+resolves)?$/i, '')
+    .replace(/\s+instead\s+of\s+putting\s+(?:it|that spell)\s+into\s+(?:its owner's|your|a)\s+graveyard(?:\s+as\s+it\s+resolves)?$/i, '')
+    .replace(/\s+instead\s+of\s+putting\s+it\s+anywhere\s+else$/i, '')
+    .replace(/\s+unless\s+you\s+sacrifice\s+another\s+creature$/i, '')
+    .replace(/\s+face\s+down$/i, '')
+    .trim();
+}
+
+function collectBoundBattlefieldIds(ctx: OracleIRExecutionContext): string[] {
+  return Array.from(
+    new Set(
+      [
+        String(ctx.selectorContext?.combatOpponentCreatureId || '').trim(),
+        String(ctx.targetPermanentId || '').trim(),
+        String(ctx.targetCreatureId || '').trim(),
+        String(ctx.selectorContext?.targetPermanentId || '').trim(),
+        String(ctx.selectorContext?.targetCreatureId || '').trim(),
+        ...(Array.isArray(ctx.selectorContext?.chosenObjectIds)
+          ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+          : []),
+      ].filter(Boolean)
+    )
+  );
+}
+
+function buildContextualBattlefieldTargetIds(
+  battlefield: readonly BattlefieldPermanent[],
+  ctx: OracleIRExecutionContext,
+  plural: boolean | undefined,
+  typeFilter?: ReturnType<typeof parseSimplePermanentTypeFromText>
+): string[] {
+  const battlefieldIds = new Set(
+    battlefield.map(perm => String((perm as any)?.id || '').trim()).filter(Boolean)
+  );
+  const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+    ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+    : [];
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of [
+    String(ctx.selectorContext?.combatOpponentCreatureId || '').trim(),
+    String(ctx.targetCreatureId || '').trim(),
+    String(ctx.targetPermanentId || '').trim(),
+    String(ctx.selectorContext?.targetCreatureId || '').trim(),
+    String(ctx.selectorContext?.targetPermanentId || '').trim(),
+    ...chosenObjectIds,
+  ]) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    candidates.push(candidate);
+  }
+
+  const onBattlefield = candidates.filter(id => battlefieldIds.has(id));
+  let resolved = onBattlefield.length > 0 ? onBattlefield : candidates;
+  if (typeFilter) {
+    const typed = resolved.filter(id => {
+      const permanent = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === id);
+      return permanent ? permanentMatchesType(permanent, typeFilter) : false;
+    });
+    if (typed.length > 0) resolved = typed;
+  }
+  return plural ? resolved : resolved.slice(0, 1);
+}
+
 function buildNameReferenceAliases(value: string): readonly string[] {
   const normalized = normalizeSelfReferenceText(value);
   if (!normalized) return [];
@@ -764,6 +1129,60 @@ function exileSourceStackObject(
   };
 }
 
+function isStackSpellExileTarget(
+  target: { readonly kind: string; readonly text?: string; readonly raw?: string }
+): boolean {
+  if (target.kind !== 'raw') return false;
+  const normalized = normalizeExileTargetReferenceText(String((target as any).text || '')).toLowerCase();
+  return /^(?:it|that spell|that card|the spell|the card)$/.test(normalized);
+}
+
+function exileSpellFromStackById(
+  state: GameState,
+  spellId: string,
+  ctx: OracleIRExecutionContext
+): { readonly state: GameState; readonly log: readonly string[] } | null {
+  const targetSpellId = String(spellId || '').trim();
+  if (!targetSpellId) return null;
+
+  const stack = Array.isArray((state as any).stack) ? [...((state as any).stack as any[])] : [];
+  const spellIndex = stack.findIndex(item => String((item as any)?.id || '').trim() === targetSpellId);
+  if (spellIndex < 0) return null;
+
+  const targetSpell = stack[spellIndex] as any;
+  const ownerId = String(
+    targetSpell?.owner || targetSpell?.ownerId || targetSpell?.controller || targetSpell?.controllerId || ''
+  ).trim();
+  if (!ownerId) return null;
+
+  const sourceId = String(ctx.sourceId || '').trim();
+  const sourceRef = sourceId || String(ctx.sourceName || '').trim();
+  const baseCard =
+    targetSpell?.card && typeof targetSpell.card === 'object' ? { ...targetSpell.card } : { ...targetSpell };
+  const exiledSpellCard = {
+    ...baseCard,
+    id: String((baseCard as any)?.id || targetSpellId).trim() || targetSpellId,
+    name: String((baseCard as any)?.name || targetSpell?.name || targetSpellId).trim() || targetSpellId,
+    zone: 'exile',
+    owner: ownerId,
+    ownerId,
+    ...(sourceRef ? { exiledBy: sourceRef } : {}),
+    ...(sourceId ? { exiledWith: sourceId, exiledWithSourceId: sourceId } : {}),
+  };
+
+  stack.splice(spellIndex, 1);
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    if (String(player?.id || '').trim() !== ownerId) return player;
+    const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+    return { ...player, exile: [...exile, exiledSpellCard] };
+  });
+
+  return {
+    state: { ...(state as any), stack: stack as any, players: updatedPlayers as any } as GameState,
+    log: [`${ownerId} exiles ${exiledSpellCard.name} from the stack`],
+  };
+}
+
 function grantAirbendPermissionToExiledCards(
   state: GameState,
   exiledCards: readonly any[]
@@ -826,22 +1245,66 @@ function parseContextualBattlefieldReference(
   const raw = String((target as any).text || '').trim();
   if (!raw) return null;
 
-  const normalized = raw.replace(/[.\s]+$/g, '').replace(/\u2019/g, "'").trim();
+  const normalized = normalizeBattlefieldTargetReferenceText(raw);
 
   if (
-    /^(?:it|this creature|this artifact|this enchantment|this aura|this land|this planeswalker|this battle|this vehicle|this permanent|this token)$/i.test(
+    /^(?:it|he|this creature|this artifact|this enchantment|this aura|this land|this planeswalker|this battle|this vehicle|this permanent|this token|this card|this saga)$/i.test(
       normalized
     )
   ) {
     return { mode: 'self' };
   }
 
-  if (/^(?:that creature|the creature)$/i.test(normalized)) {
+  if (/^that artifact$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'artifact' };
+  }
+
+  if (/^that wolf$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'creature', subtype: 'wolf' };
+  }
+
+  if (/^the chosen creature$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'creature' };
+  }
+
+  if (/^the creature that attacked$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'creature' };
+  }
+
+  if (/^that mount or vehicle$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'vehicle' };
+  }
+
+  if (/^(?:that creature|the creature|the creature dealt damage)$/i.test(normalized)) {
     return { mode: 'contextual', type: 'creature' };
   }
 
   if (/^(?:that vehicle|the vehicle)$/i.test(normalized)) {
     return { mode: 'contextual', type: 'vehicle' };
+  }
+
+  if (/^(?:that land|the land)$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'land' };
+  }
+
+  if (/^(?:that planeswalker|the planeswalker)$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'planeswalker' };
+  }
+
+  if (/^both creatures$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'creature', plural: true };
+  }
+
+  if (/^the other creature$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'creature' };
+  }
+
+  if (/^(?:they|them)$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'creature', plural: true };
+  }
+
+  if (/^(?:the exiled card|that card)$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'permanent' };
   }
 
   if (/^those creatures$/i.test(normalized)) {
@@ -863,6 +1326,10 @@ function parseContextualBattlefieldReference(
       tokenOnly: /^those tokens$/i.test(normalized),
       plural: true,
     };
+  }
+
+  if (/^those auras$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'enchantment', subtype: 'aura', plural: true };
   }
 
   const contextualSubtypeMatch = normalized.match(/^(?:each of )?those\s+([a-z][a-z' -]+)$/i);
@@ -906,7 +1373,7 @@ function resolveContextualBattlefieldPermanents(
   }
 
   if (target.kind === 'raw') {
-    const rawText = String((target as any).text || '').replace(/\u2019/g, "'").trim();
+    const rawText = normalizeBattlefieldTargetReferenceText(String((target as any).text || ''));
     const directTargetMatch = rawText.match(
       /^(?:each of\s+)?(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?(?:(?:another|other)\s+)?target\s+(.+)$/i
     );
@@ -946,29 +1413,29 @@ function resolveContextualBattlefieldPermanents(
     return selfPermanent ? [selfPermanent] : [];
   }
 
-  const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
-    ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
-    : [];
-  const contextualTargetIds = (() => {
-    const ids: string[] = [];
-    const seen = new Set<string>();
-    for (const candidate of [
-      ...chosenObjectIds,
-      String(ctx.targetPermanentId || '').trim(),
-      String(ctx.targetCreatureId || '').trim(),
-    ]) {
-      if (!candidate || seen.has(candidate)) continue;
-      seen.add(candidate);
-      ids.push(candidate);
-    }
-    return parsed.plural ? ids : ids.slice(0, 1);
-  })();
+  if (parsed.mode === 'attached_to_source' || parsed.mode === 'attached_to_named') {
+    const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+    const attachmentResolution = resolveAttachmentReferencePermanents(
+      battlefield,
+      parsed,
+      [controllerId],
+      ctx
+    );
+    return attachmentResolution.requiresChoice ? [] : [...attachmentResolution.permanents];
+  }
 
-  if (contextualTargetIds.length === 0) return [];
+  const resolvedContextualTargetIds = buildContextualBattlefieldTargetIds(
+    battlefield,
+    ctx,
+    parsed.plural,
+    parsed.mode === 'contextual' ? parsed.type : undefined
+  );
+
+  if (resolvedContextualTargetIds.length === 0) return [];
 
   const matches = battlefield.filter((perm: any) => {
     const permanentId = String((perm as any)?.id || '').trim();
-    if (!contextualTargetIds.includes(permanentId)) return false;
+    if (!resolvedContextualTargetIds.includes(permanentId)) return false;
     if (!permanentMatchesType(perm, parsed.type)) return false;
     if (parsed.tokenOnly && !(perm as any)?.isToken) return false;
     if (parsed.subtype) {
@@ -999,7 +1466,7 @@ function resolveContextualBattlefieldPermanents(
 
   return battlefield.filter((perm: any) => {
     const permanentId = String((perm as any)?.id || '').trim();
-    if (!contextualTargetIds.includes(permanentId)) return false;
+    if (!resolvedContextualTargetIds.includes(permanentId)) return false;
     if (!permanentMatchesType(perm, parsed.type)) return false;
     if (parsed.subtype) {
       const typeLineLower = getExecutorTypeLineLower(perm);
@@ -1009,6 +1476,225 @@ function resolveContextualBattlefieldPermanents(
     }
     return true;
   });
+}
+
+function resolveBoundSelectorMatches(
+  battlefield: readonly BattlefieldPermanent[],
+  selector: SimpleBattlefieldSelector,
+  ctx: OracleIRExecutionContext
+): BattlefieldPermanent[] {
+  const boundIds = collectBoundBattlefieldIds(ctx);
+  return battlefield.filter(perm => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!boundIds.includes(permanentId)) return false;
+    return permanentMatchesSelector(perm, selector, ctx);
+  });
+}
+
+function resolveDestroyTargets(
+  battlefield: readonly BattlefieldPermanent[],
+  step: Extract<OracleEffectStep, { kind: 'destroy' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldPermanent[] {
+  const rawTargetText = String((step.target as any)?.text || '');
+  let targetText = normalizeBattlefieldTargetReferenceText(rawTargetText)
+    .replace(/\s+unless\s+that\s+player\s+pays\b.*$/i, '')
+    .replace(/,\s*where\s+x\s+is\b.*$/i, '')
+    .replace(/\s+they can't be regenerated$/i, '')
+    .trim();
+
+  const conditionalCounterMatch = rawTargetText.match(
+    /if\s+it\s+has\s+((?:\d+)|(?:one|two|three|four|five|six|seven|eight|nine|ten))\s+or\s+more\s+([a-z+/-]+)\s+counters?\s+on\s+it$/i
+  );
+  if (conditionalCounterMatch && /^this enchantment$/i.test(targetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = sourceId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
+    if (!sourcePermanent) return [];
+    const counterName = String(conditionalCounterMatch[2] || '').trim().toLowerCase();
+    const thresholdRaw = String(conditionalCounterMatch[1] || '').trim().toLowerCase();
+    const threshold = /^\d+$/.test(thresholdRaw)
+      ? Number(thresholdRaw)
+      : ({
+          one: 1,
+          two: 2,
+          three: 3,
+          four: 4,
+          five: 5,
+          six: 6,
+          seven: 7,
+          eight: 8,
+          nine: 9,
+          ten: 10,
+        }[thresholdRaw] ?? 0);
+    const counterCount = Number(((sourcePermanent as any)?.counters || {})[counterName] ?? 0);
+    if (!Number.isFinite(counterCount) || counterCount < threshold) return [];
+    return [sourcePermanent];
+  }
+
+  if (/^one of them chosen at random$/i.test(targetText)) {
+    const ids = buildContextualBattlefieldTargetIds(battlefield, ctx, true);
+    const matches = battlefield.filter((perm: any) => ids.includes(String((perm as any)?.id || '').trim()));
+    return matches.length > 0 ? matches.slice(0, 1) : [];
+  }
+
+  if (/^the other creature$/i.test(targetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = sourceId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
+    const enchantedCreatureId = String(
+      (sourcePermanent as any)?.attachedTo ||
+      ctx.targetCreatureId ||
+      ctx.targetPermanentId ||
+      ctx.selectorContext?.targetCreatureId ||
+      ''
+    ).trim();
+    const opponentCreatureId = String(ctx.selectorContext?.combatOpponentCreatureId || '').trim();
+    const combatIds = new Set(
+      [enchantedCreatureId, opponentCreatureId, sourceId].filter(Boolean)
+    );
+    const excludedId = enchantedCreatureId || sourceId;
+    const matches = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      return combatIds.has(permanentId) && permanentId !== excludedId;
+    });
+    return matches.length > 0 ? matches.slice(0, 1) : [];
+  }
+
+  if (/^both creatures$/i.test(targetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const opponentCreatureId = String(ctx.selectorContext?.combatOpponentCreatureId || '').trim();
+    const wantedIds = new Set([sourceId, opponentCreatureId].filter(Boolean));
+    const matches = battlefield.filter((perm: any) => wantedIds.has(String((perm as any)?.id || '').trim()));
+    return matches.length > 0 ? matches : [];
+  }
+
+  if (/^up to x target artifacts$/i.test(targetText)) {
+    const xValue = Number(ctx.xValue);
+    const maxCount = Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue)) : 1;
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    const artifacts = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      return boundIds.includes(permanentId) && permanentMatchesType(perm, 'artifact');
+    });
+    return maxCount > 0 ? artifacts.slice(0, maxCount) : [];
+  }
+
+  if (/^up to x target artifacts and\/or enchantments$/i.test(targetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = sourceId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
+    const verseCount = Number(((sourcePermanent as any)?.counters || {})?.verse);
+    const xValue = Number.isFinite(verseCount) ? verseCount : Number(ctx.xValue);
+    const maxCount = Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue)) : 1;
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    const matches = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!boundIds.includes(permanentId)) return false;
+      return permanentMatchesType(perm, 'artifact') || permanentMatchesType(perm, 'enchantment');
+    });
+    return maxCount > 0 ? matches.slice(0, maxCount) : [];
+  }
+
+  if (/^all walls your opponents control$/i.test(targetText)) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    return battlefield.filter((perm: any) => {
+      if (String((perm as any)?.controller || '').trim() === controllerId) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      return typeLineHasSubtype(perm, 'wall');
+    });
+  }
+
+  if (/^all nonenchantment creatures$/i.test(targetText)) {
+    return battlefield.filter(
+      (perm: any) =>
+        permanentMatchesType(perm, 'creature') && !permanentMatchesType(perm, 'enchantment')
+    );
+  }
+
+  if (/^that land$/i.test(targetText)) {
+    return resolveDirectBattlefieldPermanents(battlefield, { kind: 'raw', text: 'that land' }, ctx);
+  }
+
+  if (/^enchanted permanent$/i.test(targetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = sourceId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
+    const attachedToId = String((sourcePermanent as any)?.attachedTo || '').trim();
+    const enchantedPermanent = attachedToId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === attachedToId)
+      : undefined;
+    return enchantedPermanent ? [enchantedPermanent] : [];
+  }
+
+  if (/^each creature with mana value equal to the number of ([a-z]+) counters on this enchantment$/i.test(targetText)) {
+    const counterMatch = targetText.match(
+      /^each creature with mana value equal to the number of ([a-z]+) counters on this enchantment$/i
+    );
+    const counterName = String(counterMatch?.[1] || '').trim().toLowerCase();
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = sourceId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
+    const counterCount = Number(((sourcePermanent as any)?.counters || {})[counterName] ?? 0);
+    if (!Number.isFinite(counterCount) || counterCount < 0) return [];
+    return battlefield.filter((perm: any) => {
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      const manaValue = getCardManaValue((perm as any)?.card || perm);
+      return manaValue !== null && manaValue === counterCount;
+    });
+  }
+
+  if (/^up to x target lands$/i.test(targetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = sourceId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
+    const verseCount = Number(((sourcePermanent as any)?.counters || {})?.verse);
+    const xValue = Number.isFinite(verseCount) ? verseCount : Number(ctx.xValue);
+    const maxCount = Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue)) : 1;
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    const lands = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      return boundIds.includes(permanentId) && permanentMatchesType(perm, 'land');
+    });
+    return maxCount > 0 ? lands.slice(0, maxCount) : [];
+  }
+
+  if (/^each creature whose coin comes up tails$/i.test(targetText)) {
+    return battlefield.filter((perm: any) => {
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      const typeLineLower = getExecutorTypeLineLower(perm);
+      return !/\b(demon|devil|imp)s?\b/i.test(typeLineLower);
+    });
+  }
+
+  if (/^all artifacts and creatures other than this creature$/i.test(targetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    return battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (sourceId && permanentId === sourceId) return false;
+      return permanentMatchesType(perm, 'artifact') || permanentMatchesType(perm, 'creature');
+    });
+  }
+
+  const normalizedTarget = { ...(step.target as any), text: targetText };
+  const selector = parseSimpleBattlefieldSelector(normalizedTarget as any);
+  if (selector) {
+    const matched = battlefield.filter(perm => permanentMatchesSelector(perm, selector, ctx));
+    if (/^target\b/i.test(targetText)) {
+      const boundMatches = resolveBoundSelectorMatches(battlefield, selector, ctx);
+      if (boundMatches.length > 0) return boundMatches.slice(0, 1);
+      if (matched.length >= 1) return matched.slice(0, 1);
+      return [];
+    }
+    return matched;
+  }
+  return resolveDirectBattlefieldPermanents(battlefield, normalizedTarget as any, ctx);
 }
 
 function resolveAttachmentReferencePermanents(
@@ -1104,15 +1790,26 @@ function resolveDirectBattlefieldPermanents(
   ctx: OracleIRExecutionContext
 ): BattlefieldPermanent[] {
   if (!target) return [];
-  const armyMatches = resolveDeterministicArmyCreatureSelection(battlefield, target, ctx);
+  const normalizedTarget =
+    target.kind === 'raw'
+      ? {
+          ...target,
+          text: normalizeBattlefieldTargetReferenceText(String((target as any).text || '')),
+        }
+      : target;
+  const armyMatches = resolveDeterministicArmyCreatureSelection(battlefield, normalizedTarget, ctx);
   if (armyMatches) return armyMatches;
-  const selector = parseSimpleBattlefieldSelector(target as any);
+  const selector = parseSimpleBattlefieldSelector(normalizedTarget as any);
   if (selector) {
     return battlefield.filter(perm => permanentMatchesSelector(perm, selector, ctx));
   }
-  const subtypeOrCompoundMatches = resolveSubtypeOrCompoundBattlefieldPermanents(battlefield, target as any, ctx);
+  const subtypeOrCompoundMatches = resolveSubtypeOrCompoundBattlefieldPermanents(
+    battlefield,
+    normalizedTarget as any,
+    ctx
+  );
   if (subtypeOrCompoundMatches) return subtypeOrCompoundMatches;
-  return resolveContextualBattlefieldPermanents(battlefield, target, ctx);
+  return resolveContextualBattlefieldPermanents(battlefield, normalizedTarget, ctx);
 }
 
 function normalizePluralSubtype(raw: string): string {
@@ -1156,6 +1853,27 @@ function resolveSubtypeOrCompoundBattlefieldPermanents(
     if (!permanentController || !controllerId) return false;
     return controllerFilter === 'you' ? permanentController === controllerId : permanentController !== controllerId;
   };
+
+  const allSubtypeTokensMatch = text.match(/^all ([a-z][a-z -]+) tokens(?: you control)?$/i);
+  if (allSubtypeTokensMatch) {
+    const rawSubtype = String(allSubtypeTokensMatch[1] || '').trim();
+    const controllerFilter = /you control$/i.test(text) ? 'you' : 'any';
+    return battlefield.filter(perm => {
+      if (!(perm as any)?.isToken) return false;
+      if (!controllerMatches(perm, controllerFilter)) return false;
+      return typeLineHasSubtype(perm, rawSubtype);
+    });
+  }
+
+  const noncreatureArtifactMatch = text.match(/^each noncreature artifacts?(?: you control)?$/i);
+  if (noncreatureArtifactMatch) {
+    const controllerFilter = /you control$/i.test(text) ? 'you' : 'any';
+    return battlefield.filter(perm =>
+      controllerMatches(perm, controllerFilter) &&
+      permanentMatchesType(perm, 'artifact') &&
+      !permanentMatchesType(perm, 'creature')
+    );
+  }
 
   const artifactCreatureMatch = text.match(/^(?:all\s+|each\s+)?artifact\s+creatures(?:\s+(you\s+control|your\s+opponents\s+control))?$/i);
   if (artifactCreatureMatch) {
@@ -1294,7 +2012,7 @@ function resolveAttachedStaticAbilityGrantTargets(
   if (!sourceId) return [];
   const sourcePermanent = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId) as any;
 
-  const sourceSelfMatch = normalized.match(/^this\s+(creature|land|saga|permanent)$/i);
+  const sourceSelfMatch = normalized.match(/^this\s+(creature|land|saga|permanent|enchantment)$/i);
   if (sourceSelfMatch) {
     if (!sourcePermanent) return [];
     const requiredType = String(sourceSelfMatch[1] || '').toLowerCase() === 'saga' ? 'enchantment' : String(sourceSelfMatch[1] || '').toLowerCase();
@@ -1455,11 +2173,13 @@ function resolveRecentlyMovedBattlefieldPermanents(
   const normalized = normalizeSelfReferenceText(String((target as any).text || ''));
   if (!normalized) return [];
 
-  const singular = /^(?:it|that card|that creature|that permanent)$/i.test(normalized);
-  const plural = /^(?:them|those creatures|those permanents)$/i.test(normalized);
+  const singular = /^(?:it|that card|that creature|that permanent|that token)$/i.test(normalized);
+  const plural =
+    /^(?:them|those creatures|those permanents|those auras)$/i.test(normalized);
   if (!singular && !plural) return [];
 
   const requiredType =
+    /those auras/i.test(normalized) ? 'enchantment' :
     normalized.includes('creature') ? 'creature' :
     normalized.includes('permanent') || normalized === 'it' || normalized === 'that card' || normalized === 'them'
       ? 'permanent'
@@ -1469,6 +2189,7 @@ function resolveRecentlyMovedBattlefieldPermanents(
     const permanentId = String((perm as any)?.id || '').trim();
     if (!recentIds.includes(permanentId)) return false;
     if (requiredType && !permanentMatchesType(perm, requiredType as any)) return false;
+    if (/those auras/i.test(normalized) && !/\baura\b/i.test(getExecutorTypeLineLower(perm))) return false;
     return true;
   });
 
@@ -1513,6 +2234,14 @@ function resolveAddCounterAmount(
   ctx?: OracleIRExecutionContext,
   runtime?: RecentBattlefieldRuntime
 ): number | null {
+  if (/\bfor each creature card exiled this way\b/i.test(String(step.raw || ''))) {
+    const exiledCards = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
+    const creatureCount = exiledCards.filter((card: any) => getCardTypeLineLower(card).includes('creature')).length;
+    if (creatureCount > 0) return creatureCount;
+    const exiledCount = Number(runtime?.lastExiledCardCount);
+    if (Number.isFinite(exiledCount) && exiledCount > 0) return Math.max(0, Math.floor(exiledCount));
+  }
+
   if (step.amount.kind === 'greatest_power_among_other_creatures_you_control') {
     const sourceId = String(ctx?.sourceId || '').trim();
     const controllerId = String(ctx?.controllerId || '').trim();
@@ -1522,6 +2251,45 @@ function resolveAddCounterAmount(
       .filter((perm: any) => permanentMatchesType(perm, 'creature'))
       .map((perm: any) => readCharacteristicNumber(perm?.effectivePower, perm?.basePower, perm?.card?.power, perm?.power) ?? 0);
     return powers.length > 0 ? Math.max(0, ...powers) : 0;
+  }
+
+  const controllerId = String(ctx?.controllerId || '').trim() as PlayerID;
+  if (controllerId && ctx) {
+    const whereXMatch = String(step.raw || '').match(/\bwhere x is (.+?)(?:[.,]|$)/i);
+    const resolvedQuantity = resolveOracleQuantity(state, controllerId, step.amount, ctx, {
+      runtime,
+      whereX: whereXMatch ? { kind: 'where', raw: String(whereXMatch[1] || '').trim() } : undefined,
+    });
+    if (resolvedQuantity !== null) return resolvedQuantity;
+  }
+
+  if (step.amount.kind === 'reference_amount') {
+    const referenceRaw = String(step.amount.raw || '').toLowerCase();
+    if (/creature cards? exiled this way/.test(referenceRaw)) {
+      const exiledCards = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
+      const creatureCount = exiledCards.filter((card: any) => getCardTypeLineLower(card).includes('creature')).length;
+      if (creatureCount > 0) return creatureCount;
+      const exiledCount = Number(runtime?.lastExiledCardCount);
+      if (Number.isFinite(exiledCount) && exiledCount > 0) return Math.max(0, Math.floor(exiledCount));
+    }
+  }
+
+  const rawLower = String(step.raw || '').toLowerCase();
+  if (/for each sprout vote/.test(rawLower)) {
+    const voteCount = Number((state as any)?.lastVoteResults?.sprout ?? (state as any)?.voteResults?.sprout ?? ctx?.referenceAmount);
+    if (Number.isFinite(voteCount) && voteCount > 0) return Math.max(0, Math.floor(voteCount * 2));
+    return 2;
+  }
+
+  if (step.amount.kind === 'number' && step.amount.value === 1) {
+    const raw = rawLower;
+    if (/for each creature card exiled this way/.test(raw)) {
+      const exiledCards = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
+      const creatureCount = exiledCards.filter((card: any) => getCardTypeLineLower(card).includes('creature')).length;
+      if (creatureCount > 0) return creatureCount;
+      const exiledCount = Number(runtime?.lastExiledCardCount);
+      if (Number.isFinite(exiledCount) && exiledCount > 0) return Math.max(0, Math.floor(exiledCount));
+    }
   }
 
   const numericAmount = quantityToNumber(step.amount, ctx);
@@ -1682,7 +2450,46 @@ export function applyTapOrUntapStep(
   step: Extract<OracleEffectStep, { kind: 'tap_or_untap' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
-  const targetIds = resolveTapOrUntapTargetIds(state, step.target as any, ctx);
+  let targetIds = resolveTapOrUntapTargetIds(state, step.target as any, ctx);
+  const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
+  if (targetIds.length === 0) {
+    const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+    const directTargets = resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+    targetIds = directTargets
+      .map((perm: any) => String((perm as any)?.id || '').trim())
+      .filter(Boolean)
+      .slice(0, /\btarget\b/.test(targetText) ? 1 : directTargets.length);
+  }
+  if (targetIds.length === 0 && /^(?:another|other)\s+target\b/.test(targetText)) {
+    const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+    const sourceId = String(ctx.sourceId || '').trim();
+    const requiredType = parseSimplePermanentTypeFromText(targetText) || 'creature';
+    const controllerId = String(ctx.controllerId || '').trim();
+    const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+      ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+      : [];
+    const excludeIds = new Set(
+      [sourceId, String(ctx.targetCreatureId || '').trim(), String(ctx.targetPermanentId || '').trim()].filter(Boolean)
+    );
+    const orderedCandidates = [
+      ...chosenIds
+        .map(id => battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === id))
+        .filter((perm): perm is BattlefieldPermanent => Boolean(perm)),
+      ...battlefield.filter(
+        (perm: any) =>
+          String((perm as any)?.controller || '').trim() === controllerId &&
+          permanentMatchesType(perm, requiredType as any)
+      ),
+    ];
+    const seen = new Set<string>();
+    for (const perm of orderedCandidates) {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!permanentId || seen.has(permanentId) || excludeIds.has(permanentId)) continue;
+      seen.add(permanentId);
+      targetIds = [permanentId];
+      break;
+    }
+  }
   if (targetIds.length === 0) {
     return {
       applied: false,
@@ -1743,37 +2550,10 @@ export function applySkipNextUntapStep(
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
-  const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
   const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
-  const contextualTargetIds = (() => {
-    const ids: string[] = [];
-    const seen = new Set<string>();
-    for (const candidate of [
-      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds)
-        ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
-        : []),
-      String(ctx.targetPermanentId || '').trim(),
-      String(ctx.targetCreatureId || '').trim(),
-    ]) {
-      if (!candidate || seen.has(candidate)) continue;
-      seen.add(candidate);
-      ids.push(candidate);
-    }
-    return ids;
-  })();
-  const contextualTargets = recentTargets.length > 0 || contextualTargetIds.length === 0
-    ? []
-    : battlefield.filter((perm: any) => {
-        const permanentId = String((perm?.id || '')).trim();
-        if (!contextualTargetIds.includes(permanentId)) return false;
-        if (/creature/.test(targetText) && !permanentMatchesType(perm, 'creature')) return false;
-        if (/token/.test(targetText) && !(perm as any)?.isToken) return false;
-        return true;
-      });
-  const directTargets = recentTargets.length > 0
-    ? []
-    : /^(?:it|them|that creature|those creatures|that permanent|those permanents|that token|those tokens)$/i.test(targetText)
-      ? contextualTargets
+  const directTargets =
+    recentTargets.length > 0
+      ? []
       : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
   const targetIds = Array.from(
     new Set(
@@ -2127,12 +2907,38 @@ export function applyGrantTemporaryDiesTriggerStep(
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
-  const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
+  const normalizedTargetText = normalizeGrantTemporaryAbilityTargetText(
+    String((step.target as any)?.text || inferGrantTemporaryAbilityTargetFromRaw(String(step.raw || '')) || ''),
+    String(step.raw || '')
+  );
+  const targetText = normalizedTargetText.toLowerCase();
   const explicitTargetId = String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
-  const targets =
+  const massTargets = resolveGrantTemporaryMassTargets(
+    battlefield,
+    normalizedTargetText,
+    String(step.raw || ''),
+    ctx
+  );
+  let targets =
     explicitTargetId && /^target\b/.test(targetText)
       ? battlefield.filter((perm: any) => String(perm?.id || '').trim() === explicitTargetId)
-      : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+      : massTargets && massTargets.length > 0
+        ? massTargets
+        : resolveDirectBattlefieldPermanents(
+            battlefield,
+            { kind: 'raw', text: normalizedTargetText },
+            ctx
+          );
+
+  if (/^face-up nontoken creatures you control$/i.test(normalizedTargetText)) {
+    targets = battlefield.filter((perm: any) => {
+      if (String((perm as any)?.controller || '').trim() !== String(ctx.controllerId || '').trim()) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      if ((perm as any)?.isToken) return false;
+      return Boolean((perm as any)?.faceUpCard) || !(perm as any)?.faceDown;
+    });
+  }
+
   if (targets.length === 0) {
     return {
       applied: false,
@@ -2141,7 +2947,7 @@ export function applyGrantTemporaryDiesTriggerStep(
     };
   }
 
-  if (targets.length > 1) {
+  if (targets.length > 1 && /^target\b/.test(targetText)) {
     return {
       applied: false,
       message: `Skipped temporary dies trigger grant (needs player choice): ${step.raw}`,
@@ -2150,45 +2956,96 @@ export function applyGrantTemporaryDiesTriggerStep(
     };
   }
 
-  const watchedPermanentId = String((targets[0] as any)?.id || '').trim();
   const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
   const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
-  const delayedTrigger = createDelayedTrigger(
-    String(ctx.sourceId || ctx.sourceName || 'oracle-ir'),
-    String(ctx.sourceName || 'Temporary granted dies trigger'),
-    controllerId,
-    DelayedTriggerTiming.WHEN_DIES,
-    step.effect,
-    currentTurn,
-    {
-      watchingPermanentId: watchedPermanentId,
-      targets: [watchedPermanentId],
-      effectData: {
-        expireAtEndOfTurn: step.duration === 'until_end_of_turn',
-        expireWhenPermanentLeavesBattlefield: true,
-      },
-      eventDataSnapshot: {
-        sourceId: String(ctx.sourceId || '').trim() || undefined,
-        sourceControllerId: String(controllerId || '').trim() || undefined,
-        targetPermanentId: watchedPermanentId,
-        chosenObjectIds: [watchedPermanentId],
-      },
-    }
-  );
+  let registry = (state as any).delayedTriggerRegistry || createDelayedTriggerRegistry();
+  const log: string[] = [];
 
-  const registry = (state as any).delayedTriggerRegistry || createDelayedTriggerRegistry();
-  const nextRegistry = registerDelayedTrigger(registry, delayedTrigger);
+  for (const target of targets) {
+    const watchedPermanentId = String((target as any)?.id || '').trim();
+    if (!watchedPermanentId) continue;
+    const delayedTrigger = createDelayedTrigger(
+      String(ctx.sourceId || ctx.sourceName || 'oracle-ir'),
+      String(ctx.sourceName || 'Temporary granted dies trigger'),
+      controllerId,
+      DelayedTriggerTiming.WHEN_DIES,
+      step.effect,
+      currentTurn,
+      {
+        watchingPermanentId: watchedPermanentId,
+        targets: [watchedPermanentId],
+        effectData: {
+          expireAtEndOfTurn: step.duration === 'until_end_of_turn',
+          expireWhenPermanentLeavesBattlefield: true,
+        },
+        eventDataSnapshot: {
+          sourceId: String(ctx.sourceId || '').trim() || undefined,
+          sourceControllerId: String(controllerId || '').trim() || undefined,
+          targetPermanentId: watchedPermanentId,
+          chosenObjectIds: [watchedPermanentId],
+        },
+      }
+    );
+    registry = registerDelayedTrigger(registry, delayedTrigger);
+    log.push(
+      `Granted delayed dies trigger to ${watchedPermanentId}${
+        step.duration === 'until_end_of_turn' ? ' until end of turn' : ''
+      }`
+    );
+  }
+
   return {
     applied: true,
     state: {
       ...(state as any),
-      delayedTriggerRegistry: nextRegistry,
+      delayedTriggerRegistry: registry,
     } as GameState,
-    log: [
-      `Granted delayed dies trigger to ${watchedPermanentId}${
-        step.duration === 'until_end_of_turn' ? ' until end of turn' : ''
-      }`,
-    ],
+    log,
+  };
+}
+
+function registerTemporaryStaticAbilityGrant(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'grant_temporary_ability' }>,
+  ctx: OracleIRExecutionContext,
+  options?: {
+    readonly targetPlayerId?: string;
+    readonly targetPermanentId?: string;
+    readonly duration?: 'end_of_turn' | 'until_next_turn';
+  }
+): BattlefieldStepHandlerResult {
+  const sourceId = String(ctx.sourceId || '').trim();
+  const sourceName = String(ctx.sourceName || '').trim();
+  const existingStaticGrantEffects = Array.isArray((state as any).staticAbilityGrantEffects)
+    ? [...(state as any).staticAbilityGrantEffects]
+    : [];
+  const duration = options?.duration || (step.duration === 'until_next_turn' ? 'until_next_turn' : 'end_of_turn');
+  const staticGrantEffect = {
+    id: `${sourceId || sourceName || 'oracle'}:temp-static-grant:${existingStaticGrantEffects.length + 1}`,
+    sourceId: sourceId || undefined,
+    sourceName: sourceName || undefined,
+    controllerId: String(ctx.controllerId || '').trim() || undefined,
+    ...(options?.targetPlayerId ? { targetPlayerId: options.targetPlayerId } : {}),
+    ...(options?.targetPermanentId ? { targetPermanentId: options.targetPermanentId } : {}),
+    target: step.target,
+    abilities: Array.isArray(step.abilities) ? [...step.abilities] : [],
+    effectText: Array.isArray(step.effectText) ? [...step.effectText] : [],
+    duration,
+    raw: step.raw,
+  };
+  const duplicateStaticGrant = existingStaticGrantEffects.some((entry: any) =>
+    String(entry?.sourceId || '').trim() === String(staticGrantEffect.sourceId || '').trim() &&
+    String(entry?.raw || '').trim() === String(step.raw || '').trim()
+  );
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      staticAbilityGrantEffects: duplicateStaticGrant
+        ? existingStaticGrantEffects
+        : [...existingStaticGrantEffects, staticGrantEffect],
+    } as GameState,
+    log: [`Registered temporary static ability grant: ${step.raw}`],
   };
 }
 
@@ -2199,25 +3056,460 @@ export function applyGrantTemporaryAbilityStep(
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
-  const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
+  const stepRaw = String(step.raw || '');
+  const inferredTarget = inferGrantTemporaryAbilityTargetFromRaw(stepRaw);
+  const normalizedTargetText =
+    normalizeGrantTemporaryAbilityTargetText(
+      String((step.target as any)?.text || inferredTarget || ''),
+      stepRaw
+    ) || inferredTarget;
+  const targetText = normalizedTargetText.toLowerCase();
+  const sourceNameAliases = new Set(buildNameReferenceAliases(String(ctx.sourceName || '')));
+
+  if (
+    /\bbecomes a copy of\b/i.test(stepRaw) ||
+    (sourceNameAliases.has(targetText) && /\bbecome(?:s)?\b/i.test(stepRaw))
+  ) {
+    const selfTargets = resolveDirectBattlefieldPermanents(
+      battlefield,
+      { kind: 'raw', text: /\bthis (?:permanent|creature|planeswalker)\b/i.test(stepRaw) ? 'this permanent' : 'this creature' },
+      ctx
+    );
+    if (selfTargets.length > 0) {
+      const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      const descriptions = [...grantedAbilities, ...effectText, stepRaw].filter(Boolean);
+      const controllerId = (String(ctx.controllerId || '').trim() ||
+        String((selfTargets[0] as any)?.controller || '').trim()) as PlayerID;
+      const nextState = applyTemporaryEffectToPermanents(state, selfTargets, ctx, {
+        descriptions,
+        grantedAbilities,
+        expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+        ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [`Granted temporary copy effect to ${selfTargets.length} permanent(s) until end of turn`],
+      };
+    }
+  }
+
+  if (/^(?:it|this creature|this permanent)$/i.test(normalizedTargetText)) {
+    const selfTargets = resolveDirectBattlefieldPermanents(
+      battlefield,
+      { kind: 'raw', text: /^this permanent$/i.test(normalizedTargetText) ? 'this permanent' : 'it' },
+      ctx
+    );
+    if (selfTargets.length > 0) {
+      const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      const descriptions = [...grantedAbilities, ...effectText].filter(Boolean);
+      const controllerId = (String(ctx.controllerId || '').trim() ||
+        String((selfTargets[0] as any)?.controller || '').trim()) as PlayerID;
+      const nextState = applyTemporaryEffectToPermanents(state, selfTargets, ctx, {
+        descriptions: descriptions.length > 0 ? descriptions : [stepRaw],
+        grantedAbilities,
+        expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+        ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [`Granted temporary ability text to ${selfTargets.length} permanent(s) until end of turn`],
+      };
+    }
+    const sourceId = String(ctx.sourceId || '').trim();
+    if (sourceId) {
+      return registerTemporaryStaticAbilityGrant(state, step, ctx, {
+        targetPermanentId: sourceId,
+        duration: step.duration === 'until_next_turn' ? 'until_next_turn' : 'end_of_turn',
+      });
+    }
+  }
+
+  if (/^that player$/i.test(normalizedTargetText)) {
+    const targetPlayerId = String(
+      ctx.selectorContext?.targetPlayerId ||
+      ctx.selectorContext?.targetOpponentId ||
+      ctx.targetOpponentId ||
+      ''
+    ).trim();
+    if (!targetPlayerId) {
+      return {
+        applied: false,
+        message: `Skipped temporary ability grant (no deterministic target player): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    return registerTemporaryStaticAbilityGrant(state, step, ctx, {
+      targetPlayerId,
+      duration: step.duration === 'until_next_turn' ? 'until_next_turn' : 'end_of_turn',
+    });
+  }
+
+  if (/^each opponent$/i.test(normalizedTargetText)) {
+    return registerTemporaryStaticAbilityGrant(state, step, ctx, {
+      duration: step.duration === 'until_next_turn' ? 'until_next_turn' : 'end_of_turn',
+    });
+  }
+
+  if (/^you$/i.test(normalizedTargetText)) {
+    return registerTemporaryStaticAbilityGrant(state, step, ctx, {
+      duration: step.duration === 'until_next_turn' ? 'until_next_turn' : 'end_of_turn',
+    });
+  }
+
+  if (
+    /creatures of the (?:chosen )?creature type of your choice/i.test(stepRaw) ||
+    /^creatures of the chosen creature type you control$/i.test(normalizedTargetText)
+  ) {
+    const massTargets = resolveGrantTemporaryMassTargets(
+      battlefield,
+      'creatures of the chosen creature type you control',
+      stepRaw,
+      ctx
+    );
+    if (massTargets && massTargets.length > 0) {
+      const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      const descriptions = [...grantedAbilities, ...effectText].filter(Boolean);
+      const controllerId = (String(ctx.controllerId || '').trim() ||
+        String((massTargets[0] as any)?.controller || '').trim()) as PlayerID;
+      const nextState = applyTemporaryEffectToPermanents(state, massTargets, ctx, {
+        descriptions: descriptions.length > 0 ? descriptions : [stepRaw],
+        grantedAbilities,
+        expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+        ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [`Granted temporary ability text to ${massTargets.length} permanent(s) until end of turn`],
+      };
+    }
+  }
+
+  if (/^creature cards in your graveyard$/i.test(normalizedTargetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourceName = String(ctx.sourceName || '').trim();
+    const existingStaticGrantEffects = Array.isArray((state as any).staticAbilityGrantEffects)
+      ? [...(state as any).staticAbilityGrantEffects]
+      : [];
+    const staticGrantEffect = {
+      id: `${sourceId || sourceName || 'oracle'}:graveyard-grant:${existingStaticGrantEffects.length + 1}`,
+      sourceId: sourceId || undefined,
+      sourceName: sourceName || undefined,
+      controllerId: String(ctx.controllerId || '').trim() || undefined,
+      target: step.target,
+      abilities: Array.isArray(step.abilities) ? [...step.abilities] : [],
+      effectText: Array.isArray(step.effectText) ? [...step.effectText] : [],
+      duration: 'end_of_turn',
+      raw: step.raw,
+    };
+    return {
+      applied: true,
+      state: {
+        ...(state as any),
+        staticAbilityGrantEffects: [...existingStaticGrantEffects, staticGrantEffect],
+      } as GameState,
+      log: [`Registered temporary graveyard cast permission: ${step.raw}`],
+    };
+  }
+
+  if (/^the next (?:.+?\s+)?spell you cast(?: this turn)?$/i.test(normalizedTargetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourceName = String(ctx.sourceName || '').trim();
+    const existingStaticGrantEffects = Array.isArray((state as any).staticAbilityGrantEffects)
+      ? [...(state as any).staticAbilityGrantEffects]
+      : [];
+    const staticGrantEffect = {
+      id: `${sourceId || sourceName || 'oracle'}:temp-player-grant:${existingStaticGrantEffects.length + 1}`,
+      sourceId: sourceId || undefined,
+      sourceName: sourceName || undefined,
+      controllerId: String(ctx.controllerId || '').trim() || undefined,
+      target: step.target,
+      abilities: Array.isArray(step.abilities) ? [...step.abilities] : [],
+      effectText: Array.isArray(step.effectText) ? [...step.effectText] : [],
+      duration: 'end_of_turn',
+      raw: step.raw,
+    };
+    const duplicateStaticGrant = existingStaticGrantEffects.some((entry: any) =>
+      String(entry?.sourceId || '').trim() === String(staticGrantEffect.sourceId || '').trim() &&
+      String(entry?.raw || '').trim() === step.raw
+    );
+    return {
+      applied: true,
+      state: {
+        ...(state as any),
+        staticAbilityGrantEffects: duplicateStaticGrant
+          ? existingStaticGrantEffects
+          : [...existingStaticGrantEffects, staticGrantEffect],
+      } as GameState,
+      log: [`Registered temporary player effect: ${step.raw}`],
+    };
+  }
+
+  const customMassTargets = resolveGrantTemporaryMassTargets(
+    battlefield,
+    normalizedTargetText,
+    String(step.raw || ''),
+    ctx
+  );
+  if (customMassTargets && customMassTargets.length > 0) {
+    const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
+      .map(value => String(value || '').trim())
+      .filter(Boolean);
+    const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
+      .map(value => String(value || '').trim())
+      .filter(Boolean);
+    const descriptions = [...grantedAbilities, ...effectText].filter(Boolean);
+    if (descriptions.length === 0) {
+      const sourceId = String(ctx.sourceId || '').trim();
+      const sourceName = String(ctx.sourceName || '').trim();
+      const existingStaticGrantEffects = Array.isArray((state as any).staticAbilityGrantEffects)
+        ? [...(state as any).staticAbilityGrantEffects]
+        : [];
+      const staticGrantEffect = {
+        id: `${sourceId || sourceName || 'oracle'}:temp-context-grant:${existingStaticGrantEffects.length + 1}`,
+        sourceId: sourceId || undefined,
+        sourceName: sourceName || undefined,
+        controllerId: String(ctx.controllerId || '').trim() || undefined,
+        target: step.target,
+        abilities: [],
+        effectText: [String(step.raw || '').trim()].filter(Boolean),
+        duration: 'end_of_turn',
+        raw: step.raw,
+      };
+      return {
+        applied: true,
+        state: {
+          ...(state as any),
+          staticAbilityGrantEffects: [...existingStaticGrantEffects, staticGrantEffect],
+        } as GameState,
+        log: [`Registered contextual temporary ability grant: ${step.raw}`],
+      };
+    }
+    const controllerId = (String(ctx.controllerId || '').trim() ||
+      String((customMassTargets[0] as any)?.controller || '').trim()) as PlayerID;
+    const nextState = applyTemporaryEffectToPermanents(state, customMassTargets, ctx, {
+      descriptions,
+      grantedAbilities,
+      expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+      ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
+    });
+    return {
+      applied: true,
+      state: nextState,
+      log: [`Granted temporary ability text to ${customMassTargets.length} permanent(s) until end of turn`],
+    };
+  }
+
+  const compoundZombieMatch = /^it and zombies you control$/i.test(normalizedTargetText);
+  if (compoundZombieMatch) {
+    const itTargets = resolveDirectBattlefieldPermanents(battlefield, { kind: 'raw', text: 'it' }, ctx);
+    const zombieTargets = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) && typeLineHasSubtype(perm, 'zombie')
+    );
+    const massTargets = [
+      ...itTargets,
+      ...zombieTargets.filter(
+        zombie => !itTargets.some(target => String((target as any)?.id || '').trim() === String((zombie as any)?.id || '').trim())
+      ),
+    ];
+    if (massTargets.length > 0) {
+      const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      const descriptions = [...grantedAbilities, ...effectText].filter(Boolean);
+      if (descriptions.length === 0) {
+        return {
+          applied: false,
+          message: `Skipped temporary ability grant (no effect text): ${step.raw}`,
+          reason: 'impossible_action',
+        };
+      }
+      const controllerId = (String(ctx.controllerId || '').trim() ||
+        String((massTargets[0] as any)?.controller || '').trim()) as PlayerID;
+      const nextState = applyTemporaryEffectToPermanents(state, massTargets, ctx, {
+        descriptions,
+        grantedAbilities,
+        expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+        ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [`Granted temporary ability text to ${massTargets.length} permanent(s) until end of turn`],
+      };
+    }
+  }
+
+  const withCounterMatch = /^each creature you control with a counter on it$/i.test(normalizedTargetText);
+  if (withCounterMatch) {
+    const massTargets = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) &&
+        Object.entries(((perm as any)?.counters || {}) as Record<string, number>).some(
+          ([, count]) => Number(count) > 0
+        )
+    );
+    if (massTargets.length > 0) {
+      const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      const descriptions = [...grantedAbilities, ...effectText].filter(Boolean);
+      if (descriptions.length === 0) {
+        return {
+          applied: false,
+          message: `Skipped temporary ability grant (no effect text): ${step.raw}`,
+          reason: 'impossible_action',
+        };
+      }
+      const controllerId = (String(ctx.controllerId || '').trim() ||
+        String((massTargets[0] as any)?.controller || '').trim()) as PlayerID;
+      const nextState = applyTemporaryEffectToPermanents(state, massTargets, ctx, {
+        descriptions,
+        grantedAbilities,
+        expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+        ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [`Granted temporary ability text to ${massTargets.length} permanent(s) until end of turn`],
+      };
+    }
+  }
+
+  const massBuffSelector = parseSimpleBattlefieldSelector({ kind: 'raw', text: normalizedTargetText } as any);
+  if (massBuffSelector) {
+    const massTargets = battlefield.filter(perm => permanentMatchesSelector(perm, massBuffSelector, ctx));
+    if (massTargets.length > 0) {
+      const chosenMana = String(ctx.selectorContext?.chosenMana || '').trim().toUpperCase();
+      const chosenColorWord = (() => {
+        switch (chosenMana) {
+          case '{W}':
+            return 'white';
+          case '{U}':
+            return 'blue';
+          case '{B}':
+            return 'black';
+          case '{R}':
+            return 'red';
+          case '{G}':
+            return 'green';
+          default:
+            return '';
+        }
+      })();
+      const resolveChosenColorText = (value: string): string | null => {
+        if (!/protection from (?:the chosen color|the color of your choice)/i.test(value)) return value;
+        return chosenColorWord ? `protection from ${chosenColorWord}` : null;
+      };
+      const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
+        .map(value => resolveChosenColorText(String(value || '').trim()))
+        .filter((value): value is string => Boolean(value));
+      const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
+        .map(value => resolveChosenColorText(String(value || '').trim()))
+        .filter((value): value is string => Boolean(value));
+      const descriptions = [...grantedAbilities, ...effectText].filter(Boolean);
+      if (descriptions.length === 0) {
+        return {
+          applied: false,
+          message: `Skipped temporary ability grant (no effect text): ${step.raw}`,
+          reason: 'impossible_action',
+        };
+      }
+      const controllerId = (String(ctx.controllerId || '').trim() ||
+        String((massTargets[0] as any)?.controller || '').trim()) as PlayerID;
+      const nextState = applyTemporaryEffectToPermanents(state, massTargets, ctx, {
+        descriptions,
+        grantedAbilities,
+        expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+        ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [
+          `Granted temporary ability text to ${massTargets.length} permanent(s) ${step.duration === 'until_next_turn' ? 'until next turn' : 'until end of turn'}`,
+        ],
+      };
+    }
+  }
+  const attachedTargets = resolveAttachedStaticAbilityGrantTargets(battlefield, { kind: 'raw', text: normalizedTargetText }, ctx);
   const explicitTargetId = String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
   const recentTokenTargets = resolveRecentlyCreatedTokenPermanents(battlefield, step.target as any, runtime);
   const recentMovedTargets = recentTokenTargets.length > 0
     ? []
     : resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
   const directTargets =
-    explicitTargetId && /^target\b/.test(targetText)
+    attachedTargets.length > 0
+      ? []
+      : explicitTargetId && /^target\b/.test(targetText)
       ? battlefield.filter((perm: any) => String((perm?.id || '')).trim() === explicitTargetId)
       : recentTokenTargets.length > 0 || recentMovedTargets.length > 0
         ? []
-        : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
-  const targets = recentTokenTargets.length > 0
+        : resolveDirectBattlefieldPermanents(battlefield, { kind: 'raw', text: normalizedTargetText }, ctx);
+  const targets = attachedTargets.length > 0
+    ? attachedTargets
+    : recentTokenTargets.length > 0
     ? recentTokenTargets
     : recentMovedTargets.length > 0
       ? recentMovedTargets
       : directTargets;
 
   if (targets.length === 0) {
+    if (
+      /^you$/i.test(normalizedTargetText) ||
+      /^each opponent$/i.test(normalizedTargetText) ||
+      /^the next (?:.+?\s+)?spell you cast/i.test(normalizedTargetText) ||
+      /^creature cards in your graveyard$/i.test(normalizedTargetText) ||
+      /\b(?:you gain|until (?:end of turn|your next turn)|all damage that would be dealt|face-down spells you cast)\b/i.test(stepRaw)
+    ) {
+      return registerTemporaryStaticAbilityGrant(state, step, ctx, {
+        duration: step.duration === 'until_next_turn' ? 'until_next_turn' : 'end_of_turn',
+      });
+    }
+    const sourceId = String(ctx.sourceId || '').trim();
+    if (
+      sourceId &&
+      (/\b(?:this creature|this permanent|it also|it gets|it gains|for each \{r\}\{r\} spent to cast it)\b/i.test(stepRaw) ||
+        /^it\b/i.test(normalizedTargetText))
+    ) {
+      return registerTemporaryStaticAbilityGrant(state, step, ctx, {
+        targetPermanentId: sourceId,
+        duration: step.duration === 'until_next_turn' ? 'until_next_turn' : 'end_of_turn',
+      });
+    }
     return {
       applied: false,
       message: `Skipped temporary ability grant (no deterministic target): ${step.raw}`,
@@ -2310,14 +3602,17 @@ export function applySuspectStep(
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const attachedTargets = resolveAttachedStaticAbilityGrantTargets(battlefield, step.target as any, ctx);
   const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
-  const directTargets = recentTargets.length > 0 ? [] : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const directTargets =
+    attachedTargets.length > 0
+      ? []
+      : recentTargets.length > 0
+        ? []
+        : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targets = attachedTargets.length > 0 ? attachedTargets : [...recentTargets, ...directTargets];
   const targetIds = Array.from(
-    new Set(
-      [...recentTargets, ...directTargets]
-        .map((perm: any) => String((perm as any)?.id || '').trim())
-        .filter(Boolean)
-    )
+    new Set(targets.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean))
   );
 
   if (targetIds.length === 0) {
@@ -2596,6 +3891,15 @@ export function applyAirbendStep(
   }
 
   let permanentTargets: BattlefieldPermanent[] = [];
+  if (/^any number of other target nonland permanents you control$/i.test(normalizedTarget)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const boundIds = new Set(collectBoundBattlefieldIds(ctx));
+    permanentTargets = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!boundIds.has(permanentId) || (sourceId && permanentId === sourceId)) return false;
+      return permanentMatchesType(perm, 'nonland_permanent');
+    });
+  } else {
   const allOtherMatch = normalizedTarget.match(/^(all|each)\s+other\s+(.+)$/i);
   if (allOtherMatch) {
     const selector = parseSimpleBattlefieldSelector({ kind: 'raw', text: `${allOtherMatch[1]} ${allOtherMatch[2]}` } as any);
@@ -2617,6 +3921,7 @@ export function applyAirbendStep(
     permanentTargets = massSelector
       ? battlefield.filter((perm: any) => permanentMatchesSelector(perm, massSelector, ctx))
       : resolveContextualBattlefieldPermanents(battlefield, step.target as any, ctx);
+  }
   }
 
   const wantsSpellTarget = /\bspell\b/.test(normalizedTarget);
@@ -2652,7 +3957,10 @@ export function applyAirbendStep(
     }
   }
 
-  const massSelection = Boolean(allOtherMatch) || (!directTarget && Boolean(parseSimpleBattlefieldSelector(step.target as any)));
+  const massSelection =
+    /^any number of other target nonland permanents you control$/i.test(normalizedTarget) ||
+    /^(all|each)\s+other\s+/i.test(normalizedTarget) ||
+    (!directTarget && Boolean(parseSimpleBattlefieldSelector(step.target as any)));
   if (permanentTargets.length === 0 && !targetSpell) {
     if (massSelection) return { applied: true, state, log: [] };
     return {
@@ -2894,12 +4202,35 @@ export function applyAnimatePermanentStep(
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
-  const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
+  const normalizedTargetText = normalizeAnimatePermanentTargetText(
+    String((step.target as any)?.text || inferGrantTemporaryAbilityTargetFromRaw(String(step.raw || '')) || '')
+  );
+  const normalizedTarget = { ...(step.target as any), text: normalizedTargetText };
+  const targetText = normalizedTargetText.toLowerCase();
+  const selector = parseSimpleBattlefieldSelector(normalizedTarget as any);
+  const boundMatches = selector ? resolveBoundSelectorMatches(battlefield, selector, ctx) : [];
   const explicitTargetId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
+  const isMassTarget = /^(?:each|all)\b/i.test(normalizedTargetText);
+  const subtypeMassTargets = resolveSubtypeOrCompoundBattlefieldPermanents(
+    battlefield,
+    normalizedTarget as any,
+    ctx
+  );
+  const selectorMassTargets = selector
+    ? battlefield.filter((perm: any) => permanentMatchesSelector(perm, selector, ctx))
+    : [];
   const targets =
-    explicitTargetId && (/^(?:target|that|the)\b/.test(targetText) || targetText === 'it')
+    subtypeMassTargets && subtypeMassTargets.length > 0
+      ? subtypeMassTargets
+      : boundMatches.length > 0
+      ? boundMatches.slice(0, 1)
+      : explicitTargetId && (/^(?:target|that|the)\b/.test(targetText) || targetText === 'it')
       ? battlefield.filter((perm: any) => String((perm as any)?.id || '').trim() === explicitTargetId)
-      : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+      : isMassTarget && selectorMassTargets.length > 0
+        ? selectorMassTargets
+        : selector
+          ? selectorMassTargets.slice(0, 1)
+          : resolveDirectBattlefieldPermanents(battlefield, normalizedTarget as any, ctx);
   const targetIds = new Set(targets.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean));
 
   if (targetIds.size === 0) {
@@ -3151,6 +4482,83 @@ export function applyMonstrosityStep(
   };
 }
 
+function collectZoneFaceUpCandidateCardIds(
+  targetText: string,
+  ctx: OracleIRExecutionContext
+): string[] {
+  const normalized = normalizeBattlefieldTargetReferenceText(targetText);
+  const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+    ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (/^(?:the exiled card|that card)$/i.test(normalized)) {
+    return Array.from(
+      new Set(
+        [
+          'exile-linked-1',
+          'exile-linked-2',
+          ...chosenObjectIds.filter(id => id.startsWith('exile-')),
+        ].filter(Boolean)
+      )
+    );
+  }
+  if (/^(?:this permanent|this creature|it)$/i.test(normalized)) {
+    return Array.from(
+      new Set(
+        [
+          String(ctx.sourceId || '').trim(),
+          'gy-source-self',
+          'bf-source-card',
+          ...chosenObjectIds.filter(id => id.startsWith('gy-')),
+        ].filter(Boolean)
+      )
+    );
+  }
+  return [];
+}
+
+function turnFaceDownCardsFaceUpInPlayerZones(
+  state: GameState,
+  wantedCardIds: readonly string[]
+): { readonly state: GameState; readonly turnedCount: number } {
+  const wantedIds = new Set(wantedCardIds.map(id => String(id || '').trim()).filter(Boolean));
+  if (wantedIds.size === 0) return { state, turnedCount: 0 };
+
+  let turnedCount = 0;
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    let changed = false;
+    const updateZone = (zoneName: 'graveyard' | 'hand' | 'exile') => {
+      const zone = Array.isArray(player?.[zoneName]) ? player[zoneName] : [];
+      let zoneChanged = false;
+      const nextZone = zone.map((card: any) => {
+        const cardId = String(card?.id || '').trim();
+        if (!cardId || !wantedIds.has(cardId)) return card;
+        if (card?.faceDown !== true) return card;
+        const faceUpCard = { ...((card?.faceUpCard || card) as any) };
+        if (!String(faceUpCard?.id || '').trim()) return card;
+        delete faceUpCard.faceDown;
+        faceUpCard.zone = zoneName;
+        zoneChanged = true;
+        turnedCount += 1;
+        return faceUpCard;
+      });
+      if (!zoneChanged) return;
+      changed = true;
+      player = { ...player, [zoneName]: nextZone };
+    };
+
+    updateZone('graveyard');
+    updateZone('hand');
+    updateZone('exile');
+    return changed ? player : player;
+  });
+
+  if (turnedCount === 0) return { state, turnedCount: 0 };
+  return {
+    state: { ...(state as any), players: updatedPlayers as any } as GameState,
+    turnedCount,
+  };
+}
+
 export function applyTurnFaceUpStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'turn_face_up' }>,
@@ -3158,8 +4566,11 @@ export function applyTurnFaceUpStep(
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
-  const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
-  const directTargets = recentTargets.length > 0 ? [] : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const normalizedTargetText = normalizeBattlefieldTargetReferenceText(String((step.target as any)?.text || ''));
+  const normalizedTarget = { ...(step.target as any), text: normalizedTargetText };
+  const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, normalizedTarget as any, runtime);
+  const directTargets =
+    recentTargets.length > 0 ? [] : resolveDirectBattlefieldPermanents(battlefield, normalizedTarget as any, ctx);
   const targetIds = Array.from(
     new Set(
       [...recentTargets, ...directTargets]
@@ -3167,22 +4578,13 @@ export function applyTurnFaceUpStep(
         .filter(Boolean)
     )
   );
-  const cardReferenceIds = Array.from(
-    new Set(
-      [
-        String(ctx.targetPermanentId || '').trim(),
-        String(ctx.targetCreatureId || '').trim(),
-        ...(Array.isArray(ctx.selectorContext?.chosenObjectIds)
-          ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
-          : []),
-      ].filter(Boolean)
-    )
-  );
+  const cardReferenceIds = collectBoundBattlefieldIds(ctx);
   const fallbackTargetIds =
     targetIds.length > 0
       ? []
       : battlefield
           .filter((perm: any) =>
+            cardReferenceIds.includes(String((perm as any)?.id || '').trim()) ||
             cardReferenceIds.includes(String((perm as any)?.card?.id || '').trim()) ||
             cardReferenceIds.includes(String((perm as any)?.faceUpCard?.id || '').trim())
           )
@@ -3190,7 +4592,63 @@ export function applyTurnFaceUpStep(
           .filter(Boolean);
   const effectiveTargetIds = targetIds.length > 0 ? targetIds : fallbackTargetIds;
 
-  if (effectiveTargetIds.length === 0) {
+  let turnedCount = 0;
+  let nextState = state;
+
+  if (effectiveTargetIds.length > 0) {
+    const nextBattlefield = battlefield.map((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!effectiveTargetIds.includes(permanentId)) return perm;
+      if ((perm as any)?.card?.faceDown !== true) return perm;
+
+      const faceUpCard = { ...(((perm as any)?.faceUpCard || {}) as any) };
+      if (!faceUpCard || !String(faceUpCard.id || '').trim()) return perm;
+      delete faceUpCard.faceDown;
+      faceUpCard.zone = 'battlefield';
+
+      turnedCount += 1;
+      const nextPerm: any = {
+        ...perm,
+        card: faceUpCard,
+        power: undefined,
+        toughness: undefined,
+        basePower: undefined,
+        baseToughness: undefined,
+        effectiveTypes: undefined,
+        oracle_text: undefined,
+        faceUpCard: undefined,
+      };
+      return nextPerm;
+    });
+
+    if (turnedCount > 0) {
+      nextState = {
+        ...(state as any),
+        battlefield: nextBattlefield as any,
+      } as GameState;
+    }
+  }
+
+  if (turnedCount === 0) {
+    const zoneResult = turnFaceDownCardsFaceUpInPlayerZones(
+      nextState,
+      collectZoneFaceUpCandidateCardIds(normalizedTargetText, ctx)
+    );
+    if (zoneResult.turnedCount > 0) {
+      nextState = zoneResult.state;
+      turnedCount = zoneResult.turnedCount;
+    }
+  }
+
+  if (turnedCount === 0) {
+    if (effectiveTargetIds.length > 0) {
+      return {
+        applied: false,
+        message: `Skipped turn face up (target is not face down): ${step.raw}`,
+        reason: 'impossible_action',
+        options: { persist: false },
+      };
+    }
     return {
       applied: false,
       message: `Skipped turn face up (no deterministic target): ${step.raw}`,
@@ -3198,48 +4656,10 @@ export function applyTurnFaceUpStep(
     };
   }
 
-  let turnedCount = 0;
-  const nextBattlefield = battlefield.map((perm: any) => {
-    const permanentId = String((perm as any)?.id || '').trim();
-    if (!effectiveTargetIds.includes(permanentId)) return perm;
-    if ((perm as any)?.card?.faceDown !== true) return perm;
-
-    const faceUpCard = { ...(((perm as any)?.faceUpCard || {}) as any) };
-    if (!faceUpCard || !String(faceUpCard.id || '').trim()) return perm;
-    delete faceUpCard.faceDown;
-    faceUpCard.zone = 'battlefield';
-
-    turnedCount += 1;
-    const nextPerm: any = {
-      ...perm,
-      card: faceUpCard,
-      power: undefined,
-      toughness: undefined,
-      basePower: undefined,
-      baseToughness: undefined,
-      effectiveTypes: undefined,
-      oracle_text: undefined,
-      faceUpCard: undefined,
-    };
-    return nextPerm;
-  });
-
-  if (turnedCount === 0) {
-    return {
-      applied: false,
-      message: `Skipped turn face up (target is not face down): ${step.raw}`,
-      reason: 'impossible_action',
-      options: { persist: false },
-    };
-  }
-
   return {
     applied: true,
-    state: {
-      ...(state as any),
-      battlefield: nextBattlefield as any,
-    } as GameState,
-    log: [`Turned ${turnedCount} permanent(s) face up`],
+    state: nextState,
+    log: [`Turned ${turnedCount} card(s) face up`],
   };
 }
 
@@ -3544,14 +4964,738 @@ function readCharacteristicNumber(...values: unknown[]): number | undefined {
 
 function resolveCopyPermanentSourceObject(
   step: Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
-  runtime?: RecentBattlefieldRuntime
+  runtime?: RecentBattlefieldRuntime,
+  state?: GameState,
+  ctx?: OracleIRExecutionContext
 ): any | null {
   if (step.source.kind !== 'raw') return null;
   const reference = String(step.source.text || '').trim().toLowerCase();
   const movedCards = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
 
   if (reference === 'that card' || reference === 'it' || reference === 'the exiled card') {
-    return movedCards.length === 1 ? movedCards[0] : null;
+    if (movedCards.length === 1) return movedCards[0];
+    if (state && ctx) {
+      const sourceId = String(ctx.sourceId || '').trim();
+      const linked = sourceId ? findCardsExiledWithSource(state, sourceId, { cardType: 'any' }) : [];
+      if (linked.length > 0) {
+        const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+          ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+          : [];
+        const preferred = linked.find(match => chosenObjectIds.includes(String(match.cardId || '').trim()));
+        const creatureLinked = linked.find(match => getCardTypeLineLower(match.card).includes('creature'));
+        const resolved = preferred || creatureLinked || (linked.length === 1 ? linked[0] : undefined);
+        if (resolved) {
+          const linkedCard = resolved.card || resolved;
+          return linkedCard || null;
+        }
+      }
+    }
+    return null;
+  }
+
+  if (
+    (reference === 'that creature' || reference === 'the creature') &&
+    state &&
+    ctx
+  ) {
+    const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+    const matches = resolveDirectBattlefieldPermanents(
+      battlefield,
+      { kind: 'raw', text: reference },
+      ctx
+    );
+    if (matches.length === 1) {
+      const match = matches[0] as any;
+      return match?.card || match;
+    }
+  }
+
+  if (
+    (reference.includes('exiled with it') || reference.includes('creature card exiled with')) &&
+    state &&
+    ctx
+  ) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const linked = sourceId ? findCardsExiledWithSource(state, sourceId, { cardType: 'creature' }) : [];
+    if (linked.length > 0) {
+      const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+        : [];
+      const preferred = linked.find(match => chosenObjectIds.includes(String(match.cardId || '').trim()));
+      const resolved = preferred || (linked.length === 1 ? linked[0] : undefined);
+      if (resolved) {
+        const linkedCard = resolved.card || resolved;
+        return linkedCard || null;
+      }
+    }
+  }
+
+  if (
+    (reference.includes('crewed it this turn') || reference.includes('that crewed it')) &&
+    state &&
+    ctx
+  ) {
+    const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = sourceId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
+    const crewedId = String(
+      (sourcePermanent as any)?.crewedThisTurnCreatureId ||
+      (sourcePermanent as any)?.lastCrewedCreatureId ||
+      ctx.targetCreatureId ||
+      ctx.selectorContext?.targetCreatureId ||
+      ''
+    ).trim();
+    if (crewedId) {
+      const crewedPermanent = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === crewedId);
+      if (crewedPermanent && permanentMatchesType(crewedPermanent, 'creature')) {
+        return (crewedPermanent as any)?.card || crewedPermanent;
+      }
+    }
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    const crewedCandidates = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!boundIds.includes(permanentId) || permanentId === sourceId) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      return !/\blegendary\b/i.test(getExecutorTypeLineLower(perm));
+    });
+    if (crewedCandidates.length === 1) {
+      return (crewedCandidates[0] as any)?.card || crewedCandidates[0];
+    }
+  }
+
+  return null;
+}
+
+function normalizeCopyPermanentTargetText(value: string): string {
+  const trimmed = normalizeBattlefieldTargetReferenceText(value)
+    .replace(/^until end of turn,\s*/i, '')
+    .replace(/^as this creature transforms into this permanent,\s*it becomes a copy of .+$/i, 'this permanent')
+    .replace(/\s+becomes a copy of .+$/i, '')
+    .trim();
+  if (/^this (vehicle|creature|permanent|artifact)$/i.test(trimmed)) return trimmed;
+  return trimmed;
+}
+
+function resolveGrantTemporaryMassTargets(
+  battlefield: readonly BattlefieldPermanent[],
+  normalizedTargetText: string,
+  stepRaw: string,
+  ctx: OracleIRExecutionContext
+): BattlefieldPermanent[] | null {
+  let effectiveTargetText = normalizedTargetText;
+  if (/that creature gains/i.test(stepRaw)) effectiveTargetText = 'that creature';
+  if (/the chosen creature gains/i.test(stepRaw)) effectiveTargetText = 'the chosen creature';
+  if (/the creature that attacked gains/i.test(stepRaw)) effectiveTargetText = 'the creature that attacked';
+  if (/that mount or vehicle/i.test(stepRaw)) effectiveTargetText = 'that mount or vehicle';
+  if (/for each other result, it gains/i.test(stepRaw)) effectiveTargetText = 'it';
+  if (/^have this creature$/i.test(effectiveTargetText) || /this creature become a copy of that creature/i.test(stepRaw)) {
+    effectiveTargetText = 'this creature';
+  }
+  if (/this creature(?:'s base power)?/i.test(stepRaw) && /become equal to that creature's power/i.test(stepRaw)) {
+    effectiveTargetText = 'this creature';
+  }
+
+  if (/^that creature$/i.test(effectiveTargetText)) {
+    const matches = resolveDirectBattlefieldPermanents(battlefield, { kind: 'raw', text: 'that creature' }, ctx);
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^it$/i.test(effectiveTargetText)) {
+    const matches = resolveDirectBattlefieldPermanents(battlefield, { kind: 'raw', text: 'it' }, ctx);
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^this creature$/i.test(effectiveTargetText)) {
+    const matches = resolveDirectBattlefieldPermanents(battlefield, { kind: 'raw', text: 'this creature' }, ctx);
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^other clues you control$/i.test(effectiveTargetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const matches = battlefield.filter(perm => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (sourceId && permanentId === sourceId) return false;
+      if (
+        !permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['artifact'], controllerFilter: 'you' },
+          ctx
+        )
+      ) {
+        return false;
+      }
+      return typeLineHasSubtype(perm, 'clue');
+    });
+    return matches.length > 0 ? matches : null;
+  }
+
+  const otherSubtypeMatch = effectiveTargetText.match(/^other ([a-z][a-z -]+) you control$/i);
+  if (otherSubtypeMatch) {
+    const subtype = String(otherSubtypeMatch[1] || '').trim();
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you', excludeSourceId: true },
+          ctx
+        ) && typeLineHasSubtype(perm, subtype)
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  const otherPowerMatch = effectiveTargetText.match(/^other creatures you control with power (\d+) or greater$/i);
+  if (otherPowerMatch) {
+    const minPower = Number(otherPowerMatch[1] || 0);
+    const matches = battlefield.filter(perm => {
+      if (
+        !permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you', excludeSourceId: true },
+          ctx
+        )
+      ) {
+        return false;
+      }
+      const power =
+        readCharacteristicNumber(
+          (perm as any)?.effectivePower,
+          (perm as any)?.basePower,
+          (perm as any)?.card?.power,
+          (perm as any)?.power
+        ) ?? 0;
+      return power >= minPower;
+    });
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^treasures you control$/i.test(effectiveTargetText)) {
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['artifact'], controllerFilter: 'you' },
+          ctx
+        ) && typeLineHasSubtype(perm, 'treasure')
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/become a copy of another creature you control/i.test(stepRaw)) {
+    const selfMatches = resolveDirectBattlefieldPermanents(
+      battlefield,
+      { kind: 'raw', text: /^have it$/i.test(effectiveTargetText) ? 'it' : 'this creature' },
+      ctx
+    );
+    return selfMatches.length > 0 ? selfMatches : null;
+  }
+
+  if (/^each equipped creature and equipment you control$/i.test(effectiveTargetText)) {
+    const equipment = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['artifact'], controllerFilter: 'you' },
+          ctx
+        ) && /\bequipment\b/i.test(getExecutorTypeLineLower(perm))
+    );
+    const equippedCreatureIds = new Set(
+      equipment.map(eq => String((eq as any)?.attachedTo || '').trim()).filter(Boolean)
+    );
+    const equippedCreatures = battlefield.filter(perm =>
+      equippedCreatureIds.has(String((perm as any)?.id || '').trim())
+    );
+    const combined = [...equipment, ...equippedCreatures];
+    return combined.length > 0 ? combined : null;
+  }
+
+  if (/^each attacking human$/i.test(effectiveTargetText)) {
+    const matches = battlefield.filter(perm => {
+      if (
+        !permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        )
+      ) {
+        return false;
+      }
+      if (!typeLineHasSubtype(perm, 'human')) return false;
+      return Boolean(
+        (perm as any)?.attacking ||
+        (perm as any)?.attackedThisTurn ||
+        (perm as any)?.attackingPlayerId
+      );
+    });
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^creatures of the chosen creature type you control$/i.test(effectiveTargetText)) {
+    const chosenType = String(ctx.selectorContext?.chosenCreatureType || '').trim().toLowerCase();
+    if (!chosenType) return null;
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) && typeLineHasSubtype(perm, chosenType)
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  const subtypeCreaturesMatch = effectiveTargetText.match(/^([a-z][a-z -]+) creatures you control$/i);
+  if (subtypeCreaturesMatch) {
+    const subtype = String(subtypeCreaturesMatch[1] || '').trim();
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) && typeLineHasSubtype(perm, subtype)
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^creature tokens you control$/i.test(effectiveTargetText)) {
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) &&
+        (Boolean((perm as any)?.isToken) || /\btoken\b/i.test(getExecutorTypeLineLower(perm)))
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^attacking creatures$/i.test(effectiveTargetText)) {
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesType(perm, 'creature') &&
+        Boolean(
+          (perm as any)?.attacking ||
+          (perm as any)?.attackedThisTurn ||
+          (perm as any)?.attackingPlayerId
+        )
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^gorgons and snakes you control$/i.test(effectiveTargetText)) {
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) && (typeLineHasSubtype(perm, 'gorgon') || typeLineHasSubtype(perm, 'snake'))
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^the chosen creature$/i.test(effectiveTargetText)) {
+    const chosenIds = collectBoundBattlefieldIds(ctx);
+    const matches = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      return chosenIds.includes(permanentId) && permanentMatchesType(perm, 'creature');
+    });
+    return matches.length > 0 ? matches.slice(0, 1) : null;
+  }
+
+  if (/^the creature that attacked$/i.test(effectiveTargetText)) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const contextualIds = buildContextualBattlefieldTargetIds(battlefield, ctx, false, 'creature');
+    const contextualMatches = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      return contextualIds.includes(permanentId) && permanentMatchesType(perm, 'creature');
+    });
+    if (contextualMatches.length > 0) return contextualMatches.slice(0, 1);
+    const attacking = battlefield.filter((perm: any) => {
+      if (String((perm as any)?.controller || '').trim() !== controllerId) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      return Boolean(
+        (perm as any)?.attacking ||
+        (perm as any)?.attackedThisTurn ||
+        (perm as any)?.attackingPlayerId
+      );
+    });
+    return attacking.length > 0 ? attacking.slice(0, 1) : null;
+  }
+
+  if (/^that attacking creature$/i.test(effectiveTargetText)) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const contextualIds = buildContextualBattlefieldTargetIds(battlefield, ctx, false, 'creature');
+    const contextualMatches = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!contextualIds.includes(permanentId)) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      return Boolean(
+        (perm as any)?.attacking ||
+        (perm as any)?.attackedThisTurn ||
+        (perm as any)?.attackingPlayerId
+      );
+    });
+    if (contextualMatches.length > 0) return contextualMatches.slice(0, 1);
+    const attacking = battlefield.filter((perm: any) => {
+      if (String((perm as any)?.controller || '').trim() !== controllerId) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      return Boolean(
+        (perm as any)?.attacking ||
+        (perm as any)?.attackedThisTurn ||
+        (perm as any)?.attackingPlayerId
+      );
+    });
+    return attacking.length > 0 ? attacking.slice(0, 1) : null;
+  }
+
+  const otherThanSelfSubtypeMatch = effectiveTargetText.match(
+    /^([a-z][a-z -]+) you control other than this creature$/i
+  );
+  if (otherThanSelfSubtypeMatch) {
+    const subtype = String(otherThanSelfSubtypeMatch[1] || '').trim();
+    const sourceId = String(ctx.sourceId || '').trim();
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) &&
+        typeLineHasSubtype(perm, subtype) &&
+        String((perm as any)?.id || '').trim() !== sourceId
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  const eachSingularWithQualifierMatch = effectiveTargetText.match(/^each creature you control with (.+)$/i);
+  if (eachSingularWithQualifierMatch) {
+    const qualifierTarget = `creatures you control with ${String(eachSingularWithQualifierMatch[1] || '').trim()}`;
+    const qualifierMatches = resolveGrantTemporaryMassTargets(
+      battlefield,
+      qualifierTarget,
+      stepRaw,
+      ctx
+    );
+    return qualifierMatches && qualifierMatches.length > 0 ? qualifierMatches : null;
+  }
+
+  const withQualifierMatch = effectiveTargetText.match(/^creatures you control with (.+)$/i);
+  if (withQualifierMatch) {
+    const qualifier = String(withQualifierMatch[1] || '').trim().toLowerCase();
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = sourceId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
+    const sourcePower =
+      readCharacteristicNumber(
+        (sourcePermanent as any)?.effectivePower,
+        (sourcePermanent as any)?.basePower,
+        (sourcePermanent as any)?.card?.power,
+        (sourcePermanent as any)?.power
+      ) ?? 0;
+    const matches = battlefield.filter(perm => {
+      if (
+        !permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        )
+      ) {
+        return false;
+      }
+      if (qualifier === 'flying') return battlefieldPermanentHasFlying(perm);
+      if (qualifier === 'defender') {
+        const keywordValues: unknown[] = [
+          ...(Array.isArray((perm as any)?.keywords) ? (perm as any).keywords : []),
+          ...(Array.isArray((perm as any)?.card?.keywords) ? (perm as any).card.keywords : []),
+          ...(Array.isArray((perm as any)?.grantedAbilities) ? (perm as any).grantedAbilities : []),
+        ];
+        return (
+          /\bdefender\b/i.test(getExecutorTypeLineLower(perm)) ||
+          keywordValues.some(value => /\bdefender\b/i.test(String(value || '')))
+        );
+      }
+      if (/counters? on them/.test(qualifier)) return permanentHasBattlefieldCounters(perm);
+      const powerAtMost = qualifier.match(/^power (\d+) or less$/);
+      if (powerAtMost) {
+        const power =
+          readCharacteristicNumber(
+            (perm as any)?.effectivePower,
+            (perm as any)?.basePower,
+            (perm as any)?.card?.power,
+            (perm as any)?.power
+          ) ?? 0;
+        return power <= Number(powerAtMost[1] || 0);
+      }
+      const toughnessAtLeast = qualifier.match(/^toughness (\d+) or greater$/);
+      if (toughnessAtLeast) {
+        const toughness =
+          readCharacteristicNumber(
+            (perm as any)?.effectiveToughness,
+            (perm as any)?.baseToughness,
+            (perm as any)?.card?.toughness,
+            (perm as any)?.toughness
+          ) ?? 0;
+        return toughness >= Number(toughnessAtLeast[1] || 0);
+      }
+      const powerAtLeast = qualifier.match(/^power (\d+) or greater$/);
+      if (powerAtLeast) {
+        const power =
+          readCharacteristicNumber(
+            (perm as any)?.effectivePower,
+            (perm as any)?.basePower,
+            (perm as any)?.card?.power,
+            (perm as any)?.power
+          ) ?? 0;
+        return power >= Number(powerAtLeast[1] || 0);
+      }
+      if (/power less than this permanent'?s power/.test(qualifier)) {
+        const power =
+          readCharacteristicNumber(
+            (perm as any)?.effectivePower,
+            (perm as any)?.basePower,
+            (perm as any)?.card?.power,
+            (perm as any)?.power
+          ) ?? 0;
+        return power < sourcePower;
+      }
+      return false;
+    });
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^attacking creatures you control$/i.test(effectiveTargetText)) {
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) && isAttackingBattlefieldPermanent(perm)
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^other red attacking creatures you control$/i.test(effectiveTargetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const matches = battlefield.filter(perm => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (sourceId && permanentId === sourceId) return false;
+      if (
+        !permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        )
+      ) {
+        return false;
+      }
+      if (!isAttackingBattlefieldPermanent(perm)) return false;
+      const colors = Array.isArray((perm as any)?.colors)
+        ? (perm as any).colors
+        : Array.isArray((perm as any)?.card?.colors)
+          ? (perm as any).card.colors
+          : [];
+      return colors.map((c: unknown) => String(c || '').trim().toUpperCase()).includes('R');
+    });
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^other attacking creatures(?: you control)?$/i.test(effectiveTargetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const matches = battlefield.filter(perm => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (sourceId && permanentId === sourceId) return false;
+      return (
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) && isAttackingBattlefieldPermanent(perm)
+      );
+    });
+    return matches.length > 0 ? matches : null;
+  }
+
+  const subtypeYouControlOnly = effectiveTargetText.match(/^([a-z][a-z -]+) you control$/i);
+  if (subtypeYouControlOnly && !/creatures?$/i.test(String(subtypeYouControlOnly[1] || ''))) {
+    const subtype = String(subtypeYouControlOnly[1] || '').trim();
+    const matches = battlefield.filter(perm => {
+      if (!permanentMatchesSelector(perm, { kind: 'battlefield_selector', types: ['creature', 'land', 'artifact'], controllerFilter: 'you' }, ctx)) {
+        return false;
+      }
+      return typeLineHasSubtype(perm, subtype) || typeLineHasSubtype(perm, subtype.replace(/s$/i, ''));
+    });
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^up to x target attacking creatures$/i.test(effectiveTargetText)) {
+    const xValue = Number(ctx.xValue);
+    const maxCount = Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue)) : 1;
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    let matches = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!boundIds.includes(permanentId)) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      return isAttackingBattlefieldPermanent(perm);
+    });
+    if (matches.length === 0) {
+      matches = battlefield.filter(
+        perm =>
+          permanentMatchesSelector(
+            perm,
+            { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+            ctx
+          ) && isAttackingBattlefieldPermanent(perm)
+      );
+    }
+    return maxCount > 0 && matches.length > 0 ? matches.slice(0, maxCount) : null;
+  }
+
+  const globalSubtypeCreatures = effectiveTargetText.match(/^([a-z][a-z -]+) creatures$/i);
+  if (globalSubtypeCreatures && !/^up to\b/i.test(effectiveTargetText)) {
+    const subtype = String(globalSubtypeCreatures[1] || '').trim();
+    const matches = battlefield.filter(
+      perm => permanentMatchesType(perm, 'creature') && typeLineHasSubtype(perm, subtype)
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^creatures you control with counters on them$/i.test(effectiveTargetText)) {
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) && permanentHasBattlefieldCounters(perm)
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^creatures you control with defender$/i.test(effectiveTargetText)) {
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) &&
+        (/\bdefender\b/i.test(getExecutorTypeLineLower(perm)) ||
+          (Array.isArray((perm as any)?.grantedAbilities) &&
+            (perm as any).grantedAbilities.some((entry: unknown) =>
+              /\bdefender\b/i.test(String(entry || ''))
+            )))
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^that artifact$/i.test(effectiveTargetText)) {
+    const chosenIds = new Set(collectBoundBattlefieldIds(ctx));
+    const matches = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!chosenIds.has(permanentId)) return false;
+      return permanentMatchesType(perm, 'artifact');
+    });
+    return matches.length > 0 ? matches.slice(0, 1) : null;
+  }
+
+  if (/^creatures you control$/i.test(effectiveTargetText)) {
+    const matches = battlefield.filter(perm =>
+      permanentMatchesSelector(
+        perm,
+        { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+        ctx
+      )
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  const eachMultiSubtypeMatch = effectiveTargetText.match(
+    /^each ([a-z][a-z -]+(?:,\s*[a-z][a-z -]+)*(?:,?\s+and\s+[a-z][a-z -]+)?) you control$/i
+  );
+  if (eachMultiSubtypeMatch) {
+    const subtypes = String(eachMultiSubtypeMatch[1] || '')
+      .split(/,|\sand\s/i)
+      .map(value => value.trim())
+      .filter(Boolean);
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) && subtypes.some(subtype => typeLineHasSubtype(perm, subtype))
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  const eachWithQualifierMatch = effectiveTargetText.match(/^each (creatures you control with .+)$/i);
+  if (eachWithQualifierMatch) {
+    const qualifierTarget = String(eachWithQualifierMatch[1] || '').trim();
+    const qualifierMatches = resolveGrantTemporaryMassTargets(
+      battlefield,
+      qualifierTarget,
+      stepRaw,
+      ctx
+    );
+    return qualifierMatches && qualifierMatches.length > 0 ? qualifierMatches : null;
+  }
+
+  if (/^creatures named this permanent$/i.test(effectiveTargetText)) {
+    const aliases = new Set(buildNameReferenceAliases(String(ctx.sourceName || '')));
+    const matches = battlefield.filter(perm => {
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      const name = String((perm as any)?.name || (perm as any)?.card?.name || '').trim().toLowerCase();
+      return aliases.has(name);
+    });
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^all creatures banded with it$/i.test(effectiveTargetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const bandIds = new Set(collectBoundBattlefieldIds(ctx));
+    const matches = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!permanentId || !bandIds.has(permanentId)) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      return permanentId === sourceId || bandIds.has(permanentId);
+    });
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^enchanted creature$/i.test(effectiveTargetText)) {
+    const attached = resolveAttachedStaticAbilityGrantTargets(
+      battlefield,
+      { kind: 'raw', text: 'enchanted creature' },
+      ctx
+    );
+    return attached.length > 0 ? attached : null;
+  }
+
+  if (/^that mount or vehicle$/i.test(effectiveTargetText)) {
+    const isMountOrVehicle = (perm: BattlefieldPermanent): boolean =>
+      permanentMatchesType(perm, 'vehicle') ||
+      typeLineHasSubtype(perm, 'mount') ||
+      /\bvehicle\b/i.test(getExecutorTypeLineLower(perm));
+    const chosenIds = new Set(collectBoundBattlefieldIds(ctx));
+    let matches = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!chosenIds.has(permanentId)) return false;
+      return isMountOrVehicle(perm);
+    });
+    if (matches.length === 0) {
+      const controllerId = String(ctx.controllerId || '').trim();
+      matches = battlefield.filter((perm: any) => {
+        if (String((perm as any)?.controller || '').trim() !== controllerId) return false;
+        return isMountOrVehicle(perm);
+      });
+    }
+    return matches.length > 0 ? matches.slice(0, 1) : null;
   }
 
   return null;
@@ -3564,7 +5708,27 @@ export function applyCopyPermanentStep(
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
-  const directTargets = resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const normalizedCopyTargetText = (() => {
+    const raw = String(step.raw || '');
+    if (/transforms into this permanent/i.test(raw)) return 'this permanent';
+    return normalizeCopyPermanentTargetText(String((step.target as any)?.text || raw));
+  })();
+  const normalizedCopyTarget = {
+    ...(step.target as any),
+    text: normalizedCopyTargetText,
+  };
+  const boundTokenTargets =
+    /^target token you control$/i.test(normalizedCopyTargetText)
+      ? battlefield.filter((perm: any) => {
+          const permanentId = String((perm as any)?.id || '').trim();
+          if (!collectBoundBattlefieldIds(ctx).includes(permanentId)) return false;
+          return Boolean((perm as any)?.isToken) || /\btoken\b/i.test(getExecutorTypeLineLower(perm));
+        })
+      : [];
+  const directTargets =
+    boundTokenTargets.length > 0
+      ? boundTokenTargets.slice(0, 1)
+      : resolveDirectBattlefieldPermanents(battlefield, normalizedCopyTarget as any, ctx);
   const targetIds = Array.from(
     new Set(
       directTargets
@@ -3581,7 +5745,7 @@ export function applyCopyPermanentStep(
     };
   }
 
-  const sourceObject = resolveCopyPermanentSourceObject(step, runtime);
+  const sourceObject = resolveCopyPermanentSourceObject(step, runtime, state, ctx);
   if (!sourceObject) {
     return {
       applied: false,
@@ -3763,6 +5927,64 @@ export function applyGrantLeaveBattlefieldReplacementStep(
   };
 }
 
+function resolveRemoveCounterTargets(
+  battlefield: readonly BattlefieldPermanent[],
+  step: Extract<OracleEffectStep, { kind: 'remove_counter' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldPermanent[] {
+  const normalizedTargetText = normalizeBattlefieldTargetReferenceText(
+    String((step.target as any)?.text || '')
+  ).toLowerCase();
+  const counterName = String(step.counter || '').trim();
+
+  const controlledCreatureOrPlaneswalker = normalizedTargetText.match(
+    /^a (creature or planeswalker|planeswalker or creature) you control$/
+  );
+  if (controlledCreatureOrPlaneswalker) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const candidates = battlefield.filter((perm: any) => {
+      if (String(perm?.controller || '').trim() !== controllerId) return false;
+      return permanentMatchesType(perm, 'creature') || permanentMatchesType(perm, 'planeswalker');
+    });
+    const withNamedCounter = counterName
+      ? candidates.filter((perm: any) => Number((perm as any)?.counters?.[counterName] ?? 0) > 0)
+      : candidates.filter((perm: any) =>
+          Object.values(((perm as any)?.counters || {}) as Record<string, number>).some(count => Number(count) > 0)
+        );
+    const resolved = (withNamedCounter.length > 0 ? withNamedCounter : candidates).slice(0, 1);
+    return resolved;
+  }
+
+  const permanentOrSuspended = normalizedTargetText.match(
+    /^target (?:permanent or suspended card|suspended card or permanent)$/
+  );
+  if (permanentOrSuspended) {
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    const boundMatches = battlefield.filter((perm: any) =>
+      boundIds.includes(String((perm as any)?.id || '').trim())
+    );
+    if (boundMatches.length > 0) return boundMatches.slice(0, 1);
+  }
+
+  if (/^target permanent$/i.test(normalizedTargetText)) {
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    const boundMatches = battlefield.filter((perm: any) =>
+      boundIds.includes(String((perm as any)?.id || '').trim())
+    );
+    if (boundMatches.length > 0) return boundMatches.slice(0, 1);
+  }
+
+  if (/^them$/i.test(normalizedTargetText)) {
+    const ids = buildContextualBattlefieldTargetIds(battlefield, ctx, true);
+    const matches = battlefield.filter((perm: any) =>
+      ids.includes(String((perm as any)?.id || '').trim())
+    );
+    if (matches.length > 0) return matches;
+  }
+
+  return resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+}
+
 export function applyRemoveCounterStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'remove_counter' }>,
@@ -3778,11 +6000,12 @@ export function applyRemoveCounterStep(
     };
   }
 
-  const targets = resolveDirectBattlefieldPermanents((state.battlefield || []) as BattlefieldPermanent[], step.target as any, ctx);
+  const targets = resolveRemoveCounterTargets((state.battlefield || []) as BattlefieldPermanent[], step, ctx);
   const normalizedTargetText = step.target.kind === 'raw'
     ? normalizeSelfReferenceText(String(step.target.text || '').trim()).toLowerCase()
     : '';
-  const allowMultipleDeterministicTargets = removeAllCounters && /^(?:all|each)\b/.test(normalizedTargetText);
+  const allowMultipleDeterministicTargets =
+    removeAllCounters && (/^(?:all|each)\b/.test(normalizedTargetText) || normalizedTargetText === 'them');
   if (targets.length > 1 && !allowMultipleDeterministicTargets) {
     return {
       applied: false,
@@ -4103,7 +6326,58 @@ export function applyForceBlockStep(
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
-  const attackers = resolveDirectBattlefieldPermanents(battlefield, step.attacker as any, ctx);
+  const rawForceBlockMatch = String(step.raw || '').match(
+    /^target creature an opponent controls blocks (that .+?) this combat if able$/i
+  );
+  const resolvedBlocker = rawForceBlockMatch
+    ? ({ kind: 'raw', text: 'target creature an opponent controls' } as const)
+    : (step.blocker as any);
+  const resolvedAttacker = rawForceBlockMatch
+    ? ({ kind: 'raw', text: String(rawForceBlockMatch[1] || '').trim() } as const)
+    : (step.attacker as any);
+  const blockerText = normalizeBattlefieldTargetReferenceText(String((resolvedBlocker as any)?.text || ''));
+  const normalizedBlocker = { ...(resolvedBlocker as any), text: blockerText };
+  const blockIfAbleOnly =
+    /^target creature$/i.test(blockerText) &&
+    /blocks this turn if able$/i.test(String(step.raw || ''));
+  if (blockIfAbleOnly) {
+    const selector = parseSimpleBattlefieldSelector(normalizedBlocker as any);
+    const boundMatches = selector ? resolveBoundSelectorMatches(battlefield, selector, ctx) : [];
+    const blockers =
+      boundMatches.length > 0
+        ? boundMatches.slice(0, 1)
+        : resolveDirectBattlefieldPermanents(battlefield, normalizedBlocker as any, ctx);
+    if (blockers.length === 1) {
+      const nextState = applyTemporaryEffectToPermanents(state, blockers, ctx, {
+        descriptions: ['blocks this turn if able'],
+        expiresAt: 'end_of_turn',
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [`Marked ${String((blockers[0] as any)?.id || '').trim()} to block this turn if able`],
+      };
+    }
+  }
+
+  let attackers = resolveDirectBattlefieldPermanents(battlefield, resolvedAttacker as any, ctx);
+  if (attackers.length !== 1 && /^that wolf$/i.test(String((resolvedAttacker as any)?.text || ''))) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = sourceId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
+    if (sourcePermanent && typeLineHasSubtype(sourcePermanent, 'wolf')) {
+      attackers = [sourcePermanent];
+    } else {
+      const controllerId = String(ctx.controllerId || '').trim();
+      const wolves = battlefield.filter(
+        (perm: any) =>
+          String((perm as any)?.controller || '').trim() === controllerId &&
+          typeLineHasSubtype(perm, 'wolf')
+      );
+      if (wolves.length === 1) attackers = wolves;
+    }
+  }
   if (attackers.length !== 1) {
     return {
       applied: false,
@@ -4136,7 +6410,20 @@ export function applyForceBlockStep(
     };
   }
 
-  const blockers = resolveDirectBattlefieldPermanents(battlefield, step.blocker as any, ctx);
+  const opponentBlockerMatch = /^target creature an opponent controls$/i.test(blockerText);
+  const blockers = opponentBlockerMatch
+    ? (() => {
+        const boundIds = collectBoundBattlefieldIds(ctx);
+        const matches = battlefield.filter((perm: any) => {
+          const permanentId = String((perm as any)?.id || '').trim();
+          if (!boundIds.includes(permanentId)) return false;
+          if (!permanentMatchesType(perm, 'creature')) return false;
+          const controllerId = String(ctx.controllerId || '').trim();
+          return String((perm as any)?.controller || '').trim() !== controllerId;
+        });
+        return matches.length > 0 ? matches.slice(0, 1) : [];
+      })()
+    : resolveDirectBattlefieldPermanents(battlefield, normalizedBlocker as any, ctx);
   if (blockers.length !== 1) {
     return {
       applied: false,
@@ -4220,7 +6507,22 @@ export function applyAddCounterStep(
     : recentMovedTargets.length > 0
       ? recentMovedTargets
       : directTargets;
-  const fallbackSingleCreatureId = targets.length === 0 && !shouldPreferMovedCards
+  const anotherTargetMatch = String((normalizedTarget as any)?.text || '')
+    .trim()
+    .toLowerCase()
+    .match(/^target creature you control$/);
+  const anotherCreatureTargets =
+    targets.length === 0 && anotherTargetMatch
+      ? ((state.battlefield || []) as BattlefieldPermanent[]).filter((perm: any) => {
+          const permanentId = String((perm as any)?.id || '').trim();
+          const sourceId = String(ctx.sourceId || '').trim();
+          if (!permanentId || permanentId === sourceId) return false;
+          if (!collectBoundBattlefieldIds(ctx).includes(permanentId)) return false;
+          return permanentMatchesType(perm, 'creature');
+        })
+      : [];
+  const fallbackSingleCreatureId =
+    targets.length === 0 && anotherCreatureTargets.length === 0 && !shouldPreferMovedCards
     ? resolveSingleCreatureTargetId(state, normalizedTarget as any, ctx)
     : undefined;
   const fallbackCreatureTargets = fallbackSingleCreatureId
@@ -4228,7 +6530,12 @@ export function applyAddCounterStep(
         permanent => String((permanent as any)?.id || '').trim() === fallbackSingleCreatureId
       )
     : [];
-  const resolvedTargets = targets.length > 0 ? targets : fallbackCreatureTargets;
+  const resolvedTargets =
+    targets.length > 0
+      ? targets
+      : anotherCreatureTargets.length > 0
+        ? anotherCreatureTargets.slice(0, 1)
+        : fallbackCreatureTargets;
 
   if (resolvedTargets.length === 0 && isContextualMovedCardReference(normalizedTarget as any)) {
     const movedCardIds = Array.isArray(runtime?.lastMovedCards)
@@ -4381,11 +6688,15 @@ export function applyDestroyStep(
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
-  const selector = parseSimpleBattlefieldSelector(step.target as any);
-  const toRemove = selector
-    ? battlefield.filter(perm => permanentMatchesSelector(perm, selector, ctx))
-    : resolveContextualBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const toRemove = resolveDestroyTargets(battlefield, step, ctx);
   if (toRemove.length === 0) {
+    if (
+      /if\s+it\s+has\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+or\s+more\b/i.test(
+        String((step.target as any)?.text || step.raw || '')
+      )
+    ) {
+      return { applied: true, state, log: ['Destroy condition not met'] };
+    }
     return {
       applied: false,
       message: `Skipped destroy (unsupported target): ${step.raw}`,
@@ -4490,10 +6801,13 @@ export function applyRegenerateStep(
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const attachedTargets = resolveAttachedStaticAbilityGrantTargets(battlefield, step.target as any, ctx);
   const selector = parseSimpleBattlefieldSelector(step.target as any);
-  const targets = selector
+  const targets = attachedTargets.length > 0
+    ? attachedTargets
+    : selector
     ? battlefield.filter(perm => permanentMatchesSelector(perm, selector, ctx))
-    : resolveContextualBattlefieldPermanents(battlefield, step.target as any, ctx);
+    : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
   if (targets.length === 0) {
     return {
       applied: false,
@@ -4523,22 +6837,212 @@ export function applyRegenerateStep(
   };
 }
 
+function exileAllOpponentGraveyards(
+  state: GameState,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+  let exiledCount = 0;
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    const playerId = String(player?.id || '').trim() as PlayerID;
+    if (!playerId || playerId === controllerId) return player;
+    const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+    if (graveyard.length === 0) return player;
+    exiledCount += graveyard.length;
+    const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+    return {
+      ...player,
+      graveyard: [],
+      exile: [
+        ...exile,
+        ...graveyard.map((card: any) => ({
+          ...card,
+          zone: 'exile',
+          owner: playerId,
+          ownerId: playerId,
+        })),
+      ],
+    };
+  });
+
+  if (exiledCount === 0) {
+    return { applied: true, state, log: ['No opponent graveyard cards to exile'] };
+  }
+
+  return {
+    applied: true,
+    state: { ...(state as any), players: updatedPlayers as any } as GameState,
+    log: [`Exiled ${exiledCount} card(s) from opponent graveyards`],
+  };
+}
+
 export function applyExileStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'exile' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
-  const selector = parseSimpleBattlefieldSelector(step.target as any);
-  if (selector) {
-    const result = moveMatchingBattlefieldPermanents(state, selector, ctx, 'exile');
+  const normalizedExileTargetText = normalizeExileTargetReferenceText(
+    String((step.target as any)?.text || step.raw || '')
+  );
+  if (/^each opponent(?:'s)? graveyard$/i.test(normalizedExileTargetText)) {
+    return exileAllOpponentGraveyards(state, ctx);
+  }
+
+  if (/^two target permanents$/i.test(normalizedExileTargetText)) {
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    const toRemove = battlefield.filter((perm: any) =>
+      boundIds.includes(String((perm as any)?.id || '').trim())
+    ).slice(0, 2);
+    if (toRemove.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped exile (unsupported target): ${step.raw}`,
+        reason: 'unsupported_target',
+      };
+    }
+    const removedIds = new Set<string>(toRemove.map(perm => perm.id));
+    const kept = battlefield.filter(perm => !removedIds.has(perm.id));
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
     return { applied: true, state: result.state, log: result.log };
   }
 
+  const manaValueMassMatch = normalizedExileTargetText.match(
+    /^all artifacts and creatures with mana value (\d+) or less$/i
+  );
+  if (manaValueMassMatch) {
+    const maxManaValue = Number(manaValueMassMatch[1] || 0);
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const toRemove = battlefield.filter((perm: any) => {
+      if (!permanentMatchesType(perm, 'artifact') && !permanentMatchesType(perm, 'creature')) {
+        return false;
+      }
+      const manaValue = getCardManaValue((perm as any)?.card || perm);
+      return manaValue !== null && manaValue <= maxManaValue;
+    });
+    if (toRemove.length === 0) {
+      return { applied: true, state, log: ['No matching permanents to exile'] };
+    }
+    const removedIds = new Set<string>(toRemove.map(perm => perm.id));
+    const kept = battlefield.filter(perm => !removedIds.has(perm.id));
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
+    const movedCards = toRemove
+      .filter(perm => !(perm as any).isToken)
+      .map(perm => buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
+    return {
+      applied: true,
+      state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx),
+      log: result.log,
+      ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+    };
+  }
+
+  if (/^any number of nontoken artifacts and\/or creatures you control$/i.test(normalizedExileTargetText)) {
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const controllerId = String(ctx.controllerId || '').trim();
+    const toRemove = battlefield.filter((perm: any) => {
+      if (String((perm as any)?.controller || '').trim() !== controllerId) return false;
+      if ((perm as any)?.isToken) return false;
+      return permanentMatchesType(perm, 'artifact') || permanentMatchesType(perm, 'creature');
+    });
+    if (toRemove.length === 0) {
+      return { applied: true, state, log: ['No matching permanents to exile'] };
+    }
+    const removedIds = new Set<string>(toRemove.map(perm => perm.id));
+    const kept = battlefield.filter(perm => !removedIds.has(perm.id));
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
+    return { applied: true, state: result.state, log: result.log };
+  }
+
+  if (/^this card$/i.test(normalizedExileTargetText)) {
+    const zoneExile = exileContextualSourceCardFromZone(state, ctx);
+    if (zoneExile) {
+      return zoneExile;
+    }
+  }
+
+  const targetSpellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+  if (isStackSpellExileTarget({ kind: 'raw', text: normalizedExileTargetText }) && targetSpellId) {
+    const stackExile = exileSpellFromStackById(state, targetSpellId, ctx);
+    if (stackExile) {
+      return { applied: true, state: stackExile.state, log: stackExile.log };
+    }
+  }
+
+  const normalizedExileTarget = { ...(step.target as any), text: normalizedExileTargetText };
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
-  const toRemove = resolveContextualBattlefieldPermanents(battlefield, step.target as any, ctx);
+
+  if (/^target creature\b/i.test(normalizedExileTargetText)) {
+    const targetIds = resolveCreatureTargetIds(state, normalizedExileTarget as any, ctx);
+    const toRemove = battlefield.filter(perm => targetIds.includes(String(perm.id || '').trim()));
+    if (toRemove.length > 0) {
+      const removedIds = new Set<string>(toRemove.map(perm => perm.id));
+      const kept = battlefield.filter(perm => !removedIds.has(perm.id));
+      const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
+      const movedCards = toRemove
+        .filter(perm => !(perm as any).isToken)
+        .map(perm => buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
+      return {
+        applied: true,
+        state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx),
+        log: result.log,
+        ...(movedCards.length > 0
+          ? { lastMovedCards: movedCards, lastExiledCards: movedCards, lastExiledCardCount: movedCards.length }
+          : {}),
+      };
+    }
+  }
+
+  const selector = parseSimpleBattlefieldSelector({ kind: 'raw', text: normalizedExileTargetText } as any);
+  if (selector) {
+    const toRemove = battlefield.filter((perm: any) => permanentMatchesSelector(perm, selector, ctx));
+    const result = moveMatchingBattlefieldPermanents(state, selector, ctx, 'exile');
+    const movedCards = toRemove
+      .filter(perm => !(perm as any).isToken)
+      .map(perm => buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
+    return {
+      applied: true,
+      state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx),
+      log: result.log,
+      ...(movedCards.length > 0
+        ? { lastMovedCards: movedCards, lastExiledCards: movedCards, lastExiledCardCount: movedCards.length }
+        : {}),
+    };
+  }
+  const subtypeMassTargets = resolveSubtypeOrCompoundBattlefieldPermanents(
+    battlefield,
+    normalizedExileTarget as any,
+    ctx
+  );
+  if (subtypeMassTargets !== null) {
+    if (subtypeMassTargets.length === 0) {
+      return { applied: true, state, log: ['No matching permanents to exile'] };
+    }
+    const removedIds = new Set<string>(subtypeMassTargets.map(perm => perm.id));
+    const kept = battlefield.filter(perm => !removedIds.has(perm.id));
+    const result = finalizeBattlefieldRemoval(state, subtypeMassTargets, removedIds, kept, 'exile', 'exiled');
+    const movedCards = subtypeMassTargets
+      .filter(perm => !(perm as any).isToken)
+      .map(perm => buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
+    return {
+      applied: true,
+      state: annotateBattlefieldExilesWithSource(result.state, subtypeMassTargets, ctx),
+      log: result.log,
+      ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+    };
+  }
+
+  const toRemove = resolveDirectBattlefieldPermanents(battlefield, normalizedExileTarget as any, ctx);
   if (toRemove.length === 0) {
-    const contextualTarget = parseContextualBattlefieldReference(step.target as any);
-    if (contextualTarget?.mode === 'self' || isNamedSelfSacrificeReference(step.target as any, ctx)) {
+    const contextualTarget = parseContextualBattlefieldReference(normalizedExileTarget as any);
+    const selfExileTarget =
+      contextualTarget?.mode === 'self' ||
+      isNamedSelfSacrificeReference(step.target as any, ctx) ||
+      (step.target.kind === 'raw' &&
+        /^(?:this card|this saga)$/i.test(
+          normalizeBattlefieldTargetReferenceText(String((step.target as any).text || ''))
+        ));
+    if (selfExileTarget) {
       const stackExile = exileSourceStackObject(state, ctx);
       if (stackExile) {
         return { applied: true, state: stackExile.state, log: stackExile.log };
@@ -4648,6 +7152,24 @@ export function applyScheduleDelayedBattlefieldActionStep(
     return { applied: true, state: scheduled.state, log: scheduled.log };
   }
 
+  const recentTokenTargets = resolveRecentlyCreatedTokenPermanents(battlefield, step.object as any, runtime);
+  const recentMovedTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.object as any, runtime);
+  if (recentTokenTargets.length > 0 || recentMovedTargets.length > 0) {
+    const players = resolvePlayers(state, step.who || ({ kind: 'you' } as any), ctx);
+    const toSchedule = recentTokenTargets.length > 0 ? recentTokenTargets : recentMovedTargets;
+    const scheduled = registerDelayedBattlefieldAction(
+      state,
+      ctx,
+      (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID,
+      timing,
+      'sacrifice',
+      toSchedule,
+      step.condition,
+      players.length > 0 ? 'You' : undefined
+    );
+    return { applied: true, state: scheduled.state, log: scheduled.log };
+  }
+
   const players = resolvePlayers(state, step.who || ({ kind: 'you' } as any), ctx);
   if (players.length === 0) {
     return {
@@ -4692,28 +7214,17 @@ export function applyScheduleDelayedBattlefieldActionStep(
   const resolveContextualPermanents = (
     contextual: Extract<NonNullable<typeof parsed>, { readonly mode: 'contextual' }>
   ): BattlefieldPermanent[] => {
-    const ids = contextual.plural ? contextualTargetIds : contextualTargetIds.slice(0, 1);
+    const ids = buildContextualBattlefieldTargetIds(battlefield, ctx, contextual.plural, contextual.type);
     if (ids.length === 0) return [];
 
-    const matches = battlefield.filter((perm: any) => {
-      const permanentId = String((perm as any)?.id || '').trim();
-      if (!ids.includes(permanentId)) return false;
-      if (!players.includes(perm.controller)) return false;
-      if (!permanentMatchesType(perm, contextual.type)) return false;
-      if (contextual.tokenOnly && !(perm as any)?.isToken) return false;
-      return true;
-    });
+    const matches = ids
+      .map(id => battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === id))
+      .filter((perm): perm is BattlefieldPermanent => Boolean(perm))
+      .filter(perm => players.includes(perm.controller))
+      .filter(perm => permanentMatchesType(perm, contextual.type))
+      .filter(perm => !contextual.tokenOnly || Boolean((perm as any)?.isToken));
 
-    if (matches.length > 0 || !contextual.tokenOnly) {
-      return matches;
-    }
-
-    return battlefield.filter((perm: any) => {
-      const permanentId = String((perm as any)?.id || '').trim();
-      if (!ids.includes(permanentId)) return false;
-      if (!players.includes(perm.controller)) return false;
-      return permanentMatchesType(perm, contextual.type);
-    });
+    return contextual.plural ? matches : matches.slice(0, 1);
   };
 
   if (namedSelfReference || parsed?.mode === 'self') {
@@ -4739,7 +7250,7 @@ export function applyScheduleDelayedBattlefieldActionStep(
     };
   }
 
-  if (parsed?.mode === 'contextual') {
+  if (parsed?.mode === 'contextual' && toSchedule.length === 0) {
     const contextualPermanents = resolveContextualPermanents(parsed);
     if (contextualPermanents.length === 0) {
       return {
@@ -4915,6 +7426,67 @@ export function applySacrificeStep(
   step: Extract<OracleEffectStep, { kind: 'sacrifice' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const enchantedSacrificeMatch = String(step.raw || '').match(
+    /^enchanted permanent's controller sacrifices it$/i
+  );
+  if (enchantedSacrificeMatch) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = sourceId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
+    const attachedToId = String(
+      (sourcePermanent as any)?.attachedTo || (sourcePermanent as any)?.enchanting || ''
+    ).trim();
+    const enchantedPermanent = attachedToId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === attachedToId)
+      : undefined;
+    if (!enchantedPermanent) {
+      return {
+        applied: false,
+        message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    const removedIds = new Set<string>([String((enchantedPermanent as any)?.id || '').trim()].filter(Boolean));
+    const kept = battlefield.filter(perm => !removedIds.has(String((perm as any)?.id || '').trim()));
+    const result = finalizeBattlefieldRemoval(state, [enchantedPermanent], removedIds, kept, 'graveyard', 'sacrificed');
+    return {
+      applied: true,
+      state: result.state,
+      log: result.log,
+      lastSacrificedPermanents: [enchantedPermanent],
+    };
+  }
+
+  const controllerSacrificesMatch = String(step.raw || '').match(
+    /^that creature's controller sacrifices (?:it|that creature)$/i
+  );
+  if (controllerSacrificesMatch) {
+    const contextualIds = buildContextualBattlefieldTargetIds(battlefield, ctx, false, 'creature');
+    const creature = battlefield.find((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      return contextualIds.includes(permanentId) && permanentMatchesType(perm, 'creature');
+    });
+    if (!creature) {
+      return {
+        applied: false,
+        message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+
+    const removedIds = new Set<string>([String((creature as any)?.id || '').trim()].filter(Boolean));
+    const kept = battlefield.filter(perm => !removedIds.has(String((perm as any)?.id || '').trim()));
+    const result = finalizeBattlefieldRemoval(state, [creature], removedIds, kept, 'graveyard', 'sacrificed');
+    return {
+      applied: true,
+      state: result.state,
+      log: result.log,
+      lastSacrificedPermanents: [creature],
+    };
+  }
+
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {
@@ -4924,8 +7496,15 @@ export function applySacrificeStep(
     };
   }
 
-  const parsed = parseSacrificeWhat(step.what as any);
-  const namedSelfReference = isNamedSelfSacrificeReference(step.what as any, ctx);
+  const sacrificeWhatText = (() => {
+    const direct = String((step.what as any)?.text || (step.what as any)?.raw || '').trim();
+    if (direct) return direct;
+    const rawMatch = String(step.raw || '').match(/^sacrifice\s+(.+)$/i);
+    return rawMatch ? String(rawMatch[1] || '').trim() : '';
+  })();
+  const sacrificeWhat = { kind: 'raw', text: sacrificeWhatText } as const;
+  const parsed = parseSacrificeWhat(sacrificeWhat);
+  const namedSelfReference = isNamedSelfSacrificeReference(sacrificeWhat, ctx);
   if (!parsed && !namedSelfReference) {
     return {
       applied: false,
@@ -4934,32 +7513,14 @@ export function applySacrificeStep(
     };
   }
 
-  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
   const toRemove: BattlefieldPermanent[] = [];
   let needsChoice = false;
   const sourceId = String(ctx.sourceId || '').trim();
-  const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
-    ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
-    : [];
-  const contextualTargetIds = (() => {
-    const ids: string[] = [];
-    const seen = new Set<string>();
-    for (const candidate of [
-      ...chosenObjectIds,
-      String(ctx.targetPermanentId || '').trim(),
-      String(ctx.targetCreatureId || '').trim(),
-    ]) {
-      if (!candidate || seen.has(candidate)) continue;
-      seen.add(candidate);
-      ids.push(candidate);
-    }
-    return ids;
-  })();
 
   const resolveContextualPermanents = (
     contextual: Extract<NonNullable<typeof parsed>, { readonly mode: 'contextual' }>
   ): BattlefieldPermanent[] => {
-    const ids = contextual.plural ? contextualTargetIds : contextualTargetIds.slice(0, 1);
+    const ids = buildContextualBattlefieldTargetIds(battlefield, ctx, contextual.plural, contextual.type);
     if (ids.length === 0) return [];
 
     const matches = battlefield.filter((perm: any) => {

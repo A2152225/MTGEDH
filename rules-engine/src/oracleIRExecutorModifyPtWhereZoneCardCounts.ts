@@ -53,6 +53,20 @@ export function tryEvaluateModifyPtWhereZoneCardCounts(args: {
   } = args;
 
   {
+    const m = raw.match(
+      /^x is the number of cards? put into (?:their|that player(?:'s)?) graveyard from anywhere this turn$/i
+    );
+    if (m) {
+      const contextPlayer = resolveContextPlayer() as any;
+      const pid = String(contextPlayer?.id || '').trim();
+      if (!pid) return null;
+      const stateAny: any = state as any;
+      const count = Number(stateAny?.cardsPutIntoYourGraveyardThisTurn?.[pid] ?? 0);
+      return Number.isFinite(count) ? Math.max(0, count) : 0;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of cards? in your (graveyard|hand|library|exile)$/i);
     if (m) {
       return getZoneCount(findPlayerById(controllerId), String(m[1] || '').toLowerCase());
@@ -95,6 +109,13 @@ export function tryEvaluateModifyPtWhereZoneCardCounts(args: {
         const hand = Array.isArray(p?.hand) ? p.hand.length : 0;
         return sum + hand;
       }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of cards? in (?:their|that player(?:'s)?) hand$/i);
+    if (m) {
+      return getZoneCount(resolveContextPlayer(), 'hand');
     }
   }
 

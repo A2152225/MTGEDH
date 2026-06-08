@@ -1306,7 +1306,17 @@ function isPermanentBlocked(perm: any): boolean {
 
 function isCreatureDiedThisTurn(ctx: GameContext): boolean | null {
   const v = (ctx as any).state?.creatureDiedThisTurn;
-  return typeof v === "boolean" ? v : null;
+  if (typeof v === 'boolean') return v;
+
+  const map = (ctx as any).state?.creaturesDiedThisTurnByController;
+  if (map && typeof map === 'object') {
+    const total = (Object.values(map) as unknown[]).reduce((sum: number, entry) => {
+      return sum + (typeof entry === 'number' ? entry : 0);
+    }, 0);
+    return total > 0;
+  }
+
+  return null;
 }
 
 function didPermanentLeaveBattlefieldThisTurn(ctx: GameContext, playerId: string): boolean {
@@ -1630,7 +1640,11 @@ function evaluateInterveningIfClauseInternal(
   refs?: InterveningIfRefs
 ): InterveningIfInternalResult {
   sourcePermanent = attachInterveningIfRefs(sourcePermanent, refs);
-  const clause = toLower(clauseText);
+  let clause = toLower(clauseText);
+  // Parser stores intervening-if text without the leading "if" (e.g. "a creature died this turn").
+  if (clause && !clause.startsWith('if ')) {
+    clause = `if ${clause}`;
+  }
 
   if (clause.includes('if you control a creature with a +1/+1 counter on it that attacked this turn')) {
     const battlefield = (ctx as any).state?.battlefield;

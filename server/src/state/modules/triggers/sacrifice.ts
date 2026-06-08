@@ -11,7 +11,7 @@ export interface SacrificeTrigger {
   permanentId: string;
   cardName: string;
   controllerId: string;
-  triggerType: 'you_sacrifice' | 'opponent_sacrifices' | 'player_sacrifices';
+  triggerType: 'you_sacrifice' | 'opponent_sacrifices' | 'player_sacrifices' | 'creature_sacrificed' | 'permanent_sacrificed';
   oracleClause: string;
   effect: string;
   mandatory: boolean;
@@ -39,7 +39,18 @@ function parseSacrificeFilter(raw: string): Pick<SacrificeTrigger, 'sacrificeFil
   if (condition.includes('enchantment')) return { sacrificeFilter: 'enchantment', excludesSource };
   if (condition.includes('land')) return { sacrificeFilter: 'land', excludesSource };
   if (condition.includes('permanent')) return { sacrificeFilter: 'permanent', excludesSource };
-  return null;
+  return { sacrificeFilter: 'any', excludesSource };
+}
+
+function extendSacrificeEffectText(oracleText: string, match: RegExpExecArray): string {
+  let effect = String(match[2] || '').trim().replace(/\s+/g, ' ');
+  const tailStart = (match.index ?? 0) + match[0].length;
+  const tail = String(oracleText || '').slice(tailStart);
+  const followUp = tail.match(/^\.\s*if you do,?\s*[^.]+/i);
+  if (followUp) {
+    effect += followUp[0].replace(/^\.\s*/, '. ').replace(/\s+/g, ' ').trim();
+  }
+  return effect;
 }
 
 export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTrigger[] {
@@ -57,7 +68,7 @@ export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTri
   ) => {
     const parsed = parseSacrificeFilter(rawCondition);
     const cleanEffect = String(effect || '').trim().replace(/\s+/g, ' ');
-    if (!parsed || !cleanEffect) return;
+    if (!cleanEffect) return;
 
     triggers.push({
       permanentId,
@@ -72,11 +83,47 @@ export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTri
     });
   };
 
-  for (const match of oracleText.matchAll(/whenever you (?:create or )?sacrifice (?:a |an |one or more )?([^,]+),\s*([^.]+)/gi)) {
-    addTrigger('you_sacrifice', String(match[1] || ''), String(match[2] || ''), String(match[0] || ''));
+  for (const match of oracleText.matchAll(/whenever you (?:create or )?sacrifice (?:a |an |one or more )?([^,]+),?\s*([^.]+)/gi)) {
+    addTrigger('you_sacrifice', String(match[1] || ''), extendSacrificeEffectText(oracleText, match), String(match[0] || ''));
   }
 
-  for (const match of oracleText.matchAll(/whenever (a player|an opponent) sacrifices? (?:a |an |one or more )?([^,]+),\s*([^.]+)/gi)) {
+  for (const match of oracleText.matchAll(/whenever (?:a |an )?creature is sacrificed,?\s*([^.]+)/gi)) {
+    addTrigger('creature_sacrificed', 'creature', String(match[1] || ''), String(match[0] || ''));
+  }
+
+  for (const match of oracleText.matchAll(
+    /whenever (?:a |an )?(?:nontoken )?(?:creature|artifact|enchantment|permanent) (?:you control )?is sacrificed,?\s*([^.]+)/gi,
+  )) {
+    const subject = String(match[0] || '').toLowerCase();
+    const filter = subject.includes('artifact')
+      ? 'artifact'
+      : subject.includes('enchantment')
+        ? 'enchantment'
+        : subject.includes('creature')
+          ? 'creature'
+          : 'permanent';
+    addTrigger('permanent_sacrificed', filter, String(match[1] || ''), String(match[0] || ''));
+  }
+
+  const playersSacrificeCreaturesMatch = oracleText.match(
+    /whenever one or more players sacrifice one or more creatures,?\s*([^.]+)/i,
+  );
+  if (playersSacrificeCreaturesMatch) {
+    const effectText = String(playersSacrificeCreaturesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'player_sacrifices',
+      oracleClause: String(playersSacrificeCreaturesMatch[0] || '').trim(),
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      sacrificeFilter: 'creature',
+      excludesSource: false,
+    });
+  }
+
+  for (const match of oracleText.matchAll(/whenever (a player|an opponent) sacrifices? (?:a |an |one or more )?([^,]+),?\s*([^.]+)/gi)) {
     const subject = String(match[1] || '').trim().toLowerCase();
     addTrigger(
       subject === 'an opponent' ? 'opponent_sacrifices' : 'player_sacrifices',
@@ -84,6 +131,109 @@ export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTri
       String(match[3] || ''),
       String(match[0] || ''),
     );
+  }
+
+  const sacrificeClueMatch = oracleText.match(/when you sacrifice (?:a |an )?Clue,?\s*([^.]+)/i);
+  if (sacrificeClueMatch) {
+    const effectText = String(sacrificeClueMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'you_sacrifice',
+      oracleClause: String(sacrificeClueMatch[0] || '').trim(),
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      sacrificeFilter: 'artifact',
+      excludesSource: false,
+    });
+  }
+
+  const encounterSacrificeMatch = oracleText.match(/when you encounter [^,]+,?\s*each player sacrifices/i);
+  if (encounterSacrificeMatch) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'player_sacrifices',
+      oracleClause: String(encounterSacrificeMatch[0] || '').trim(),
+      effect: 'each player sacrifices a permanent',
+      mandatory: true,
+      sacrificeFilter: 'permanent',
+      excludesSource: false,
+    });
+  }
+
+  const noncreatureArtifactSacrificedOrDestroyedMatch = oracleText.match(
+    /whenever a noncreature artifact is sacrificed or destroyed,?\s*([^.]+)/i,
+  );
+  if (noncreatureArtifactSacrificedOrDestroyedMatch) {
+    const effectText = String(noncreatureArtifactSacrificedOrDestroyedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'artifact_sacrificed',
+      oracleClause: String(noncreatureArtifactSacrificedOrDestroyedMatch[0] || '').trim(),
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      sacrificeFilter: 'artifact',
+      excludesSource: false,
+    });
+  }
+
+  const sacrificeZombiesThisWayMatch = oracleText.match(
+    /when you sacrifice one or more zombies this way,?\s*([^.]+)/i,
+  );
+  if (sacrificeZombiesThisWayMatch) {
+    const effectText = String(sacrificeZombiesThisWayMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'you_sacrifice',
+      oracleClause: String(sacrificeZombiesThisWayMatch[0] || '').trim(),
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      sacrificeFilter: 'creature',
+      excludesSource: false,
+    });
+  }
+
+  const sacrificeArtifactsThisWayMatch = oracleText.match(
+    /when you sacrifice one or more artifacts this way,?\s*([^.]+)/i,
+  );
+  if (sacrificeArtifactsThisWayMatch) {
+    const effectText = String(sacrificeArtifactsThisWayMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'you_sacrifice',
+      oracleClause: String(sacrificeArtifactsThisWayMatch[0] || '').trim(),
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      sacrificeFilter: 'artifact',
+      excludesSource: false,
+    });
+  }
+
+  const selfSacrificeMatch = oracleText.match(
+    /when you sacrifice this (?:enchantment|aura|artifact|creature|permanent),?\s*([^.]+)/i,
+  );
+  if (selfSacrificeMatch) {
+    const effectText = String(selfSacrificeMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'you_sacrifice',
+      oracleClause: String(selfSacrificeMatch[0] || '').trim(),
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      sacrificeFilter: 'any',
+      excludesSource: false,
+    });
   }
 
   return triggers;

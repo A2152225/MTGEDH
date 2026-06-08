@@ -2565,6 +2565,37 @@ function parseDredgeAmountFromCard(card: any): number {
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
+function chooseAIZursWeirdingOpponentSelection(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const optionIds = options.map((option: any) => resolveOptionId(option)).filter(Boolean);
+  const declineId = optionIds.find((id) => /^(?:decline|no|cancel)$/i.test(id)) || 'decline';
+  const payId = optionIds.find((id) => /^pay(?:_2_life)?$/i.test(id));
+  if (!payId) {
+    return { selections: [declineId], cancelled: false };
+  }
+
+  const currentLife = Number(game?.state?.life?.[playerId] ?? game?.state?.startingLife ?? 40);
+  if (currentLife < 2) {
+    return { selections: [declineId], cancelled: false };
+  }
+
+  const drawingPlayerId = String(step?.drawingPlayerId || '').trim();
+  const revealedName = String(step?.revealedCard?.name || '').trim().toLowerCase();
+  const isOpponentDraw = drawingPlayerId && drawingPlayerId !== String(playerId);
+  if (!isOpponentDraw) {
+    return { selections: [declineId], cancelled: false };
+  }
+
+  const highValueHints = ['force of will', 'counterspell', 'cyclonic rift', 'sol ring', 'mana crypt', 'dockside', 'craterhoof', 'thassa'];
+  const shouldPay = highValueHints.some((hint) => revealedName.includes(hint));
+  return { selections: [shouldPay ? payId : declineId], cancelled: false };
+}
+
 function chooseAIDredgeDrawReplacementSelection(
   game: any,
   playerId: PlayerID,
@@ -3744,6 +3775,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.dredgeDrawReplacementChoice === true) {
     return chooseAIDredgeDrawReplacementSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.zursWeirdingOpponentChoice === true) {
+    return chooseAIZursWeirdingOpponentSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.forbiddenOrchardTargetChoice === true) {

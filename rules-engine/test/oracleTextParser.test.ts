@@ -17,6 +17,12 @@ import {
 } from '../src/oracleTextParser';
 import { splitOracleTextIntoParseLines } from '../src/oracleTextParserPreprocess';
 
+function instructionAbilities(result: ReturnType<typeof parseOracleText>) {
+  return result.abilities.filter(
+    (ability) => ability.type === AbilityType.STATIC || ability.type === AbilityType.SPELL
+  );
+}
+
 describe('Oracle Text Parser', () => {
   it('keeps reminder text inside parentheses on one parse line', () => {
     const lines = splitOracleTextIntoParseLines(
@@ -1144,6 +1150,16 @@ describe('Oracle Text Parser', () => {
       expect(result?.targets).toContain('player');
     });
 
+    it('should split attack-a-player triggers before cast-this-way permission riders', () => {
+      const result = parseTriggeredAbility(
+        "Whenever this creature attacks a player, exile all cards from that player's hand, then they draw that many cards. You may play lands and cast spells from among the exiled cards for as long as they remain exiled. If you cast a spell this way, you may spend mana as though it were mana of any color to cast it."
+      );
+      expect(result).not.toBeNull();
+      expect(result?.triggerCondition).toBe('this creature attacks a player');
+      expect(result?.effect).toContain('exile all cards');
+      expect(result?.effect).toContain('If you cast a spell this way');
+    });
+
     it('should preserve comma-qualified trigger conditions before the effect delimiter', () => {
       const result = parseTriggeredAbility(
         "Whenever a nontoken, non-Angel creature you control dies, return that card to the battlefield under its owner's control with a +1/+1 counter on it."
@@ -1445,7 +1461,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText(text);
       
       // Should parse as a single static ability with the complete effect
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('Draw two cards');
       expect(staticAbilities[0].text).toContain('Then discard a card');
@@ -1456,7 +1472,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText(text);
       
       // Should be a single ability with both parts
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('Exile target creature');
       expect(staticAbilities[0].text).toContain('You may cast it');
@@ -1466,7 +1482,7 @@ describe('Oracle Text Parser', () => {
       const text = 'Sacrifice a creature. If you do, draw two cards.';
       const result = parseOracleText(text);
       
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('Sacrifice a creature');
       expect(staticAbilities[0].text).toContain('If you do');
@@ -1476,7 +1492,7 @@ describe('Oracle Text Parser', () => {
       const text = 'Target creature gets +2/+0 until end of turn. It gains first strike until end of turn.';
       const result = parseOracleText(text);
       
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('+2/+0');
       expect(staticAbilities[0].text).toContain('It gains first strike');
@@ -1486,7 +1502,7 @@ describe('Oracle Text Parser', () => {
       const text = 'Exile target creature. Return it to the battlefield under your control at the beginning of the next end step.';
       const result = parseOracleText(text);
       
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('Exile target creature');
       expect(staticAbilities[0].text).toContain('Return it to the battlefield');
@@ -1496,7 +1512,7 @@ describe('Oracle Text Parser', () => {
       const text = 'Target creature gains vigilance. Until end of turn, it also gains lifelink.';
       const result = parseOracleText(text);
       
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('vigilance');
       expect(staticAbilities[0].text).toContain('Until end of turn');
@@ -1506,7 +1522,7 @@ describe('Oracle Text Parser', () => {
       const text = 'Exile the top two cards of your library. Through the end of this turn, you may cast spells from among those cards.';
       const result = parseOracleText(text);
 
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('Exile the top two cards');
       expect(staticAbilities[0].text).toContain('Through the end of this turn');
@@ -1517,7 +1533,7 @@ describe('Oracle Text Parser', () => {
       const text = 'Exile those cards. As long as those cards remain exiled, you may cast them.';
       const result = parseOracleText(text);
 
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('Exile those cards');
       expect(staticAbilities[0].text).toContain('As long as those cards remain exiled');
@@ -1528,7 +1544,7 @@ describe('Oracle Text Parser', () => {
       const text = 'Exile the top card of your library. During your next turn, you may play that card.';
       const result = parseOracleText(text);
 
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('Exile the top card of your library');
       expect(staticAbilities[0].text).toContain('During your next turn');
@@ -1539,7 +1555,7 @@ describe('Oracle Text Parser', () => {
       const text = 'Draw a card. Create a 1/1 white Soldier creature token.';
       const result = parseOracleText(text);
       
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('Draw a card');
       expect(staticAbilities[0].text).toContain('Create a 1/1');
@@ -1549,7 +1565,7 @@ describe('Oracle Text Parser', () => {
       const text = 'Put a +1/+1 counter on target creature. That creature gains trample until end of turn.';
       const result = parseOracleText(text);
       
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('+1/+1 counter');
       expect(staticAbilities[0].text).toContain('That creature gains trample');
@@ -1598,7 +1614,7 @@ describe('Oracle Text Parser', () => {
       const text = 'Destroy target creature. It can\'t be regenerated. Draw a card.';
       const result = parseOracleText(text);
       
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(1);
       expect(staticAbilities[0].text).toContain('Destroy target creature');
       expect(staticAbilities[0].text).toContain('can\'t be regenerated');
@@ -1647,7 +1663,7 @@ describe('Oracle Text Parser', () => {
       const result = parseOracleText(textWithNewline);
       
       // Should have TWO separate abilities (split by newline)
-      const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
+      const staticAbilities = instructionAbilities(result);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(2);
     });
 

@@ -32,6 +32,8 @@
 
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getActualPowerToughness } from "../../state/utils.js";
+import { libraryTopCardHasType } from "./game-state-effects.js";
+import { countControlledCreaturesOfChosenType, getChosenTypeManaSpendRestriction } from "./chosen-creature-type.js";
 
 const COLOR_SYMBOL_ORDER = ['W', 'U', 'B', 'R', 'G'] as const;
 
@@ -219,6 +221,10 @@ export interface ManaAbility {
   damageEffect?: { // For pain lands like Adarkar Wastes
     type: 'damage_self';
     amount: number;
+  };
+  spendRestriction?: {
+    restriction: import('../../../../shared/src/index.js').ManaRestrictionType;
+    restrictedTo?: string;
   };
 }
 
@@ -761,7 +767,8 @@ export function getManaAbilitiesForPermanent(
   const nativeOracleText = oracleText
     .replace(/(?:other\s+)?(?:nontoken\s+)?creatures you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
     .replace(/(?:other\s+)?lands you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
-    .replace(/(?:other\s+)?permanents you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '');
+    .replace(/(?:other\s+)?permanents you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
+    .replace(/as long as the top card of your library is a land card, this(?: creature)? has\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '');
   const cardName = String(card.name || '').toLowerCase();
   
   const isLand = typeLine.includes("land");
@@ -1317,15 +1324,7 @@ export function getManaAbilitiesForPermanent(
     const chosenType = permanent?.chosenCreatureType;
     let amount = 0;
     if (chosenType) {
-      const chosenTypeLower = chosenType.toLowerCase();
-      const battlefield = gameState?.battlefield || [];
-      amount = battlefield.filter((p: any) => {
-        if (!p || p.controller !== playerId) return false;
-        const typeLine = (p.card?.type_line || "").toLowerCase();
-        if (!typeLine.includes("creature")) return false;
-        const subTypes = (typeLine.split(/\s*[—–-]\s*/)[1] || "").toLowerCase();
-        return subTypes.includes(chosenTypeLower);
-      }).length;
+      amount = countControlledCreaturesOfChosenType(gameState, playerId, chosenType);
     }
     abilities.push({
       id: 'native_dynamic',
@@ -1336,6 +1335,22 @@ export function getManaAbilitiesForPermanent(
     });
   }
   
+  const topLandManaMatch = oracleText.match(
+    /\{t\}:\s*add\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+any(?:\s+one)?\s+color/i,
+  );
+  const hasTopLandConditionalMana = /as long as the top card of your library is a land card/i.test(oracleText);
+  if (topLandManaMatch && hasTopLandConditionalMana && isCreature && String(permanent?.controller || '') === String(playerId || '')) {
+    if (libraryTopCardHasType(gameState, playerId, 'land')) {
+      const amount = parseSpelledOutManaAmount(String(topLandManaMatch[1] || 'two')) || 2;
+      abilities.push({
+        id: 'top_land_conditional_any_color',
+        cost: '{T}',
+        produces: ['W', 'U', 'B', 'R', 'G'],
+        amount,
+      });
+    }
+  }
+
   // Apply granted abilities from modifiers
   for (const modifier of modifiers) {
     if (modifier.type === 'grant_ability' && modifier.grantedAbility) {
@@ -1364,6 +1379,19 @@ export function getManaAbilitiesForPermanent(
     if (!seenProductions.has(key)) {
       seenProductions.add(key);
       uniqueAbilities.push(ability);
+    }
+  }
+
+  const chosenTypeSpendRestriction = getChosenTypeManaSpendRestriction(permanent, oracleText);
+  if (chosenTypeSpendRestriction) {
+    for (const ability of uniqueAbilities) {
+      const producesAnyColor = ability.produces.length >= 5
+        || ability.id === 'native_any'
+        || ability.id === 'native_commander_any'
+        || ability.id === 'native_pay_life_any';
+      if (producesAnyColor) {
+        ability.spendRestriction = chosenTypeSpendRestriction;
+      }
     }
   }
   

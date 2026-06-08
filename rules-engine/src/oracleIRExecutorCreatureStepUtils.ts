@@ -250,13 +250,6 @@ export function resolveSingleCreatureTargetId(
   target: OracleObjectSelector,
   ctx: OracleIRExecutionContext
 ): string | undefined {
-  const directTargetCreatureId = String(ctx.targetCreatureId || '').trim();
-  if (directTargetCreatureId) {
-    const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
-    const matched = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === directTargetCreatureId);
-    if (matched) return directTargetCreatureId;
-  }
-
   if (target.kind === 'equipped_creature') {
     return resolveTrepanationBoostTargetCreatureId(state, ctx);
   }
@@ -282,6 +275,54 @@ export function resolveSingleCreatureTargetId(
   if (target.kind !== 'raw') return undefined;
   const battlefield = getProcessedBattlefield(state);
   const targetText = normalizeOracleText(target.text);
+  const creatures = battlefield.filter(permanent => isExecutorCreature(permanent));
+  const targetPlayerId = String(ctx.selectorContext?.targetPlayerId || (ctx as any).targetPlayerId || '').trim();
+  const targetOpponentId = String(ctx.selectorContext?.targetOpponentId || (ctx as any).targetOpponentId || '').trim();
+
+  const pickFromControllerPool = (pool: BattlefieldPermanent[]): string | undefined => {
+    const preferredIds = [
+      String(ctx.selectorContext?.combatOpponentCreatureId || '').trim(),
+      String(ctx.selectorContext?.targetCreatureId || '').trim(),
+      String(ctx.selectorContext?.targetPermanentId || '').trim(),
+      String(ctx.targetCreatureId || '').trim(),
+      String(ctx.targetPermanentId || '').trim(),
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+        : []),
+    ];
+    for (const preferredId of preferredIds) {
+      if (preferredId && pool.some(permanent => String((permanent as any)?.id || '').trim() === preferredId)) {
+        return preferredId;
+      }
+    }
+    return pool.length === 1 ? String((pool[0] as any)?.id || '').trim() || undefined : undefined;
+  };
+
+  if (targetText === 'target creature that player controls' && targetPlayerId) {
+    const pool = creatures.filter(
+      permanent => String((permanent as any)?.controller || '').trim() === targetPlayerId
+    );
+    return pickFromControllerPool(pool);
+  }
+
+  if (
+    (targetText === 'target creature that opponent controls' ||
+      targetText === 'target creature an opponent controls' ||
+      targetText === 'target creature defending player controls') &&
+    targetOpponentId
+  ) {
+    const pool = creatures.filter(
+      permanent => String((permanent as any)?.controller || '').trim() === targetOpponentId
+    );
+    return pickFromControllerPool(pool);
+  }
+
+  const directTargetCreatureId = String(ctx.targetCreatureId || '').trim();
+  if (directTargetCreatureId) {
+    const matched = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === directTargetCreatureId);
+    if (matched && isExecutorCreature(matched)) return directTargetCreatureId;
+  }
+
   const directTargetPermanentId = String(ctx.targetPermanentId || '').trim();
   if (
     directTargetPermanentId &&
@@ -293,7 +334,6 @@ export function resolveSingleCreatureTargetId(
     }
   }
 
-  const creatures = battlefield.filter(permanent => isExecutorCreature(permanent));
   const sourceId = String(ctx.sourceId || '').trim();
 
   const controllerId = String(ctx.controllerId || '').trim();
@@ -733,4 +773,36 @@ export function normalizeControlledClassKey(text: string): string | null {
 
 export function getProcessedBattlefield(state: GameState): BattlefieldPermanent[] {
   return applyStaticAbilitiesToBattlefield((state.battlefield || []) as BattlefieldPermanent[]) as BattlefieldPermanent[];
+}
+
+export function readPermanentPower(permanent: any): number | null {
+  for (const value of [permanent?.effectivePower, permanent?.basePower, permanent?.card?.power, permanent?.power]) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+export function permanentIsCreature(permanent: any): boolean {
+  return isExecutorCreature(permanent);
+}
+
+export function permanentHasSubtype(permanent: any, subtype: string | undefined): boolean {
+  const needle = String(subtype || '').trim().toLowerCase();
+  if (!needle) return false;
+  const typeLine = getExecutorTypeLineLower(permanent);
+  return new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(typeLine);
+}
+
+export function getSourceBattlefieldPermanent(state: GameState, ctx: OracleIRExecutionContext): any | null {
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return null;
+  return ((state.battlefield || []) as any[]).find((permanent) => String(permanent?.id || '').trim() === sourceId) || null;
+}
+
+export function getControlledPermanents(state: GameState, controllerId: string): any[] {
+  const normalizedControllerId = String(controllerId || '').trim();
+  return ((state.battlefield || []) as any[]).filter(
+    (permanent) => String(permanent?.controller || permanent?.controllerId || '').trim() === normalizedControllerId
+  );
 }

@@ -177,6 +177,11 @@ export function applyCreatureTypeSelection(
   }
 }
 
+import {
+  isCastCreatureTypeChoiceOracle,
+  isEtbCreatureTypeChoiceOracle,
+} from '../state/modules/chosen-creature-type.js';
+
 /**
  * Check if a card requires creature type selection on ETB
  */
@@ -251,28 +256,43 @@ export function requiresCreatureTypeSelection(card: any): { required: boolean; r
     return { required: true, reason: "Choose a creature type for Adaptive Automaton" };
   }
   
-  // Kindred Charge - "Choose a creature type"
-  if (name.includes("kindred charge")) {
-    return { required: true, reason: "Choose a creature type for Kindred Charge" };
-  }
-  
-  // Kindred Summons - "Choose a creature type"
-  if (name.includes("kindred summons")) {
-    return { required: true, reason: "Choose a creature type for Kindred Summons" };
-  }
-  
   // Three Tree City - "As Three Tree City enters, choose a creature type"
   if (name.includes("three tree city")) {
     return { required: true, reason: "Choose a creature type for Three Tree City's mana ability" };
   }
   
-  // Generic detection: look for the exact phrase "as ~ enters the battlefield, choose a creature type"
-  // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
-  // This is more specific than the previous loose matching
-  const entersBattlefieldChoosePattern = /as .+? enters(?: the battlefield)?,? choose a creature type/i;
-  if (entersBattlefieldChoosePattern.test(oracleText)) {
+  if (isEtbCreatureTypeChoiceOracle(card?.oracle_text || '')) {
     return { required: true, reason: "Choose a creature type" };
   }
   
   return { required: false, reason: "" };
+}
+
+/**
+ * Check if an instant/sorcery (or spell on stack) requires creature type selection when it resolves.
+ */
+export function requiresCreatureTypeSelectionOnCast(card: any): { required: boolean; reason: string } {
+  if (!card) return { required: false, reason: '' };
+
+  const name = String(card.name || '').toLowerCase();
+  const oracleText = String(card.oracle_text || '');
+
+  if (name.includes('kindred charge')) {
+    return { required: true, reason: 'Choose a creature type for Kindred Charge' };
+  }
+  if (name.includes('kindred summons')) {
+    return { required: true, reason: 'Choose a creature type for Kindred Summons' };
+  }
+  if (name.includes('kindred dominance')) {
+    return { required: true, reason: 'Choose a creature type for Kindred Dominance' };
+  }
+  if (name.includes('distant melody')) {
+    return { required: true, reason: 'Choose a creature type for Distant Melody' };
+  }
+
+  if (isCastCreatureTypeChoiceOracle(oracleText)) {
+    return { required: true, reason: 'Choose a creature type' };
+  }
+
+  return { required: false, reason: '' };
 }

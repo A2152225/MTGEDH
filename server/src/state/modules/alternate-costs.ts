@@ -21,6 +21,7 @@ import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
 import { parseManaCost, canPayManaCostWithAvailableSources } from "./mana-check";
 import { collectStaticEffectSources } from "./static-effect-sources";
+import { spellHasConvokeForCast } from "./casting-modifiers.js";
 
 /**
  * Alternate cost types
@@ -224,40 +225,12 @@ export function hasConvokeAlternateCost(
   playerId: PlayerID,
   card: any,
   excludedHandCardIds?: string[],
+  castSourceZone?: string,
 ): boolean {
   if (!card) return false;
   
   const { state } = ctx;
-  const oracleText = (card.oracle_text || "").toLowerCase();
-  
-  // Check for convoke keyword
-  if (!oracleText.includes("convoke")) {
-    return false;
-  }
-  
-  // CRITICAL: Exclude cards that GRANT convoke to other spells but don't have it themselves
-  // These patterns indicate the card gives convoke to OTHER spells, not itself
-  const grantsConvokePatterns = [
-    /the next spell you cast[^.]*has convoke/i,           // Wand of the Worldsoul
-    /spells you cast[^.]*have convoke/i,                  // General granting pattern
-    /creature spells you cast[^.]*have convoke/i,         // Elven Chorus style
-    /whenever[^.]*cast[^.]*convoke/i,                     // Triggered grant pattern
-    /nontoken creatures you control[^.]*have[^.]*convoke/i, // Creature-based granting
-  ];
-  
-  for (const pattern of grantsConvokePatterns) {
-    if (pattern.test(oracleText)) {
-      // This card grants convoke to other spells, it doesn't have convoke itself
-      return false;
-    }
-  }
-  
-  // Additional check: If the word "convoke" appears but is NOT in the format of a keyword
-  // (i.e., not at the start of a line or after a period), it might be granting convoke
-  // The standard convoke keyword appears as just "Convoke" or "Convoke (reminder text)"
-  const convokeKeywordPattern = /(?:^|\.|\n)\s*convoke(?:\s*\(|$|\s)/i;
-  if (!convokeKeywordPattern.test(oracleText)) {
-    // "convoke" appears but not as a standalone keyword - likely grants to another spell
+  if (!spellHasConvokeForCast(state, playerId, card, castSourceZone)) {
     return false;
   }
   
@@ -554,6 +527,7 @@ export function hasPayableAlternateCost(
   playerId: PlayerID,
   card: any,
   excludedHandCardIds?: string[],
+  castSourceZone?: string,
 ): boolean {
   if (!card) return false;
   
@@ -561,7 +535,7 @@ export function hasPayableAlternateCost(
   if (hasForceOfWillAlternateCost(ctx, playerId, card)) return true;
   if (hasCommanderFreeAlternateCost(ctx, playerId, card)) return true;
   if (hasPactAlternateCost(card)) return true;
-  if (hasConvokeAlternateCost(ctx, playerId, card, excludedHandCardIds)) return true;
+  if (hasConvokeAlternateCost(ctx, playerId, card, excludedHandCardIds, castSourceZone)) return true;
   if (hasDelveAlternateCost(ctx, playerId, card)) return true;
   if (hasImproviseAlternateCost(ctx, playerId, card, excludedHandCardIds)) return true;
 
@@ -710,7 +684,7 @@ export function getAllAlternateCostOptions(
   }
   
   // Convoke
-  if (hasConvokeAlternateCost(ctx, playerId, card)) {
+  if (hasConvokeAlternateCost(ctx, playerId, card, undefined, castFromZone)) {
     options.push({
       type: 'convoke',
       name: 'Convoke',

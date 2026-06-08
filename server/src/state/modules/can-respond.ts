@@ -1578,7 +1578,7 @@ export function getCastableSpellCandidates(
         if (
           allowAlternateCosts &&
           canUseAlternateCostForSpellCandidate(sourceZone, castMethod) &&
-          hasPayableAlternateCost(ctx, playerId, castCard, manaPaymentOptions?.excludedHandCardIds)
+          hasPayableAlternateCost(ctx, playerId, castCard, manaPaymentOptions?.excludedHandCardIds, sourceZone)
         ) {
           candidates.push({
             card,

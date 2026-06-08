@@ -31,7 +31,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * @property costPerTarget - For strive: indicates this cost is per additional target beyond the first
  */
 export interface AdditionalCostResult {
-  type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'reveal' | 'squad' | 'strive' | 'blight' | 'collect_evidence';
+  type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'reveal' | 'squad' | 'strive' | 'blight' | 'collect_evidence' | 'behold_chosen_type';
   amount: number;
   filter?: string;
   counterType?: string;
@@ -49,6 +49,9 @@ export interface AdditionalCostResult {
   // Collect evidence additional-cost support
   collectEvidenceValue?: number;
   collectEvidenceIsOptional?: boolean;
+
+  // Behold + chosen creature type additional-cost support
+  beholdIsOptional?: boolean;
 }
 
 /**
@@ -169,6 +172,28 @@ export function detectAdditionalCost(oracleText: string): AdditionalCostResult |
       type: 'pay_life',
       amount: parseInt(payLifeMatch[1], 10),
     };
+  }
+
+  // Behold + chosen creature type (Celestial Reunion and similar)
+  const beholdMatch = (oracleText || '').match(
+    /\bas an additional cost to cast this spell,\s*(you may\s+)?choose a creature type and behold\s+(\w+)\s+creatures? of that type/i,
+  );
+  if (beholdMatch) {
+    const countWord = String(beholdMatch[2] || '').trim().toLowerCase();
+    const count = countWord === 'two'
+      ? 2
+      : countWord === 'one'
+        ? 1
+        : countWord === 'three'
+          ? 3
+          : parseInt(countWord, 10);
+    if (Number.isFinite(count) && count > 0) {
+      return {
+        type: 'behold_chosen_type',
+        amount: count,
+        beholdIsOptional: Boolean(beholdMatch[1]),
+      };
+    }
   }
   
   return null;

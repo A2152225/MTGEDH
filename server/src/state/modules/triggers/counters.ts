@@ -11,7 +11,7 @@ export interface CounterPlacedTrigger {
   permanentId: string;
   cardName: string;
   controllerId: string;
-  triggerType: 'counters_put_on_creature_you_control' | 'counters_put_on_permanent_you_control';
+  triggerType: 'counters_put_on_creature_you_control' | 'counters_put_on_permanent_you_control' | 'counters_put_on_self';
   oracleClause: string;
   effect: string;
   mandatory: boolean;
@@ -23,7 +23,7 @@ export interface CounterRemovedTrigger {
   permanentId: string;
   cardName: string;
   controllerId: string;
-  triggerType: 'counters_removed_from_self' | 'counters_removed_from_permanent_you_control';
+  triggerType: 'counters_removed_from_self' | 'counters_removed_from_permanent_you_control' | 'time_counter_removed_from_exiled_self';
   oracleClause: string;
   effect: string;
   mandatory: boolean;
@@ -75,6 +75,128 @@ export function detectCounterPlacedTriggers(card: any, permanent: any): CounterP
   const controllerId = String(permanent?.controller || '');
   const cardName = String(card?.name || 'Unknown');
 
+  const proliferateMatch = oracleText.match(/when(?:ever)? you proliferate,?\s*([^.]+)/i);
+  if (proliferateMatch) {
+    const effect = String(proliferateMatch[1] || '').trim().replace(/\s+/g, ' ');
+    if (effect && !triggers.some((trigger) => trigger.effect === effect)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'proliferate',
+        oracleClause: String(proliferateMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        counterFilter: 'any',
+        targetFilter: 'permanent',
+      });
+    }
+  }
+
+  const nthPlanCounterMatch = oracleText.match(
+    /when the (first|second|third|fourth|fifth) plan counter is put on this enchantment,?\s*([^.]+)/i,
+  );
+  if (nthPlanCounterMatch) {
+    const effect = String(nthPlanCounterMatch[2] || '').trim().replace(/\s+/g, ' ');
+    if (effect && !triggers.some((trigger) => trigger.effect === effect)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'counters_put_on_self',
+        oracleClause: String(nthPlanCounterMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        counterFilter: 'plan',
+        targetFilter: 'enchantment',
+      });
+    }
+  }
+
+  const minusCounterMatch = oracleText.match(
+    /whenever you put one or more -1\/-1 counters on a creature,?\s*([^.]+)/i,
+  );
+  if (minusCounterMatch) {
+    const effect = String(minusCounterMatch[1] || '').trim().replace(/\s+/g, ' ');
+    if (effect && !triggers.some((trigger) => trigger.effect === effect)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'counters_put_on_creature',
+        oracleClause: String(minusCounterMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        counterFilter: '-1/-1',
+        targetFilter: 'creature',
+      });
+    }
+  }
+
+  const putCountersOnTargetMatch = oracleText.matchAll(
+    /whenever you put one or more (\+1\/\+1 )?counters on (?:~|this (?:creature|permanent)|[A-Za-z][A-Za-z0-9', -]*),?\s*([^.]+)/gi,
+  );
+  for (const match of putCountersOnTargetMatch) {
+    const counterFilter: CounterPlacedTrigger['counterFilter'] = match[1] ? '+1/+1' : 'any';
+    const effect = collectCounterRemovedTriggerEffectText(oracleText, match, 2);
+    if (!effect || triggers.some((trigger) => trigger.effect === effect)) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'counters_put_on_target',
+      oracleClause: String(match[0] || '').trim(),
+      effect,
+      mandatory: !/^you may\b/i.test(effect),
+      counterFilter,
+      targetFilter: 'permanent',
+    });
+  }
+
+  const singularCounterMatch = oracleText.match(
+    /whenever a (\+1\/\+1 )?counter is put on a (creature|permanent) you control,?\s*([^.]+)/i,
+  );
+  if (singularCounterMatch) {
+    const counterFilter: CounterPlacedTrigger['counterFilter'] = singularCounterMatch[1] ? '+1/+1' : 'any';
+    const targetFilter = String(singularCounterMatch[2] || '').trim().toLowerCase() === 'creature' ? 'creature' : 'permanent';
+    const effect = String(singularCounterMatch[3] || '').trim().replace(/\s+/g, ' ');
+    if (effect && !triggers.some((trigger) => trigger.effect === effect)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: targetFilter === 'creature'
+          ? 'counters_put_on_creature_you_control'
+          : 'counters_put_on_permanent_you_control',
+        oracleClause: String(singularCounterMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        counterFilter,
+        targetFilter,
+      });
+    }
+  }
+
+  const selfMatches = oracleText.matchAll(
+    /whenever one or more (\+1\/\+1 )?counters are put on (?:~|this (?:creature|permanent)),?\s*([^.]+)/gi,
+  );
+  for (const match of selfMatches) {
+    const counterFilter: CounterPlacedTrigger['counterFilter'] = match[1] ? '+1/+1' : 'any';
+    const effect = collectCounterRemovedTriggerEffectText(oracleText, match, 2);
+    if (!effect || triggers.some((trigger) => trigger.effect === effect)) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'counters_put_on_self',
+      oracleClause: String(match[0] || '').trim(),
+      effect,
+      mandatory: !/^you may\b/i.test(effect),
+      counterFilter,
+      targetFilter: 'permanent',
+    });
+  }
+
   const matches = oracleText.matchAll(/whenever one or more (\+1\/\+1 )?counters are put on a (creature|permanent) you control,\s*([^.]+)/gi);
   for (const match of matches) {
     const counterFilter: CounterPlacedTrigger['counterFilter'] = match[1] ? '+1/+1' : 'any';
@@ -122,7 +244,9 @@ export function getCounterPlacedTriggers(
 
     const permanentTriggers = detectCounterPlacedTriggers(permanent.card, permanent);
     for (const trigger of permanentTriggers) {
-      if (trigger.targetFilter === 'creature' && !targetTypeLine.includes('creature')) {
+      if (trigger.triggerType === 'counters_put_on_self') {
+        if (String(permanent.id || '') !== String(targetPermanent?.id || '')) continue;
+      } else if (trigger.targetFilter === 'creature' && !targetTypeLine.includes('creature')) {
         continue;
       }
 
@@ -268,6 +392,46 @@ export function detectCounterRemovedTriggers(card: any, permanent: any): Counter
   const controllerId = String(permanent?.controller || '');
   const cardName = String(card?.name || 'Unknown');
 
+  const removedThisWayMatch = oracleText.match(
+    /when(?:ever)? one or more counters are removed from this (creature|enchantment|artifact|permanent|planeswalker) this way,?\s*([^.]+)/i,
+  );
+  if (removedThisWayMatch) {
+    const effect = String(removedThisWayMatch[2] || '').trim().replace(/\s+/g, ' ');
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'counters_removed_from_self',
+        oracleClause: String(removedThisWayMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        counterFilter: 'any',
+        targetFilter: 'self',
+      });
+    }
+  }
+
+  const namedLoyaltyRemovedMatch = oracleText.match(
+    /whenever one or more loyalty counters are removed from [^,]+,?\s*([^.]+)/i,
+  );
+  if (namedLoyaltyRemovedMatch) {
+    const effect = String(namedLoyaltyRemovedMatch[1] || '').trim().replace(/\s+/g, ' ');
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'counters_removed_from_self',
+        oracleClause: String(namedLoyaltyRemovedMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        counterFilter: 'loyalty',
+        targetFilter: 'planeswalker',
+      });
+    }
+  }
+
   const selfMatches = oracleText.matchAll(/whenever (?:one or more\s+)?(.+?\s+)?counters? (?:are|is) removed from this (creature|enchantment|artifact|permanent|planeswalker),\s*([^.]+)/gi);
   for (const match of selfMatches) {
     const counterFilter = normalizeCounterFilter(String(match[1] || ''));
@@ -284,6 +448,25 @@ export function detectCounterRemovedTriggers(card: any, permanent: any): Counter
       effect,
       mandatory: !/^you may\b/i.test(effect),
       counterFilter,
+      targetFilter: 'self',
+    });
+  }
+
+  const exiledTimeCounterMatches = oracleText.matchAll(
+    /whenever a time counter is removed from this card while it's exiled,?\s*([^.]+)/gi,
+  );
+  for (const match of exiledTimeCounterMatches) {
+    const effect = String(match[1] || '').trim().replace(/\s+/g, ' ');
+    if (!effect) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'time_counter_removed_from_exiled_self',
+      oracleClause: String(match[0] || '').trim(),
+      effect,
+      mandatory: !/^you may\b/i.test(effect),
+      counterFilter: 'time',
       targetFilter: 'self',
     });
   }

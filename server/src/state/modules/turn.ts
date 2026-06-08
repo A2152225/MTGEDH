@@ -18,7 +18,8 @@ import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { appendEvent } from '../../db/index.js';
 import { drawCards } from "./zones.js";
-import { recalculatePlayerEffects, applyCombatDamageReplacement, canDamageBePrevented, clearTemporaryLandBonuses, processLifeChange } from "./game-state-effects.js";
+import { resetConvokeGrantsForNewTurn } from "./casting-modifiers.js";
+import { recalculatePlayerEffects, canDamageBePrevented, clearTemporaryLandBonuses, processLifeChange, resolveCombatDamageToOpponent } from "./game-state-effects.js";
 import { clearTemporaryEtbTriggers, detectEntersWithCounters, triggerETBEffectsForPermanent } from "./stack.js";
 import { 
   getBeginningOfCombatTriggers, 
@@ -2023,47 +2024,21 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           // UNBLOCKED ATTACKER: Deal damage to defending player
           const defendingPlayerId = defendingTarget;
 
-          // Check for combat damage replacement effects (The Mindskinner, etc.)
-          const replacementResult = applyCombatDamageReplacement(
-            ctx, card, attacker, attackerController, attackerPower, defendingPlayerId
-          );
-          
+          const replacementResult = resolveCombatDamageToOpponent(ctx, {
+            attackerCard: card,
+            attackerPermanent: attacker,
+            attackerController,
+            damageAmount: attackerPower,
+            defendingPlayerId,
+          });
+
           let actualDamage = replacementResult.damageDealt;
-          
-          // Log replacement effects
+
+          for (const modifier of replacementResult.damageModifiers) {
+            debug(2, `${ts()} [dealCombatDamage] ${modifier}`);
+          }
           for (const effect of replacementResult.effectsApplied) {
             debug(2, `${ts()} [dealCombatDamage] ${effect}`);
-          }
-          
-          // Apply mill effect if triggered (The Mindskinner)
-          if (replacementResult.millAmount && replacementResult.millTargets) {
-            const millAmount = replacementResult.millAmount;
-            for (const opponentId of replacementResult.millTargets) {
-              // Mill the opponent
-              const lib = ctx.libraries?.get(opponentId) || [];
-              const milledCards: any[] = [];
-              for (let i = 0; i < millAmount && lib.length > 0; i++) {
-                const milledCard = lib.pop();
-                if (milledCard) {
-                  milledCards.push(milledCard);
-                }
-              }
-              ctx.libraries?.set(opponentId, lib);
-              
-              // Move milled cards to graveyard
-              const zones = (ctx as any).state?.zones || {};
-              const oppZones = zones[opponentId] = zones[opponentId] || { hand: [], graveyard: [], libraryCount: 0, graveyardCount: 0 };
-              oppZones.graveyard = oppZones.graveyard || [];
-              for (const milledCard of milledCards) {
-                milledCard.zone = 'graveyard';
-                oppZones.graveyard.push(milledCard);
-                recordCardPutIntoGraveyardThisTurn(ctx as any, String(opponentId), milledCard, { fromBattlefield: false });
-              }
-              oppZones.libraryCount = lib.length;
-              oppZones.graveyardCount = (oppZones.graveyard || []).length;
-              
-              debug(1, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} milled ${milledCards.length} cards from ${opponentId}: ${milledCards.map((c: any) => c.name).join(', ')}`);
-            }
           }
 
           if (replacementResult.drawAmount && replacementResult.drawTargets) {
@@ -2312,7 +2287,27 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               }
             } else if (!isPermanentCombatTarget && defendingTarget) {
               const defendingPlayerId = defendingTarget;
-              const preventionResult = applyCombatDamagePreventionEffects(ctx, remainingDamage, String(attacker.id || ''), card, { targetPlayerId: defendingPlayerId });
+              const trampleReplacement = resolveCombatDamageToOpponent(ctx, {
+                attackerCard: card,
+                attackerPermanent: attacker,
+                attackerController,
+                damageAmount: remainingDamage,
+                defendingPlayerId,
+              });
+              for (const modifier of trampleReplacement.damageModifiers) {
+                debug(2, `${ts()} [dealCombatDamage] ${modifier}`);
+              }
+              for (const effect of trampleReplacement.effectsApplied) {
+                debug(2, `${ts()} [dealCombatDamage] ${effect}`);
+              }
+
+              const preventionResult = applyCombatDamagePreventionEffects(
+                ctx,
+                trampleReplacement.damageDealt,
+                String(attacker.id || ''),
+                card,
+                { targetPlayerId: defendingPlayerId }
+              );
               const trampleDamageToPlayer = preventionResult.remainingDamage;
               if (preventionResult.prevented > 0 && trampleDamageToPlayer <= 0) {
                 debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${remainingDamage} trample damage to ${defendingPlayerId} was prevented`);
@@ -2598,6 +2593,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             }
 
             const damageAmount = Math.max(0, Number(result.attackerDamageToPlayers?.[String(defendingPlayerId)]?.[String(attackerId)] || 0));
+            if (damageAmount <= 0) {
+              debug(2, `${ts()} [dealCombatDamage] Skipping combat damage trigger from ${attackerPerm.card?.name || attackerPerm.id} because no damage was dealt`);
+              continue;
+            }
             const stackItem = {
               id: uid('trigger'),
               type: 'triggered_ability',
@@ -4280,6 +4279,11 @@ export function nextTurn(ctx: GameContext) {
       (ctx as any).state.lifeGainedThisTurn[String(pid)] = 0;
       (ctx as any).state.lifeLostThisTurn[String(pid)] = 0;
     }
+
+    resetConvokeGrantsForNewTurn(
+      (ctx as any).state,
+      Number((ctx as any).state.turnNumber ?? (ctx as any).state.turn ?? 0) || 0,
+    );
 
     // Reset per-player damage taken tracking for this turn.
     (ctx as any).state.damageTakenThisTurnByPlayer = {};

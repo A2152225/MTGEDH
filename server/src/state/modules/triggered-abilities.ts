@@ -52,6 +52,50 @@ import {
 } from "./triggers/card-data-tables.js";
 import { escapeCardNameForRegex } from "./triggers/types.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
+import { permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
+import { parseChosenTypeCreatureEtbTrigger } from "./chosen-creature-type.js";
+import { detectCastTrigger } from "../../../../rules-engine/src/cards/castTriggers.js";
+
+function buildCardNameRegexAlternatives(cardName: string): string[] {
+  const names = new Set<string>();
+  const add = (value: string) => {
+    const trimmed = String(value || '').trim();
+    if (trimmed) names.add(escapeCardNameForRegex(trimmed));
+  };
+  add(cardName);
+  add(normalizeCardNameForOracleText(cardName));
+  if (/^the\s+/i.test(cardName)) {
+    add(`the ${cardName}`);
+  }
+  const slashParts = String(cardName).split(/\s*\/\/\s*/);
+  if (slashParts.length > 1) {
+    add(slashParts.map((part) => String(part).split(',')[0].trim()).join('//'));
+  }
+  for (const part of slashParts) {
+    add(part);
+    add(String(part.split(',')[0] || '').trim());
+    const ofHead = String(part).match(/^(.+?)\s+of\s+/i);
+    if (ofHead) add(ofHead[1].trim());
+    const theTitleHead = String(part).match(/^(.+?)\s+the\s+/i);
+    if (theTitleHead) add(theTitleHead[1].trim());
+    const thePrefix = String(part).match(/^the\s+(.+)$/i);
+    if (thePrefix) {
+      add(thePrefix[1].trim());
+      add(`the ${thePrefix[1].trim()}`);
+    }
+    if (/^a-/i.test(part)) add(String(part).replace(/^a-/i, '').trim());
+    const hyphenShort = String(part).match(/^([\w]+-[\w]+)/);
+    if (hyphenShort) add(hyphenShort[1].trim());
+    const words = String(part).trim().split(/\s+/);
+    if (words.length > 1 && !/^the$/i.test(words[0])) {
+      add(words[0]);
+    }
+    if (words.length > 2) {
+      add(words[words.length - 1]);
+    }
+  }
+  return Array.from(names);
+}
 
 // Re-export from modularized submodules
 export { calculateDevotion, getDevotionManaAmount } from "./triggers/devotion.js";
@@ -240,6 +284,43 @@ function extendSpellCopyEffectText(
   }
 
   return extendedEffect;
+}
+
+function normalizeSpellCastEffectText(
+  oracleText: string,
+  matchedText: string,
+  rawEffect: string,
+  matchIndex?: number,
+): { effectText: string; optionalPaymentCost?: string; mandatory: boolean } {
+  let effectText = extendSpellCopyEffectText(oracleText, matchedText, rawEffect, matchIndex);
+  const optionalPaymentPattern = /you may pay ((?:\{[^}]+\})+)\.\s*(?:if|when) you do,?\s*(.+)/is;
+  let mayPayMatch = effectText.match(optionalPaymentPattern);
+
+  const safeIndex = Number.isFinite(matchIndex as number)
+    ? Number(matchIndex)
+    : oracleText.toLowerCase().indexOf(String(matchedText || '').toLowerCase());
+
+  if (!mayPayMatch && /^you may pay /i.test(effectText) && safeIndex >= 0) {
+    const trailingText = oracleText.slice(safeIndex + String(matchedText || '').length);
+    const continuationMatch = trailingText.match(/^\.\s*if you do,?\s*([^.]+)/i);
+    if (continuationMatch) {
+      effectText = `${effectText}. If you do, ${String(continuationMatch[1] || '').trim()}`;
+      mayPayMatch = effectText.match(optionalPaymentPattern);
+    }
+  }
+
+  if (mayPayMatch) {
+    return {
+      effectText: String(mayPayMatch[2] || '').trim(),
+      optionalPaymentCost: String(mayPayMatch[1] || '').trim(),
+      mandatory: false,
+    };
+  }
+
+  return {
+    effectText,
+    mandatory: !effectText.toLowerCase().includes('you may'),
+  };
 }
 
 /**
@@ -555,6 +636,9 @@ export interface TriggeredAbility {
     | 'persist'
     | 'attacks'
     | 'creature_attacks'
+    | 'chosen_type_creature_etb_or_attack'
+    | 'chosen_type_creature_etb'
+    | 'self_enters_or_attacks'
     | 'etb'
     | 'etb_sacrifice_unless_pay' // Transguild Promenade, Gateway Plaza, Rupture Spire
     | 'etb_bounce_land' // Bounce lands - return a land you control to hand
@@ -685,8 +769,30 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     }
   }
   
-  // Generic "whenever ~ deals combat damage to a player" detection
-  const combatDamagePlayerMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+deals\s+combat\s+damage\s+to\s+(?:a\s+)?(?:player|an?\s+opponent),?\s*([^.]+)/i);
+  // Generic "when/whenever ~ deals combat damage to a player" detection
+  const combatNameVariants = buildCardNameRegexAlternatives(cardName);
+  const combatDamageSubject = `(?:~|this creature|this vehicle|this artifact|this land|this permanent|(?:${combatNameVariants.join('|')})|equipped creature|enchanted creature)`;
+  const selfCombatDamageAnyMatch = oracleText.match(
+    new RegExp(`when(?:ever)?\\s+${combatDamageSubject}\\s+deals\\s+combat\\s+damage(?!\\s+to),?\\s*([^.]+)`, 'i'),
+  );
+  if (
+    selfCombatDamageAnyMatch &&
+    !triggers.some((t) => t.triggerType === 'self_deals_combat_damage_any')
+  ) {
+    const effectText = String(selfCombatDamageAnyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'self_deals_combat_damage_any',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const combatDamagePlayerMatch = oracleText.match(
+    new RegExp(`when(?:ever)?\\s+${combatDamageSubject}\\s+deals\\s+combat\\s+damage\\s+to\\s+(?:a\\s+)?(?:player|an?\\s+opponent),?\\s*([^.]+)`, 'i'),
+  );
   if (combatDamagePlayerMatch && !triggers.some(t => t.triggerType === 'deals_combat_damage')) {
     triggers.push({
       permanentId,
@@ -700,7 +806,25 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
   
   // "Whenever one or more creatures you control deal combat damage to a player" (batched trigger)
   // Examples: Professional Face-Breaker, Idol of Oblivion, etc.
-  const batchedCombatDamageMatch = oracleText.match(/whenever\s+one\s+or\s+more\s+creatures\s+you\s+control\s+deal\s+combat\s+damage\s+to\s+(?:a\s+)?(?:player|an?\s+opponent),?\s*([^.]+)/i);
+  const opponentsDealtCombatDamageMatch = oracleText.match(
+    /whenever your opponents are dealt combat damage,?\s*([^.]+)/i,
+  );
+  if (
+    opponentsDealtCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'opponents_dealt_combat_damage')
+  ) {
+    const effectText = String(opponentsDealtCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponents_dealt_combat_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const batchedCombatDamageMatch = oracleText.match(/when(?:ever)?\s+one\s+or\s+more\s+creatures\s+you\s+control\s+deal\s+combat\s+damage\s+to\s+(?:a\s+)?(?:player|an?\s+opponent),?\s*([^.]+)/i);
   if (batchedCombatDamageMatch && !triggers.some(t => t.triggerType === 'creatures_deal_combat_damage_batched')) {
     triggers.push({
       permanentId,
@@ -710,6 +834,1427 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
       effect: batchedCombatDamageMatch[1].trim(),
       mandatory: true,
       batched: true,  // This trigger should only fire once per combat damage step if any creatures dealt damage
+    });
+  }
+
+  const typedCreatureCombatDamageMatch = oracleText.match(
+    /whenever an? (?:[\w]+\s+)+creature you control deals combat damage to (?:a player|an opponent),?\s*([^.]+)/i,
+  );
+  if (
+    typedCreatureCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'typed_creature_combat_damage_to_player')
+  ) {
+    const effectText = String(typedCreatureCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_creature_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureCombatDamageToYouMatch = oracleText.match(
+    /whenever a creature deals combat damage to you,?\s*([^.]+)/i,
+  );
+  if (
+    creatureCombatDamageToYouMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_combat_damage_to_you')
+  ) {
+    const effectText = String(creatureCombatDamageToYouMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_combat_damage_to_you',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const ringBearerCombatDamageMatch = oracleText.match(
+    /whenever your ring-bearer deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    ringBearerCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'ring_bearer_combat_damage')
+  ) {
+    const effectText = String(ringBearerCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'ring_bearer_combat_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anyCreatureCombatDamageToPlayerMatch = oracleText.match(
+    /whenever a creature deals combat damage to (?:a )?player,?\s*([^.]+)/i,
+  );
+  if (
+    anyCreatureCombatDamageToPlayerMatch &&
+    !lowerOracle.includes('creature you control deals combat damage') &&
+    !triggers.some((t) => t.triggerType === 'any_creature_combat_damage_to_player')
+  ) {
+    const effectText = String(anyCreatureCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'any_creature_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const controlledCreatureCombatDamageMatch = oracleText.match(
+    /whenever a (?:[\w]+\s+)*creature you control deals combat damage to (?:a player|an opponent),?\s*([^.]+)/i,
+  );
+  if (
+    controlledCreatureCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'controlled_creature_deals_combat_damage')
+  ) {
+    const effectText = String(controlledCreatureCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'controlled_creature_deals_combat_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const controlledCreatureCombatDamageAnyMatch = oracleText.match(
+    /whenever a (?:[\w]+\s+)*creature you control deals combat damage(?: during your turn)?(?! to),?\s*([^.]+)/i,
+  );
+  if (
+    controlledCreatureCombatDamageAnyMatch &&
+    !triggers.some((t) => t.triggerType === 'controlled_creature_deals_combat_damage_any')
+  ) {
+    const effectText = String(controlledCreatureCombatDamageAnyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'controlled_creature_deals_combat_damage_any',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const controlledCreatureCombatDamageToPlaneswalkerMatch = oracleText.match(
+    /whenever a (?:[\w]+\s+)*creature you control deals combat damage to a planeswalker,?\s*([^.]+)/i,
+  );
+  if (
+    controlledCreatureCombatDamageToPlaneswalkerMatch &&
+    !triggers.some((t) => t.triggerType === 'controlled_creature_combat_damage_to_planeswalker')
+  ) {
+    const effectText = String(controlledCreatureCombatDamageToPlaneswalkerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'controlled_creature_combat_damage_to_planeswalker',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const controlledCreatureCombatDamageToThatPlayerMatch = oracleText.match(
+    /whenever a creature you control deals combat damage to that player(?: this turn)?,?\s*([^.]+)/i,
+  );
+  if (
+    controlledCreatureCombatDamageToThatPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'controlled_creature_combat_damage_to_that_player')
+  ) {
+    const effectText = String(controlledCreatureCombatDamageToThatPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'controlled_creature_combat_damage_to_that_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const counterCreatureCombatDamageToPlayerMatch = oracleText.match(
+    /whenever a creature you control with a \+1\/\+1 counter on it deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    counterCreatureCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'counter_creature_combat_damage_to_player')
+  ) {
+    const effectText = String(counterCreatureCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'counter_creature_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anyCounterCreatureCombatDamageToPlayerMatch = oracleText.match(
+    /whenever a creature you control with a counter on it deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    anyCounterCreatureCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'any_counter_creature_combat_damage_to_player')
+  ) {
+    const effectText = String(anyCounterCreatureCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'any_counter_creature_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherTypedCombatDamageToPlayerMatch = oracleText.match(
+    /whenever this creature or another ([\w]+) you control deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherTypedCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_typed_combat_damage_to_player')
+  ) {
+    const effectText = String(thisOrAnotherTypedCombatDamageToPlayerMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_typed_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedCreatureCombatDamageToPlayerNoControlMatch = oracleText.match(
+    /whenever a ([\w]+(?: or [\w]+)?) deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    typedCreatureCombatDamageToPlayerNoControlMatch &&
+    !lowerOracle.includes('you control') &&
+    !triggers.some((t) => t.triggerType === 'typed_creature_combat_damage_to_player')
+  ) {
+    const effectText = String(typedCreatureCombatDamageToPlayerNoControlMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_creature_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedCreatureCombatDamageToPlayerMatch = oracleText.match(
+    /whenever a ([\w]+(?: or [\w]+)?) you control deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    typedCreatureCombatDamageToPlayerMatch &&
+    !lowerOracle.includes('creature you control deals combat damage') &&
+    !triggers.some((t) => t.triggerType === 'typed_creature_combat_damage_to_player')
+  ) {
+    const effectText = String(typedCreatureCombatDamageToPlayerMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_creature_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const vehicleCombatDamageToPlayerMatch = oracleText.match(
+    /whenever a vehicle you control deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    vehicleCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'vehicle_combat_damage_to_player')
+  ) {
+    const effectText = String(vehicleCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'vehicle_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const combatDamageToYourOpponentMatch = oracleText.match(
+    /whenever a creature deals combat damage to one of your opponents,?\s*([^.]+)/i,
+  );
+  if (
+    combatDamageToYourOpponentMatch &&
+    !triggers.some((t) => t.triggerType === 'combat_damage_to_your_opponent')
+  ) {
+    const effectText = String(combatDamageToYourOpponentMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'combat_damage_to_your_opponent',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const combatDamageToEnchantedPlayerMatch = oracleText.match(
+    /whenever a creature deals combat damage to enchanted player,?\s*([^.]+)/i,
+  );
+  if (
+    combatDamageToEnchantedPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'combat_damage_to_enchanted_player')
+  ) {
+    const effectText = String(combatDamageToEnchantedPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'combat_damage_to_enchanted_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thatCreatureCombatDamageToPlayerThisTurnMatch = oracleText.match(
+    /when(?:ever)? that creature deals combat damage to (?:a player|an opponent) or (?:a )?planeswalker this turn,?\s*([^.]+)/i,
+  );
+  if (
+    thatCreatureCombatDamageToPlayerThisTurnMatch &&
+    !triggers.some((t) => t.triggerType === 'that_creature_combat_damage_to_player_or_planeswalker_this_turn')
+  ) {
+    const effectText = String(thatCreatureCombatDamageToPlayerThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'that_creature_combat_damage_to_player_or_planeswalker_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thatCreatureCombatDamageToPlayerOnlyThisTurnMatch = oracleText.match(
+    /when(?:ever)? that creature deals combat damage to a player this turn,?\s*([^.]+)/i,
+  );
+  if (
+    thatCreatureCombatDamageToPlayerOnlyThisTurnMatch &&
+    !triggers.some((t) => t.triggerType === 'that_creature_combat_damage_to_player_this_turn')
+  ) {
+    const effectText = String(thatCreatureCombatDamageToPlayerOnlyThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'that_creature_combat_damage_to_player_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thatCreatureCombatDamageThisTurnMatch = oracleText.match(
+    /whenever that creature deals combat damage this turn,?\s*([^.]+)/i,
+  );
+  if (
+    thatCreatureCombatDamageThisTurnMatch &&
+    !triggers.some((t) => t.triggerType === 'that_creature_combat_damage_this_turn')
+  ) {
+    const effectText = String(thatCreatureCombatDamageThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'that_creature_combat_damage_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const deathtouchCombatDamageToPlayerMatch = oracleText.match(
+    /whenever a creature you control with deathtouch deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    deathtouchCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'deathtouch_creature_combat_damage_to_player')
+  ) {
+    const effectText = String(deathtouchCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'deathtouch_creature_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const assassinCombatDamageToPlayerMatch = oracleText.match(
+    /whenever an? ([\w]+) you control deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    assassinCombatDamageToPlayerMatch &&
+    !lowerOracle.includes('creature you control deals combat damage') &&
+    !triggers.some((t) => t.triggerType === 'typed_creature_combat_damage_to_player')
+  ) {
+    const typedSubject = String(assassinCombatDamageToPlayerMatch[1] || '').trim().toLowerCase();
+    if (!['creature', 'vehicle', 'permanent'].includes(typedSubject)) {
+      const effectText = String(assassinCombatDamageToPlayerMatch[2] || '').trim();
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'typed_creature_combat_damage_to_player',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const thatCreatureCombatDamageThisCombatMatch = oracleText.match(
+    /whenever that creature deals combat damage to a player this combat,?\s*([^.]+)/i,
+  );
+  if (
+    thatCreatureCombatDamageThisCombatMatch &&
+    !triggers.some((t) => t.triggerType === 'that_creature_combat_damage_to_player_this_combat')
+  ) {
+    const effectText = String(thatCreatureCombatDamageThisCombatMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'that_creature_combat_damage_to_player_this_combat',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const skulkCombatDamageMatch = oracleText.match(
+    /whenever a creature with skulk deals combat damage to one of your opponents,?\s*([^.]+)/i,
+  );
+  if (skulkCombatDamageMatch && !triggers.some((t) => t.triggerType === 'skulk_creature_combat_damage_to_opponent')) {
+    const effectText = String(skulkCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'skulk_creature_combat_damage_to_opponent',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const faceDownCreaturesCombatDamageMatch = oracleText.match(
+    /whenever one or more face-down creatures you control deal combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    faceDownCreaturesCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'face_down_creatures_combat_damage_to_player')
+  ) {
+    const effectText = String(faceDownCreaturesCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'face_down_creatures_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creaturesPlayerControlsCombatDamageToYouMatch = oracleText.match(
+    /whenever one or more creatures a player controls deal combat damage to you,?\s*([^.]+)/i,
+  );
+  if (
+    creaturesPlayerControlsCombatDamageToYouMatch &&
+    !triggers.some((t) => t.triggerType === 'creatures_player_controls_combat_damage_to_you')
+  ) {
+    const effectText = String(creaturesPlayerControlsCombatDamageToYouMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creatures_player_controls_combat_damage_to_you',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const otherNontokenCreaturesCombatDamageToPlayerMatch = oracleText.match(
+    /whenever one or more other nontoken creatures you control deal combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    otherNontokenCreaturesCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'other_nontoken_creatures_combat_damage_to_player')
+  ) {
+    const effectText = String(otherNontokenCreaturesCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'other_nontoken_creatures_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedCreaturesCombatDamageToOpponentsMatch = oracleText.match(
+    /whenever one or more ([\w]+(?: or [\w]+)*) you control deal combat damage to one or more of your opponents,?\s*([^.]+)/i,
+  );
+  if (
+    typedCreaturesCombatDamageToOpponentsMatch &&
+    !triggers.some((t) => t.triggerType === 'typed_creatures_combat_damage_to_opponents')
+  ) {
+    const effectText = String(typedCreaturesCombatDamageToOpponentsMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_creatures_combat_damage_to_opponents',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedOrEquippedCombatDamageToPlayerMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${combatNameVariants.join('|')}) or equipped creature deals combat damage to a player,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrEquippedCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_equipped_combat_damage_to_player')
+  ) {
+    const effectText = String(namedOrEquippedCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_equipped_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedSelfCombatDamageToPlayerMatch = oracleText.match(
+    new RegExp(
+      `when(?:ever)? (?:${combatNameVariants.join('|')}) deal(?:s)? combat damage to a player,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedSelfCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'named_self_combat_damage_to_player')
+  ) {
+    const effectText = String(namedSelfCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_self_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedOrInstantSorceryDealsDamageMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${combatNameVariants.join('|')}) or an instant or sorcery spell you control deals damage to a player,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrInstantSorceryDealsDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_instant_sorcery_deals_damage_to_player')
+  ) {
+    const effectText = String(namedOrInstantSorceryDealsDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_instant_sorcery_deals_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nonHumanCreaturesCombatDamageMatch = oracleText.match(
+    /when(?:ever)? one or more non-Human creatures you control deal combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    nonHumanCreaturesCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'non_human_creatures_combat_damage_to_player')
+  ) {
+    const effectText = String(nonHumanCreaturesCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'non_human_creatures_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      batched: true,
+    });
+  }
+
+  const creatureTokensCombatDamageMatch = oracleText.match(
+    /when(?:ever)? one or more creature tokens you control deal combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    creatureTokensCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_tokens_combat_damage_to_player')
+  ) {
+    const effectText = String(creatureTokensCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_tokens_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      batched: true,
+    });
+  }
+
+  const namedSelfCombatDamagePlayerOrBattleMatch = oracleText.match(
+    new RegExp(
+      `when (?:${combatNameVariants.join('|')}) deal(?:s)? combat damage to a player or battle,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedSelfCombatDamagePlayerOrBattleMatch &&
+    !triggers.some((t) => t.triggerType === 'named_self_combat_damage_to_player_or_battle')
+  ) {
+    const effectText = String(namedSelfCombatDamagePlayerOrBattleMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_self_combat_damage_to_player_or_battle',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const deathtouchDealsDamageToPlayerOrPlaneswalkerMatch = oracleText.match(
+    /whenever a creature you control with deathtouch deals damage to (?:a player|an opponent) or (?:a )?planeswalker,?\s*([^.]+)/i,
+  );
+  if (
+    deathtouchDealsDamageToPlayerOrPlaneswalkerMatch &&
+    !triggers.some((t) => t.triggerType === 'deathtouch_creature_deals_damage_to_player_or_planeswalker')
+  ) {
+    const effectText = String(deathtouchDealsDamageToPlayerOrPlaneswalkerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'deathtouch_creature_deals_damage_to_player_or_planeswalker',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const deathtouchDealsDamageToPlaneswalkerMatch = oracleText.match(
+    /whenever a creature you control with deathtouch deals damage to a planeswalker,?\s*([^.]+)/i,
+  );
+  if (
+    deathtouchDealsDamageToPlaneswalkerMatch &&
+    !triggers.some((t) => t.triggerType === 'deathtouch_creature_deals_damage_to_planeswalker')
+  ) {
+    const effectText = String(deathtouchDealsDamageToPlaneswalkerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'deathtouch_creature_deals_damage_to_planeswalker',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureDealsDamageFirstTimeEachTurnMatch = oracleText.match(
+    /whenever a creature deals damage to one or more players for the first time each turn,?\s*([^.]+)/i,
+  );
+  if (
+    creatureDealsDamageFirstTimeEachTurnMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_deals_damage_first_time_each_turn')
+  ) {
+    const effectText = String(creatureDealsDamageFirstTimeEachTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_deals_damage_first_time_each_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedCreatureCombatDamageToCreatureMatch = oracleText.match(
+    /whenever an? ([\w]+) you control deals combat damage to a creature,?\s*([^.]+)/i,
+  );
+  if (
+    typedCreatureCombatDamageToCreatureMatch &&
+    !triggers.some((t) => t.triggerType === 'typed_creature_combat_damage_to_creature')
+  ) {
+    const typedSubject = String(typedCreatureCombatDamageToCreatureMatch[1] || '').trim().toLowerCase();
+    if (!['creature', 'vehicle', 'permanent'].includes(typedSubject)) {
+      const effectText = String(typedCreatureCombatDamageToCreatureMatch[2] || '').trim();
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'typed_creature_combat_damage_to_creature',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const redSourceDealsDamageMatch = oracleText.match(
+    /whenever a red source you control deals damage to one or more permanents and\/or players,?\s*([^.]+)/i,
+  );
+  if (redSourceDealsDamageMatch && !triggers.some((t) => t.triggerType === 'red_source_deals_damage')) {
+    const effectText = String(redSourceDealsDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'red_source_deals_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const selfCombatDamageToDefendingPlayerMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:~|this creature|(?:${combatNameVariants.join('|')})) deals combat damage to defending player,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    selfCombatDamageToDefendingPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'self_combat_damage_to_defending_player')
+  ) {
+    const effectText = String(selfCombatDamageToDefendingPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'self_combat_damage_to_defending_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const whenSelfDealsDamageMatch = oracleText.match(
+    new RegExp(`when (?:~|this creature|(?:${combatNameVariants.join('|')})) deals damage,?\\s*([^.]+)`, 'i'),
+  );
+  if (whenSelfDealsDamageMatch && !triggers.some((t) => t.triggerType === 'when_self_deals_damage')) {
+    const effectText = String(whenSelfDealsDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'when_self_deals_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const basePowerCombatDamageToPlayerMatch = oracleText.match(
+    /whenever one or more creatures you control with base power (\d+) deal combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    basePowerCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'base_power_creatures_combat_damage_to_player')
+  ) {
+    const effectText = String(basePowerCombatDamageToPlayerMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'base_power_creatures_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const legendaryEquipmentCombatDamageMatch = oracleText.match(
+    /whenever a creature you control with a legendary Equipment attached to it deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    legendaryEquipmentCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'legendary_equipment_combat_damage_to_player')
+  ) {
+    const effectText = String(legendaryEquipmentCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'legendary_equipment_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const ninjasBossesCombatDamageMatch = oracleText.match(
+    /whenever one or more Ninjas the bosses control deal combat damage to the heroes,?\s*([^.]+)/i,
+  );
+  if (
+    ninjasBossesCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'ninjas_bosses_combat_damage_to_heroes')
+  ) {
+    const effectText = String(ninjasBossesCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'ninjas_bosses_combat_damage_to_heroes',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const selfCombatDamageToBlockingMatch = oracleText.match(
+    /whenever this creature deals combat damage to one or more blocking creatures,?\s*([^.]+)/i,
+  );
+  if (
+    selfCombatDamageToBlockingMatch &&
+    !triggers.some((t) => t.triggerType === 'self_combat_damage_to_blocking_creatures')
+  ) {
+    const effectText = String(selfCombatDamageToBlockingMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'self_combat_damage_to_blocking_creatures',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const toxicCreatureCombatDamageMatch = oracleText.match(
+    /whenever a creature you control with toxic deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    toxicCreatureCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'toxic_creature_combat_damage_to_player')
+  ) {
+    const effectText = String(toxicCreatureCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'toxic_creature_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enteredThisTurnCombatDamageMatch = oracleText.match(
+    /whenever one or more creatures you control that entered this turn deal combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    enteredThisTurnCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'entered_this_turn_combat_damage_to_player')
+  ) {
+    const effectText = String(enteredThisTurnCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'entered_this_turn_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentControlsCombatDamageToYouMatch = oracleText.match(
+    /whenever one or more creatures an opponent controls deal combat damage to you,?\s*([^.]+)/i,
+  );
+  if (
+    opponentControlsCombatDamageToYouMatch &&
+    !triggers.some((t) => t.triggerType === 'opponent_controls_combat_damage_to_you')
+  ) {
+    const effectText = String(opponentControlsCombatDamageToYouMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_controls_combat_damage_to_you',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const assassinCombatDamageToOpponentMatch = oracleText.match(
+    /whenever an Assassin you control deals combat damage to an opponent,?\s*([^.]+)/i,
+  );
+  if (
+    assassinCombatDamageToOpponentMatch &&
+    !triggers.some((t) => t.triggerType === 'assassin_combat_damage_to_opponent')
+  ) {
+    const effectText = String(assassinCombatDamageToOpponentMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'assassin_combat_damage_to_opponent',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const selfOrEnchantedCombatDamageToPlayerMatch = oracleText.match(
+    /whenever this creature or enchanted creature deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    selfOrEnchantedCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'self_or_enchanted_combat_damage_to_player')
+  ) {
+    const effectText = String(selfOrEnchantedCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'self_or_enchanted_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const attackingCreatureDealsDamageToYouMatch = oracleText.match(
+    /whenever an attacking creature deals combat damage to you,?\s*([^.]+)/i,
+  );
+  if (
+    attackingCreatureDealsDamageToYouMatch &&
+    !triggers.some((t) => t.triggerType === 'attacking_creature_deals_combat_damage_to_you')
+  ) {
+    const effectText = String(attackingCreatureDealsDamageToYouMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'attacking_creature_deals_combat_damage_to_you',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const instantSorceryTargetsSingleCreatureDealsDamageMatch = oracleText.match(
+    /whenever an instant or sorcery spell you control that targets only a single creature deals damage to that creature,?\s*([^.]+)/i,
+  );
+  if (
+    instantSorceryTargetsSingleCreatureDealsDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'instant_sorcery_targets_single_creature_deals_damage')
+  ) {
+    const effectText = String(instantSorceryTargetsSingleCreatureDealsDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'instant_sorcery_targets_single_creature_deals_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const itDealsCombatDamageToPlayerThisTurnMatch = oracleText.match(
+    /whenever it deals combat damage to a player this turn,?\s*([^.]+)/i,
+  );
+  if (
+    itDealsCombatDamageToPlayerThisTurnMatch &&
+    !triggers.some((t) => t.triggerType === 'it_deals_combat_damage_to_player_this_turn')
+  ) {
+    const effectText = String(itDealsCombatDamageToPlayerThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'it_deals_combat_damage_to_player_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const seaCreatureCombatDamageToPlayerMatch = oracleText.match(
+    /whenever a Kraken, Leviathan, Octopus, or Serpent you control deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    seaCreatureCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'sea_creature_combat_damage_to_player')
+  ) {
+    const effectText = String(seaCreatureCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'sea_creature_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const instantSorcerySpellDealsDamageMatch = oracleText.match(
+    /whenever an instant or sorcery spell you control deals damage,?\s*([^.]+)/i,
+  );
+  if (
+    instantSorcerySpellDealsDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'instant_sorcery_spell_deals_damage')
+  ) {
+    const effectText = String(instantSorcerySpellDealsDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'instant_sorcery_spell_deals_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const sliverCombatDamageToCreatureMatch = oracleText.match(
+    /whenever a Sliver deals combat damage to a creature,?\s*([^.]+)/i,
+  );
+  if (
+    sliverCombatDamageToCreatureMatch &&
+    !triggers.some((t) => t.triggerType === 'sliver_combat_damage_to_creature')
+  ) {
+    const effectText = String(sliverCombatDamageToCreatureMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'sliver_combat_damage_to_creature',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentCreaturesCombatDamageToOpponentsMatch = oracleText.match(
+    /whenever one or more creatures an opponent controls deal combat damage to one or more of your opponents,?\s*([^.]+)/i,
+  );
+  if (
+    opponentCreaturesCombatDamageToOpponentsMatch &&
+    !triggers.some((t) => t.triggerType === 'opponent_creatures_combat_damage_to_opponents')
+  ) {
+    const effectText = String(opponentCreaturesCombatDamageToOpponentsMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_creatures_combat_damage_to_opponents',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const noncombatDamageToCreatureMatch = oracleText.match(
+    /whenever a source you control deals noncombat damage to a creature,?\s*([^.]+)/i,
+  );
+  if (noncombatDamageToCreatureMatch && !triggers.some((t) => t.triggerType === 'noncombat_damage_to_creature')) {
+    const effectText = String(noncombatDamageToCreatureMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'noncombat_damage_to_creature',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const powerAboveBaseCombatDamageMatch = oracleText.match(
+    /whenever one or more creatures you control each with power greater than its base power deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    powerAboveBaseCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'power_above_base_combat_damage_to_player')
+  ) {
+    const effectText = String(powerAboveBaseCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'power_above_base_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const trampleCreaturesCombatDamageToPlayerMatch = oracleText.match(
+    /whenever one or more creatures you control with trample deal combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    trampleCreaturesCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'trample_creatures_combat_damage_to_player')
+  ) {
+    const effectText = String(trampleCreaturesCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'trample_creatures_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const chosenNameCombatDamageThisTurnMatch = oracleText.match(
+    /whenever a creature with the chosen name deals combat damage to a player this turn,?\s*([^.]+)/i,
+  );
+  if (
+    chosenNameCombatDamageThisTurnMatch &&
+    !triggers.some((t) => t.triggerType === 'chosen_name_combat_damage_to_player_this_turn')
+  ) {
+    const effectText = String(chosenNameCombatDamageThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'chosen_name_combat_damage_to_player_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedOrEnchantedCombatDamageToPlayerPattern = new RegExp(
+    `whenever\\s+(?:${combatNameVariants.join('|')})\\s+or\\s+an\\s+enchanted\\s+creature\\s+you\\s+control\\s+deals\\s+combat\\s+damage\\s+to\\s+a\\s+player,?\\s*([^.]+)`,
+    'i',
+  );
+  const namedOrEnchantedCombatDamageToPlayerMatch = oracleText.match(namedOrEnchantedCombatDamageToPlayerPattern);
+  if (
+    namedOrEnchantedCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_enchanted_combat_damage_to_player')
+  ) {
+    const effectText = String(namedOrEnchantedCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_enchanted_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const sourceDamageToOpponentMatch = oracleText.match(
+    /whenever a source you control deals damage to an opponent,?\s*([^.]+)/i,
+  );
+  if (
+    sourceDamageToOpponentMatch &&
+    !triggers.some((t) => t.triggerType === 'source_damage_to_opponent')
+  ) {
+    const effectText = String(sourceDamageToOpponentMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'source_damage_to_opponent',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const sourceDamageToAnotherPlayerMatch = oracleText.match(
+    /whenever a source you control deals damage to another player,?\s*([^.]+)/i,
+  );
+  if (
+    sourceDamageToAnotherPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'source_damage_to_another_player')
+  ) {
+    const effectText = String(sourceDamageToAnotherPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'source_damage_to_another_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const sourceDamageToYouMatch = oracleText.match(
+    /whenever a source you control deals damage to you,?\s*([^.]+)/i,
+  );
+  if (
+    sourceDamageToYouMatch &&
+    !triggers.some((t) => t.triggerType === 'source_damage_to_you')
+  ) {
+    const effectText = String(sourceDamageToYouMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'source_damage_to_you',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const lowPowerCreatureCombatDamageToPlayerMatch = oracleText.match(
+    /whenever a creature you control with power (\d+) or less deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    lowPowerCreatureCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'low_power_creature_combat_damage_to_player')
+  ) {
+    const effectText = String(lowPowerCreatureCombatDamageToPlayerMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'low_power_creature_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creaturesWithCountersCombatDamageMatch = oracleText.match(
+    /whenever one or more creatures you control with counters on them deal combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    creaturesWithCountersCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'creatures_with_counters_combat_damage_to_player')
+  ) {
+    const effectText = String(creaturesWithCountersCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creatures_with_counters_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      batched: true,
+    });
+  }
+
+  const commanderYouControlCombatDamageToOpponentMatch = oracleText.match(
+    /whenever a commander you control deals combat damage to an opponent,?\s*([^.]+)/i,
+  );
+  if (
+    commanderYouControlCombatDamageToOpponentMatch &&
+    !triggers.some((t) => t.triggerType === 'commander_you_control_combat_damage_to_opponent')
+  ) {
+    const effectText = String(commanderYouControlCombatDamageToOpponentMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'commander_you_control_combat_damage_to_opponent',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const commanderCombatDamageToPlayerMatch = oracleText.match(
+    /when (?:your )?commander deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    commanderCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'commander_combat_damage_to_player')
+  ) {
+    const effectText = String(commanderCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'commander_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentDealtCombatDamageByYourCreaturesMatch = oracleText.match(
+    /whenever an opponent is dealt combat damage by one or more creatures you control,?\s*([^.]+)/i,
+  );
+  if (
+    opponentDealtCombatDamageByYourCreaturesMatch &&
+    !triggers.some((t) => t.triggerType === 'opponent_dealt_combat_damage_by_your_creatures')
+  ) {
+    const effectText = String(opponentDealtCombatDamageByYourCreaturesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_dealt_combat_damage_by_your_creatures',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const chosenNameCombatDamageMatch = oracleText.match(
+    /whenever a creature you control with the chosen name deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    chosenNameCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'chosen_name_combat_damage_to_player')
+  ) {
+    const effectText = String(chosenNameCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'chosen_name_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const faceUpCreatureCombatDamageMatch = oracleText.match(
+    /whenever a creature you control that was turned face up this turn deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    faceUpCreatureCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'face_up_creature_combat_damage_to_player')
+  ) {
+    const effectText = String(faceUpCreatureCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'face_up_creature_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const sourceOtherThanSelfDamageToOpponentMatch = oracleText.match(
+    /whenever a source you control other than this artifact deals damage to an opponent,?\s*([^.]+)/i,
+  );
+  if (
+    sourceOtherThanSelfDamageToOpponentMatch &&
+    !triggers.some((t) => t.triggerType === 'source_other_than_self_damage_to_opponent')
+  ) {
+    const effectText = String(sourceOtherThanSelfDamageToOpponentMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'source_other_than_self_damage_to_opponent',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const noncreatureSourceDealsDamageMatch = oracleText.match(
+    /whenever a noncreature source you control deals damage,?\s*([^.]+)/i,
+  );
+  if (noncreatureSourceDealsDamageMatch && !triggers.some((t) => t.triggerType === 'noncreature_source_deals_damage')) {
+    const effectText = String(noncreatureSourceDealsDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'noncreature_source_deals_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const flyingCreaturesCombatDamageToPlayerMatch = oracleText.match(
+    /whenever one or more creatures you control with flying deal combat damage to a player(?: this turn)?,?\s*([^.]+)/i,
+  );
+  if (
+    flyingCreaturesCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'flying_creatures_combat_damage_to_player')
+  ) {
+    const effectText = String(flyingCreaturesCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'flying_creatures_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const controlledCreatureCombatDamageToCreatureMatch = oracleText.match(
+    /whenever a (?:[\w]+\s+)*creature you control deals combat damage to a creature,?\s*([^.]+)/i,
+  );
+  if (
+    controlledCreatureCombatDamageToCreatureMatch &&
+    !triggers.some((t) => t.triggerType === 'controlled_creature_combat_damage_to_creature')
+  ) {
+    const effectText = String(controlledCreatureCombatDamageToCreatureMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'controlled_creature_combat_damage_to_creature',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const selfOrEquippedCombatDamageToPlayerMatch = oracleText.match(
+    /whenever (?:~|this creature) or equipped creature deals combat damage to a player,?\s*([^.]+)/i,
+  );
+  if (
+    selfOrEquippedCombatDamageToPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'self_or_equipped_combat_damage_to_player')
+  ) {
+    const effectText = String(selfOrEquippedCombatDamageToPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'self_or_equipped_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedCreaturesCombatDamageMatch = oracleText.match(
+    /whenever one or more ([\w]+(?: or [\w]+)*) (?:creatures )?you control deal combat damage to (?:a player|an opponent)(?: or battle)?,?\s*([^.]+)/i,
+  );
+  if (
+    typedCreaturesCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'typed_creatures_combat_damage_to_player')
+  ) {
+    const effectText = String(typedCreaturesCombatDamageMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_creatures_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      batched: true,
+    });
+  }
+
+  const batchedCombatDamageToPlayersMatch = oracleText.match(
+    /whenever one or more creatures you control deal combat damage to one or more players(?: this turn)?,?\s*([^.]+)/i,
+  );
+  if (
+    batchedCombatDamageToPlayersMatch &&
+    !triggers.some((t) => t.triggerType === 'batched_combat_damage_to_players')
+  ) {
+    const effectText = String(batchedCombatDamageToPlayersMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'batched_combat_damage_to_players',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      batched: true,
     });
   }
 
@@ -752,8 +2297,205 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     });
   }
   
-  // "Whenever ~ deals damage to a player" (includes combat and non-combat)
-  const damagePlayerMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+deals\s+damage\s+to\s+(?:a\s+)?(?:player|an?\s+opponent),?\s*([^.]+)/i);
+  const enchantedCreatureYouControlCombatDamageMatch = oracleText.match(
+    /whenever an enchanted creature you control deals combat damage to (?:a player|an opponent),?\s*([^.]+)/i,
+  );
+  if (
+    enchantedCreatureYouControlCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'enchanted_creature_controlled_combat_damage')
+  ) {
+    const effectText = String(enchantedCreatureYouControlCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enchanted_creature_controlled_combat_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const combatDamageToCreatureMatch = oracleText.match(
+    new RegExp(`whenever ${combatDamageSubject}\\s+deals combat damage to a creature,?\\s*([^.]+)`, 'i'),
+  );
+  if (combatDamageToCreatureMatch && !triggers.some((t) => t.triggerType === 'deals_combat_damage_to_creature')) {
+    const effectText = String(combatDamageToCreatureMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'deals_combat_damage_to_creature',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const equippedAnyCombatDamageMatch = oracleText.match(
+    /whenever equipped creature deals combat damage(?! to),?\s*([^.]+)/i,
+  );
+  if (equippedAnyCombatDamageMatch && !triggers.some((t) => t.triggerType === 'equipment_combat_damage')) {
+    const effectText = String(equippedAnyCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'equipment_combat_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedDefendingPlayerDamageMatch = oracleText.match(
+    /whenever enchanted creature deals combat damage to defending player,?\s*([^.]+)/i,
+  );
+  if (enchantedDefendingPlayerDamageMatch && !triggers.some((t) => t.triggerType === 'aura_combat_damage')) {
+    const effectText = String(enchantedDefendingPlayerDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'aura_combat_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedCreatureCombatDamageMatch = oracleText.match(
+    /when(?:ever)?\s+enchanted creature deals (?:combat )?damage to (?:a player|an opponent),?\s*([^.]+)/i,
+  );
+  if (enchantedCreatureCombatDamageMatch && !triggers.some((t) => t.triggerType === 'deals_combat_damage' || t.triggerType === 'aura_combat_damage')) {
+    const effectText = String(enchantedCreatureCombatDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'aura_combat_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const targetCreatureDealsDamageMatch = oracleText.match(
+    /whenever target creature deals (?:combat )?damage,?\s*([^.]+)/i,
+  );
+  if (targetCreatureDealsDamageMatch && !triggers.some((t) => t.triggerType === 'target_creature_deals_damage')) {
+    const effectText = String(targetCreatureDealsDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'target_creature_deals_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedDealDamageToPlayerMatch = oracleText.match(
+    /whenever one or more ([\w]+(?: or [\w]+)*) you control deal damage to a player,?\s*([^.]+)/i,
+  );
+  if (typedDealDamageToPlayerMatch && !triggers.some((t) => t.triggerType === 'typed_deal_damage_to_player')) {
+    const effectText = String(typedDealDamageToPlayerMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_deal_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedDealDamageNoControlMatch = oracleText.match(
+    /whenever a ([\w]+) deals damage,?\s*([^.]+)/i,
+  );
+  if (
+    typedDealDamageNoControlMatch &&
+    !lowerOracle.includes('you control') &&
+    !triggers.some((t) => t.triggerType === 'typed_deal_damage')
+  ) {
+    const effectText = String(typedDealDamageNoControlMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_deal_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedDealDamageToOpponentsMatch = oracleText.match(
+    /whenever one or more ([\w]+(?: or [\w]+)*) you control deal damage to your opponents,?\s*([^.]+)/i,
+  );
+  if (typedDealDamageToOpponentsMatch && !triggers.some((t) => t.triggerType === 'typed_deal_damage_to_opponents')) {
+    const effectText = String(typedDealDamageToOpponentsMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_deal_damage_to_opponents',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedDealDamageToCreatureMatch = oracleText.match(
+    /whenever an? ([\w]+) you control deals damage to a creature,?\s*([^.]+)/i,
+  );
+  if (typedDealDamageToCreatureMatch && !triggers.some((t) => t.triggerType === 'typed_deal_damage_to_creature')) {
+    const effectText = String(typedDealDamageToCreatureMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_deal_damage_to_creature',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const spellYouControlDealsDamagePatterns = [
+    /whenever a spell you control deals damage,?\s*([^.]+)/gi,
+    /when a spell you control deals damage,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of spellYouControlDealsDamagePatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[1] || '').trim();
+      if (!effectText || triggers.some((t) => t.triggerType === 'spell_you_control_deals_damage' && t.effect === effectText)) {
+        continue;
+      }
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'spell_you_control_deals_damage',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const dealsDamageMatch = oracleText.match(
+    new RegExp(`whenever\\s+${combatDamageSubject}\\s+deals damage,?\\s*([^.]+)`, 'i'),
+  );
+  if (dealsDamageMatch && !triggers.some((t) => t.triggerType === 'deals_damage')) {
+    const effectText = String(dealsDamageMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'deals_damage',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  // "When/Whenever ~ deals damage to a player" (includes combat and non-combat)
+  const damagePlayerMatch = oracleText.match(
+    new RegExp(`when(?:ever)?\\s+(?:~|this creature|this vehicle|(?:${combatNameVariants.join('|')})|enchanted creature|equipped creature)\\s+deals\\s+damage\\s+to\\s+(?:a\\s+)?(?:player|an?\\s+opponent),?\\s*([^.]+)`, 'i'),
+  );
   if (damagePlayerMatch && !triggers.some(t => t.triggerType === 'deals_combat_damage' || t.triggerType === 'deals_damage')) {
     triggers.push({
       permanentId,
@@ -765,6 +2507,83 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     });
   }
   
+  return triggers;
+}
+
+/**
+ * Detect "dealt damage" triggers (Arcbond, etc.)
+ */
+export function detectDealtDamageTriggers(card: any, permanent: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+  const controllerId = permanent?.controller || '';
+  const cardNameEscaped = escapeCardNameForRegex(cardName);
+
+  const dealtDamageNameVariants = buildCardNameRegexAlternatives(cardName);
+  const dealtDamageSubject = `(?:~|this creature|this permanent|equipped creature|(?:${dealtDamageNameVariants.join('|')}))`;
+
+  const dealtDamagePatterns = [
+    /whenever that creature is dealt damage(?: this turn)?,?\s*([^.]+)/gi,
+    /whenever (?:~|this creature|this permanent|equipped creature) is dealt (?:combat )?damage,?\s*([^.]+)/gi,
+    /whenever a source deals damage to (?:~|this creature),?\s*([^.]+)/gi,
+    /when(?:ever)? enchanted creature is dealt damage,?\s*([^.]+)/gi,
+    new RegExp(`whenever ${dealtDamageSubject} is dealt (?:combat )?damage,?\\s*([^.]+)`, 'gi'),
+    new RegExp(`when(?:ever)? ${dealtDamageSubject} or a creature it'?s paired with is dealt damage,?\\s*([^.]+)`, 'gi'),
+    /whenever (?:a |an )?creature is dealt damage,?\s*([^.]+)/gi,
+    /whenever a creature you control is dealt damage,?\s*([^.]+)/gi,
+    /whenever a creature you control with (?:flash or haste|haste or flash) is dealt damage,?\s*([^.]+)/gi,
+    /whenever a creature you control with deathtouch deals damage to (?:a player|an opponent) or (?:a )?planeswalker,?\s*([^.]+)/gi,
+    /whenever a ([\w]+) you control is dealt damage,?\s*([^.]+)/gi,
+    /whenever a creature an opponent controls is dealt damage,?\s*([^.]+)/gi,
+    /whenever an opponent is dealt damage,?\s*([^.]+)/gi,
+    /whenever an opponent is dealt combat damage by one or more creatures you control,?\s*([^.]+)/gi,
+    /whenever a source you control deals noncombat damage to (?:a creature equal to that creature's toughness|an opponent),?\s*([^.]+)/gi,
+    /whenever a source you control deals noncombat damage to an opponent,?\s*([^.]+)/gi,
+    /whenever damage is dealt to you,?\s*([^.]+)/gi,
+    /whenever a creature deals damage to you,?\s*([^.]+)/gi,
+    /when (?:a |an )?source an opponent controls deals damage to you,?\s*([^.]+)/gi,
+    /whenever (?:a |an )?source an opponent controls deals damage to you,?\s*([^.]+)/gi,
+    /whenever enchanted player is dealt damage,?\s*([^.]+)/gi,
+    /whenever a creature or planeswalker an opponent controls with a bounty counter on it is dealt damage,?\s*([^.]+)/gi,
+    /when enchanted creature becomes tapped or is dealt damage,?\s*([^.]+)/gi,
+    /whenever a source of the chosen color deals damage to you,?\s*([^.]+)/gi,
+    /whenever a source an opponent controls deals damage to this creature,?\s*([^.]+)/gi,
+  ];
+
+  const damagePreventedMatch = oracleText.match(/when damage is prevented this way,?\s*([^.]+)/i);
+  if (damagePreventedMatch && !triggers.some((t) => t.triggerType === 'damage_prevented')) {
+    const effectText = String(damagePreventedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'damage_prevented',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  for (const pattern of dealtDamagePatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[match.length - 1] || '').trim();
+      if (!effectText || triggers.some((trigger) => trigger.effect === effectText)) continue;
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'dealt_damage',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
   return triggers;
 }
 
@@ -869,10 +2688,110 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     }
   }
   
-  // Generic "when ~ dies" or "when this creature dies" triggers
-  // Use shared utility function for regex escaping
-  const cardNameEscaped = escapeCardNameForRegex(cardName);
-  const selfDiesPattern = new RegExp(`when(?:ever)?\\s+(?:~|this creature|${cardNameEscaped})\\s+dies,?\\s*([^.]+)`, 'i');
+  const dieNameVariants = buildCardNameRegexAlternatives(cardName);
+
+  const namedOrNontokenDiesOrCombatDamageMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${dieNameVariants.join('|')}) or another nontoken ([\\w]+) you control dies or deals combat damage to a player,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrNontokenDiesOrCombatDamageMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_nontoken_dies_or_combat_damage_to_player')
+  ) {
+    const effectText = String(namedOrNontokenDiesOrCombatDamageMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_nontoken_dies_or_combat_damage_to_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const dieSelfAlternatives = [
+    '~',
+    'this creature',
+    'this permanent',
+    'this artifact',
+    'this enchantment',
+    'this aura',
+    'this equipment',
+    'this vehicle',
+    'this planeswalker',
+    'this battle',
+    'this land',
+    ...dieNameVariants,
+  ];
+
+  const attacksOrDiesPattern = new RegExp(
+    `whenever\\s+(?:${dieSelfAlternatives.join('|')})\\s+attacks\\s+or\\s+dies,?\\s*([^.]+)`,
+    'i',
+  );
+  const attacksOrDiesMatch = oracleText.match(attacksOrDiesPattern);
+  if (attacksOrDiesMatch && !triggers.some((t) => t.triggerType === 'attacks_or_dies')) {
+    const effectText = String(attacksOrDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'attacks_or_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thatCreatureDiesMatch = oracleText.match(/when (?:that|target|the) creature dies(?: this turn)?,?\s*([^.]+)/i);
+  if (thatCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'that_creature_dies')) {
+    const effectText = String(thatCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'that_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const auraPutIntoGraveyardMatch = oracleText.match(
+    /when this aura is put into (?:a |your )?graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (auraPutIntoGraveyardMatch && !triggers.some((t) => t.triggerType === 'aura_ltb')) {
+    const effectText = String(auraPutIntoGraveyardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'aura_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const entersOrDiesPattern = new RegExp(
+    `when(?:ever)?\\s+(?:${dieSelfAlternatives.join('|')})\\s+enters(?: the battlefield)?\\s+or\\s+dies,?\\s*([^.]+)`,
+    'i',
+  );
+  const entersOrDiesMatch = oracleText.match(entersOrDiesPattern);
+  if (entersOrDiesMatch && !triggers.some((t) => t.triggerType === 'enters_or_dies')) {
+    const effectText = String(entersOrDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enters_or_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const selfDiesPattern = new RegExp(
+    `when(?:ever)?\\s+(?:${dieSelfAlternatives.join('|')})\\s+die(?:s)?,?\\s*([^.]+)`,
+    'i',
+  );
   const diesMatch = oracleText.match(selfDiesPattern);
   if (diesMatch && !triggers.some(t => t.triggerType === 'dies')) {
     triggers.push({
@@ -884,9 +2803,1437 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       mandatory: true,
     });
   }
+
+  const namedOrAnotherDiesPattern = new RegExp(
+    `whenever\\s+(?:${dieNameVariants.join('|')})\\s+or\\s+another\\s+(?:[\\w\\s]+?\\s+)?creature(?:s)?(?:\\s+you\\s+control)?\\s+dies,?\\s*([^.]+)`,
+    'i',
+  );
+  const namedOrAnotherDiesMatch = oracleText.match(namedOrAnotherDiesPattern);
+  if (namedOrAnotherDiesMatch && !triggers.some((t) => t.triggerType === 'named_or_another_creature_dies')) {
+    const effectText = String(namedOrAnotherDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_another_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const putIntoGraveyardPattern = new RegExp(
+    `when(?:ever)?\\s+(?:${dieSelfAlternatives.join('|')})\\s+(?:is )?put into (?:a |your |its owner's )?graveyard from the battlefield,?\\s*([^.]+)`,
+    'i',
+  );
+  const putIntoGraveyardMatch = oracleText.match(putIntoGraveyardPattern);
+  if (putIntoGraveyardMatch && !triggers.some((trigger) => trigger.triggerType === 'dies')) {
+    const effectText = String(putIntoGraveyardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const pronounGraveyardThisTurnMatch = oracleText.match(/when(?:ever)? it'?s put into (?:a )?graveyard this turn,?\s*([^.]+)/i);
+  if (pronounGraveyardThisTurnMatch && !triggers.some((trigger) => trigger.triggerType === 'put_into_graveyard_this_turn')) {
+    const effectText = String(pronounGraveyardThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'put_into_graveyard_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const attachmentDiesPatterns = [
+    /whenever (?:an )?enchanted (?:creature|permanent|land) dies,?\s*([^.]+)/i,
+    /whenever equipped creature dies,?\s*([^.]+)/i,
+    /when (?:an )?enchanted (?:creature|permanent|land) dies,?\s*([^.]+)/i,
+    /when equipped creature dies,?\s*([^.]+)/i,
+  ];
+  for (const pattern of attachmentDiesPatterns) {
+    const match = oracleText.match(pattern);
+    if (!match) continue;
+    const effectText = String(match[1] || '').trim();
+    if (!effectText || triggers.some((trigger) => trigger.effect === effectText && trigger.triggerType === 'attachment_dies')) {
+      continue;
+    }
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'attachment_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const dealtDamageDiesPattern = new RegExp(
+    `when(?:ever)? (?:a |an )?creature(?: with flying)? dealt damage by (?:equipped creature|enchanted creature|${dieSelfAlternatives.join('|')}) this turn dies,?\\s*([^.]+)`,
+    'i',
+  );
+  const dealtDamageDiesMatch = oracleText.match(dealtDamageDiesPattern);
+  if (dealtDamageDiesMatch && !triggers.some((trigger) => trigger.triggerType === 'dealt_damage_dies')) {
+    const effectText = String(dealtDamageDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'dealt_damage_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
   
-  // "Whenever a creature you control dies" - also handles "nontoken creature"
-  const controlledDiesMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature you control dies,?\s*([^.]+)/i);
+  const enchantedPlayerNontokenCreatureDiesMatch = oracleText.match(
+    /whenever a nontoken creature enchanted player controls dies,?\s*([^.]+)/i,
+  );
+  if (
+    enchantedPlayerNontokenCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'enchanted_player_nontoken_creature_dies')
+  ) {
+    const effectText = String(enchantedPlayerNontokenCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enchanted_player_nontoken_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const genericCounterCreatureDiesMatch = oracleText.match(
+    /whenever a creature you control with a counter on it dies,?\s*([^.]+)/i,
+  );
+  if (
+    genericCounterCreatureDiesMatch &&
+    !String(genericCounterCreatureDiesMatch[0] || '').toLowerCase().includes('+1/+1 counter') &&
+    !triggers.some((t) => t.triggerType === 'counter_creature_dies')
+  ) {
+    const effectText = String(genericCounterCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'counter_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const counterCreatureDiesMatch = oracleText.match(
+    /whenever a creature you control with a \+1\/\+1 counter on it dies,?\s*([^.]+)/i,
+  );
+  if (counterCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'counter_creature_dies')) {
+    const effectText = String(counterCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'counter_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  // "Whenever/When a creature you control dies" - also handles "nontoken creature"
+  const thisOrAnotherCreatureDiesAnyMatch = oracleText.match(
+    /whenever this creature or another creature dies,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherCreatureDiesAnyMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_creature_dies_any')
+  ) {
+    const effectText = String(thisOrAnotherCreatureDiesAnyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_creature_dies_any',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherCreatureDiesMatch = oracleText.match(
+    /whenever this creature or another creature you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_creature_dies')
+  ) {
+    const effectText = String(thisOrAnotherCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherTypedCreatureDiesMatch = oracleText.match(
+    /whenever this creature or another ([\w]+(?: or [\w]+)*)(?: creature)? you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherTypedCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_typed_creature_dies')
+  ) {
+    const effectText = String(thisOrAnotherTypedCreatureDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherPowerCreatureDiesMatch = oracleText.match(
+    /whenever this creature or another creature you control with power (\d+) or greater dies,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherPowerCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_power_creature_dies')
+  ) {
+    const effectText = String(thisOrAnotherPowerCreatureDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_power_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherNontokenCreatureDiesMatch = oracleText.match(
+    /whenever this creature or another nontoken creature you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherNontokenCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_nontoken_creature_dies')
+  ) {
+    const effectText = String(thisOrAnotherNontokenCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_nontoken_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedOrModifiedCreatureDiesMatch = oracleText.match(
+    /whenever enchanted creature or another modified creature you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    enchantedOrModifiedCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'enchanted_or_modified_creature_dies')
+  ) {
+    const effectText = String(enchantedOrModifiedCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enchanted_or_modified_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedOrAnotherKeywordCreatureDiesPattern = new RegExp(
+    `whenever\\s+(?:${dieNameVariants.join('|')}|this creature)\\s+or\\s+another\\s+creature\\s+you\\s+control\\s+with\\s+([\\w]+\\s+or\\s+[\\w]+|[\\w]+)\\s+dies,?\\s*([^.]+)`,
+    'i',
+  );
+  const namedOrAnotherKeywordCreatureDiesMatch = oracleText.match(namedOrAnotherKeywordCreatureDiesPattern);
+  if (
+    namedOrAnotherKeywordCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_another_keyword_creature_dies')
+  ) {
+    const effectText = String(namedOrAnotherKeywordCreatureDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_another_keyword_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreOtherCreaturesOrArtifactsDieMatch = oracleText.match(
+    /whenever one or more other creatures and\/or artifacts you control die,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreOtherCreaturesOrArtifactsDieMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_other_creatures_or_artifacts_die')
+  ) {
+    const effectText = String(oneOrMoreOtherCreaturesOrArtifactsDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_other_creatures_or_artifacts_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherArtifactCreatureDiesMatch = oracleText.match(
+    /whenever this creature or another artifact creature dies,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherArtifactCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_artifact_creature_dies')
+  ) {
+    const effectText = String(thisOrAnotherArtifactCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_artifact_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedEntersOrPlaneswalkerDiesMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${dieSelfAlternatives.join('|')}) enters or a planeswalker you control dies,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedEntersOrPlaneswalkerDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'named_enters_or_planeswalker_dies')
+  ) {
+    const effectText = String(namedEntersOrPlaneswalkerDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_enters_or_planeswalker_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const planeswalkerYouControlDiesMatch = oracleText.match(
+    /whenever a planeswalker you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    planeswalkerYouControlDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'planeswalker_you_control_dies')
+  ) {
+    const effectText = String(planeswalkerYouControlDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'planeswalker_you_control_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedOrNontokenTypedCreatureDiesMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${dieSelfAlternatives.join('|')}) or another nontoken ([\\w]+(?: or [\\w]+)*) you control dies,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrNontokenTypedCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_nontoken_typed_creature_dies')
+  ) {
+    const effectText = String(namedOrNontokenTypedCreatureDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_nontoken_typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const bountyCounterCreatureDiesMatch = oracleText.match(
+    /whenever a creature with a bounty counter on it dies,?\s*([^.]+)/i,
+  );
+  if (
+    bountyCounterCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'bounty_counter_creature_dies')
+  ) {
+    const effectText = String(bountyCounterCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'bounty_counter_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureOrPlaneswalkerDiesMatch = oracleText.match(
+    /whenever a creature or planeswalker you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    creatureOrPlaneswalkerDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_or_planeswalker_dies')
+  ) {
+    const effectText = String(creatureOrPlaneswalkerDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_or_planeswalker_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherCreatureOrPlaneswalkerDiesMatch = oracleText.match(
+    /whenever another creature or planeswalker you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    anotherCreatureOrPlaneswalkerDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'another_creature_or_planeswalker_dies')
+  ) {
+    const effectText = String(anotherCreatureOrPlaneswalkerDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_creature_or_planeswalker_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherCreatureOrArtifactDiesMatch = oracleText.match(
+    /whenever this creature or another creature or artifact you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherCreatureOrArtifactDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_creature_or_artifact_dies')
+  ) {
+    const effectText = String(thisOrAnotherCreatureOrArtifactDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_creature_or_artifact_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nonTypeCreatureYouControlDiesMatch = oracleText.match(
+    /when(?:ever)? (?:another )?(?:a )?non-([\w]+) creature you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    nonTypeCreatureYouControlDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'non_type_creature_you_control_dies')
+  ) {
+    const effectText = String(nonTypeCreatureYouControlDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'non_type_creature_you_control_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherCreatureWithDeathtouchDiesMatch = oracleText.match(
+    /whenever another creature you control with deathtouch dies,?\s*([^.]+)/i,
+  );
+  if (
+    anotherCreatureWithDeathtouchDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'another_creature_with_deathtouch_dies')
+  ) {
+    const effectText = String(anotherCreatureWithDeathtouchDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_creature_with_deathtouch_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherNontokenMultiTypedDiesMatch = oracleText.match(
+    /whenever another nontoken ([\w]+ or [\w]+) you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    anotherNontokenMultiTypedDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'another_nontoken_multi_typed_dies')
+  ) {
+    const effectText = String(anotherNontokenMultiTypedDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_nontoken_multi_typed_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creaturePowerOrToughnessOrLessDiesMatch = oracleText.match(
+    /whenever a creature you control with power or toughness (\d+) or less dies,?\s*([^.]+)/i,
+  );
+  if (
+    creaturePowerOrToughnessOrLessDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_power_or_toughness_or_less_dies')
+  ) {
+    const effectText = String(creaturePowerOrToughnessOrLessDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_power_or_toughness_or_less_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentGreatestPowerCreatureDiesMatch = oracleText.match(
+    /whenever a creature an opponent controls with the greatest power among creatures that player controls dies,?\s*([^.]+)/i,
+  );
+  if (
+    opponentGreatestPowerCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'opponent_greatest_power_creature_dies')
+  ) {
+    const effectText = String(opponentGreatestPowerCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_greatest_power_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const chosenTypeCreatureDiesMatch = oracleText.match(
+    /whenever a creature of the chosen type dies,?\s*([^.]+)/i,
+  );
+  if (chosenTypeCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'chosen_type_creature_dies')) {
+    const effectText = String(chosenTypeCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'chosen_type_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const notedTypeOpponentCreatureDiesMatch = oracleText.match(
+    /whenever a creature an opponent controls of the noted type dies,?\s*([^.]+)/i,
+  );
+  if (
+    notedTypeOpponentCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'noted_type_opponent_creature_dies')
+  ) {
+    const effectText = String(notedTypeOpponentCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'noted_type_opponent_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreAttackingCreaturesDieMatch = oracleText.match(
+    /whenever one or more attacking creatures you control die,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreAttackingCreaturesDieMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_attacking_creatures_die')
+  ) {
+    const effectText = String(oneOrMoreAttackingCreaturesDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_attacking_creatures_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherLegendaryPermanentGyFromBfMatch = oracleText.match(
+    new RegExp(
+      `whenever a legendary permanent other than (?:${dieNameVariants.join('|')}) is put into a graveyard from the battlefield,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    anotherLegendaryPermanentGyFromBfMatch &&
+    !triggers.some((t) => t.triggerType === 'another_legendary_permanent_graveyard_from_battlefield')
+  ) {
+    const effectText = String(anotherLegendaryPermanentGyFromBfMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_legendary_permanent_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedCreatureGyFromBfMatch = oracleText.match(
+    /whenever a ([\w]+) you control is put into a graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    typedCreatureGyFromBfMatch &&
+    !lowerOracle.includes('nontoken') &&
+    !triggers.some((t) => t.triggerType === 'typed_creature_graveyard_from_battlefield')
+  ) {
+    const effectText = String(typedCreatureGyFromBfMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_creature_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherCreatureWithFlyingDiesMatch = oracleText.match(
+    /whenever another creature you control with flying dies,?\s*([^.]+)/i,
+  );
+  if (
+    anotherCreatureWithFlyingDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'another_creature_with_flying_dies')
+  ) {
+    const effectText = String(anotherCreatureWithFlyingDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_creature_with_flying_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentCreatureWithCounterDiesMatch = oracleText.match(
+    /whenever a creature an opponent controls with a counter on it dies,?\s*([^.]+)/i,
+  );
+  if (
+    opponentCreatureWithCounterDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'opponent_creature_with_counter_dies')
+  ) {
+    const effectText = String(opponentCreatureWithCounterDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_creature_with_counter_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nonblackCardPlayerGyMatch = oracleText.match(
+    /whenever a nonblack card is put into a player's graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (nonblackCardPlayerGyMatch && !triggers.some((t) => t.triggerType === 'nonblack_card_player_graveyard_from_anywhere')) {
+    const effectText = String(nonblackCardPlayerGyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'nonblack_card_player_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherNontokenTypedDiesMatch = oracleText.match(
+    /whenever this creature or another nontoken ([\w]+) you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherNontokenTypedDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_nontoken_typed_dies')
+  ) {
+    const effectText = String(thisOrAnotherNontokenTypedDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_nontoken_typed_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherNontokenArtifactGyMatch = oracleText.match(
+    /whenever this artifact or another nontoken artifact you control is put into a graveyard from the battlefield(?: or is put into exile from the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherNontokenArtifactGyMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_nontoken_artifact_graveyard')
+  ) {
+    const effectText = String(thisOrAnotherNontokenArtifactGyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_nontoken_artifact_graveyard',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nontokenArtifactGyOrExileMatch = oracleText.match(
+    /whenever this creature or another nontoken artifact you control is put into a graveyard from the battlefield or is put into exile from the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    nontokenArtifactGyOrExileMatch &&
+    !triggers.some((t) => t.triggerType === 'nontoken_artifact_graveyard_or_exile_from_battlefield')
+  ) {
+    const effectText = String(nontokenArtifactGyOrExileMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'nontoken_artifact_graveyard_or_exile_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureWithShadowDiesMatch = oracleText.match(/whenever a creature with shadow dies,?\s*([^.]+)/i);
+  if (creatureWithShadowDiesMatch && !triggers.some((t) => t.triggerType === 'creature_with_shadow_dies')) {
+    const effectText = String(creatureWithShadowDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_with_shadow_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const auraYouControlGyMatch = oracleText.match(
+    /whenever an aura you control is put into your graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (auraYouControlGyMatch && !triggers.some((t) => t.triggerType === 'aura_you_control_graveyard_from_battlefield')) {
+    const effectText = String(auraYouControlGyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'aura_you_control_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const attackingMultiTypedGyMatch = oracleText.match(
+    /whenever an attacking ([\w]+) or ([\w]+) is put into your graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (attackingMultiTypedGyMatch && !triggers.some((t) => t.triggerType === 'attacking_multi_typed_graveyard_from_battlefield')) {
+    const effectText = String(attackingMultiTypedGyMatch[3] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'attacking_multi_typed_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const permanentCardsYourGyWhileMatch = oracleText.match(
+    /whenever one or more permanent cards are put into your graveyard from anywhere while [^,]+,?\s*([^.]+)/i,
+  );
+  if (permanentCardsYourGyWhileMatch && !triggers.some((t) => t.triggerType === 'permanent_cards_your_graveyard_while_condition')) {
+    const effectText = String(permanentCardsYourGyWhileMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'permanent_cards_your_graveyard_while_condition',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherCreatureYouOwnDiesMatch = oracleText.match(
+    /whenever another creature you own dies,?\s*([^.]+)/i,
+  );
+  if (anotherCreatureYouOwnDiesMatch && !triggers.some((t) => t.triggerType === 'another_creature_you_own_dies')) {
+    const effectText = String(anotherCreatureYouOwnDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_creature_you_own_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const rollThirdDieMatch = oracleText.match(/whenever you roll your third die each turn,?\s*([^.]+)/i);
+  if (rollThirdDieMatch && !triggers.some((t) => t.triggerType === 'roll_third_die_each_turn')) {
+    const effectText = String(rollThirdDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'roll_third_die_each_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentDrawsFirstCardMatch = oracleText.match(
+    /whenever an opponent draws their first card each turn,?\s*([^.]+)/i,
+  );
+  if (opponentDrawsFirstCardMatch && !triggers.some((t) => t.triggerType === 'opponent_draws_first_card_each_turn')) {
+    const effectText = String(opponentDrawsFirstCardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_draws_first_card_each_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const zombieOrMutantDiesMatch = oracleText.match(/whenever a ([\w]+) or ([\w]+) you control dies,?\s*([^.]+)/i);
+  if (
+    zombieOrMutantDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'multi_typed_creature_dies')
+  ) {
+    const effectText = String(zombieOrMutantDiesMatch[3] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'multi_typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const foodGyFromBfMatch = oracleText.match(/whenever a food is put into a graveyard from the battlefield,?\s*([^.]+)/i);
+  if (foodGyFromBfMatch && !triggers.some((t) => t.triggerType === 'food_graveyard_from_battlefield')) {
+    const effectText = String(foodGyFromBfMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'food_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureTokenDiesMatch = oracleText.match(/whenever a creature token dies,?\s*([^.]+)/i);
+  if (creatureTokenDiesMatch && !triggers.some((t) => t.triggerType === 'creature_token_dies')) {
+    const effectText = String(creatureTokenDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_token_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const permanentOwnedByAnotherPlayerGyMatch = oracleText.match(
+    /whenever a permanent owned by another player is put into a graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    permanentOwnedByAnotherPlayerGyMatch &&
+    !triggers.some((t) => t.triggerType === 'permanent_owned_by_another_player_graveyard_from_battlefield')
+  ) {
+    const effectText = String(permanentOwnedByAnotherPlayerGyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'permanent_owned_by_another_player_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureWithCountersDiesMatch = oracleText.match(
+    /whenever a creature you control with one or more counters on it dies,?\s*([^.]+)/i,
+  );
+  if (
+    creatureWithCountersDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_with_counters_dies')
+  ) {
+    const effectText = String(creatureWithCountersDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_with_counters_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const equippedCreatureYouControlDiesMatch = oracleText.match(
+    /whenever an equipped creature you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    equippedCreatureYouControlDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'equipped_creature_you_control_dies')
+  ) {
+    const effectText = String(equippedCreatureYouControlDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'equipped_creature_you_control_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const heroesControlCreatureDiesMatch = oracleText.match(
+    /whenever a creature the heroes control dies,?\s*([^.]+)/i,
+  );
+  if (heroesControlCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'heroes_control_creature_dies')) {
+    const effectText = String(heroesControlCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'heroes_control_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const bossesControlCreatureDiesMatch = oracleText.match(
+    /whenever a creature the bosses control dies,?\s*([^.]+)/i,
+  );
+  if (bossesControlCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'bosses_control_creature_dies')) {
+    const effectText = String(bossesControlCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'bosses_control_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherCardGyFromAnywhereMatch = oracleText.match(
+    /whenever another card is put into a graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (
+    anotherCardGyFromAnywhereMatch &&
+    !triggers.some((t) => t.triggerType === 'another_card_graveyard_from_anywhere')
+  ) {
+    const effectText = String(anotherCardGyFromAnywhereMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_card_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherGoblinGyFromBfMatch = oracleText.match(
+    /whenever another Goblin you control is put into a graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    anotherGoblinGyFromBfMatch &&
+    !triggers.some((t) => t.triggerType === 'another_goblin_graveyard_from_battlefield')
+  ) {
+    const effectText = String(anotherGoblinGyFromBfMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_goblin_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOfEnchantedCreaturesDiesMatch = oracleText.match(/when one of the enchanted creatures dies,?\s*([^.]+)/i);
+  if (
+    oneOfEnchantedCreaturesDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'one_of_enchanted_creatures_dies')
+  ) {
+    const effectText = String(oneOfEnchantedCreaturesDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_of_enchanted_creatures_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const birdYourGyFromBfMatch = oracleText.match(
+    /whenever a Bird is put into your graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (birdYourGyFromBfMatch && !triggers.some((t) => t.triggerType === 'bird_your_graveyard_from_battlefield')) {
+    const effectText = String(birdYourGyFromBfMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'bird_your_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const chosenPermanentGyFromBfMatch = oracleText.match(
+    /when the chosen permanent is put into a graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (chosenPermanentGyFromBfMatch && !triggers.some((t) => t.triggerType === 'chosen_permanent_graveyard_from_battlefield')) {
+    const effectText = String(chosenPermanentGyFromBfMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'chosen_permanent_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureDontOwnDiesMatch = oracleText.match(
+    /whenever a creature you control but don't own dies,?\s*([^.]+)/i,
+  );
+  if (creatureDontOwnDiesMatch && !triggers.some((t) => t.triggerType === 'creature_you_control_dont_own_dies')) {
+    const effectText = String(creatureDontOwnDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_you_control_dont_own_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantmentOrNonlandGyMatch = oracleText.match(
+    /whenever this enchantment or another nonland permanent you control is put into a graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (enchantmentOrNonlandGyMatch && !triggers.some((t) => t.triggerType === 'enchantment_or_nonland_graveyard_from_battlefield')) {
+    const effectText = String(enchantmentOrNonlandGyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enchantment_or_nonland_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const auraOrEquipmentGyMatch = oracleText.match(
+    /whenever an Aura or Equipment you control is put into a graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (auraOrEquipmentGyMatch && !triggers.some((t) => t.triggerType === 'aura_or_equipment_graveyard_from_battlefield')) {
+    const effectText = String(auraOrEquipmentGyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'aura_or_equipment_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const spiderDealtDamageCreatureDiesMatch = oracleText.match(
+    /whenever another creature dealt damage this turn by a Spider you controlled dies,?\s*([^.]+)/i,
+  );
+  if (
+    spiderDealtDamageCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'spider_dealt_damage_creature_dies')
+  ) {
+    const effectText = String(spiderDealtDamageCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'spider_dealt_damage_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const spiritOrDisturbGyMatch = oracleText.match(
+    /whenever a Spirit card or a card with disturb is put into your graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (spiritOrDisturbGyMatch && !triggers.some((t) => t.triggerType === 'spirit_or_disturb_your_graveyard_from_anywhere')) {
+    const effectText = String(spiritOrDisturbGyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'spirit_or_disturb_your_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureCardYourGyFromAnywhereMatch = oracleText.match(
+    /whenever a creature card is put into your graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (
+    creatureCardYourGyFromAnywhereMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_card_your_graveyard_from_anywhere')
+  ) {
+    const effectText = String(creatureCardYourGyFromAnywhereMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_card_your_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const blackCardOpponentGyMatch = oracleText.match(
+    /whenever a black card is put into an opponent's graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (blackCardOpponentGyMatch && !triggers.some((t) => t.triggerType === 'black_card_opponent_graveyard_from_anywhere')) {
+    const effectText = String(blackCardOpponentGyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'black_card_opponent_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedOrAnotherTypedDiesPattern = new RegExp(
+    `whenever\\s+(?:${dieNameVariants.join('|')}|this creature)\\s+or\\s+another\\s+(?:nontoken\\s+)?([\\w]+)\\s+you\\s+control\\s+dies,?\\s*([^.]+)`,
+    'i',
+  );
+  const namedOrAnotherTypedDiesMatch = oracleText.match(namedOrAnotherTypedDiesPattern);
+  if (
+    namedOrAnotherTypedDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_another_typed_creature_dies')
+  ) {
+    const effectText = String(namedOrAnotherTypedDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_another_typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherTypedDiesNoControlMatch = oracleText.match(
+    /whenever this creature or another ([\w]+) dies,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherTypedDiesNoControlMatch &&
+    !lowerOracle.includes('you control') &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_typed_creature_dies_any')
+  ) {
+    const effectText = String(thisOrAnotherTypedDiesNoControlMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_typed_creature_dies_any',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nontokenTypedDiesMatch = oracleText.match(
+    /whenever (?:a |an )?nontoken ([\w]+) you control dies,?\s*([^.]+)/i,
+  );
+  if (nontokenTypedDiesMatch && !triggers.some((t) => t.triggerType === 'nontoken_typed_creature_dies')) {
+    const effectText = String(nontokenTypedDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'nontoken_typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherNontokenTypedDiesMatch = oracleText.match(
+    /whenever another nontoken ([\w]+) you control dies,?\s*([^.]+)/i,
+  );
+  if (anotherNontokenTypedDiesMatch && !triggers.some((t) => t.triggerType === 'another_nontoken_typed_creature_dies')) {
+    const effectText = String(anotherNontokenTypedDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_nontoken_typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedEntersOrAnotherNontokenTypedDiesMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${dieSelfAlternatives.join('|')}) enters or another nontoken ([\\w]+) you control dies,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedEntersOrAnotherNontokenTypedDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'named_enters_or_another_nontoken_typed_dies')
+  ) {
+    const effectText = String(namedEntersOrAnotherNontokenTypedDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_enters_or_another_nontoken_typed_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const flyingCreatureDiesMatch = oracleText.match(
+    /whenever a creature with flying dies,?\s*([^.]+)/i,
+  );
+  if (flyingCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'flying_creature_dies')) {
+    const effectText = String(flyingCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'flying_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreOtherTypedDieMatch = oracleText.match(
+    /whenever one or more other ([\w]+(?: or [\w]+)*) you control die,?\s*([^.]+)/i,
+  );
+  if (oneOrMoreOtherTypedDieMatch && !triggers.some((t) => t.triggerType === 'one_or_more_other_typed_die')) {
+    const effectText = String(oneOrMoreOtherTypedDieMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_other_typed_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nontokenNonTypeCreatureDiesMatch = oracleText.match(
+    /whenever a nontoken, non-([\w]+) creature you control dies,?\s*([^.]+)/i,
+  );
+  if (nontokenNonTypeCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'nontoken_non_type_creature_dies')) {
+    const effectText = String(nontokenNonTypeCreatureDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'nontoken_non_type_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureWithoutFlyingDiesMatch = oracleText.match(
+    /whenever a creature you control without flying dies,?\s*([^.]+)/i,
+  );
+  if (creatureWithoutFlyingDiesMatch && !triggers.some((t) => t.triggerType === 'creature_without_flying_dies')) {
+    const effectText = String(creatureWithoutFlyingDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_without_flying_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const faceDownCreatureDiesMatch = oracleText.match(
+    /whenever a face-down creature you control dies,?\s*([^.]+)/i,
+  );
+  if (faceDownCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'face_down_creature_dies')) {
+    const effectText = String(faceDownCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'face_down_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const targetCreatureOtherThanSelfDiesThisTurnMatch = oracleText.match(
+    /when target creature other than this creature dies this turn,?\s*([^.]+)/i,
+  );
+  if (
+    targetCreatureOtherThanSelfDiesThisTurnMatch &&
+    !triggers.some((t) => t.triggerType === 'target_creature_other_than_self_dies_this_turn')
+  ) {
+    const effectText = String(targetCreatureOtherThanSelfDiesThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'target_creature_other_than_self_dies_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureOpponentGraveyardFromBattlefieldMatch = oracleText.match(
+    /when a creature is put into an opponent's graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    creatureOpponentGraveyardFromBattlefieldMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_opponent_graveyard_from_battlefield')
+  ) {
+    const effectText = String(creatureOpponentGraveyardFromBattlefieldMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_opponent_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nontokenTypedGraveyardFromBattlefieldMatch = oracleText.match(
+    /whenever another nontoken ([\w]+) is put into your graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    nontokenTypedGraveyardFromBattlefieldMatch &&
+    !triggers.some((t) => t.triggerType === 'nontoken_typed_graveyard_from_battlefield')
+  ) {
+    const effectText = String(nontokenTypedGraveyardFromBattlefieldMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'nontoken_typed_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedPermanentCardYourGyNotBattlefieldMatch = oracleText.match(
+    /whenever a ([\w]+) permanent card is put into your graveyard from anywhere other than the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    typedPermanentCardYourGyNotBattlefieldMatch &&
+    !triggers.some((t) => t.triggerType === 'typed_permanent_card_your_graveyard_not_battlefield')
+  ) {
+    const effectText = String(typedPermanentCardYourGyNotBattlefieldMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_permanent_card_your_graveyard_not_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherCreatureOrArtifactDiesMatch = oracleText.match(
+    /whenever another creature or artifact you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    anotherCreatureOrArtifactDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'another_creature_or_artifact_dies')
+  ) {
+    const effectText = String(anotherCreatureOrArtifactDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_creature_or_artifact_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherCommanderDiesMatch = oracleText.match(
+    /whenever another [Cc]ommander dies,?\s*([^.]+)/i,
+  );
+  if (anotherCommanderDiesMatch && !triggers.some((t) => t.triggerType === 'another_commander_dies')) {
+    const effectText = String(anotherCommanderDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_commander_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const fromAnywhereGraveyardPattern = new RegExp(
+    `when(?:ever)?\\s+(?:${dieSelfAlternatives.join('|')}|(?:${dieNameVariants.join('|')}))\\s+(?:is )?put into (?:a |your |its owner'?s )?graveyard from anywhere,?\\s*([^.]+)`,
+    'i',
+  );
+  const fromAnywhereGraveyardMatch = oracleText.match(fromAnywhereGraveyardPattern);
+  if (fromAnywhereGraveyardMatch && !triggers.some((t) => t.triggerType === 'put_into_graveyard_from_anywhere')) {
+    const effectText = String(fromAnywhereGraveyardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'put_into_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const controlledDiesMatch = oracleText.match(/when(?:ever)? (?:a|another) (?:[\w]+\s+)*(?:nontoken\s+)?creature you control dies,?\s*([^.]+)/i);
   if (controlledDiesMatch && !triggers.some(t => t.triggerType === 'creature_dies')) {
     triggers.push({
       permanentId,
@@ -897,9 +4244,62 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       mandatory: true,
     });
   }
+
+  const attackingCreatureDiesMatch = oracleText.match(
+    /whenever an attacking creature(?: you control)? dies,?\s*([^.]+)/i,
+  );
+  if (attackingCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'attacking_creature_dies')) {
+    const effectText = String(attackingCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'attacking_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherControlledEntersOrDiesMatch = oracleText.match(
+    /whenever another creature you control enters or dies,?\s*([^.]+)/i,
+  );
+  if (
+    anotherControlledEntersOrDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'another_controlled_enters_or_dies')
+  ) {
+    const effectText = String(anotherControlledEntersOrDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_controlled_enters_or_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const entersOrAnotherCreatureDiesPattern = new RegExp(
+    `whenever\\s+(?:${dieSelfAlternatives.join('|')})\\s+enters(?: the battlefield)?\\s+or\\s+another\\s+creature\\s+dies,?\\s*([^.]+)`,
+    'i',
+  );
+  const entersOrAnotherCreatureDiesMatch = oracleText.match(entersOrAnotherCreatureDiesPattern);
+  if (
+    entersOrAnotherCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'enters_or_another_creature_dies')
+  ) {
+    const effectText = String(entersOrAnotherCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enters_or_another_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
   
-  // "Whenever a creature dies" (any creature)
-  const anyDiesMatch = oracleText.match(/whenever (?:a|another) creature dies,?\s*([^.]+)/i);
+  // "Whenever/When a creature dies" (any creature)
+  const anyDiesMatch = oracleText.match(/when(?:ever)? (?:a|another) (?:[\w]+\s+)*(?:nontoken\s+)?creature dies,?\s*([^.]+)/i);
   if (anyDiesMatch && 
       !lowerOracle.includes('creature you control dies') && 
       !lowerOracle.includes('creature an opponent controls dies') &&
@@ -916,6 +4316,139 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   }
   
   // "Whenever a creature an opponent controls dies" or "Whenever a creature you don't control dies"
+  const putIntoGraveyardFromBattlefieldMatch = oracleText.match(
+    /when(?:ever)? (?:a|an|another) (?:[\w]+\s+)*(?:artifact|creature|enchantment|permanent|land)(?: you control)?(?: or (?:artifact|creature) you control)? is put into (?:a |your |its owner's )?graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  const anotherControlledArtifactOrCreatureGraveyardMatch = oracleText.match(
+    /whenever another (?:artifact or creature|creature or artifact) you control is put into (?:a |your |its owner's )?graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    anotherControlledArtifactOrCreatureGraveyardMatch &&
+    !triggers.some((t) => t.triggerType === 'another_controlled_artifact_or_creature_graveyard')
+  ) {
+    const effectText = String(anotherControlledArtifactOrCreatureGraveyardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_controlled_artifact_or_creature_graveyard',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+  const anyEnchantmentGraveyardMatch = oracleText.match(
+    /whenever an enchantment is put into (?:a |your |its owner's )?graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    anyEnchantmentGraveyardMatch &&
+    !lowerOracle.includes('enchantment you control is put') &&
+    !triggers.some((t) => t.triggerType === 'any_enchantment_graveyard')
+  ) {
+    const effectText = String(anyEnchantmentGraveyardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'any_enchantment_graveyard',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+  const anotherArtifactOrCreatureGraveyardMatch = oracleText.match(
+    /whenever another (?:artifact or creature|creature or artifact) is put into (?:a |your |its owner's )?graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    anotherArtifactOrCreatureGraveyardMatch &&
+    !triggers.some((t) => t.triggerType === 'another_artifact_or_creature_graveyard')
+  ) {
+    const effectText = String(anotherArtifactOrCreatureGraveyardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_artifact_or_creature_graveyard',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+  if (putIntoGraveyardFromBattlefieldMatch && !triggers.some((t) => t.triggerType === 'put_into_graveyard_from_battlefield')) {
+    const effectText = String(putIntoGraveyardFromBattlefieldMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'put_into_graveyard_from_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const legendaryOpponentDiesMatch = oracleText.match(
+    /when a legendary creature an opponent controls dies,?\s*([^.]+)/i,
+  );
+  if (legendaryOpponentDiesMatch && !triggers.some((t) => t.triggerType === 'legendary_opponent_creature_dies')) {
+    const effectText = String(legendaryOpponentDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'legendary_opponent_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const controlNoneSacrificePattern = new RegExp(
+    `when you control no ([^,]+),?\\s*sacrifice (?:${dieSelfAlternatives.join('|')})`,
+    'i',
+  );
+  const controlNoneSacrificeMatch = oracleText.match(controlNoneSacrificePattern);
+  if (controlNoneSacrificeMatch && !triggers.some((t) => t.triggerType === 'control_none_sacrifice')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'control_none_sacrifice',
+      description: String(controlNoneSacrificeMatch[0] || '').trim(),
+      effect: String(controlNoneSacrificeMatch[0] || '').trim(),
+      mandatory: true,
+    });
+  }
+
+  const graveyardZoneDiesPattern = new RegExp(
+    `whenever (?:a |an )?(?:[\\w]+\\s+)*creature (?:an opponent controls|you don't control) dies while (?:${dieNameVariants.join('|')}) is in your graveyard,?\\s*([^.]+)`,
+    'i',
+  );
+  const graveyardZoneDiesMatch = oracleText.match(graveyardZoneDiesPattern);
+  if (graveyardZoneDiesMatch && !triggers.some((t) => t.triggerType === 'graveyard_zone_creature_dies')) {
+    const effectText = String(graveyardZoneDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'graveyard_zone_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentArtifactGraveyardMatch = oracleText.match(
+    /whenever an artifact an opponent controls is put into (?:a )?graveyard from the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    opponentArtifactGraveyardMatch &&
+    !triggers.some((t) => t.triggerType === 'opponent_artifact_graveyard')
+  ) {
+    const effectText = String(opponentArtifactGraveyardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_artifact_graveyard',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   const opponentDiesMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature (?:an opponent controls|you don't control) dies,?\s*([^.]+)/i);
   if (opponentDiesMatch && !triggers.some(t => t.triggerType === 'opponent_creature_dies')) {
     triggers.push({
@@ -925,6 +4458,566 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       description: opponentDiesMatch[1].trim(),
       effect: opponentDiesMatch[1].trim(),
       mandatory: true,
+    });
+  }
+
+  const oneOrMoreOtherCreaturesDieMatch = oracleText.match(/whenever one or more other creatures die,?\s*([^.]+)/i);
+  if (
+    oneOrMoreOtherCreaturesDieMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_other_creatures_die')
+  ) {
+    const effectText = String(oneOrMoreOtherCreaturesDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_other_creatures_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreAttackingLegendaryCreaturesDieMatch = oracleText.match(
+    /whenever one or more other attacking legendary creatures you control die,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreAttackingLegendaryCreaturesDieMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_attacking_legendary_creatures_die')
+  ) {
+    const effectText = String(oneOrMoreAttackingLegendaryCreaturesDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_attacking_legendary_creatures_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreArtifactCreaturesDieMatch = oracleText.match(
+    /whenever one or more artifact creatures you control die,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreArtifactCreaturesDieMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_artifact_creatures_die')
+  ) {
+    const effectText = String(oneOrMoreArtifactCreaturesDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_artifact_creatures_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherMultiTypedCreatureDiesMatch = oracleText.match(
+    /whenever another ([\w]+) or ([\w]+) you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    anotherMultiTypedCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'another_multi_typed_creature_dies')
+  ) {
+    const effectText = String(anotherMultiTypedCreatureDiesMatch[3] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_multi_typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrATypedCreatureDiesMatch = oracleText.match(
+    /whenever this creature or a ([\w]+) you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrATypedCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_a_typed_creature_dies')
+  ) {
+    const effectText = String(thisOrATypedCreatureDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_a_typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const itDiesThisTurnMatch = oracleText.match(/when it dies this turn,?\s*([^.]+)/i);
+  if (itDiesThisTurnMatch && !triggers.some((t) => t.triggerType === 'it_dies_this_turn')) {
+    const effectText = String(itDiesThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'it_dies_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const permanentYouDontControlDiesThisTurnMatch = oracleText.match(
+    /when the permanent you don't control dies this turn,?\s*([^.]+)/i,
+  );
+  if (
+    permanentYouDontControlDiesThisTurnMatch &&
+    !triggers.some((t) => t.triggerType === 'permanent_you_dont_control_dies_this_turn')
+  ) {
+    const effectText = String(permanentYouDontControlDiesThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'permanent_you_dont_control_dies_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nontokenCounterCreatureDiesMatch = oracleText.match(
+    /whenever a nontoken creature you control with a \+1\/\+1 counter on it dies,?\s*([^.]+)/i,
+  );
+  if (
+    nontokenCounterCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'nontoken_counter_creature_dies')
+  ) {
+    const effectText = String(nontokenCounterCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'nontoken_counter_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreControlledCreaturesDieMatch = oracleText.match(
+    /whenever one or more creatures you control die,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreControlledCreaturesDieMatch &&
+    !lowerOracle.includes('one or more other creatures you control die') &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_controlled_creatures_die')
+  ) {
+    const effectText = String(oneOrMoreControlledCreaturesDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_controlled_creatures_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreOtherControlledCreaturesDieMatch = oracleText.match(
+    /whenever one or more other creatures you control die,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreOtherControlledCreaturesDieMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_other_controlled_creatures_die')
+  ) {
+    const effectText = String(oneOrMoreOtherControlledCreaturesDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_other_controlled_creatures_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreNontokenControlledDieMatch = oracleText.match(
+    /whenever one or more nontoken creatures you control die,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreNontokenControlledDieMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_nontoken_creatures_you_control_die')
+  ) {
+    const effectText = String(oneOrMoreNontokenControlledDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_nontoken_creatures_you_control_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const cardPutIntoOpponentGyFromAnywhereMatch = oracleText.match(
+    /whenever a card is put into an opponent's graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (
+    cardPutIntoOpponentGyFromAnywhereMatch &&
+    !triggers.some((t) => t.triggerType === 'card_put_into_opponent_graveyard_from_anywhere')
+  ) {
+    const effectText = String(cardPutIntoOpponentGyFromAnywhereMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'card_put_into_opponent_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreNontokenCreaturesDieMatch = oracleText.match(/whenever one or more nontoken creatures die,?\s*([^.]+)/i);
+  if (
+    oneOrMoreNontokenCreaturesDieMatch &&
+    !lowerOracle.includes('nontoken creatures you control die') &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_nontoken_creatures_die')
+  ) {
+    const effectText = String(oneOrMoreNontokenCreaturesDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_nontoken_creatures_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreCreaturesDieMatch = oracleText.match(/whenever one or more creatures die,?\s*([^.]+)/i);
+  if (
+    oneOrMoreCreaturesDieMatch &&
+    !lowerOracle.includes('one or more other creatures die') &&
+    !lowerOracle.includes('one or more nontoken creatures die') &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_creatures_die')
+  ) {
+    const effectText = String(oneOrMoreCreaturesDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'one_or_more_creatures_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const hauntsCreatureDiesMatch = oracleText.match(/when(?:ever)? the creature this card haunts dies,?\s*([^.]+)/i);
+  if (hauntsCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'haunts_creature_dies')) {
+    const effectText = String(hauntsCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'haunts_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const toughnessCreatureDiesMatch = oracleText.match(
+    /whenever a creature you control with toughness (\d+) or greater dies,?\s*([^.]+)/i,
+  );
+  if (toughnessCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'toughness_creature_dies')) {
+    const effectText = String(toughnessCreatureDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'toughness_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureCardsYourGyFromAnywhereMatch = oracleText.match(
+    /whenever one or more creature cards are put into your graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (
+    creatureCardsYourGyFromAnywhereMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_cards_your_graveyard_from_anywhere')
+  ) {
+    const effectText = String(creatureCardsYourGyFromAnywhereMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_cards_your_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const landCardYourGyFromAnywhereMatch = oracleText.match(
+    /whenever a land card is put into your graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (
+    landCardYourGyFromAnywhereMatch &&
+    !triggers.some((t) => t.triggerType === 'land_card_your_graveyard_from_anywhere')
+  ) {
+    const effectText = String(landCardYourGyFromAnywhereMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'land_card_your_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const landCardGyFromAnywhereMatch = oracleText.match(
+    /whenever a land card is put into a graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (
+    landCardGyFromAnywhereMatch &&
+    !lowerOracle.includes('put into your graveyard') &&
+    !triggers.some((t) => t.triggerType === 'land_card_graveyard_from_anywhere')
+  ) {
+    const effectText = String(landCardGyFromAnywhereMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'land_card_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const landCardsPutIntoGyFromAnywhereMatch = oracleText.match(
+    /whenever one or more land cards are put into your graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (
+    landCardsPutIntoGyFromAnywhereMatch &&
+    !triggers.some((t) => t.triggerType === 'land_cards_put_into_graveyard_from_anywhere')
+  ) {
+    const effectText = String(landCardsPutIntoGyFromAnywhereMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'land_cards_put_into_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const dealtDamageThisWayDiesMatch = oracleText.match(
+    /when(?:ever)? a creature(?: you control)? dealt damage this way dies this turn,?\s*([^.]+)/i,
+  );
+  if (dealtDamageThisWayDiesMatch && !triggers.some((t) => t.triggerType === 'dealt_damage_this_way_dies')) {
+    const effectText = String(dealtDamageThisWayDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'dealt_damage_this_way_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const minusCounterCreatureDiesMatch = oracleText.match(
+    /whenever a creature with a -1\/-1 counter on it dies,?\s*([^.]+)/i,
+  );
+  if (
+    minusCounterCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'minus_counter_creature_dies')
+  ) {
+    const effectText = String(minusCounterCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'minus_counter_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const impostorCounterCreatureDiesMatch = oracleText.match(
+    /whenever a creature you control with an impostor counter on it dies,?\s*([^.]+)/i,
+  );
+  if (
+    impostorCounterCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'impostor_counter_creature_dies')
+  ) {
+    const effectText = String(impostorCounterCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'impostor_counter_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const attackingOrBlockingCreatureDiesMatch = oracleText.match(
+    /whenever an attacking creature you control or a blocking creature an opponent controls dies,?\s*([^.]+)/i,
+  );
+  if (
+    attackingOrBlockingCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'attacking_or_blocking_creature_dies')
+  ) {
+    const effectText = String(attackingOrBlockingCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'attacking_or_blocking_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentsCreaturesDieMatch = oracleText.match(
+    /whenever one or more creatures your opponents control die,?\s*([^.]+)/i,
+  );
+  if (
+    opponentsCreaturesDieMatch &&
+    !triggers.some((t) => t.triggerType === 'opponents_creatures_die')
+  ) {
+    const effectText = String(opponentsCreaturesDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponents_creatures_die',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const itDiesUnderYourControlThisTurnMatch = oracleText.match(
+    /when it dies under your control this turn,?\s*([^.]+)/i,
+  );
+  if (
+    itDiesUnderYourControlThisTurnMatch &&
+    !triggers.some((t) => t.triggerType === 'it_dies_under_your_control_this_turn')
+  ) {
+    const effectText = String(itDiesUnderYourControlThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'it_dies_under_your_control_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const whenYouDoPayCreateMatch = oracleText.match(
+    /when you do, you may pay \{[^}]+\}\. if you do, create[^.]+/i,
+  );
+  if (
+    whenYouDoPayCreateMatch &&
+    !triggers.some((t) => t.triggerType === 'when_you_do_pay_create')
+  ) {
+    const effectText = String(whenYouDoPayCreateMatch[0] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'when_you_do_pay_create',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentMinusCounterCreatureDiesMatch = oracleText.match(
+    /whenever a creature an opponent controls with a -1\/-1 counter on it dies,?\s*([^.]+)/i,
+  );
+  if (
+    opponentMinusCounterCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'opponent_minus_counter_creature_dies')
+  ) {
+    const effectText = String(opponentMinusCounterCreatureDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_minus_counter_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherTypedCreatureDiesMatch = oracleText.match(
+    /whenever another ([\w]+) you control dies,?\s*([^.]+)/i,
+  );
+  if (
+    anotherTypedCreatureDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'another_typed_creature_dies')
+  ) {
+    const effectText = String(anotherTypedCreatureDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedCreatureDiesMatch = oracleText.match(/whenever an? ([\w]+) you control dies,?\s*([^.]+)/i);
+  const typedDieSubject = String(typedCreatureDiesMatch?.[1] || '').trim().toLowerCase();
+  if (
+    typedCreatureDiesMatch &&
+    typedDieSubject !== 'creature' &&
+    !lowerOracle.includes('creature you control dies') &&
+    !triggers.some((t) => t.triggerType === 'typed_creature_dies')
+  ) {
+    const effectText = String(typedCreatureDiesMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_creature_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedArtifactGraveyardMatch = oracleText.match(
+    /when enchanted artifact is put into (?:a )?graveyard,?\s*([^.]+)/i,
+  );
+  if (
+    enchantedArtifactGraveyardMatch &&
+    !triggers.some((t) => t.triggerType === 'enchanted_artifact_graveyard')
+  ) {
+    const effectText = String(enchantedArtifactGraveyardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enchanted_artifact_graveyard',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const cardPutIntoGyFromAnywhereMatch = oracleText.match(
+    /when(?:ever)? a card is put into your graveyard from anywhere,?\s*([^.]+)/i,
+  );
+  if (
+    cardPutIntoGyFromAnywhereMatch &&
+    !triggers.some((t) => t.triggerType === 'card_put_into_graveyard_from_anywhere')
+  ) {
+    const effectText = String(cardPutIntoGyFromAnywhereMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'card_put_into_graveyard_from_anywhere',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
     });
   }
   
@@ -956,6 +5049,1194 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
 }
 
 /**
+ * Detect leaves-the-battlefield triggers from a card's oracle text.
+ */
+export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const lowerOracle = oracleText.toLowerCase();
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+  const ltbAlternatives = [...LTB_STATIC_ALTERNATIVES, ...buildCardNameRegexAlternatives(cardName)];
+
+  const selfLeavesPattern = new RegExp(
+    `when(?:ever)?\\s+(?:${ltbAlternatives.join('|')})\\s+leaves(?: the battlefield)?,?\\s*([^.]+)`,
+    'i',
+  );
+  const selfLeavesMatch = oracleText.match(selfLeavesPattern);
+  if (selfLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'ltb')) {
+    const effectText = String(selfLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiresChoice: effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const ltbAlternativesForEntersOrLeaves = [...LTB_STATIC_ALTERNATIVES, ...buildCardNameRegexAlternatives(cardName)];
+  const selfEntersOrLeavesLtbPattern = new RegExp(
+    `when(?:ever)?\\s+(?:${ltbAlternativesForEntersOrLeaves.join('|')})\\s+enters or leaves(?: the battlefield)?,?\\s*([^.]+)`,
+    'i',
+  );
+  const selfEntersOrLeavesLtbMatch = oracleText.match(selfEntersOrLeavesLtbPattern);
+  if (selfEntersOrLeavesLtbMatch && !triggers.some((trigger) => trigger.triggerType === 'self_enters_or_leaves')) {
+    const effectText = String(selfEntersOrLeavesLtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'self_enters_or_leaves',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const entersOrLeavesMatch = oracleText.match(
+    /whenever (?:a |an )?permanent enters or leaves(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (entersOrLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'enters_or_leaves')) {
+    const effectText = String(entersOrLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enters_or_leaves',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anyPermanentLeavesMatch = oracleText.match(
+    /whenever a permanent leaves(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    anyPermanentLeavesMatch &&
+    !lowerOracle.includes('permanent you control leaves') &&
+    !lowerOracle.includes('another permanent leaves') &&
+    !triggers.some((trigger) => trigger.triggerType === 'any_permanent_ltb')
+  ) {
+    const effectText = String(anyPermanentLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'any_permanent_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const phasesOutOrLeavesMatch = oracleText.match(
+    /when this creature phases out or leaves the battlefield,?\s*([^.]+)/i,
+  );
+  if (phasesOutOrLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'phases_out_or_leaves')) {
+    const effectText = String(phasesOutOrLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'phases_out_or_leaves',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherCreatureYouControlLeavesMatch = oracleText.match(
+    /when another creature you control leaves the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    anotherCreatureYouControlLeavesMatch &&
+    !triggers.some((trigger) => trigger.triggerType === 'another_creature_you_control_leaves')
+  ) {
+    const effectText = String(anotherCreatureYouControlLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_creature_you_control_leaves',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const targetedCreatureLeavesThisTurnMatch = oracleText.match(
+    /when the targeted creature leaves the battlefield this turn,?\s*([^.]+)/i,
+  );
+  if (
+    targetedCreatureLeavesThisTurnMatch &&
+    !triggers.some((trigger) => trigger.triggerType === 'targeted_creature_leaves_this_turn')
+  ) {
+    const effectText = String(targetedCreatureLeavesThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'targeted_creature_leaves_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const headLeavesMatch = oracleText.match(/when a Head leaves the battlefield,?\s*([^.]+)/i);
+  if (headLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'head_leaves_battlefield')) {
+    const effectText = String(headLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'head_leaves_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedUntappedOrLeavesMatch = oracleText.match(
+    new RegExp(
+      `when (?:${ltbAlternatives.join('|')}) becomes untapped or leaves the battlefield,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (namedUntappedOrLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'named_untapped_or_leaves')) {
+    const effectText = String(namedUntappedOrLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_untapped_or_leaves',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const commanderLeavesMatch = oracleText.match(/when your commander leaves the battlefield,?\s*([^.]+)/i);
+  if (commanderLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'commander_leaves')) {
+    const effectText = String(commanderLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'commander_leaves',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const tokenLeavesMatch = oracleText.match(/whenever a token you control leaves the battlefield,?\s*([^.]+)/i);
+  if (tokenLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'token_ltb')) {
+    const effectText = String(tokenLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'token_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureTokenLeavesMatch = oracleText.match(
+    /whenever a creature token(?: you control)? leaves the battlefield,?\s*([^.]+)/i,
+  );
+  if (creatureTokenLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'creature_token_ltb')) {
+    const effectText = String(creatureTokenLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_token_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedOrAnotherCreatureLeavesPattern = new RegExp(
+    `whenever\\s+(?:${ltbAlternatives.join('|')})\\s+or\\s+another\\s+(?:nontoken\\s+)?creature\\s+you\\s+control\\s+leaves(?: the battlefield)?,?\\s*([^.]+)`,
+    'i',
+  );
+  const thatTokenLeavesMatch = oracleText.match(
+    /when that token leaves the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    thatTokenLeavesMatch &&
+    !triggers.some((trigger) => trigger.triggerType === 'that_token_leaves')
+  ) {
+    const effectText = String(thatTokenLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'that_token_leaves',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const mysteryPutOntoBattlefieldLeavesMatch = oracleText.match(
+    new RegExp(
+      `when the creature put onto the battlefield with (?:${ltbAlternatives.join('|')}) leaves the battlefield,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    mysteryPutOntoBattlefieldLeavesMatch &&
+    !triggers.some((trigger) => trigger.triggerType === 'mystery_put_creature_leaves')
+  ) {
+    const effectText = String(mysteryPutOntoBattlefieldLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'mystery_put_creature_leaves',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedOrAnotherCreatureLeavesMatch = oracleText.match(namedOrAnotherCreatureLeavesPattern);
+  if (namedOrAnotherCreatureLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'named_or_another_creature_ltb')) {
+    const effectText = String(namedOrAnotherCreatureLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_another_creature_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const modifiedCreatureLeavesMatch = oracleText.match(
+    /whenever a modified creature you control leaves the battlefield,?\s*([^.]+)/i,
+  );
+  if (modifiedCreatureLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'modified_creature_ltb')) {
+    const effectText = String(modifiedCreatureLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'modified_creature_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const controlledLeavesMatch = oracleText.match(
+    /whenever (?:a|another) (?:nontoken )?permanent you control leaves(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (controlledLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'controlled_ltb')) {
+    const effectText = String(controlledLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'controlled_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const counterCreatureLeavesMatch = oracleText.match(
+    /whenever a creature you control with a \+1\/\+1 counter on it leaves the battlefield,?\s*([^.]+)/i,
+  );
+  if (counterCreatureLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'counter_creature_ltb')) {
+    const effectText = String(counterCreatureLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'counter_creature_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const gainControlMatch = oracleText.match(/whenever you gain control of (?:a |an )?([^,]+),?\s*([^.]+)/i);
+  if (gainControlMatch && !triggers.some((trigger) => trigger.triggerType === 'gain_control')) {
+    const effectText = String(gainControlMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'gain_control',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const loseControlGenericMatch = oracleText.match(/whenever you lose control of (?:a |an )?([^,]+),?\s*([^.]+)/i);
+  if (loseControlGenericMatch && !triggers.some((trigger) => trigger.triggerType === 'lose_control_generic')) {
+    const effectText = String(loseControlGenericMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'lose_control_generic',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const loseControlThatMatch = oracleText.match(/when(?:ever)? you lose control of that ([^,]+),?\s*([^.]+)/i);
+  if (loseControlThatMatch && !triggers.some((trigger) => trigger.triggerType === 'lose_control_that')) {
+    const effectText = String(loseControlThatMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'lose_control_that',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const loseControlMatch = oracleText.match(/when you lose control of this (artifact|enchantment|permanent),?\s*([^.]+)/i);
+  if (loseControlMatch && !triggers.some((trigger) => trigger.triggerType === 'lose_control')) {
+    const effectText = String(loseControlMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'lose_control',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherPermanentLeavesMatch = oracleText.match(
+    /whenever another (?:[\w]+\s+)?permanent leaves(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    anotherPermanentLeavesMatch &&
+    !lowerOracle.includes('permanent you control leaves') &&
+    !triggers.some((trigger) => trigger.triggerType === 'another_permanent_ltb')
+  ) {
+    const effectText = String(anotherPermanentLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_permanent_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureLeavesMatch = oracleText.match(
+    /whenever (?:a|another) (?:nontoken )?creature (?:you control )?leaves(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    creatureLeavesMatch &&
+    !lowerOracle.includes('permanent you control leaves') &&
+    !triggers.some((trigger) => trigger.triggerType === 'creature_ltb')
+  ) {
+    const effectText = String(creatureLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const chosenCreatureLeavesMatch = oracleText.match(
+    /when(?:ever)? (?:the chosen|that) creature leaves(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (chosenCreatureLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'chosen_creature_ltb')) {
+    const effectText = String(chosenCreatureLeavesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'chosen_creature_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const attachmentLeavesPatterns = [
+    /when(?:ever)? enchanted creature leaves(?: the battlefield)?,?\s*([^.]+)/i,
+    /when(?:ever)? equipped creature leaves(?: the battlefield)?,?\s*([^.]+)/i,
+    /when(?:ever)? enchanted permanent leaves(?: the battlefield)?,?\s*([^.]+)/i,
+  ];
+  for (const pattern of attachmentLeavesPatterns) {
+    const match = oracleText.match(pattern);
+    if (!match) continue;
+    const effectText = String(match[1] || '').trim();
+    if (!effectText || triggers.some((trigger) => trigger.triggerType === 'attachment_ltb' && trigger.effect === effectText)) {
+      continue;
+    }
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'attachment_ltb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  return triggers;
+}
+
+export function detectAbilityActivatedTriggers(card: any, permanent?: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+
+  const exhaustNextMatch = oracleText.match(
+    /when you next activate an exhaust ability(?: that isn't a mana ability)?(?: this turn)?,?\s*([^.]+)/i,
+  );
+  if (exhaustNextMatch) {
+    const effectText = String(exhaustNextMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'exhaust_ability_next',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedExploitMatch = oracleText.match(
+    new RegExp(
+      `when (?:${buildCardNameRegexAlternatives(cardName).join('|')}) exploits a creature,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (namedExploitMatch && !triggers.some((t) => t.triggerType === 'named_exploit')) {
+    const effectText = String(namedExploitMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_exploit',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const exploitMatch = oracleText.match(/when this creature exploits a creature,?\s*([^.]+)/i);
+  if (exploitMatch) {
+    const effectText = String(exploitMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'exploit',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentArtifactAbilityMatch = oracleText.match(
+    /whenever an opponent activates an ability of an artifact they control,?\s*([^.]+)/i,
+  );
+  if (
+    opponentArtifactAbilityMatch &&
+    !triggers.some((t) => t.triggerType === 'opponent_artifact_ability_activated')
+  ) {
+    const effectText = String(opponentArtifactAbilityMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_artifact_ability_activated',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentAbilityMatch = oracleText.match(
+    /whenever an opponent activates an ability(?: of [^.]+?)?(?:,?\s*(?:if )?(?:it|that) isn'?t a mana ability),?\s*([^.]+)/i,
+  );
+  if (opponentAbilityMatch && !triggers.some((t) => t.triggerType === 'opponent_artifact_ability_activated')) {
+    const effectText = String(opponentAbilityMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_ability_activated',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const winCoinFlipMatch = oracleText.match(/whenever you win a coin flip,?\s*([^.]+)/i);
+  if (winCoinFlipMatch && !triggers.some((t) => t.triggerType === 'win_coin_flip')) {
+    const effectText = String(winCoinFlipMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'win_coin_flip',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const dieRollThresholdMatch = oracleText.match(/whenever you roll a (\d+) or higher on a die,?\s*([^.]+)/i);
+  if (dieRollThresholdMatch && !triggers.some((t) => t.triggerType === 'die_roll_threshold')) {
+    const effectText = String(dieRollThresholdMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'die_roll_threshold',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const beginningOfGameMatch = oracleText.match(/at the beginning of the game,?\s*([^.]+)/i);
+  if (beginningOfGameMatch && !triggers.some((t) => t.triggerType === 'beginning_of_game')) {
+    const effectText = String(beginningOfGameMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'beginning_of_game',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const planarDieMatch = oracleText.match(/whenever you roll the planar die,?\s*([^.]+)/i);
+  if (planarDieMatch && !triggers.some((t) => t.triggerType === 'planar_die_roll')) {
+    const effectText = String(planarDieMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'planar_die_roll',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const exhaustActivatedMatch = oracleText.match(/whenever you activate an exhaust ability,?\s*([^.]+)/i);
+  if (exhaustActivatedMatch && !triggers.some((t) => t.triggerType === 'exhaust_ability_activated')) {
+    const effectText = String(exhaustActivatedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'exhaust_ability_activated',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nonManaAbilityActivatedMatch = oracleText.match(
+    /whenever you activate an ability that isn't a mana ability,?\s*([^.]+)/i,
+  );
+  if (nonManaAbilityActivatedMatch && !triggers.some((t) => t.triggerType === 'non_mana_ability_activated')) {
+    const effectText = String(nonManaAbilityActivatedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'non_mana_ability_activated',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedEncounterMatch = oracleText.match(/when you encounter ([^,]+),?\s*([^.]+)/i);
+  if (namedEncounterMatch && !triggers.some((t) => t.triggerType === 'named_encounter')) {
+    const effectText = String(namedEncounterMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_encounter',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const dieRollSingleResultMatch = oracleText.match(/whenever you roll a (\d+)(?! or \d),?\s*([^.]+)/i);
+  if (
+    dieRollSingleResultMatch &&
+    !triggers.some((t) => t.triggerType === 'die_roll_single_result')
+  ) {
+    const effectText = String(dieRollSingleResultMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'die_roll_single_result',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const sixSidedDieRollMatch = oracleText.match(
+    /whenever a (\d+) is rolled on a six-sided die,?\s*([^.]+)/i,
+  );
+  if (sixSidedDieRollMatch && !triggers.some((t) => t.triggerType === 'six_sided_die_roll')) {
+    const effectText = String(sixSidedDieRollMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'six_sided_die_roll',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const noCreaturesOnBattlefieldMatch = oracleText.match(
+    /when there are no creatures on the battlefield,?\s*([^.]+)/i,
+  );
+  if (
+    noCreaturesOnBattlefieldMatch &&
+    !triggers.some((t) => t.triggerType === 'no_creatures_on_battlefield')
+  ) {
+    const effectText = String(noCreaturesOnBattlefieldMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'no_creatures_on_battlefield',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const dieRollResultMatch = oracleText.match(/whenever you roll a (\d+) or (\d+),?\s*([^.]+)/i);
+  if (dieRollResultMatch) {
+    const effectText = String(dieRollResultMatch[3] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'die_roll_result',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const foretellMatch = oracleText.match(/whenever you foretell a card,?\s*([^.]+)/i);
+  if (foretellMatch) {
+    const effectText = String(foretellMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'foretell',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const boastMatch = oracleText.match(/whenever you activate a boast ability,?\s*([^.]+)/i);
+  if (boastMatch) {
+    const effectText = String(boastMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'boast_activated',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const crankMatch = oracleText.match(/whenever you crank(?: this contraption)?,?\s*([^.]+)/i);
+  if (crankMatch && !triggers.some((t) => t.triggerType === 'crank_contraption')) {
+    const effectText = String(crankMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'crank_contraption',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const crewedMatch = oracleText.match(/whenever this vehicle becomes crewed(?: for the first time each turn)?,?\s*([^.]+)/i);
+  if (crewedMatch) {
+    const effectText = String(crewedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'vehicle_crewed',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const saddledMatch = oracleText.match(/whenever this creature becomes saddled(?: for the first time each turn)?,?\s*([^.]+)/i);
+  if (saddledMatch && !triggers.some((t) => t.triggerType === 'creature_saddled')) {
+    const effectText = String(saddledMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_saddled',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const dieRollMatch = oracleText.match(/whenever you roll a die,?\s*([^.]+)/i);
+  if (dieRollMatch) {
+    const effectText = String(dieRollMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'die_roll',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const rollDiceMatch = oracleText.match(/whenever you roll one or more (?:dice|die),?\s*([^.]+)/i);
+  if (rollDiceMatch && !triggers.some((t) => t.triggerType === 'roll_one_or_more_dice')) {
+    const effectText = String(rollDiceMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'roll_one_or_more_dice',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const exertCreatureMatch = oracleText.match(/whenever you exert a creature,?\s*([^.]+)/i);
+  if (exertCreatureMatch && !triggers.some((t) => t.triggerType === 'exert_creature')) {
+    const effectText = String(exertCreatureMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'exert_creature',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const payCostMatch = oracleText.match(/when you pay this cost one or more times,?\s*([^.]+)/i);
+  if (payCostMatch && !triggers.some((t) => t.triggerType === 'pay_cost_one_or_more_times')) {
+    const effectText = String(payCostMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'pay_cost_one_or_more_times',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const ringTemptsMatch = oracleText.match(/whenever the ring tempts you,?\s*([^.]+)/i);
+  if (ringTemptsMatch && !triggers.some((t) => t.triggerType === 'ring_tempts_you')) {
+    const effectText = String(ringTemptsMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'ring_tempts_you',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const encounterPhenomenonMatch = oracleText.match(/when(?:ever) you encounter this phenomenon,?\s*([^.]+)/i);
+  if (encounterPhenomenonMatch && !triggers.some((t) => t.triggerType === 'encounter_phenomenon')) {
+    const effectText = String(encounterPhenomenonMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'encounter_phenomenon',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const exploresMatch = oracleText.match(/whenever a creature you control explores,?\s*([^.]+)/i);
+  if (exploresMatch && !triggers.some((t) => t.triggerType === 'creature_explores')) {
+    const effectText = String(exploresMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_explores',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const expendMatch = oracleText.match(/whenever you expend(?: \d+)?,?\s*([^.]+)/i);
+  if (expendMatch && !triggers.some((t) => t.triggerType === 'expend')) {
+    const effectText = String(expendMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'expend',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const shuffleLibraryMatch = oracleText.match(
+    /whenever a spell or ability causes (?:its controller|you|a player) to shuffle (?:their|your) library,?\s*([^.]+)/i,
+  );
+  if (shuffleLibraryMatch) {
+    const effectText = String(shuffleLibraryMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'library_shuffled',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const rateArtMatch = oracleText.match(/when they rate the art,?\s*([^.]+)/i);
+  if (rateArtMatch) {
+    const effectText = String(rateArtMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'rate_art',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const dayNightMatch = oracleText.match(/whenever day becomes night or night becomes day,?\s*([^.]+)/i);
+  if (dayNightMatch && !triggers.some((t) => t.triggerType === 'day_night')) {
+    const effectText = String(dayNightMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'day_night',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const chaosEnsuesMatch = oracleText.match(/whenever chaos ensues,?\s*([^.]+)/i);
+  if (chaosEnsuesMatch && !triggers.some((t) => t.triggerType === 'chaos_ensues')) {
+    const effectText = String(chaosEnsuesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'chaos_ensues',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const equippedAbilityActivatedMatch = oracleText.match(
+    /whenever an ability of equipped creature is activated,?\s*(?:if it isn't a mana ability,?\s*)?([^.]+)/i,
+  );
+  if (equippedAbilityActivatedMatch && !triggers.some((t) => t.triggerType === 'equipped_ability_activated')) {
+    const effectText = String(equippedAbilityActivatedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'equipped_ability_activated',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const becomeMonarchMatch = oracleText.match(/whenever you become the monarch,?\s*([^.]+)/i);
+  if (becomeMonarchMatch && !triggers.some((t) => t.triggerType === 'become_monarch')) {
+    const effectText = String(becomeMonarchMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'become_monarch',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const emptyHandMatch = oracleText.match(/whenever you have no cards in hand,?\s*([^.]+)/i);
+  if (emptyHandMatch && !triggers.some((t) => t.triggerType === 'empty_hand')) {
+    const effectText = String(emptyHandMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'empty_hand',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const schemeInMotionMatch = oracleText.match(/when you set this scheme in motion,?\s*([^.]+)/i);
+  if (schemeInMotionMatch && !triggers.some((t) => t.triggerType === 'scheme_in_motion')) {
+    const effectText = String(schemeInMotionMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'scheme_in_motion',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const youPayManaMatch = oracleText.match(/whenever you pay (\{[^}]+\}(?:\{[^}]+\})*),?\s*([^.]+)/i);
+  if (youPayManaMatch && !triggers.some((t) => t.triggerType === 'you_pay_mana')) {
+    const effectText = String(youPayManaMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'you_pay_mana',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const saddleOrCrewMatch = oracleText.match(
+    /whenever (?:~|this creature) saddles a mount or crews a vehicle during your main phase,?\s*([^.]+)/i,
+  );
+  if (saddleOrCrewMatch && !triggers.some((t) => t.triggerType === 'saddle_or_crew')) {
+    const effectText = String(saddleOrCrewMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'saddle_or_crew',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const crewVehicleMatch = oracleText.match(/when(?:ever)? (?:~|this creature) crews a vehicle,?\s*([^.]+)/i);
+  if (crewVehicleMatch && !triggers.some((t) => t.triggerType === 'crew_vehicle')) {
+    const effectText = String(crewVehicleMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'crew_vehicle',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const finishVotingMatch = oracleText.match(/whenever players finish voting,?\s*([^.]+)/i);
+  if (finishVotingMatch && !triggers.some((t) => t.triggerType === 'finish_voting')) {
+    const effectText = String(finishVotingMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'finish_voting',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const loyaltyAbilityPatterns = [
+    /whenever you activate a loyalty ability of (?:a |an )?([\w]+) planeswalker,?\s*([^.]+)/gi,
+    /whenever you activate a loyalty ability of enchanted planeswalker,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of loyaltyAbilityPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[match.length - 1] || '').trim();
+      if (!effectText || triggers.some((t) => t.triggerType === 'loyalty_ability_activated' && t.effect === effectText)) {
+        continue;
+      }
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'loyalty_ability_activated',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const clashMatch = oracleText.match(/whenever you clash,?\s*([^.]+)/i);
+  if (clashMatch && !triggers.some((t) => t.triggerType === 'clash')) {
+    const effectText = String(clashMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'clash',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const discoverMatch = oracleText.match(/whenever you discover,?\s*([^.]+)/i);
+  if (discoverMatch && !triggers.some((t) => t.triggerType === 'discover')) {
+    const effectText = String(discoverMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'discover',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const equipmentUnattachedMatch = oracleText.match(
+    /whenever this equipment becomes unattached from a permanent,?\s*([^.]+)/i,
+  );
+  if (equipmentUnattachedMatch && !triggers.some((t) => t.triggerType === 'equipment_unattached')) {
+    const effectText = String(equipmentUnattachedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'equipment_unattached',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const keywordActionPatterns: Array<{ pattern: RegExp; triggerType: string }> = [
+    { pattern: /whenever you surveil,?\s*([^.]+)/gi, triggerType: 'surveil' },
+    { pattern: /whenever you scry(?: \d+)?,?\s*([^.]+)/gi, triggerType: 'scry' },
+    { pattern: /whenever you explore,?\s*([^.]+)/gi, triggerType: 'explore' },
+    { pattern: /whenever you connive,?\s*([^.]+)/gi, triggerType: 'connive' },
+    { pattern: /when(?:ever)? you proliferate,?\s*([^.]+)/gi, triggerType: 'proliferate' },
+    { pattern: /when(?:ever)? you complete a dungeon,?\s*([^.]+)/gi, triggerType: 'complete_dungeon' },
+    { pattern: /when(?:ever)? a player loses the game,?\s*([^.]+)/gi, triggerType: 'player_loses_game' },
+    { pattern: /whenever you search your library,?\s*([^.]+)/gi, triggerType: 'search_library' },
+    { pattern: /whenever an opponent searches their library,?\s*([^.]+)/gi, triggerType: 'opponent_search_library' },
+    { pattern: /whenever an opponent shuffles their library,?\s*([^.]+)/gi, triggerType: 'opponent_shuffle_library' },
+    { pattern: /whenever you shuffle your library,?\s*([^.]+)/gi, triggerType: 'shuffle_library' },
+  ];
+  for (const { pattern, triggerType } of keywordActionPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[1] || '').trim();
+      if (!effectText || triggers.some((t) => t.triggerType === triggerType && t.effect === effectText)) continue;
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType,
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  return triggers;
+}
+
+export function detectMonstrousTriggers(card: any, permanent?: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+
+  const monstrousNameVariants = buildCardNameRegexAlternatives(cardName);
+  const monstrousMatch = oracleText.match(
+    new RegExp(`when(?:ever)? (?:~|this creature|(?:${monstrousNameVariants.join('|')})) becomes monstrous,?\\s*([^.]+)`, 'i'),
+  );
+  if (monstrousMatch && !triggers.some((t) => t.triggerType === 'became_monstrous')) {
+    const effectText = String(monstrousMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'became_monstrous',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  return triggers;
+}
+
+export function detectRoomTriggers(card: any, permanent?: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+
+  const unlockDoorMatch = oracleText.match(/when you unlock this door,?\s*([^.]+)/i);
+  if (unlockDoorMatch) {
+    const effectText = String(unlockDoorMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'unlock_door',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  return triggers;
+}
+
+export function detectTransformTriggers(card: any, permanent?: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+
+  const transformNameVariants = buildCardNameRegexAlternatives(cardName);
+  const transformPatterns = [
+    /when (?:~|this creature|this card) specializes(?: from (?:your graveyard|any zone|the battlefield|exile))?[^,]*,?\s*([^.]+)/i,
+    /whenever (?:~|this creature|this card) specializes(?: from (?:your graveyard|any zone|the battlefield|exile))?[^,]*,?\s*([^.]+)/i,
+    /when(?:ever)? equipped creature transforms,?\s*([^.]+)/i,
+    /when(?:ever)? enchanted creature transforms,?\s*([^.]+)/i,
+    /when(?:ever)? this creature transforms into this permanent,?\s*([^.]+)/i,
+    /when this creature has flying,?\s*flip it/i,
+    new RegExp(`when this creature transforms into (?:${transformNameVariants.join('|')}),?\\s*([^.]+)`, 'i'),
+    /when this creature transforms into [^,]+,?\s*([^.]+)/i,
+    new RegExp(`when you have \\d+ or more life,?\\s*flip (?:${transformNameVariants.join('|')})`, 'i'),
+    /when you have (\d+) or less life,?\s*(?:if [^,]+,\s*)?([^.]+)/i,
+  ];
+  for (const pattern of transformPatterns) {
+    const match = oracleText.match(pattern);
+    if (!match) continue;
+    const effectText = String(match[match.length - 1] || match[0] || '').trim();
+    if (!effectText || triggers.some((trigger) => trigger.effect === effectText)) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'transform',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  return triggers;
+}
+
+/**
  * Detect attack triggers from a permanent's abilities
  */
 export function detectAttackTriggers(card: any, permanent: any): TriggeredAbility[] {
@@ -976,22 +6257,39 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   const attackKeywordReminderLinePattern = /^(?:annihilator\s+\d+|melee|myriad|exalted|battle cry|dethrone|mentor|training)\b/i;
   const blockKeywordReminderLinePattern = /^(?:afflict\s+\d+|bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
 
+  const attackNameVariants = buildCardNameRegexAlternatives(cardName);
+  const attackSubjectPattern = `(?:~|this creature|this vehicle|this artifact|this land|this permanent|(?:${attackNameVariants.join('|')})|equipped creature|enchanted creature)`;
+
   const findGenericAttackTriggerLine = (): RegExpMatchArray | null => {
-    const attacksPattern = /whenever\s+(?:~|this creature(?:\s+or\s+equipped creature)?)\s+attacks,?\s*(.+)$/i;
+    const attackLinePatterns = [
+      new RegExp(`whenever\\s+${attackSubjectPattern}\\s+attacks?,?\\s*(.+)$`, 'i'),
+      new RegExp(`when\\s+${attackSubjectPattern}\\s+attacks?,?\\s*(.+)$`, 'i'),
+      /whenever\s+equipped\s+creature\s+attacks,?\s*(.+)$/i,
+      /whenever\s+enchanted\s+creature\s+attacks,?\s*(.+)$/i,
+      /whenever\s+this\s+land\s+attacks,?\s*(.+)$/i,
+    ];
     for (const line of oracleLines) {
       if (attackKeywordReminderLinePattern.test(line)) continue;
-      const match = line.match(attacksPattern);
-      if (match) return match;
+      for (const pattern of attackLinePatterns) {
+        const match = line.match(pattern);
+        if (match) return match;
+      }
     }
     return null;
   };
 
   const findGenericBlockTriggerLine = (): RegExpMatchArray | null => {
-    const blocksPattern = /whenever\s+(?:~|this creature)\s+blocks(?:\s+a\s+creature)?,?\s*(.+)$/i;
+    const blockNameVariants = buildCardNameRegexAlternatives(cardName);
+    const blockSubjectPattern = `(?:~|this creature|this vehicle|(?:${blockNameVariants.join('|')}))`;
+    const blocksPatterns = [
+      new RegExp(`when(?:ever)?\\s+${blockSubjectPattern}\\s+blocks(?:\\s+a\\s+creature)?,?\\s*(.+)$`, 'i'),
+    ];
     for (const line of oracleLines) {
       if (blockKeywordReminderLinePattern.test(line)) continue;
-      const match = line.match(blocksPattern);
-      if (match) return match;
+      for (const blocksPattern of blocksPatterns) {
+        const match = line.match(blocksPattern);
+        if (match) return match;
+      }
     }
     return null;
   };
@@ -1136,10 +6434,48 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
       mandatory: true,
     });
   }
+
+  const attacksWithGreaterPowerMatch = oracleText.match(
+    /whenever this creature attacks with another creature with greater power,?\s*([^.]+)/i,
+  );
+  if (
+    attacksWithGreaterPowerMatch &&
+    !triggers.some((trigger) => trigger.triggerType === 'attacks_with_greater_power_creature')
+  ) {
+    const effectText = String(attacksWithGreaterPowerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'attacks_with_greater_power_creature',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
   
+  const battalionSubject = `(?:~|this(?: creature)?|${escapeCardNameForRegex(cardName)})`;
+  const battalionPattern = new RegExp(
+    `whenever\\s+${battalionSubject}\\s+(?:and at least two other creatures attack|attacks and at least two other creatures attack),?\\s*([^.]+)`,
+    'i',
+  );
+  const battalionMatch = oracleText.match(battalionPattern);
+  if (battalionMatch && !triggers.some((trigger) => trigger.triggerType === 'battalion')) {
+    const effectText = String(battalionMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'battalion',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   // Generic "whenever ~ attacks"
   const attacksMatch = findGenericAttackTriggerLine();
-  if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
+  if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks' || t.triggerType === 'battalion')) {
     const effectText = attacksMatch[1].trim();
     
     // Check if this is an optional mana payment trigger (e.g., Casal)
@@ -1170,8 +6506,762 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     }
   }
   
-  // "Whenever a creature you control attacks"
-  const creatureAttacksMatch = oracleText.match(/whenever a creature you control attacks,?\s*([^.]+)/i);
+  const attackPayWhenYouDoMatch = oracleText.match(
+    /whenever you attack,?\s*you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*when you do,?\s*([^.]+)/i,
+  );
+  if (attackPayWhenYouDoMatch && !triggers.some((t) => t.triggerType === 'when_you_do')) {
+    const effectText = String(attackPayWhenYouDoMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'when_you_do',
+      description: effectText,
+      effect: effectText,
+      manaCost: String(attackPayWhenYouDoMatch[1] || '').trim(),
+      mandatory: false,
+    });
+  }
+
+  const exertWhenYouDoMatch = oracleText.match(
+    /you may exert this creature as it attacks\.\s*when you do,?\s*([^.]+)/i,
+  );
+  if (exertWhenYouDoMatch && !triggers.some((t) => t.triggerType === 'when_you_do' || t.triggerType === 'exert')) {
+    const effectText = String(exertWhenYouDoMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'exert',
+      description: effectText,
+      effect: effectText,
+      mandatory: false,
+    });
+  }
+
+  const whenYouDoPattern = /when you do,?\s*([^.]+)/gi;
+  let whenYouDoMatch: RegExpExecArray | null;
+  while ((whenYouDoMatch = whenYouDoPattern.exec(oracleText)) !== null) {
+    const effectText = String(whenYouDoMatch[1] || '').trim();
+    if (!effectText) continue;
+    if (triggers.some((t) => String(t.effect || '').trim().toLowerCase() === effectText.toLowerCase())) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'when_you_do',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const whenTheyDoPattern = /when they do,?\s*([^.]+)/gi;
+  let whenTheyDoMatch: RegExpExecArray | null;
+  while ((whenTheyDoMatch = whenTheyDoPattern.exec(oracleText)) !== null) {
+    const effectText = String(whenTheyDoMatch[1] || '').trim();
+    if (!effectText) continue;
+    if (triggers.some((t) => String(t.effect || '').trim().toLowerCase() === effectText.toLowerCase())) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'when_they_do',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const commanderAttacksMatch = oracleText.match(/whenever your commander attacks,?\s*([^.]+)/i);
+  if (commanderAttacksMatch && !triggers.some((t) => t.triggerType === 'commander_attacks')) {
+    const effectText = String(commanderAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'commander_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const bossesAttackMatch = oracleText.match(/whenever the bosses attack,?\s*([^.]+)/i);
+  if (bossesAttackMatch && !triggers.some((t) => t.triggerType === 'bosses_attack')) {
+    const effectText = String(bossesAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'bosses_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const ringBearerAttacksMatch = oracleText.match(/whenever your ring-bearer attacks,?\s*([^.]+)/i);
+  if (ringBearerAttacksMatch && !triggers.some((t) => t.triggerType === 'ring_bearer_attacks')) {
+    const effectText = String(ringBearerAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'ring_bearer_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const youAttackMatch = oracleText.match(/whenever you attack,?\s*([^.]+)/i);
+  if (youAttackMatch && !triggers.some((t) => t.triggerType === 'you_attack')) {
+    const effectText = String(youAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'you_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const selfEntersOrAttacksPattern = new RegExp(
+    `whenever\\s+(?:~|this creature|this vehicle|(?:${attackNameVariants.join('|')}))\\s+enters(?: the battlefield)?\\s+or\\s+attacks,?\\s*([^.]+)`,
+    'i',
+  );
+
+  const vehicleAttacksOrBlocksMatch = oracleText.match(/whenever this vehicle attacks or blocks,?\s*([^.]+)/i);
+  if (vehicleAttacksOrBlocksMatch && !triggers.some((t) => t.triggerType === 'attacks_or_blocks')) {
+    const effectText = String(vehicleAttacksOrBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'attacks_or_blocks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const attacksOrDiesAttackMatch = oracleText.match(
+    new RegExp(`whenever\\s+(?:~|this creature|this vehicle|(?:${attackNameVariants.join('|')}))\\s+attacks\\s+or\\s+dies,?\\s*([^.]+)`, 'i'),
+  );
+  if (attacksOrDiesAttackMatch && !triggers.some((t) => t.triggerType === 'attacks_or_dies')) {
+    const effectText = String(attacksOrDiesAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'attacks_or_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreModifiedCreaturesAttackMatch = oracleText.match(
+    /whenever one or more modified creatures you control attack,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreModifiedCreaturesAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_modified_creatures_attack')
+  ) {
+    const effectText = String(oneOrMoreModifiedCreaturesAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'one_or_more_modified_creatures_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const trampleCreatureAttacksMatch = oracleText.match(
+    /whenever a creature you control with trample attacks,?\s*([^.]+)/i,
+  );
+  if (trampleCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'trample_creature_attacks')) {
+    const effectText = String(trampleCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'trample_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const attackInBandMatch = oracleText.match(
+    /whenever two or more creatures you control attack in a band,?\s*([^.]+)/i,
+  );
+  if (attackInBandMatch && !triggers.some((t) => t.triggerType === 'attack_in_band')) {
+    const effectText = String(attackInBandMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'attack_in_band',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const youAttackWithExactlyTwoCreaturesMatch = oracleText.match(
+    /when you attack with exactly two creatures,?\s*([^.]+)/i,
+  );
+  if (
+    youAttackWithExactlyTwoCreaturesMatch &&
+    !triggers.some((t) => t.triggerType === 'you_attack_with_exactly_two_creatures')
+  ) {
+    const effectText = String(youAttackWithExactlyTwoCreaturesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'you_attack_with_exactly_two_creatures',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const teamExactlyTwoCreaturesAttackMatch = oracleText.match(
+    /whenever your team attacks with exactly two creatures,?\s*([^.]+)/i,
+  );
+  if (
+    teamExactlyTwoCreaturesAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'team_exactly_two_creatures_attack')
+  ) {
+    const effectText = String(teamExactlyTwoCreaturesAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'team_exactly_two_creatures_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const vehicleCrewedByNameAttacksMatch = oracleText.match(
+    new RegExp(
+      `whenever a vehicle crewed by (?:${attackNameVariants.join('|')}) this turn attacks,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    vehicleCrewedByNameAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'vehicle_crewed_by_name_attacks')
+  ) {
+    const effectText = String(vehicleCrewedByNameAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'vehicle_crewed_by_name_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneLandAttacksAnotherMatch = oracleText.match(/when one land attacks another,?\s*([^.]+)/i);
+  if (oneLandAttacksAnotherMatch && !triggers.some((t) => t.triggerType === 'one_land_attacks_another')) {
+    const effectText = String(oneLandAttacksAnotherMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'one_land_attacks_another',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const revelerAttacksMatch = oracleText.match(/whenever a Reveler attacks,?\s*([^.]+)/i);
+  if (revelerAttacksMatch && !triggers.some((t) => t.triggerType === 'reveler_attacks')) {
+    const effectText = String(revelerAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'reveler_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const allNonWallAttackMatch = oracleText.match(
+    /whenever all non-Wall creatures you control attack,?\s*([^.]+)/i,
+  );
+  if (allNonWallAttackMatch && !triggers.some((t) => t.triggerType === 'all_non_wall_creatures_attack')) {
+    const effectText = String(allNonWallAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'all_non_wall_creatures_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisAndTypedAttackMatch = oracleText.match(
+    /whenever this creature and at least one other ([\w]+) attack,?\s*([^.]+)/i,
+  );
+  if (thisAndTypedAttackMatch && !triggers.some((t) => t.triggerType === 'this_and_typed_creature_attack')) {
+    const effectText = String(thisAndTypedAttackMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'this_and_typed_creature_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nontokenCreatureAttacksMatch = oracleText.match(
+    /whenever a nontoken creature(?: you control)? attacks,?\s*([^.]+)/i,
+  );
+  if (
+    nontokenCreatureAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'nontoken_creature_attacks')
+  ) {
+    const effectText = String(nontokenCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'nontoken_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const itAttacksMatch = oracleText.match(/whenever it attacks,?\s*([^.]+)/i);
+  if (itAttacksMatch && !triggers.some((t) => t.triggerType === 'it_attacks')) {
+    const effectText = String(itAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'it_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentsTwoOrMoreAttackMatch = oracleText.match(
+    /whenever two or more creatures your opponents control attack,?\s*([^.]+)/i,
+  );
+  if (
+    opponentsTwoOrMoreAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'opponents_two_or_more_creatures_attack')
+  ) {
+    const effectText = String(opponentsTwoOrMoreAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'opponents_two_or_more_creatures_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherTypedCreatureAttacksMatch = oracleText.match(
+    /whenever another ([\w]+) you control attacks,?\s*([^.]+)/i,
+  );
+  if (
+    anotherTypedCreatureAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'another_typed_creature_attacks')
+  ) {
+    const typedSubject = String(anotherTypedCreatureAttacksMatch[1] || '').trim().toLowerCase();
+    if (!['creature', 'vehicle', 'permanent'].includes(typedSubject)) {
+      const effectText = String(anotherTypedCreatureAttacksMatch[2] || '').trim();
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'another_typed_creature_attacks',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const modifiedCreatureAttacksMatch = oracleText.match(/whenever a modified creature you control attacks,?\s*([^.]+)/i);
+  if (modifiedCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'modified_creature_attacks')) {
+    const effectText = String(modifiedCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'modified_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const counterCreatureAttacksMatch = oracleText.match(
+    /whenever a creature you control with a \+1\/\+1 counter on it attacks,?\s*([^.]+)/i,
+  );
+  if (counterCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'counter_creature_attacks')) {
+    const effectText = String(counterCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'counter_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const lowPowerCreatureAttacksMatch = oracleText.match(
+    /whenever a creature you control with power \d+ or less attacks,?\s*([^.]+)/i,
+  );
+  if (lowPowerCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'low_power_creature_attacks')) {
+    const effectText = String(lowPowerCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'low_power_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedAttacksAloneMatch = oracleText.match(
+    /whenever a ([\w]+(?: or [\w]+)*) you control attacks alone,?\s*([^.]+)/i,
+  );
+  if (typedAttacksAloneMatch && !triggers.some((t) => t.triggerType === 'typed_attacks_alone')) {
+    const effectText = String(typedAttacksAloneMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'typed_attacks_alone',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureAttacksAloneMatch = oracleText.match(
+    /whenever a creature you control attacks alone,?\s*([^.]+)/i,
+  );
+  if (creatureAttacksAloneMatch && !triggers.some((t) => t.triggerType === 'creature_attacks_alone')) {
+    const effectText = String(creatureAttacksAloneMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'creature_attacks_alone',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedPlayerAttackedMatch = oracleText.match(
+    /whenever enchanted player is attacked,?\s*([^.]+)/i,
+  );
+  if (enchantedPlayerAttackedMatch && !triggers.some((t) => t.triggerType === 'enchanted_player_attacked')) {
+    const effectText = String(enchantedPlayerAttackedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'enchanted_player_attacked',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const curseAttackMatch = oracleText.match(
+    /whenever a player attacks enchanted player with one or more creatures,?\s*([^.]+)/i,
+  );
+  if (curseAttackMatch && !triggers.some((t) => t.triggerType === 'curse_attack')) {
+    const effectText = String(curseAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'curse_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+  const selfEntersOrAttacksMatch = oracleText.match(selfEntersOrAttacksPattern);
+  if (selfEntersOrAttacksMatch && !triggers.some((t) => t.triggerType === 'self_enters_or_attacks')) {
+    const effectText = String(selfEntersOrAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'self_enters_or_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentCreatureAttacksMatch = oracleText.match(/whenever a creature an opponent controls attacks,?\s*([^.]+)/i);
+  if (opponentCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'opponent_creature_attacks')) {
+    const effectText = String(opponentCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'opponent_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const attacksOrBlocksMatch = oracleText.match(
+    new RegExp(`when(?:ever)? (?:~|this creature|(?:${attackNameVariants.join('|')})) attacks or blocks,?\\s*([^.]+)`, 'i'),
+  );
+  if (attacksOrBlocksMatch && !triggers.some((t) => t.triggerType === 'attacks_or_blocks')) {
+    const effectText = String(attacksOrBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'attacks_or_blocks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anyCreatureAttacksOrBlocksMatch = oracleText.match(/whenever a creature attacks or blocks,?\s*([^.]+)/i);
+  if (anyCreatureAttacksOrBlocksMatch && !triggers.some((t) => t.triggerType === 'any_creature_attacks_or_blocks')) {
+    const effectText = String(anyCreatureAttacksOrBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'any_creature_attacks_or_blocks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anyCreatureAttacksMatch = oracleText.match(/whenever a creature attacks(?! this turn)(?! or blocks),?\s*([^.]+)/i);
+  if (
+    anyCreatureAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'any_creature_attacks' || t.triggerType === 'creature_attacks' || t.triggerType === 'creature_attacks_this_turn')
+  ) {
+    const effectText = String(anyCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'any_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureAttacksThisTurnMatch = oracleText.match(/whenever a creature attacks this turn,?\s*([^.]+)/i);
+  if (creatureAttacksThisTurnMatch && !triggers.some((t) => t.triggerType === 'creature_attacks_this_turn')) {
+    const effectText = String(creatureAttacksThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'creature_attacks_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: true,
+    });
+  }
+
+  const anotherCreatureAttacksMatch = oracleText.match(/whenever another creature you control attacks,?\s*([^.]+)/i);
+  if (anotherCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'another_creature_attacks')) {
+    const effectText = String(anotherCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const equippedCreatureAttacksMatch = oracleText.match(
+    /whenever an equipped creature you control attacks,?\s*([^.]+)/i,
+  );
+  if (equippedCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'equipped_creature_attacks')) {
+    const effectText = String(equippedCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'equipped_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedSubtypeAttacksMatch = oracleText.match(
+    /whenever an? ([\w]+(?: or [\w]+)*) you control attacks,?\s*([^.]+)/i,
+  );
+  const typedSubtypeExcluded = new Set([
+    'creature',
+    'nontoken',
+    'modified',
+    'permanent',
+    'vehicle',
+    'land',
+    'player',
+    'spell',
+    'token',
+  ]);
+  if (
+    typedSubtypeAttacksMatch &&
+    !typedSubtypeExcluded.has(String(typedSubtypeAttacksMatch[1] || '').trim().toLowerCase()) &&
+    !/\bcreature\b/i.test(String(typedSubtypeAttacksMatch[1] || '')) &&
+    !triggers.some((t) => t.triggerType === 'typed_subtype_attacks')
+  ) {
+    const effectText = String(typedSubtypeAttacksMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'typed_subtype_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedCreatureAttacksMatch = oracleText.match(
+    /whenever an? (?:[\w]+\s+)+creature you control attacks,?\s*([^.]+)/i,
+  );
+  if (
+    typedCreatureAttacksMatch &&
+    !lowerOracle.includes('a creature you control attacks') &&
+    !lowerOracle.includes('nontoken creature you control attacks') &&
+    !lowerOracle.includes('another creature you control attacks') &&
+    !lowerOracle.includes('equipped creature you control attacks') &&
+    !lowerOracle.includes('modified creature you control attacks') &&
+    !triggers.some((t) => t.triggerType === 'typed_creature_attacks')
+  ) {
+    const effectText = String(typedCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'typed_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const deathtouchCreatureAttacksMatch = oracleText.match(
+    /whenever a creature you control with deathtouch attacks,?\s*([^.]+)/i,
+  );
+  if (deathtouchCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'deathtouch_creature_attacks')) {
+    const effectText = String(deathtouchCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'deathtouch_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const chosenNameCreatureAttacksMatch = oracleText.match(
+    /whenever a creature you control with the chosen name attacks,?\s*([^.]+)/i,
+  );
+  if (chosenNameCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'chosen_name_creature_attacks')) {
+    const effectText = String(chosenNameCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'chosen_name_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedAndOtherCreatureAttackMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${attackNameVariants.join('|')}) and at least (?:one|two|three|\\d+) other (?:creature|warrior)s? attack,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedAndOtherCreatureAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'named_and_other_creature_attack')
+  ) {
+    const effectText = String(namedAndOtherCreatureAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'named_and_other_creature_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedEnterOrAttackMatch = oracleText.match(
+    new RegExp(`whenever (?:${attackNameVariants.join('|')}) enter or attack,?\\s*([^.]+)`, 'i'),
+  );
+  if (namedEnterOrAttackMatch && !triggers.some((t) => t.triggerType === 'named_enter_or_attack')) {
+    const effectText = String(namedEnterOrAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'named_enter_or_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  // "Whenever/When a creature you control attacks"
+  const creatureAttacksMatch = oracleText.match(/when(?:ever)? a creature you control attacks,?\s*([^.]+)/i);
   if (creatureAttacksMatch) {
     triggers.push({
       permanentId,
@@ -1180,6 +7270,880 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
       description: creatureAttacksMatch[1].trim(),
       effect: creatureAttacksMatch[1].trim(),
       mandatory: true,
+    });
+  }
+
+  const chosenTypeAttackMatch = oracleText.match(
+    /whenever a creature you control of the chosen type enters or attacks,?\s*([^.]+)/i
+  );
+  if (chosenTypeAttackMatch && !triggers.some((t) => t.triggerType === 'chosen_type_creature_etb_or_attack')) {
+    const effectText = String(chosenTypeAttackMatch[1] || '').trim();
+    if (effectText) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'chosen_type_creature_etb_or_attack',
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+      });
+    }
+  }
+
+  const thatCreatureAttacksMatch = oracleText.match(/whenever that creature attacks,?\s*([^.]+)/i);
+  if (thatCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'that_creature_attacks')) {
+    const effectText = String(thatCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'that_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const selfOrEnchantedAttacksMatch = oracleText.match(
+    /whenever this creature or enchanted creature attacks,?\s*([^.]+)/i,
+  );
+  if (
+    selfOrEnchantedAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'self_or_enchanted_attacks')
+  ) {
+    const effectText = String(selfOrEnchantedAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'self_or_enchanted_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const whenVehicleAttacksMatch = oracleText.match(/when a vehicle you control attacks,?\s*([^.]+)/i);
+  if (
+    whenVehicleAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'when_vehicle_attacks')
+  ) {
+    const effectText = String(whenVehicleAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'when_vehicle_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisTokenAttacksMatch = oracleText.match(/when(?:ever)? this token attacks,?\s*([^.]+)/i);
+  if (thisTokenAttacksMatch && !triggers.some((t) => t.triggerType === 'this_token_attacks')) {
+    const effectText = String(thisTokenAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'this_token_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const flyingOrHasteAttacksMatch = oracleText.match(
+    /whenever a creature you control with flying and\/or haste attacks,?\s*([^.]+)/i,
+  );
+  if (
+    flyingOrHasteAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'flying_or_haste_attacks')
+  ) {
+    const effectText = String(flyingOrHasteAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'flying_or_haste_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const powerEqualsToughnessAttacksMatch = oracleText.match(
+    /whenever a creature you control with power equal to its toughness attacks,?\s*([^.]+)/i,
+  );
+  if (
+    powerEqualsToughnessAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'power_equals_toughness_attacks')
+  ) {
+    const effectText = String(powerEqualsToughnessAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'power_equals_toughness_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const vehicleAttacksMatch = oracleText.match(/whenever a vehicle you control attacks,?\s*([^.]+)/i);
+  if (vehicleAttacksMatch && !triggers.some((t) => t.triggerType === 'vehicle_attacks')) {
+    const effectText = String(vehicleAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'vehicle_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentAttacksWithCreaturesMatch = oracleText.match(
+    /whenever an opponent attacks with (?:one or more )?creatures,?\s*([^.]+)/i,
+  );
+  if (
+    opponentAttacksWithCreaturesMatch &&
+    !triggers.some((t) => t.triggerType === 'opponent_attacks_with_creatures' || t.triggerType === 'opponent_attacks_with_one_or_more_creatures')
+  ) {
+    const effectText = String(opponentAttacksWithCreaturesMatch[1] || '').trim();
+    const triggerType = /one or more creatures/i.test(String(opponentAttacksWithCreaturesMatch[0] || ''))
+      ? 'opponent_attacks_with_one_or_more_creatures'
+      : 'opponent_attacks_with_creatures';
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const targetAttacksUnblockedMatch = oracleText.match(
+    /when(?:ever)?(?: this turn, )? target creature you control attacks and isn't blocked,?\s*([^.]+)/i,
+  );
+  if (
+    targetAttacksUnblockedMatch &&
+    !triggers.some((t) => t.triggerType === 'target_creature_attacks_unblocked')
+  ) {
+    const effectText = String(targetAttacksUnblockedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'target_creature_attacks_unblocked',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreTypedAttackMatch = oracleText.match(
+    /whenever one or more ([\w]+(?: or [\w]+)*) you control attack,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreTypedAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_typed_attack')
+  ) {
+    const effectText = String(oneOrMoreTypedAttackMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'one_or_more_typed_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const creatureAttacksYouOrPlaneswalkerMatch = oracleText.match(
+    /when(?:ever)? a creature attacks you or a planeswalker you control,?\s*([^.]+)/i,
+  );
+  if (
+    creatureAttacksYouOrPlaneswalkerMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_attacks_you_or_planeswalker')
+  ) {
+    const effectText = String(creatureAttacksYouOrPlaneswalkerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'creature_attacks_you_or_planeswalker',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const toxicCreatureAttacksMatch = oracleText.match(
+    /whenever another creature you control with toxic attacks,?\s*([^.]+)/i,
+  );
+  if (toxicCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'toxic_creature_attacks')) {
+    const effectText = String(toxicCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'toxic_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const twoOrMoreCreaturesAttackMatch = oracleText.match(
+    /whenever two or more creatures attack,?\s*([^.]+)/i,
+  );
+  if (twoOrMoreCreaturesAttackMatch && !triggers.some((t) => t.triggerType === 'two_or_more_creatures_attack')) {
+    const effectText = String(twoOrMoreCreaturesAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'two_or_more_creatures_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreNontokenTypedAttackMatch = oracleText.match(
+    /whenever one or more nontoken ([\w]+(?: or [\w]+)*) you control attack,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreNontokenTypedAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_nontoken_typed_attack')
+  ) {
+    const effectText = String(oneOrMoreNontokenTypedAttackMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'one_or_more_nontoken_typed_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreArtifactCreaturesAttackMatch = oracleText.match(
+    /whenever one or more artifact creatures you control attack,?\s*([^.]+)/i,
+  );
+  if (
+    oneOrMoreArtifactCreaturesAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'one_or_more_artifact_creatures_attack')
+  ) {
+    const effectText = String(oneOrMoreArtifactCreaturesAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'one_or_more_artifact_creatures_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const equippedCreatureOtherThanSelfAttacksOrDiesMatch = oracleText.match(
+    new RegExp(
+      `whenever an equipped creature you control other than (?:${attackNameVariants.join('|')}) attacks or dies,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    equippedCreatureOtherThanSelfAttacksOrDiesMatch &&
+    !triggers.some((t) => t.triggerType === 'equipped_creature_other_than_self_attacks_or_dies')
+  ) {
+    const effectText = String(equippedCreatureOtherThanSelfAttacksOrDiesMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'equipped_creature_other_than_self_attacks_or_dies',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nonToyCreaturesAttackPlayerMatch = oracleText.match(
+    /whenever one or more non-Toy creatures you control attack a player,?\s*([^.]+)/i,
+  );
+  if (
+    nonToyCreaturesAttackPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'non_toy_creatures_attack_player')
+  ) {
+    const effectText = String(nonToyCreaturesAttackPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'non_toy_creatures_attack_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedOrEquippedAttacksMatch = oracleText.match(
+    /whenever a creature you control that's enchanted or equipped attacks,?\s*([^.]+)/i,
+  );
+  if (
+    enchantedOrEquippedAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'enchanted_or_equipped_creature_attacks')
+  ) {
+    const effectText = String(enchantedOrEquippedAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'enchanted_or_equipped_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedAndHumanAttackMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${attackNameVariants.join('|')}) and at least one Human attack,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedAndHumanAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'named_and_human_attack')
+  ) {
+    const effectText = String(namedAndHumanAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'named_and_human_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const attackEnchantedOpponentSacrificeMatch = oracleText.match(
+    /when you attack enchanted opponent or a planeswalker they control or when they attack you or a planeswalker you control,?\s*([^.]+)/i,
+  );
+  if (
+    attackEnchantedOpponentSacrificeMatch &&
+    !triggers.some((t) => t.triggerType === 'attack_enchanted_opponent_sacrifice')
+  ) {
+    const effectText = String(attackEnchantedOpponentSacrificeMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'attack_enchanted_opponent_sacrifice',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const twoOrMoreAttackPlayerMatch = oracleText.match(
+    /whenever two or more creatures you control attack a player,?\s*([^.]+)/i,
+  );
+  if (
+    twoOrMoreAttackPlayerMatch &&
+    !triggers.some((t) => t.triggerType === 'two_or_more_creatures_attack_player')
+  ) {
+    const effectText = String(twoOrMoreAttackPlayerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'two_or_more_creatures_attack_player',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerAttacksMatch = oracleText.match(
+    /whenever a player attacks(?! one of your opponents| you),?\s*([^.]+)/i,
+  );
+  if (playerAttacksMatch && !triggers.some((t) => t.triggerType === 'player_attacks')) {
+    const effectText = String(playerAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'player_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const typedAttacksThisTurnMatch = oracleText.match(
+    /whenever a ([\w]+) attacks this turn,?\s*([^.]+)/i,
+  );
+  if (typedAttacksThisTurnMatch && !triggers.some((t) => t.triggerType === 'typed_attacks_this_turn')) {
+    const effectText = String(typedAttacksThisTurnMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'typed_attacks_this_turn',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerAttacksYouMatch = oracleText.match(/whenever a player attacks you,?\s*([^.]+)/i);
+  if (playerAttacksYouMatch && !triggers.some((t) => t.triggerType === 'player_attacks_you')) {
+    const effectText = String(playerAttacksYouMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'player_attacks_you',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerAttacksYourOpponentMatch = oracleText.match(
+    /whenever a player attacks one of your opponents,?\s*([^.]+)/i,
+  );
+  if (
+    playerAttacksYourOpponentMatch &&
+    !triggers.some((t) => t.triggerType === 'player_attacks_your_opponent')
+  ) {
+    const effectText = String(playerAttacksYourOpponentMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'player_attacks_your_opponent',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentAttacksYouMatch = oracleText.match(/whenever an opponent attacks you,?\s*([^.]+)/i);
+  if (opponentAttacksYouMatch && !triggers.some((t) => t.triggerType === 'opponent_attacks_you')) {
+    const effectText = String(opponentAttacksYouMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'opponent_attacks_you',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreAttackMatch = oracleText.match(
+    /whenever one or more creatures(?: you control)? attack(?! you),?\s*([^.]+)/i,
+  );
+  if (oneOrMoreAttackMatch && !triggers.some((t) => t.triggerType === 'one_or_more_creatures_attack')) {
+    const effectText = String(oneOrMoreAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'one_or_more_creatures_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const oneOrMoreAttackYouMatch = oracleText.match(/whenever one or more creatures attack you,?\s*([^.]+)/i);
+  if (oneOrMoreAttackYouMatch && !triggers.some((t) => t.triggerType === 'one_or_more_creatures_attack_you')) {
+    const effectText = String(oneOrMoreAttackYouMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'one_or_more_creatures_attack_you',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const noFlyingAttacksYouMatch = oracleText.match(
+    /whenever a creature without flying attacks you(?: or a planeswalker you control)?,?\s*([^.]+)/i,
+  );
+  if (noFlyingAttacksYouMatch && !triggers.some((t) => t.triggerType === 'creature_without_flying_attacks_you')) {
+    const effectText = String(noFlyingAttacksYouMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'creature_without_flying_attacks_you',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const powerAttacksYouMatch = oracleText.match(
+    /whenever a creature with power (\d+) or greater attacks you,?\s*([^.]+)/i,
+  );
+  if (powerAttacksYouMatch && !triggers.some((t) => t.triggerType === 'power_creature_attacks_you')) {
+    const effectText = String(powerAttacksYouMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'power_creature_attacks_you',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const youAttackWithTwoMatch = oracleText.match(/whenever you attack with two or more creatures,?\s*([^.]+)/i);
+  if (youAttackWithTwoMatch && !triggers.some((t) => t.triggerType === 'you_attack_with_two_or_more')) {
+    const effectText = String(youAttackWithTwoMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'you_attack_with_two_or_more',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const uncontrolledAttacksMatch = oracleText.match(
+    /whenever a creature you don't control attacks(?: a player| an opponent)?,?\s*([^.]+)/i,
+  );
+  if (uncontrolledAttacksMatch && !triggers.some((t) => t.triggerType === 'uncontrolled_creature_attacks')) {
+    const effectText = String(uncontrolledAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'uncontrolled_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const attacksBattleMatch = oracleText.match(/whenever a creature attacks a battle,?\s*([^.]+)/i);
+  if (attacksBattleMatch && !triggers.some((t) => t.triggerType === 'creature_attacks_battle')) {
+    const effectText = String(attacksBattleMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'creature_attacks_battle',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const attacksPlaneswalkerMatch = oracleText.match(/whenever a creature attacks a planeswalker,?\s*([^.]+)/i);
+  if (attacksPlaneswalkerMatch && !triggers.some((t) => t.triggerType === 'creature_attacks_planeswalker')) {
+    const effectText = String(attacksPlaneswalkerMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'creature_attacks_planeswalker',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const multiTypedCreatureAttacksAnyMatch = oracleText.match(
+    /when(?:ever)? a ([\w]+(?:, [\w]+)+, or [\w]+) attacks,?\s*([^.]+)/i,
+  );
+  if (
+    multiTypedCreatureAttacksAnyMatch &&
+    !lowerOracle.includes('you control') &&
+    !triggers.some((t) => t.triggerType === 'multi_typed_creature_attacks_any')
+  ) {
+    const effectText = String(multiTypedCreatureAttacksAnyMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'multi_typed_creature_attacks_any',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const reachCreatureAttacksMatch = oracleText.match(
+    /whenever a creature you control with reach attacks,?\s*([^.]+)/i,
+  );
+  if (reachCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'reach_creature_attacks')) {
+    const effectText = String(reachCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'reach_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const magnetCounterCreatureAttacksMatch = oracleText.match(
+    /when(?:ever)? a creature with a magnet counter on it attacks,?\s*([^.]+)/i,
+  );
+  if (
+    magnetCounterCreatureAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'magnet_counter_creature_attacks')
+  ) {
+    const effectText = String(magnetCounterCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'magnet_counter_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentAttacksBareMatch = oracleText.match(
+    /whenever an opponent attacks(?:,|\s+if\b)/i,
+  );
+  if (
+    opponentAttacksBareMatch &&
+    !lowerOracle.includes('opponent attacks you') &&
+    !lowerOracle.includes('opponent attacks with') &&
+    !triggers.some((t) => t.triggerType === 'opponent_attacks')
+  ) {
+    const fullMatch = oracleText.match(/whenever an opponent attacks,?\s*([^.]+)/i);
+    if (fullMatch) {
+      const effectText = String(fullMatch[1] || '').trim();
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'opponent_attacks',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const multiTypedYouControlAttacksMatch = oracleText.match(
+    /whenever an? ([\w]+(?:, [\w]+)+, or [\w]+) you control attacks,?\s*([^.]+)/i,
+  );
+  if (
+    multiTypedYouControlAttacksMatch &&
+    !triggers.some((t) => t.triggerType === 'multi_typed_you_control_attacks')
+  ) {
+    const effectText = String(multiTypedYouControlAttacksMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'multi_typed_you_control_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const youAttackWithThreeOrMoreMatch = oracleText.match(
+    /when you attack with three or more creatures,?\s*([^.]+)/i,
+  );
+  if (
+    youAttackWithThreeOrMoreMatch &&
+    !triggers.some((t) => t.triggerType === 'you_attack_with_three_or_more_creatures')
+  ) {
+    const effectText = String(youAttackWithThreeOrMoreMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'you_attack_with_three_or_more_creatures',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const legendaryAttacksUnblockedMatch = oracleText.match(
+    /when a legendary creature you control attacks and isn't blocked,?\s*([^.]+)/i,
+  );
+  if (
+    legendaryAttacksUnblockedMatch &&
+    !triggers.some((t) => t.triggerType === 'legendary_creature_attacks_unblocked')
+  ) {
+    const effectText = String(legendaryAttacksUnblockedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'legendary_creature_attacks_unblocked',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const spacecraftAttacksMatch = oracleText.match(/whenever this (?:Spacecraft|spacecraft) attacks,?\s*([^.]+)/i);
+  if (spacecraftAttacksMatch && !triggers.some((t) => t.triggerType === 'spacecraft_attacks')) {
+    const effectText = String(spacecraftAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'spacecraft_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisAndOtherCreatureTokenAttackMatch = oracleText.match(
+    /whenever this creature and at least one other creature token attack,?\s*([^.]+)/i,
+  );
+  if (
+    thisAndOtherCreatureTokenAttackMatch &&
+    !triggers.some((t) => t.triggerType === 'this_and_other_creature_token_attack')
+  ) {
+    const effectText = String(thisAndOtherCreatureTokenAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'this_and_other_creature_token_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedCreatureAttacksOpponentsMatch = oracleText.match(
+    /whenever an enchanted creature attacks one of your opponents,?\s*([^.]+)/i,
+  );
+  if (
+    enchantedCreatureAttacksOpponentsMatch &&
+    !triggers.some((t) => t.triggerType === 'enchanted_creature_attacks_opponents')
+  ) {
+    const effectText = String(enchantedCreatureAttacksOpponentsMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'enchanted_creature_attacks_opponents',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrCommanderAttacksAloneMatch = oracleText.match(
+    /whenever this creature or a commander you control attacks alone,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrCommanderAttacksAloneMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_commander_attacks_alone')
+  ) {
+    const effectText = String(thisOrCommanderAttacksAloneMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'this_or_commander_attacks_alone',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const hasteCreatureAttacksMatch = oracleText.match(
+    /whenever a creature you control with haste attacks,?\s*([^.]+)/i,
+  );
+  if (hasteCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'haste_creature_attacks')) {
+    const effectText = String(hasteCreatureAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'haste_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const threeOrMoreFlyingAttackMatch = oracleText.match(
+    /whenever three or more creatures you control with flying attack,?\s*([^.]+)/i,
+  );
+  if (threeOrMoreFlyingAttackMatch && !triggers.some((t) => t.triggerType === 'three_or_more_flying_creatures_attack')) {
+    const effectText = String(threeOrMoreFlyingAttackMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'three_or_more_flying_creatures_attack',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const flyingAttacksMatch = oracleText.match(
+    /whenever a creature(?: you control)? with flying attacks,?\s*([^.]+)/i,
+  );
+  if (flyingAttacksMatch && !triggers.some((t) => t.triggerType === 'flying_creature_attacks')) {
+    const effectText = String(flyingAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'flying_creature_attacks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerAttacksWithPattern = /whenever (?:a|another) player attacks with (?:\w+|\d+) or more creatures,?\s*([^.]+)/gi;
+  let playerAttacksWithMatch: RegExpExecArray | null;
+  while ((playerAttacksWithMatch = playerAttacksWithPattern.exec(oracleText)) !== null) {
+    const effectText = String(playerAttacksWithMatch[1] || '').trim();
+    if (!effectText) continue;
+    if (triggers.some((t) => String(t.effect || '').trim().toLowerCase() === effectText.toLowerCase())) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'player_attacks_with_creatures',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
     });
   }
   
@@ -1218,15 +8182,363 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     .filter(Boolean);
   const blockKeywordReminderLinePattern = /^(?:afflict\s+\d+|bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
 
+  const anyCreatureBlocksMatch = oracleText.match(/whenever a creature blocks,?\s*([^.]+)/i);
+  if (anyCreatureBlocksMatch && !triggers.some((t) => (t as any).triggerType === 'any_creature_blocks')) {
+    const effectText = String(anyCreatureBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'any_creature_blocks' as any,
+    } as BlockTrigger);
+  }
+
+  const opponentCreatureBlocksMatch = oracleText.match(
+    /whenever a creature an opponent controls blocks,?\s*([^.]+)/i,
+  );
+  if (
+    opponentCreatureBlocksMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'opponent_creature_blocks')
+  ) {
+    const effectText = String(opponentCreatureBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'opponent_creature_blocks' as any,
+    } as BlockTrigger);
+  }
+
+  const equippedCreatureBlocksMatch = oracleText.match(/whenever equipped creature blocks a creature,?\s*([^.]+)/i);
+  if (
+    equippedCreatureBlocksMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'equipped_creature_blocks_creature')
+  ) {
+    const effectText = String(equippedCreatureBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'equipped_creature_blocks_creature' as any,
+    } as BlockTrigger);
+  }
+
+  const enchantedCreatureBecomesBlockedMatch = oracleText.match(
+    /whenever a creature you control that's enchanted becomes blocked,?\s*([^.]+)/i,
+  );
+  if (
+    enchantedCreatureBecomesBlockedMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'enchanted_creature_becomes_blocked')
+  ) {
+    const effectText = String(enchantedCreatureBecomesBlockedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'enchanted_creature_becomes_blocked' as any,
+    } as BlockTrigger);
+  }
+
+  const enchantedCreatureBlocksMatch = oracleText.match(/when(?:ever)? enchanted creature blocks,?\s*([^.]+)/i);
+  if (enchantedCreatureBlocksMatch && !triggers.some((t) => (t as any).triggerType === 'enchanted_creature_blocks')) {
+    const effectText = String(enchantedCreatureBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'enchanted_creature_blocks' as any,
+    } as BlockTrigger);
+  }
+
+  const controlledBecomeBlockedMatch = oracleText.match(
+    /whenever one or more creatures you control become blocked,?\s*([^.]+)/i,
+  );
+  if (
+    controlledBecomeBlockedMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'controlled_creatures_become_blocked')
+  ) {
+    const effectText = String(controlledBecomeBlockedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'controlled_creatures_become_blocked' as any,
+    } as BlockTrigger);
+  }
+
+  const menaceBecomeBlockedMatch = oracleText.match(
+    /whenever a creature you control with menace becomes blocked,?\s*([^.]+)/i,
+  );
+  if (
+    menaceBecomeBlockedMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'menace_creature_becomes_blocked')
+  ) {
+    const effectText = String(menaceBecomeBlockedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'menace_creature_becomes_blocked' as any,
+    } as BlockTrigger);
+  }
+
+  const ringBearerBlockedMatch = oracleText.match(
+    /whenever your ring-bearer becomes blocked by a creature,?\s*([^.]+)/i,
+  );
+  if (
+    ringBearerBlockedMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'ring_bearer_becomes_blocked')
+  ) {
+    const effectText = String(ringBearerBlockedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'ring_bearer_becomes_blocked' as any,
+    } as BlockTrigger);
+  }
+
+  const typedBecomeBlockedMatch = oracleText.match(
+    /whenever a ([\w]+) becomes blocked,?\s*([^.]+)/i,
+  );
+  if (
+    typedBecomeBlockedMatch &&
+    !/\bcreature\b/i.test(String(typedBecomeBlockedMatch[1] || '')) &&
+    !triggers.some((t) => (t as any).triggerType === 'typed_becomes_blocked')
+  ) {
+    const effectText = String(typedBecomeBlockedMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'typed_becomes_blocked' as any,
+    } as BlockTrigger);
+  }
+
+  const typedAnotherBecomeBlockedMatch = oracleText.match(
+    /whenever another ([\w]+) you control becomes blocked,?\s*([^.]+)/i,
+  );
+  if (
+    typedAnotherBecomeBlockedMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'typed_another_becomes_blocked')
+  ) {
+    const effectText = String(typedAnotherBecomeBlockedMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'typed_another_becomes_blocked' as any,
+    } as BlockTrigger);
+  }
+
+  const controlledCreatureBecomeBlockedMatch = oracleText.match(
+    /whenever a creature you control becomes blocked,?\s*([^.]+)/i,
+  );
+  if (
+    controlledCreatureBecomeBlockedMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'controlled_creature_becomes_blocked')
+  ) {
+    const effectText = String(controlledCreatureBecomeBlockedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'controlled_creature_becomes_blocked' as any,
+    } as BlockTrigger);
+  }
+
+  const controlledCreatureAttacksOrBlocksMatch = oracleText.match(
+    /whenever a creature you control attacks or blocks,?\s*([^.]+)/i,
+  );
+  if (
+    controlledCreatureAttacksOrBlocksMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'controlled_creature_attacks_or_blocks')
+  ) {
+    const effectText = String(controlledCreatureAttacksOrBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'controlled_creature_attacks_or_blocks' as any,
+    } as BlockTrigger);
+  }
+
+  const controlledCreatureBlocksMatch = oracleText.match(
+    /whenever a creature you control blocks,?\s*([^.]+)/i,
+  );
+  if (
+    controlledCreatureBlocksMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'controlled_creature_blocks')
+  ) {
+    const effectText = String(controlledCreatureBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'controlled_creature_blocks' as any,
+    } as BlockTrigger);
+  }
+
+  const enchantedAttacksOrBlocksMatch = oracleText.match(
+    /when(?:ever)? enchanted creature attacks or blocks,?\s*([^.]+)/i,
+  );
+  if (
+    enchantedAttacksOrBlocksMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'enchanted_creature_attacks_or_blocks')
+  ) {
+    const effectText = String(enchantedAttacksOrBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'enchanted_creature_attacks_or_blocks' as any,
+    } as BlockTrigger);
+  }
+
+  const blockNameVariantsEarly = buildCardNameRegexAlternatives(cardName);
+  const attacksOrBlocksMatch = oracleText.match(
+    new RegExp(`when(?:ever)? (?:~|this creature|this vehicle|(?:${blockNameVariantsEarly.join('|')})) attacks or blocks,?\\s*([^.]+)`, 'i'),
+  );
+  if (attacksOrBlocksMatch && !triggers.some((t) => (t as any).triggerType === 'attacks_or_blocks')) {
+    const effectText = String(attacksOrBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'attacks_or_blocks' as any,
+    } as BlockTrigger);
+  }
+
   const findGenericBlockTriggerLine = (): RegExpMatchArray | null => {
-    const blocksPattern = /whenever\s+(?:~|this creature)\s+blocks(?:\s+a\s+creature)?,?\s*(.+)$/i;
+    const blockNameVariants = buildCardNameRegexAlternatives(cardName);
+    const blockSubjectPattern = `(?:~|this creature|this vehicle|(?:${blockNameVariants.join('|')}))`;
+    const blocksPatterns = [
+      new RegExp(`when(?:ever)?\\s+${blockSubjectPattern}\\s+blocks(?:\\s+a\\s+creature)?,?\\s*(.+)$`, 'i'),
+    ];
     for (const line of oracleLines) {
       if (blockKeywordReminderLinePattern.test(line)) continue;
-      const match = line.match(blocksPattern);
-      if (match) return match;
+      for (const blocksPattern of blocksPatterns) {
+        const match = line.match(blocksPattern);
+        if (match) return match;
+      }
     }
     return null;
   };
+
+  const chefRoleAttacksOrBlocksMatch = oracleText.match(
+    /whenever a creature you control enchanted by a Chef Role attacks or blocks,?\s*([^.]+)/i,
+  );
+  if (chefRoleAttacksOrBlocksMatch && !triggers.some((t) => t.triggerType === 'chef_role_attacks_or_blocks')) {
+    const effectText = String(chefRoleAttacksOrBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'chef_role_attacks_or_blocks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const equippedBlocksOrBecomesBlockedMatch = oracleText.match(
+    /whenever equipped creature blocks or becomes blocked by one or more creatures,?\s*([^.]+)/i,
+  );
+  if (
+    equippedBlocksOrBecomesBlockedMatch &&
+    !triggers.some((t) => t.triggerType === 'equipped_blocks_or_becomes_blocked')
+  ) {
+    const effectText = String(equippedBlocksOrBecomesBlockedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'equipped_blocks_or_becomes_blocked',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const equippedBlocksOrBlockedByVampireMatch = oracleText.match(
+    /whenever equipped creature blocks or becomes blocked by a Vampire,?\s*([^.]+)/i,
+  );
+  if (
+    equippedBlocksOrBlockedByVampireMatch &&
+    !triggers.some((t) => t.triggerType === 'equipped_blocks_or_blocked_by_vampire')
+  ) {
+    const effectText = String(equippedBlocksOrBlockedByVampireMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'equipped_blocks_or_blocked_by_vampire',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const defenderBlocksMatch = oracleText.match(
+    /whenever a creature you control with defender blocks,?\s*([^.]+)/i,
+  );
+  if (defenderBlocksMatch && !triggers.some((t) => t.triggerType === 'defender_creature_blocks')) {
+    const effectText = String(defenderBlocksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'defender_creature_blocks',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
 
   // Brimaz, King of Oreskos: "Whenever Brimaz blocks a creature, create a 1/1 white Cat Soldier creature token with vigilance that's blocking that creature."
   if (lowerName.includes("brimaz")) {
@@ -1262,6 +8574,377 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     });
   }
 
+  const anyCreatureAttacksOrBlocksBlockMatch = oracleText.match(/whenever a creature attacks or blocks,?\s*([^.]+)/i);
+  if (anyCreatureAttacksOrBlocksBlockMatch && !triggers.some((t) => (t as any).triggerType === 'any_creature_attacks_or_blocks')) {
+    const effectText = String(anyCreatureAttacksOrBlocksBlockMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'any_creature_attacks_or_blocks' as any,
+    } as BlockTrigger);
+  }
+
+  const blockNameVariants = buildCardNameRegexAlternatives(cardName);
+  const typedBecomesBlockedMatch = oracleText.match(
+    /whenever a ([\w]+) you control becomes blocked,?\s*([^.]+)/i,
+  );
+  if (typedBecomesBlockedMatch && !triggers.some((t) => (t as any).triggerType === 'typed_becomes_blocked')) {
+    const effectText = String(typedBecomesBlockedMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'typed_becomes_blocked' as any,
+    } as BlockTrigger);
+  }
+
+  const selfOrEquippedBecomesBlockedMatch = oracleText.match(
+    /whenever this creature or equipped creature becomes blocked,?\s*([^.]+)/i,
+  );
+  if (
+    selfOrEquippedBecomesBlockedMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'self_or_equipped_becomes_blocked')
+  ) {
+    const effectText = String(selfOrEquippedBecomesBlockedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'self_or_equipped_becomes_blocked' as any,
+    } as BlockTrigger);
+  }
+
+  const becomesBlockedPatterns = [
+    /when(?:ever)?\s+(?:~|this creature)\s+becomes blocked(?: this turn)?,?\s*([^.]+)/i,
+    new RegExp(`when(?:ever)?\\s+(?:${blockNameVariants.join('|')})\\s+becomes blocked(?: this turn)?,?\\s*([^.]+)`, 'i'),
+    /whenever\s+(?:~|this creature)\s+becomes blocked by (?:a |an )?creature,?\s*([^.]+)/i,
+    /whenever\s+enchanted\s+creature\s+becomes\s+blocked,?\s*([^.]+)/i,
+    /whenever\s+equipped\s+creature\s+becomes\s+blocked,?\s*([^.]+)/i,
+    /whenever\s+equipped\s+creature\s+blocks\s+or\s+becomes\s+blocked\s+by\s+(?:a\s+)?creature,?\s*([^.]+)/i,
+    /whenever\s+(?:~|this creature)\s+blocks\s+or\s+becomes\s+blocked,?\s*([^.]+)/i,
+    /when\s+that\s+creature\s+becomes\s+blocked(?:\s+this\s+turn)?,?\s*([^.]+)/i,
+  ];
+  for (const pattern of becomesBlockedPatterns) {
+    const match = oracleText.match(pattern);
+    if (!match) continue;
+    const effectText = String(match[1] || '').trim();
+    if (!effectText || triggers.some((trigger) => trigger.effect === effectText)) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  return triggers;
+}
+
+/**
+ * Detect spell-countered triggers (Multani's Presence, etc.)
+ */
+export function detectSpellCounteredTriggers(card: any, permanent: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+  const controllerId = permanent?.controller || '';
+
+  const counteredPatterns = [
+    /whenever a spell you(?:'ve| have) cast is countered,?\s*([^.]+)/gi,
+    /whenever a spell you control is countered,?\s*([^.]+)/gi,
+    /whenever a spell an opponent controls is countered by a spell or ability you control,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of counteredPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[1] || '').trim();
+      if (!effectText || triggers.some((trigger) => trigger.effect === effectText)) continue;
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'spell_countered',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  return triggers;
+}
+
+/**
+ * Detect mutate triggers from oracle text.
+ */
+export function detectMutateTriggers(card: any, permanent: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+  const controllerId = permanent?.controller || '';
+
+  const mutatePatterns = [
+    /whenever this creature mutates,?\s*([^.]+)/gi,
+    /whenever (?:~|[\w ,']+?) mutates,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of mutatePatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[1] || '').trim();
+      if (!effectText || triggers.some((trigger) => trigger.effect === effectText)) continue;
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'mutates',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  return triggers;
+}
+
+/**
+ * Detect discard triggers from oracle text.
+ */
+export function detectEquippedTriggers(card: any, permanent: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+
+  const equippedPatterns = [
+    /when this equipment becomes attached to a creature,?\s*([^.]+)/i,
+    /whenever this equipment becomes attached to a creature,?\s*([^.]+)/i,
+  ];
+  for (const pattern of equippedPatterns) {
+    const match = oracleText.match(pattern);
+    if (!match) continue;
+    const effectText = String(match[1] || '').trim();
+    if (!effectText || triggers.some((t) => t.effect === effectText)) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'equipped_attached',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  return triggers;
+}
+
+export function detectReturnedToHandTriggers(card: any, permanent: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+
+  const returnedPatterns = [
+    /whenever one or more noncreature permanents are returned to hand,?\s*([^.]+)/i,
+    /whenever a permanent is returned to your hand,?\s*([^.]+)/i,
+    /whenever a permanent is returned to a player's hand,?\s*([^.]+)/i,
+    /whenever (?:a |an )?permanent you control is returned to your hand,?\s*([^.]+)/i,
+    /whenever (?:a |an )?creature is returned to your hand,?\s*([^.]+)/i,
+    /whenever (?:~|this creature) or another creature is returned to your hand from the battlefield,?\s*([^.]+)/i,
+    /whenever this creature or another creature is returned to your hand from the battlefield,?\s*([^.]+)/i,
+  ];
+  for (const pattern of returnedPatterns) {
+    const match = oracleText.match(pattern);
+    if (!match) continue;
+    const effectText = String(match[1] || '').trim();
+    if (!effectText || triggers.some((t) => t.effect === effectText)) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'returned_to_hand',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  return triggers;
+}
+
+export function detectDiscardTriggers(card: any, permanent: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+
+  const discardPatterns = [
+    { pattern: /whenever you cycle or discard another card,?\s*([^.]+)/gi, triggerType: 'cycle_or_discard_another' as const },
+    { pattern: /whenever you discard one or more ([\w]+) cards?,?\s*([^.]+)/gi, triggerType: 'discard_one_or_more_typed' as const },
+    { pattern: /whenever you cycle or discard (?:a |an )?card,?\s*([^.]+)/gi, triggerType: 'cycle_or_discard' as const },
+    { pattern: /whenever you discard (?:one or more )?cards?,?\s*([^.]+)/gi, triggerType: 'self_discard' as const },
+    { pattern: /whenever you discard (?:a |an )?(creature|land|artifact|enchantment|instant|sorcery|planeswalker) cards?,?\s*([^.]+)/gi, triggerType: 'typed_self_discard' as const },
+    { pattern: /whenever you discard (?:a |an )?card,?\s*([^.]+)/gi, triggerType: 'self_discard' as const },
+    { pattern: /whenever an opponent discards (?:a |an )?(?:creature|land|noncreature) cards?,?\s*([^.]+)/gi, triggerType: 'opponent_discard' as const },
+    { pattern: /whenever an opponent discards (?:a |an )?card,?\s*([^.]+)/gi, triggerType: 'opponent_discard' as const },
+    { pattern: /whenever a player discards (?:a |an )?card,?\s*([^.]+)/gi, triggerType: 'any_player_discard' as const },
+    { pattern: /whenever another player discards (?:a |an )?card,?\s*([^.]+)/gi, triggerType: 'other_player_discard' as const },
+    { pattern: /whenever (?:a|one or more) players? discard(?:s)? (?:a |an |one or more )?cards?,?\s*([^.]+)/gi, triggerType: 'any_player_discard' as const },
+    { pattern: /whenever a spell or ability causes you to discard (?:a |an )?card,?\s*([^.]+)/gi, triggerType: 'forced_discard' as const },
+    { pattern: /whenever a spell or ability an opponent controls causes you to discard(?: cards?)?(?: this turn)?,?\s*([^.]+)/gi, triggerType: 'forced_discard' as const },
+    { pattern: /when a spell or ability an opponent controls causes you to discard this card,?\s*([^.]+)/gi, triggerType: 'forced_discard' as const },
+    { pattern: /when you discard an instant or sorcery card this way,?\s*([^.]+)/gi, triggerType: 'discard_instant_sorcery_this_way' as const },
+    { pattern: /when you discard (?:a |an )?(?:nonland )?card this way,?\s*([^.]+)/gi, triggerType: 'discard_this_way' as const },
+    { pattern: /when you discard (?:a |an )?creature card this way,?\s*([^.]+)/gi, triggerType: 'discard_creature_card_this_way' as const },
+    { pattern: /when you discard this card,?\s*([^.]+)/gi, triggerType: 'discard_this_card' as const },
+    { pattern: /whenever you discard (?:a |an )?nonland card,?\s*([^.]+)/gi, triggerType: 'discard_nonland_card' as const },
+    { pattern: /whenever you discard an Island(?:, [\w]+(?:, or [\w]+)?)? card,?\s*([^.]+)/gi, triggerType: 'discard_island_or_typed' as const },
+    { pattern: /whenever you discard a Spirit card or a card with disturb,?\s*([^.]+)/gi, triggerType: 'discard_spirit_or_disturb' as const },
+  ];
+
+  for (const { pattern, triggerType } of discardPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[match.length - 1] || '').trim();
+      if (!effectText || triggers.some((trigger) => trigger.triggerType === triggerType && trigger.effect === effectText)) {
+        continue;
+      }
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType,
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const forcedDiscardNamedCardMatch = oracleText.match(
+    new RegExp(
+      `when a spell or ability an opponent controls causes you to discard (?:${buildCardNameRegexAlternatives(cardName).join('|')}),?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (forcedDiscardNamedCardMatch && !triggers.some((t) => t.triggerType === 'forced_discard_named_card')) {
+    const effectText = String(forcedDiscardNamedCardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'forced_discard_named_card',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const discardNamedCardMatch = oracleText.match(
+    new RegExp(`when you discard (?:${buildCardNameRegexAlternatives(cardName).join('|')}),?\\s*([^.]+)`, 'i'),
+  );
+  if (discardNamedCardMatch && !triggers.some((t) => t.triggerType === 'discard_named_card')) {
+    const effectText = String(discardNamedCardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'discard_named_card',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  return triggers;
+}
+
+/**
+ * Detect becomes-the-target triggers from oracle text.
+ */
+export function detectTargetedTriggers(card: any, permanent: any): TriggeredAbility[] {
+  const triggers: TriggeredAbility[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const cardName = String(card?.name || 'Unknown');
+  const permanentId = permanent?.id || '';
+  const cardNameEscaped = escapeCardNameForRegex(cardName);
+
+  const targetedNameRefs = [
+    '~',
+    'this creature',
+    'this permanent',
+    'this artifact',
+    'this enchantment',
+    ...buildCardNameRegexAlternatives(cardName),
+  ];
+  const targetedPatterns = [
+    /whenever you or (?:a |another )?permanent you control becomes the target of (?:a |an )?spell or ability an opponent controls,?\s*([^.]+)/i,
+    /whenever another creature you control becomes the target of (?:a |an )?backup ability,?\s*([^.]+)/i,
+    /whenever a ([\w]+) creature you control becomes the target of (?:a |an )?spell or ability(?: an opponent controls)?,?\s*([^.]+)/i,
+    /whenever you and\/or at least one permanent you control becomes the target of (?:a |an )?spell or ability an opponent controls,?\s*([^.]+)/i,
+    /whenever a creature you control with a \+1\/\+1 counter on it becomes the target of (?:a |an )?spell(?: or ability)? an opponent controls,?\s*([^.]+)/i,
+    /whenever you become the target of (?:a |an )?spell or ability an opponent controls,?\s*([^.]+)/i,
+    /whenever you become the target of (?:a |an )?spell,?\s*([^.]+)/i,
+    /whenever a creature becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
+    /when(?:ever)? (?:a |an )?creature becomes the target of (?:a |an )?spell,?\s*([^.]+)/i,
+    /when(?:ever)? (?:a |an )?creature (?:attacks or )?becomes the target of a spell an opponent controls,?\s*([^.]+)/i,
+    new RegExp(`when(?:ever)? (?:${targetedNameRefs.join('|')}) (?:attacks or )?becomes the target of a spell an opponent controls,?\\s*([^.]+)`, 'i'),
+    /when(?:ever)? (?:a |an )?creature you control becomes the target of (?:a |an )?(?:instant or sorcery )?spell,?\s*([^.]+)/i,
+    /when(?:ever)? (?:a |an )?creature you control becomes the target of (?:a |an )?backup ability,?\s*([^.]+)/i,
+    new RegExp(`when(?:ever)? (?:${targetedNameRefs.join('|')}) becomes the target of (?:a |an )?spell,?\\s*([^.]+)`, 'i'),
+    new RegExp(`when(?:ever)? (?:${targetedNameRefs.join('|')}) becomes the target of (?:a |an )?spell or ability,?\\s*([^.]+)`, 'i'),
+    new RegExp(`whenever (?:${targetedNameRefs.join('|')}) becomes the target of (?:a |an )?spell or ability,?\\s*([^.]+)`, 'i'),
+    /whenever (?:a |an |another )?creature you control becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
+    /when(?:ever)? enchanted creature becomes the target of (?:a |an )?spell,?\s*([^.]+)/i,
+    /when(?:ever)? enchanted creature becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
+    /whenever (?:a |an )?(?:player or permanent|permanent or player) becomes the target of (?:an )?ability you control,?\s*([^.]+)/i,
+    /whenever equipped creature becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
+    /whenever (?:a |an )?permanent you control becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
+    /whenever (?:a |an )?permanent becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
+    /whenever (?:a )?creature or planeswalker you control becomes the target of (?:a |an )?spell or ability(?: an opponent controls)?,?\s*([^.]+)/i,
+    /whenever (?:a )?planeswalker or creature you control becomes the target of (?:a |an )?spell or ability(?: an opponent controls)?,?\s*([^.]+)/i,
+    new RegExp(`whenever (?:${targetedNameRefs.join('|')}) becomes the target of an ability that targets only it,?\\s*([^.]+)`, 'i'),
+    new RegExp(`whenever (?:${targetedNameRefs.join('|')}) or another [\\w]+ you control becomes the target of a spell,?\\s*([^.]+)`, 'i'),
+    /whenever (?:a |an )?creature you control with menace becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
+    /whenever a creature you control or a creature spell you control becomes the target of (?:a |an )?spell or ability an opponent controls,?\s*([^.]+)/i,
+    /whenever a ([\w]+) you control becomes the target of (?:a |an )?spell or ability an opponent controls,?\s*([^.]+)/i,
+    /whenever a ([\w]+(?: or [\w]+)*) you control becomes the target of (?:an )?instant or sorcery spell,?\s*([^.]+)/i,
+    /whenever (?:~|this creature) becomes the target of (?:an )?Aura spell,?\s*([^.]+)/i,
+    /whenever another permanent you control becomes the target of (?:a |an )?spell or ability an opponent controls,?\s*([^.]+)/i,
+    /when (?:the )?chosen player (?:is attacked or )?becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
+    /whenever (?:a |an )?player becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
+    /whenever a creature an opponent controls becomes the target of (?:a |an )?spell or ability you control,?\s*([^.]+)/i,
+    /whenever another creature becomes the target of an ability of a land you control named ([^,]+),?\s*([^.]+)/i,
+  ];
+
+  for (const pattern of targetedPatterns) {
+    const match = oracleText.match(pattern);
+    if (!match) continue;
+    const effectText = String(match[match.length - 1] || '').trim();
+    if (!effectText || triggers.some((trigger) => trigger.effect === effectText)) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'targeted',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   return triggers;
 }
 
@@ -1274,10 +8957,33 @@ const ETB_STATIC_ALTERNATIVES = [
   'this permanent',
   'this land',
   'this enchantment',
+  'this aura',
   'this artifact',
   'this equipment',
+  'this vehicle',
+  'this token',
   'this planeswalker',
-  'this battle'
+  'this battle',
+  'this siege',
+  'this class',
+  'this spacecraft',
+  'this case',
+  'this attraction',
+];
+
+const LTB_STATIC_ALTERNATIVES = [
+  '~',
+  'this creature',
+  'this permanent',
+  'this land',
+  'this enchantment',
+  'this aura',
+  'this artifact',
+  'this equipment',
+  'this vehicle',
+  'this token',
+  'this planeswalker',
+  'this battle',
 ];
 
 /**
@@ -1347,19 +9053,766 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // The ~ is used in some oracle text, but the actual card name is also used
   // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
   // Use shared utility function for regex escaping
-  const etbOracleShortName = normalizeCardNameForOracleText(cardName);
-  const etbNameVariants = Array.from(new Set(
-    [etbOracleShortName, cardName]
-      .map((value) => String(value || '').trim())
-      .filter(Boolean)
-  )).map((value) => escapeCardNameForRegex(value));
+  const etbNameVariants = buildCardNameRegexAlternatives(cardName);
   // Combine static alternatives with dynamic card name variants
   const etbAlternatives = [...ETB_STATIC_ALTERNATIVES, ...etbNameVariants];
-  const etbPattern = new RegExp(`when(?:ever)?\\s+(?:${etbAlternatives.join('|')})\\s+enters(?: the battlefield)?(?:\\s+or\\s+attacks)?[,]?\\s*([^.]+)`, 'i');
+  const putOntoBattlefieldThisWayMatch = oracleText.match(
+    /when a creature is put onto the battlefield this way,?\s*([^.]+)/i,
+  );
+  if (putOntoBattlefieldThisWayMatch && !triggers.some((t) => t.triggerType === 'put_onto_battlefield_this_way')) {
+    const effectText = String(putOntoBattlefieldThisWayMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'put_onto_battlefield_this_way',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const selfEntersOrLeavesPattern = new RegExp(
+    `when(?:ever)?\\s+(?:${etbAlternatives.join('|')})\\s+enters or leaves(?: the battlefield)?,?\\s*([^.]+)`,
+    'i',
+  );
+  const selfEntersOrLeavesEtbMatch = oracleText.match(selfEntersOrLeavesPattern);
+  if (selfEntersOrLeavesEtbMatch && !triggers.some((t) => t.triggerType === 'self_enters_or_leaves')) {
+    const effectText = String(selfEntersOrLeavesEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'self_enters_or_leaves',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const entersOrLeavesEtbMatch = oracleText.match(
+    /whenever (?:a |an )?permanent enters or leaves(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (entersOrLeavesEtbMatch && !triggers.some((t) => t.triggerType === 'enters_or_leaves')) {
+    const effectText = String(entersOrLeavesEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enters_or_leaves',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedAndOrOtherTypedEtbPattern = new RegExp(
+    `whenever\\s+(?:${etbNameVariants.join('|')})\\s+and\\/or\\s+one\\s+or\\s+more\\s+other\\s+([\\w]+(?:\\s+or\\s+[\\w]+)*)\\s+you\\s+control\\s+enter,?\\s*([^.]+)`,
+    'i',
+  );
+  const namedAndOrOtherTypedEtbMatch = oracleText.match(namedAndOrOtherTypedEtbPattern);
+  if (
+    namedAndOrOtherTypedEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'named_and_or_other_typed_etb')
+  ) {
+    const effectText = String(namedAndOrOtherTypedEtbMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_and_or_other_typed_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const namedOrAnotherTypedEtbPattern = new RegExp(
+    `whenever\\s+(?:${etbNameVariants.join('|')})\\s+or\\s+another\\s+([\\w]+(?:\\s+or\\s+[\\w]+)*)(?:\\s+you\\s+control)?\\s+enters?(?: the battlefield)?(?:\\s+under your control)?,?\\s*([^.]+)`,
+    'i',
+  );
+  const namedOrAnotherTypedEtbMatch = oracleText.match(namedOrAnotherTypedEtbPattern);
+  if (
+    namedOrAnotherTypedEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_another_typed_etb')
+  ) {
+    const effectText = String(namedOrAnotherTypedEtbMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_another_typed_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const namedOrCreaturePowerOrLessEtbMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${etbNameVariants.join('|')}) or another creature you control with power (\\d+) or less enters?(?: the battlefield)?,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrCreaturePowerOrLessEtbMatch &&
+    !lowerOracle.includes('nontoken creature you control with power') &&
+    !triggers.some((t) => t.triggerType === 'named_or_creature_power_or_less_etb')
+  ) {
+    const effectText = String(namedOrCreaturePowerOrLessEtbMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_creature_power_or_less_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const namedOrNontokenCreaturePowerOrLessEtbMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${etbNameVariants.join('|')}) or another nontoken creature you control with power (\\d+) or less enters?(?: the battlefield)?,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrNontokenCreaturePowerOrLessEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_nontoken_creature_power_or_less_etb')
+  ) {
+    const effectText = String(namedOrNontokenCreaturePowerOrLessEtbMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_nontoken_creature_power_or_less_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const multiTypedCreatureEtbMatch = oracleText.match(
+    /whenever a ([\w]+(?:, [\w]+)+, or [\w]+) you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (multiTypedCreatureEtbMatch && !triggers.some((t) => t.triggerType === 'multi_typed_creature_etb')) {
+    const effectText = String(multiTypedCreatureEtbMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'multi_typed_creature_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const thisAttractionEtbMatch = oracleText.match(/when this attraction enters,?\s*([^.]+)/i);
+  if (thisAttractionEtbMatch && !triggers.some((t) => t.triggerType === 'this_attraction_etb')) {
+    const effectText = String(thisAttractionEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_attraction_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedOrAnotherSameNamedPermanentEtbMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${etbNameVariants.join('|')}) or another permanent you control named (?:${etbNameVariants.join('|')}) enters?(?: the battlefield)?,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrAnotherSameNamedPermanentEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_another_same_named_permanent_etb')
+  ) {
+    const effectText = String(namedOrAnotherSameNamedPermanentEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_another_same_named_permanent_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const thisOrAnotherNonTypeEtbMatch = oracleText.match(
+    /whenever this creature or another non-([\w]+) creature you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherNonTypeEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_non_type_creature_etb')
+  ) {
+    const effectText = String(thisOrAnotherNonTypeEtbMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_non_type_creature_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const toughnessGreaterThanPowerEtbMatch = oracleText.match(
+    /whenever this creature or another creature you control with toughness greater than its power enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    toughnessGreaterThanPowerEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'toughness_greater_than_power_creature_etb')
+  ) {
+    const effectText = String(toughnessGreaterThanPowerEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'toughness_greater_than_power_creature_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const namedOrNontokenHistoricEtbMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${etbNameVariants.join('|')}) or another nontoken historic permanent you control enters?(?: the battlefield)?,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrNontokenHistoricEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_nontoken_historic_permanent_etb')
+  ) {
+    const effectText = String(namedOrNontokenHistoricEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_nontoken_historic_permanent_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const entersFromGraveyardMatch = oracleText.match(
+    /whenever this creature or another creature enters from your graveyard,?\s*([^.]+)/i,
+  );
+  if (
+    entersFromGraveyardMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_enters_from_graveyard')
+  ) {
+    const effectText = String(entersFromGraveyardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creature_enters_from_graveyard',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const permanentEntersFromGraveyardMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${etbNameVariants.join('|')}|this creature|this permanent) or another permanent enters from a graveyard,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    permanentEntersFromGraveyardMatch &&
+    !triggers.some((t) => t.triggerType === 'permanent_enters_from_graveyard')
+  ) {
+    const effectText = String(permanentEntersFromGraveyardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'permanent_enters_from_graveyard',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const artifactCreatureEnchantmentEntersMatch = oracleText.match(
+    /whenever an artifact, creature, or enchantment enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    artifactCreatureEnchantmentEntersMatch &&
+    !triggers.some((t) => t.triggerType === 'artifact_creature_or_enchantment_enters')
+  ) {
+    const effectText = String(artifactCreatureEnchantmentEntersMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'artifact_creature_or_enchantment_enters',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const cleanupStepSacrificeMatch = oracleText.match(
+    /sacrifices? it at the beginning of the next cleanup step/i,
+  );
+  if (cleanupStepSacrificeMatch && !triggers.some((t) => t.triggerType === 'cleanup_step_sacrifice')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'cleanup_step_sacrifice',
+      description: 'Sacrifice at the beginning of the next cleanup step',
+      effect: 'Sacrifice at the beginning of the next cleanup step',
+      mandatory: true,
+    });
+  }
+
+  const thisPermanentEtbMatch = oracleText.match(/when(?:ever)? this permanent enters(?: the battlefield)?,?\s*([^.]+)/i);
+  if (thisPermanentEtbMatch && !triggers.some((t) => t.triggerType === 'this_permanent_etb')) {
+    const effectText = String(thisPermanentEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_permanent_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const entersThisWayMatch = oracleText.match(/when it enters this way,?\s*([^.]+)/i);
+  if (entersThisWayMatch && !triggers.some((t) => t.triggerType === 'enters_this_way')) {
+    const effectText = String(entersThisWayMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enters_this_way',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedOrCreaturePowerOrGreaterEtbMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:~|this creature|(?:${etbNameVariants.join('|')})) or another creature(?: you control)? with power (\\d+) or greater enters?(?: the battlefield)?,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrCreaturePowerOrGreaterEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_creature_power_or_greater_etb')
+  ) {
+    const effectText = String(namedOrCreaturePowerOrGreaterEtbMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_creature_power_or_greater_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const teamTypedEtbMatch = oracleText.match(
+    /whenever this creature or another ([\w]+) your team controls enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (teamTypedEtbMatch && !triggers.some((t) => t.triggerType === 'team_typed_creature_etb')) {
+    const effectText = String(teamTypedEtbMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'team_typed_creature_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const namedAndOrNontokenCreaturesEnterMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${etbNameVariants.join('|')}) and\\/or one or more other nontoken creatures you control enter,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedAndOrNontokenCreaturesEnterMatch &&
+    !triggers.some((t) => t.triggerType === 'named_and_or_nontoken_creatures_enter')
+  ) {
+    const effectText = String(namedAndOrNontokenCreaturesEnterMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_and_or_nontoken_creatures_enter',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const namedOrAnotherNontokenTypedEtbMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${etbNameVariants.join('|')}) or another nontoken ([\\w]+) you control enters?(?: the battlefield)?,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrAnotherNontokenTypedEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'named_or_another_nontoken_typed_etb')
+  ) {
+    const effectText = String(namedOrAnotherNontokenTypedEtbMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_another_nontoken_typed_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const thisOrAnotherTypedEtbAnyMatch = oracleText.match(
+    /whenever this creature or another ([\w]+) enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherTypedEtbAnyMatch &&
+    !lowerOracle.includes('you control') &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_typed_etb_any')
+  ) {
+    const tribalType = String(thisOrAnotherTypedEtbAnyMatch[1] || '').trim().toLowerCase();
+    const effectText = String(thisOrAnotherTypedEtbAnyMatch[2] || '').trim();
+    if (effectText && !['creature', 'artifact', 'enchantment', 'permanent'].includes(tribalType)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'this_or_another_typed_etb_any',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const thisOrAnotherNontokenTypedEtbMatch = oracleText.match(
+    /whenever this creature or another nontoken ([\w]+) you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherNontokenTypedEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_nontoken_typed_etb')
+  ) {
+    const effectText = String(thisOrAnotherNontokenTypedEtbMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_nontoken_typed_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const thisOrAnotherArtifactEtbAnyMatch = oracleText.match(
+    /whenever this artifact or another artifact enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherArtifactEtbAnyMatch &&
+    !lowerOracle.includes('you control') &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_artifact_etb_any')
+  ) {
+    const effectText = String(thisOrAnotherArtifactEtbAnyMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_artifact_etb_any',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisBossEtbMatch = oracleText.match(/when this boss enters,?\s*([^.]+)/i);
+  if (thisBossEtbMatch && !triggers.some((t) => t.triggerType === 'this_boss_etb')) {
+    const effectText = String(thisBossEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_boss_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const multiTypedControlledEtbMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${etbNameVariants.join('|')}) or another ([\\w]+, [\\w]+, [\\w]+, or [\\w]+) enters the battlefield under your control,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    multiTypedControlledEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'multi_typed_controlled_etb')
+  ) {
+    const effectText = String(multiTypedControlledEtbMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'multi_typed_controlled_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const counterSpellPlayedMatch = oracleText.match(
+    /whenever a player plays a spell that counters a spell that has been played or a player plays a spell that comes into play with counters,?\s*([^.]+)/i,
+  );
+  if (
+    counterSpellPlayedMatch &&
+    !triggers.some((t) => t.triggerType === 'counter_spell_played')
+  ) {
+    const effectText = String(counterSpellPlayedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'counter_spell_played',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisEquipmentEtbMatch = oracleText.match(/when(?:ever)? this equipment enters(?: the battlefield)?,?\s*([^.]+)/i);
+  if (thisEquipmentEtbMatch && !triggers.some((t) => t.triggerType === 'this_equipment_etb')) {
+    const effectText = String(thisEquipmentEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_equipment_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherTypedEtbMatch = oracleText.match(
+    /whenever this creature or another ([\w]+) you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisOrAnotherTypedEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'this_or_another_typed_etb')
+  ) {
+    const tribalType = String(thisOrAnotherTypedEtbMatch[1] || '').trim().toLowerCase();
+    const effectText = String(thisOrAnotherTypedEtbMatch[2] || '').trim();
+    if (
+      effectText &&
+      !['creature', 'artifact', 'enchantment', 'ally', 'permanent'].includes(tribalType)
+    ) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'this_or_another_typed_etb',
+        description: effectText,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        controlledOnly: true,
+      });
+    }
+  }
+
+  const thisOrAnotherAllyEtbMatch = oracleText.match(
+    /whenever this creature or another ally you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (thisOrAnotherAllyEtbMatch && !triggers.some((t) => t.triggerType === 'this_or_another_ally_etb')) {
+    const effectText = String(thisOrAnotherAllyEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_ally_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const thisCreatureOrAnotherArtifactEtbMatch = oracleText.match(
+    /whenever this (?:creature|permanent) or another artifact you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisCreatureOrAnotherArtifactEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'this_creature_or_another_artifact_etb')
+  ) {
+    const effectText = String(thisCreatureOrAnotherArtifactEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_creature_or_another_artifact_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const thisEnchantmentOrAnotherNontokenEtbMatch = oracleText.match(
+    /whenever this enchantment or another nontoken enchantment you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisEnchantmentOrAnotherNontokenEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'this_enchantment_or_another_nontoken_etb')
+  ) {
+    const effectText = String(thisEnchantmentOrAnotherNontokenEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_enchantment_or_another_nontoken_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const thisOrAnotherArtifactEtbMatch = oracleText.match(
+    /whenever this artifact or another artifact you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (thisOrAnotherArtifactEtbMatch && !triggers.some((t) => t.triggerType === 'this_or_another_artifact_etb')) {
+    const effectText = String(thisOrAnotherArtifactEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_artifact_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const thisOrAnotherEnchantmentEtbMatch = oracleText.match(
+    /whenever this enchantment or another enchantment you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (thisOrAnotherEnchantmentEtbMatch && !triggers.some((t) => t.triggerType === 'this_or_another_enchantment_etb')) {
+    const effectText = String(thisOrAnotherEnchantmentEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_enchantment_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const thisCreatureOrAnotherEnchantmentEtbMatch = oracleText.match(
+    /whenever this creature or another enchantment you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    thisCreatureOrAnotherEnchantmentEtbMatch &&
+    !triggers.some((t) => t.triggerType === 'this_creature_or_another_enchantment_etb')
+  ) {
+    const effectText = String(thisCreatureOrAnotherEnchantmentEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_creature_or_another_enchantment_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const counterThresholdMatch = oracleText.match(
+    /when there are (?:\w+|\d+) or more (\w+) counters on (?:this \w+),?\s*([^.]+)/i,
+  );
+  if (counterThresholdMatch && !triggers.some((t) => t.triggerType === 'counter_threshold')) {
+    const effectText = String(counterThresholdMatch[3] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'counter_threshold',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const thisOrAnotherCreatureEtbMatch = oracleText.match(
+    /whenever this creature or another creature you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (thisOrAnotherCreatureEtbMatch && !triggers.some((t) => t.triggerType === 'this_or_another_creature_etb')) {
+    const effectText = String(thisOrAnotherCreatureEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'this_or_another_creature_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const namedOrAnotherCreatureEtbPattern = new RegExp(
+    `whenever\\s+(?:${etbNameVariants.join('|')}|this creature)\\s+or\\s+another\\s+(?:[\\w\\s]+?\\s+)?creature(?:s)?\\s+you\\s+control\\s+enters?(?: the battlefield)?,?\\s*([^.]+)`,
+    'i',
+  );
+  const namedOrAnotherCreatureEtbMatch = oracleText.match(namedOrAnotherCreatureEtbPattern);
+  if (namedOrAnotherCreatureEtbMatch && !triggers.some((t) => t.triggerType === 'named_or_another_creature_etb')) {
+    const effectText = String(namedOrAnotherCreatureEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_another_creature_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const namedOrAnotherEnchantmentEtbPattern = new RegExp(
+    `whenever\\s+(?:${etbNameVariants.join('|')})\\s+or\\s+another\\s+enchantment(?:s)?\\s+you\\s+control\\s+enters?(?: the battlefield)?,?\\s*([^.]+)`,
+    'i',
+  );
+  const namedOrAnotherEnchantmentEtbMatch = oracleText.match(namedOrAnotherEnchantmentEtbPattern);
+  if (namedOrAnotherEnchantmentEtbMatch && !triggers.some((t) => t.triggerType === 'named_or_another_enchantment_etb')) {
+    const effectText = String(namedOrAnotherEnchantmentEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_another_enchantment_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      controlledOnly: true,
+    });
+  }
+
+  const etbPattern = new RegExp(
+    `when(?:ever)?\\s+(?:${etbAlternatives.join('|')})\\s+(?:enters(?: the battlefield)?|comes into play)(?:\\s+or\\s+attacks)?[,]?\\s*([^.]+)`,
+    'i',
+  );
   const etbMatch = oracleText.match(etbPattern);
-  if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'etb_sacrifice_unless_pay')) {
+  if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'self_enters_or_attacks' || t.triggerType === 'etb_sacrifice_unless_pay')) {
     let effectText = etbMatch[1].trim();
     const fullMatchText = String(etbMatch[0] || '');
+    const isSelfEntersOrAttacks = /\bor\s+attacks\b/i.test(fullMatchText);
     const matchIndex = typeof etbMatch.index === 'number' ? etbMatch.index : oracleText.indexOf(fullMatchText);
     const remainder = matchIndex >= 0 ? oracleText.slice(matchIndex + fullMatchText.length).trim() : '';
 
@@ -1445,7 +9898,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       triggers.push({
         permanentId,
         cardName,
-        triggerType: 'etb',
+        triggerType: isSelfEntersOrAttacks ? 'self_enters_or_attacks' : 'etb',
         description: effectText,
         effect: effectText,
         mandatory: true,
@@ -1458,37 +9911,212 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   }
 
   const etbOrAttackPattern = new RegExp(`whenever\\s+(?:${etbAlternatives.join('|')})\\s+enters(?: the battlefield)?\\s+or\\s+attacks[,]?\\s*([^.]+)`, 'i');
+  const faceUpPattern = new RegExp(
+    `when(?:ever)?\\s+(?:${etbAlternatives.join('|')})\\s+is turned face up,?\\s*([^.]+)`,
+    'i',
+  );
+  const regenerateMatch = oracleText.match(/when it regenerates this way,?\s*([^.]+)/i);
+  if (regenerateMatch && !triggers.some((trigger) => trigger.triggerType === 'regenerated')) {
+    const effectText = String(regenerateMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'regenerated',
+      description: effectText,
+      effect: effectText,
+      mandatory: true,
+    });
+  }
+
+  const commanderEtbMatch = oracleText.match(/when(?:ever)? your commander enters?(?: the battlefield)?,?\s*([^.]+)/i);
+  if (commanderEtbMatch && !triggers.some((trigger) => trigger.triggerType === 'commander_etb')) {
+    const effectText = String(commanderEtbMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'commander_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const phasesInMatch = oracleText.match(/when(?:ever)? (?:~|this creature) phases in,?\s*([^.]+)/i);
+  if (phasesInMatch && !triggers.some((trigger) => trigger.triggerType === 'phases_in')) {
+    const effectText = String(phasesInMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'phases_in',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anotherPermanentFaceUpMatch = oracleText.match(
+    /whenever another permanent you control is turned face up,?\s*([^.]+)/i,
+  );
+  if (
+    anotherPermanentFaceUpMatch &&
+    !triggers.some((trigger) => trigger.triggerType === 'another_permanent_face_up')
+  ) {
+    const effectText = String(anotherPermanentFaceUpMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'another_permanent_face_up',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantmentOrPermanentFaceUpMatch = oracleText.match(
+    /whenever this enchantment or another permanent you control is turned face up,?\s*([^.]+)/i,
+  );
+  if (
+    enchantmentOrPermanentFaceUpMatch &&
+    !triggers.some((trigger) => trigger.triggerType === 'enchantment_or_permanent_turned_face_up')
+  ) {
+    const effectText = String(enchantmentOrPermanentFaceUpMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'enchantment_or_permanent_turned_face_up',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const faceDownControlledFaceUpMatch = oracleText.match(
+    /whenever a face-down permanent you control is turned face up,?\s*([^.]+)/i,
+  );
+  if (
+    faceDownControlledFaceUpMatch &&
+    !triggers.some((trigger) => trigger.triggerType === 'face_down_controlled_turned_face_up')
+  ) {
+    const effectText = String(faceDownControlledFaceUpMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'face_down_controlled_turned_face_up',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const namedOrAnotherPermanentFaceUpMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${etbAlternatives.join('|')}) or another permanent you control is turned face up,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrAnotherPermanentFaceUpMatch &&
+    !triggers.some((trigger) => trigger.triggerType === 'named_or_another_permanent_face_up')
+  ) {
+    const effectText = String(namedOrAnotherPermanentFaceUpMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'named_or_another_permanent_face_up',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const selfOrAnotherPermanentFaceUpMatch = oracleText.match(
+    /whenever this creature or another permanent is turned face up,?\s*([^.]+)/i,
+  );
+  if (
+    selfOrAnotherPermanentFaceUpMatch &&
+    !triggers.some((trigger) => trigger.triggerType === 'self_or_another_permanent_face_up')
+  ) {
+    const effectText = String(selfOrAnotherPermanentFaceUpMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'self_or_another_permanent_face_up',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const controlledFaceUpMatch = oracleText.match(
+    /whenever (?:this creature or another creature you control|a permanent you control) is turned face up,?\s*([^.]+)/i,
+  );
+  if (controlledFaceUpMatch && !triggers.some((trigger) => trigger.triggerType === 'controlled_permanent_face_up')) {
+    const effectText = String(controlledFaceUpMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'controlled_permanent_face_up',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anyPermanentFaceUpMatch = oracleText.match(/whenever a permanent is turned face up,?\s*([^.]+)/i);
+  if (anyPermanentFaceUpMatch && !triggers.some((trigger) => trigger.triggerType === 'any_permanent_face_up')) {
+    const effectText = String(anyPermanentFaceUpMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'any_permanent_face_up',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedFaceUpMatch = oracleText.match(/when(?:ever)? enchanted creature is turned face up,?\s*([^.]+)/i);
+  if (enchantedFaceUpMatch && !triggers.some((trigger) => trigger.triggerType === 'face_up')) {
+    const effectText = String(enchantedFaceUpMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'face_up',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const faceUpMatch = oracleText.match(faceUpPattern);
+  if (faceUpMatch && !triggers.some((trigger) => trigger.triggerType === 'face_up')) {
+    const effectText = String(faceUpMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'face_up',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   const etbOrAttackMatch = oracleText.match(etbOrAttackPattern);
   if (etbOrAttackMatch) {
     const effectText = String(etbOrAttackMatch[1] || '').trim();
     const hasMatchingEtbEffect = triggers.some((trigger) =>
-      trigger.triggerType === 'etb' &&
+      (trigger.triggerType === 'etb' || trigger.triggerType === 'self_enters_or_attacks') &&
       String(trigger.effect || trigger.description || '').trim().toLowerCase() === effectText.toLowerCase()
     );
 
-    if (effectText && !hasMatchingEtbEffect) {
-      const targetType = detectTargetType(effectText);
-      const requiresTarget = !!targetType;
-      let targetConstraint: 'opponent' | 'you' | undefined = undefined;
-      if (requiresTarget) {
-        const lowerEffect = effectText.toLowerCase();
-        if (lowerEffect.includes('an opponent controls') || lowerEffect.includes('opponent controls')) {
-          targetConstraint = 'opponent';
-        } else if (lowerEffect.includes('you control')) {
-          targetConstraint = 'you';
-        }
-      }
-
+    if (effectText && !hasMatchingEtbEffect && !triggers.some((t) => t.triggerType === 'self_enters_or_attacks')) {
       triggers.push({
         permanentId,
         cardName,
-        triggerType: 'etb',
+        triggerType: 'self_enters_or_attacks',
         description: effectText,
         effect: effectText,
         mandatory: true,
-        requiresTarget,
-        targetType,
-        targetConstraint,
       });
     }
   }
@@ -1501,12 +10129,66 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // IMPORTANT: Exclude opponent-controlled ETB templates (handled separately as opponent_creature_etb).
   // Without this guard, patterns like "Whenever a creature enters under an opponent's control, ..." can be
   // misclassified as generic creature_etb and then miss intervening-if context like "that player".
-  const hasOpponentCreatureRestriction = /an opponent controls|under an opponent's control|under their control/i.test(oracleText);
+  const hasOpponentCreatureRestriction =
+    /whenever (?:a|another) creature an opponent controls enters/i.test(oracleText) ||
+    /\benters?(?: the battlefield)?\b[^.]{0,120}\bunder an opponent's control\b/i.test(oracleText) ||
+    /\benters?(?: the battlefield)?\b[^.]{0,120}\bunder their control\b/i.test(oracleText);
   // Capture the required type phrase between the determiner (a/another/other/one or more) and "enters".
   // Examples captured: "creature", "nontoken creature", "token creature", "artifact creature", "Bear", "Assembly-Worker".
   const creatureETBMatch = oracleText.match(
-    /whenever (?:a|an(?:other)?|one or more(?: other)?|other) ([^,]+?) (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i
+    /when(?:ever)? (?:a|an(?:other)?|one or more(?: other)?|other) ([^,]+?) (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/i
   );
+  const thatPermanentEtbMatch = oracleText.match(
+    /when that permanent enters(?: the battlefield)?,?\s*([^.]+)/i
+  );
+  if (thatPermanentEtbMatch && !triggers.some((t) => t.triggerType === 'another_permanent_etb' || t.triggerType === 'delayed_etb')) {
+    const effectText = String(thatPermanentEtbMatch[1] || '').trim();
+    if (effectText) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'delayed_etb' as any,
+        description: effectText,
+        effect: effectText,
+        mandatory: !lowerOracle.includes('you may'),
+      });
+    }
+  }
+  const chosenTypeEtbOrAttackMatch = oracleText.match(
+    /whenever a creature you control of the chosen type enters or attacks,?\s*([^.]+)/i
+  );
+  const chosenTypeCreatureEtb = parseChosenTypeCreatureEtbTrigger(oracleText);
+  if (
+    chosenTypeCreatureEtb
+    && !triggers.some((t) => t.triggerType === 'chosen_type_creature_etb')
+    && !triggers.some((t) => t.triggerType === 'chosen_type_creature_etb_or_attack')
+  ) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'chosen_type_creature_etb',
+      description: chosenTypeCreatureEtb.effect,
+      effect: chosenTypeCreatureEtb.effect,
+      mandatory: chosenTypeCreatureEtb.mandatory,
+      nontokenOnly: chosenTypeCreatureEtb.nontokenOnly,
+      anotherOnly: chosenTypeCreatureEtb.anotherOnly,
+    } as any);
+  }
+
+  if (chosenTypeEtbOrAttackMatch && !triggers.some((t) => t.triggerType === 'chosen_type_creature_etb_or_attack')) {
+    const effectText = String(chosenTypeEtbOrAttackMatch[1] || '').trim();
+    if (effectText) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'chosen_type_creature_etb_or_attack',
+        description: effectText,
+        effect: effectText,
+        mandatory: true,
+      });
+    }
+  }
+
   if (creatureETBMatch && !hasOpponentCreatureRestriction && !triggers.some(t => t.triggerType === 'creature_etb')) {
     const requiredTypePhrase = creatureETBMatch[1].trim();
     const isNontokenOnly = /\b(?:nontoken|non-token)\b/i.test(requiredTypePhrase);
@@ -1692,6 +10374,36 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     } as any);
   }
   
+  const flyingControlledETBMatch = oracleText.match(
+    /whenever (?:~|this creature) or another creature you control with flying enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (flyingControlledETBMatch && !triggers.some((t) => t.triggerType === 'flying_controlled_etb')) {
+    const effectText = String(flyingControlledETBMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'flying_controlled_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    } as any);
+  }
+
+  const opponentLandETBMatch = oracleText.match(
+    /whenever a land (?:an opponent controls enters|enters(?: the battlefield)?(?: under)? an opponent'?s control),?\s*([^.]+)/i,
+  );
+  if (opponentLandETBMatch && !triggers.some((t) => t.triggerType === 'opponent_land_etb')) {
+    const effectText = String(opponentLandETBMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'opponent_land_etb',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    } as any);
+  }
+
   // "Whenever a creature an opponent controls enters" (Suture Priest second ability)
   // This triggers when OPPONENTS' creatures enter the battlefield
   // Also handles plural forms
@@ -1890,7 +10602,127 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
       effect: 'Untap all lands you control',
     });
   }
-  
+
+  const untapStepMatch = oracleText.match(
+    /whenever you untap one or more permanents during your untap step,?\s*([^.]+)/i,
+  );
+  if (untapStepMatch && !triggers.some((t) => t.triggerOn === 'untap_step')) {
+    const effectText = String(untapStepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'untap_step',
+      untapType: 'controlled_permanent',
+      effect: effectText,
+    });
+  }
+
+  const controlledPermanentUntapMatch = oracleText.match(
+    /whenever a permanent you control becomes untapped,?\s*([^.]+)/i,
+  );
+  if (
+    controlledPermanentUntapMatch &&
+    !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'controlled_permanent')
+  ) {
+    const effectText = String(controlledPermanentUntapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'untap',
+      untapType: 'controlled_permanent',
+      effect: effectText,
+    });
+  }
+
+  const permanentUntapMatch = oracleText.match(/whenever a permanent becomes untapped,?\s*([^.]+)/i);
+  if (permanentUntapMatch && !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'permanent')) {
+    const effectText = String(permanentUntapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'untap',
+      untapType: 'permanent',
+      effect: effectText,
+    });
+  }
+
+  const selfBecomesUntappedMatch = oracleText.match(
+    /when this creature becomes untapped(?: or you lose control of this creature)?,?\s*([^.]+)/i,
+  );
+  if (selfBecomesUntappedMatch && !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'self')) {
+    const effectText = String(selfBecomesUntappedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'untap',
+      untapType: 'self',
+      effect: effectText,
+    });
+  }
+
+  const equippedUntapMatch = oracleText.match(/whenever equipped creature becomes untapped,?\s*([^.]+)/i);
+  if (equippedUntapMatch && !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'equipped_creature')) {
+    const effectText = String(equippedUntapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'untap',
+      untapType: 'equipped_creature',
+      effect: effectText,
+    });
+  }
+
+  const selfUntapNameRefs = [
+    '~',
+    'this creature',
+    'this permanent',
+    'this artifact',
+    'this land',
+    ...buildCardNameRegexAlternatives(cardName).map((name) => name.toLowerCase()),
+  ];
+  const selfUntapPattern = new RegExp(
+    `whenever (?:${selfUntapNameRefs.join('|')}) become(?:s)? untapped,?\\s*([^.]+)`,
+    'i',
+  );
+  const selfUntapMatch = oracleText.match(selfUntapPattern);
+  if (selfUntapMatch && !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'self')) {
+    const effectText = String(selfUntapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'untap',
+      untapType: 'self',
+      effect: effectText,
+    });
+  }
+
+  const namedOrMvCreatureUntapMatch = oracleText.match(
+    new RegExp(
+      `whenever (?:${selfUntapNameRefs.join('|')}) or another creature you control with mana value (?:\\d+|[\\w]+) or greater becomes untapped,?\\s*([^.]+)`,
+      'i',
+    ),
+  );
+  if (
+    namedOrMvCreatureUntapMatch &&
+    !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'named_or_mv_creature')
+  ) {
+    const effectText = String(namedOrMvCreatureUntapMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerOn: 'untap',
+      untapType: 'named_or_mv_creature',
+      effect: effectText,
+    });
+  }
+
   return triggers;
 }
 
@@ -1973,6 +10805,20 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
     });
   }
   
+  const equipAnyCombatDamageMatch = oracleText.match(/whenever equipped creature deals combat damage(?! to),?\s*([^.]+)/i);
+  if (equipAnyCombatDamageMatch) {
+    const effectText = equipAnyCombatDamageMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      attachedToId,
+      triggerType: 'combat_damage',
+      effect: effectText,
+      mandatory: !effectText.includes('you may'),
+    });
+  }
+
   // Pattern: "Whenever equipped creature deals combat damage to a player, ..."
   const equipDamageMatch = oracleText.match(/whenever equipped creature deals combat damage to (?:a player|an opponent),?\s*([^.]+)/i);
   if (equipDamageMatch) {
@@ -1992,6 +10838,22 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
     });
   }
   
+  const enchantedDefendingPlayerMatch = oracleText.match(
+    /whenever enchanted creature deals combat damage to defending player,?\s*([^.]+)/i,
+  );
+  if (enchantedDefendingPlayerMatch) {
+    const effectText = enchantedDefendingPlayerMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      attachedToId,
+      triggerType: 'combat_damage',
+      effect: effectText,
+      mandatory: !effectText.includes('you may'),
+    });
+  }
+
   // Pattern: "Whenever enchanted creature deals combat damage to a player, ..."
   // Also matches "Whenever enchanted creature deals damage to a player, ..." (Spirit Loop)
   const auraDamageMatch = oracleText.match(/whenever enchanted creature deals (?:combat )?damage to (?:a player|an opponent),?\s*([^.]+)/i);
@@ -2317,8 +11179,11 @@ export function getAttackTriggersForCreatures(
   // Check each attacking creature for attack triggers
   for (const attacker of attackingCreatures) {
     const attackerTriggers = detectAttackTriggers(attacker.card, attacker);
+    const selfEtbTriggers = detectETBTriggers(attacker.card, attacker).filter(
+      (trigger) => trigger.triggerType === 'self_enters_or_attacks',
+    );
     const defendingPlayerId = getDefendingPlayerIdForAttacker(attacker);
-    for (const trigger of attackerTriggers) {
+    for (const trigger of [...attackerTriggers, ...selfEtbTriggers]) {
       // Preserve target player context for "that player" intervening-if templates.
       const existingValue = (trigger as any).value;
       const mergedValue =
@@ -2338,6 +11203,20 @@ export function getAttackTriggersForCreatures(
       if (trigger.triggerType === 'creature_attacks') {
         // Trigger once for each attacking creature
         for (const attacker of attackingCreatures) {
+          const defendingPlayerId = getDefendingPlayerIdForAttacker(attacker);
+          const existingValue = (trigger as any).value;
+          const mergedValue =
+            existingValue && typeof existingValue === 'object'
+              ? { ...existingValue, defendingPlayerId, defendingPlayer: defendingPlayerId, attackingCreatureId: attacker.id }
+              : { defendingPlayerId, defendingPlayer: defendingPlayerId, attackingCreatureId: attacker.id };
+          triggers.push({ ...(trigger as any), value: mergedValue } as any);
+        }
+      }
+      if (trigger.triggerType === 'chosen_type_creature_etb_or_attack') {
+        const chosenType = String((permanent as any)?.chosenCreatureType || '').trim();
+        if (!chosenType) continue;
+        for (const attacker of attackingCreatures) {
+          if (!permanentHasCreatureTypeNow(attacker, chosenType)) continue;
           const defendingPlayerId = getDefendingPlayerIdForAttacker(attacker);
           const existingValue = (trigger as any).value;
           const mergedValue =
@@ -2474,6 +11353,112 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
       effect: eachCombatMatch[1].trim(),
       mandatory: true,
     });
+  }
+
+  const thatCombatMatch = oracleText.match(/at the beginning of that combat,?\s*([^.]+)/i);
+  if (thatCombatMatch && !triggers.some((t) => (t as any).triggerType === 'that_combat')) {
+    const effectText = String(thatCombatMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'that_combat' as any,
+    });
+  }
+
+  const opponentCombatMatch = oracleText.match(
+    /at the beginning of combat on each opponent's turn,?\s*([^.]+)/i,
+  );
+  if (opponentCombatMatch && !triggers.some((t) => (t as any).triggerType === 'opponent_turn_combat')) {
+    const effectText = String(opponentCombatMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'opponent_turn_combat' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
+  const enchantedOpponentCombatMatch = oracleText.match(
+    /at the beginning of combat on enchanted opponent's turn,?\s*([^.]+)/i,
+  );
+  if (enchantedOpponentCombatMatch && !triggers.some((t) => (t as any).triggerType === 'enchanted_opponent_turn_combat')) {
+    const effectText = String(enchantedOpponentCombatMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'enchanted_opponent_turn_combat' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
+  const eachPlayerCombatMatch = oracleText.match(
+    /at the beginning of combat on each player's turn,?\s*([^.]+)/i,
+  );
+  if (eachPlayerCombatMatch && !triggers.some((t) => (t as any).triggerType === 'each_player_turn_combat')) {
+    const effectText = String(eachPlayerCombatMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'each_player_turn_combat' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
+  const combatThisTurnMatch = oracleText.match(/at the beginning of combat this turn,?\s*([^.]+)/i);
+  if (combatThisTurnMatch && !triggers.some((t) => (t as any).triggerType === 'combat_this_turn')) {
+    const effectText = String(combatThisTurnMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'combat_this_turn' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
+  const combatStepMatch = oracleText.match(/at the beginning of your combat step,?\s*([^.]+)/i);
+  if (combatStepMatch && !triggers.some((t) => (t as any).triggerType === 'your_combat_step')) {
+    const effectText = String(combatStepMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'your_combat_step' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
+  const nextCombatMatch = oracleText.match(
+    /at the beginning of the next combat(?: phase)?(?: this turn)?,?\s*([^.]+)/i,
+  );
+  if (nextCombatMatch && !triggers.some((t) => (t as any).triggerType === 'next_combat_phase')) {
+    const effectText = String(nextCombatMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'next_combat_phase' as any,
+    } as BeginningOfCombatTrigger);
   }
   
   return triggers;
@@ -2781,6 +11766,12 @@ function deathTriggerClauseMatchesDyingCreature(
   if (clause.includes('without flying') && deathTriggerPermanentHasKeyword(dyingCreature, 'flying')) return false;
   if (clause.includes('with a +1/+1 counter on it') && Number(counters['+1/+1'] || counters.plus1plus1 || 0) <= 0) return false;
   if (clause.includes('face-down') && !isFaceDown) return false;
+
+  if (clause.includes('of the chosen type')) {
+    const chosenType = String(sourcePermanent?.chosenCreatureType || '').trim();
+    if (!chosenType) return false;
+    return permanentHasCreatureTypeNow(dyingCreature, chosenType);
+  }
 
   return true;
 }
@@ -3500,10 +12491,11 @@ export interface SpellCastTrigger {
   controllerId: string;
   description: string;
   effect: string;
-  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'colorless' | 'historic' | 'tribal_type';
-  tribalType?: string; // For tribal triggers like "Merfolk spell"
+  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'colorless' | 'historic' | 'tribal_type' | 'color';
+  tribalType?: string; // For tribal triggers like "Merfolk spell" or color like "green"
   copiesSpell?: boolean;
   firstSpellThisTurn?: boolean;
+  firstSpellDuringOpponentTurn?: boolean;
   sourceZoneRequirement?: 'library' | 'exile' | 'graveyard' | 'not_hand';
   requiresTarget?: boolean;
   targetType?: string; // e.g., "permanent" for tap/untap effects
@@ -3523,6 +12515,7 @@ export interface SpellCastTrigger {
     randomizeBottomRemainder: boolean;
   };
   addsLoyaltyCounters?: number; // Number of loyalty counters to add (for planeswalkers like Ral, Crackling Wit)
+  optionalPaymentCost?: string; // Optional mana payment before effect (Emperor Mihail II)
   mandatory: boolean;
 }
 
@@ -3543,23 +12536,222 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
 
+  const castTriggerInfo = detectCastTrigger(oracleText, card?.type_line);
+
+  const playerCastsCommanderOrAttacksMatch = oracleText.match(
+    /whenever a player casts their commander or attacks with their commander,?\s*([^.]+)/i,
+  );
+  if (
+    playerCastsCommanderOrAttacksMatch &&
+    !triggers.some((t) => String(t.description || '').toLowerCase().includes('casts their commander or attacks'))
+  ) {
+    const effectText = String(playerCastsCommanderOrAttacksMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever a player casts their commander or attacks with their commander, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'any',
+      tribalType: 'commander',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anyPlayerCrimeMatch = oracleText.match(/whenever a player commits a crime,?\s*([^.]+)/i);
+  if (anyPlayerCrimeMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('commits a crime'))) {
+    const effectText = String(anyPlayerCrimeMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever a player commits a crime, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'any',
+      tribalType: 'commit_a_crime',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const commitCrimeMatch = oracleText.match(/whenever you commit a crime,?\s*([^.]+)/i);
+  if (commitCrimeMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('commit a crime'))) {
+    const effectText = String(commitCrimeMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever you commit a crime, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'any',
+      tribalType: 'commit_a_crime',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const nonSliverCreatureSpellCastMatch = oracleText.match(
+    /whenever you cast a non-Sliver creature spell,?\s*([^.]+)/i,
+  );
+  if (
+    nonSliverCreatureSpellCastMatch &&
+    !triggers.some((t) => String(t.description || '').toLowerCase().includes('non-sliver creature spell'))
+  ) {
+    const effectText = String(nonSliverCreatureSpellCastMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever you cast a non-Sliver creature spell, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'creature',
+      tribalType: 'non-sliver',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const youCopySpellMatch = oracleText.match(/whenever you copy a spell,?\s*([^.]+)/i);
+  if (youCopySpellMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('copy a spell'))) {
+    const effectText = String(youCopySpellMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever you copy a spell, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'any',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const cycleACardMatch = oracleText.match(/whenever you cycle a card,?\s*([^.]+)/i);
+  if (cycleACardMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('cycle a card'))) {
+    const effectText = String(cycleACardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever you cycle a card, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'any',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const cycleAnotherCardMatch = oracleText.match(/whenever you cycle another card,?\s*([^.]+)/i);
+  if (cycleAnotherCardMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('cycle another card'))) {
+    const effectText = String(cycleAnotherCardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever you cycle another card, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'any',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const cycleThisCardMatch = oracleText.match(/when(?:ever)? you cycle this card,?\s*([^.]+)/i);
+  if (cycleThisCardMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('cycle this card'))) {
+    const effectText = String(cycleThisCardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `When you cycle this card, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'any',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const youPlayACardMatch = oracleText.match(/whenever you play a card(?:,?\s*if\s+[^,]+)?,?\s*([^.]+)/i);
+  if (youPlayACardMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('you play a card'))) {
+    const effectText = String(youPlayACardMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever you play a card, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'any',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const youPlayACardThisWayMatch = oracleText.match(/when you play a card this way,?\s*([^.]+)/i);
+  if (youPlayACardThisWayMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('play a card this way'))) {
+    const effectText = String(youPlayACardThisWayMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `When you play a card this way, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'any',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  if (castTriggerInfo.hasCastTrigger && castTriggerInfo.triggerType === 'self_cast') {
+    const effectText = String(castTriggerInfo.effect || '').trim();
+    const description = castTriggerInfo.hasCascade
+      ? `Cascade${castTriggerInfo.cascadeCount && castTriggerInfo.cascadeCount > 1 ? ` (×${castTriggerInfo.cascadeCount})` : ''}`
+      : castTriggerInfo.hasStorm
+        ? 'Storm'
+        : 'When you cast this spell';
+    if (
+      effectText &&
+      !triggers.some((trigger) =>
+        trigger.effect === effectText ||
+        (castTriggerInfo.hasCascade && String(trigger.description || '').toLowerCase().includes('cascade')) ||
+        (castTriggerInfo.hasStorm && String(trigger.description || '').toLowerCase().includes('storm'))
+      )
+    ) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description,
+        effect: effectText,
+        spellCondition: 'any',
+        mandatory: true,
+        ...(castTriggerInfo.hasCascade ? { cascade: true, cascadeCount: castTriggerInfo.cascadeCount } : {}),
+        ...(castTriggerInfo.hasStorm ? { storm: true } : {}),
+      } as SpellCastTrigger);
+    }
+  }
+
   const getSpellCastConditionData = (spellType: string): Pick<SpellCastTrigger, 'spellCondition' | 'tribalType'> => {
     let spellCondition: SpellCastTrigger['spellCondition'] = 'any';
     let tribalType: string | undefined;
 
-    if (spellType === 'creature') {
+    const normalizedType = spellType.replace(/\s+/g, ' ').trim();
+    if (normalizedType === 'creature' || (normalizedType.includes('creature') && !normalizedType.includes('noncreature'))) {
       spellCondition = 'creature';
-    } else if (spellType === 'noncreature') {
+    } else if (normalizedType === 'noncreature' || normalizedType.includes('noncreature')) {
       spellCondition = 'noncreature';
-    } else if (spellType === 'colorless') {
+    } else if (normalizedType === 'colorless') {
       spellCondition = 'colorless';
-    } else if (spellType === 'historic') {
+    } else if (normalizedType === 'historic') {
       spellCondition = 'historic';
-    } else if (spellType === 'instant' || spellType === 'sorcery' || spellType === 'instant or sorcery') {
+    } else if (
+      normalizedType === 'instant' ||
+      normalizedType === 'sorcery' ||
+      normalizedType === 'instant or sorcery' ||
+      /^instant,?\s*sorcery(?:,?\s*or\s+[\w\s]+)?$/i.test(normalizedType)
+    ) {
       spellCondition = 'instant_sorcery';
-    } else if (!['a', 'an', 'spell'].includes(spellType)) {
+      const wizardMatch = normalizedType.match(/or\s+(\w+)\s*$/i);
+      if (wizardMatch && !['spell', 'sorcery', 'instant'].includes(wizardMatch[1].toLowerCase())) {
+        spellCondition = 'tribal_type';
+        tribalType = wizardMatch[1].toLowerCase();
+      }
+    } else if (['green', 'blue', 'red', 'white', 'black'].includes(normalizedType)) {
+      spellCondition = 'color';
+      tribalType = normalizedType;
+    } else if (!['a', 'an', 'spell', ''].includes(normalizedType)) {
       spellCondition = 'tribal_type';
-      tribalType = spellType;
+      tribalType = normalizedType;
     }
 
     return { spellCondition, tribalType };
@@ -3617,21 +12809,54 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     };
   };
   
-  // Pattern: "Whenever you cast a [TYPE] spell, [EFFECT]"
+  // Pattern: "When/Whenever you cast a [TYPE] spell, [EFFECT]"
   const spellCastPatterns = [
-    // Tribal patterns: "Whenever you cast a Merfolk/Goblin/Elf spell"
-    /whenever you cast (?:a |an )?(\w+) spell(?!\s+that\b),?\s*([^.]+)/gi,
-    // Generic creature/noncreature patterns
-    /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery) spell(?!\s+that\b),?\s*([^.]+)/gi,
+    // Multi-word spell types: "nonlegendary creature", "instant or sorcery", tribal names
+    /(?:when|whenever) you cast (?:a |an )?(?!this |that )([\w]+(?:\s+[\w]+)*?)\s+spell(?!\s+that\b),?\s*([^.]+)/gi,
+    // "Whenever you cast an instant, sorcery, or Wizard spell"
+    /(?:when|whenever) you cast an? instant, sorcery, or (\w+) spell,?\s*([^.]+)/gi,
   ];
   
+  const untypedSpellCastPatterns = [
+    /whenever you cast a spell(?:\s+that\s+targets\s+(?:~|this\s+(?:creature|permanent)))?,?\s*([^.]+)/gi,
+    /when you cast a spell,?\s*([^.]+)/gi,
+    /whenever you cast two or more spells[^,]*,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of untypedSpellCastPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[1].trim(), match.index);
+      if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'any')) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: match[0].trim(),
+          effect: effectText,
+          spellCondition: 'any',
+          mandatory: !effectText.toLowerCase().includes('you may'),
+        });
+      }
+    }
+  }
+
   for (const pattern of spellCastPatterns) {
     let match;
     pattern.lastIndex = 0; // Reset regex
     while ((match = pattern.exec(oracleText)) !== null) {
       const spellType = match[1].toLowerCase();
-      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
       const lowerMatchText = String(match[0] || '').toLowerCase();
+      if (
+        /\byour first\b/.test(spellType) ||
+        /\bduring each\b/.test(spellType) ||
+        lowerMatchText.includes('your first spell during each opponent') ||
+        lowerMatchText.includes('your first spell each turn')
+      ) {
+        continue;
+      }
+      const normalizedEffect = normalizeSpellCastEffectText(oracleText, match[0], match[2].trim(), match.index);
+      const effectText = normalizedEffect.effectText;
 
       if (
         lowerMatchText.includes('spell of the chosen type') ||
@@ -3643,7 +12868,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         continue;
       }
       const { spellCondition, tribalType } = getSpellCastConditionData(spellType);
-      const { copiesSpell, isTapUntap, createsToken, tokenDetails, isOptional } = getSpellCastEffectMetadata(effectText, tribalType);
+      const { copiesSpell, isTapUntap, createsToken, tokenDetails } = getSpellCastEffectMetadata(effectText, tribalType);
       
       // Avoid duplicates
       if (!triggers.some((t) =>
@@ -3655,7 +12880,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           permanentId,
           cardName,
           controllerId,
-          description: `Whenever you cast a ${tribalType || spellType} spell, ${effectText}`,
+          description: `Whenever you cast a ${tribalType || spellType} spell, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`,
           effect: effectText,
           spellCondition,
           tribalType,
@@ -3664,7 +12889,8 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           createsToken,
           tokenDetails,
           copiesSpell,
-          mandatory: !isOptional,
+          optionalPaymentCost: normalizedEffect.optionalPaymentCost,
+          mandatory: normalizedEffect.mandatory,
         });
       }
     }
@@ -3676,8 +12902,12 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
       sourceZoneRequirement: 'library' as const,
     },
     {
-      pattern: /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery|colorless|\w+) spell from your graveyard,?\s*([^.]+)/gi,
+      pattern: /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery|colorless|[\w]+(?:\s+[\w]+)*?) spell from (?:your )?graveyard,?\s*([^.]+)/gi,
       sourceZoneRequirement: 'graveyard' as const,
+    },
+    {
+      pattern: /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery|colorless|[\w]+(?:\s+[\w]+)*?) spell from (?:the )?exile,?\s*([^.]+)/gi,
+      sourceZoneRequirement: 'exile' as const,
     },
     {
       pattern: /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery|colorless|\w+) spell from exile,?\s*([^.]+)/gi,
@@ -3687,16 +12917,30 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
       pattern: /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery|colorless|\w+) spell from anywhere other than your hand,?\s*([^.]+)/gi,
       sourceZoneRequirement: 'not_hand' as const,
     },
+    {
+      pattern: /whenever you cast (?:a |an )?spell from anywhere other than your hand,?\s*([^.]+)/gi,
+      sourceZoneRequirement: 'not_hand' as const,
+      untypedSpell: true,
+    },
+    {
+      pattern: /\bor you cast (?:a |an )?spell from anywhere other than your hand,?\s*([^.]+)/gi,
+      sourceZoneRequirement: 'not_hand' as const,
+      untypedSpell: true,
+    },
   ];
 
-  for (const { pattern, sourceZoneRequirement } of sourceQualifiedSpellCastPatterns) {
+  for (const entry of sourceQualifiedSpellCastPatterns) {
+    const { pattern, sourceZoneRequirement } = entry;
+    const untypedSpell = Boolean((entry as { untypedSpell?: boolean }).untypedSpell);
     let match;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const spellType = match[1].toLowerCase();
-      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
+      const spellType = untypedSpell ? 'any' : match[1].toLowerCase();
+      const effectCapture = untypedSpell ? match[1].trim() : match[2].trim();
+      const normalizedEffect = normalizeSpellCastEffectText(oracleText, match[0], effectCapture, match.index);
+      const effectText = normalizedEffect.effectText;
       const { spellCondition, tribalType } = getSpellCastConditionData(spellType);
-      const { copiesSpell, isTapUntap, createsToken, tokenDetails, isOptional } = getSpellCastEffectMetadata(effectText, tribalType);
+      const { copiesSpell, isTapUntap, createsToken, tokenDetails } = getSpellCastEffectMetadata(effectText, tribalType);
 
       if (!triggers.some((trigger) =>
         trigger.effect === effectText &&
@@ -3709,12 +12953,12 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           cardName,
           controllerId,
           description: sourceZoneRequirement === 'library'
-            ? `Whenever you cast a ${tribalType || spellType} spell from your library, ${effectText}`
+            ? `Whenever you cast a ${tribalType || spellType} spell from your library, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`
             : sourceZoneRequirement === 'graveyard'
-              ? `Whenever you cast a ${tribalType || spellType} spell from your graveyard, ${effectText}`
+              ? `Whenever you cast a ${tribalType || spellType} spell from your graveyard, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`
             : sourceZoneRequirement === 'exile'
-              ? `Whenever you cast a ${tribalType || spellType} spell from exile, ${effectText}`
-            : `Whenever you cast a ${tribalType || spellType} spell from anywhere other than your hand, ${effectText}`,
+              ? `Whenever you cast a ${tribalType || spellType} spell from exile, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`
+            : `Whenever you cast a ${tribalType || spellType} spell from anywhere other than your hand, ${normalizedEffect.optionalPaymentCost ? `you may pay ${normalizedEffect.optionalPaymentCost}. If you do, ${effectText}` : effectText}`,
           effect: effectText,
           spellCondition,
           tribalType,
@@ -3724,7 +12968,8 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           targetType: isTapUntap ? 'permanent' : undefined,
           createsToken,
           tokenDetails,
-          mandatory: !isOptional,
+          optionalPaymentCost: normalizedEffect.optionalPaymentCost,
+          mandatory: normalizedEffect.mandatory,
         });
       }
     }
@@ -3732,7 +12977,8 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const firstSpellEachTurnPatterns = [
     /whenever you cast your first (creature|noncreature|instant|sorcery|instant or sorcery) spell each turn,?\s*([^.]+)/gi,
-    /whenever you cast your first (\w+) spell each turn,?\s*([^.]+)/gi,
+    /whenever you cast your first (?:a |an )?([\w]+(?:\s+[\w]+)*?) spell each turn,?\s*([^.]+)/gi,
+    /whenever you cast your first ([^.]+?) spell each turn,?\s*([^.]+)/gi,
   ];
 
   for (const pattern of firstSpellEachTurnPatterns) {
@@ -3862,6 +13108,44 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     });
   }
   
+  if (/\bprowess\b/i.test(oracleText)) {
+    const prowessEffect = 'This creature gets +1/+1 until end of turn.';
+    if (!triggers.some((t) => t.spellCondition === 'noncreature' && t.effect === prowessEffect)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: 'Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.',
+        effect: prowessEffect,
+        spellCondition: 'noncreature',
+        mandatory: true,
+      });
+    }
+  }
+
+  const anotherSpellWithKeywordMatch = oracleText.match(
+    /whenever you cast another spell that has (\w+),?\s*([^.]+)/i,
+  );
+  if (anotherSpellWithKeywordMatch) {
+    const keyword = String(anotherSpellWithKeywordMatch[1] || '').trim().toLowerCase();
+    const effectText = String(anotherSpellWithKeywordMatch[2] || '').trim();
+    if (
+      effectText &&
+      !triggers.some((t) => t.effect === effectText && t.spellCondition === 'any' && t.tribalType === keyword)
+    ) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: `Whenever you cast another spell that has ${keyword}, ${effectText}`,
+        effect: effectText,
+        spellCondition: 'any',
+        tribalType: keyword,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
   // Magecraft pattern (Archmage Emeritus)
   if (lowerOracle.includes('magecraft') || 
       (lowerOracle.includes('whenever you cast or copy') && lowerOracle.includes('instant or sorcery'))) {
@@ -3875,6 +13159,529 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         effect: effectMatch[1].trim(),
         spellCondition: 'instant_sorcery',
         mandatory: true,
+      });
+    }
+  }
+
+  const coloredSpellOrLandfallPatterns = [
+    /whenever you cast a (green|blue|red|white|black) spell(?:\s+or\b)/gi,
+  ];
+  for (const pattern of coloredSpellOrLandfallPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const color = String(match[1] || '').toLowerCase();
+      const afterMatch = oracleText.slice(match.index + match[0].length);
+      const orLandfall = afterMatch.match(/^\s*or\s+([^.]+)/i);
+      const spellOnlyEffect = 'you gain 1 life';
+      const effectText = orLandfall
+        ? `${match[0].trim()} or ${orLandfall[1].trim()}`
+        : spellOnlyEffect;
+      if (!triggers.some((trigger) => trigger.spellCondition === 'color' && trigger.tribalType === color)) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: `Whenever you cast a ${color} spell${orLandfall ? ` or ${orLandfall[1].trim()}` : ''}`,
+          effect: effectText,
+          spellCondition: 'color',
+          tribalType: color,
+          mandatory: true,
+        });
+      }
+    }
+  }
+
+  const firstSpellDuringOpponentTurnMatch = oracleText.match(
+    /whenever you cast your first spell during each opponent's turn,?\s*([^.]+)/gi,
+  );
+  if (firstSpellDuringOpponentTurnMatch) {
+    for (const rawMatch of firstSpellDuringOpponentTurnMatch) {
+      const effectMatch = /whenever you cast your first spell during each opponent's turn,?\s*([^.]+)/i.exec(rawMatch);
+      if (!effectMatch) continue;
+      const effectText = extendSpellCopyEffectText(oracleText, effectMatch[0], effectMatch[1].trim());
+      if (!triggers.some((trigger) => trigger.effect === effectText && trigger.firstSpellDuringOpponentTurn)) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: `Whenever you cast your first spell during each opponent's turn, ${effectText}`,
+          effect: effectText,
+          spellCondition: 'any',
+          firstSpellDuringOpponentTurn: true,
+          oncePerTurn: true,
+          mandatory: !effectText.toLowerCase().includes('you may'),
+        });
+      }
+    }
+  }
+
+  const firstSpellEachTurnUntypedMatch = oracleText.match(/whenever you cast your first spell each turn,?\s*([^.]+)/gi);
+  if (firstSpellEachTurnUntypedMatch) {
+    for (const rawMatch of firstSpellEachTurnUntypedMatch) {
+      const effectMatch = /whenever you cast your first spell each turn,?\s*([^.]+)/i.exec(rawMatch);
+      if (!effectMatch) continue;
+      const effectText = extendSpellCopyEffectText(oracleText, effectMatch[0], effectMatch[1].trim());
+      if (!triggers.some((trigger) => trigger.effect === effectText && trigger.firstSpellThisTurn && trigger.spellCondition === 'any')) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: `Whenever you cast your first spell each turn, ${effectText}`,
+          effect: effectText,
+          spellCondition: 'any',
+          firstSpellThisTurn: true,
+          oncePerTurn: true,
+          mandatory: !effectText.toLowerCase().includes('you may'),
+        });
+      }
+    }
+  }
+
+  const castInstantOrSorceryWithoutSpellWord = oracleText.match(
+    /whenever you cast an? (instant|sorcery),?\s*([^.]+)/gi,
+  );
+  if (castInstantOrSorceryWithoutSpellWord) {
+    for (const rawMatch of castInstantOrSorceryWithoutSpellWord) {
+      const effectMatch = /whenever you cast an? (instant|sorcery),?\s*([^.]+)/i.exec(rawMatch);
+      if (!effectMatch) continue;
+      const effectText = extendSpellCopyEffectText(oracleText, effectMatch[0], effectMatch[2].trim());
+      if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'instant_sorcery')) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: `Whenever you cast an ${effectMatch[1]}, ${effectText}`,
+          effect: effectText,
+          spellCondition: 'instant_sorcery',
+          mandatory: !effectText.toLowerCase().includes('you may'),
+        });
+      }
+    }
+  }
+
+  const nextCastPatterns = [
+    /you next cast an? ([\w\s]+?) spell this turn/gi,
+    /you next cast an? ([\w\s]+?) spell with mana value (\d+) or less this turn/gi,
+  ];
+  for (const pattern of nextCastPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const rawType = String(match[1] || 'spell').trim().toLowerCase();
+      const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
+      const effectText = match[0].trim();
+      if (!triggers.some((trigger) => trigger.effect === effectText)) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: effectText,
+          effect: effectText,
+          spellCondition,
+          tribalType,
+          mandatory: true,
+        });
+      }
+    }
+  }
+
+  const manaCostQualifierPattern = /whenever you cast (?:your first )?(?:a |an )?([\w\s]*?) spell with (\{[^}]+\}) in its mana cost each turn,?\s*([^.]+)/gi;
+  let manaCostMatch: RegExpExecArray | null;
+  manaCostQualifierPattern.lastIndex = 0;
+  while ((manaCostMatch = manaCostQualifierPattern.exec(oracleText)) !== null) {
+    const rawType = String(manaCostMatch[1] || 'spell').trim().toLowerCase() || 'spell';
+    const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
+    const effectText = extendSpellCopyEffectText(oracleText, manaCostMatch[0], manaCostMatch[3].trim(), manaCostMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: manaCostMatch[0].trim(),
+        effect: effectText,
+        spellCondition,
+        tribalType,
+        oncePerTurn: true,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const castFromHandPattern = /whenever you cast (?:a |an )?spell from your hand,?\s*([^.]+)/gi;
+  let castFromHandMatch: RegExpExecArray | null;
+  castFromHandPattern.lastIndex = 0;
+  while ((castFromHandMatch = castFromHandPattern.exec(oracleText)) !== null) {
+    const effectText = extendSpellCopyEffectText(oracleText, castFromHandMatch[0], castFromHandMatch[1].trim(), castFromHandMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText && trigger.sourceZoneRequirement === 'hand')) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: castFromHandMatch[0].trim(),
+        effect: effectText,
+        spellCondition: 'any',
+        sourceZoneRequirement: 'hand',
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const playLandOrCastPatterns = [
+    /whenever you play a land or cast a spell,?\s*([^.]+)/gi,
+    /whenever you play a land from exile or cast a spell from exile,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of playLandOrCastPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[1].trim(), match.index);
+      const isFromExile = /from exile/i.test(match[0]);
+      if (!triggers.some((trigger) => trigger.effect === effectText)) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: match[0].trim(),
+          effect: effectText,
+          spellCondition: 'any',
+          sourceZoneRequirement: isFromExile ? 'exile' : undefined,
+          mandatory: !effectText.toLowerCase().includes('you may'),
+        });
+      }
+    }
+  }
+
+  const playtestCastMatch = oracleText.match(/whenever you cast a playtest card,?\s*([^.]+)/i);
+  if (playtestCastMatch) {
+    const effectText = extendSpellCopyEffectText(oracleText, playtestCastMatch[0], playtestCastMatch[1].trim(), playtestCastMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: playtestCastMatch[0].trim(),
+        effect: effectText,
+        spellCondition: 'tribal_type',
+        tribalType: 'playtest',
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const entersAndCastMatch = oracleText.match(
+    /when (?:~|this (?:creature|permanent)|[\w ,']+?) enters(?: the battlefield)? and whenever you cast (?:a |an )?([\w\s]+?) spell,?\s*([^.]+)/i,
+  );
+  if (entersAndCastMatch) {
+    const rawType = String(entersAndCastMatch[1] || '').trim().toLowerCase();
+    const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
+    const effectText = extendSpellCopyEffectText(oracleText, entersAndCastMatch[0], entersAndCastMatch[2].trim(), entersAndCastMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === spellCondition)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: `Whenever you cast a ${tribalType || rawType || 'spell'} spell, ${effectText}`,
+        effect: effectText,
+        spellCondition,
+        tribalType,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const typedNoncreatureSelfCastPatterns = [
+    /whenever you cast an? artifact, instant, or sorcery spell,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of typedNoncreatureSelfCastPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[1].trim(), match.index);
+      const copiesSpell = effectText.toLowerCase().includes('copy that spell') || effectText.toLowerCase().includes('copy it');
+      if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'instant_sorcery')) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: match[0].trim(),
+          effect: effectText,
+          spellCondition: 'instant_sorcery',
+          copiesSpell,
+          mandatory: !effectText.toLowerCase().includes('you may'),
+        });
+      }
+    }
+  }
+
+  const spellOfThatTypePattern = /whenever you cast a spell of that type this turn,?\s*([^.]+)/gi;
+  let spellOfThatTypeMatch: RegExpExecArray | null;
+  spellOfThatTypePattern.lastIndex = 0;
+  while ((spellOfThatTypeMatch = spellOfThatTypePattern.exec(oracleText)) !== null) {
+    const effectText = extendSpellCopyEffectText(oracleText, spellOfThatTypeMatch[0], spellOfThatTypeMatch[1].trim(), spellOfThatTypeMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: spellOfThatTypeMatch[0].trim(),
+        effect: effectText,
+        spellCondition: 'any',
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const castFromThisPatterns = [
+    /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|[\w]+(?:\s+[\w]+)*?) spell from this(?: spell)?,?\s*([^.]+)/gi,
+    /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|[\w]+(?:\s+[\w]+)*?) spell from this (?:creature|permanent),?\s*([^.]+)/gi,
+    /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|[\w]+(?:\s+[\w]+)*?) spell from the (?:battlefield|stack),?\s*([^.]+)/gi,
+  ];
+  for (const pattern of castFromThisPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const rawType = String(match[1] || 'spell').trim().toLowerCase();
+      const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
+      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
+      if (!triggers.some((trigger) => trigger.effect === effectText && trigger.description === match[0].trim())) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: match[0].trim(),
+          effect: effectText,
+          spellCondition,
+          tribalType,
+          mandatory: !effectText.toLowerCase().includes('you may'),
+        });
+      }
+    }
+  }
+
+  const commanderCastMatch = oracleText.match(/(?:when|whenever) you cast your commander,?\s*([^.]+)/i);
+  if (commanderCastMatch) {
+    const effectText = extendSpellCopyEffectText(oracleText, commanderCastMatch[0], commanderCastMatch[1].trim(), commanderCastMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: `Whenever you cast your commander, ${effectText}`,
+        effect: effectText,
+        spellCondition: 'any',
+        tribalType: 'commander',
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const castShortTypePatterns = [
+    /whenever you cast a (blue|green|red|white|black|cat|dog|kraken|pegasus|lesson)(?:\s+spell)?,?\s*([^.]+)/gi,
+    /whenever you cast an (aura|artifact|enchantment|instant|sorcery)(?:\s+spell)?,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of castShortTypePatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const rawType = String(match[1] || '').trim().toLowerCase();
+      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
+      const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
+      if (!triggers.some((trigger) =>
+        trigger.effect === effectText &&
+        trigger.spellCondition === spellCondition &&
+        String(trigger.tribalType || '').toLowerCase() === String(tribalType || '').toLowerCase()
+      )) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: match[0].trim(),
+          effect: effectText,
+          spellCondition,
+          tribalType,
+          mandatory: !effectText.toLowerCase().includes('you may'),
+        });
+      }
+    }
+  }
+
+  const firstTribalSpellPattern =
+    /whenever you cast your first (?:a |an )?([\w]+) spell each turn,?\s*([^.]+)/gi;
+  let firstTribalMatch: RegExpExecArray | null;
+  firstTribalSpellPattern.lastIndex = 0;
+  while ((firstTribalMatch = firstTribalSpellPattern.exec(oracleText)) !== null) {
+    const rawType = String(firstTribalMatch[1] || '').trim().toLowerCase();
+    const effectText = extendSpellCopyEffectText(oracleText, firstTribalMatch[0], firstTribalMatch[2].trim(), firstTribalMatch.index);
+    const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
+    if (!triggers.some((trigger) =>
+      trigger.effect === effectText &&
+      trigger.firstSpellThisTurn === true &&
+      String(trigger.tribalType || '').toLowerCase() === String(tribalType || '').toLowerCase()
+    )) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: firstTribalMatch[0].trim(),
+        effect: effectText,
+        spellCondition,
+        tribalType,
+        firstSpellThisTurn: true,
+        oncePerTurn: true,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const castDuringYourTurnsPattern =
+    /whenever you cast (?:a |an )?([\w\s]*?)spell during each of your turns,?\s*([^.]+)/gi;
+  let castDuringTurnsMatch: RegExpExecArray | null;
+  castDuringYourTurnsPattern.lastIndex = 0;
+  while ((castDuringTurnsMatch = castDuringYourTurnsPattern.exec(oracleText)) !== null) {
+    const rawType = String(castDuringTurnsMatch[1] || 'spell').trim().toLowerCase() || 'spell';
+    const effectText = extendSpellCopyEffectText(oracleText, castDuringTurnsMatch[0], castDuringTurnsMatch[2].trim(), castDuringTurnsMatch.index);
+    const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
+    if (!triggers.some((trigger) => trigger.effect === effectText && trigger.description === castDuringTurnsMatch[0].trim())) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: castDuringTurnsMatch[0].trim(),
+        effect: effectText,
+        spellCondition,
+        tribalType,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const castOrCyclePattern = /when(?:ever)? you cast or cycle ([^,]+),?\s*([^.]+)/gi;
+  let castOrCycleMatch: RegExpExecArray | null;
+  castOrCyclePattern.lastIndex = 0;
+  while ((castOrCycleMatch = castOrCyclePattern.exec(oracleText)) !== null) {
+    const effectText = extendSpellCopyEffectText(oracleText, castOrCycleMatch[0], castOrCycleMatch[2].trim(), castOrCycleMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: castOrCycleMatch[0].trim(),
+        effect: effectText,
+        spellCondition: 'any',
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const castItThisTurnMatch = oracleText.match(/when(?:ever)? you cast it this turn,?\s*([^.]+)/i);
+  if (castItThisTurnMatch) {
+    const effectText = extendSpellCopyEffectText(oracleText, castItThisTurnMatch[0], castItThisTurnMatch[1].trim(), castItThisTurnMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: castItThisTurnMatch[0].trim(),
+        effect: effectText,
+        spellCondition: 'any',
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const castEnchantedCardMatch = oracleText.match(/when(?:ever)? you cast enchanted card,?\s*([^.]+)/i);
+  if (castEnchantedCardMatch) {
+    const effectText = extendSpellCopyEffectText(oracleText, castEnchantedCardMatch[0], castEnchantedCardMatch[1].trim(), castEnchantedCardMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: castEnchantedCardMatch[0].trim(),
+        effect: effectText,
+        spellCondition: 'any',
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const castFromExileAmongPattern =
+    /whenever you cast (?:a |an )?spell from among (?:the )?cards (?:they don't own )?exiled with [^,]+,?\s*([^.]+)/gi;
+  let castFromExileAmongMatch: RegExpExecArray | null;
+  castFromExileAmongPattern.lastIndex = 0;
+  while ((castFromExileAmongMatch = castFromExileAmongPattern.exec(oracleText)) !== null) {
+    const effectText = extendSpellCopyEffectText(oracleText, castFromExileAmongMatch[0], castFromExileAmongMatch[1].trim(), castFromExileAmongMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText && trigger.sourceZoneRequirement === 'exile')) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: castFromExileAmongMatch[0].trim(),
+        effect: effectText,
+        spellCondition: 'any',
+        sourceZoneRequirement: 'exile',
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const castSpellFromThatMatch = oracleText.match(/whenever you cast (?:a |an )?spell from that,?\s*([^.]+)/i);
+  if (castSpellFromThatMatch) {
+    const effectText = extendSpellCopyEffectText(oracleText, castSpellFromThatMatch[0], castSpellFromThatMatch[1].trim(), castSpellFromThatMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: castSpellFromThatMatch[0].trim(),
+        effect: effectText,
+        spellCondition: 'any',
+        mandatory: !effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const landOrCastPatterns = [
+    /whenever a player plays a land or casts a spell(?:,?\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+    /whenever an opponent plays a land or casts a spell(?:,?\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of landOrCastPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[1].trim(), match.index);
+      if (!triggers.some((trigger) => trigger.effect === effectText && trigger.description === match[0].trim())) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: match[0].trim(),
+          effect: effectText,
+          spellCondition: 'any',
+          mandatory: !effectText.toLowerCase().includes('you may'),
+        });
+      }
+    }
+  }
+
+  const namedCardCastPattern = new RegExp(
+    `when you cast ${escapeCardNameForRegex(cardName)},?\\s*([^.]+)`,
+    'i',
+  );
+  const namedCardCastMatch = oracleText.match(namedCardCastPattern);
+  if (namedCardCastMatch) {
+    const effectText = extendSpellCopyEffectText(oracleText, namedCardCastMatch[0], namedCardCastMatch[1].trim(), namedCardCastMatch.index);
+    if (!triggers.some((trigger) => trigger.effect === effectText)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        description: namedCardCastMatch[0].trim(),
+        effect: effectText,
+        spellCondition: 'any',
+        tribalType: cardName.toLowerCase(),
+        mandatory: !effectText.toLowerCase().includes('you may'),
       });
     }
   }
@@ -3925,6 +13732,9 @@ export function getSpellCastTriggers(
   const isCreatureSpell = spellTypeLine.includes('creature');
   const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
   const isHistoricSpell = spellTypeLine.includes('artifact') || spellTypeLine.includes('legendary') || spellTypeLine.includes('saga');
+  const spellColors = Array.isArray(spellCard?.colors)
+    ? spellCard.colors.map((color: string) => String(color).toLowerCase())
+    : (Array.isArray(spellCard?.color_identity) ? spellCard.color_identity.map((color: string) => String(color).toLowerCase()) : []);
   // Check if this is a Kindred/Tribal spell (e.g., "Kindred Sorcery — Merfolk")
   const isKindredOrTribal = spellTypeLine.includes('kindred') || spellTypeLine.includes('tribal');
   
@@ -3974,6 +13784,19 @@ export function getSpellCastTriggers(
             }
           }
           break;
+        case 'color':
+          if (trigger.tribalType) {
+            shouldTrigger = spellColors.includes(trigger.tribalType.toLowerCase());
+          }
+          break;
+      }
+
+      if (shouldTrigger && trigger.firstSpellDuringOpponentTurn === true) {
+        const activePlayer = String(ctx.state?.activePlayer || '');
+        const controllerId = String(permanent.controller || '');
+        const spellsCastThisTurn = (Array.isArray(ctx.state?.spellsCastThisTurn) ? ctx.state.spellsCastThisTurn : [])
+          .filter((castEntry: any) => String(castEntry?.casterId || '') === casterId);
+        shouldTrigger = activePlayer !== controllerId && spellsCastThisTurn.length === 1;
       }
       
       if (shouldTrigger) {
@@ -4051,6 +13874,59 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   const controllerId = permanent?.controller || "";
   
   // "Whenever a [TYPE] you control becomes tapped" pattern
+  const tribalMultiTapMatch = oracleText.match(
+    /whenever (?:one or more )?nontoken (\w+) you control become tapped,?\s*([^.]+)/i,
+  );
+  if (tribalMultiTapMatch) {
+    const tribalType = tribalMultiTapMatch[1].toLowerCase();
+    const effectText = tribalMultiTapMatch[2].trim();
+    const isOptional = effectText.toLowerCase().includes('you may');
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever one or more nontoken ${tribalType} you control become tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'tribal_type',
+      tribalType,
+      mandatory: !isOptional,
+    });
+  }
+
+  const youTapOpponentCreatureMatch = oracleText.match(
+    /(?:when you (?:do, )?tap|you tap) (?:target |an )?(?:untapped )?creature an opponent controls/i,
+  );
+  if (youTapOpponentCreatureMatch && !triggers.some((t) => (t as any).affectedType === 'you_tap_opponent_creature')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: 'When you tap an untapped creature an opponent controls',
+      effect: 'tap target creature an opponent controls',
+      triggerCondition: 'you_tap_opponent_creature',
+      affectedType: 'you_tap_opponent_creature',
+      mandatory: false,
+    });
+  }
+
+  const opponentCreatureTapMatch = oracleText.match(
+    /whenever a creature an opponent controls becomes tapped,?\s*([^.]+)/i,
+  );
+  if (opponentCreatureTapMatch) {
+    const effectText = String(opponentCreatureTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'opponent_creature_becomes_tapped',
+      affectedType: 'opponent_creature',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   const tribalTapMatch = oracleText.match(/whenever (?:a |an )?(\w+) you control becomes tapped,?\s*([^.]+)/i);
   if (tribalTapMatch) {
     const tribalType = tribalTapMatch[1].toLowerCase();
@@ -4074,8 +13950,19 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     });
   }
   
-  // "Whenever ~ becomes tapped" pattern (self-referential like Emmara)
-  const selfTapMatch = oracleText.match(/whenever (?:~|this creature) becomes tapped,?\s*([^.]+)/i);
+  const selfTapNameRefs = [
+    '~',
+    'this creature',
+    'this artifact',
+    'this land',
+    'this permanent',
+    ...buildCardNameRegexAlternatives(cardName),
+  ];
+  const selfTapPattern = new RegExp(
+    `whenever (?:${selfTapNameRefs.join('|')}) become(?:s)? tapped,?\\s*([^.]+)`,
+    'i',
+  );
+  const selfTapMatch = oracleText.match(selfTapPattern);
   if (selfTapMatch) {
     const effectText = selfTapMatch[1].trim();
     const isOptional = effectText.toLowerCase().includes('you may');
@@ -4112,6 +13999,528 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     });
   }
   
+  const thatLandTapMatch = oracleText.match(/whenever that land becomes tapped,?\s*([^.]+)/i);
+  if (thatLandTapMatch && !triggers.some((t) => t.affectedType === 'that_land')) {
+    const effectText = String(thatLandTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever that land becomes tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'that_land',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentArtifactTapForManaMatch = oracleText.match(
+    /whenever an opponent taps an artifact for mana,?\s*([^.]+)/i,
+  );
+  if (opponentArtifactTapForManaMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_artifact_tap_for_mana')) {
+    const effectText = String(opponentArtifactTapForManaMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'opponent_artifact_tap_for_mana',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentMountainTapForManaMatch = oracleText.match(
+    /whenever an opponent taps a mountain for mana,?\s*([^.]+)/i,
+  );
+  if (opponentMountainTapForManaMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_mountain_tap_for_mana')) {
+    const effectText = String(opponentMountainTapForManaMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'opponent_mountain_tap_for_mana',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentTapsLandForManaMatch = oracleText.match(
+    /whenever an opponent taps a land for mana,?\s*([^.]+)/i,
+  );
+  if (opponentTapsLandForManaMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_taps_land_for_mana')) {
+    const effectText = String(opponentTapsLandForManaMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'opponent_taps_land_for_mana',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerBasicLandTapMatch = oracleText.match(
+    /whenever a player taps a basic land for mana,?\s*([^.]+)/i,
+  );
+  if (playerBasicLandTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_basic_land_tap')) {
+    const effectText = String(playerBasicLandTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'player_basic_land_tap',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentIslandBecomesTappedMatch = oracleText.match(
+    /whenever an island an opponent controls becomes tapped,?\s*([^.]+)/i,
+  );
+  if (opponentIslandBecomesTappedMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_island_becomes_tapped')) {
+    const effectText = String(opponentIslandBecomesTappedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'opponent_island_becomes_tapped',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const artifactBecomesTappedOrActivatedMatch = oracleText.match(
+    /whenever an artifact becomes tapped or a player activates an artifact's ability without \{T\} in its activation cost,?\s*([^.]+)/i,
+  );
+  if (
+    artifactBecomesTappedOrActivatedMatch &&
+    !triggers.some((t) => (t as any).affectedType === 'artifact_becomes_tapped_or_activated')
+  ) {
+    const effectText = String(artifactBecomesTappedOrActivatedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'artifact_becomes_tapped_or_activated',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const itNextBecomesTappedMatch = oracleText.match(/whenever it next becomes tapped this turn,?\s*([^.]+)/i);
+  if (itNextBecomesTappedMatch && !triggers.some((t) => (t as any).affectedType === 'it_next_becomes_tapped')) {
+    const effectText = String(itNextBecomesTappedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'it_next_becomes_tapped',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentMountainBecomesTappedMatch = oracleText.match(
+    /whenever a mountain an opponent controls becomes tapped,?\s*([^.]+)/i,
+  );
+  if (opponentMountainBecomesTappedMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_mountain_becomes_tapped')) {
+    const effectText = String(opponentMountainBecomesTappedMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'opponent_mountain_becomes_tapped',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerLandTypesTapMatch = oracleText.match(
+    /whenever a player taps a (?:Mountain|Forest|Plains)(?:, (?:a )?(?:Mountain|Forest|Plains))*(?:, or (?:a )?(?:Mountain|Forest|Plains))? for mana,?\s*([^.]+)/i,
+  );
+  if (playerLandTypesTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_land_types_tap')) {
+    const effectText = String(playerLandTypesTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'player_land_types_tap',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerNonbasicLandTapMatch = oracleText.match(
+    /whenever a player taps a nonbasic land for mana,?\s*([^.]+)/i,
+  );
+  if (playerNonbasicLandTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_nonbasic_land_tap')) {
+    const effectText = String(playerNonbasicLandTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'player_nonbasic_land_tap',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerPermanentTapForManaMatch = oracleText.match(
+    /whenever a player taps a permanent for mana,?\s*([^.]+)/i,
+  );
+  if (playerPermanentTapForManaMatch && !triggers.some((t) => (t as any).affectedType === 'player_permanent_tap_for_mana')) {
+    const effectText = String(playerPermanentTapForManaMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'player_permanent_tap_for_mana',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentChosenLandTypeTapMatch = oracleText.match(
+    /whenever a land of the chosen type an opponent controls becomes tapped,?\s*([^.]+)/i,
+  );
+  if (opponentChosenLandTypeTapMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_chosen_land_type_tap')) {
+    const effectText = String(opponentChosenLandTypeTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'opponent_chosen_land_type_tap',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const artifactTappedOrAbilityMatch = oracleText.match(
+    /whenever an artifact an opponent controls becomes tapped or an opponent activates an artifact's ability without \{T\} in its activation cost,?\s*([^.]+)/i,
+  );
+  if (
+    artifactTappedOrAbilityMatch &&
+    !triggers.some((t) => (t as any).affectedType === 'opponent_artifact_tapped_or_ability')
+  ) {
+    const effectText = String(artifactTappedOrAbilityMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'opponent_artifact_tapped_or_ability',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const opponentForestTapMatch = oracleText.match(
+    /whenever a forest an opponent controls becomes tapped,?\s*([^.]+)/i,
+  );
+  if (opponentForestTapMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_forest_tap')) {
+    const effectText = String(opponentForestTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'opponent_forest_tap',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerSwampTapMatch = oracleText.match(/whenever a player taps a swamp for mana,?\s*([^.]+)/i);
+  if (playerSwampTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_swamp_tap')) {
+    const effectText = String(playerSwampTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'player_swamp_tap',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerIslandTapMatch = oracleText.match(/whenever a player taps an island for mana,?\s*([^.]+)/i);
+  if (playerIslandTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_island_tap')) {
+    const effectText = String(playerIslandTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever a player taps an Island for mana, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'player_island_tap',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerSnowLandTapMatch = oracleText.match(/whenever a player taps a snow land for mana,?\s*([^.]+)/i);
+  if (playerSnowLandTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_snow_land_tap')) {
+    const effectText = String(playerSnowLandTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'player_snow_land_tap',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const playerLandTapMatch = oracleText.match(/whenever a player taps a land for mana,?\s*([^.]+)/i);
+  if (playerLandTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_land_tap')) {
+    const effectText = String(playerLandTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever a player taps a land for mana, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'player_land_tap',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedLandManaTapMatch = oracleText.match(/whenever enchanted land is tapped for mana,?\s*([^.]+)/i);
+  if (enchantedLandManaTapMatch && !triggers.some((t) => (t as any).affectedType === 'enchanted_land_mana')) {
+    const effectText = String(enchantedLandManaTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever enchanted land is tapped for mana, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'enchanted_land_mana',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedLandTapMatch = oracleText.match(/when(?:ever)? enchanted land becomes tapped,?\s*([^.]+)/i);
+  if (enchantedLandTapMatch && !triggers.some((t) => t.affectedType === 'enchanted_land')) {
+    const effectText = String(enchantedLandTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever enchanted land becomes tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'enchanted_land',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anyCreatureTapMatch = oracleText.match(/whenever (?:a|another) creature becomes tapped,?\s*([^.]+)/i);
+  if (
+    anyCreatureTapMatch &&
+    !lowerOracle.includes('creature you control becomes tapped') &&
+    !triggers.some((t) => t.affectedType === 'any_creature')
+  ) {
+    const effectText = String(anyCreatureTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever a creature becomes tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'any_creature',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const forestManaTapMatch = oracleText.match(/whenever a forest is tapped for mana,?\s*([^.]+)/i);
+  if (forestManaTapMatch && !triggers.some((t) => (t as any).affectedType === 'forest_mana')) {
+    const effectText = String(forestManaTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever a Forest is tapped for mana, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'forest_mana',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedForestManaTapMatch = oracleText.match(/whenever enchanted forest is tapped for mana,?\s*([^.]+)/i);
+  if (enchantedForestManaTapMatch && !triggers.some((t) => (t as any).affectedType === 'enchanted_forest_mana')) {
+    const effectText = String(enchantedForestManaTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever enchanted Forest is tapped for mana, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'enchanted_forest_mana',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const exiledNameLandTappedForManaMatch = oracleText.match(
+    /whenever a land with the same name as the exiled card is tapped for mana,?\s*([^.]+)/i,
+  );
+  if (exiledNameLandTappedForManaMatch && !triggers.some((t) => (t as any).affectedType === 'exiled_name_land_tapped_for_mana')) {
+    const effectText = String(exiledNameLandTappedForManaMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'exiled_name_land_tapped_for_mana',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const basicLandTappedForManaMatch = oracleText.match(
+    /whenever (?:a|an) basic land is tapped for mana(?: of the chosen color)?,?\s*([^.]+)/i,
+  );
+  if (basicLandTappedForManaMatch && !triggers.some((t) => (t as any).affectedType === 'basic_land_tapped_for_mana')) {
+    const effectText = String(basicLandTappedForManaMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'basic_land_tapped_for_mana',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const landManaAbilityTapMatch = oracleText.match(
+    /whenever (?:a|an) (?:basic )?land(?:'s)? ability causes you to add(?: one or more)? mana(?: of the chosen color)?,?\s*([^.]+)/i,
+  );
+  if (landManaAbilityTapMatch && !triggers.some((t) => (t as any).affectedType === 'land_mana_ability')) {
+    const effectText = String(landManaAbilityTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'land_mana_ability',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const fortifiedLandTapMatch = oracleText.match(/whenever fortified land becomes tapped,?\s*([^.]+)/i);
+  if (fortifiedLandTapMatch && !triggers.some((t) => t.affectedType === 'fortified_land')) {
+    const effectText = String(fortifiedLandTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever fortified land becomes tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'fortified_land',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const anyPermanentTapMatch = oracleText.match(/whenever a permanent becomes tapped,?\s*([^.]+)/i);
+  if (anyPermanentTapMatch && !triggers.some((t) => (t as any).affectedType === 'any_permanent_becomes_tapped')) {
+    const effectText = String(anyPermanentTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'any_permanent_becomes_tapped',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedPermanentTapMatch = oracleText.match(/when(?:ever)? enchanted permanent becomes tapped,?\s*([^.]+)/i);
+  if (enchantedPermanentTapMatch && !triggers.some((t) => t.affectedType === 'enchanted_permanent')) {
+    const effectText = String(enchantedPermanentTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever enchanted permanent becomes tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'enchanted_permanent',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedArtifactTapMatch = oracleText.match(/when(?:ever)? enchanted artifact becomes tapped,?\s*([^.]+)/i);
+  if (enchantedArtifactTapMatch && !triggers.some((t) => t.affectedType === 'enchanted_artifact')) {
+    const effectText = String(enchantedArtifactTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever enchanted artifact becomes tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'enchanted_artifact',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  const enchantedTapMatch = oracleText.match(/whenever enchanted creature becomes tapped,?\s*([^.]+)/i);
+  if (enchantedTapMatch && !triggers.some((t) => t.affectedType === 'enchanted_creature')) {
+    const effectText = String(enchantedTapMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever enchanted creature becomes tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'enchanted_creature',
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   // "Whenever a creature you control becomes tapped" (generic creature tap)
   if (lowerOracle.includes('whenever a creature you control becomes tapped') && 
       !triggers.some(t => t.affectedType === 'creature')) {
@@ -5053,7 +15462,7 @@ export function getEmpiresEffect(card: any, gameState: any, controllerId: string
  * Cards that grant mana abilities to other permanents:
  * - Chromatic Lantern: Lands you control have "T: Add one mana of any color"
  * - Cryptolith Rite: Creatures you control have "T: Add one mana of any color"
- * - Elven Chorus: Creatures you control have "T: Add {G}"
+ * - Elven Chorus: Creatures you control have "T: Add one mana of any color"
  * - Song of Freyalise: Creatures you control have "T: Add one mana of any color"
  */
 export interface ManaAbilityGranter {
@@ -5088,14 +15497,13 @@ export function detectManaAbilityGranter(card: any, permanent: any): ManaAbility
     };
   }
   
-  // Elven Chorus: Creatures have "T: Add {G}"
+  // Elven Chorus: Creatures have "T: Add one mana of any color"
   if (cardName.includes('elven chorus')) {
     return {
       permanentId: permanent?.id || '',
       cardName: 'Elven Chorus',
       grantsTo: 'creatures',
-      manaType: 'specific_color',
-      specificColor: 'G',
+      manaType: 'any_color',
     };
   }
   

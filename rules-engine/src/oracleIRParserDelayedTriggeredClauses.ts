@@ -34,6 +34,11 @@ const TIMING_SPECS: readonly {
     leading: /^at\s+the\s+beginning\s+of\s+your\s+next\s+upkeep,\s*(.+)$/i,
     trailing: /^(.+?)\s+at\s+the\s+beginning\s+of\s+your\s+next\s+upkeep\s*$/i,
   },
+  {
+    timing: 'next_upkeep',
+    leading: /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+turn(?:'|')?s\s+upkeep,\s*(.+)$/i,
+    trailing: /^(.+?)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+turn(?:'|')?s\s+upkeep\s*$/i,
+  },
 ];
 
 function normalizeEffectText(rawEffect: string): string {

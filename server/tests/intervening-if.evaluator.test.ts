@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
-import { isInterveningIfSatisfied } from '../src/state/modules/triggers/intervening-if';
+import { evaluateInterveningIfClauseDetailed, isInterveningIfSatisfied } from '../src/state/modules/triggers/intervening-if';
 import { triggerETBEffectsForPermanent } from '../src/state/modules/stack';
 
 function addPlayer(g: any, id: PlayerID, name: string) {
@@ -1369,6 +1369,24 @@ describe('Intervening-if evaluator (expanded templates)', () => {
         String(p1),
         'If you attacked with creatures with total power 6 or greater, create a Treasure token.'
       )
+    ).toBe(true);
+  });
+
+  it('evaluates parser-style intervening-if clauses without a leading "if"', () => {
+    const g = createInitialGameState('t_intervening_if_eval_parser_clause');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+    (g.state as any).creatureDiedThisTurn = true;
+
+    expect(
+      evaluateInterveningIfClauseDetailed(g as any, String(p1), 'a creature died this turn', {
+        card: { type_line: 'Creature' },
+      }).matched
+    ).toBe(true);
+    expect(
+      evaluateInterveningIfClauseDetailed(g as any, String(p1), 'this permanent is an enchantment', {
+        card: { type_line: 'Enchantment Creature' },
+      }).value
     ).toBe(true);
   });
 

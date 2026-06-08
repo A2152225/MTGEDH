@@ -251,6 +251,28 @@ function splitConservativeQuotedCreateTokenFollowupClause(args: {
   return [first, second];
 }
 
+function splitConservativeCommaDrawGainClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const clause = normalizeOracleText(rawClause).replace(/[.]+$/g, '').trim();
+  const match = clause.match(
+    /^(you draw .+?cards?),\s*((?:you )?gain .+)$/i,
+  );
+  if (!match) return null;
+
+  const first = String(match[1] || '').trim();
+  const second = String(match[2] || '').trim();
+  if (!first || !second) return null;
+
+  const firstStep = parseEffectClauseToStep(first);
+  const secondStep = parseEffectClauseToStep(second);
+  if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;
+
+  return [first, second];
+}
+
 function splitConservativeAndCreateTokenClause(args: {
   rawClause: string;
   parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
@@ -265,7 +287,24 @@ function splitConservativeAndCreateTokenClause(args: {
   const secondStep = parseEffectClauseToStep(second);
   if (!first || secondStep.kind !== 'create_token') return null;
 
-  return [first, second];
+  const commaSplit =
+    splitConservativeCommaDrawGainClause({ rawClause: first, parseEffectClauseToStep }) ?? [first];
+  return [...commaSplit, second];
+}
+
+function mergeWhereXContinuationClauses(clauses: readonly string[]): string[] {
+  const merged: string[] = [];
+  for (let index = 0; index < clauses.length; index += 1) {
+    const current = String(clauses[index] || '').trim();
+    const next = String(clauses[index + 1] || '').trim();
+    if (current && next && /,\s*where\s+x\s+is\s*$/i.test(current)) {
+      merged.push(`${current}, ${next}`);
+      index += 1;
+      continue;
+    }
+    if (current) merged.push(current);
+  }
+  return merged;
 }
 
 export function buildAbilityClauses(args: {
@@ -275,7 +314,9 @@ export function buildAbilityClauses(args: {
 }): string[] {
   const { effectText, cardName, parseEffectClauseToStep } = args;
   const combinedClauses: string[] = [];
-  const rawClauses = splitIntoClauses(effectText).flatMap(splitTrailingGrantedDiesTriggerFollowup);
+  const rawClauses = mergeWhereXContinuationClauses(
+    splitIntoClauses(effectText).flatMap(splitTrailingGrantedDiesTriggerFollowup)
+  );
 
   for (let clauseIndex = 0; clauseIndex < rawClauses.length; clauseIndex += 1) {
     const clause = rawClauses[clauseIndex];
@@ -302,6 +343,7 @@ export function buildAbilityClauses(args: {
     splitConservativeCantAttackOrBlockClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeQuotedCreateTokenFollowupClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeAndCreateTokenClause({ rawClause: clause, parseEffectClauseToStep }) ??
+    splitConservativeCommaDrawGainClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeActionConjunctionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCreateTokenLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeExileFromLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??

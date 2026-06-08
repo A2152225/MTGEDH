@@ -52,7 +52,148 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   const trimmed = raw.trim();
   if (!trimmed) return { kind: 'unknown' };
   if (/^that$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'that' };
+  if (/^this$/i.test(trimmed)) return { kind: 'number', value: 1 };
+  if (/^twice that much$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the excess damage dealt this way$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^another card$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'another card' };
+  if (/^a card or pay \{2\}$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a card or$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'a card or' };
+  if (/^a card and blight 1$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a card and chaos ensues$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a card and choose an opponent at random$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a card and repeat this process$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a card or sacrifice a permanent of their choice$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a creature card$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'a creature card' };
+  if (/^a land card$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'a land card' };
+  if (/^a card" for as long as you control this creature$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^all but 1$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^that damage$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'that damage' };
+  if (/^the excess$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the excess' };
+  if (/^life$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'life' };
+  if (/^trample$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'trample' };
+  if (/^ten cards instead$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^twice x cards$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^twice the number of vehicles you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^twice the number of goblins it devoured$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^two for each creature sacrificed this way$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^x plus 2$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the same number$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the same number' };
+  if (/^otherwise, you$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^no life instead$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^until end of turn, you$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^that creature(?:'|')?s mana value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_creature', stat: 'mana_value' };
+  if (/^the greatest power among creatures you control$/i.test(trimmed)) return { kind: 'greatest_power_among_creatures_you_control' };
+  if (/^the greatest mana value among creatures sacrificed this way$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^that many cards minus one$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a third of their life, rounded up$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^cards equal to its power$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^for each other creature you control that the spell could target$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^for each other creature that spell could target$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^for each other permanent or player the spell or ability could target$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^damage equal to the number of charge counters on it to target player and that much$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^damage equal to the number of quest counters on it to up to one target creature unless that creature(?:'|')?s controller has this permanent deal that much$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^mayhem cost is equal to its mana value$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the card(?:'|')?s mana value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_card', stat: 'mana_value' };
+  if (/^the damage dealt to target opponent this turn$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^that many cards and add that much \{r\}$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^another$/i.test(trimmed)) return { kind: 'number', value: 1 };
+  if (/^any$/i.test(trimmed)) return { kind: 'any_number' };
+  if (/^x\s+life\s+and\s+draw\s+x\s+cards?$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'x life and draw x cards' };
+  }
+  if (/^x\s+life\s+and\s+you\s+gain\s+x$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^where\s+x\s+is\s+this\s+creature(?:'|')?s\s+power$/i.test(trimmed)) {
+    return { kind: 'object_stat', subject: 'this_creature', stat: 'power' };
+  }
+  if (/^this\s+permanent(?:'|')?s\s+power$/i.test(trimmed)) {
+    return { kind: 'object_stat', subject: 'this_permanent', stat: 'power' };
+  }
+  if (/^until you exile a nonland permanent card$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^two cards instead$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'two cards instead' };
+  }
+  if (/^a card if /i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^combat damage this turn, it deals that$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^the life that player lost this turn$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^the amount of life they lost this turn$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^that amount of$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^that mana value$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^the result$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^the power of target creature you control$/i.test(trimmed)) {
+    return { kind: 'object_stat', subject: 'target_creature_you_control', stat: 'power' };
+  }
+  if (/^twice the number of times it was kicked$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^double that$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^two cards unless you discard an instant or sorcery card or a creature card with flying$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^two cards unless (?:you|they) discard (?:an? )?.+ card$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^the life you lost when it entered$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^the number they guessed$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^a card and proliferate$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^a card unless /i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^the greatest mana value among equipment attached(?: to it)?$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^rewards$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^excess combat$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^that much life plus 1 instead$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^damage to an opponent this turn, it deals double that$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed };
+  }
+  if (/^the mana value of the sacrificed permanent$/i.test(trimmed)) {
+    return { kind: 'object_stat', subject: 'the_sacrificed_permanent', stat: 'mana_value' };
+  }
+  if (/^a card["'] until end of turn$/i.test(trimmed)) {
+    return { kind: 'number', value: 1 };
+  }
+  if (/^two cards["'] until end of turn$/i.test(trimmed)) {
+    return { kind: 'number', value: 2 };
+  }
   if (/^that (much|many)$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^that (much|many)\s+cards?$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase().replace(/\s+cards?$/i, '') };
+  }
   if (/^the difference$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the difference' };
   if (/^the\s+amount\s+of\s+life\s+you\s+gained\s+this\s+turn$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^excess$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'excess' };
@@ -128,8 +269,11 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^for\s+each\s+basic\s+land\s+type\s+among\s+lands\s+you\s+control$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
-  if (/^until\s+you\s+exile\s+a\s+nonland\s+card$/i.test(trimmed)) {
-    return { kind: 'reference_amount', raw: 'until you exile a nonland card' };
+  if (/^until\s+(?:you|they)\s+exile\s+a\s+nonland\s+card$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^until\s+(?:you|they)\s+exile\s+an?\s+instant\s+or\s+sorcery\s+card$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
   if (/^until\s+you\s+exile\s+a\s+nonland\s+card\s+whose\s+mana\s+value\s+is\s+less\s+than\s+this\s+spell(?:'|’)?s\s+mana\s+value$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
@@ -181,11 +325,42 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
     return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'toughness' };
   }
   if (/^any number$/i.test(trimmed)) return { kind: 'any_number' };
+  if (/^any number of land cards$/i.test(trimmed)) return { kind: 'any_number' };
+  if (/^two cards at random$/i.test(trimmed)) return { kind: 'number', value: 2 };
+  if (/^three cards at random$/i.test(trimmed)) return { kind: 'number', value: 3 };
   if (/^each$/i.test(trimmed)) return { kind: 'all' };
+  if (/^a card at random$/i.test(trimmed)) return { kind: 'number', value: 1 };
+  if (/^that many cards plus one$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'that many cards plus one' };
+  if (/^card$/i.test(trimmed)) return { kind: 'number', value: 1 };
+  if (/^a nonland card$/i.test(trimmed)) return { kind: 'number', value: 1 };
+  if (/^this creature(?:'|')?s power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'this_creature', stat: 'power' };
   {
-    const cardCount = trimmed.match(/^(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?$/i);
+    const additionalCards = trimmed.match(
+      /^(?:(\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\s+)?additional\s+cards?$/i
+    );
+    if (additionalCards) {
+      const rawCount = String(additionalCards[1] || 'an').toLowerCase();
+      if (rawCount === 'an' || rawCount === 'a') return { kind: 'number', value: 1 };
+      const value = parseNumberFromText(rawCount, NaN as any);
+      if (typeof value === 'number' && Number.isFinite(value)) return { kind: 'number', value };
+      return { kind: 'number', value: 1 };
+    }
+  }
+  {
+    const upToCards = trimmed.match(/^up\s+to\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?$/i);
+    if (upToCards) {
+      const rawCount = String(upToCards[1] || '').toLowerCase();
+      const value = parseNumberFromText(rawCount, NaN as any);
+      if (typeof value === 'number' && Number.isFinite(value)) return { kind: 'number', value };
+    }
+  }
+  {
+    const cardCount = trimmed.match(/^(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|x|a|an)\s+cards?$/i);
     if (cardCount) {
-      const value = parseNumberFromText(String(cardCount[1] || ''), NaN as any);
+      const rawCount = String(cardCount[1] || '').toLowerCase();
+      if (rawCount === 'x') return { kind: 'x' };
+      if (rawCount === 'a' || rawCount === 'an') return { kind: 'number', value: 1 };
+      const value = parseNumberFromText(rawCount, NaN as any);
       if (typeof value === 'number' && Number.isFinite(value)) return { kind: 'number', value };
     }
   }
@@ -200,6 +375,7 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
     return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
   if (/^x$/i.test(trimmed)) return { kind: 'x' };
+  if (/^x\s+cards?$/i.test(trimmed)) return { kind: 'x' };
   if (/^all$/i.test(trimmed)) return { kind: 'all' };
   if (/^(a|an)$/i.test(trimmed)) return { kind: 'number', value: 1 };
   if (/^\d+$/.test(trimmed)) return { kind: 'number', value: parseInt(trimmed, 10) };
@@ -207,6 +383,41 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   const maybe = parseNumberFromText(trimmed, NaN as any);
   if (typeof maybe === 'number' && Number.isFinite(maybe)) {
     return { kind: 'number', value: maybe };
+  }
+
+  if (/^any number of creature cards$/i.test(trimmed)) return { kind: 'any_number' };
+  if (/^any number of /i.test(trimmed)) return { kind: 'any_number' };
+  if (/^damage to a permanent or player(?: this turn)?, it deals double that$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^for each opponent, you$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^crew 3 you$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^cards equal to its power$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the same number$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the same number' };
+  if (/^the greatest mana value among creatures you control$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^the greatest power among creature cards in your graveyard$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^the greatest power among creatures sacrificed this way$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^the total mana value of those cards$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the mana value of the exiled card used to craft it$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^that player's life total as the turn began$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^that many cards and each other player loses that much$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (
+    trimmed.length >= 10 &&
+    /^(?:draw|damage|life|cards?|that much|the amount|the difference|twice|for each|until|x is|crew|body thief|enchanted|scry|you and|you each|sacrifice)/i.test(trimmed)
+  ) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
 
   return { kind: 'unknown', raw: trimmed };
@@ -276,9 +487,21 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
   if (s === 'target opponent') return { kind: 'target_opponent' };
   if (s === 'an opponent' || s === 'the opponent') return { kind: 'target_opponent' };
   if (s === 'the player') return { kind: 'target_player' };
+  if (s === 'the player with the most life') return { kind: 'raw', text: 'the player with the most life' };
+  if (s === 'the player with the lowest life total') return { kind: 'raw', text: 'the player with the lowest life total' };
+  if (/^otherwise,\s*you$/i.test(s)) return { kind: 'you' };
+  if (/^until end of turn,\s*you$/i.test(s)) return { kind: 'you' };
+  if (/^for each delay counter removed this way,\s*you\b/i.test(s)) return { kind: 'you' };
+  if (/^for each opponent,\s*you\b/i.test(s)) return { kind: 'you' };
+  if (/^body thief\s*[-—]\s*you$/i.test(s)) return { kind: 'you' };
+  if (/^crew \d+ you$/i.test(s)) return { kind: 'you' };
+  if (/\beach opponent$/i.test(s)) return { kind: 'each_opponent' };
+  if (s === "the exiled card's owner" || s === 'the exiled cards owner') return { kind: 'raw', text: "the exiled card's owner" };
   if (s === 'that player' || s === 'he or she' || s === 'him or her' || s === 'they') return { kind: 'target_player' };
+  if (s === 'their') return { kind: 'target_player' };
   if (s === 'that attacking player' || s === 'attacking player' || s === 'the attacking player') return { kind: 'target_player' };
   if (s === 'that opponent' || s === 'defending player' || s === 'the defending player') return { kind: 'target_opponent' };
+  if (s === 'enchanted player') return { kind: 'enchanted_player' };
   if (/^enchanted\s+[a-z0-9 -]+(?:'s)?\s+controller$/.test(s)) return { kind: 'target_player' };
   if (s === 'its controller') return { kind: 'target_player' };
   if (s === 'its owner') return { kind: 'target_player' };
@@ -349,4 +572,27 @@ export function normalizeClauseForParse(clause: string): {
     ...(sequence ? { sequence } : {}),
     ...(optional ? { optional } : {}),
   };
+}
+
+/** Split "attach X to Y" without treating "up to" as the attachment delimiter. */
+export function splitAttachClauseBody(body: string): { readonly attachmentRaw: string; readonly toRaw: string } | null {
+  const trimmed = String(body || '').trim();
+  if (!trimmed) return null;
+
+  let searchFrom = trimmed.length;
+  while (searchFrom > 0) {
+    const idx = trimmed.toLowerCase().lastIndexOf(' to ', searchFrom);
+    if (idx <= 0) return null;
+    const beforeSlice = trimmed.slice(Math.max(0, idx - 3), idx).toLowerCase();
+    if (beforeSlice.endsWith('up')) {
+      searchFrom = idx - 1;
+      continue;
+    }
+    const attachmentRaw = trimmed.slice(0, idx).trim();
+    const toRaw = trimmed.slice(idx + 4).trim();
+    if (!attachmentRaw || !toRaw) return null;
+    return { attachmentRaw, toRaw };
+  }
+
+  return null;
 }

@@ -1,0 +1,52 @@
+---
+description: Terminal session hygiene — audit stale shells, kill hung probes, free resources
+alwaysApply: true
+---
+
+# Terminal hygiene
+
+## Avoid hung sessions
+
+- Do **not** run full-cardbase `tsx -e` scans over `oracle-cards.json` inline in the terminal. Use targeted scripts under `server/scripts/_tmp-probe-*.ts` or `_probe-*.mjs` with early `process.exit`, or the audit script with env limits (`TRIGGER_COVERAGE_TOP`, `TRIGGER_COVERAGE_EVENT`).
+- Prefer `npx vitest run <specific-test-file>` over ad-hoc `tsx -e` one-liners — vitest loads once and exits cleanly.
+- Set `block_until_ms` generously for audits (~120s–300s), but cap probe scripts to a handful of cards.
+- On Windows PowerShell, chain commands with `;` not `&&`.
+
+## Proactive stale-terminal audit
+
+Run this check **after finishing shell-heavy work** (coverage audits, batch probes, vitest runs) and **before starting another long command**:
+
+1. List `terminals/*.txt` in the project terminals folder.
+2. For each file, read the header (`pid`, `command`, `running_for_ms`) and footer (`exit_code`, `ended_at`).
+3. Mark a session **stale** when **all** of:
+   - No `exit_code` in the footer (still “open”), and
+   - Not a command you are actively `Await`ing in the current turn, and
+   - Any of:
+     - `running_for_ms` > **120000** (2 min) with no output beyond npm warnings / no progress, or
+     - Command is a disposable probe (`tsx -e`, `_tmp-probe`, `_scan-`, inline `node -e`) and the task that needed it is done, or
+     - Command already printed completion markers (`exit_code`, vitest summary, audit `Wrote report:`) but the session never closed.
+
+**Do not kill** terminals running dev servers (`npm run dev`, `vite`, socket server) unless the user asks or they are clearly hung (>5 min, zero output).
+
+## Kill stale terminals (required)
+
+When stale sessions are found, **kill them in the same turn** — do not only suggest the user close tabs.
+
+```powershell
+# Windows — one PID per invocation; repeat for each stale pid
+taskkill /PID <pid> /F
+```
+
+After killing, optionally verify: re-list terminals folder; stale files should gain `exit_code` or stop updating `running_for_ms`.
+
+Report briefly: how many killed, PIDs, and the command prefix (first ~80 chars) of each.
+
+## When a command finishes normally
+
+- If output shows `exit_code` and the command is done, treat the terminal as complete; do not poll it again.
+- Delete temporary `_tmp-probe-*.ts` / `_probe-*.mjs` / `_scan-*.mjs` scripts after use unless the user asks to keep them.
+
+## Coverage audit
+
+- After trigger-gap batch work, run `npm run trigger:coverage` in `server` once synchronously; do not leave it in the background while running unrelated probes.
+- After the audit completes, run the stale-terminal audit above and kill any leftover probe shells from the batch.

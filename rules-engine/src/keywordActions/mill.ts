@@ -147,20 +147,27 @@ export function parseMillFromOracleText(oracleText: string): ParsedMillEffect | 
   
   // Pattern: "target player mills X cards" or "target player puts the top X cards...into...graveyard"
   const targetPlayerMillMatch = lower.match(
-    /target\s+player\s+(?:mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)|puts?\s+the\s+top\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?\s+.*(?:into|in)\s+(?:their|his or her)\s+graveyard)/i
+    /target\s+player\s+(?:mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|x)|puts?\s+the\s+top\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|x)\s+cards?\s+.*(?:into|in)\s+(?:their|his or her)\s+graveyard)/i
   );
   if (targetPlayerMillMatch) {
     const numStr = targetPlayerMillMatch[1] || targetPlayerMillMatch[2];
+    if (numStr?.toLowerCase() === 'x') {
+      return { type: 'mill', count: 0, targetType: 'player', requiresTarget: true };
+    }
     const count = parseNumber(numStr);
     return { type: 'mill', count, targetType: 'player', requiresTarget: true };
   }
   
   // Pattern: "target opponent mills X cards"
   const targetOpponentMillMatch = lower.match(
-    /target\s+opponent\s+mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)/i
+    /target\s+opponent\s+mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|x)/i
   );
   if (targetOpponentMillMatch) {
-    const count = parseNumber(targetOpponentMillMatch[1]);
+    const numStr = targetOpponentMillMatch[1];
+    if (numStr?.toLowerCase() === 'x') {
+      return { type: 'mill', count: 0, targetType: 'opponent', requiresTarget: true };
+    }
+    const count = parseNumber(numStr);
     return { type: 'mill', count, targetType: 'opponent', requiresTarget: true };
   }
   

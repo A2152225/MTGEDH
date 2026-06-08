@@ -138,15 +138,165 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     }
   }
   
+  // Land enters from a zone other than hand (The Lost and the Damned, etc.)
+  const landEntersNotHandMatch = oracleText.match(
+    /whenever a land you control enters from anywhere other than your hand(?:\s+or\s+you cast\b[^,]*)?,?\s*([^.]+)/i,
+  );
+  if (landEntersNotHandMatch) {
+    const effectText = landEntersNotHandMatch[1].trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiresChoice: effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   // Also check for non-keyworded landfall patterns (cards without "Landfall" keyword)
   // Handles both old and new Bloomburrow-style oracle text:
   // - "Whenever a land you control enters, ..." (new style)
   // - "Whenever a land enters the battlefield under your control, ..." (old style)
   // - "Whenever a land enters under your control, ..." (hybrid)
   const genericLandfallMatch = oracleText.match(
-    /whenever a land (?:you control enters|enters(?: the battlefield)?(?: under your control)?),?\s*([^]*?)(?:\n\n|$)/i
+    /whenever a land (?:you control enters(?: from anywhere other than your hand)?|enters(?: the battlefield)?(?: under your control)?(?: from anywhere other than your hand)?),?\s*([^]*?)(?:\n\n|$)/i
   );
-  if (genericLandfallMatch && !landfallMatch) {
+  const hybridLandEnterMatch = oracleText.match(
+    /\bor\s+(?:a |an )?(\w+(?:\s+\w+)*) you control enters(?:,|\s)/i,
+  );
+  if (hybridLandEnterMatch && !landfallMatch && !genericLandfallMatch) {
+    const effectMatch = oracleText.match(/,\s*([^.]+)\.?\s*$/);
+    const effectText = String(effectMatch?.[1] || '').trim();
+    if (effectText) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        requiresChoice: effectText.toLowerCase().includes('you may'),
+      });
+    }
+  }
+
+  const whenLandYouControlEntersMatch = oracleText.match(
+    /when a land you control enters,?\s*([^.]+)/i,
+  );
+  if (
+    whenLandYouControlEntersMatch &&
+    !landfallMatch &&
+    !genericLandfallMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'when_land_you_control_enters')
+  ) {
+    const effectText = String(whenLandYouControlEntersMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiresChoice: effectText.toLowerCase().includes('you may'),
+      triggerType: 'when_land_you_control_enters' as any,
+    } as LandfallTrigger);
+  }
+
+  const typedLandEnterMatch = oracleText.match(
+    /whenever a ([\w]+) you control enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (typedLandEnterMatch && !triggers.some((t) => (t as any).triggerType === 'typed_land_enter')) {
+    const landType = String(typedLandEnterMatch[1] || '').trim().toLowerCase();
+    const effectText = String(typedLandEnterMatch[2] || '').trim();
+    if (effectText && landType !== 'land') {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        requiresChoice: effectText.toLowerCase().includes('you may'),
+        triggerType: 'typed_land_enter' as any,
+      } as LandfallTrigger);
+    }
+  }
+
+  const enchantedPlayerLandEnterMatch = oracleText.match(
+    /whenever a land enchanted player controls enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (enchantedPlayerLandEnterMatch && !triggers.some((t) => (t as any).triggerType === 'enchanted_player_land_enter')) {
+    const effectText = String(enchantedPlayerLandEnterMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiresChoice: effectText.toLowerCase().includes('you may'),
+      triggerType: 'enchanted_player_land_enter' as any,
+    } as LandfallTrigger);
+  }
+
+  const exiledNameOpponentLandEnterMatch = oracleText.match(
+    /whenever a land an opponent controls with the same name as the exiled card enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (
+    exiledNameOpponentLandEnterMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'exiled_name_opponent_land_enter')
+  ) {
+    const effectText = String(exiledNameOpponentLandEnterMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiresChoice: effectText.toLowerCase().includes('you may'),
+      triggerType: 'exiled_name_opponent_land_enter' as any,
+    } as LandfallTrigger);
+  }
+
+  const opponentLandEnterMatch = oracleText.match(
+    /whenever a land an opponent controls enters(?: the battlefield)?,?\s*([^.]+)/i,
+  );
+  if (opponentLandEnterMatch && !triggers.some((t) => (t as any).triggerType === 'opponent_land_enter')) {
+    const effectText = String(opponentLandEnterMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      requiresChoice: effectText.toLowerCase().includes('you may'),
+      triggerType: 'opponent_land_enter' as any,
+    } as LandfallTrigger);
+  }
+
+  const playLandPatterns = [
+    { pattern: /whenever an opponent plays a land,?\s*([^.]+)/gi, triggerType: 'opponent_plays_land' as const },
+    { pattern: /whenever a player plays a land,?\s*([^.]+)/gi, triggerType: 'player_plays_land' as const },
+    { pattern: /whenever you play a land,?\s*([^.]+)/gi, triggerType: 'you_play_land' as const },
+  ];
+  for (const { pattern, triggerType } of playLandPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[1] || '').trim();
+      if (!effectText || triggers.some((t) => (t as any).triggerType === triggerType && t.effect === effectText)) {
+        continue;
+      }
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        effect: effectText,
+        mandatory: !effectText.toLowerCase().includes('you may'),
+        requiresChoice: effectText.toLowerCase().includes('you may'),
+        triggerType: triggerType as any,
+      } as LandfallTrigger);
+    }
+  }
+
+  if (genericLandfallMatch && !landfallMatch && !landEntersNotHandMatch) {
     const effectText = genericLandfallMatch[1].trim();
     
     // Check if this is a modal trigger

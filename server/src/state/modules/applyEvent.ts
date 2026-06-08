@@ -31,8 +31,10 @@ import {
   movePermanentToHand,
   applyExplore,
   applyDredgeDrawReplacementChoice,
+  applyZursWeirdingOpponentChoice,
 } from "./zones";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander";
+import { applyArcaneAdaptationToControllerCreatures } from "./chosen-creature-type.js";
 import { calculateAllPTBonuses, calculateVariablePT, exchangePermanentOracleText, parsePT } from "../utils";
 import { filterLibraryCardsForSearch } from "../../socket/library-search.js";
 import {
@@ -348,7 +350,7 @@ import { mulberry32 } from "../../utils/rng";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { checkGraveyardTrigger, parsePlaneswalkerAbilities } from "./triggered-abilities.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
-import { processLifeChange } from "./game-state-effects";
+import { processLifeChange, resolveOpponentDirectedDamage } from "./game-state-effects";
 import { markEchoPaid, sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { parseManaCost } from "./mana-check.js";
@@ -2469,13 +2471,33 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   const dmg = Math.max(0, Number((eff as any).amount ?? 0));
                   if (!playerId || dmg <= 0) break;
 
+                  let sourceControllerId = String(caster || '');
+                  let sourceCard: any;
+                  const sourcePermanentId = String((eff as any).sourcePermanentId || (eff as any).sourceId || '');
+                  if (sourcePermanentId) {
+                    const battlefield = (ctx.state as any).battlefield || [];
+                    const sourcePerm = battlefield.find((p: any) => String(p?.id) === sourcePermanentId);
+                    if (sourcePerm?.controller) {
+                      sourceControllerId = String(sourcePerm.controller);
+                    }
+                    sourceCard = sourcePerm?.card;
+                  }
+
+                  const replacement = resolveOpponentDirectedDamage(ctx as any, {
+                    sourceControllerId,
+                    targetPlayerId: playerId,
+                    damageAmount: dmg,
+                    sourceCard,
+                  });
+                  const actualDmg = replacement.damageDealt;
+
                   (ctx.state as any).life = (ctx.state as any).life || {};
                   (ctx as any).life = (ctx as any).life || {};
                   const players = (ctx.state as any).players || [];
                   const player = players.find((p: any) => String(p?.id) === playerId);
                   const startingLife = (ctx.state as any).startingLife ?? 40;
                   const current = (ctx.state as any).life[playerId] ?? (ctx as any).life?.[playerId] ?? player?.life ?? startingLife;
-                  const next = current - dmg;
+                  const next = current - actualDmg;
                   (ctx.state as any).life[playerId] = next;
                   (ctx as any).life[playerId] = next;
                   if (player) player.life = next;
@@ -2484,17 +2506,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   try {
                     (ctx.state as any).damageTakenThisTurnByPlayer = (ctx.state as any).damageTakenThisTurnByPlayer || {};
                     (ctx.state as any).damageTakenThisTurnByPlayer[playerId] =
-                      ((ctx.state as any).damageTakenThisTurnByPlayer[playerId] || 0) + dmg;
+                      ((ctx.state as any).damageTakenThisTurnByPlayer[playerId] || 0) + actualDmg;
                   } catch {}
                   try {
                     (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
-                    (ctx.state as any).lifeLostThisTurn[playerId] = ((ctx.state as any).lifeLostThisTurn[playerId] || 0) + dmg;
+                    (ctx.state as any).lifeLostThisTurn[playerId] = ((ctx.state as any).lifeLostThisTurn[playerId] || 0) + actualDmg;
                   } catch {}
 
                   // Best-effort attribution: if the effect includes a source battlefield creature.
                   try {
-                    const sourcePermanentId = String((eff as any).sourcePermanentId || (eff as any).sourceId || '');
-                    if (sourcePermanentId) {
+                    if (sourcePermanentId && actualDmg > 0) {
                       const battlefield = (ctx.state as any).battlefield || [];
                       const sourcePerm = battlefield.find((p: any) => String(p?.id) === sourcePermanentId);
                       const tl = String(sourcePerm?.card?.type_line || '').toLowerCase();
@@ -2504,7 +2525,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                           (ctx.state as any).creaturesThatDealtDamageToPlayer[playerId] || {}) as any);
                         perPlayer[sourcePermanentId] = {
                           creatureName: String(sourcePerm?.card?.name || sourcePermanentId),
-                          totalDamage: (perPlayer[sourcePermanentId]?.totalDamage || 0) + dmg,
+                          totalDamage: (perPlayer[sourcePermanentId]?.totalDamage || 0) + actualDmg,
                           lastDamageTime: Date.now(),
                         };
                       }
@@ -6312,6 +6333,35 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(mill): failed", err);
+        }
+        break;
+      }
+
+      case "zursWeirdingDrawReplacementResolve": {
+        const decidingOpponentId = String((e as any).playerId || '').trim();
+        const drawingPlayerId = String((e as any).drawingPlayerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.zursWeirdingOpponentChoice === true && (!decidingOpponentId || String(step?.playerId || '').trim() === decidingOpponentId);
+            });
+          }
+
+          (ctx as any)._replayNextEventType = 'zursWeirdingDrawReplacementResolve';
+          applyZursWeirdingOpponentChoice(ctx as any, {
+            drawingPlayerId,
+            decidingOpponentId,
+            opponentIndex: Number((e as any).opponentIndex || 0),
+            choiceId: String((e as any).choiceId || '').trim() || 'decline',
+            remainingDrawCountAfterChoice: Number((e as any).remainingDrawCountAfterChoice || 0),
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(zursWeirdingDrawReplacementResolve): failed', err);
         }
         break;
       }
@@ -11308,7 +11358,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             });
           }
 
-          if (permId && creatureType) {
+          const spellId = String((e as any).spellId || '').trim();
+          if (spellId && creatureType) {
+            const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
+            const spellOnStack = stack.find((item: any) => item && (String(item.id || '') === spellId || String(item.cardId || '') === spellId));
+            if (spellOnStack) {
+              (spellOnStack as any).chosenCreatureType = creatureType;
+              if (spellOnStack.card && typeof spellOnStack.card === 'object') {
+                (spellOnStack.card as any).chosenCreatureType = creatureType;
+              }
+            }
+          } else if (permId && creatureType) {
             const perm = resolveReplayPermanentByEvent(ctx, {
               permanentId: permId,
               playerId,
@@ -11318,6 +11378,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               (perm as any).chosenCreatureType = creatureType;
 
               const permCardName = String((perm as any)?.card?.name || '').toLowerCase();
+              if (permCardName.includes('arcane adaptation')) {
+                const battlefield = Array.isArray((ctx.state as any)?.battlefield) ? (ctx.state as any).battlefield : [];
+                applyArcaneAdaptationToControllerCreatures(
+                  battlefield,
+                  String((perm as any)?.controller || playerId || ''),
+                  String(creatureType),
+                );
+              }
               if (permCardName.includes('morophon')) {
                 const stateAny = ctx.state as any;
                 const morophonChosenType = (stateAny.morophonChosenType || {}) as Record<string, string>;

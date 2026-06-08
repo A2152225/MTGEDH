@@ -238,6 +238,32 @@ function getOracleLines(oracleText: string): string[] {
     .filter(Boolean);
 }
 
+/** Names used in oracle text (~, comma-short, or "Svyelun of Sea and Sky" -> "Svyelun"). */
+function getCardNameVariantsForOracleMatching(cardName: string, oracleText?: string): string[] {
+  const variants = new Set<string>();
+  const full = String(cardName || '').trim();
+  if (!full) return [];
+
+  variants.add(full);
+
+  const commaShort = normalizeCardNameForOracleText(full);
+  if (commaShort) variants.add(commaShort);
+
+  const ofPrefixMatch = full.match(/^([^\s,]+)\s+of\s+/i);
+  if (ofPrefixMatch?.[1]) variants.add(ofPrefixMatch[1]);
+
+  if (oracleText) {
+    for (const line of getOracleLines(oracleText)) {
+      const refMatch = line.match(/^Whenever\s+([A-Za-z][^\s,]+)\s+attacks\b/i);
+      if (refMatch?.[1] && full.toLowerCase().startsWith(refMatch[1].toLowerCase())) {
+        variants.add(refMatch[1]);
+      }
+    }
+  }
+
+  return Array.from(variants);
+}
+
 function normalizeOracleTextForInlineMatching(oracleText: string): string {
   return getOracleLines(oracleText).join(' ').replace(/\s+/g, ' ').trim();
 }
@@ -308,12 +334,8 @@ export function getSupportedExertAttackReward(card: any): string | null {
 }
 
 function findGenericAttackTriggerLine(oracleText: string, cardName: string): RegExpMatchArray | null {
-  const oracleShortName = normalizeCardNameForOracleText(cardName);
-  const cardNameVariants = Array.from(new Set(
-    [oracleShortName, cardName]
-      .map((value) => String(value || '').trim())
-      .filter(Boolean)
-  )).map((value) => escapeCardNameForRegex(value));
+  const cardNameVariants = getCardNameVariantsForOracleMatching(cardName, oracleText)
+    .map((value) => escapeCardNameForRegex(value));
   const attacksPattern = new RegExp(
     `whenever\\s+(?:~|this (?:creature(?:\\s+or\\s+equipped creature)?|vehicle|artifact|permanent)|${cardNameVariants.join('|')})\\s+(?:enters(?: the battlefield)?\\s+or\\s+)?attacks,?\\s*(.+)$`,
     'i'
@@ -329,9 +351,10 @@ function findGenericAttackTriggerLine(oracleText: string, cardName: string): Reg
 }
 
 function findGenericBlockTriggerLine(oracleText: string, cardName: string): RegExpMatchArray | null {
-  const cardNamePatternEscaped = escapeCardNameForRegex(cardName);
+  const cardNameVariants = getCardNameVariantsForOracleMatching(cardName, oracleText)
+    .map((value) => escapeCardNameForRegex(value));
   const blocksPattern = new RegExp(
-    `whenever\\s+(?:~|this creature|${cardNamePatternEscaped})\\s+blocks(?:\\s+a\\s+creature)?,?\\s*(.+)$`,
+    `whenever\\s+(?:~|this creature|${cardNameVariants.join('|')})\\s+blocks(?:\\s+a\\s+creature)?,?\\s*(.+)$`,
     'i'
   );
 
@@ -1130,6 +1153,22 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
     });
   }
   
+  const nextCombatPhaseMatch = oracleText.match(
+    /at the beginning of the next combat(?: phase)?(?: this turn)?,?\s*([^.]+)/i,
+  );
+  if (nextCombatPhaseMatch && !triggers.some((t) => (t as any).triggerType === 'next_combat_phase')) {
+    const effectText = String(nextCombatPhaseMatch[1] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'next_combat_phase' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
   // "At the beginning of each combat" - triggers on all players' combats
   const eachCombatMatch = oracleText.match(/at the beginning of each combat,?\s*([^.]+)/i);
   if (eachCombatMatch && !triggers.some(t => t.description.includes(eachCombatMatch[1].trim()))) {

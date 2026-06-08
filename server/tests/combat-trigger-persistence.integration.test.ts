@@ -162,6 +162,75 @@ describe('combat trigger persistence', () => {
     });
   });
 
+  it('pushes attack triggers when oracle uses a shortened legendary name (Svyelun)', async () => {
+    const gameId = `test_svyelun_attack_trigger_${Date.now()}`;
+    trackedGameIds.add(gameId);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).step = 'declareAttackers';
+    (game.state as any).phase = 'combat';
+    (game.state as any).priority = p1;
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'svyelun_1',
+        controller: p1,
+        owner: p1,
+        basePower: 3,
+        baseToughness: 4,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'svyelun_card_1',
+          name: 'Svyelun of Sea and Sky',
+          type_line: 'Legendary Creature — Merfolk God',
+          oracle_text:
+            'Svyelun has indestructible as long as you control at least two other Merfolk.\nWhenever Svyelun attacks, draw a card.\nOther Merfolk you control have ward {1}.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
+
+    const io = createMockIo(emitted, [socket]);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers['declareAttackers']({
+      gameId,
+      attackers: [{ creatureId: 'svyelun_1', targetPlayerId: p2 }],
+    });
+
+    const stack = (game.state as any).stack || [];
+    const liveTrigger = stack.find(
+      (item: any) => item?.type === 'triggered_ability' && String(item?.sourceName || '') === 'Svyelun of Sea and Sky',
+    ) as any;
+    expect(liveTrigger).toBeTruthy();
+    expect(liveTrigger).toMatchObject({
+      source: 'svyelun_1',
+      permanentId: 'svyelun_1',
+      triggeringPlayer: p1,
+      description: 'draw a card.',
+    });
+  });
+
   it('orders simultaneous attack triggers by APNAP before stack push', async () => {
     const gameId = `test_combat_attack_trigger_apnap_${Date.now()}`;
     trackedGameIds.add(gameId);

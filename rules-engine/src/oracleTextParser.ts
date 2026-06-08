@@ -280,12 +280,12 @@ const TRIGGER_CONDITION_EVENT_HINTS = [
   /\bdies$/i,
   /\bis put into (?:(?:a|an|your|its owner's|their owner's)\s+)?graveyard from the battlefield$/i,
   /\benters(?: the battlefield)?(?: under your control)?$/i,
-  /\battacks?(?: alone| with [\s\S]+)?$/i,
+  /\battacks?(?:\s+(?:a|an|the|target|each|one|that)\s+[^,]+|\s+alone|\s+with\s+[^,]+)?$/i,
   /\bblocks$/i,
   /\bbecomes blocked$/i,
   /\bdeals combat damage(?: to (?:a|an|target) [a-z0-9' -]+)?$/i,
   /\bdeals damage(?: to (?:a|an|target) [a-z0-9' -]+)?$/i,
-  /\bcasts? (?:a|an|target) [a-z0-9' -]+$/i,
+  /\b(?:you|an opponent|each opponent|a player|opponent) casts? (?:a|an|your|their|target) [a-z0-9' -]+$/i,
   /\bdraws? (?:a|an|\d+|x|[a-z]+)?\s*cards?$/i,
   /\bdiscards? (?:a|an|\d+|x|[a-z]+)?\s*cards?$/i,
   /\bgains? [a-z0-9' -]+ life$/i,
@@ -317,6 +317,13 @@ function stripLeadingTriggeredAbilityLabel(text: string): string {
 function looksLikeCompleteTriggerCondition(text: string): boolean {
   const normalized = String(text || '').trim();
   if (!normalized) return false;
+  if (/\bif you cast (?:a |an )?(?:creature )?spell this way\b/i.test(normalized)) return false;
+  if (/\bthe last time counter is removed\b/i.test(normalized)) return false;
+  if (/\bsplice onto\b/i.test(normalized) || /\bconspire\s*\(/i.test(normalized)) return false;
+  if (/^the beginning of the next end step\b/i.test(normalized)) return false;
+  if (/,/.test(normalized) && /\b(?:exile|draw|you may play|for as long as they remain)\b/i.test(normalized)) {
+    return false;
+  }
   return TRIGGER_CONDITION_EVENT_HINTS.some(pattern => pattern.test(normalized));
 }
 
@@ -489,6 +496,12 @@ export function parseTriggeredAbility(text: string): ParsedAbility | null {
 const INSTEAD_PATTERN = /^If\s+([^()]+?)\s+would\s+(.+?),\s+(.+?)\s+instead\.?$/i;
 
 /**
+ * "Would" replacement without an explicit "instead" clause.
+ * Mindskinner: "If a source you control would deal damage to an opponent, prevent that damage..."
+ */
+const WOULD_EVENT_REPLACE_PATTERN = /^If\s+(.+?)\s+would\s+(.+?),\s+(.+)$/i;
+
+/**
  * "Enters with" or "Enters as" clause pattern
  * For modifiers affecting how permanents enter the battlefield
  */
@@ -514,6 +527,19 @@ export function parseReplacementEffect(text: string): ParsedAbility | null {
       triggerCondition: insteadMatch[1].trim(),
       effect: insteadMatch[3].trim(),
     };
+  }
+
+  const wouldReplaceMatch = text.match(WOULD_EVENT_REPLACE_PATTERN);
+  if (wouldReplaceMatch) {
+    const effect = wouldReplaceMatch[3].trim();
+    if (/prevent that damage|prevent all damage|put .* counter|mills? cards equal/i.test(effect)) {
+      return {
+        type: AbilityType.REPLACEMENT,
+        text,
+        triggerCondition: `${wouldReplaceMatch[1].trim()} would ${wouldReplaceMatch[2].trim()}`,
+        effect,
+      };
+    }
   }
   
   // Check for "As enters" clause
@@ -684,6 +710,22 @@ export function parseKeywordActions(text: string): ParsedKeywordAction[] {
   return actions;
 }
 
+const SPELL_INSTRUCTION_LEAD_PATTERN =
+  /^(?:look|draw|mill|deal|destroy|exile|return|search|scry|surveil|create|put|target|counter|gain|lose|shuffle|reveal|choose|sacrifice|discard|tap|untap|fight|copy|cast|animate|goad|proliferate|distribute|pay|add|remove|prevent|attach|detach|unattach|each\s+(?:player|opponent|creature|permanent|land|artifact|enchantment|planeswalker|battle|opponents?\s+and\s+you))\b/i;
+
+function isSpellInstructionLine(text: string): boolean {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+  if (
+    /^(?:when|whenever|at|as|if|only|players?\s|creatures?\s|permanents?\s|lands?\s|artifacts?\s|enchantments?\s|activated\s+abilities|legendary\s)/i.test(
+      trimmed
+    )
+  ) {
+    return false;
+  }
+  return SPELL_INSTRUCTION_LEAD_PATTERN.test(trimmed);
+}
+
 // =============================================================================
 // DELAYED TRIGGERS
 // Effects created by a spell that happen later
@@ -791,10 +833,11 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
       }
     }
     
-    // Step 2a: Check for "If ... instead" or conditional self-entry replacement effects
+    // Step 2a: Check for replacement effects ("If ... would ...", "If ... instead", ETB modifiers)
     if (
       /^if\s+.+instead/i.test(trimmed) ||
-      /^if\s+.+,\s+(?:it|this\s+[^.;]+?)\s+enters\b/i.test(trimmed)
+      /^if\s+.+,\s+(?:it|this\s+[^.;]+?)\s+enters\b/i.test(trimmed) ||
+      /^if\s+.+\s+would\s+.+,\s+/i.test(trimmed)
     ) {
       const replacement = parseReplacementEffect(trimmed);
       if (replacement) {
@@ -869,11 +912,10 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
       continue;
     }
     
-    // Fallback: Static or spell ability (no specific pattern matched)
-    // Only add if not empty and not already captured
+    // Fallback: spell instruction vs continuous static ability
     if (!abilities.some(a => a.text === trimmed)) {
       abilities.push({
-        type: AbilityType.STATIC,
+        type: isSpellInstructionLine(trimmed) ? AbilityType.SPELL : AbilityType.STATIC,
         text: trimmed,
         effect: trimmed,
       });

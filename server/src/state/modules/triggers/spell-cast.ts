@@ -3,18 +3,6 @@ import type { SpellCastTrigger, SpellCastUntapEffect } from "./types.js";
 
 export type { SpellCastTrigger, SpellCastUntapEffect } from "./types.js";
 
-/**
-}
-  // Pattern: 'Whenever you cast a [TYPE] spell [FROM_ZONE], [EFFECT]'
-  const spellCastPatterns = [
-    /whenever (?:you cast|an? [^,.]+ enters.*?whenever you cast) (?:a |an )?(\w+)?\s*spell(?: from (?:your )?\w+)?(?:,?\s*choose[^.]+)?,\s*([^.]+)/gi,
-    /whenever you cast (?:a |an )?(creature|noncreature|instant|sorcery|instant or sorcery) spell(?: from (?:your )?\w+)?,\s*([^.]+)/gi,
-  ];
-  };
-  addsLoyaltyCounters?: number; // Number of loyalty counters to add (for planeswalkers like Ral, Crackling Wit)
-  mandatory: boolean;
-}
-
 // ============================================================================
 // Spell-Cast Untap Triggers (Jeskai Ascendancy, Paradox Engine)
 // ============================================================================
@@ -451,7 +439,7 @@ export interface OpponentSpellCastTrigger {
   casterId: string;      // Who cast the spell (the opponent)
   description: string;
   effect: string;
-  triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature' | 'opponent_casts_noncreature';
+  triggerType: OpponentCastTriggerType;
   paymentCost?: string;  // What the caster can pay to prevent the effect
   paymentAmount?: number; // X value for variable payments (Esper Sentinel)
   benefitIfNotPaid: string; // Effect if opponent doesn't pay
@@ -467,98 +455,359 @@ export interface OpponentSpellCastTrigger {
  * - Rhystic Study: "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}."
  * - Mystic Remora: "Whenever an opponent casts a noncreature spell, you may draw a card unless that player pays {4}."
  */
-export function detectOpponentSpellCastTriggers(card: any, permanent: any): {
-  triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature' | 'opponent_casts_noncreature';
-  spellCondition: 'any' | 'noncreature' | 'first_noncreature';
+export type OpponentCastTriggerType =
+  | 'esper_sentinel'
+  | 'rhystic_study'
+  | 'mystic_remora'
+  | 'opponent_casts_any'
+  | 'opponent_casts_first_noncreature'
+  | 'opponent_casts_noncreature'
+  | 'opponent_casts_creature'
+  | 'any_player_casts_any'
+  | 'any_player_casts_creature'
+  | 'any_player_casts_noncreature';
+
+export type OpponentCastSpellCondition =
+  | 'any'
+  | 'noncreature'
+  | 'creature'
+  | 'first_noncreature'
+  | 'first_any';
+
+export type OpponentCastCasterScope = 'opponent' | 'any_player';
+
+export type DetectedOpponentSpellCastTrigger = {
+  triggerType: OpponentCastTriggerType;
+  spellCondition: OpponentCastSpellCondition;
+  casterScope: OpponentCastCasterScope;
   paymentCost: string;
-  paymentIsVariable?: boolean;  // For Esper Sentinel where X = creature's power
+  paymentIsVariable?: boolean;
   benefitIfNotPaid: string;
   description: string;
-}[] {
-  const triggers: {
-    triggerType: 'esper_sentinel' | 'rhystic_study' | 'mystic_remora' | 'opponent_casts_any' | 'opponent_casts_first_noncreature' | 'opponent_casts_noncreature';
-    spellCondition: 'any' | 'noncreature' | 'first_noncreature';
-    paymentCost: string;
-    paymentIsVariable?: boolean;
-    benefitIfNotPaid: string;
-    description: string;
-  }[] = [];
-  
-  const oracleText = (card?.oracle_text || "").toLowerCase();
-  const cardName = (card?.name || "").toLowerCase();
-  
-  // Skip if not an opponent cast trigger
-  if (!oracleText.includes('opponent') || !oracleText.includes('cast')) {
+};
+
+function parseOpponentCastSpellType(rawType: string): Pick<DetectedOpponentSpellCastTrigger, 'spellCondition' | 'triggerType'> {
+  const typeToken = String(rawType || '').trim().toLowerCase();
+  if (!typeToken || typeToken === 'spell') {
+    return { spellCondition: 'any', triggerType: 'opponent_casts_any' };
+  }
+  if (typeToken.includes('first') && typeToken.includes('noncreature')) {
+    return { spellCondition: 'first_noncreature', triggerType: 'opponent_casts_first_noncreature' };
+  }
+  if (typeToken === 'noncreature' || typeToken.includes('noncreature')) {
+    return { spellCondition: 'noncreature', triggerType: 'opponent_casts_noncreature' };
+  }
+  if (typeToken === 'creature' || (typeToken.includes('creature') && !typeToken.includes('noncreature'))) {
+    return { spellCondition: 'creature', triggerType: 'opponent_casts_creature' };
+  }
+  if (
+    typeToken.includes('instant') ||
+    typeToken.includes('sorcery') ||
+    typeToken.includes('artifact')
+  ) {
+    return { spellCondition: 'noncreature', triggerType: 'opponent_casts_noncreature' };
+  }
+  return { spellCondition: 'any', triggerType: 'opponent_casts_any' };
+}
+
+function pushUniqueOpponentCastTrigger(
+  triggers: DetectedOpponentSpellCastTrigger[],
+  candidate: DetectedOpponentSpellCastTrigger,
+): void {
+  if (triggers.some((existing) =>
+    existing.description === candidate.description &&
+    existing.spellCondition === candidate.spellCondition &&
+    existing.casterScope === candidate.casterScope
+  )) {
+    return;
+  }
+  triggers.push(candidate);
+}
+
+export function detectOpponentSpellCastTriggers(card: any, permanent: any): DetectedOpponentSpellCastTrigger[] {
+  const triggers: DetectedOpponentSpellCastTrigger[] = [];
+  const oracleText = String(card?.oracle_text || '');
+  const lowerOracle = oracleText.toLowerCase();
+  const cardName = String(card?.name || '').toLowerCase();
+
+  const playerCyclesACardMatch = oracleText.match(/whenever a player cycles a card,?\s*([^.]+)/i);
+  if (playerCyclesACardMatch) {
+    const effectText = String(playerCyclesACardMatch[1] || '').trim();
+    if (effectText) {
+      pushUniqueOpponentCastTrigger(triggers, {
+        triggerType: 'any_player_casts_any',
+        spellCondition: 'any',
+        casterScope: 'any_player',
+        benefitIfNotPaid: effectText,
+        description: playerCyclesACardMatch[0].trim(),
+      });
+    }
+  }
+
+  const mentionsCastTrigger =
+    /\b(?:when|whenever)\b/i.test(oracleText) &&
+    /\bcast(?:s)?\b/i.test(lowerOracle) &&
+    (
+      /\b(?:an opponent|opponent|a player|each opponent|enchanted player|the chosen player|another player|another opponent)\b/i.test(lowerOracle) ||
+      /\bplayer casts\b/i.test(lowerOracle) ||
+      /\benchanted (?:player|creature) casts\b/i.test(lowerOracle) ||
+      /\b(?:the )?first\b.*\bspell\b.*\bis cast\b/i.test(lowerOracle)
+    );
+
+  if (!mentionsCastTrigger) {
     return triggers;
   }
-  
-  // Esper Sentinel: "Whenever an opponent casts their first noncreature spell each turn, draw a card unless that player pays {X}"
-  if (cardName.includes('esper sentinel') || 
-      (oracleText.includes('first noncreature spell each turn') && 
-       oracleText.includes('unless') && 
-       oracleText.includes('pays'))) {
-    triggers.push({
+
+  const enchantedPlayerCastPatterns = [
+    /whenever enchanted player casts(?: (?:a |an )?([\w\s]*?)spell)?(?: with the chosen name)?(?:,?\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+    /whenever enchanted player casts (?:a |an )?other spell(?:s)? they cast each turn,?\s*([^.]+)/gi,
+    /whenever enchanted (?:player |creature )?casts (?:a |an )?([\w\s]*?)spell,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of enchantedPlayerCastPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[match.length - 1] || '').trim();
+      if (!effectText) continue;
+      pushUniqueOpponentCastTrigger(triggers, {
+        triggerType: 'opponent_casts_any',
+        spellCondition: 'any',
+        casterScope: 'opponent',
+        benefitIfNotPaid: effectText,
+        description: match[0].trim(),
+      });
+    }
+  }
+
+  const chosenPlayerCastPatterns = [
+    /whenever the chosen (?:player )?casts (?:a |an )?([\w\s]*?)spell,?\s*([^.]+)/gi,
+    /whenever (?:a player|opponent) casts (?:a |an )?spell with the chosen name,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of chosenPlayerCastPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[match.length - 1] || '').trim();
+      if (!effectText) continue;
+      pushUniqueOpponentCastTrigger(triggers, {
+        triggerType: 'any_player_casts_any',
+        spellCondition: 'any',
+        casterScope: 'any_player',
+        benefitIfNotPaid: effectText,
+        description: match[0].trim(),
+      });
+    }
+  }
+
+  const castFromNonHandPatterns = [
+    /whenever another (?:player|opponent) casts (?:a |an )?spell from anywhere other than (?:their|that player's) hand,?\s*([^.]+)/gi,
+    /whenever an opponent casts (?:a |an )?spell from anywhere other than (?:their|that player's) hand,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of castFromNonHandPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[1] || '').trim();
+      if (!effectText) continue;
+      pushUniqueOpponentCastTrigger(triggers, {
+        triggerType: 'opponent_casts_any',
+        spellCondition: 'any',
+        casterScope: 'opponent',
+        benefitIfNotPaid: effectText,
+        description: match[0].trim(),
+      });
+    }
+  }
+
+  const firstSpellOfTurnPatterns = [
+    /whenever the first noncreature spell of a turn is cast,?\s*([^.]+)/gi,
+    /whenever the first spell of a turn is cast,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of firstSpellOfTurnPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[1] || '').trim();
+      if (!effectText) continue;
+      pushUniqueOpponentCastTrigger(triggers, {
+        triggerType: 'any_player_casts_any',
+        spellCondition: 'first_any',
+        casterScope: 'any_player',
+        benefitIfNotPaid: effectText,
+        description: match[0].trim(),
+      });
+    }
+  }
+
+  const opponentCastDuringYourTurnPattern =
+    /whenever an opponent casts (?:a |an )?([\w\s]*?)spell during your turn,?\s*([^.]+)/gi;
+  let opponentDuringTurnMatch: RegExpExecArray | null;
+  opponentCastDuringYourTurnPattern.lastIndex = 0;
+  while ((opponentDuringTurnMatch = opponentCastDuringYourTurnPattern.exec(oracleText)) !== null) {
+    const effectText = String(opponentDuringTurnMatch[2] || '').trim();
+    if (!effectText) continue;
+    pushUniqueOpponentCastTrigger(triggers, {
+      triggerType: 'opponent_casts_any',
+      spellCondition: 'any',
+      casterScope: 'opponent',
+      benefitIfNotPaid: effectText,
+      description: opponentDuringTurnMatch[0].trim(),
+    });
+  }
+
+  if (cardName.includes('esper sentinel') ||
+      (lowerOracle.includes('first noncreature spell each turn') &&
+       lowerOracle.includes('unless') &&
+       lowerOracle.includes('pays'))) {
+    pushUniqueOpponentCastTrigger(triggers, {
       triggerType: 'esper_sentinel',
       spellCondition: 'first_noncreature',
+      casterScope: 'opponent',
       paymentCost: '{X}',
       paymentIsVariable: true,
       benefitIfNotPaid: 'draw a card',
-      description: "Whenever an opponent casts their first noncreature spell each turn, draw a card unless that player pays {X}",
+      description: 'Whenever an opponent casts their first noncreature spell each turn, draw a card unless that player pays {X}',
     });
-    return triggers; // Return early to avoid double-matching
   }
-  
-  // Rhystic Study: "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}."
+
   if (cardName.includes('rhystic study') ||
-      (oracleText.includes('opponent casts a spell') &&
-       oracleText.includes('draw') &&
-       oracleText.includes('unless') &&
-       oracleText.match(/pays\s*\{1\}/))) {
-    triggers.push({
+      (lowerOracle.includes('opponent casts a spell') &&
+       lowerOracle.includes('draw') &&
+       lowerOracle.includes('unless') &&
+       lowerOracle.match(/pays\s*\{1\}/))) {
+    pushUniqueOpponentCastTrigger(triggers, {
       triggerType: 'rhystic_study',
       spellCondition: 'any',
+      casterScope: 'opponent',
       paymentCost: '{1}',
       benefitIfNotPaid: 'draw a card',
-      description: "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}",
+      description: 'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}',
     });
-    return triggers;
   }
-  
-  // Mystic Remora: "Whenever an opponent casts a noncreature spell, you may draw a card unless that player pays {4}."
+
   if (cardName.includes('mystic remora') ||
-      (oracleText.includes('opponent casts a noncreature spell') &&
-       oracleText.includes('draw') &&
-       oracleText.includes('unless') &&
-       oracleText.includes('pays'))) {
-    // Extract the payment cost
-    const paymentMatch = oracleText.match(/pays\s*(\{[^}]+\})/);
+      (lowerOracle.includes('opponent casts a noncreature spell') &&
+       lowerOracle.includes('draw') &&
+       lowerOracle.includes('unless') &&
+       lowerOracle.includes('pays'))) {
+    const paymentMatch = lowerOracle.match(/pays\s*(\{[^}]+\})/);
     const paymentCost = paymentMatch ? paymentMatch[1] : '{4}';
-    
-    triggers.push({
+    pushUniqueOpponentCastTrigger(triggers, {
       triggerType: 'mystic_remora',
       spellCondition: 'noncreature',
+      casterScope: 'opponent',
       paymentCost,
       benefitIfNotPaid: 'draw a card',
       description: `Whenever an opponent casts a noncreature spell, you may draw a card unless that player pays ${paymentCost}`,
     });
-    return triggers;
   }
-  
-  // Generic pattern: "Whenever an opponent casts a spell/noncreature spell, [effect] unless that player pays {N}"
-  const genericOpponentMatch = oracleText.match(/whenever an opponent casts (?:a |an )?(noncreature\s+)?spell.*?unless.*?pays\s*(\{[^}]+\})/i);
-  if (genericOpponentMatch) {
-    const isNoncreature = !!genericOpponentMatch[1];
-    const paymentCost = genericOpponentMatch[2];
-    
-    triggers.push({
-      triggerType: isNoncreature ? 'opponent_casts_noncreature' : 'opponent_casts_any',
-      spellCondition: isNoncreature ? 'noncreature' : 'any',
-      paymentCost,
-      benefitIfNotPaid: 'trigger effect',
-      description: `Whenever an opponent casts a${isNoncreature ? ' noncreature' : ''} spell, trigger unless that player pays ${paymentCost}`,
-    });
+
+  const unlessPayPatterns = [
+    /whenever an opponent casts (?:a |an )?(noncreature\s+)?spell[^.]*unless[^.]*pays\s*(\{[^}]+\})/gi,
+    /whenever a player casts (?:a |an )?(noncreature\s+)?spell[^.]*unless[^.]*pays\s*(\{[^}]+\})/gi,
+  ];
+  for (const pattern of unlessPayPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const isNoncreature = Boolean(match[1]);
+      const paymentCost = match[2] || '';
+      const casterScope: OpponentCastCasterScope = /player casts/i.test(match[0]) ? 'any_player' : 'opponent';
+      pushUniqueOpponentCastTrigger(triggers, {
+        triggerType: isNoncreature
+          ? (casterScope === 'any_player' ? 'any_player_casts_noncreature' : 'opponent_casts_noncreature')
+          : (casterScope === 'any_player' ? 'any_player_casts_any' : 'opponent_casts_any'),
+        spellCondition: isNoncreature ? 'noncreature' : 'any',
+        casterScope,
+        paymentCost,
+        benefitIfNotPaid: 'trigger effect',
+        description: match[0].trim(),
+      });
+    }
   }
-  
+
+  const typedNoncreatureCastPatterns = [
+    /when(?:ever)? an opponent casts an? artifact, instant, or sorcery spell(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+    /when(?:ever)? a player casts an? artifact, instant, or sorcery spell(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+    /when(?:ever)? an opponent casts an? instant or sorcery card(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+    /when(?:ever)? a player casts an? instant or sorcery card(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+  ];
+  for (const pattern of typedNoncreatureCastPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const effectText = String(match[1] || '').trim();
+      if (!effectText) continue;
+      const casterScope: OpponentCastCasterScope = /a player casts/i.test(match[0]) ? 'any_player' : 'opponent';
+      pushUniqueOpponentCastTrigger(triggers, {
+        triggerType: casterScope === 'any_player' ? 'any_player_casts_noncreature' : 'opponent_casts_noncreature',
+        spellCondition: 'noncreature',
+        casterScope,
+        benefitIfNotPaid: effectText,
+        description: match[0].trim(),
+      });
+    }
+  }
+
+  const genericCastPatterns: Array<{
+    pattern: RegExp;
+    casterScope: OpponentCastCasterScope;
+  }> = [
+    {
+      pattern: /when(?:ever)? an opponent casts (?:a |an )?((?:[\w]+(?:\s+[\w]+)*?))?\s*spell(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+      casterScope: 'opponent',
+    },
+    {
+      pattern: /when(?:ever)? a player casts (?:a |an )?((?:[\w]+(?:\s+[\w]+)*?))?\s*spell(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+      casterScope: 'any_player',
+    },
+    {
+      pattern: /when(?:ever)? each opponent casts (?:a |an )?((?:[\w]+(?:\s+[\w]+)*?))?\s*spell(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/gi,
+      casterScope: 'opponent',
+    },
+  ];
+
+  const playerCastsCardMatch = oracleText.match(/whenever a player casts a card(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/i);
+  if (playerCastsCardMatch) {
+    const effectText = String(playerCastsCardMatch[1] || '').trim();
+    if (effectText) {
+      pushUniqueOpponentCastTrigger(triggers, {
+        triggerType: 'any_player_casts_any',
+        spellCondition: 'any',
+        casterScope: 'any_player',
+        benefitIfNotPaid: effectText,
+        description: playerCastsCardMatch[0].trim(),
+      });
+    }
+  }
+
+  for (const { pattern, casterScope } of genericCastPatterns) {
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(oracleText)) !== null) {
+      const rawType = String(match[1] || '').trim();
+      const effectText = String(match[2] || '').trim();
+      if (!effectText) continue;
+      const parsed = parseOpponentCastSpellType(rawType);
+      const triggerType: OpponentCastTriggerType = casterScope === 'any_player'
+        ? parsed.spellCondition === 'creature'
+          ? 'any_player_casts_creature'
+          : parsed.spellCondition === 'noncreature'
+            ? 'any_player_casts_noncreature'
+            : 'any_player_casts_any'
+        : parsed.triggerType;
+      const unlessPayment = effectText.match(/unless.*?pays\s*(\{[^}]+\})/i);
+      pushUniqueOpponentCastTrigger(triggers, {
+        triggerType,
+        spellCondition: parsed.spellCondition,
+        casterScope,
+        paymentCost: unlessPayment?.[1] || '',
+        benefitIfNotPaid: effectText,
+        description: match[0].trim(),
+      });
+    }
+  }
+
   return triggers;
 }
 
@@ -589,13 +838,10 @@ export function getOpponentSpellCastTriggers(
     if (!permanent || !permanent.card) continue;
     
     const controller = permanent.controller;
-    
-    // Skip if the permanent's controller cast the spell (not an opponent)
-    if (controller === casterId) continue;
-    
     const permTriggers = detectOpponentSpellCastTriggers(permanent.card, permanent);
     
     for (const trigger of permTriggers) {
+      if (trigger.casterScope === 'opponent' && casterId === controller) continue;
       let shouldTrigger = false;
       
       switch (trigger.spellCondition) {
@@ -605,9 +851,14 @@ export function getOpponentSpellCastTriggers(
         case 'noncreature':
           shouldTrigger = isNoncreatureSpell;
           break;
+        case 'creature':
+          shouldTrigger = isCreatureSpell;
+          break;
         case 'first_noncreature':
-          // Only triggers on the FIRST noncreature spell the caster has cast this turn
           shouldTrigger = isNoncreatureSpell && isFirstNoncreatureThisTurnByCaster;
+          break;
+        case 'first_any':
+          shouldTrigger = isFirstNoncreatureThisTurnByCaster;
           break;
       }
       

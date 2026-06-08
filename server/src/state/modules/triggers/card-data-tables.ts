@@ -38,7 +38,6 @@ export const KNOWN_DEATH_TRIGGERS: Record<string, { effect: string; triggerOn: '
   "skullclamp": { effect: "Draw 2 cards when equipped creature dies", triggerOn: 'own' },
   "grim haruspex": { effect: "Draw a card when nontoken creature dies", triggerOn: 'controlled' },
   "midnight reaper": { effect: "Draw a card, lose 1 life when nontoken creature dies", triggerOn: 'controlled' },
-  "species specialist": { effect: "Draw a card when chosen creature type dies", triggerOn: 'any' },
   "harvester of souls": { effect: "Draw a card when nontoken creature dies", triggerOn: 'any' },
   "dark prophecy": { effect: "Draw a card, lose 1 life when creature dies", triggerOn: 'controlled' },
   // The Scorpion God - "When The Scorpion God dies, return it to its owner's hand at the beginning of the next end step."

@@ -2,6 +2,7 @@ import type { BattlefieldPermanent } from "../../../shared/src/types.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { permanentHasCreatureTypeNow } from './creatureTypeNow.js';
 import { evaluateLifeGainReplacementEvent } from './modules/replacement-effects.js';
+import { getLibraryTopCardFromState } from './modules/game-state-effects.js';
 
 export function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -1489,7 +1490,20 @@ export function calculateAllPTBonuses(
   const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
   const creatureName = (creaturePerm.card?.name || '').toLowerCase();
   
-  // 0. Special creature-specific P/T bonuses (Omnath, etc.)
+  // 0. Special creature-specific P/T bonuses (Omnath, Ulvenwald Channelers, etc.)
+  const selfOracleText = String(creaturePerm.card?.oracle_text || '');
+  const topCreatureBonusMatch = selfOracleText.match(
+    /as long as the top card of your library is a creature card, this creature gets ([+-]?\d+)\/([+-]?\d+)/i,
+  );
+  if (topCreatureBonusMatch) {
+    const topCard = getLibraryTopCardFromState(gameState, controllerId);
+    const topTypeLine = String(topCard?.type_line || topCard?.typeLine || '').toLowerCase();
+    if (topTypeLine.includes('creature')) {
+      powerBonus += parseInt(topCreatureBonusMatch[1], 10);
+      toughnessBonus += parseInt(topCreatureBonusMatch[2], 10);
+    }
+  }
+
   // Omnath, Locus of Mana - gets +1/+1 for each green mana in your mana pool
   // Match various name formats: "Omnath, Locus of Mana" or "Omnath Locus of Mana"
   if (creatureName.includes('omnath') && creatureName.includes('locus of mana')) {
@@ -1536,6 +1550,22 @@ export function calculateAllPTBonuses(
       }
     }
   }
+
+  // 2b. Artifact anthem bonuses (Patchwork Banner, Icon of Ancestry, etc.)
+  for (const perm of battlefield) {
+    if (!perm || !perm.card) continue;
+    if (perm.controller !== controllerId) continue;
+    const typeLine = (perm.card.type_line || '').toLowerCase();
+    if (!typeLine.includes('artifact')) continue;
+
+    const oracleText = perm.card.oracle_text || '';
+    const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
+    const chosenTypeBuffMatch = oracleText.match(/creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i);
+    if (chosenType && chosenTypeBuffMatch && permanentHasCreatureTypeNow(creaturePerm, chosenType)) {
+      powerBonus += parseInt(chosenTypeBuffMatch[1], 10);
+      toughnessBonus += parseInt(chosenTypeBuffMatch[2], 10);
+    }
+  }
   
   // 3. Lord/tribal bonuses from other creatures
   for (const perm of battlefield) {
@@ -1568,7 +1598,8 @@ export function calculateAllPTBonuses(
     const oracleText = perm.card.oracle_text || '';
 
     const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
-    const chosenTypeBuffMatch = oracleText.match(/other creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i);
+    const chosenTypeBuffMatch = oracleText.match(/other creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i)
+      || oracleText.match(/creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i);
     if (chosenType && chosenTypeBuffMatch && permanentHasCreatureTypeNow(creaturePerm, chosenType)) {
       powerBonus += parseInt(chosenTypeBuffMatch[1], 10);
       toughnessBonus += parseInt(chosenTypeBuffMatch[2], 10);
@@ -1676,6 +1707,20 @@ export function calculateAllPTBonuses(
     }
   }
   
+  // 4b. Opponent-sourced chosen-type debuffs (Plague Engineer, etc.)
+  for (const perm of battlefield) {
+    if (!perm?.card) continue;
+    const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
+    if (!chosenType) continue;
+    const oracleText = String(perm.card.oracle_text || '');
+    const debuffMatch = oracleText.match(/creatures of the chosen type your opponents control get ([+-]?\d+)\/([+-]?\d+)/i);
+    if (!debuffMatch) continue;
+    if (perm.controller === controllerId) continue;
+    if (!permanentHasCreatureTypeNow(creaturePerm, chosenType)) continue;
+    powerBonus += parseInt(debuffMatch[1], 10);
+    toughnessBonus += parseInt(debuffMatch[2], 10);
+  }
+
   // 5. Temporary pump effects (from modifiers) - includes Giant Growth, battle cry, etc.
   // These are spells/abilities that give +X/+Y until end of turn
   if (creaturePerm.modifiers && Array.isArray(creaturePerm.modifiers)) {
@@ -1881,7 +1926,28 @@ export function calculateAllPTBonusesWithSources(
   const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
   const creatureName = (creaturePerm.card?.name || '').toLowerCase();
   
-  // 0. Special creature-specific P/T bonuses (Omnath, etc.)
+  // 0. Special creature-specific P/T bonuses (Omnath, Ulvenwald Channelers, etc.)
+  const selfOracleText = String(creaturePerm.card?.oracle_text || '');
+  const topCreatureBonusMatch = selfOracleText.match(
+    /as long as the top card of your library is a creature card, this creature gets ([+-]?\d+)\/([+-]?\d+)/i,
+  );
+  if (topCreatureBonusMatch) {
+    const topCard = getLibraryTopCardFromState(gameState, controllerId);
+    const topTypeLine = String(topCard?.type_line || topCard?.typeLine || '').toLowerCase();
+    if (topTypeLine.includes('creature')) {
+      const p = parseInt(topCreatureBonusMatch[1], 10);
+      const t = parseInt(topCreatureBonusMatch[2], 10);
+      if (p !== 0 || t !== 0) {
+        sources.push({
+          name: creaturePerm.card?.name || 'Creature',
+          power: p,
+          toughness: t,
+          type: 'ability',
+        });
+      }
+    }
+  }
+
   // Omnath, Locus of Mana - gets +1/+1 for each green mana in your mana pool
   // Match various name formats: "Omnath, Locus of Mana" or "Omnath Locus of Mana"
   if (creatureName.includes('omnath') && creatureName.includes('locus of mana')) {
@@ -1977,7 +2043,8 @@ export function calculateAllPTBonusesWithSources(
     const oracleText = perm.card.oracle_text || '';
 
     const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
-    const chosenTypeBuffMatch = oracleText.match(/other creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i);
+    const chosenTypeBuffMatch = oracleText.match(/other creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i)
+      || oracleText.match(/creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i);
     if (chosenType && chosenTypeBuffMatch && permanentHasCreatureTypeNow(creaturePerm, chosenType)) {
       const p = parseInt(chosenTypeBuffMatch[1], 10);
       const t = parseInt(chosenTypeBuffMatch[2], 10);
@@ -2888,7 +2955,12 @@ export function addTokenCounters(
  */
 export function normalizeCardNameForOracleText(fullName: string): string {
   if (!fullName) return '';
-  
+
+  const slashMatch = fullName.match(/^([^/]+?)\s*\/\/\s*/);
+  if (slashMatch) {
+    return normalizeCardNameForOracleText(slashMatch[1].trim());
+  }
+
   // If the name contains a comma, use only the part before the comma
   // This handles "Abdel Adrian, Gorion's Ward" -> "Abdel Adrian"
   // But we need to be careful about names like "Sisters of the Undying" which has no comma
@@ -2896,7 +2968,7 @@ export function normalizeCardNameForOracleText(fullName: string): string {
   if (commaIndex > 0) {
     return fullName.substring(0, commaIndex).trim();
   }
-  
+
   return fullName;
 }
 

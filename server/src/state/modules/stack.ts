@@ -2,7 +2,7 @@ import type { PlayerID } from "../../../../shared/src/index.js";
 import { buildZoneObjectWithRetainedCounters, mergeRetainedCountersForBattlefieldEntry } from "../../../../shared/src/zoneRetainedCounters.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, addTokenCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue, calculateVariablePT } from "../utils.js";
-import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus, processLifeChange, applyMillReplacements, hasSpellMastery } from "./game-state-effects.js";
+import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus, processLifeChange, applyMillReplacements, hasSpellMastery, resolveOpponentDirectedDamage } from "./game-state-effects.js";
 import { 
   detectKeywords, 
   getAttackTriggerKeywords, 
@@ -45,11 +45,29 @@ import { queueBecomesUntappedTriggers } from "./triggers/tap-untap.js";
 import { applyDamageToPermanentWithCounterEffects, getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
 import { detectCombatDamageTriggers } from "./triggers/index.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
-import { isCreatureNow } from "../creatureTypeNow.js";
+import { isCreatureNow, permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
+import {
+  countControlledCreaturesOfChosenType,
+  countControlledPermanentsOfChosenType,
+  filterHandCreatureCardsOfChosenType,
+  isCastCreatureTypeChoiceOracle,
+  isCelestialReunionOracle,
+  parseActivationChosenTypeRevealTop,
+  parseActivationChosenTypeTopLibraryReveal,
+  cardMatchesChosenTypeFilter,
+  parseChosenTypeDrawPerCreatureEffect,
+  parseChosenTypeCounterEachCreatureEffect,
+  parseChosenTypeLookRevealTopLibrary,
+  parseChosenTypeTopCardRevealToHand,
+  isMetallicMimicOracle,
+  parseChosenTypeUntilEndOfTurnBuff,
+  syncArcaneAdaptationForNewCreature,
+} from "./chosen-creature-type.js";
+import { cardHasCreatureType } from "../creatureTypeNow.js";
 import { handleElixirShuffle, handleEldraziShuffle, shuffleZoneIntoLibrary } from "./zone-manipulation.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand, movePermanentToLibrary, processMillTriggers } from "./zones.js";
-import { createToken, runSBA, applyCounterModifications, destroyPermanent, movePermanentToGraveyard, movePermanentToExile, updateCounters } from "./counters_tokens.js";
+import { createToken, createCopyTokensOfCard, runSBA, applyCounterModifications, destroyPermanent, movePermanentToGraveyard, movePermanentToExile, updateCounters } from "./counters_tokens.js";
 import { cleanupCardLeavingExile, removeCardFromAnyPlayerExile } from "./playable-from-exile.js";
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { applyGoadToCreature } from "./goad-effects.js";
@@ -69,6 +87,10 @@ import { startEffectProgramResolution } from "../effects/index.js";
 import type { EffectProgram, EffectProgramHandlers } from "../../../../rules-engine/src/effectProgram.js";
 import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser.js";
 import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../../../../rules-engine/src/oracleIR.js";
+import { resolveOracleQuantity } from "../../../../rules-engine/src/oracleIRExecutor.js";
+import { applyTapOrUntapToBattlefield, resolveTapOrUntapTargetIds } from "../../../../rules-engine/src/oracleIRExecutorBattlefieldOps.js";
+import type { OracleIRExecutionContext } from "../../../../rules-engine/src/oracleIRExecutionTypes.js";
+import { resolvePlayers } from "../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js";
 import { parseTriggeredAbilitiesFromText, TriggerEvent as ParsedTriggerEvent } from "../../../../rules-engine/src/triggeredAbilities.js";
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
 import { getPlayableLandCandidates } from "./can-respond.js";
@@ -100,7 +122,14 @@ import {
 import { applyGraveyardPermissionEffectsFromText } from "./graveyard-permissions.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
 import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "./durable-permissions.js";
+import { tryApplyCastingModifierGrantsFromText } from "./casting-modifiers.js";
+import {
+  detectFaceDownExileFromRaw,
+  detectFlexibleImpulseManaSpending,
+  getPlayableUntilTurnForImpulseDuration,
+} from "./impulse-exile-utils.js";
 import { evaluateBattlefieldEntryReplacementEvent } from "./replacement-effects.js";
+import { isMoxDiamondCard, queueMoxDiamondChoiceForStackItem } from "./mox-diamond-choice.js";
 
 function removeReplayDuplicateCardEntries(cards: any, cardId: string): number {
   if (!Array.isArray(cards) || !cardId) return 0;
@@ -2889,11 +2918,61 @@ function buildTriggeredAbilityGraveyardValidTargets(
   return results.filter((entry) => Boolean(entry.id));
 }
 
-function resolveOracleQuantityToNumber(q: OracleQuantity, xValue?: number): number | null {
+function buildStackOracleIRContext(
+  caster: PlayerID,
+  options?: {
+    xValue?: number;
+    sourceId?: string;
+    targetPlayerId?: PlayerID;
+    targetOpponentId?: PlayerID;
+    referenceAmount?: number;
+  },
+): OracleIRExecutionContext {
+  return {
+    controllerId: caster,
+    sourceId: options?.sourceId,
+    xValue: options?.xValue,
+    ...(typeof options?.referenceAmount === 'number' && Number.isFinite(options.referenceAmount)
+      ? { referenceAmount: Math.max(0, Math.floor(options.referenceAmount)) }
+      : {}),
+    selectorContext: {
+      ...(options?.targetPlayerId ? { targetPlayerId: options.targetPlayerId } : {}),
+      ...(options?.targetOpponentId ? { targetOpponentId: options.targetOpponentId } : {}),
+    },
+  };
+}
+
+function resolveOracleQuantityToNumber(
+  q: OracleQuantity,
+  xValue?: number,
+  options?: {
+    state?: any;
+    controllerId?: PlayerID;
+    sourceId?: string;
+    targetPlayerId?: PlayerID;
+    referenceAmount?: number;
+    whereX?: { kind: 'where'; raw: string };
+  },
+): number | null {
   if (!q) return null;
-  if (q.kind === 'number') return Number.isFinite(q.value) ? q.value : null;
-  if (q.kind === 'x') return typeof xValue === 'number' && Number.isFinite(xValue) ? xValue : null;
-  return null;
+  const state = options?.state;
+  const controllerId = (options?.controllerId || '') as PlayerID;
+  if (!state || !controllerId) {
+    if (q.kind === 'number') return Number.isFinite(q.value) ? q.value : null;
+    if (q.kind === 'x') return typeof xValue === 'number' && Number.isFinite(xValue) ? xValue : null;
+    return null;
+  }
+
+  const ctx = buildStackOracleIRContext(controllerId, {
+    xValue,
+    sourceId: options?.sourceId,
+    targetPlayerId: options?.targetPlayerId,
+    referenceAmount: options?.referenceAmount,
+  });
+
+  return resolveOracleQuantity(state, controllerId, q, ctx, {
+    whereX: options?.whereX,
+  });
 }
 
 function normalizeOracleResolutionText(value: string): string {
@@ -3313,23 +3392,199 @@ function splitGrantedTemporaryAbilities(rawAbilityText: string): string[] {
     .filter(Boolean);
 }
 
-function resolveOracleWhoToPlayerIds(who: OraclePlayerSelector, caster: PlayerID, state: any): PlayerID[] {
-  switch (who.kind) {
-    case 'you':
-      return [caster];
-    case 'each_player':
-      return Array.isArray(state?.players)
-        ? state.players.map((p: any) => p?.id).filter(Boolean)
-        : [];
-    case 'each_opponent':
-      return Array.isArray(state?.players)
-        ? state.players
-            .map((p: any) => p?.id)
-            .filter((id: any) => id && String(id) !== String(caster))
-        : [];
-    default:
-      return [];
+function resolveOracleWhoToPlayerIds(
+  who: OraclePlayerSelector,
+  caster: PlayerID,
+  state: any,
+  irCtx?: OracleIRExecutionContext,
+): PlayerID[] {
+  const ctx =
+    irCtx ||
+    buildStackOracleIRContext(caster, {
+      sourceId: undefined,
+    });
+  return [...resolvePlayers(state, who, ctx)];
+}
+
+function parseTapUntapBulkLimit(targetText: string): number | null {
+  const match = String(targetText || '').match(/\bup to\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i);
+  if (!match) return null;
+  return parseNumberWord(match[1], 1);
+}
+
+function parseTapUntapTypeFilter(targetText: string): string[] {
+  const lower = String(targetText || '').toLowerCase();
+  const types: string[] = [];
+  if (/\blands?\b/.test(lower)) types.push('land');
+  if (/\bcreatures?\b/.test(lower)) types.push('creature');
+  if (/\bartifacts?\b/.test(lower)) types.push('artifact');
+  if (/\benchantments?\b/.test(lower)) types.push('enchantment');
+  if (/\bpermanents?\b/.test(lower) && types.length === 0) types.push('permanent');
+  return types;
+}
+
+function permanentMatchesTapUntapTypeFilter(typeLine: string, types: string[]): boolean {
+  if (types.length === 0) return true;
+  const lower = String(typeLine || '').toLowerCase();
+  return types.some(type => lower.includes(type));
+}
+
+function applyOracleIRTapOrUntapStep(
+  ctx: GameContext,
+  caster: PlayerID,
+  spellName: string,
+  step: any,
+  sourceId?: string,
+  irCtx?: OracleIRExecutionContext,
+): number {
+  const gameId = (ctx as any).gameId as string | undefined;
+  const isReplaying = !!(ctx as any).isReplaying;
+  const stateAny = (ctx as any).state;
+  const targetText = String((step as any)?.target?.text || '').trim();
+  const rawText = String((step as any)?.raw || targetText || '').trim();
+  const explicitMode = (step as any)?.mode as ('tap' | 'untap' | undefined);
+  const action: 'tap' | 'untap' | 'both' = explicitMode
+    || (/\btap or untap\b/i.test(rawText) ? 'both' : /\buntap\b/i.test(rawText) ? 'untap' : 'tap');
+  const executionCtx = irCtx || buildStackOracleIRContext(caster, { sourceId });
+
+  const requiresTargetSelection =
+    /\btarget\b/i.test(targetText) ||
+    /\btap or untap\b/i.test(rawText) ||
+    /\bone or two target\b/i.test(targetText);
+
+  if (!requiresTargetSelection && explicitMode && explicitMode !== 'both') {
+    const types = parseTapUntapTypeFilter(targetText);
+    const limit = parseTapUntapBulkLimit(targetText);
+    const controllerScoped = !/\bopponent controls\b/i.test(targetText);
+    const battlefield = Array.isArray(stateAny?.battlefield) ? stateAny.battlefield : [];
+    const candidates = battlefield.filter((perm: any) => {
+      if (controllerScoped && String(perm?.controller || '') !== String(caster)) return false;
+      if (!permanentMatchesTapUntapTypeFilter(String(perm?.card?.type_line || ''), types)) return false;
+      if (explicitMode === 'untap') return Boolean(perm?.tapped);
+      return !Boolean(perm?.tapped);
+    });
+    const chosen = (limit != null ? candidates.slice(0, limit) : candidates).map((perm: any) => String(perm?.id || '').trim()).filter(Boolean);
+    if (chosen.length === 0) return 0;
+
+    stateAny.battlefield = applyTapOrUntapToBattlefield(stateAny, chosen, explicitMode).battlefield;
+    if (explicitMode === 'untap') {
+      for (const permId of chosen) {
+        const perm = stateAny.battlefield.find((entry: any) => String(entry?.id || '') === permId);
+        if (perm) queueBecomesUntappedTriggers(ctx, perm);
+      }
+    }
+    if (typeof (ctx as any).bumpSeq === 'function') {
+      (ctx as any).bumpSeq();
+    }
+    debug(2, `[oracleIR] ${spellName}: ${explicitMode}ped ${chosen.length} permanent(s)`);
+    return 1;
   }
+
+  const targetIds = resolveTapOrUntapTargetIds(stateAny, (step as any)?.target, executionCtx);
+  if (targetIds.length === 1 && explicitMode && explicitMode !== 'both') {
+    stateAny.battlefield = applyTapOrUntapToBattlefield(stateAny, targetIds, explicitMode).battlefield;
+    if (explicitMode === 'untap') {
+      const perm = stateAny.battlefield.find((entry: any) => String(entry?.id || '') === targetIds[0]);
+      if (perm) queueBecomesUntappedTriggers(ctx, perm);
+    }
+    if (typeof (ctx as any).bumpSeq === 'function') {
+      (ctx as any).bumpSeq();
+    }
+    return 1;
+  }
+
+  if (!gameId || gameId === 'unknown' || isReplaying) return 0;
+
+  const types = parseTapUntapTypeFilter(targetText);
+  const targetCount = parseTapUntapBulkLimit(targetText) ?? (/\btarget\b/i.test(targetText) ? 1 : 1);
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.TAP_UNTAP_TARGET,
+    playerId: caster,
+    description: `${spellName}: ${rawText || 'Tap or untap'}`,
+    mandatory: true,
+    sourceId: sourceId || String((step as any)?.sourceId || '').trim() || undefined,
+    sourceName: spellName,
+    action,
+    targetFilter: {
+      controller: /\byou control\b/i.test(targetText)
+        ? 'you'
+        : /\bopponent controls\b/i.test(targetText)
+          ? 'opponent'
+          : 'any',
+      tapStatus: action === 'tap' ? 'untapped' : action === 'untap' ? 'tapped' : 'any',
+      ...(types.length > 0 ? { types } : {}),
+    },
+    targetCount,
+  } as any);
+  return 1;
+}
+
+function applyOracleIRExileTopStep(
+  ctx: GameContext,
+  caster: PlayerID,
+  spellName: string,
+  step: any,
+  xValue?: number,
+  irCtx?: OracleIRExecutionContext,
+): number {
+  const count = resolveOracleQuantityToNumber((step as any).amount, xValue, {
+    state: (ctx as any).state,
+    controllerId: caster,
+    sourceId: irCtx?.sourceId || (step as any)?.sourceId,
+    targetPlayerId: irCtx?.targetPlayerId,
+    referenceAmount: irCtx?.referenceAmount,
+    whereX: (step as any)?.whereX,
+  });
+  if (!count || count <= 0) return 0;
+
+  const stateAny: any = (ctx as any).state;
+  const libraries: any = (ctx as any).libraries;
+  if (!libraries || typeof libraries.get !== 'function' || typeof libraries.set !== 'function') return 0;
+
+  const playerIds = resolveOracleWhoToPlayerIds((step as any).who, caster, stateAny, irCtx);
+  if (playerIds.length === 0) return 0;
+
+  let applied = 0;
+  for (const pid of playerIds) {
+    const lib = libraries.get(pid);
+    if (!Array.isArray(lib) || lib.length === 0) continue;
+
+    const take = Math.min(count, lib.length);
+    const exiledCards: any[] = [];
+    for (let i = 0; i < take; i++) {
+      const topCard = lib.shift();
+      if (topCard) exiledCards.push(topCard);
+    }
+    libraries.set(pid, lib);
+
+    const zones = stateAny.zones?.[pid];
+    const faceDown = detectFaceDownExileFromRaw(String((step as any)?.raw || ''));
+    if (zones) {
+      zones.libraryCount = lib.length;
+      zones.exile = Array.isArray((zones as any).exile) ? (zones as any).exile : ((zones as any).exile = []);
+      for (const c of exiledCards) {
+        (zones as any).exile.push({
+          ...c,
+          zone: 'exile',
+          exiledBy: spellName,
+          ...(faceDown ? {
+            faceDown: true,
+            canBeExaminedBy: [String(caster || '')],
+          } : {}),
+        });
+      }
+      (zones as any).exileCount = (zones as any).exile.length;
+    }
+
+    if (typeof (ctx as any).bumpSeq === 'function') {
+      (ctx as any).bumpSeq();
+    }
+
+    debug(2, `[oracleIR] ${spellName}: exiled ${exiledCards.length} top card(s) from ${pid}'s library`);
+    if (exiledCards.length > 0) applied++;
+  }
+
+  return applied;
 }
 
 function applyOracleIRImpulseExileTopStep(
@@ -3338,12 +3593,24 @@ function applyOracleIRImpulseExileTopStep(
   spellName: string,
   step: any,
   xValue?: number,
-  options?: { castWithoutPayingManaCost?: boolean; spendManaAsThoughAnyType?: boolean },
+  options?: {
+    castWithoutPayingManaCost?: boolean;
+    spendManaAsThoughAnyType?: boolean;
+    irCtx?: OracleIRExecutionContext;
+  },
 ): number {
-  const count = resolveOracleQuantityToNumber((step as any).amount, xValue);
+  const irCtx = options?.irCtx;
+  const count = resolveOracleQuantityToNumber((step as any).amount, xValue, {
+    state: (ctx as any).state,
+    controllerId: caster,
+    sourceId: irCtx?.sourceId || (step as any)?.sourceId,
+    targetPlayerId: irCtx?.targetPlayerId,
+    referenceAmount: irCtx?.referenceAmount,
+    whereX: (step as any)?.whereX,
+  });
   if (!count || count <= 0) return 0;
 
-  const duration = (step as any).duration as 'this_turn' | 'until_end_of_next_turn' | undefined;
+  const duration = (step as any).duration as string | undefined;
   if (!duration) return 0;
 
   const permission = (step as any).permission as 'play' | 'cast' | undefined;
@@ -3358,13 +3625,17 @@ function applyOracleIRImpulseExileTopStep(
   const libraries: any = (ctx as any).libraries;
   if (!libraries || typeof libraries.get !== 'function' || typeof libraries.set !== 'function') return 0;
 
-  const playerIds = resolveOracleWhoToPlayerIds((step as any).who, caster, stateAny);
+  const playerIds = resolveOracleWhoToPlayerIds((step as any).who, caster, stateAny, irCtx);
   if (playerIds.length === 0) return 0;
+
+  const playableUntilTurn = getPlayableUntilTurnForImpulseDuration(stateAny, duration);
+  if (playableUntilTurn == null) return 0;
 
   let applied = 0;
   const grantFreeCastsFromExile = options?.castWithoutPayingManaCost === true;
   const grantFlexibleManaSpending = options?.spendManaAsThoughAnyType === true;
   const permissionGrantee = String(caster || '');
+  const faceDown = detectFaceDownExileFromRaw(String((step as any)?.raw || ''));
 
   for (const pid of playerIds) {
     const lib = libraries.get(pid);
@@ -3384,16 +3655,11 @@ function applyOracleIRImpulseExileTopStep(
       zones.exile = Array.isArray((zones as any).exile) ? (zones as any).exile : ((zones as any).exile = []);
     }
 
-  stateAny.playableFromExile = stateAny.playableFromExile || {};
-  stateAny.playableFromExile[permissionGrantee] = stateAny.playableFromExile[permissionGrantee] || {};
+    stateAny.playableFromExile = stateAny.playableFromExile || {};
+    stateAny.playableFromExile[permissionGrantee] = stateAny.playableFromExile[permissionGrantee] || {};
 
     stateAny.pendingImpulseDraws = stateAny.pendingImpulseDraws || {};
-  stateAny.pendingImpulseDraws[permissionGrantee] = stateAny.pendingImpulseDraws[permissionGrantee] || [];
-
-    const playableUntilTurn =
-      duration === 'this_turn'
-        ? (stateAny.turnNumber || 0)
-        : (stateAny.turnNumber || 0) + 1;
+    stateAny.pendingImpulseDraws[permissionGrantee] = stateAny.pendingImpulseDraws[permissionGrantee] || [];
 
     let grantedCount = 0;
     const grantedCardIds: string[] = [];
@@ -3422,6 +3688,10 @@ function applyOracleIRImpulseExileTopStep(
         ...c,
         zone: 'exile',
         exiledBy: spellName,
+        ...(faceDown ? {
+          faceDown: true,
+          canBeExaminedBy: [permissionGrantee],
+        } : {}),
         ...(grantPermission ? {
           canBePlayedBy: permissionGrantee,
           playableUntilTurn,
@@ -3487,29 +3757,64 @@ function applyOracleIRFallbackForTriggeredEffect(
   controller: PlayerID,
   sourceName: string,
   description: string,
+  triggerItem?: any,
 ): number {
-  try {
-    const text = String(description || '').trim();
-    if (!text) return 0;
+  const text = String(description || '').trim();
+  if (!text) return 0;
 
-    const lower = text.toLowerCase();
-    if (!(lower.includes('exile') && lower.includes('top') && lower.includes('library') && lower.includes('you may play'))) {
-      return 0;
-    }
-
-    const ir = parseOracleTextToIR(text, sourceName);
-    let applied = 0;
-    for (const ability of ir.abilities || []) {
-      for (const step of ability.steps || []) {
-        if (!step || step.kind !== 'impulse_exile_top') continue;
-        applied += applyOracleIRImpulseExileTopStep(ctx, controller, sourceName, step as any);
-      }
-    }
-
-    return applied;
-  } catch {
-    return 0;
+  const targets = Array.isArray(triggerItem?.targets) ? triggerItem.targets : [];
+  let targetPlayerId = String(
+    targets[0]?.id || targets[0] || triggerItem?.targetPlayerId || ''
+  ).trim() as PlayerID;
+  if (!targetPlayerId) {
+    targetPlayerId = resolveTriggeredAbilityTargetPlayerId((ctx as any).state, triggerItem) as PlayerID;
   }
+
+  const sourcePermanentId = String(
+    triggerItem?.source || triggerItem?.permanentId || ''
+  ).trim();
+  if (!targetPlayerId && sourcePermanentId) {
+    const sourcePermanent = ((ctx as any).state?.battlefield || []).find(
+      (permanent: any) => String(permanent?.id || '').trim() === sourcePermanentId
+    ) as any;
+    const enchantedTarget = String(
+      sourcePermanent?.attachedTo ||
+        sourcePermanent?.enchanting ||
+        sourcePermanent?.enchantedPlayerId ||
+        ''
+    ).trim();
+    if (enchantedTarget) {
+      targetPlayerId = enchantedTarget as PlayerID;
+    }
+  }
+  const sourceId = String(triggerItem?.id || triggerItem?.sourceId || sourcePermanentId || '').trim();
+
+  const lifeLostReference = Number((triggerItem as any)?.effectData?.lifeLost ?? 0);
+  const losingPlayerId = String(
+    (triggerItem as any)?.effectData?.losingPlayerId ||
+      (triggerItem as any)?.triggeringPlayer ||
+      (triggerItem as any)?.targetPlayer ||
+      ''
+  ).trim() as PlayerID;
+
+  const irCtx = buildStackOracleIRContext(controller, {
+    xValue: typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined,
+    sourceId: sourcePermanentId || sourceId,
+    targetPlayerId: (targetPlayerId || losingPlayerId || undefined) as PlayerID | undefined,
+    referenceAmount: Number.isFinite(lifeLostReference) && lifeLostReference > 0 ? lifeLostReference : undefined,
+  });
+
+  return applyOracleIRFallbackForUncategorizedSpell(
+    ctx,
+    text,
+    controller,
+    sourceName,
+    typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined,
+    sourcePermanentId || undefined,
+    sourceId || undefined,
+    false,
+    irCtx,
+  );
 }
 
 const OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
@@ -5381,6 +5686,7 @@ function applyOracleIRFallbackForUncategorizedSpell(
   sourcePermanentId?: string,
   sourceId?: string,
   castFromGraveyard?: boolean,
+  irCtx?: OracleIRExecutionContext,
 ): number {
   try {
     const text = String(oracleText || '').trim();
@@ -5398,21 +5704,22 @@ function applyOracleIRFallbackForUncategorizedSpell(
       lower.includes('lose') ||
       lower.includes('discard') ||
       lower.includes('mill') ||
+      (lower.includes('top') && lower.includes('library') && lower.includes('graveyard')) ||
       lower.includes('damage') ||
       lower.includes('prevent') ||
       lower.includes('deal') ||
       lower.includes('sacrifice') ||
       lower.includes('destroy') ||
-      (lower.includes('create') && lower.includes('token'));
+      (lower.includes('create') && lower.includes('token')) ||
+      /\btap\b/.test(lower) ||
+      /\buntap\b/.test(lower);
     if (!mightHaveSupported) return 0;
 
     const ir = parseOracleTextToIR(text);
     const grantsFreeImpulseCasts = castFromGraveyard === true
       && /if\s+this\s+spell\s+was\s+cast\s+from\s+a\s+graveyard/i.test(text)
       && /you\s+may\s+play\s+cards\s+this\s+way\s+without\s+paying\s+their\s+mana\s+costs/i.test(text);
-    const grantsFlexibleImpulseManaSpending =
-      /mana\s+of\s+any\s+type\s+can\s+be\s+spent\s+to\s+cast\s+those\s+spells/i.test(text)
-      || /you\s+may\s+spend\s+mana\s+as\s+though\s+it\s+were\s+mana\s+of\s+any\s+(?:type|color)\s+to\s+cast\s+those\s+spells/i.test(text);
+    const grantsFlexibleImpulseManaSpending = detectFlexibleImpulseManaSpending(text);
     const steps: OracleEffectStep[] = [];
     for (const ab of ir.abilities || []) {
       for (const s of ab.steps || []) steps.push(s as any);
@@ -5425,10 +5732,26 @@ function applyOracleIRFallbackForUncategorizedSpell(
       if ((step as any).optional) continue;
 
       switch (step.kind) {
+        case 'tap_or_untap': {
+          applied += applyOracleIRTapOrUntapStep(
+            ctx,
+            caster,
+            spellName,
+            step as any,
+            sourceId,
+            irCtx,
+          );
+          break;
+        }
+        case 'exile_top': {
+          applied += applyOracleIRExileTopStep(ctx, caster, spellName, step as any, xValue, irCtx);
+          break;
+        }
         case 'impulse_exile_top': {
           applied += applyOracleIRImpulseExileTopStep(ctx, caster, spellName, step as any, xValue, {
             castWithoutPayingManaCost: grantsFreeImpulseCasts,
             spendManaAsThoughAnyType: grantsFlexibleImpulseManaSpending,
+            irCtx,
           });
           break;
         }
@@ -5458,10 +5781,16 @@ function applyOracleIRFallbackForUncategorizedSpell(
           break;
         }
         case 'draw': {
-          const count = resolveOracleQuantityToNumber(step.amount, xValue);
-          if (!count || count <= 0) break;
-          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state, irCtx);
           for (const pid of playerIds) {
+            const count = resolveOracleQuantityToNumber(step.amount, xValue, {
+              state: (ctx as any).state,
+              controllerId: caster,
+              sourceId: sourcePermanentId || sourceId,
+              targetPlayerId: pid,
+              whereX: (step as any).whereX,
+            });
+            if (!count || count <= 0) continue;
             executeSpellEffect(
               ctx,
               { kind: 'DrawCards', playerId: pid, count } as any,
@@ -5474,14 +5803,20 @@ function applyOracleIRFallbackForUncategorizedSpell(
           break;
         }
         case 'scry': {
-          const count = resolveOracleQuantityToNumber(step.amount, xValue);
-          if (!count || count <= 0) break;
           const gameId = (ctx as any).gameId as string | undefined;
           const isReplaying = !!(ctx as any).isReplaying;
           if (!gameId || gameId === 'unknown' || isReplaying) break;
 
-          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state, irCtx);
           for (const pid of playerIds) {
+            const count = resolveOracleQuantityToNumber(step.amount, xValue, {
+              state: (ctx as any).state,
+              controllerId: caster,
+              sourceId: sourcePermanentId || sourceId,
+              targetPlayerId: pid,
+              whereX: (step as any).whereX,
+            });
+            if (!count || count <= 0) continue;
             // Avoid duplicates for the same source.
             try {
               const existing = ResolutionQueueManager
@@ -5504,14 +5839,20 @@ function applyOracleIRFallbackForUncategorizedSpell(
           break;
         }
         case 'surveil': {
-          const count = resolveOracleQuantityToNumber(step.amount, xValue);
-          if (!count || count <= 0) break;
           const gameId = (ctx as any).gameId as string | undefined;
           const isReplaying = !!(ctx as any).isReplaying;
           if (!gameId || gameId === 'unknown' || isReplaying) break;
 
-          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state, irCtx);
           for (const pid of playerIds) {
+            const count = resolveOracleQuantityToNumber(step.amount, xValue, {
+              state: (ctx as any).state,
+              controllerId: caster,
+              sourceId: sourcePermanentId || sourceId,
+              targetPlayerId: pid,
+              whereX: (step as any).whereX,
+            });
+            if (!count || count <= 0) continue;
             // Avoid duplicates for the same source.
             try {
               const existing = ResolutionQueueManager
@@ -5534,10 +5875,16 @@ function applyOracleIRFallbackForUncategorizedSpell(
           break;
         }
         case 'gain_life': {
-          const amount = resolveOracleQuantityToNumber(step.amount, xValue);
-          if (!amount || amount <= 0) break;
-          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state, irCtx);
           for (const pid of playerIds) {
+            const amount = resolveOracleQuantityToNumber(step.amount, xValue, {
+              state: (ctx as any).state,
+              controllerId: caster,
+              sourceId: sourcePermanentId || sourceId,
+              targetPlayerId: pid,
+              whereX: (step as any).whereX,
+            });
+            if (!amount || amount <= 0) continue;
             executeSpellEffect(
               ctx,
               { kind: 'GainLife', playerId: pid, amount } as any,
@@ -5550,10 +5897,16 @@ function applyOracleIRFallbackForUncategorizedSpell(
           break;
         }
         case 'lose_life': {
-          const amount = resolveOracleQuantityToNumber(step.amount, xValue);
-          if (!amount || amount <= 0) break;
-          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state, irCtx);
           for (const pid of playerIds) {
+            const amount = resolveOracleQuantityToNumber(step.amount, xValue, {
+              state: (ctx as any).state,
+              controllerId: caster,
+              sourceId: sourcePermanentId || sourceId,
+              targetPlayerId: pid,
+              whereX: (step as any).whereX,
+            });
+            if (!amount || amount <= 0) continue;
             executeSpellEffect(
               ctx,
               { kind: 'LoseLife', playerId: pid, amount } as any,
@@ -5649,14 +6002,20 @@ function applyOracleIRFallbackForUncategorizedSpell(
           break;
         }
         case 'deal_damage': {
-          const dmg = resolveOracleQuantityToNumber(step.amount, xValue);
-          if (!dmg || dmg <= 0) break;
-
           const targetText = (step.target as any)?.text;
           const playerIds = resolveDealDamageTargetToPlayerIds(String(targetText || ''), caster, (ctx as any).state);
           if (playerIds.length === 0) break;
 
           for (const pid of playerIds) {
+            const dmg = resolveOracleQuantityToNumber(step.amount, xValue, {
+              state: (ctx as any).state,
+              controllerId: caster,
+              sourceId: sourcePermanentId || sourceId,
+              targetPlayerId: pid,
+              whereX: (step as any).whereX,
+            });
+            if (!dmg || dmg <= 0) continue;
+
             executeSpellEffect(
               ctx,
               { kind: 'DamagePlayer', playerId: pid, amount: dmg } as any,
@@ -5757,13 +6116,27 @@ function applyOracleIRFallbackForUncategorizedSpell(
           break;
         }
         case 'mill': {
-          const count = resolveOracleQuantityToNumber(step.amount, xValue);
-          if (!count || count <= 0) break;
-
-          const playerIds = resolveOracleWhoToPlayerIds(step.who, caster, (ctx as any).state);
+          const millStep = step as OracleEffectStep & { kind: 'mill'; whereX?: { kind: 'where'; raw: string } };
+          const playerIds = resolveOracleWhoToPlayerIds(millStep.who, caster, (ctx as any).state, irCtx);
           if (playerIds.length === 0) break;
 
           for (const pid of playerIds) {
+            let count = resolveOracleQuantityToNumber(millStep.amount, xValue, {
+              state: (ctx as any).state,
+              controllerId: caster,
+              sourceId: sourcePermanentId || sourceId,
+              targetPlayerId: pid,
+              referenceAmount: irCtx?.referenceAmount,
+              whereX: millStep.whereX,
+            });
+            if (
+              castFromGraveyard === true &&
+              /if this spell was cast from a graveyard,\s*that player mills twice that many cards instead/i.test(lower)
+            ) {
+              count = count != null && count > 0 ? count * 2 : count;
+            }
+            if (!count || count <= 0) continue;
+
             executeSpellEffect(
               ctx,
               { kind: 'MillCards', playerId: pid, count } as any,
@@ -6848,6 +7221,40 @@ function detectTutorSpell(oracleText: string): {
   return { isTutor: true, searchCriteria, destination, optional, maxSelections, entersTapped };
 }
 
+function resolveCelestialReunionLibrarySearch(
+  ctx: GameContext,
+  controller: PlayerID,
+  item: any,
+  card: any,
+  effectiveCard: any,
+): void {
+  const xValue = Math.max(0, Math.floor(Number(item?.xValue ?? card?.xValue ?? 0)));
+  const beholdPaid = item?.additionalCostPaid === true || card?.additionalCostPaid === true;
+  const chosenType = String(card?.chosenCreatureType || item?.chosenCreatureType || '').trim();
+
+  enqueueLibrarySearchStep(ctx, controller, {
+    description: `${effectiveCard.name}: Search your library for a creature card with mana value ${xValue} or less`,
+    searchFor: `a creature card with mana value ${xValue} or less`,
+    destination: 'hand',
+    optional: false,
+    source: effectiveCard.name || 'Celestial Reunion',
+    shuffleAfter: true,
+    filter: { types: ['creature'], maxCmc: xValue },
+    maxSelections: 1,
+    minSelections: 1,
+    reveal: true,
+    ...(beholdPaid && chosenType
+      ? {
+          chosenTypeBattlefieldIfPaid: {
+            chosenType,
+            additionalCostPaid: true,
+          },
+        }
+      : {}),
+  });
+  debug(2, `[resolveTopOfStack] ${effectiveCard.name}: queued X=${xValue} creature search (beholdPaid=${beholdPaid}, chosenType=${chosenType || 'none'})`);
+}
+
 function parseLibrarySearchFilter(criteria: string): {
   supertypes?: string[];
   types?: string[];
@@ -6943,6 +7350,145 @@ function parseLibrarySearchFilter(criteria: string): {
   }
 
   return result;
+}
+
+function shuffleCards(cards: any[]): any[] {
+  const copy = [...cards];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function resolveKindredSummonsFromLibrary(
+  ctx: GameContext,
+  controller: PlayerID,
+  chosenType: string,
+  sourceName: string,
+): void {
+  const state = ctx.state as any;
+  const targetCount = countControlledCreaturesOfChosenType(state, controller, chosenType);
+  if (targetCount <= 0) {
+    debug(2, `[resolveKindredSummonsFromLibrary] ${sourceName}: no creatures of ${chosenType} controlled — X is 0`);
+    return;
+  }
+
+  const lib = ctx.libraries?.get(controller) || [];
+  const revealed: any[] = [];
+  const toBattlefield: any[] = [];
+  let found = 0;
+
+  while (lib.length > 0 && found < targetCount) {
+    const card = lib.shift();
+    if (!card) break;
+    revealed.push(card);
+    const typeLine = String(card.type_line || '').toLowerCase();
+    if (typeLine.includes('creature') && cardHasCreatureType(card, chosenType)) {
+      toBattlefield.push(card);
+      found += 1;
+    }
+  }
+
+  const remainder = revealed.filter((card) => !toBattlefield.some((entry) => entry.id === card.id));
+  if (remainder.length > 0) {
+    lib.push(...shuffleCards(remainder));
+  }
+  ctx.libraries?.set(controller, lib);
+
+  const battlefield = state.battlefield || [];
+  for (const card of toBattlefield) {
+    const typeLine = String(card.type_line || '').toLowerCase();
+    const isCreature = typeLine.includes('creature');
+    const isPlaneswalker = typeLine.includes('planeswalker');
+    const newPermanent = {
+      id: uid('perm'),
+      controller,
+      owner: controller,
+      tapped: false,
+      counters: {},
+      basePower: isCreature ? parsePT((card as any).power) : undefined,
+      baseToughness: isCreature ? parsePT((card as any).toughness) : undefined,
+      summoningSickness: isCreature,
+      card: { ...card, zone: 'battlefield' },
+    } as any;
+
+    if (isPlaneswalker && (card as any).loyalty) {
+      const loyaltyValue = parseInt(String((card as any).loyalty), 10);
+      if (Number.isFinite(loyaltyValue)) {
+        newPermanent.counters = { loyalty: loyaltyValue };
+        newPermanent.loyalty = loyaltyValue;
+        newPermanent.baseLoyalty = loyaltyValue;
+      }
+    }
+
+    battlefield.push(newPermanent);
+  }
+  state.battlefield = battlefield;
+
+  debug(
+    2,
+    `[resolveKindredSummonsFromLibrary] ${sourceName}: ${controller} revealed ${revealed.length} card(s), put ${toBattlefield.length}/${targetCount} ${chosenType} creature(s) onto the battlefield`,
+  );
+}
+
+function resolveKindredChargeTokenCopies(
+  ctx: GameContext,
+  controller: PlayerID,
+  chosenType: string,
+  sourceName: string,
+): void {
+  const state = ctx.state as any;
+  const battlefield = state.battlefield || [];
+  const matching = battlefield.filter((perm: any) => {
+    if (!perm || perm.controller !== controller) return false;
+    if (!isCreatureNow(perm)) return false;
+    return permanentHasCreatureTypeNow(perm, chosenType);
+  });
+
+  if (matching.length === 0) {
+    debug(2, `[resolveKindredChargeTokenCopies] ${sourceName}: no ${chosenType} creatures controlled`);
+    return;
+  }
+
+  const createdIds: string[] = [];
+  for (const perm of matching) {
+    const card = (perm as any)?.card;
+    if (!card) continue;
+    createdIds.push(...createCopyTokensOfCard(ctx, controller, card, 1));
+  }
+
+  if (createdIds.length === 0) return;
+
+  const currentTurn = Number(state.turnNumber ?? 0) || 0;
+  const currentPhase = String(state.phase ?? '').toLowerCase();
+  const currentStepUpper = String(state.step ?? '').toUpperCase();
+  const inEnding = currentPhase === 'ending' && (currentStepUpper === 'END' || currentStepUpper === 'CLEANUP');
+  const fireAtTurnNumber = inEnding ? currentTurn + 1 : currentTurn;
+
+  state.pendingExileAtNextEndStep = Array.isArray(state.pendingExileAtNextEndStep)
+    ? state.pendingExileAtNextEndStep
+    : [];
+
+  for (const tokenId of createdIds) {
+    const token = (state.battlefield || []).find((perm: any) => perm?.id === tokenId);
+    if (token) {
+      (token as any).tempAbilities = Array.isArray((token as any).tempAbilities) ? (token as any).tempAbilities : [];
+      if (!(token as any).tempAbilities.some((ability: any) => String(ability).toLowerCase() === 'haste')) {
+        (token as any).tempAbilities.push('haste');
+      }
+      (token as any).summoningSickness = false;
+    }
+
+    state.pendingExileAtNextEndStep.push({
+      permanentId: tokenId,
+      fireAtTurnNumber,
+      sourceName,
+      createdBy: controller,
+    });
+  }
+
+  debug(2, `[resolveKindredChargeTokenCopies] ${sourceName}: created ${createdIds.length} ${chosenType} token cop(ies) with haste (exile next end step)`);
 }
 
 function detectRevealUntilHandSpell(
@@ -7064,6 +7610,109 @@ function queueTopLibraryToHandSelectionPrompt(
     availableCards,
     remainderDestination: options.remainderDestination,
     remainderRandomOrder: options.remainderRandomOrder === true,
+    persistLibrarySearchResolve: true,
+    persistLibrarySearchResolveReason: 'stack_resolution',
+    contextValue: actualLookCount,
+  } as any);
+
+  return availableCards.length;
+}
+
+function applyMetallicMimicEntryBonus(ctx: GameContext, enteringPermanent: any, controller: PlayerID): void {
+  if (!enteringPermanent || !isCreatureNow(enteringPermanent)) return;
+
+  const battlefield = (ctx.state as any)?.battlefield || [];
+  for (const source of battlefield) {
+    if (!source || String(source.id || '') === String(enteringPermanent.id || '')) continue;
+    const oracle = String(source?.card?.oracle_text || '');
+    if (!isMetallicMimicOracle(oracle)) continue;
+    const chosenType = String(source?.chosenCreatureType || '').trim();
+    if (!chosenType) continue;
+    if (!permanentHasCreatureTypeNow(enteringPermanent, chosenType)) continue;
+
+    enteringPermanent.counters = enteringPermanent.counters || {};
+    enteringPermanent.counters['+1/+1'] = Number(enteringPermanent.counters['+1/+1'] || 0) + 1;
+    debug(
+      2,
+      `[applyMetallicMimicEntryBonus] ${enteringPermanent.card?.name || 'Creature'} enters with +1/+1 from Metallic Mimic (${chosenType})`,
+    );
+  }
+}
+
+function resolveChosenTypeDrawPerCreature(
+  ctx: GameContext,
+  controller: PlayerID,
+  chosenType: string,
+  sourceName: string,
+): number {
+  const drawCount = countControlledCreaturesOfChosenType((ctx as any).state, controller, chosenType);
+  if (drawCount <= 0) return 0;
+  const drawn = drawCardsFromZone(ctx, controller, drawCount);
+  debug(2, `[resolveChosenTypeDrawPerCreature] ${sourceName}: ${controller} drew ${drawn.length} card(s) for ${chosenType} creatures`);
+  return drawn.length;
+}
+
+function resolveChosenTypeCounterEachCreature(
+  ctx: GameContext,
+  controller: PlayerID,
+  chosenType: string,
+  sourceName: string,
+): number {
+  const state = (ctx as any).state;
+  const battlefield = state?.battlefield || [];
+  let count = 0;
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== controller) continue;
+    if (!isCreatureNow(perm)) continue;
+    if (!permanentHasCreatureTypeNow(perm, chosenType)) continue;
+    perm.counters = perm.counters || {};
+    perm.counters['+1/+1'] = Number(perm.counters['+1/+1'] || 0) + 1;
+    count += 1;
+  }
+  debug(2, `[resolveChosenTypeCounterEachCreature] ${sourceName}: ${controller} put +1/+1 counters on ${count} ${chosenType} creature(s)`);
+  return count;
+}
+
+function queueChosenTypeTopLibraryRevealPrompt(
+  ctx: GameContext,
+  controller: PlayerID,
+  chosenType: string,
+  options: {
+    sourceId?: string;
+    sourceName: string;
+    sourceImage?: string;
+    description: string;
+    lookCount: number;
+  },
+): number {
+  const lib = ctx.libraries?.get(controller) || [];
+  const actualLookCount = Math.max(0, Math.min(Number(options.lookCount || 0), Array.isArray(lib) ? lib.length : 0));
+  if (actualLookCount <= 0) {
+    return 0;
+  }
+
+  const normalizedType = String(chosenType || '').trim();
+  const availableCards = lib.slice(0, actualLookCount).map((card: any) => summarizeLibraryCard(card));
+  const eligibleCount = availableCards.filter((card: any) => cardHasCreatureType(card, normalizedType)).length;
+
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.LIBRARY_SEARCH,
+    playerId: controller,
+    description: options.description,
+    mandatory: false,
+    sourceId: options.sourceId,
+    sourceName: options.sourceName,
+    sourceImage: options.sourceImage,
+    searchCriteria: `Top ${actualLookCount} cards (${normalizedType})`,
+    minSelections: 0,
+    maxSelections: eligibleCount,
+    destination: 'hand',
+    reveal: true,
+    shuffleAfter: false,
+    availableCards,
+    remainderDestination: 'bottom',
+    remainderRandomOrder: true,
+    chosenTypeSelectionFilter: normalizedType,
     persistLibrarySearchResolve: true,
     persistLibrarySearchResolveReason: 'stack_resolution',
     contextValue: actualLookCount,
@@ -7249,6 +7898,10 @@ function enqueueLibrarySearchStep(
     persistLibrarySearchResolve?: boolean;
     persistLibrarySearchResolveReason?: string;
     persistLibrarySearchResolveAbilityId?: string;
+    chosenTypeBattlefieldIfPaid?: {
+      chosenType: string;
+      additionalCostPaid: boolean;
+    };
   }
 ): void {
   const gameId = (ctx as any).gameId || 'unknown';
@@ -7281,6 +7934,7 @@ function enqueueLibrarySearchStep(
     persistLibrarySearchResolve = true,
     persistLibrarySearchResolveReason = 'stack_resolution',
     persistLibrarySearchResolveAbilityId,
+    chosenTypeBattlefieldIfPaid,
   } = options;
 
   // Map all library cards with full data
@@ -7419,6 +8073,9 @@ function enqueueLibrarySearchStep(
     persistLibrarySearchResolve,
     persistLibrarySearchResolveReason,
     persistLibrarySearchResolveAbilityId,
+    ...(chosenTypeBattlefieldIfPaid
+      ? { chosenTypeBattlefieldIfPaid }
+      : {}),
   });
 }
 
@@ -7856,6 +8513,23 @@ function typeLineHasAllWords(typeLine: string, phrase: string): boolean {
     .filter(Boolean);
   if (!tokens.length) return true;
   return tokens.every((tok) => new RegExp(`\\b${escapeRegExp(tok)}\\b`, 'i').test(tl));
+}
+
+function shouldQueueChosenTypeCreatureEtbTrigger(
+  trigger: any,
+  sourcePermanent: any,
+  enteringPermanent: any,
+  enteringController: string,
+  isToken: boolean,
+  isCreature: boolean,
+): boolean {
+  if (!isCreature || !enteringPermanent) return false;
+  if ((trigger as any)?.nontokenOnly && isToken) return false;
+  const chosenType = String(sourcePermanent?.chosenCreatureType || '').trim();
+  if (!chosenType) return false;
+  const triggerController = String(sourcePermanent?.controller || enteringController || '');
+  if (String(enteringController || '') !== triggerController) return false;
+  return permanentHasCreatureTypeNow(enteringPermanent, chosenType);
 }
 
 function matchesRequiredTypePhrase(typeLine: string, requiredPhrase: string, isToken: boolean): boolean {
@@ -8680,6 +9354,33 @@ export function triggerETBEffectsForToken(
         
         debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
+
+      if (trigger.triggerType === 'chosen_type_creature_etb' && isCreature) {
+        if (!shouldQueueChosenTypeCreatureEtbTrigger(trigger, perm, token, controller, isToken, isCreature)) {
+          continue;
+        }
+
+        const triggerController = perm.controller || controller;
+        const triggerId = uid('trigger');
+        const stackItem = {
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          permanentId: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
+          interveningIfSubjectPermanentId: token.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
+        } as any;
+        pendingExternalEtbTriggers.push(stackItem);
+        debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s chosen-type ETB trigger for token: ${trigger.description}`);
+      }
       
       // another_permanent_etb triggers
       if (trigger.triggerType === 'another_permanent_etb') {
@@ -9165,6 +9866,33 @@ export function triggerETBEffectsForPermanent(
         
         debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
+
+      if (trigger.triggerType === 'chosen_type_creature_etb' && isCreature) {
+        if (!shouldQueueChosenTypeCreatureEtbTrigger(trigger, perm, permanent, controller, isToken, isCreature)) {
+          continue;
+        }
+
+        const triggerController = perm.controller || controller;
+        const triggerId = uid('trigger');
+        const stackItem = {
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          permanentId: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
+          interveningIfSubjectPermanentId: permanent.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
+        } as any;
+        pendingExternalEtbTriggers.push(stackItem);
+        debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s chosen-type ETB trigger: ${trigger.description}`);
+      }
       
       // another_permanent_etb triggers
       if (trigger.triggerType === 'another_permanent_etb') {
@@ -9175,7 +9903,7 @@ export function triggerETBEffectsForPermanent(
         
         const triggerController = perm.controller || controller;
 
-        const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
+                const desc = String((trigger as any)?.description || (trigger as any)?.effect || '').trim();
         const needsThatPlayerRef = /\bthat player\b/i.test(desc);
         const triggeringPlayerForStack = needsThatPlayerRef ? String(controller) : undefined;
         
@@ -9733,6 +10461,19 @@ export function executeTriggerEffect(
     return;
   }
 
+  if (tryApplyCastingModifierGrantsFromText(state, controller, description, sourceName, triggerItem)) {
+    return;
+  }
+
+  const activatedAbilityTextForGrants = String((triggerItem as any)?.activatedAbilityText || '').trim();
+  if (
+    activatedAbilityTextForGrants
+    && activatedAbilityTextForGrants !== description
+    && tryApplyCastingModifierGrantsFromText(state, controller, activatedAbilityTextForGrants, sourceName, triggerItem)
+  ) {
+    return;
+  }
+
   const directGraveyardPermissionEffectsApplied = applyGraveyardPermissionEffectsFromText(ctx, controller, sourceName, description, triggerItem);
   if (directGraveyardPermissionEffectsApplied > 0) {
     return;
@@ -9839,7 +10580,7 @@ export function executeTriggerEffect(
     return;
   }
 
-  let desc = String(description || "").replace(/[’]/g, "'").toLowerCase();
+  let desc = String(description || "").replace(/[’]/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
   let descriptionForOracleFallback = String(description || '');
   if (desc.includes('exile') && desc.includes('graveyard') && desc.includes('target player')) {
     const targetPlayerId = String(Array.isArray((triggerItem as any)?.targets) ? (triggerItem as any).targets[0] || '' : '').trim();
@@ -10349,6 +11090,36 @@ export function executeTriggerEffect(
     debug(2, `[executeTriggerEffect] ${playerId} ${action} ${amount} life (${currentLife} -> ${state.life[playerId]})`);
   };
 
+  const applyOpponentDamageFromTrigger = (
+    targetPlayerId: string,
+    baseDamage: number,
+    sourcePermanentId?: string
+  ): number => {
+    let sourceCard: any;
+    if (sourcePermanentId) {
+      sourceCard = battlefield.find((p: any) => String(p?.id) === String(sourcePermanentId))?.card;
+    }
+    const resolved = resolveOpponentDirectedDamage(ctx, {
+      sourceControllerId: String(controller || ''),
+      targetPlayerId: String(targetPlayerId || ''),
+      damageAmount: baseDamage,
+      sourceCard,
+      sourcePermanentId,
+    });
+    const actualDamage = Math.max(0, Number(resolved.damageDealt) || 0);
+    if (actualDamage > 0) {
+      modifyLife(targetPlayerId, -actualDamage);
+      try {
+        (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
+        (state as any).damageTakenThisTurnByPlayer[targetPlayerId] =
+          ((state as any).damageTakenThisTurnByPlayer[targetPlayerId] || 0) + actualDamage;
+      } catch {
+        /* best-effort */
+      }
+    }
+    return actualDamage;
+  };
+
   const getHandSize = (playerId: string): number => {
     const zone = state.zones?.[playerId];
     if (!zone) return 0;
@@ -10428,6 +11199,87 @@ export function executeTriggerEffect(
     const cardsInHand = getHandSize(controller);
     const amount = Math.max(0, cardsInHand - 4);
     applyLifeGain(controller, amount, sourceName);
+    return;
+  }
+
+  const chosenTypeTopReveal = parseChosenTypeTopCardRevealToHand(desc);
+  if (chosenTypeTopReveal) {
+    const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '');
+    const sourcePermanent = (state.battlefield || []).find((perm: any) => perm && String(perm.id) === sourcePermanentId);
+    const chosenType = String(
+      (triggerItem as any)?.chosenCreatureType || (sourcePermanent as any)?.chosenCreatureType || '',
+    ).trim();
+    const lib = ctx.libraries?.get(controller) || [];
+    if (!chosenType || lib.length === 0) return;
+
+    const topCard = lib[0];
+    if (!cardMatchesChosenTypeFilter(topCard, chosenType, chosenTypeTopReveal.creatureCardsOnly)) {
+      debug(2, `[executeTriggerEffect] ${sourceName}: top card is not a ${chosenType} match`);
+      return;
+    }
+
+    const gameId = String((ctx as any).gameId || 'unknown');
+    const io = (ctx as any).io;
+    const putIntoHand = async () => {
+      const drawn = drawCardsFromZone(ctx, controller, 1);
+      debug(
+        2,
+        `[executeTriggerEffect] ${sourceName}: ${controller} revealed ${topCard?.name || 'a card'} (${chosenType}) and put it into hand (${drawn.length} drawn)`,
+      );
+    };
+    const putIntoGraveyard = async () => {
+      const milled = millCardsFromLibrary(state, controller, 1);
+      debug(
+        2,
+        `[executeTriggerEffect] ${sourceName}: ${controller} put ${topCard?.name || 'a card'} into graveyard (${milled} milled)`,
+      );
+    };
+
+    if (io && gameId !== 'unknown' && !(ctx as any).isReplaying) {
+      queueMayAbilityStep(
+        io,
+        gameId,
+        { state },
+        String(controller),
+        sourceName,
+        `put ${topCard?.name || 'the top card'} into your hand`,
+        desc,
+        putIntoHand,
+        chosenTypeTopReveal.allowGraveyardIfDeclined ? putIntoGraveyard : undefined,
+      );
+    } else {
+      void putIntoHand();
+    }
+    return;
+  }
+
+  if (
+    desc.includes('reveal the top card of your library') &&
+    desc.includes('creature card of the chosen type')
+  ) {
+    const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '');
+    const sourcePermanent = (state.battlefield || []).find((perm: any) => perm && String(perm.id) === sourcePermanentId);
+    const chosenType = String(
+      (triggerItem as any)?.chosenCreatureType || (sourcePermanent as any)?.chosenCreatureType || '',
+    ).trim();
+    const lib = ctx.libraries?.get(controller) || [];
+    if (chosenType && lib.length > 0) {
+      const topCard = lib[0];
+      const typeLine = String(topCard?.type_line || '').toLowerCase();
+      if (typeLine.includes('creature') && cardHasCreatureType(topCard, chosenType)) {
+        const drawn = drawCardsFromZone(ctx, controller, 1);
+        debug(
+          2,
+          `[executeTriggerEffect] ${sourceName}: ${controller} revealed ${topCard?.name || 'a creature'} (${chosenType}) and put it into hand (${drawn.length} drawn)`,
+        );
+      } else {
+        const milled = millCardsFromLibrary(state, controller, 1);
+        debug(
+          2,
+          `[executeTriggerEffect] ${sourceName}: ${controller} revealed ${topCard?.name || 'a card'} (not ${chosenType}) and put it into graveyard (${milled} milled)`,
+        );
+      }
+    }
     return;
   }
 
@@ -11531,7 +12383,13 @@ export function executeTriggerEffect(
     }
   }
 
-  const triggeredOracleIRApplied = applyOracleIRFallbackForTriggeredEffect(ctx, controller, sourceName, descriptionForOracleFallback);
+  const triggeredOracleIRApplied = applyOracleIRFallbackForTriggeredEffect(
+    ctx,
+    controller,
+    sourceName,
+    descriptionForOracleFallback,
+    triggerItem,
+  );
   if (triggeredOracleIRApplied > 0) {
     return;
   }
@@ -11589,12 +12447,13 @@ export function executeTriggerEffect(
     }
     
     for (const opp of opponents) {
-      modifyLife(opp.id, -damage);
-      debug(2, `[executeTriggerEffect] ${sourceName} deals ${damage} damage to opponent ${opp.id}`);
-      
+      const actualDamage = applyOpponentDamageFromTrigger(String(opp.id), damage, sourcePermId);
+      if (actualDamage > 0) {
+        debug(2, `[executeTriggerEffect] ${sourceName} deals ${actualDamage} damage to opponent ${opp.id}`);
+      }
       try {
-        if (sourcePermId) {
-          queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermId, String(opp.id), damage);
+        if (sourcePermId && actualDamage > 0) {
+          queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermId, String(opp.id), actualDamage);
         }
       } catch {
         // Defensive
@@ -11608,7 +12467,7 @@ export function executeTriggerEffect(
     const damageAmount = parseInt(dealEachOpponentAndGainLifeMatch[1], 10);
     const gainAmount = parseInt(dealEachOpponentAndGainLifeMatch[2], 10);
     for (const opp of opponents) {
-      modifyLife(opp.id, -damageAmount);
+      applyOpponentDamageFromTrigger(String(opp.id), damageAmount);
     }
     modifyLife(controller, gainAmount);
     handled = true;
@@ -11701,15 +12560,30 @@ export function executeTriggerEffect(
   const dealsToEachOpponentMatch = desc.match(/deals? (\d+) damage to each opponent/i);
   if (dealsToEachOpponentMatch) {
     const damage = parseInt(dealsToEachOpponentMatch[1], 10);
+    const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '');
+    let sourceCard: any;
+    if (sourcePermanentId) {
+      sourceCard = battlefield.find((p: any) => String(p?.id) === sourcePermanentId)?.card;
+    }
     for (const opp of opponents) {
-      modifyLife(opp.id, -damage);
-      debug(2, `[executeTriggerEffect] ${sourceName} deals ${damage} damage to ${opp.id}`);
+      const resolved = resolveOpponentDirectedDamage(ctx, {
+        sourceControllerId: String(controller || ''),
+        targetPlayerId: String(opp.id || ''),
+        damageAmount: damage,
+        sourceCard,
+      });
+      const actualDamage = Math.max(0, Number(resolved.damageDealt) || 0);
+      if (actualDamage > 0) {
+        modifyLife(opp.id, -actualDamage);
+        debug(2, `[executeTriggerEffect] ${sourceName} deals ${actualDamage} damage to ${opp.id}`);
+      } else if (resolved.prevented) {
+        debug(2, `[executeTriggerEffect] ${sourceName} damage to ${opp.id} was prevented`);
+      }
 
-      // Queue "Whenever ~ deals damage to a player" triggers from the damage source.
+      // Queue "Whenever ~ deals damage to a player" triggers only when damage is actually dealt.
       try {
-        const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '');
-        if (sourcePermanentId) {
-          queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, String(opp.id), damage);
+        if (sourcePermanentId && actualDamage > 0) {
+          queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, String(opp.id), actualDamage);
         }
       } catch {
         // Defensive: do not block resolution on trigger queue failure.
@@ -11949,6 +12823,14 @@ export function executeTriggerEffect(
       }
     }
     return;
+  }
+
+  if (parseChosenTypeCounterEachCreatureEffect(desc)) {
+    const chosenType = String(triggerItem?.chosenCreatureType || '').trim();
+    if (chosenType) {
+      resolveChosenTypeCounterEachCreature(ctx, controller, chosenType, sourceName);
+      return;
+    }
   }
 
   // Pattern: "+1/+1 counter on each creature you control" (Cathar's Crusade)
@@ -12739,6 +13621,64 @@ export function executeTriggerEffect(
     return;
   }
   
+  // ===== Belbe's Portal: put a creature card of the chosen type from hand =====
+  if (
+    /(?:you may )?put a creature card of the chosen type from your hand onto the battlefield/i.test(desc) &&
+    !desc.includes('search your library')
+  ) {
+    const sourcePermanentId = String(triggerItem?.source || triggerItem?.permanentId || '').trim();
+    const sourcePermanent = battlefield.find((perm: any) => perm && String(perm.id) === sourcePermanentId);
+    const chosenType = String(
+      sourcePermanent?.chosenCreatureType || triggerItem?.chosenCreatureType || '',
+    ).trim();
+    const zones = state.zones || {};
+    const hand = (zones[controller] as any)?.hand || [];
+    const validCreatures = filterHandCreatureCardsOfChosenType(hand, chosenType);
+
+    if (validCreatures.length === 0) {
+      debug(2, `[executeTriggerEffect] ${sourceName}: No ${chosenType || 'chosen-type'} creature cards in hand`);
+      return;
+    }
+
+    const isOptionalPut = desc.toLowerCase().includes('you may');
+    const gameId = (ctx as any).gameId || (state as any).gameId;
+    const typeDesc = chosenType || 'chosen type';
+
+    if (gameId) {
+      const isReplaying = !!(ctx as any).isReplaying;
+      if (!isReplaying) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MODAL_CHOICE,
+          playerId: controller,
+          description: `${sourceName}: ${isOptionalPut ? 'You may put' : 'Put'} a ${typeDesc} creature from your hand onto the battlefield`,
+          mandatory: !isOptionalPut,
+          sourceName,
+          sourceImage: triggerItem.value?.imageUrl,
+          promptTitle: `Put ${typeDesc} onto Battlefield`,
+          promptDescription: `Select a ${typeDesc} creature card from your hand to put onto the battlefield.`,
+          options: [
+            ...(isOptionalPut ? [{ id: 'decline', label: 'Decline' }] : []),
+            ...validCreatures.map((card: any) => ({
+              id: card.id,
+              label: card.name || 'Unknown Card',
+              imageUrl: card.image_uris?.small || card.image_uris?.normal,
+            })),
+          ],
+          minSelections: isOptionalPut ? 0 : 1,
+          maxSelections: 1,
+          putFromHandData: {
+            tappedAndAttacking: false,
+            validCardIds: validCreatures.map((card: any) => card.id),
+          },
+        });
+
+        debug(2, `[executeTriggerEffect] ${sourceName}: Queued hand selection for ${typeDesc} creature (${validCreatures.length} valid cards)`);
+      }
+    }
+
+    return;
+  }
+
   // ===== GENERIC: Put [type] creature from hand onto battlefield [tapped and attacking] =====
   // This handles patterns like:
   // - "you may put a Soldier creature card from your hand onto the battlefield tapped and attacking"
@@ -13149,17 +14089,16 @@ export function executeTriggerEffect(
     return;
   }
   
-  // Pattern: "each opponent mills X cards" or "each opponent mills a card" (Altar of the Brood)
   const millOpponentsMatch = desc.match(/each opponent mills? (?:a card|(\d+) cards?)/i);
   if (millOpponentsMatch) {
     const baseMillCount = millOpponentsMatch[1] ? parseInt(millOpponentsMatch[1], 10) : 1;
     debug(2, `[executeTriggerEffect] Each opponent mills ${baseMillCount} card(s)`);
-    
-    // Set up pending mill for each opponent
+    if (baseMillCount <= 0) {
+      return;
+    }
+
     state.pendingMill = state.pendingMill || {};
     for (const opp of opponents) {
-      // Apply mill replacement effects (e.g., The Water Crystal adds +4 to opponent mills).
-      // The trigger controller (Altar's owner) is the "milling player" context.
       const { finalCount: millCount } = applyMillReplacements(
         ctx,
         baseMillCount,
@@ -13167,22 +14106,19 @@ export function executeTriggerEffect(
         String(opp.id),
       );
       state.pendingMill[opp.id] = (state.pendingMill[opp.id] || 0) + millCount;
-      
-      // Get library from ctx.libraries Map (authoritative source) or fallback to zones
+
       const ctxLibraries = (ctx as any).libraries as Map<string, any[]> | undefined;
       let oppLib: any[] | undefined;
       if (ctxLibraries && typeof ctxLibraries.get === 'function') {
         oppLib = ctxLibraries.get(opp.id);
       }
-      
-      // Get opponent zones for graveyard
+
       const zones = state.zones || {};
-      const oppZones = zones[opp.id] = zones[opp.id] || { 
-        hand: [], handCount: 0, libraryCount: 0, 
-        graveyard: [], graveyardCount: 0 
+      const oppZones = zones[opp.id] = zones[opp.id] || {
+        hand: [], handCount: 0, libraryCount: 0,
+        graveyard: [], graveyardCount: 0,
       };
-      
-      // Mill cards from library to graveyard
+
       if (oppLib && Array.isArray(oppLib)) {
         const milledCards: any[] = [];
         for (let i = 0; i < millCount && oppLib.length > 0; i++) {
@@ -13196,14 +14132,11 @@ export function executeTriggerEffect(
             debug(2, `[executeTriggerEffect] Milled ${milledCard.name || 'card'} from ${opp.id}'s library`);
           }
         }
-        // Update library in Map
         if (ctxLibraries && typeof ctxLibraries.set === 'function') {
           ctxLibraries.set(opp.id, oppLib);
         }
-        // Update library count and graveyard count
         oppZones.libraryCount = oppLib.length;
         oppZones.graveyardCount = (oppZones.graveyard || []).length;
-        // Fire mill triggers (e.g., Teferi's Ageless Insight, Ruin Crab, etc.)
         if (milledCards.length > 0) {
           try {
             processMillTriggers(ctx, String(opp.id), milledCards, controller);
@@ -13495,6 +14428,51 @@ export function executeTriggerEffect(
         perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + counterCount;
         debug(2, `[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
       }
+    }
+    return;
+  }
+
+  const interveningSubjectPermanentIdForCopy = String((triggerItem as any)?.interveningIfSubjectPermanentId || '').trim();
+  if (
+    interveningSubjectPermanentIdForCopy
+    && /create a token that['']s a copy of that creature/i.test(desc)
+  ) {
+    const enteringPermanent = (state.battlefield || []).find(
+      (perm: any) => String(perm?.id || '') === interveningSubjectPermanentIdForCopy,
+    );
+    const enteringCard = enteringPermanent?.card;
+    if (enteringCard) {
+      const createdIds = createCopyTokensOfCard(ctx, controller, enteringCard, 1);
+      const currentTurn = Number(state.turnNumber ?? 0) || 0;
+      const currentPhase = String(state.phase ?? '').toLowerCase();
+      const currentStepUpper = String(state.step ?? '').toUpperCase();
+      const inEnding = currentPhase === 'ending' && (currentStepUpper === 'END' || currentStepUpper === 'CLEANUP');
+      const fireAtTurnNumber = inEnding ? currentTurn + 1 : currentTurn;
+      const grantsHaste = /\b(?:gains|has|with)\s+haste\b/i.test(desc);
+
+      state.pendingExileAtNextEndStep = Array.isArray(state.pendingExileAtNextEndStep)
+        ? state.pendingExileAtNextEndStep
+        : [];
+
+      for (const tokenId of createdIds) {
+        const token = (state.battlefield || []).find((perm: any) => perm?.id === tokenId);
+        if (token && grantsHaste) {
+          (token as any).tempAbilities = Array.isArray((token as any).tempAbilities) ? (token as any).tempAbilities : [];
+          if (!(token as any).tempAbilities.some((ability: any) => String(ability).toLowerCase() === 'haste')) {
+            (token as any).tempAbilities.push('haste');
+          }
+          (token as any).summoningSickness = false;
+        }
+
+        state.pendingExileAtNextEndStep.push({
+          permanentId: tokenId,
+          fireAtTurnNumber,
+          sourceName,
+          createdBy: controller,
+        });
+      }
+
+      debug(2, `[executeTriggerEffect] ${sourceName}: created ${createdIds.length} copy token(s) of ${enteringCard.name || 'creature'}${grantsHaste ? ' with haste' : ''}`);
     }
     return;
   }
@@ -13948,30 +14926,13 @@ export function executeTriggerEffect(
       // Check if target is a player
       const targetPlayer = players.find((p: any) => p.id === targetId);
       if (targetPlayer) {
-        modifyLife(targetId, -damage);
-
-        // Track damage taken this turn for intervening-if templates.
-        try {
-          (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
-          (state as any).damageTakenThisTurnByPlayer[targetId] =
-            ((state as any).damageTakenThisTurnByPlayer[targetId] || 0) + damage;
-        } catch {
-          /* ignore */
-        }
-
-        // Track life lost this turn (damage is life loss).
-        try {
-          (state as any).lifeLostThisTurn = (state as any).lifeLostThisTurn || {};
-          (state as any).lifeLostThisTurn[targetId] = ((state as any).lifeLostThisTurn[targetId] || 0) + damage;
-        } catch {
-          /* ignore */
-        }
+        const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '');
+        const actualDamage = applyOpponentDamageFromTrigger(String(targetId), damage, sourcePermanentId || undefined);
 
         // Queue "Whenever ~ deals damage to a player" triggers from the damage source.
         try {
-          const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '');
-          if (sourcePermanentId) {
-            queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, String(targetId), damage);
+          if (sourcePermanentId && actualDamage > 0) {
+            queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, String(targetId), actualDamage);
 
             // Track that a creature dealt damage to a player this turn.
             try {
@@ -13985,7 +14946,7 @@ export function executeTriggerEffect(
                   (state as any).creaturesThatDealtDamageToPlayer[String(targetId)] || {});
                 perPlayer[String(sourcePermanentId)] = {
                   creatureName,
-                  totalDamage: (perPlayer[String(sourcePermanentId)]?.totalDamage || 0) + damage,
+                  totalDamage: (perPlayer[String(sourcePermanentId)]?.totalDamage || 0) + actualDamage,
                   lastDamageTime: Date.now(),
                 };
               }
@@ -15864,6 +16825,16 @@ function resolveTextDrivenActivatedControlChange(
 
 /* Resolve the top item - moves permanent spells to battlefield */
 export function resolveTopOfStack(ctx: GameContext) {
+  const stack = ctx.state?.stack;
+  const pendingTop =
+    Array.isArray(stack) && stack.length > 0 ? stack[stack.length - 1] : null;
+  if (pendingTop && isMoxDiamondCard(pendingTop.card)) {
+    if (queueMoxDiamondChoiceForStackItem(ctx, pendingTop)) {
+      ctx.bumpSeq();
+      return;
+    }
+  }
+
   const item = popStackItem(ctx);
   if (!item) return;
   
@@ -16643,6 +17614,59 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
 
     const activatedAbilityText = String((item as any).activatedAbilityText || '').trim();
+    const abilityTextForTypeChoice = [activatedAbilityText, description].filter(Boolean).join(' ').trim();
+    const needsActivationCreatureTypeChoice = parseActivationChosenTypeRevealTop(abilityTextForTypeChoice)
+      || parseChosenTypeDrawPerCreatureEffect(abilityTextForTypeChoice);
+    const existingAbilityChosenType = String((item as any).chosenCreatureType || '').trim();
+    const isReplayingAbility = !!(ctx as any).isReplaying;
+
+    if (needsActivationCreatureTypeChoice && !existingAbilityChosenType && !isReplayingAbility) {
+      debug(2, `[resolveTopOfStack] ${sourceName} activated ability requires creature type choice`);
+
+      queueResolveTopOfStackPrompt(ctx, {
+        type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+        playerId: controller as PlayerID,
+        description: `Choose a creature type for ${sourceName}'s ability`,
+        mandatory: true,
+        sourceId: String((item as any).source || (item as any).id || ''),
+        sourceName,
+        spellId: String((item as any).id || ''),
+        cardName: sourceName,
+        ...(parseChosenTypeDrawPerCreatureEffect(abilityTextForTypeChoice)
+          ? { pendingChosenTypeEffect: 'draw_per_creature' }
+          : {}),
+      } as any);
+
+      state.stack = state.stack || [];
+      state.stack.push(item as any);
+      bumpSeq();
+      return;
+    }
+
+    const activationTopReveal = parseActivationChosenTypeTopLibraryReveal(abilityTextForTypeChoice);
+    if (activationTopReveal) {
+      const sourcePermanentId = String((item as any).source || '');
+      const sourcePermanent = (state.battlefield || []).find((perm: any) => perm && String(perm.id) === sourcePermanentId);
+      const chosenType = String((sourcePermanent as any)?.chosenCreatureType || existingAbilityChosenType || '').trim();
+      if (chosenType) {
+        const queuedCount = queueChosenTypeTopLibraryRevealPrompt(ctx, controller as PlayerID, chosenType, {
+          sourceId: String((item as any).id || sourcePermanentId || ''),
+          sourceName,
+          description: `${sourceName}: Look at the top ${activationTopReveal.lookCount} cards of your library. You may reveal ${chosenType} creature cards from among them and put them into your hand. Put the rest on the bottom in a random order.`,
+          lookCount: activationTopReveal.lookCount,
+        });
+        debug(2, `[resolveTopOfStack] ${sourceName} queued chosen-type top-library reveal (${queuedCount} card(s))`);
+        bumpSeq();
+        return;
+      }
+    }
+
+    if (existingAbilityChosenType && parseChosenTypeDrawPerCreatureEffect(abilityTextForTypeChoice)) {
+      resolveChosenTypeDrawPerCreature(ctx, controller as PlayerID, existingAbilityChosenType, sourceName);
+      bumpSeq();
+      return;
+    }
+
     resolveTextDrivenActivatedControlChange(
       state,
       String(controller || ''),
@@ -17614,6 +18638,73 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     }
     
+    const effectForChosenTypeChoice = effectText || description;
+    if (parseChosenTypeCounterEachCreatureEffect(effectForChosenTypeChoice)) {
+      const sourcePermanentId = String((item as any).source || (item as any).permanentId || '');
+      const sourcePermanent = (state.battlefield || []).find((perm: any) => perm && String(perm.id) === sourcePermanentId);
+      const chosenType = String(
+        (item as any)?.chosenCreatureType || (sourcePermanent as any)?.chosenCreatureType || '',
+      ).trim();
+      const isReplayingTrigger = !!(ctx as any).isReplaying;
+
+      if (!chosenType && !isReplayingTrigger) {
+        queueResolveTopOfStackPrompt(ctx, {
+          type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+          playerId: triggerController as PlayerID,
+          description: `Choose a creature type for ${sourceName}`,
+          mandatory: true,
+          sourceId: sourcePermanentId || String(sourceId || ''),
+          sourceName,
+          permanentId: sourcePermanentId,
+          pendingChosenTypeEffect: 'counter_per_creature',
+        } as any);
+
+        state.stack = state.stack || [];
+        state.stack.push(item as any);
+        bumpSeq();
+        return;
+      }
+
+      if (chosenType) {
+        resolveChosenTypeCounterEachCreature(ctx, triggerController as PlayerID, chosenType, sourceName);
+        bumpSeq();
+        return;
+      }
+    }
+
+    if (parseChosenTypeDrawPerCreatureEffect(effectForChosenTypeChoice)) {
+      const sourcePermanentId = String((item as any).source || (item as any).permanentId || '');
+      const sourcePermanent = (state.battlefield || []).find((perm: any) => perm && String(perm.id) === sourcePermanentId);
+      const chosenType = String(
+        (item as any)?.chosenCreatureType || (sourcePermanent as any)?.chosenCreatureType || '',
+      ).trim();
+      const isReplayingTrigger = !!(ctx as any).isReplaying;
+
+      if (!chosenType && !isReplayingTrigger) {
+        queueResolveTopOfStackPrompt(ctx, {
+          type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+          playerId: triggerController as PlayerID,
+          description: `Choose a creature type for ${sourceName}`,
+          mandatory: true,
+          sourceId: sourcePermanentId || String(sourceId || ''),
+          sourceName,
+          permanentId: sourcePermanentId,
+          pendingChosenTypeEffect: 'draw_per_creature',
+        } as any);
+
+        state.stack = state.stack || [];
+        state.stack.push(item as any);
+        bumpSeq();
+        return;
+      }
+
+      if (chosenType) {
+        resolveChosenTypeDrawPerCreature(ctx, triggerController as PlayerID, chosenType, sourceName);
+        bumpSeq();
+        return;
+      }
+    }
+
     // Execute the triggered ability effect based on description
     debug(2, `[resolveTopOfStack] Executing trigger effect: controller=${triggerController}, sourceName=${sourceName}, triggerType=${triggerType}`);
     executeTriggerEffect(ctx, triggerController, sourceName, effectText || description, item);
@@ -18044,6 +19135,8 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     state.battlefield.push(newPermanent);
+    syncArcaneAdaptationForNewCreature(state, newPermanent);
+    applyMetallicMimicEntryBonus(ctx, newPermanent, controller as PlayerID);
 
     if (cardEntersPrepared(newPermanent.card)) {
       setPermanentPrepared(state, newPermanent);
@@ -18429,6 +19522,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       // - etb_sacrifice_unless_pay: "When ~ enters, sacrifice unless you pay"
       const selfETBTriggerTypes = new Set([
         'etb',                      // Self ETB: "When ~ enters the battlefield"
+        'self_enters_or_attacks',   // Self ETB+attack: "Whenever ~ enters or attacks"
         'etb_modal_choice',         // Modal ETB: "As ~ enters, choose"
         'job_select',               // Equipment: create Hero token and attach
         'living_weapon',            // Equipment: create Germ token and attach
@@ -18450,6 +19544,8 @@ export function resolveTopOfStack(ctx: GameContext) {
         // (these will be added from other permanents in the loop below)
         if (trigger.triggerType === 'permanent_etb' ||
             trigger.triggerType === 'creature_etb' ||
+            trigger.triggerType === 'chosen_type_creature_etb' ||
+            trigger.triggerType === 'chosen_type_creature_etb_or_attack' ||
             trigger.triggerType === 'another_permanent_etb') {
           return false;
         }
@@ -18489,6 +19585,15 @@ export function resolveTopOfStack(ctx: GameContext) {
               if (!matchesRequiredTypePhrase(enteringTypeLine, requiredType, isToken)) {
                 continue;
               }
+            }
+            etbTriggers.push({ ...trigger, permanentId: perm.id });
+          } else if (
+            (trigger.triggerType === 'chosen_type_creature_etb_or_attack'
+              || trigger.triggerType === 'chosen_type_creature_etb')
+            && isCreature
+          ) {
+            if (!shouldQueueChosenTypeCreatureEtbTrigger(trigger, perm, newPermanent, controller, isToken, isCreature)) {
+              continue;
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'another_permanent_etb') {
@@ -18808,6 +19913,115 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Check if spell already has a chosen color (from stack item)
     const existingChosenColor = (card as any)?.chosenColor || (item as any)?.chosenColor;
     
+    const hasCreatureTypeChoiceSpell = isCastCreatureTypeChoiceOracle(oracleText);
+    const existingChosenCreatureType = (card as any)?.chosenCreatureType || (item as any)?.chosenCreatureType;
+
+    if (hasCreatureTypeChoiceSpell && !existingChosenCreatureType && !isReplaying) {
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires creature type choice, adding resolution step`);
+
+      queueResolveTopOfStackPrompt(ctx, {
+        type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+        playerId: controller as PlayerID,
+        description: `Choose a creature type for ${effectiveCard.name}`,
+        mandatory: true,
+        sourceId: card?.id || effectiveCard.id,
+        sourceName: effectiveCard.name || 'Spell',
+        sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+        spellId: item?.id || card?.id,
+        cardName: effectiveCard.name || 'Spell',
+        oracleText,
+      } as any);
+
+      state.stack = state.stack || [];
+      state.stack.push(item as any);
+      return;
+    }
+
+    if (hasCreatureTypeChoiceSpell && existingChosenCreatureType) {
+      const untilEotBuff = parseChosenTypeUntilEndOfTurnBuff(oracleText);
+      if (untilEotBuff) {
+        const battlefield = state.battlefield || [];
+        let affected = 0;
+        for (const perm of battlefield) {
+          if (!perm || perm.controller !== controller) continue;
+          if (!isCreatureNow(perm)) continue;
+          if (!permanentHasCreatureTypeNow(perm, existingChosenCreatureType)) continue;
+          perm.modifiers = Array.isArray(perm.modifiers) ? perm.modifiers : [];
+          perm.modifiers.push({
+            type: 'pt_buff',
+            sourceId: String(item?.id || card?.id || effectiveCard.id || ''),
+            power: untilEotBuff.power,
+            toughness: untilEotBuff.toughness,
+            keywords: untilEotBuff.abilities || [],
+            duration: 'end_of_turn',
+            appliedAt: Date.now(),
+          } as any);
+          affected += 1;
+        }
+        if (affected > 0) {
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name}: applied ${existingChosenCreatureType} until-EOT buff to ${affected} creature(s)`);
+        }
+      }
+
+      const spellNameLower = String(effectiveCard.name || '').toLowerCase();
+      if (
+        spellNameLower.includes('distant melody') ||
+        /draw a card for each permanent you control of that type/i.test(oracleTextLower)
+      ) {
+        const drawCount = countControlledPermanentsOfChosenType(state, controller, existingChosenCreatureType);
+        if (drawCount > 0) {
+          const drawn = drawCardsFromZone(ctx, controller, drawCount);
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s) for ${existingChosenCreatureType} permanents`);
+        }
+      }
+
+      if (
+        spellNameLower.includes('kindred summons') ||
+        /reveal cards from the top of your library until you reveal x creature cards of the chosen type/i.test(oracleTextLower)
+      ) {
+        resolveKindredSummonsFromLibrary(ctx, controller, existingChosenCreatureType, String(effectiveCard.name || 'Kindred Summons'));
+      }
+
+      if (
+        spellNameLower.includes('kindred dominance') ||
+        /destroy all creatures that aren't of the chosen type/i.test(oracleTextLower)
+      ) {
+        const battlefield = state.battlefield || [];
+        let destroyed = 0;
+        for (const perm of battlefield) {
+          if (!perm || !isCreatureNow(perm)) continue;
+          if (permanentHasCreatureTypeNow(perm, existingChosenCreatureType)) continue;
+          destroyPermanent(ctx, String(perm.id), true);
+          destroyed += 1;
+        }
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: destroyed ${destroyed} creature(s) not of type ${existingChosenCreatureType}`);
+      }
+
+      if (
+        spellNameLower.includes('kindred charge') ||
+        /for each creature you control of the chosen type, create a token that/i.test(oracleTextLower)
+      ) {
+        resolveKindredChargeTokenCopies(
+          ctx,
+          controller,
+          existingChosenCreatureType,
+          String(effectiveCard.name || 'Kindred Charge'),
+        );
+      }
+
+      const chosenTypeLookReveal = parseChosenTypeLookRevealTopLibrary(oracleText);
+      if (chosenTypeLookReveal) {
+        const queuedCount = queueChosenTypeTopLibraryRevealPrompt(ctx, controller as PlayerID, existingChosenCreatureType, {
+          sourceId: String(item?.id || card?.id || effectiveCard.id || ''),
+          sourceName: String(effectiveCard.name || 'Spell'),
+          sourceImage: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
+          description: `${effectiveCard.name}: Look at the top ${chosenTypeLookReveal.lookCount} cards of your library. You may reveal any number of ${existingChosenCreatureType} cards from among them and put them into your hand. Put the rest on the bottom in a random order.`,
+          lookCount: chosenTypeLookReveal.lookCount,
+        });
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: queued chosen-type top-library reveal (${queuedCount} card(s), type=${existingChosenCreatureType})`);
+      }
+    }
+
     if (hasColorChoiceSpell && !existingChosenColor && !isReplaying) {
       // This spell needs a color choice before it can resolve
       // Add to resolution queue and return (spell stays on stack until color is chosen)
@@ -19091,6 +20305,24 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
       if ((hydratedSpec as any)?.tokenCountIsX && typeof spellXValue === 'number') {
         hydratedSpec = { ...(hydratedSpec as any), tokenCount: spellXValue };
+      }
+      if ((hydratedSpec as any)?.millCountIsX && typeof spellXValue === 'number') {
+        hydratedSpec = { ...(hydratedSpec as any), millCount: spellXValue };
+      }
+      if ((hydratedSpec as any)?.scryCountIsX && typeof spellXValue === 'number') {
+        hydratedSpec = { ...(hydratedSpec as any), scryCount: spellXValue };
+      }
+      if ((hydratedSpec as any)?.surveilCountIsX && typeof spellXValue === 'number') {
+        hydratedSpec = { ...(hydratedSpec as any), surveilCount: spellXValue };
+      }
+      if (
+        (hydratedSpec as any)?.millCountDoubleIfCastFromGraveyard &&
+        wasSpellCastFromGraveyard(item)
+      ) {
+        const baseMill = Math.max(0, Number((hydratedSpec as any)?.millCount ?? spellXValue ?? 0) || 0);
+        if (baseMill > 0) {
+          hydratedSpec = { ...(hydratedSpec as any), millCount: baseMill * 2 };
+        }
       }
 
       // Convert persisted string targets back into the correct TargetRef kind.
@@ -20809,7 +22041,11 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle tutor spells (Demonic Tutor, Vampiric Tutor, Diabolic Tutor, Kodama's Reach, Cultivate, etc.)
     // These need to trigger a library search prompt for the player
-    const tutorInfo = detectTutorSpell(oracleText);
+    if (isCelestialReunionOracle(oracleText)) {
+      resolveCelestialReunionLibrarySearch(ctx, controller as PlayerID, item, card, effectiveCard);
+    }
+
+    const tutorInfo = isCelestialReunionOracle(oracleText) ? { isTutor: false } : detectTutorSpell(oracleText);
     if (tutorInfo.isTutor) {
       const isVampiric = (effectiveCard.name || '').toLowerCase().trim() === 'vampiric tutor';
       const tutorFilter = parseLibrarySearchFilter(tutorInfo.searchCriteria || '');
@@ -22239,9 +23475,34 @@ function executeSpellEffect(
         const targetPlayerId = String((effect as any).playerId || '');
         if (dmg <= 0 || !targetPlayerId) break;
 
+        let sourceControllerId = String(caster || '');
+        let sourceCard: any;
+        if (sourcePermanentId) {
+          const battlefield = state.battlefield || [];
+          const sourcePerm = battlefield.find((p: any) => String(p?.id) === String(sourcePermanentId));
+          if (sourcePerm?.controller) {
+            sourceControllerId = String(sourcePerm.controller);
+          }
+          sourceCard = sourcePerm?.card;
+        }
+
+        const replacement = resolveOpponentDirectedDamage(ctx, {
+          sourceControllerId,
+          targetPlayerId,
+          damageAmount: dmg,
+          sourceCard,
+        });
+        for (const modifier of replacement.damageModifiers) {
+          debug(2, `[resolveSpell] ${modifier}`);
+        }
+        for (const replacementMsg of replacement.effectsApplied) {
+          debug(2, `[resolveSpell] ${replacementMsg}`);
+        }
+        const actualDmg = replacement.damageDealt;
+
         (state as any).life = (state as any).life || {};
         const current = (state as any).life[targetPlayerId] ?? (player as any).life ?? 40;
-        const next = current - dmg;
+        const next = current - actualDmg;
         (state as any).life[targetPlayerId] = next;
         (player as any).life = next;
 
@@ -22249,13 +23510,13 @@ function executeSpellEffect(
         try {
           (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
           (state as any).damageTakenThisTurnByPlayer[targetPlayerId] =
-            ((state as any).damageTakenThisTurnByPlayer[targetPlayerId] || 0) + dmg;
+            ((state as any).damageTakenThisTurnByPlayer[targetPlayerId] || 0) + actualDmg;
         } catch {
           /* best-effort */
         }
         try {
           (state as any).lifeLostThisTurn = (state as any).lifeLostThisTurn || {};
-          (state as any).lifeLostThisTurn[targetPlayerId] = ((state as any).lifeLostThisTurn[targetPlayerId] || 0) + dmg;
+          (state as any).lifeLostThisTurn[targetPlayerId] = ((state as any).lifeLostThisTurn[targetPlayerId] || 0) + actualDmg;
         } catch {
           /* best-effort */
         }
@@ -22274,7 +23535,7 @@ function executeSpellEffect(
                 (state as any).creaturesThatDealtDamageToPlayer[targetPlayerId] || {});
               perPlayer[srcId] = {
                 creatureName,
-                totalDamage: (perPlayer[srcId]?.totalDamage || 0) + dmg,
+                totalDamage: (perPlayer[srcId]?.totalDamage || 0) + actualDmg,
                 lastDamageTime: Date.now(),
               };
             }
@@ -22283,12 +23544,12 @@ function executeSpellEffect(
           // best-effort only
         }
 
-        debug(2, `[resolveSpell] ${spellName} dealt ${dmg} damage to player ${targetPlayerId}`);
+        debug(2, `[resolveSpell] ${spellName} dealt ${actualDmg} damage to player ${targetPlayerId}`);
 
         // If we have a battlefield permanent as the source of this effect, queue its damage-to-player triggers.
         try {
-          if (sourcePermanentId) {
-            queueDealsDamageToPlayerTriggersFromPermanent(ctx, String(sourcePermanentId), String(targetPlayerId), dmg);
+          if (sourcePermanentId && actualDmg > 0) {
+            queueDealsDamageToPlayerTriggersFromPermanent(ctx, String(sourcePermanentId), String(targetPlayerId), actualDmg);
           }
         } catch {
           // Defensive: do not block resolution.
@@ -22865,6 +24126,7 @@ function queueDealsDamageToPlayerTriggersFromPermanent(
   const battlefield = state?.battlefield || [];
   const sourcePerm = battlefield.find((p: any) => p?.id === sourcePermanentId);
   if (!sourcePerm?.card) return;
+  if (Math.max(0, Number(damageAmount) || 0) <= 0) return;
 
   const triggers = detectCombatDamageTriggers(sourcePerm.card, sourcePerm);
   const damageToPlayerTriggers = triggers.filter((t: any) => t?.triggerType === 'deals_damage' && !t?.batched);

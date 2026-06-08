@@ -1,4 +1,9 @@
 ﻿import type { OracleEffectStep } from './oracleIR';
+import {
+  buildDamageStepFromClauseParts,
+  buildMillStepFromClauseParts,
+  buildQuantityStepFromClauseParts,
+} from './oracleIRParserQuantityHelpers';
 import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
@@ -11,6 +16,18 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
     .replace(/[."]+$/g, '');
 
   if (normalized === 'that much' || normalized === 'that many') {
+    return { kind: 'reference_amount', raw: normalized };
+  }
+  if (normalized === 'that amount of' || normalized === 'that mana value' || normalized === 'the result') {
+    return { kind: 'reference_amount', raw: normalized };
+  }
+  if (normalized === 'double that') {
+    return { kind: 'reference_amount', raw: normalized };
+  }
+  if (normalized === 'damage to an opponent this turn, it deals double that') {
+    return { kind: 'reference_amount', raw: normalized };
+  }
+  if (normalized === 'combat damage this turn, it deals that' || normalized === 'that damage') {
     return { kind: 'reference_amount', raw: normalized };
   }
   if (normalized === 'its power') {
@@ -58,6 +75,12 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
   if (normalized === "the sacrificed artifact's mana value") {
     return { kind: 'reference_amount', raw: normalized };
   }
+  if (/^damage equal to the number of charge counters on it to target player and that much$/i.test(normalized)) {
+    return { kind: 'reference_amount', raw: normalized };
+  }
+  if (/^damage equal to the number of quest counters on it to up to one target creature unless that creature's controller has this permanent deal that much$/i.test(normalized)) {
+    return { kind: 'reference_amount', raw: normalized };
+  }
   if (normalized === 'its power' || normalized === 'their power' || normalized === "the creature's power") {
     return { kind: 'object_stat', subject: 'source', stat: 'power' };
   }
@@ -71,14 +94,19 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
 function parseLifeChangeAmount(
   raw: string | undefined
 ): Extract<OracleEffectStep, { kind: 'gain_life' | 'lose_life' }>['amount'] {
-  const parsedQuantity = parseQuantity(raw);
-  if (parsedQuantity.kind !== 'unknown') return parsedQuantity;
-
-  const normalized = String(raw || '')
+  const normalizedRaw = String(raw || '')
     .replace(/[\u2019]/g, "'")
     .trim()
-    .toLowerCase()
     .replace(/[."]+$/g, '');
+  const lifeOnly = normalizedRaw.match(/^(.+?)\s+life$/i);
+  const parsedQuantity = parseQuantity(lifeOnly ? String(lifeOnly[1] || '').trim() : normalizedRaw);
+  if (parsedQuantity.kind !== 'unknown') return parsedQuantity;
+
+  const normalized = normalizedRaw.toLowerCase();
+
+  if (normalized === 'the life that player lost this turn') {
+    return { kind: 'reference_amount', raw: normalized };
+  }
 
   if (normalized === 'its power') {
     return { kind: 'object_stat', subject: 'it', stat: 'power' };
@@ -114,6 +142,24 @@ function parseLifeChangeAmount(
     return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'mana_value' };
   }
   if (normalized === 'the life lost this way') {
+    return { kind: 'reference_amount', raw: normalized };
+  }
+  if (normalized === 'that much' || normalized === 'that many') {
+    return { kind: 'reference_amount', raw: normalized };
+  }
+  if (normalized === 'that much life plus 1 instead') {
+    return { kind: 'reference_amount', raw: normalized };
+  }
+  if (normalized === 'that amount of' || normalized === 'that mana value' || normalized === 'the result') {
+    return { kind: 'reference_amount', raw: normalized };
+  }
+  if (normalized === 'the mana value of the sacrificed permanent') {
+    return { kind: 'object_stat', subject: 'the_sacrificed_permanent', stat: 'mana_value' };
+  }
+  if (normalized === 'the power of target creature you control') {
+    return { kind: 'object_stat', subject: 'target_creature_you_control', stat: 'power' };
+  }
+  if (normalized === 'your speed') {
     return { kind: 'reference_amount', raw: normalized };
   }
 
@@ -192,10 +238,21 @@ export function tryParseLifeAndCombatClause(args: {
     .replace(/^(?:\{[^}]+\}(?:,\s*)?)+(?:,\s*[^:]+)?:\s*/i, '')
     .replace(/^(?:\{TK\})+\s*-\s*/i, '')
     .replace(/^\d+(?:\s*-\s*\d+)?\s*\|\s*/i, '')
-    .replace(/^whenever\s+.+?,\s*/i, '')
+    .replace(/^when(?:ever)?\s+.+?,\s*/i, '')
+    .replace(/^at\s+the\s+beginning\s+of\s+.+?,\s*/i, '')
     .trim();
 
   {
+    const gainThatMuch = clause.match(/^you gain that much life$/i);
+    if (gainThatMuch) {
+      return withMeta({
+        kind: 'gain_life',
+        who: { kind: 'you' },
+        amount: { kind: 'reference_amount', raw: 'that much' },
+        raw: rawClause,
+      });
+    }
+
     const gainEach = clause.match(/^(you and (?:that|target) (?:player|opponent))\s+each\s+gain\s+(that much|that many|\d+|x|[a-z]+)\s+life\b/i);
     if (gainEach) {
       return withMeta({
@@ -214,26 +271,6 @@ export function tryParseLifeAndCombatClause(args: {
         kind: 'gain_life',
         who: parsePlayerSelector(gainForEach[1]),
         amount: parsedAmount.kind === 'reference_amount' ? parsedAmount : { kind: 'unknown', raw: amountText },
-        raw: rawClause,
-      });
-    }
-
-    const gain = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}gains?\\s+(that much|that many|\\d+|x|[a-z]+)\\s+life\\b`, 'i'));
-    if (gain) {
-      return withMeta({
-        kind: 'gain_life',
-        who: parsePlayerSelector(gain[1]),
-        amount: parseQuantity(gain[2]),
-        raw: rawClause,
-      });
-    }
-
-    const gainDefault = clause.match(/^gain\s+(that much|that many|\d+|x|[a-z]+)\s+life\b/i);
-    if (gainDefault) {
-      return withMeta({
-        kind: 'gain_life',
-        who: { kind: 'you' },
-        amount: parseQuantity(gainDefault[1]),
         raw: rawClause,
       });
     }
@@ -259,13 +296,83 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const lose = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}loses?\\s+(that much|that many|\\d+|x|[a-z]+)\\s+life\\b`, 'i'));
-    if (lose) {
+    const gainDrawClause = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}gains?\\s+((?:that much|that many|\\d+|x|[a-z]+)\\s+life)\\s+and\\s+draws?\\s+((?:a|an|\\d+|x|[a-z]+)\\s+cards?)(?:,\\s+where\\s+x\\s+is\\s+(.+))?$`,
+        'i'
+      )
+    );
+    if (gainDrawClause) {
+      const who = parsePlayerSelector(gainDrawClause[1]);
+      const whereX = gainDrawClause[4]
+        ? ({ kind: 'where', raw: String(gainDrawClause[4] || '').trim() } as const)
+        : undefined;
+      return withMeta({
+        kind: 'gain_life',
+        who,
+        amount: parseLifeChangeAmount(String(gainDrawClause[2] || '').trim()),
+        ...(whereX ? { whereX } : {}),
+        raw: rawClause,
+      });
+    }
+
+    const gainTail = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}gains?\\s+(.+)$`, 'i'));
+    if (
+      gainTail &&
+      /\blife\b/i.test(gainTail[2]) &&
+      !/\bfor\s+each\b/i.test(gainTail[2]) &&
+      !/\blife\s+equal\s+to\b/i.test(gainTail[2]) &&
+      !/\sand\s+draws?\s+/i.test(gainTail[2])
+    ) {
+      return buildQuantityStepFromClauseParts({
+        kind: 'gain_life',
+        who: parsePlayerSelector(gainTail[1]),
+        quantityTail: String(gainTail[2] || '').trim(),
+        rawClause,
+        withMeta,
+      });
+    }
+
+    const gainDefaultTail = clause.match(/^gain\s+(.+)$/i);
+    if (gainDefaultTail && /\blife\b/i.test(gainDefaultTail[1]) && !/\bfor\s+each\b/i.test(gainDefaultTail[1]) && !/\blife\s+equal\s+to\b/i.test(gainDefaultTail[1])) {
+      return buildQuantityStepFromClauseParts({
+        kind: 'gain_life',
+        who: { kind: 'you' },
+        quantityTail: String(gainDefaultTail[1] || '').trim(),
+        rawClause,
+        withMeta,
+      });
+    }
+
+    const loseEqual = clause.match(/^(.*?)(?:loses?\s+life\s+equal\s+to)\s+(.+)$/i);
+    if (loseEqual) {
+      const whoRaw = String(loseEqual[1] || '').trim().replace(/^you\s+may\s+have\s+/i, '').replace(/^have\s+/i, '').replace(/\s+$/, '');
       return withMeta({
         kind: 'lose_life',
-        who: parsePlayerSelector(lose[1]),
-        amount: parseQuantity(lose[2]),
+        who: parsePlayerSelector(whoRaw || 'you'),
+        amount: parseLifeChangeAmount(loseEqual[2]),
         raw: rawClause,
+      });
+    }
+
+    const loseEqualDefault = clause.match(/^lose\s+life\s+equal\s+to\s+(.+)$/i);
+    if (loseEqualDefault) {
+      return withMeta({
+        kind: 'lose_life',
+        who: { kind: 'you' },
+        amount: parseLifeChangeAmount(loseEqualDefault[1]),
+        raw: rawClause,
+      });
+    }
+
+    const loseTail = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}loses?\\s+(.+)$`, 'i'));
+    if (loseTail && /\blife\b/i.test(loseTail[2]) && !/half\s+(?:your|their|his or her)\s+life/i.test(loseTail[2]) && !/\blife\s+equal\s+to\b/i.test(loseTail[2])) {
+      return buildQuantityStepFromClauseParts({
+        kind: 'lose_life',
+        who: parsePlayerSelector(loseTail[1]),
+        quantityTail: String(loseTail[2] || '').trim(),
+        rawClause,
+        withMeta,
       });
     }
 
@@ -310,26 +417,6 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const loseEqual = clause.match(/^(.*?)(?:loses?\s+life\s+equal\s+to)\s+(.+)$/i);
-    if (loseEqual) {
-      const whoRaw = String(loseEqual[1] || '').trim().replace(/^you\s+may\s+have\s+/i, '').replace(/^have\s+/i, '').replace(/\s+$/, '');
-          return withMeta({
-        kind: 'lose_life',
-        who: parsePlayerSelector(whoRaw || 'you'),
-        amount: parseLifeChangeAmount(loseEqual[2]),
-        raw: rawClause,
-      });
-    }
-
-    const loseEqualDefault = clause.match(/^lose\s+life\s+equal\s+to\s+(.+)$/i);
-    if (loseEqualDefault) {
-          return withMeta({
-        kind: 'lose_life',
-        who: { kind: 'you' },
-        amount: parseLifeChangeAmount(loseEqualDefault[1]),
-        raw: rawClause,
-      });
-    }
   }
 
   {
@@ -388,6 +475,19 @@ export function tryParseLifeAndCombatClause(args: {
       } as OracleEffectStep);
     }
 
+    const doubleThatReplacement = damageClause.match(
+      /^damage to an opponent this turn, it deals double that damage to (.+)$/i
+    );
+    if (doubleThatReplacement) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: { kind: 'reference_amount', raw: 'double that' },
+        source: { kind: 'raw', text: 'it' },
+        target: parseObjectSelector(String(doubleThatReplacement[1] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
     if (/^each deals damage equal to its power to the other$/i.test(damageClause)) {
       return withMeta({
         kind: 'deal_damage',
@@ -409,17 +509,71 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
+    const sourceDealsDynamicDamage = damageClause.match(
+      /^(.+?)\s+deals?\s+(.+?)\s+damage\s+to\s+([^,]+)(?:,\s*where\s+x\s+is\s+(.+))?$/i
+    );
+    if (sourceDealsDynamicDamage) {
+      const quantityTail = sourceDealsDynamicDamage[4]
+        ? `${String(sourceDealsDynamicDamage[2] || '').trim()}, where x is ${String(sourceDealsDynamicDamage[4] || '').trim()}`
+        : String(sourceDealsDynamicDamage[2] || '').trim();
+      return buildDamageStepFromClauseParts({
+        source: parseObjectSelector(String(sourceDealsDynamicDamage[1] || '').trim()),
+        quantityTail,
+        target: parseObjectSelector(String(sourceDealsDynamicDamage[3] || '').trim()),
+        rawClause,
+        withMeta,
+      });
+    }
+
+    const dealDamageEqualDynamic = damageClause.match(/^deal\s+damage\s+equal\s+to\s+(.+?)\s+to\s+(.+)$/i);
+    if (dealDamageEqualDynamic && /,\s*where\s+x\s+is\s+/i.test(damageClause)) {
+      return buildDamageStepFromClauseParts({
+        quantityTail: String(dealDamageEqualDynamic[1] || '').trim(),
+        target: parseObjectSelector(String(dealDamageEqualDynamic[2] || '').trim()),
+        rawClause,
+        withMeta,
+      });
+    }
+
     const equalDividedDamage = damageClause.match(
       /^(.+?)\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+divided(?:\s+(evenly, rounded down),?\s+among|\s+as you choose among)\s+(.+)$/i
     );
     if (equalDividedDamage) {
+      const whereSuffix = damageClause.match(/,\s*where\s+x\s+is\s+(.+)$/i);
+      if (whereSuffix) {
+        const evenlyRounded = /\bevenly,?\s+rounded\s+down\b/i.test(damageClause);
+        return buildDamageStepFromClauseParts({
+          source: parseObjectSelector(String(equalDividedDamage[1] || '').trim()),
+          quantityTail: `${String(equalDividedDamage[2] || '').trim()}, where x is ${String(whereSuffix[1] || '').trim()}`,
+          target: parseObjectSelector(String(equalDividedDamage[3] || '').trim()),
+          division: evenlyRounded ? 'evenly_rounded_down' : 'as_you_choose',
+          rawClause,
+          withMeta,
+        });
+      }
       return withMeta({
         kind: 'deal_damage',
         amount: parseDamageAmount(equalDividedDamage[2]),
         source: parseObjectSelector(equalDividedDamage[1]),
-        target: parseObjectSelector(equalDividedDamage[4]),
-        division: equalDividedDamage[3] ? 'evenly_rounded_down' : 'as_you_choose',
+        target: parseObjectSelector(equalDividedDamage[3]),
+        division: /\bevenly,?\s+rounded\s+down\b/i.test(damageClause) ? 'evenly_rounded_down' : 'as_you_choose',
         raw: rawClause,
+      });
+    }
+
+    const dividedDamageWhere = damageClause.match(
+      /^(?:(.+?)\s+)?deals?\s+(.+?)\s+damage\s+divided(?:\s+(evenly, rounded down))?(?:\s+as you choose)?\s+among\s+(.+?),\s*where\s+x\s+is\s+(.+)$/i
+    );
+    if (dividedDamageWhere) {
+      const sourceText = String(dividedDamageWhere[1] || '').trim();
+      const evenlyRounded = Boolean(String(dividedDamageWhere[3] || '').trim());
+      return buildDamageStepFromClauseParts({
+        ...(sourceText ? { source: parseObjectSelector(sourceText) } : {}),
+        quantityTail: `${String(dividedDamageWhere[2] || '').trim()}, where x is ${String(dividedDamageWhere[5] || '').trim()}`,
+        target: parseObjectSelector(String(dividedDamageWhere[4] || '').trim()),
+        division: evenlyRounded ? 'evenly_rounded_down' : 'as_you_choose',
+        rawClause,
+        withMeta,
       });
     }
 
@@ -759,6 +913,34 @@ export function tryParseLifeAndCombatClause(args: {
         duration: 'static',
         raw: rawClause,
       });
+    }
+
+    const sourcePreventMillEachOpponent = clause.match(
+      /^if\s+a\s+source\s+you\s+control\s+would\s+deal\s+damage\s+to\s+an\s+opponent,\s+prevent\s+that\s+damage\s+and\s+each\s+opponent\s+mills\s+that\s+many\s+cards\.?$/i
+    );
+    if (sourcePreventMillEachOpponent) {
+      return withMeta({
+        kind: 'conditional',
+        condition: {
+          kind: 'if',
+          raw: 'a source you control would deal damage to an opponent',
+        },
+        steps: [
+          {
+            kind: 'prevent_damage',
+            amount: { kind: 'reference_amount', raw: 'that much' },
+            duration: 'this_turn',
+            raw: 'prevent that damage',
+          },
+          buildMillStepFromClauseParts({
+            who: { kind: 'each_opponent' },
+            quantityTail: 'that many cards',
+            rawClause: 'each opponent mills that many cards',
+            withMeta,
+          }),
+        ],
+        raw: rawClause,
+      } as OracleEffectStep);
     }
   }
 

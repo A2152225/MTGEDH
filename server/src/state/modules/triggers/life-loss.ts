@@ -24,7 +24,43 @@ export function detectLifeLossTriggers(card: any, permanent: any): LifeLossTrigg
   const controllerId = String(permanent?.controller || '');
   const cardName = String(card?.name || 'Unknown');
 
-  const matches = oracleText.matchAll(/whenever (an opponent|a player|you) lose(?:s)? life,\s*([^.]+)/gi);
+  const gainOrLoseLifeMatch = oracleText.match(
+    /whenever you gain or lose life(?: during your turn)?,?\s*([^.]+)/i,
+  );
+  if (gainOrLoseLifeMatch) {
+    const effect = String(gainOrLoseLifeMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'you_lose_life',
+        oracleClause: String(gainOrLoseLifeMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+      });
+    }
+  }
+
+  const opponentsLoseLifeMatch = oracleText.match(
+    /whenever one or more opponents lose life,?\s*([^.]+)/i,
+  );
+  if (opponentsLoseLifeMatch) {
+    const effect = String(opponentsLoseLifeMatch[1] || '').trim();
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'opponent_loses_life',
+        oracleClause: String(opponentsLoseLifeMatch[0] || '').trim(),
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+      });
+    }
+  }
+
+  const matches = oracleText.matchAll(/whenever (an opponent|a player|you) lose(?:s)? life(?:[^,]*?),?\s*([^.]+)/gi);
   for (const match of matches) {
     const subject = String(match[1] || '').trim().toLowerCase();
     const effect = String(match[2] || '').trim();

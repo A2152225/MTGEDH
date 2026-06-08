@@ -325,6 +325,194 @@ export interface DrawResult {
   reason?: string;
 }
 
+function getOpponentsForPlayer(state: any, playerId: string): string[] {
+  const players = Array.isArray(state?.players) ? state.players : [];
+  return players
+    .map((player: any) => String(player?.id || '').trim())
+    .filter((id: string) => id.length > 0 && id !== String(playerId || '').trim());
+}
+
+function queueZursWeirdingOpponentStep(
+  ctx: GameContext,
+  playerId: string,
+  revealedCard: any,
+  remainingDrawCountAfterChoice: number,
+  opponentIndex: number,
+): boolean {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return false;
+
+  const pending = (ctx.state as any).zursWeirdingPendingDraw;
+  const opponents = Array.isArray(pending?.opponents) ? pending.opponents : getOpponentsForPlayer(ctx.state, playerId);
+  const decidingOpponentId = String(opponents[opponentIndex] || '').trim();
+  if (!decidingOpponentId) {
+    return false;
+  }
+
+  const cardName = String(revealedCard?.name || 'the top card of the library').trim() || 'the top card of the library';
+  ResolutionQueueManager.addStep(gameId, {
+    id: uid('zurs_weirding'),
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: decidingOpponentId as PlayerID,
+    sourceId: String(pending?.sourceName || "Zur's Weirding"),
+    sourceName: String(pending?.sourceName || "Zur's Weirding"),
+    description: `Zur's Weirding: ${getPlayerNameFromState(ctx.state, playerId)} would draw ${cardName}. You may pay 2 life to put it into their graveyard.`,
+    mandatory: false,
+    minSelections: 0,
+    maxSelections: 1,
+    zursWeirdingOpponentChoice: true,
+    drawingPlayerId: playerId,
+    decidingOpponentId,
+    opponentIndex,
+    revealedCard: {
+      id: String(revealedCard?.id || '').trim(),
+      name: cardName,
+    },
+    remainingDrawCountAfterChoice,
+    opponents,
+    options: [
+      { id: 'pay_2_life', label: 'Pay 2 life (put card in graveyard)' },
+      { id: 'decline', label: 'Decline' },
+    ],
+  } as any);
+  return true;
+}
+
+function getPlayerNameFromState(state: any, playerId: string): string {
+  const players = Array.isArray(state?.players) ? state.players : [];
+  const player = players.find((entry: any) => String(entry?.id || '') === String(playerId || ''));
+  return String(player?.name || playerId || 'Player');
+}
+
+function queueZursWeirdingDrawReplacementStep(
+  ctx: GameContext,
+  playerId: string,
+  metadata: any,
+  remainingDrawCountAfterChoice: number,
+): boolean {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return false;
+
+  const library = ctx.libraries.get(playerId as PlayerID) || [];
+  if (library.length === 0) return false;
+
+  const topCard = library[0];
+  const opponents = getOpponentsForPlayer(ctx.state, playerId);
+  (ctx.state as any).zursWeirdingPendingDraw = {
+    drawingPlayerId: playerId,
+    sourceName: String(metadata?.sourceName || "Zur's Weirding"),
+    revealedCard: {
+      id: String(topCard?.id || '').trim(),
+      name: String(topCard?.name || 'Card').trim() || 'Card',
+    },
+    remainingDrawCountAfterChoice,
+    opponents,
+    nextOpponentIndex: 0,
+  };
+
+  if (opponents.length === 0) {
+    return false;
+  }
+
+  return queueZursWeirdingOpponentStep(ctx, playerId, topCard, remainingDrawCountAfterChoice, 0);
+}
+
+export interface ZursWeirdingDrawReplacementResult {
+  applied: boolean;
+  reason?: string;
+  revealedCard?: any;
+  drawnCards?: any[];
+  milledCard?: any;
+}
+
+export function applyZursWeirdingOpponentChoice(ctx: GameContext, event: {
+  drawingPlayerId: string;
+  decidingOpponentId: string;
+  opponentIndex: number;
+  choiceId?: string;
+  remainingDrawCountAfterChoice?: number;
+  opponents?: string[];
+}): ZursWeirdingDrawReplacementResult {
+  const drawingPlayerId = String(event?.drawingPlayerId || '').trim() as PlayerID;
+  const decidingOpponentId = String(event?.decidingOpponentId || '').trim();
+  const choiceId = String(event?.choiceId || '').trim().toLowerCase();
+  const remainingDrawCountAfterChoice = Math.max(0, Math.floor(Number(event?.remainingDrawCountAfterChoice || 0)));
+  const opponents = Array.isArray(event?.opponents) ? event.opponents.map((id) => String(id || '').trim()).filter(Boolean) : getOpponentsForPlayer(ctx.state, drawingPlayerId);
+  const opponentIndex = Math.max(0, Math.floor(Number(event?.opponentIndex || 0)));
+
+  if (!drawingPlayerId) return { applied: false, reason: 'missing_drawing_player' };
+
+  const library = ctx.libraries.get(drawingPlayerId) || [];
+  if (library.length === 0) return { applied: false, reason: 'empty_library' };
+
+  const pending = (ctx.state as any).zursWeirdingPendingDraw;
+  const revealedCard = pending?.revealedCard || library[0];
+
+  if (choiceId === 'pay_2_life' || choiceId === 'pay') {
+    const currentLife = Number((ctx.state as any)?.life?.[decidingOpponentId] ?? (ctx.state as any)?.startingLife ?? 40);
+    if (currentLife < 2) return { applied: false, reason: 'insufficient_life' };
+
+    (ctx.state as any).life = (ctx.state as any).life || {};
+    (ctx.state as any).life[decidingOpponentId] = currentLife - 2;
+    const players = Array.isArray((ctx.state as any)?.players) ? (ctx.state as any).players : [];
+    const player = players.find((entry: any) => String(entry?.id || '') === decidingOpponentId);
+    if (player) (player as any).life = currentLife - 2;
+    (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+    (ctx.state as any).lifeLostThisTurn[decidingOpponentId] =
+      Number((ctx.state as any).lifeLostThisTurn[decidingOpponentId] || 0) + 2;
+
+    const [milledCard] = library.splice(0, 1);
+    const zones = ctx.state.zones = ctx.state.zones || {};
+    const z = zones[drawingPlayerId] || (zones[drawingPlayerId] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any);
+    z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+    const graveyardCard = { ...milledCard, zone: 'graveyard' };
+    (z.graveyard as any[]).push(graveyardCard);
+    z.graveyardCount = (z.graveyard as any[]).length;
+    z.libraryCount = library.length;
+    ctx.libraries.set(drawingPlayerId, library);
+    delete (ctx.state as any).zursWeirdingPendingDraw;
+
+    recordCardPutIntoGraveyardThisTurn(ctx as any, drawingPlayerId, graveyardCard, { fromBattlefield: false });
+    ctx.bumpSeq();
+
+    if (remainingDrawCountAfterChoice > 0) {
+      drawCards(ctx, drawingPlayerId, remainingDrawCountAfterChoice);
+    }
+
+    return { applied: true, revealedCard, milledCard: graveyardCard };
+  }
+
+  const nextOpponentIndex = opponentIndex + 1;
+  if (nextOpponentIndex < opponents.length) {
+    (ctx.state as any).zursWeirdingPendingDraw = {
+      ...(pending || {}),
+      nextOpponentIndex,
+    };
+    const gameId = String((ctx as any).gameId || '').trim();
+    if (gameId && gameId !== 'unknown' && !(ctx as any).isReplaying) {
+      queueZursWeirdingOpponentStep(ctx, drawingPlayerId, library[0], remainingDrawCountAfterChoice, nextOpponentIndex);
+    }
+    return { applied: true, revealedCard, reason: 'queued_next_opponent' };
+  }
+
+  const previousSuppress = (ctx as any)._suppressZursWeirdingReplacement === true;
+  (ctx as any)._suppressZursWeirdingReplacement = true;
+  try {
+    const drawnCards = drawCards(ctx, drawingPlayerId, 1);
+    delete (ctx.state as any).zursWeirdingPendingDraw;
+    if (remainingDrawCountAfterChoice > 0) {
+      drawCards(ctx, drawingPlayerId, remainingDrawCountAfterChoice);
+    }
+    return { applied: true, revealedCard, drawnCards };
+  } finally {
+    if (previousSuppress) {
+      (ctx as any)._suppressZursWeirdingReplacement = true;
+    } else {
+      delete (ctx as any)._suppressZursWeirdingReplacement;
+    }
+  }
+}
+
 function queueDredgeDrawReplacementStep(
   ctx: GameContext,
   playerId: string,
@@ -548,8 +736,24 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
         metadata: {
           isFirstDrawStepDraw: currentStep.includes('draw') && drawNumber === 1,
           skipDredgeReplacement: (ctx as any)._suppressDredgeReplacement === true,
+          skipZursWeirdingReplacement: (ctx as any)._suppressZursWeirdingReplacement === true,
+          remainingDrawCountAfterChoice: Math.max(0, normalizedCount - i - 1),
         },
       });
+
+      if (replacement.choiceRequired && replacement.effectId === 'zurs-weirding-draw-replacement') {
+        drawReplacementChoices.push(replacement.metadata);
+        const queued = queueZursWeirdingDrawReplacementStep(
+          ctx,
+          originalPlayerId,
+          replacement.metadata,
+          Math.max(0, normalizedCount - i - 1),
+        );
+        const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();
+        if (queued || ((ctx as any).isReplaying && replayNextEventType === 'zursWeirdingDrawReplacementResolve')) {
+          break;
+        }
+      }
 
       if (replacement.choiceRequired && replacement.effectId === 'dredge-draw-replacement-choice') {
         drawReplacementChoices.push(replacement.metadata);

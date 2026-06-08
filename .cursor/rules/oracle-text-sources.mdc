@@ -1,0 +1,39 @@
+---
+description: Oracle text lookup order — local data before Scryfall, before training knowledge
+alwaysApply: true
+---
+
+# Oracle text and card data
+
+When implementing or verifying card behavior, **do not rely on memorized oracle text**. Recent sets (e.g. Bloomburg template refresh, Lorwyn **Tribal → Kindred**) changed many cards at once; training data is often stale.
+
+## Lookup order (use first match)
+
+1. **`oracle-cards.json`** (repo root) — canonical oracle index; each entry has `oracle_text`, `name`, `type_line`, etc.
+2. **Local card database** — `server/data/card-lookup.sqlite`, built from `oracle-cards.json` (+ `AtomicCards.json` when present). Query via `server/src/services/localCardLookup.ts` (same data the server uses for deck import **before** Scryfall).
+3. **Scryfall API** — only if the card is missing or you need fields not in local data (rulings, printings, images). See `server/src/services/scryfall.ts`.
+4. **Training knowledge** — last resort; flag uncertainty and prefer verifying against (1)–(3).
+
+## Quick checks
+
+```bash
+# By name in oracle-cards.json (large file — use jq/rg, not full read)
+rg -i '"name": "Lightning Bolt"' oracle-cards.json
+
+# Or grep oracle_text for a phrase
+rg -i 'convoke' oracle-cards.json | head
+```
+
+For type-line changes: prefer `type_line` from local sources; **Kindred** supersedes **Tribal** on newer oracle snapshots.
+
+## Related paths
+
+| Purpose | Location |
+|---------|----------|
+| Oracle index | `oracle-cards.json` |
+| Local DB | `server/data/card-lookup.sqlite` |
+| Lookup service | `server/src/services/localCardLookup.ts` |
+| Deck import order | Local lookup → Scryfall fallback |
+| GitHub agent note | `.github/agents/CardResearcher.agent.md` |
+
+When adding parsers, triggers, or static effects from card text, **quote oracle from (1) or (2)** in comments or tests when non-obvious.

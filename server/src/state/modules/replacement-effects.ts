@@ -895,11 +895,49 @@ const counterPlacementReplacementEvaluator: ReplacementEffectEvaluator = (event)
   };
 };
 
+function hasZursWeirdingOnBattlefield(battlefield: any[]): { active: boolean; sourceName?: string } {
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    const cardName = normalizeReplacementText(permanent.card.name || '');
+    const oracle = getCardOracleText(permanent.card);
+    if (
+      cardName.includes("zur's weirding") ||
+      (oracle.includes('if a player would draw a card') && oracle.includes('reveal it instead'))
+    ) {
+      return { active: true, sourceName: getCardName(permanent.card) || "Zur's Weirding" };
+    }
+  }
+  return { active: false };
+}
+
 const cardDrawReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
   if (event.type !== 'card-draw') return null;
 
   const originalAmount = Math.max(0, Math.floor(Number(event.count || 0)));
   if (originalAmount <= 0) return null;
+
+  const skipZursWeirdingReplacement = event.metadata?.skipZursWeirdingReplacement === true;
+  if (!skipZursWeirdingReplacement) {
+    const battlefield = getEventStateBattlefield(event);
+    const weirding = hasZursWeirdingOnBattlefield(battlefield);
+    if (weirding.active) {
+      return {
+        applied: false,
+        choiceRequired: true,
+        eventType: event.type,
+        effectId: 'zurs-weirding-draw-replacement',
+        originalAmount,
+        replacementAmount: 0,
+        reason: 'zurs_weirding_draw_replacement',
+        sourceName: weirding.sourceName,
+        metadata: {
+          playerId: String(event.playerId || ''),
+          drawIndex: Number(event.drawIndex || 0) || undefined,
+          remainingDrawCountAfterChoice: Math.max(0, Math.floor(Number(event.metadata?.remainingDrawCountAfterChoice || 0))),
+        },
+      };
+    }
+  }
 
   const skipDredgeReplacement = event.metadata?.skipDredgeReplacement === true;
   const dredgeOptions = skipDredgeReplacement ? [] : getDredgeOptions(event);

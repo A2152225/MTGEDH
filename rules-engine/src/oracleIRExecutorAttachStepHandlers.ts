@@ -1,7 +1,15 @@
-import type { GameState } from '../../shared/src';
+import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
-import { attachExistingBattlefieldPermanentToTarget } from './oracleIRExecutorZoneOps';
+import { splitAttachClauseBody } from './oracleIRParserUtils';
+import { parseSimpleBattlefieldSelector } from './oracleIRExecutorBattlefieldParser';
+import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
+import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
+import {
+  attachExistingBattlefieldPermanentToTarget,
+  moveTargetedCardFromGraveyard,
+  moveTargetedCardFromHand,
+} from './oracleIRExecutorZoneOps';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -21,35 +29,340 @@ type StepSkipResult = {
 
 export type AttachStepHandlerResult = StepApplyResult | StepSkipResult;
 
-function resolveAttachmentSourceId(
-  step: Extract<OracleEffectStep, { kind: 'attach' }>,
-  ctx: OracleIRExecutionContext
-): string {
-  if ((step.attachment as any)?.kind !== 'raw') return '';
-  const raw = String((step.attachment as any)?.text || '').trim().toLowerCase();
-  if (!/^(?:it|this enchantment|this equipment|this permanent)$/.test(raw)) return '';
-  return String(ctx.sourceId || '').trim();
+type ParsedAttachClause = {
+  readonly attachmentText: string;
+  readonly targetText: string;
+};
+
+function getControllerId(ctx: OracleIRExecutionContext): PlayerID {
+  return (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
 }
 
-function resolveAttachmentTargetId(
-  step: Extract<OracleEffectStep, { kind: 'attach' }>,
-  ctx: OracleIRExecutionContext,
-  lastMovedBattlefieldPermanentIds: readonly string[]
-): string | 'player_choice_required' {
-  if ((step.to as any)?.kind !== 'raw') return '';
-  const raw = String((step.to as any)?.text || '').trim().toLowerCase();
+function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
+  return Array.isArray(ctx.selectorContext?.chosenObjectIds)
+    ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+    : [];
+}
 
-  if (/^(?:it|that creature)$/.test(raw)) {
-    const ids = lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean);
-    if (ids.length === 1) return ids[0];
-    if (ids.length > 1) return 'player_choice_required';
-    return '';
+function normalizeAttachText(value: string): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseAttachClauseFromStep(step: Extract<OracleEffectStep, { kind: 'attach' }>): ParsedAttachClause | null {
+  const attachmentText = String((step.attachment as any)?.text || '').trim();
+  const targetText = String((step.to as any)?.text || '').trim();
+  if (attachmentText && targetText && !/^(?:up|one)$/i.test(attachmentText)) {
+    return { attachmentText, targetText };
   }
 
-  if (raw === 'target creature' || raw === 'target creature you control') {
+  const raw = String(step.raw || '').trim();
+  const body = raw.replace(/^you\s+may\s+/i, '').replace(/^attach\s+/i, '').trim();
+  const split = splitAttachClauseBody(body);
+  if (!split) return null;
+
+  return {
+    attachmentText: split.attachmentRaw,
+    targetText: split.toRaw,
+  };
+}
+
+function resolveBattlefieldPermanentBySelector(
+  state: GameState,
+  selectorText: string,
+  ctx: OracleIRExecutionContext,
+  lastMovedBattlefieldPermanentIds: readonly string[]
+): string | 'player_choice_required' | '' {
+  const normalized = normalizeAttachText(selectorText);
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const controllerId = getControllerId(ctx);
+  const chosenObjectIds = getChosenObjectIds(ctx);
+
+  if (normalized === 'it' || normalized === 'that creature' || normalized === 'that permanent') {
+    const movedIds = lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean);
+    if (movedIds.length === 1) return movedIds[0];
+    if (movedIds.length > 1) return 'player_choice_required';
+    const contextualTargetId = String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
+    return contextualTargetId || '';
+  }
+
+  if (normalized === 'this creature' || normalized === 'this permanent') {
+    return String(ctx.sourceId || '').trim();
+  }
+
+  if (normalized === 'target creature' || normalized === 'target creature you control') {
     return String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
   }
 
+  if (normalized === 'her') {
+    return String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
+  }
+
+  if (/^target non-human creature you control$/.test(normalized)) {
+    const matches = battlefield.filter(
+      perm =>
+        (perm as any)?.controller === controllerId &&
+        hasExecutorClass(perm as any, 'creature') &&
+        !/\bhuman\b/i.test(String((perm as any)?.type_line || (perm as any)?.card?.type_line || ''))
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
+    if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
+    if (matches.length > 1) return 'player_choice_required';
+    return '';
+  }
+
+  const targetSubtypeYouControl = normalized.match(/^target ([a-z][a-z -]+) you control$/);
+  if (targetSubtypeYouControl) {
+    const subtype = String(targetSubtypeYouControl[1] || '').trim().toLowerCase();
+    const matches = battlefield.filter(
+      perm =>
+        (perm as any)?.controller === controllerId &&
+        hasExecutorClass(perm as any, 'creature') &&
+        String((perm as any)?.type_line || (perm as any)?.card?.type_line || '')
+          .toLowerCase()
+          .includes(subtype)
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
+    if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
+    if (matches.length > 1) return 'player_choice_required';
+    return '';
+  }
+
+  if (/^target legendary creature you control$/.test(normalized)) {
+    const matches = battlefield.filter(
+      perm =>
+        (perm as any)?.controller === controllerId &&
+        hasExecutorClass(perm as any, 'creature') &&
+        String((perm as any)?.type_line || (perm as any)?.card?.type_line || '')
+          .toLowerCase()
+          .includes('legendary')
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
+    if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
+    if (matches.length > 1) return 'player_choice_required';
+    return '';
+  }
+
+  if (/^target knight you control$/.test(normalized)) {
+    const matches = battlefield.filter(
+      perm =>
+        (perm as any)?.controller === controllerId &&
+        hasExecutorClass(perm as any, 'creature') &&
+        String((perm as any)?.type_line || (perm as any)?.card?.type_line || '')
+          .toLowerCase()
+          .includes('knight')
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
+    if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
+    if (matches.length > 1) return 'player_choice_required';
+    return '';
+  }
+
+  if (/^target land you control$/.test(normalized) || /^target land$/.test(normalized)) {
+    const matches = battlefield.filter(
+      perm => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'land')
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
+    if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
+    if (matches.length > 1) return 'player_choice_required';
+    return '';
+  }
+
+  if (/^up to one target creature you control$/.test(normalized)) {
+    const matches = battlefield.filter(
+      perm => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'creature')
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
+    if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
+    if (matches.length > 1) return 'player_choice_required';
+    return '';
+  }
+
+  const selector = parseSimpleBattlefieldSelector({ kind: 'raw', text: selectorText } as any);
+  if (selector) {
+    const matches = battlefield.filter(perm => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (selector.controllerFilter === 'you' && (perm as any)?.controller !== controllerId) return false;
+      if (selector.excludeSourceId && permanentId === String(ctx.sourceId || '').trim()) return false;
+      if (selector.types.includes('creature') && !hasExecutorClass(perm as any, 'creature')) return false;
+      if (selector.types.includes('land') && !hasExecutorClass(perm as any, 'land')) return false;
+      if (selector.types.includes('permanent') || selector.types.length === 0) return true;
+      return selector.types.some(type => hasExecutorClass(perm as any, type));
+    });
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
+    if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
+    if (matches.length > 1) return 'player_choice_required';
+  }
+
+  return '';
+}
+
+type CombinedAuraAttachmentRef =
+  | { readonly kind: 'battlefield'; readonly id: string }
+  | { readonly kind: 'hand'; readonly cardId: string }
+  | { readonly kind: 'graveyard'; readonly cardId: string };
+
+function resolveBrunaCombinedAuraAttachments(
+  state: GameState,
+  attachmentText: string,
+  ctx: OracleIRExecutionContext
+): CombinedAuraAttachmentRef[] | 'player_choice_required' | '' {
+  const normalized = normalizeAttachText(attachmentText);
+  if (!/^any number of auras on the battlefield and aura cards from your graveyard and\/or hand$/.test(normalized)) {
+    return '';
+  }
+
+  const controllerId = getControllerId(ctx);
+  const chosenObjectIds = getChosenObjectIds(ctx);
+  const refs: CombinedAuraAttachmentRef[] = [];
+
+  const battlefieldAuras = ((state.battlefield || []) as BattlefieldPermanent[])
+    .filter(perm => hasExecutorClass(perm as any, 'aura'))
+    .map(perm => String((perm as any)?.id || '').trim())
+    .filter(Boolean);
+  const preferredBattlefieldAuras =
+    chosenObjectIds.length > 0
+      ? battlefieldAuras.filter(id => chosenObjectIds.includes(id))
+      : battlefieldAuras;
+  for (const id of preferredBattlefieldAuras.length > 0 ? preferredBattlefieldAuras : battlefieldAuras) {
+    refs.push({ kind: 'battlefield', id });
+  }
+
+  const player = state.players.find(p => p.id === controllerId) as any;
+  for (const zone of ['hand', 'graveyard'] as const) {
+    const cards = Array.isArray(player?.[zone]) ? player[zone] : [];
+    const auraCardIds = cards
+      .filter((card: any) => hasExecutorClass(card as any, 'aura'))
+      .map((card: any) => String(card?.id || '').trim())
+      .filter(Boolean);
+    const preferred =
+      chosenObjectIds.length > 0 ? auraCardIds.filter(id => chosenObjectIds.includes(id)) : auraCardIds;
+    for (const cardId of preferred.length > 0 ? preferred : auraCardIds) {
+      refs.push({ kind: zone, cardId });
+    }
+  }
+
+  return refs.length > 0 ? refs : '';
+}
+
+function resolveAttachmentPermanentIds(
+  state: GameState,
+  attachmentText: string,
+  ctx: OracleIRExecutionContext,
+  lastMovedBattlefieldPermanentIds: readonly string[]
+): string[] | 'player_choice_required' | '' {
+  const normalized = normalizeAttachText(attachmentText);
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const controllerId = getControllerId(ctx);
+  const chosenObjectIds = getChosenObjectIds(ctx);
+  const sourceId = String(ctx.sourceId || '').trim();
+
+  if (
+    /^(?:it|this (?:aura|enchantment|equipment|permanent))$/.test(normalized) &&
+    sourceId
+  ) {
+    return [sourceId];
+  }
+
+  if (/^any number of auras on the battlefield and aura cards from your graveyard and\/or hand$/.test(normalized)) {
+    const auraIds = battlefield
+      .filter(perm => hasExecutorClass(perm as any, 'aura'))
+      .map(perm => String((perm as any)?.id || '').trim())
+      .filter(Boolean);
+    return auraIds.length > 0 ? auraIds : '';
+  }
+
+  if (/^all equipment attached to that creature$/.test(normalized)) {
+    const creatureId = resolveBattlefieldPermanentBySelector(state, 'that creature', ctx, lastMovedBattlefieldPermanentIds);
+    if (!creatureId || creatureId === 'player_choice_required') return creatureId || '';
+    const creature = battlefield.find(perm => String((perm as any)?.id || '').trim() === creatureId) as any;
+    const equipmentIds = Array.isArray(creature?.attachedEquipment)
+      ? creature.attachedEquipment.map((id: any) => String(id || '').trim()).filter(Boolean)
+      : [];
+    return equipmentIds.length > 0 ? equipmentIds : '';
+  }
+
+  const equipmentMvMatch = normalized.match(
+    /^(?:target equipment(?: you control)?)(?: with mana value (\d+)(?: or (\d+))?)?$/
+  );
+  if (equipmentMvMatch) {
+    const allowedMv = [
+      Number.parseInt(String(equipmentMvMatch[1] || ''), 10),
+      equipmentMvMatch[2] ? Number.parseInt(String(equipmentMvMatch[2] || ''), 10) : NaN,
+    ].filter(value => Number.isFinite(value)) as number[];
+    const matches = battlefield.filter(perm => {
+      if ((perm as any)?.controller !== controllerId || !hasExecutorClass(perm as any, 'equipment')) return false;
+      if (allowedMv.length === 0) return true;
+      const manaValue = getCardManaValue((perm as any)?.card || perm);
+      return manaValue !== null && allowedMv.includes(manaValue);
+    });
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return [String((preferred[0] as any)?.id || '').trim()];
+    if (matches.length === 1) return [String((matches[0] as any)?.id || '').trim()];
+    if (matches.length > 1) return 'player_choice_required';
+    return '';
+  }
+
+  if (/^any number of auras and equipment you control$/.test(normalized)) {
+    const auraAndEquipment = battlefield.filter(
+      perm =>
+        (perm as any)?.controller === controllerId &&
+        (hasExecutorClass(perm as any, 'aura') || hasExecutorClass(perm as any, 'equipment'))
+    );
+    const preferred = auraAndEquipment.filter(perm =>
+      chosenObjectIds.includes(String((perm as any)?.id || '').trim())
+    );
+    const ids = (preferred.length > 0 ? preferred : auraAndEquipment)
+      .map(perm => String((perm as any)?.id || '').trim())
+      .filter(Boolean);
+    return ids.length > 0 ? ids : '';
+  }
+
+  if (/^any number of equipment you control$/.test(normalized)) {
+    const matches = battlefield.filter(
+      perm => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'equipment')
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    const ids = (preferred.length > 0 ? preferred : matches)
+      .map(perm => String((perm as any)?.id || '').trim())
+      .filter(Boolean);
+    return ids.length > 0 ? ids : '';
+  }
+
+  if (/^(?:any number of |all )?target equipment(?: you control)?$/.test(normalized) || /^target equipment you control$/.test(normalized)) {
+    const matches = battlefield.filter(
+      perm => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'equipment')
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length > 0) return preferred.map(perm => String((perm as any)?.id || '').trim()).filter(Boolean);
+    if (matches.length > 0) return matches.map(perm => String((perm as any)?.id || '').trim()).filter(Boolean);
+    return '';
+  }
+
+  if (/^up to one target equipment(?: you control)?$/.test(normalized)) {
+    const matches = battlefield.filter(
+      perm => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'equipment')
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length === 1) return [String((preferred[0] as any)?.id || '').trim()];
+    if (matches.length === 1) return [String((matches[0] as any)?.id || '').trim()];
+    if (matches.length > 1) return 'player_choice_required';
+    return '';
+  }
+
+  const resolved = resolveBattlefieldPermanentBySelector(state, attachmentText, ctx, lastMovedBattlefieldPermanentIds);
+  if (resolved === 'player_choice_required') return 'player_choice_required';
+  if (resolved) return [resolved];
   return '';
 }
 
@@ -59,17 +372,17 @@ export function applyAttachStep(
   ctx: OracleIRExecutionContext,
   lastMovedBattlefieldPermanentIds: readonly string[]
 ): AttachStepHandlerResult {
-  const attachmentId = resolveAttachmentSourceId(step, ctx);
-  if (!attachmentId) {
+  const parsed = parseAttachClauseFromStep(step);
+  if (!parsed) {
     return {
       applied: false,
-      message: `Skipped attach (unsupported attachment selector): ${step.raw}`,
+      message: `Skipped attach (unsupported attachment clause): ${step.raw}`,
       reason: 'unsupported_selector',
     };
   }
 
-  const targetId = resolveAttachmentTargetId(step, ctx, lastMovedBattlefieldPermanentIds);
-  if (targetId === 'player_choice_required') {
+  const brunaAuraAttachments = resolveBrunaCombinedAuraAttachments(state, parsed.attachmentText, ctx);
+  if (brunaAuraAttachments === 'player_choice_required') {
     return {
       applied: false,
       message: `Skipped attach (needs player attachment choice): ${step.raw}`,
@@ -78,6 +391,39 @@ export function applyAttachStep(
     };
   }
 
+  const attachmentIds = brunaAuraAttachments
+    ? []
+    : resolveAttachmentPermanentIds(state, parsed.attachmentText, ctx, lastMovedBattlefieldPermanentIds);
+  if (attachmentIds === 'player_choice_required') {
+    return {
+      applied: false,
+      message: `Skipped attach (needs player attachment choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+  if ((!brunaAuraAttachments || brunaAuraAttachments.length === 0) && (!attachmentIds || attachmentIds.length === 0)) {
+    return {
+      applied: false,
+      message: `Skipped attach (unsupported attachment selector): ${step.raw}`,
+      reason: 'unsupported_selector',
+    };
+  }
+
+  const targetId = resolveBattlefieldPermanentBySelector(
+    state,
+    parsed.targetText,
+    ctx,
+    lastMovedBattlefieldPermanentIds
+  );
+  if (targetId === 'player_choice_required') {
+    return {
+      applied: false,
+      message: `Skipped attach (needs player attachment target choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
   if (!targetId) {
     return {
       applied: false,
@@ -86,19 +432,69 @@ export function applyAttachStep(
     };
   }
 
-  const result = attachExistingBattlefieldPermanentToTarget(state, attachmentId, targetId);
-  if (result.kind === 'impossible') {
-    return {
-      applied: false,
-      message: `Skipped attach (attachment target unavailable): ${step.raw}`,
-      reason: 'impossible_action',
-      options: { persist: false },
-    };
+  let workingState = state;
+  const combinedLog: string[] = [];
+  const controllerId = getControllerId(ctx);
+
+  if (brunaAuraAttachments && brunaAuraAttachments.length > 0) {
+    for (const ref of brunaAuraAttachments) {
+      if (ref.kind === 'battlefield') {
+        const result = attachExistingBattlefieldPermanentToTarget(workingState, ref.id, targetId);
+        if (result.kind === 'impossible') continue;
+        workingState = result.state;
+        combinedLog.push(...result.log);
+        continue;
+      }
+
+      const result =
+        ref.kind === 'hand'
+          ? moveTargetedCardFromHand(
+              workingState,
+              controllerId,
+              ref.cardId,
+              'aura',
+              'battlefield',
+              controllerId,
+              undefined,
+              undefined,
+              undefined,
+              targetId
+            )
+          : moveTargetedCardFromGraveyard(
+              workingState,
+              controllerId,
+              ref.cardId,
+              { cardType: 'aura' },
+              'battlefield',
+              controllerId,
+              undefined,
+              undefined,
+              undefined,
+              targetId
+            );
+      if (result.kind === 'impossible') continue;
+      workingState = result.state;
+      combinedLog.push(...(result.log || []));
+    }
+  } else {
+    for (const attachmentId of attachmentIds) {
+      const result = attachExistingBattlefieldPermanentToTarget(workingState, attachmentId, targetId);
+      if (result.kind === 'impossible') {
+        return {
+          applied: false,
+          message: `Skipped attach (attachment target unavailable): ${step.raw}`,
+          reason: 'impossible_action',
+          options: { persist: false },
+        };
+      }
+      workingState = result.state;
+      combinedLog.push(...result.log);
+    }
   }
 
   return {
     applied: true,
-    state: result.state,
-    log: result.log,
+    state: workingState,
+    log: combinedLog,
   };
 }

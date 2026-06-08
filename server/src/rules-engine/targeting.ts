@@ -94,8 +94,12 @@ export type SpellSpec = {
   tokenColor?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
   tokenSubtype?: string;
   scryCount?: number;
+  scryCountIsX?: boolean;
   surveilCount?: number;
+  surveilCountIsX?: boolean;
   millCount?: number;
+  millCountIsX?: boolean; // For X spells: populate millCount at cast/resolve time when X is known.
+  millCountDoubleIfCastFromGraveyard?: boolean; // Increasing Confusion: flashback mills twice X.
   spellTypeFilter?: SpellTypeFilter; // For counterspells that only counter certain spell types
   targetDescription?: string; // Human-readable description of what can be targeted
   returnDelay?: 'immediate' | 'end_of_turn' | 'end_of_combat'; // For flicker effects
@@ -421,7 +425,10 @@ export function requiresTargeting(oracleText?: string): boolean {
     /target\s+(?:creature|permanent|artifact|enchantment|land|player|opponent|planeswalker)/i,
     /any\s+target/i,
     /target\s+spell/i,
+    /target\s+(?:instant|sorcery)(?:\s+or\s+(?:instant|sorcery))?\s+spell/i,
+    /counter\s+target\s+(?:instant|sorcery|spell|activated|triggered)/i,
     /target\s+(?:activated|triggered)\s+ability/i,
+    /target\s+ability\b/i,
     /up\s+to\s+\w+\s+target/i,
     /target\s+(?:nonland|noncreature|nonartifact)/i,
     /each\s+target/i,
@@ -1296,9 +1303,19 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   // SCRY
   {
     // Each opponent scries N.
-    const m = t.trim().match(/^each\s+opponent\s+scries\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    const m = t.trim().match(/^each\s+opponent\s+scries\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\.(?:\s*\([^)]*\))?$/i);
     if (m) {
-      const n = parseCountWord(m[1]) ?? 1;
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return {
+          op: 'SCRY_EACH_OPPONENT',
+          filter: 'ANY',
+          minTargets: 0,
+          maxTargets: 0,
+          scryCountIsX: true,
+        };
+      }
+      const n = parseCountWord(raw) ?? 1;
       return {
         op: 'SCRY_EACH_OPPONENT',
         filter: 'ANY',
@@ -1310,9 +1327,19 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   {
     // Each player scries N.
-    const m = t.trim().match(/^each\s+player\s+scries\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    const m = t.trim().match(/^each\s+player\s+scries\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\.(?:\s*\([^)]*\))?$/i);
     if (m) {
-      const n = parseCountWord(m[1]) ?? 1;
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return {
+          op: 'SCRY_EACH_PLAYER',
+          filter: 'ANY',
+          minTargets: 0,
+          maxTargets: 0,
+          scryCountIsX: true,
+        };
+      }
+      const n = parseCountWord(raw) ?? 1;
       return {
         op: 'SCRY_EACH_PLAYER',
         filter: 'ANY',
@@ -1324,9 +1351,19 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   {
     // Scry N.
-    const m = t.trim().match(/^scry\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    const m = t.trim().match(/^scry\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\.(?:\s*\([^)]*\))?$/i);
     if (m) {
-      const n = parseCountWord(m[1]) ?? 1;
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return {
+          op: 'SCRY',
+          filter: 'ANY',
+          minTargets: 0,
+          maxTargets: 0,
+          scryCountIsX: true,
+        };
+      }
+      const n = parseCountWord(raw) ?? 1;
       return {
         op: 'SCRY',
         filter: 'ANY',
@@ -1340,8 +1377,18 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   // SURVEIL
   {
     // Each opponent surveils N.
-    const m = t.trim().match(/^each\s+opponent\s+surveils\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    const m = t.trim().match(/^each\s+opponent\s+surveils\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\.(?:\s*\([^)]*\))?$/i);
     if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return {
+          op: 'SURVEIL_EACH_OPPONENT',
+          filter: 'ANY',
+          minTargets: 0,
+          maxTargets: 0,
+          surveilCountIsX: true,
+        };
+      }
       const n = parseCountWord(m[1]) ?? 1;
       return {
         op: 'SURVEIL_EACH_OPPONENT',
@@ -1354,8 +1401,18 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   {
     // Each player surveils N.
-    const m = t.trim().match(/^each\s+player\s+surveils\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    const m = t.trim().match(/^each\s+player\s+surveils\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\.(?:\s*\([^)]*\))?$/i);
     if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return {
+          op: 'SURVEIL_EACH_PLAYER',
+          filter: 'ANY',
+          minTargets: 0,
+          maxTargets: 0,
+          surveilCountIsX: true,
+        };
+      }
       const n = parseCountWord(m[1]) ?? 1;
       return {
         op: 'SURVEIL_EACH_PLAYER',
@@ -1368,8 +1425,18 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   {
     // Surveil N.
-    const m = t.trim().match(/^surveil\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    const m = t.trim().match(/^surveil\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\.(?:\s*\([^)]*\))?$/i);
     if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return {
+          op: 'SURVEIL',
+          filter: 'ANY',
+          minTargets: 0,
+          maxTargets: 0,
+          surveilCountIsX: true,
+        };
+      }
       const n = parseCountWord(m[1]) ?? 1;
       return {
         op: 'SURVEIL',
@@ -1382,8 +1449,19 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   {
     // Target player surveils N.
-    const m = t.trim().match(/^target\s+player\s+surveils\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\.(?:\s*\([^)]*\))?$/i);
+    const m = t.trim().match(/^target\s+player\s+surveils\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\.(?:\s*\([^)]*\))?$/i);
     if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return {
+          op: 'SURVEIL_TARGET_PLAYER',
+          filter: 'ANY',
+          minTargets: 1,
+          maxTargets: 1,
+          surveilCountIsX: true,
+          targetDescription: 'target player',
+        };
+      }
       const n = parseCountWord(m[1]) ?? 1;
       return {
         op: 'SURVEIL_TARGET_PLAYER',
@@ -1413,7 +1491,7 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   {
     // Target player mills N cards.
-    const m = t.trim().match(/^target\s+player\s+mills\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    const m = t.trim().match(/^target\s+player\s+mills\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/i);
     if (m) {
       const n = parseCountWord(m[1]) ?? 1;
       return {
@@ -1427,10 +1505,52 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     }
   }
   {
-    // Each opponent mills N cards.
-    const m = t.trim().match(/^each\s+opponent\s+mills\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    // Increasing Confusion (post-Bloomburrow templating): mills X; flashback mills twice X.
+    const m = t.match(/^target\s+player\s+mills\s+x\s+cards?\b/i);
     if (m) {
-      const n = parseCountWord(m[1]) ?? 1;
+      const doubleFromGraveyard = /if this spell was cast from a graveyard,\s*that player mills twice that many cards instead/i.test(t);
+      return {
+        op: 'MILL_TARGET_PLAYER',
+        filter: 'ANY',
+        minTargets: 1,
+        maxTargets: 1,
+        millCountIsX: true,
+        ...(doubleFromGraveyard ? { millCountDoubleIfCastFromGraveyard: true } : {}),
+        targetDescription: 'target player',
+      };
+    }
+  }
+  {
+    // Legacy wording: "Target player puts the top X cards of their library into their graveyard."
+    const m = t.match(/^target\s+player\s+puts\s+the\s+top\s+x\s+cards?\s+of\s+their\s+library\s+into\s+their\s+graveyard\b/i);
+    if (m) {
+      const doubleFromGraveyard = /if this spell was cast from a graveyard,\s*that player mills twice that many cards instead/i.test(t);
+      return {
+        op: 'MILL_TARGET_PLAYER',
+        filter: 'ANY',
+        minTargets: 1,
+        maxTargets: 1,
+        millCountIsX: true,
+        ...(doubleFromGraveyard ? { millCountDoubleIfCastFromGraveyard: true } : {}),
+        targetDescription: 'target player',
+      };
+    }
+  }
+  {
+    // Each opponent mills N cards.
+    const m = t.trim().match(/^each\s+opponent\s+mills\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+cards?\.?$/i);
+    if (m) {
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return {
+          op: 'MILL_EACH_OPPONENT',
+          filter: 'ANY',
+          minTargets: 0,
+          maxTargets: 0,
+          millCountIsX: true,
+        };
+      }
+      const n = parseCountWord(raw) ?? 1;
       return {
         op: 'MILL_EACH_OPPONENT',
         filter: 'ANY',
@@ -1442,15 +1562,63 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   {
     // Each player mills N cards.
-    const m = t.trim().match(/^each\s+player\s+mills\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\.?$/i);
+    const m = t.trim().match(/^each\s+player\s+mills\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+cards?\.?$/i);
     if (m) {
-      const n = parseCountWord(m[1]) ?? 1;
+      const raw = String(m[1]).toLowerCase();
+      if (raw === 'x') {
+        return {
+          op: 'MILL_EACH_PLAYER',
+          filter: 'ANY',
+          minTargets: 0,
+          maxTargets: 0,
+          millCountIsX: true,
+        };
+      }
+      const n = parseCountWord(raw) ?? 1;
       return {
         op: 'MILL_EACH_PLAYER',
         filter: 'ANY',
         minTargets: 0,
         maxTargets: 0,
         millCount: n,
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^you\s+mills?\s+x\s+cards?\b/i);
+    if (m) {
+      return {
+        op: 'MILL_SELF',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        millCountIsX: true,
+      };
+    }
+  }
+  {
+    const m = t.trim().match(/^mill\s+x\s+cards?\.?$/i);
+    if (m) {
+      return {
+        op: 'MILL_SELF',
+        filter: 'ANY',
+        minTargets: 0,
+        maxTargets: 0,
+        millCountIsX: true,
+      };
+    }
+  }
+  {
+    const m = t.match(/^target\s+opponent\s+mills\s+x\s+cards?\b/i);
+    if (m) {
+      return {
+        op: 'MILL_TARGET_PLAYER',
+        filter: 'ANY',
+        minTargets: 1,
+        maxTargets: 1,
+        millCountIsX: true,
+        targetDescription: 'target opponent',
+        opponentOnly: true,
       };
     }
   }

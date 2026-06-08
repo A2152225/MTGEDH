@@ -432,6 +432,15 @@ export function tryParseZoneAndRemovalClause(args: {
     }
   }
 
+  if (/^put that card onto the battlefield or into your hand$/i.test(clause)) {
+    return parseMoveZoneStep({
+      whatRaw: 'that card',
+      toRaw: 'your hand',
+      rawClause,
+      withMeta,
+    });
+  }
+
   const putIntoMatch = clause.match(/^(?:otherwise,\s*)?put\s+(.+?)\s+into\s+(.+)$/i);
   if (putIntoMatch) {
     return parseMoveZoneStep({
@@ -519,6 +528,18 @@ export function tryParseZoneAndRemovalClause(args: {
     return parseMoveZoneStep({
       whatRaw: String(putThoseIntoGraveyardMatch[1] || 'those cards').trim(),
       toRaw: 'graveyard',
+      rawClause,
+      withMeta,
+    });
+  }
+
+  const revealedThisWayRestMatch = clause.match(
+    /^(?:then\s+)?put all cards revealed this way that weren't put onto the battlefield on the bottom of your library in a random order$/i
+  );
+  if (revealedThisWayRestMatch) {
+    return parseMoveZoneStep({
+      whatRaw: "all cards revealed this way that weren't put onto the battlefield",
+      toRaw: 'the bottom of your library in a random order',
       rawClause,
       withMeta,
     });

@@ -27,6 +27,7 @@ import {
   removeDefenseCountersFromBattle,
   removeLoyaltyFromPlaneswalker,
 } from './oracleIRExecutorPermanentUtils';
+import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import { adjustLife, adjustPlayerCounter, getCardManaValue, getCardTypeLineLower, quantityToNumber, resolvePlayers, resolvePlayersFromDamageTarget } from './oracleIRExecutorPlayerUtils';
 import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
 import { getStackItems } from './stackOperations';
@@ -227,8 +228,15 @@ function resolveDamageAmount(
   amount: Extract<OracleEffectStep, { kind: 'deal_damage' }>['amount'],
   source: Extract<OracleEffectStep, { kind: 'deal_damage' }>['source'],
   ctx: OracleIRExecutionContext,
-  runtime?: DamageRuntime
+  runtime?: DamageRuntime,
+  whereX?: Extract<OracleEffectStep, { kind: 'deal_damage' }>['whereX']
 ): number | null {
+  const fromOracle = resolveOracleQuantity(state, ctx.controllerId, amount, ctx, {
+    whereX,
+    runtime: runtime as any,
+  });
+  if (fromOracle !== null) return fromOracle;
+
   const numericAmount = quantityToNumber(amount, ctx);
   if (numericAmount !== null) return numericAmount;
   const stateReferenceAmount = resolveReferenceDamageAmountFromState(state, amount, ctx);
@@ -487,7 +495,7 @@ export function applyDealDamageStep(
   ctx: OracleIRExecutionContext,
   runtime?: DamageRuntime
 ): DamageStepHandlerResult {
-  const amount = resolveDamageAmount(state, step.amount, step.source, ctx, runtime);
+  const amount = resolveDamageAmount(state, step.amount, step.source, ctx, runtime, step.whereX);
   if (amount === null) {
     return {
       applied: false,
@@ -723,6 +731,61 @@ export function applyPreventDamageStep(
       applied: true,
       state: registerDamagePreventionEffect(state, effect),
       log: ['Prevent all combat damage that would be dealt this turn'],
+    };
+  }
+
+  const stepTargetText =
+    step.target?.kind === 'raw'
+      ? String(step.target.text || '')
+          .replace(/\u2019/g, "'")
+          .toLowerCase()
+          .replace(/\s+/g, ' ')
+          .trim()
+      : '';
+  if (stepTargetText === 'that damage' && step.amount !== 'all') {
+    const controllerId = (String(ctx.controllerId || '').trim() || 'p1') as PlayerID;
+    const whereXMatch = String(step.raw || '').match(/\bwhere x is (.+?)(?:[.,]|$)/i);
+    let shieldAmount = resolveOracleQuantity(state, controllerId, step.amount as any, ctx, {
+      whereX: whereXMatch ? { kind: 'where', raw: String(whereXMatch[1] || '').trim() } : undefined,
+    });
+    if ((shieldAmount === null || shieldAmount <= 0) && Number.isFinite(Number(ctx.referenceAmount))) {
+      shieldAmount = Math.max(0, Number(ctx.referenceAmount));
+    }
+    if (shieldAmount === null || shieldAmount <= 0) {
+      return {
+        applied: false,
+        message: `Skipped prevent damage (amount unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: { classification: 'invalid_input' },
+      };
+    }
+
+    const targetPlayerId = String(
+      ctx.selectorContext?.targetPlayerId || (ctx as any).targetPlayerId || ''
+    ).trim() as PlayerID | undefined;
+    if (!targetPlayerId) {
+      return {
+        applied: false,
+        message: `Skipped prevent damage (target recipient unavailable): ${step.raw}`,
+        reason: 'unsupported_target',
+        options: { classification: 'ambiguous' },
+      };
+    }
+
+    const effect = createTargetDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetPlayerId,
+      amount: shieldAmount,
+      description: `Prevent the next ${shieldAmount} damage to ${targetPlayerId} this turn`,
+    });
+
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: [`Prevent the next ${shieldAmount} damage to ${targetPlayerId} this turn`],
     };
   }
 

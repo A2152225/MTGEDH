@@ -1,0 +1,710 @@
+﻿{
+  "total": 93,
+  "byTag": {
+    "etb_choose": 58,
+    "becomes_chosen_type": 7,
+    "controlled_chosen_type": 27,
+    "pt_buff": 18,
+    "creatures_of_chosen_type": 12,
+    "non_etb_choose": 35,
+    "counter": 3,
+    "cast_chosen_type": 13,
+    "mana": 8,
+    "uncounterable": 1,
+    "cost_reduction": 5,
+    "search": 1,
+    "draw": 9,
+    "grant_ability": 4,
+    "sacrifice": 3,
+    "top_library": 5,
+    "token": 5,
+    "enters_or_attacks": 2,
+    "copy_spell": 1,
+    "double_trigger": 1
+  },
+  "cards": [
+    {
+      "name": "Adaptive Automaton",
+      "tags": [
+        "etb_choose",
+        "becomes_chosen_type",
+        "controlled_chosen_type",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "An-Zerrin Ruins",
+      "tags": [
+        "etb_choose",
+        "creatures_of_chosen_type"
+      ]
+    },
+    {
+      "name": "And They Shall Know No Fear",
+      "tags": [
+        "non_etb_choose",
+        "controlled_chosen_type",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Arcane Adaptation",
+      "tags": [
+        "etb_choose"
+      ]
+    },
+    {
+      "name": "Ashes of the Fallen",
+      "tags": [
+        "etb_choose"
+      ]
+    },
+    {
+      "name": "Banner of Kinship",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Belbe's Portal",
+      "tags": [
+        "etb_choose"
+      ]
+    },
+    {
+      "name": "Bloodline Bidding",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Bloodline Pretender",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "counter"
+      ]
+    },
+    {
+      "name": "Bloodline Shaman",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Brass Herald",
+      "tags": [
+        "etb_choose",
+        "creatures_of_chosen_type",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Caller of the Hunt",
+      "tags": [
+        "non_etb_choose",
+        "creatures_of_chosen_type"
+      ]
+    },
+    {
+      "name": "Cavern of Souls",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "mana",
+        "uncounterable"
+      ]
+    },
+    {
+      "name": "Celestial Reunion",
+      "tags": [
+        "non_etb_choose",
+        "becomes_chosen_type",
+        "cost_reduction",
+        "search"
+      ]
+    },
+    {
+      "name": "Chronicle of Victory",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "controlled_chosen_type",
+        "draw",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Circle of Solace",
+      "tags": [
+        "etb_choose",
+        "creatures_of_chosen_type"
+      ]
+    },
+    {
+      "name": "Coalition Construct",
+      "tags": [
+        "etb_choose",
+        "becomes_chosen_type",
+        "controlled_chosen_type",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Collective Inferno",
+      "tags": [
+        "etb_choose"
+      ]
+    },
+    {
+      "name": "Conspiracy",
+      "tags": [
+        "etb_choose"
+      ]
+    },
+    {
+      "name": "Coordinated Barrage",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Cover of Darkness",
+      "tags": [
+        "etb_choose",
+        "creatures_of_chosen_type",
+        "grant_ability"
+      ]
+    },
+    {
+      "name": "Crippling Fear",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Distant Melody",
+      "tags": [
+        "non_etb_choose",
+        "draw"
+      ]
+    },
+    {
+      "name": "Doom Cannon",
+      "tags": [
+        "etb_choose",
+        "creatures_of_chosen_type",
+        "sacrifice"
+      ]
+    },
+    {
+      "name": "Door of Destinies",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "controlled_chosen_type",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Echoing Cavern",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "mana"
+      ]
+    },
+    {
+      "name": "Elvish Soultiller",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Engineered Plague",
+      "tags": [
+        "etb_choose",
+        "creatures_of_chosen_type"
+      ]
+    },
+    {
+      "name": "Etchings of the Chosen",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "pt_buff",
+        "sacrifice"
+      ]
+    },
+    {
+      "name": "For the Ancestors",
+      "tags": [
+        "non_etb_choose",
+        "top_library"
+      ]
+    },
+    {
+      "name": "From the Rubble",
+      "tags": [
+        "etb_choose"
+      ]
+    },
+    {
+      "name": "Gathering Stone",
+      "tags": [
+        "etb_choose",
+        "cost_reduction",
+        "top_library"
+      ]
+    },
+    {
+      "name": "Harmonized Crescendo",
+      "tags": [
+        "non_etb_choose",
+        "draw"
+      ]
+    },
+    {
+      "name": "Haunting Voyage",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Herald's Horn",
+      "tags": [
+        "etb_choose",
+        "cost_reduction",
+        "top_library"
+      ]
+    },
+    {
+      "name": "Icon of Ancestry",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "pt_buff",
+        "top_library"
+      ]
+    },
+    {
+      "name": "Imagecrafter",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Instruments of War",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Kindred Boon",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type"
+      ]
+    },
+    {
+      "name": "Kindred Charge",
+      "tags": [
+        "non_etb_choose",
+        "controlled_chosen_type",
+        "token"
+      ]
+    },
+    {
+      "name": "Kindred Discovery",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "enters_or_attacks",
+        "draw"
+      ]
+    },
+    {
+      "name": "Kindred Dominance",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Kindred Summons",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Leyline of Transformation",
+      "tags": [
+        "etb_choose"
+      ]
+    },
+    {
+      "name": "Lifecraft Engine",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type"
+      ]
+    },
+    {
+      "name": "Littjara",
+      "tags": [
+        "non_etb_choose",
+        "counter",
+        "token"
+      ]
+    },
+    {
+      "name": "Luminescent Rain",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Metallic Mimic",
+      "tags": [
+        "etb_choose",
+        "becomes_chosen_type",
+        "controlled_chosen_type",
+        "counter"
+      ]
+    },
+    {
+      "name": "Mirror Entity Avatar",
+      "tags": [
+        "non_etb_choose",
+        "controlled_chosen_type",
+        "grant_ability"
+      ]
+    },
+    {
+      "name": "Mirror of the Forebears",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type"
+      ]
+    },
+    {
+      "name": "Mistform Mutant",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Mistform Wakecaster",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Molten Echoes",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "token"
+      ]
+    },
+    {
+      "name": "Morophon, the Boundless",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "controlled_chosen_type",
+        "cost_reduction",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Obelisk of Urd",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Outbreak",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Pack's Disdain",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Pact of the Serpent",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Patchwork Banner",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "mana",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Peer Pressure",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Pillar of Origins",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "mana"
+      ]
+    },
+    {
+      "name": "Plague Engineer",
+      "tags": [
+        "etb_choose",
+        "creatures_of_chosen_type"
+      ]
+    },
+    {
+      "name": "Pol Jamaar, Illusionist",
+      "tags": [
+        "non_etb_choose",
+        "draw"
+      ]
+    },
+    {
+      "name": "Progenitor's Icon",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "mana"
+      ]
+    },
+    {
+      "name": "Radiant Destiny",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Raise the Palisade",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Rally the Ranks",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Realmwalker",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "top_library"
+      ]
+    },
+    {
+      "name": "Reflections of Littjara",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "copy_spell"
+      ]
+    },
+    {
+      "name": "Renewed Solidarity",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "pt_buff",
+        "token"
+      ]
+    },
+    {
+      "name": "Riders of Gavony",
+      "tags": [
+        "etb_choose"
+      ]
+    },
+    {
+      "name": "Rimefire Torque",
+      "tags": [
+        "etb_choose"
+      ]
+    },
+    {
+      "name": "Riptide Shapeshifter",
+      "tags": [
+        "non_etb_choose",
+        "sacrifice"
+      ]
+    },
+    {
+      "name": "Roaming Throne",
+      "tags": [
+        "etb_choose",
+        "becomes_chosen_type",
+        "controlled_chosen_type",
+        "double_trigger"
+      ]
+    },
+    {
+      "name": "Roar of the Crowd",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Rukarumel, Biologist",
+      "tags": [
+        "etb_choose",
+        "token"
+      ]
+    },
+    {
+      "name": "Secluded Courtyard",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "mana"
+      ]
+    },
+    {
+      "name": "Selfless Safewright",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Seshiro the Anointed Avatar",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Shared Triumph",
+      "tags": [
+        "etb_choose",
+        "creatures_of_chosen_type",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Species Specialist",
+      "tags": [
+        "etb_choose",
+        "creatures_of_chosen_type",
+        "draw"
+      ]
+    },
+    {
+      "name": "Standardize",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Steely Resolve",
+      "tags": [
+        "etb_choose",
+        "creatures_of_chosen_type",
+        "grant_ability"
+      ]
+    },
+    {
+      "name": "Steely Resolve // Steely Resolve",
+      "tags": [
+        "etb_choose",
+        "creatures_of_chosen_type",
+        "grant_ability"
+      ]
+    },
+    {
+      "name": "The Convincing General",
+      "tags": [
+        "non_etb_choose",
+        "draw"
+      ]
+    },
+    {
+      "name": "Three Tree City",
+      "tags": [
+        "etb_choose",
+        "controlled_chosen_type",
+        "mana"
+      ]
+    },
+    {
+      "name": "Titan of Littjara",
+      "tags": [
+        "etb_choose",
+        "becomes_chosen_type",
+        "enters_or_attacks",
+        "draw"
+      ]
+    },
+    {
+      "name": "Tsabo's Decree",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Unclaimed Territory",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "mana"
+      ]
+    },
+    {
+      "name": "Unnatural Selection",
+      "tags": [
+        "non_etb_choose"
+      ]
+    },
+    {
+      "name": "Urza's Incubator",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "cost_reduction"
+      ]
+    },
+    {
+      "name": "Vanquisher's Banner",
+      "tags": [
+        "etb_choose",
+        "cast_chosen_type",
+        "controlled_chosen_type",
+        "draw",
+        "pt_buff"
+      ]
+    },
+    {
+      "name": "Xenograft",
+      "tags": [
+        "etb_choose",
+        "becomes_chosen_type"
+      ]
+    }
+  ]
+}

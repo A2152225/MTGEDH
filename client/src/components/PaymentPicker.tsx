@@ -163,6 +163,30 @@ export function PaymentPicker(props: PaymentPickerProps) {
       }
     }
 
+    const manaSymbols: Record<string, string> = {
+      white: 'W',
+      blue: 'U',
+      black: 'B',
+      red: 'R',
+      green: 'G',
+      colorless: 'C',
+    };
+    if (floatingMana.restricted) {
+      floatingMana.restricted.forEach((entry, restrictedIndex) => {
+        const poolKey = String(entry.type || 'colorless');
+        const symbol = manaSymbols[poolKey] || 'C';
+        const amount = Number(entry.amount || 0);
+        for (let unit = 0; unit < amount; unit += 1) {
+          entries.push({
+            id: `__pool__:restricted:${restrictedIndex}:${unit}`,
+            name: `Restricted {${symbol}}`,
+            options: [symbol],
+            amount: 1,
+          });
+        }
+      });
+    }
+
     return entries;
   }, [floatingMana, manualFloatingManaSelection]);
 

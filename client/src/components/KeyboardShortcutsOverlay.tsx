@@ -32,6 +32,15 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     ],
   },
   {
+    title: 'Battlefield layout',
+    entries: [
+      { keys: 'Hover card + Arrow keys', description: 'Move permanent one grid tile' },
+      { keys: 'Drag to tile', description: 'Snap permanent to grid slot' },
+      { keys: 'Drag onto occupied tile', description: 'Stack with visible cascade' },
+      { keys: 'Alt + drag', description: 'Raise card within stack (z-order)' },
+    ],
+  },
+  {
     title: 'UI',
     entries: [
       { keys: '?', description: 'Show / hide this shortcuts overlay' },

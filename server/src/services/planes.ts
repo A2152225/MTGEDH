@@ -176,6 +176,11 @@ const KNOWN_PLANES: Record<string, { name: string; oracle_text: string; plane_ty
     oracle_text: "All creatures get +2/+2.\nWhenever you roll {CHAOS}, you may add {W}{U}{B}{R}{G}.",
     plane_type: "Dominaria"
   },
+  "littjara": {
+    name: "Littjara",
+    oracle_text: "When you planeswalk to Littjara and at the beginning of your upkeep, create a 2/2 blue Shapeshifter creature token with changeling. (It is every creature type.)\nWhenever chaos ensues, choose a creature type. Put a +1/+1 counter on each creature you control of that type.",
+    plane_type: "Kaldheim"
+  },
   "lair of the ashen idol": {
     name: "Lair of the Ashen Idol",
     oracle_text: "At the beginning of your upkeep, sacrifice a creature. If you can't, planeswalk.\nWhenever you roll {CHAOS}, any number of target players each create a 2/2 black Zombie creature token.",

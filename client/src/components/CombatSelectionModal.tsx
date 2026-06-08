@@ -11,12 +11,19 @@ import type { BattlefieldPermanent, PlayerRef, PlayerID, KnownCardRef } from '..
 import { getBlockerCapacity } from '../utils/blockerCapacity';
 import { getCombinedPermanentText } from '../utils/permanentText';
 
+export interface DefenderAttackInfo {
+  untappedCreatureCount: number;
+  attackTaxPerCreature: number;
+}
+
 export interface CombatSelectionModalProps {
   open: boolean;
   mode: 'attackers' | 'blockers';
   availableCreatures: BattlefieldPermanent[];
   attackingCreatures?: BattlefieldPermanent[]; // For blocker mode: which creatures are attacking
   defenders?: PlayerRef[]; // For attacker mode: which players/planeswalkers can be attacked
+  /** Per-opponent untapped blockers and attack tax (Propaganda, Ghostly Prison, etc.) */
+  defenderInfoMap?: Record<string, DefenderAttackInfo>;
   /** Pre-fill attacker selections (primarily for read-only viewers) */
   initialAttackTargets?: Record<string, string>;
   /** Called when attacker targets change (interactive attackers mode only) */
@@ -24,6 +31,10 @@ export interface CombatSelectionModalProps {
   onConfirm: (selections: AttackerSelection[] | BlockerSelection[]) => void;
   onSkip: () => void;
   onCancel?: () => void;
+  /** Collapse to a floating chip (modal stays open for this combat step) */
+  minimized?: boolean;
+  onMinimize?: () => void;
+  onRestore?: () => void;
   errorMessage?: string | null;
   /** If true, the modal is view-only (for spectators or non-active players) */
   readOnly?: boolean;
@@ -404,11 +415,15 @@ export function CombatSelectionModal({
   availableCreatures,
   attackingCreatures = [],
   defenders = [],
+  defenderInfoMap,
   initialAttackTargets,
   onAttackTargetsChange,
   onConfirm,
   onSkip,
   onCancel,
+  minimized = false,
+  onMinimize,
+  onRestore,
   errorMessage,
   readOnly = false,
   isYourTurn = true,
@@ -742,6 +757,63 @@ export function CombatSelectionModal({
 
   if (!open) return null;
 
+  const modalTitle = isReadOnlyAttackerView
+    ? '⚔️ Incoming Attacks'
+    : isReadOnlyBlockerView
+      ? '🛡️ Combat Snapshot'
+      : mode === 'attackers'
+        ? '⚔️ Declare Attackers'
+        : '🛡️ Declare Blockers';
+
+  if (minimized) {
+    const blockCount = countTotalBlockAssignments(selectedBlockers);
+    const summary =
+      mode === 'attackers'
+        ? `${selectedAttackers.size} attacker${selectedAttackers.size !== 1 ? 's' : ''}`
+        : `${blockCount} block${blockCount !== 1 ? 's' : ''}`;
+
+    return (
+      <div
+        onClick={onRestore}
+        style={{
+          position: 'fixed',
+          bottom: 16,
+          left: 16,
+          background:
+            mode === 'attackers'
+              ? 'linear-gradient(135deg, rgba(239,68,68,0.92), rgba(185,28,28,0.92))'
+              : 'linear-gradient(135deg, rgba(16,185,129,0.92), rgba(5,150,105,0.92))',
+          border: mode === 'attackers' ? '2px solid #f87171' : '2px solid #34d399',
+          borderRadius: 8,
+          padding: '10px 14px',
+          cursor: onRestore ? 'pointer' : 'default',
+          zIndex: 10001,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.45)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}
+        title="Click to expand combat declaration"
+      >
+        <span style={{ color: 'white', fontWeight: 600, fontSize: 13 }}>{modalTitle}</span>
+        {isInteractive && (
+          <span
+            style={{
+              background: 'rgba(255,255,255,0.2)',
+              borderRadius: 10,
+              padding: '2px 8px',
+              fontSize: 11,
+              color: 'white',
+            }}
+          >
+            {summary}
+          </span>
+        )}
+        <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 11 }}>▸ Expand</span>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -775,28 +847,43 @@ export function CombatSelectionModal({
       >
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
-            {isReadOnlyAttackerView
-              ? '⚔️ Incoming Attacks'
-              : isReadOnlyBlockerView
-                ? '🛡️ Combat Snapshot'
-                : mode === 'attackers'
-                  ? '⚔️ Declare Attackers'
-                  : '🛡️ Declare Blockers'}
-          </h2>
-          {onCancel && (
-            <button
-              onClick={onCancel}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#888',
-                fontSize: 24,
-                cursor: 'pointer',
-              }}
-            >
-              ×
-            </button>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>{modalTitle}</h2>
+          {(onMinimize || onCancel) && (
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              {onMinimize && (
+                <button
+                  onClick={onMinimize}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#9ca3af',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    padding: '2px 8px',
+                  }}
+                  title="Minimize"
+                >
+                  ─
+                </button>
+              )}
+              {(onCancel || onMinimize) && (
+                <button
+                  onClick={onCancel ?? onMinimize}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#888',
+                    fontSize: 24,
+                    cursor: 'pointer',
+                    lineHeight: 1,
+                    padding: '0 4px',
+                  }}
+                  title="Minimize"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           )}
         </div>
 

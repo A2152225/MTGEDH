@@ -18,6 +18,8 @@ export type {
   OracleIRSelectorContext,
 } from './oracleIRExecutionTypes';
 export { buildOracleIRExecutionContext } from './oracleIRExecutorExecutionContext';
+export { resolveOracleQuantity, resolveOracleQuantityForPlayer } from './oracleIRExecutorResolveQuantity';
+export type { ResolveOracleQuantityOptions } from './oracleIRExecutorResolveQuantity';
 
 /**
  * Best-effort executor for Oracle Effect IR.

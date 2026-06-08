@@ -3,6 +3,7 @@ import type { OracleEffectStep } from './oracleIR';
 import { createCustomEmblem } from './emblemSupport';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions } from './oracleIRExecutionTypes';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
+import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import {
   addBattlefieldPermanentsToState,
   createBattlefieldPermanentsFromCards,
@@ -37,6 +38,12 @@ import {
 } from './oracleIRExecutorPlayerUtils';
 import { countManaSymbolsInManaCost } from './oracleIRExecutorManaUtils';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
+import {
+  resolveOracleQuantity,
+  resolveOracleQuantityForPlayer,
+  type ResolveOracleQuantityOptions,
+} from './oracleIRExecutorResolveQuantity';
+import type { OracleClauseCondition } from './oracleIR';
 import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 
 type StepApplyResult = {
@@ -363,11 +370,30 @@ function resolveAddManaAmount(
   return quantity === null ? null : Math.max(0, quantity);
 }
 
+function resolveStepAmountForPlayer(
+  state: GameState,
+  controllerId: PlayerID,
+  amount: OracleQuantity,
+  ctx: OracleIRExecutionContext,
+  targetPlayerId: PlayerID | undefined,
+  options?: ResolveOracleQuantityOptions & { whereX?: OracleClauseCondition },
+): number | null {
+  const resolved = targetPlayerId
+    ? resolveOracleQuantityForPlayer(state, controllerId, amount, ctx, targetPlayerId, options)
+    : resolveOracleQuantity(state, controllerId, amount, ctx, options);
+  return resolved;
+}
+
 function resolveDynamicDrawAmount(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'draw' }>,
   ctx: OracleIRExecutionContext
 ): number | null {
+  const fromShared = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+    whereX: step.whereX,
+  });
+  if (fromShared !== null) return fromShared;
+
   if (step.amount.kind === 'source_power') return resolveSourcePower(state, ctx);
   if (step.amount.kind === 'greatest_power_among_creatures_you_control') {
     const controllerId = String(ctx.controllerId || '').trim();
@@ -2550,22 +2576,29 @@ export function applyScryStep(
   step: Extract<OracleEffectStep, { kind: 'scry' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount, ctx);
-  if (amount === null) {
-    return {
-      applied: false,
-      message: `Skipped scry (unknown amount): ${step.raw}`,
-      reason: 'unknown_amount',
-      options: { classification: 'ambiguous' },
-    };
-  }
-
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {
       applied: false,
       message: `Skipped scry (unsupported player selector): ${step.raw}`,
       reason: 'unsupported_player_selector',
+    };
+  }
+
+  const amount = resolveStepAmountForPlayer(
+    state,
+    ctx.controllerId,
+    step.amount,
+    ctx,
+    players.length === 1 ? players[0] : step.whereX ? players[0] : undefined,
+    { whereX: step.whereX },
+  );
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped scry (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+      options: { classification: 'ambiguous' },
     };
   }
 
@@ -3172,22 +3205,29 @@ export function applySurveilStep(
   step: Extract<OracleEffectStep, { kind: 'surveil' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount);
-  if (amount === null) {
-    return {
-      applied: false,
-      message: `Skipped surveil (unknown amount): ${step.raw}`,
-      reason: 'unknown_amount',
-      options: { classification: 'ambiguous' },
-    };
-  }
-
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {
       applied: false,
       message: `Skipped surveil (unsupported player selector): ${step.raw}`,
       reason: 'unsupported_player_selector',
+    };
+  }
+
+  const amount = resolveStepAmountForPlayer(
+    state,
+    ctx.controllerId,
+    step.amount,
+    ctx,
+    players[0],
+    { whereX: step.whereX },
+  );
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped surveil (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+      options: { classification: 'ambiguous' },
     };
   }
 
@@ -3274,7 +3314,9 @@ export function applyLookTopStep(
   step: Extract<OracleEffectStep, { kind: 'look_top' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount, ctx);
+  const amount = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+    whereX: step.whereX,
+  });
   if (amount === null) {
     return {
       applied: false,
@@ -3314,7 +3356,9 @@ export function applyRevealTopStep(
   step: Extract<OracleEffectStep, { kind: 'reveal_top' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount, ctx);
+  const amount = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+    whereX: step.whereX,
+  });
   if (amount === null) {
     return {
       applied: false,
@@ -3458,8 +3502,18 @@ export function applyMillStep(
 
   const millCountByPlayer = new Map<PlayerID, number>();
   for (const playerId of players) {
+    const millStep = step as Extract<OracleEffectStep, { kind: 'mill' }>;
+    const ctxForPlayer: OracleIRExecutionContext = {
+      ...ctx,
+      selectorContext: {
+        ...(ctx.selectorContext || {}),
+        targetPlayerId: playerId,
+      },
+    };
     const resolvedCount =
-      quantityToNumber(step.amount) ??
+      resolveOracleQuantity(state, ctx.controllerId, millStep.amount, ctxForPlayer, {
+        whereX: millStep.whereX,
+      }) ??
       resolveUnknownMillUntilAmountForPlayer(state, playerId, step.amount);
     if (resolvedCount === null) {
       return {
@@ -3474,11 +3528,15 @@ export function applyMillStep(
 
   let nextState = state;
   const log: string[] = [];
+  const lastMilledCards: any[] = [];
   for (const playerId of players) {
     const amount = millCountByPlayer.get(playerId) ?? 0;
     const result = millCardsForPlayer(nextState, playerId, amount);
     nextState = result.state;
     log.push(...result.log);
+    if (Array.isArray(result.milledCards) && result.milledCards.length > 0) {
+      lastMilledCards.push(...result.milledCards);
+    }
   }
 
   const unknownRaw = String((step.amount as any)?.raw || '').toLowerCase();
@@ -3494,6 +3552,7 @@ export function applyMillStep(
     state: nextState,
     log,
     lastRevealedCardCount,
+    ...(lastMilledCards.length > 0 ? { lastMilledCards } : {}),
   };
 }
 
@@ -3557,22 +3616,29 @@ export function applyDiscardStep(
     };
   }
 
-  const amount = quantityToNumber(step.amount);
-  if (amount === null) {
-    return {
-      applied: false,
-      message: `Skipped discard (unknown amount): ${step.raw}`,
-      reason: 'unknown_amount',
-      options: { classification: 'ambiguous' },
-    };
-  }
-
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {
       applied: false,
       message: `Skipped discard (unsupported player selector): ${step.raw}`,
       reason: 'unsupported_player_selector',
+    };
+  }
+
+  const amount = resolveStepAmountForPlayer(
+    state,
+    ctx.controllerId,
+    step.amount,
+    ctx,
+    players[0],
+    { whereX: step.whereX },
+  );
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped discard (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+      options: { classification: 'ambiguous' },
     };
   }
 
@@ -4031,16 +4097,6 @@ export function applyGainLifeStep(
     runtime?: ModifyPtRuntime
   ) => number | null
 ): PlayerStepHandlerResult {
-  const amount = resolveVariableAmount(state, controllerId, step.amount, ctx, runtime, evaluateWhereX);
-  if (amount === null) {
-    return {
-      applied: false,
-      message: `Skipped life gain (unknown amount): ${step.raw}`,
-      reason: 'unknown_amount',
-      options: { classification: 'ambiguous' },
-    };
-  }
-
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {
@@ -4052,13 +4108,29 @@ export function applyGainLifeStep(
 
   let nextState = state;
   const log: string[] = [];
+  let lastCount = 0;
   for (const playerId of players) {
+    const amount =
+      resolveStepAmountForPlayer(state, controllerId, step.amount, ctx, playerId, {
+        whereX: step.whereX,
+        runtime,
+      }) ??
+      resolveVariableAmount(state, controllerId, step.amount, ctx, runtime, evaluateWhereX);
+    if (amount === null) {
+      return {
+        applied: false,
+        message: `Skipped life gain (unknown amount): ${step.raw}`,
+        reason: 'unknown_amount',
+        options: { classification: 'ambiguous' },
+      };
+    }
+    lastCount = amount;
     const result = adjustLife(nextState, playerId, amount);
     nextState = result.state;
     log.push(...result.log);
   }
 
-  return { applied: true, state: nextState, log, count: amount };
+  return { applied: true, state: nextState, log, count: lastCount };
 }
 
 export function applyLoseLifeStep(
@@ -4076,16 +4148,6 @@ export function applyLoseLifeStep(
     runtime?: ModifyPtRuntime
   ) => number | null
 ): PlayerStepHandlerResult {
-  const amount = resolveVariableAmount(state, controllerId, step.amount, ctx, runtime, evaluateWhereX);
-  if (amount === null) {
-    return {
-      applied: false,
-      message: `Skipped life loss (unknown amount): ${step.raw}`,
-      reason: 'unknown_amount',
-      options: { classification: 'ambiguous' },
-    };
-  }
-
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {
@@ -4099,6 +4161,21 @@ export function applyLoseLifeStep(
   const log: string[] = [];
   let totalLifeLost = 0;
   for (const playerId of players) {
+    const amount =
+      resolveStepAmountForPlayer(state, controllerId, step.amount, ctx, playerId, {
+        whereX: step.whereX,
+        runtime,
+      }) ??
+      resolveVariableAmount(state, controllerId, step.amount, ctx, runtime, evaluateWhereX);
+    if (amount === null) {
+      return {
+        applied: false,
+        message: `Skipped life loss (unknown amount): ${step.raw}`,
+        reason: 'unknown_amount',
+        options: { classification: 'ambiguous' },
+      };
+    }
+
     const playerBefore = nextState.players.find((player) => player.id === playerId) as any;
     const previousLife = Number(playerBefore?.life);
     const result = adjustLife(nextState, playerId, -amount);
@@ -4226,16 +4303,6 @@ export function applyDrawStep(
   step: Extract<OracleEffectStep, { kind: 'draw' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const amount = resolveDynamicDrawAmount(state, step, ctx);
-  if (amount === null) {
-    return {
-      applied: false,
-      message: `Skipped draw (unknown amount): ${step.raw}`,
-      reason: 'unknown_amount',
-      options: { classification: 'ambiguous' },
-    };
-  }
-
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {
@@ -4247,13 +4314,30 @@ export function applyDrawStep(
 
   let nextState = state;
   const log: string[] = [];
+  let lastCount = 0;
   for (const playerId of players) {
+    const amount =
+      resolveStepAmountForPlayer(state, ctx.controllerId, step.amount, ctx, playerId, {
+        whereX: step.whereX,
+      }) ?? resolveDynamicDrawAmount(state, step, {
+        ...ctx,
+        selectorContext: { ...(ctx.selectorContext || {}), targetPlayerId: playerId },
+      });
+    if (amount === null) {
+      return {
+        applied: false,
+        message: `Skipped draw (unknown amount): ${step.raw}`,
+        reason: 'unknown_amount',
+        options: { classification: 'ambiguous' },
+      };
+    }
+    lastCount = amount;
     const result = drawCardsForPlayer(nextState, playerId, amount);
     nextState = result.state;
     log.push(...result.log);
   }
 
-  return { applied: true, state: nextState, log, count: amount };
+  return { applied: true, state: nextState, log, count: lastCount };
 }
 
 export function applyAddManaStep(

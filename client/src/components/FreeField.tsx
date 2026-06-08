@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useCallback } from 'react';
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
@@ -10,6 +10,14 @@ import { parseActivatedAbilities, canActivateTapAbility, getConditionalManaAbili
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 import { hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
+import {
+  assignPermanentsToCells,
+  arrowKeyToShiftDirection,
+  buildDisplayPositions,
+  createBattlefieldGrid,
+  shiftCell,
+  snapPixelToCell,
+} from '../utils/battlefieldGrid';
 
 function parsePT(raw?: string | number): number | undefined {
   if (typeof raw === 'number') return raw;
@@ -196,6 +204,7 @@ export function FreeField(props: {
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ permanent: BattlefieldPermanent; x: number; y: number } | null>(null);
   const drag = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number; z?: number } | null>(null);
+  const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number } | null>(null);
   /** Stable grid slots for permanents without server-persisted positions (survives re-renders/reorders). */
   const autoPositionCache = useRef(new Map<string, { x: number; y: number }>());
 
@@ -339,20 +348,15 @@ export function FreeField(props: {
       tokenCount?: number;
       groupedTokenIds?: string[];
       isToken?: boolean;
+      stackIndex?: number;
+      stackTotal?: number;
+      cellX?: number;
+      cellY?: number;
     }> = [];
 
-    const gap = 10;
-    const cols = Math.max(1, Math.floor((widthPx + gap) / (tileWidth + gap)));
-    let autoIndex = 0;
-
-    function nextAuto() {
-      const i = autoIndex++;
-      const row = Math.floor(i / cols);
-      const col = i % cols;
-      const x = Math.min(widthPx - tileWidth, col * (tileWidth + gap));
-      const y = Math.min(heightPx - tileH, row * (tileH + gap));
-      return { x, y };
-    }
+    const grid = createBattlefieldGrid(widthPx, heightPx, tileWidth);
+    const placementEntries: Array<{ id: string; preferred: { x: number; y: number; z?: number } | null }> = [];
+    const permMeta = new Map<string, Omit<(typeof placed)[number], 'id' | 'pos' | 'stackIndex' | 'stackTotal' | 'cellX' | 'cellY'>>();
 
     for (const p of perms) {
       const kc = p.card as KnownCardRef;
@@ -448,21 +452,19 @@ export function FreeField(props: {
                 ...(typeof p.posZ === 'number' ? { z: p.posZ } : {}),
               }
             : null;
-      let pos: { x: number; y: number; z?: number };
-      if (existing) {
-        pos = { ...existing };
-      } else {
-        const cached = autoPositionCache.current.get(p.id);
-        if (cached) {
-          pos = { ...cached };
-        } else {
-          const auto = nextAuto();
-          pos = { ...auto };
-          autoPositionCache.current.set(p.id, { x: auto.x, y: auto.y });
-        }
-      }
-      placed.push({
-        id: p.id,
+      const cached = autoPositionCache.current.get(p.id);
+      const preferred = cached
+        ? {
+            x: cached.x,
+            y: cached.y,
+            ...(typeof existing?.z === 'number' ? { z: existing.z } : {}),
+          }
+        : existing
+          ? { ...existing }
+          : null;
+
+      placementEntries.push({ id: p.id, preferred });
+      permMeta.set(p.id, {
         name,
         img,
         tapped: !!p.tapped,
@@ -471,7 +473,6 @@ export function FreeField(props: {
         counters,
         baseP,
         baseT,
-        pos,
         kc: kc || null,
         raw: p,
         effP,
@@ -496,6 +497,34 @@ export function FreeField(props: {
         isToken,
       });
     }
+
+    const cellPlacements = assignPermanentsToCells(placementEntries, grid);
+    const displayById = buildDisplayPositions(cellPlacements, grid);
+
+    for (const placement of cellPlacements) {
+      const meta = permMeta.get(placement.permanentId);
+      const display = displayById.get(placement.permanentId);
+      if (!meta || !display) continue;
+
+      autoPositionCache.current.set(placement.permanentId, {
+        x: placement.cellX,
+        y: placement.cellY,
+      });
+
+      placed.push({
+        id: placement.permanentId,
+        ...meta,
+        pos: {
+          x: display.x,
+          y: display.y,
+          ...(typeof placement.z === 'number' ? { z: placement.z } : {}),
+        },
+        cellX: placement.cellX,
+        cellY: placement.cellY,
+        stackIndex: display.stackIndex,
+        stackTotal: display.stackTotal,
+      });
+    }
     // Evict stale auto-positions for permanents that are no longer on the battlefield.
     const currentIds = new Set(perms.map(p => p.id));
     for (const key of autoPositionCache.current.keys()) {
@@ -506,6 +535,71 @@ export function FreeField(props: {
     return placed;
   }, [perms, allBattlefieldPerms, imagePref, tileWidth, tileH, widthPx, heightPx]);
 
+  const gridLayout = useMemo(
+    () => createBattlefieldGrid(widthPx, heightPx, tileWidth),
+    [widthPx, heightPx, tileWidth],
+  );
+
+  const dragTargetCell = useMemo(() => {
+    if (!dragPreview) return null;
+    return snapPixelToCell(dragPreview.x, dragPreview.y, gridLayout);
+  }, [dragPreview, gridLayout]);
+
+  const keyboardTargetCell = useMemo(() => {
+    if (!hoverId) return null;
+    const item = items.find((entry) => entry.id === hoverId);
+    if (!item) return null;
+    const baseX = item.cellX ?? item.pos?.x ?? 0;
+    const baseY = item.cellY ?? item.pos?.y ?? 0;
+    return snapPixelToCell(baseX, baseY, gridLayout);
+  }, [hoverId, items, gridLayout]);
+
+  const moveCardByArrow = useCallback((permanentId: string, key: string): boolean => {
+    if (!draggable || !onMove) return false;
+    const direction = arrowKeyToShiftDirection(key);
+    if (!direction) return false;
+
+    const item = items.find((entry) => entry.id === permanentId);
+    if (!item) return false;
+
+    const baseX = item.cellX ?? item.pos?.x ?? 0;
+    const baseY = item.cellY ?? item.pos?.y ?? 0;
+    const current = snapPixelToCell(baseX, baseY, gridLayout);
+    const next = shiftCell(current.col, current.row, direction, gridLayout);
+    if (next.col === current.col && next.row === current.row) {
+      return false;
+    }
+
+    autoPositionCache.current.set(permanentId, { x: next.x, y: next.y });
+    onMove(permanentId, next.x, next.y, item.pos?.z);
+    return true;
+  }, [draggable, onMove, items, gridLayout]);
+
+  useEffect(() => {
+    if (!draggable || !hoverId) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const direction = arrowKeyToShiftDirection(event.key);
+      if (!direction) return;
+
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) {
+          return;
+        }
+      }
+
+      if (moveCardByArrow(hoverId, event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [draggable, hoverId, moveCardByArrow]);
+
   const onPointerDown = (id: string, e: React.PointerEvent) => {
     if (!draggable) return;
     const item = items.find(x => x.id === id);
@@ -515,8 +609,8 @@ export function FreeField(props: {
       id,
       startX: e.clientX,
       startY: e.clientY,
-      baseX: item.pos?.x ?? 0,
-      baseY: item.pos?.y ?? 0,
+      baseX: item.cellX ?? item.pos?.x ?? 0,
+      baseY: item.cellY ?? item.pos?.y ?? 0,
       z: item.pos?.z
     };
   };
@@ -524,6 +618,16 @@ export function FreeField(props: {
   const onPointerMove = (e: React.PointerEvent) => {
     if (!drag.current) return;
     e.preventDefault();
+    const dx = e.clientX - drag.current.startX;
+    const dy = e.clientY - drag.current.startY;
+    let nx = Math.round(drag.current.baseX + dx);
+    let ny = Math.round(drag.current.baseY + dy);
+    const snapped = snapPixelToCell(
+      clamp(nx, 0, Math.max(0, widthPx - tileWidth)),
+      clamp(ny, 0, Math.max(0, heightPx - tileH)),
+      gridLayout,
+    );
+    setDragPreview({ id: drag.current.id, x: snapped.x, y: snapped.y });
   };
 
   const onPointerUp = (id: string, e: React.PointerEvent) => {
@@ -535,12 +639,24 @@ export function FreeField(props: {
     const dy = e.clientY - drag.current.startY;
     let nx = Math.round(drag.current.baseX + dx);
     let ny = Math.round(drag.current.baseY + dy);
-    nx = clamp(nx, 0, Math.max(0, widthPx - tileWidth));
-    ny = clamp(ny, 0, Math.max(0, heightPx - tileH));
+    const snapped = snapPixelToCell(
+      clamp(nx, 0, Math.max(0, widthPx - tileWidth)),
+      clamp(ny, 0, Math.max(0, heightPx - tileH)),
+      gridLayout,
+    );
     const bumpZ = e.altKey ? ((drag.current.z ?? 0) + 1) : drag.current.z;
-    onMove && onMove(drag.current.id, nx, ny, bumpZ);
+    autoPositionCache.current.set(drag.current.id, { x: snapped.x, y: snapped.y });
+    onMove && onMove(drag.current.id, snapped.x, snapped.y, bumpZ);
     drag.current = null;
+    setDragPreview(null);
   };
+
+  const renderItems = useMemo(() => {
+    if (!dragPreview) return items;
+    const dragged = items.find((entry) => entry.id === dragPreview.id);
+    if (!dragged) return items;
+    return [...items.filter((entry) => entry.id !== dragPreview.id), dragged];
+  }, [items, dragPreview]);
 
   function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
@@ -559,11 +675,68 @@ export function FreeField(props: {
         background: 'rgba(0,0,0,0.25)',
         overflow: 'visible' // Allow attack indicators to overflow
       }}
+      tabIndex={draggable ? 0 : undefined}
+      onMouseLeave={() => setHoverId(null)}
     >
-      {items.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName, hasAttachments, attachmentNames, damageMarked, ptSources, isGroupedTokens, tokenCount, isToken }) => {
-        const x = clamp(pos?.x ?? 0, 0, Math.max(0, widthPx - tileWidth));
-        const y = clamp(pos?.y ?? 0, 0, Math.max(0, heightPx - tileH));
+      {draggable && hoverId && (
+        <div
+          style={{
+            position: 'absolute',
+            left: '50%',
+            bottom: 6,
+            transform: 'translateX(-50%)',
+            zIndex: 2000,
+            pointerEvents: 'none',
+            fontSize: 11,
+            color: '#cbd5e1',
+            background: 'rgba(15, 23, 42, 0.92)',
+            border: '1px solid rgba(148, 163, 184, 0.45)',
+            borderRadius: 6,
+            padding: '4px 10px',
+            whiteSpace: 'nowrap',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+          }}
+        >
+          Arrow keys: move one tile · drop or move onto an occupied tile to stack
+        </div>
+      )}
+
+      {/* Grid slot guides */}
+      {Array.from({ length: gridLayout.rows }, (_, row) =>
+        Array.from({ length: gridLayout.cols }, (_, col) => {
+          const isDropTarget = dragTargetCell?.col === col && dragTargetCell?.row === row;
+          const isKeyboardTarget = keyboardTargetCell?.col === col && keyboardTargetCell?.row === row;
+          return (
+            <div
+              key={`grid-${col}-${row}`}
+              style={{
+                position: 'absolute',
+                left: col * gridLayout.cellW,
+                top: row * gridLayout.cellH,
+                width: gridLayout.tileWidth,
+                height: gridLayout.tileH,
+                borderRadius: 6,
+                border: isDropTarget || isKeyboardTarget
+                  ? '2px dashed rgba(96, 165, 250, 0.75)'
+                  : '1px dashed rgba(255, 255, 255, 0.07)',
+                background: isDropTarget || isKeyboardTarget
+                  ? 'rgba(59, 130, 246, 0.12)'
+                  : 'rgba(255, 255, 255, 0.02)',
+                pointerEvents: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+          );
+        }),
+      )}
+
+      {renderItems.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName, hasAttachments, attachmentNames, damageMarked, ptSources, isGroupedTokens, tokenCount, isToken, stackIndex, stackTotal }) => {
+        const isDragging = dragPreview?.id === id;
+        const x = clamp((isDragging ? dragPreview.x : pos?.x) ?? 0, 0, Math.max(0, widthPx - tileWidth));
+        const y = clamp((isDragging ? dragPreview.y : pos?.y) ?? 0, 0, Math.max(0, heightPx - tileH));
         const z = pos?.z ?? 0;
+        const inStack = (stackTotal ?? 1) > 1;
+        const isTopOfStack = inStack && stackIndex === (stackTotal ?? 1) - 1;
 
         const isHighlight = highlightTargets?.has(id) ?? false;
         const isSelected = selectedTargets?.has(id) ?? false;
@@ -646,13 +819,14 @@ export function FreeField(props: {
               aspectRatio: '0.72',
               userSelect: 'none',
               touchAction: 'none',
-              zIndex: 10 + z + (hovered ? 100 : 0) + (isAttacking ? 50 : 0),
+              zIndex: 10 + z + (stackIndex ?? 0) + (isDragging ? 1000 : 0) + (hovered ? 100 : 0) + (isAttacking ? 50 : 0),
               cursor: draggable ? 'grab' : (onCardClick ? 'pointer' : 'default'),
               border: `${borderWidth}px solid ${borderColor}`,
               borderRadius: 6,
               overflow: 'visible', // Allow indicators to overflow
               background: '#0f0f0f',
               transform: tapped ? 'rotate(14deg)' : 'none',
+              opacity: inStack && !isDragging && (stackIndex ?? 0) < (stackTotal ?? 1) - 1 ? 0.92 : 1,
               transformOrigin: '50% 50%',
               boxShadow: isPlayable
                 ? getPlayableCardHighlight(appearanceSettings)
@@ -668,8 +842,33 @@ export function FreeField(props: {
                           ? '0 0 6px rgba(139,92,246,0.4)' // Subtle glow for cards with attachments
                           : 'none',
             }}
-            title={name + (tapped ? ' (tapped)' : '')}
+            title={
+              name
+              + (tapped ? ' (tapped)' : '')
+              + (inStack ? ` (stack ${(stackIndex ?? 0) + 1}/${stackTotal})` : '')
+              + (draggable && hoverId === id ? ' — Arrow keys: move tile' : '')
+            }
           >
+            {inStack && isTopOfStack && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 4,
+                  right: 4,
+                  zIndex: 5,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: '#e2e8f0',
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  border: '1px solid rgba(148, 163, 184, 0.5)',
+                  borderRadius: 4,
+                  padding: '1px 5px',
+                  pointerEvents: 'none',
+                }}
+              >
+                {stackTotal} in tile
+              </div>
+            )}
             {img ? (
               <img src={img} alt={name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4 }} />
             ) : (

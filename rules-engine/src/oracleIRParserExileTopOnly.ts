@@ -6,6 +6,7 @@ import {
   parsePlayerSelector,
   parseQuantity,
 } from './oracleIRParserUtils';
+import { parseQuantityWithOptionalWhereX } from './oracleIRParserQuantityHelpers';
 
 function normalizePossessive(value: string): string {
   return normalizeOracleText(String(value || '')).replace(/[’]/g, "'").trim().toLowerCase();
@@ -50,13 +51,34 @@ export function tryParseExileTopOnly(params: {
     "(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 -]*'s (?:controller|owner))";
   const exileSecondClause = /^(?:then\s+)?exile\s+(?:it|that card|them|those cards|the cards)(?:\s+face down)?\s*$/i;
 
+  let whereX: { kind: 'where'; raw: string } | undefined;
+
   {
-    const directMany = firstToParse.match(
+    const directManyWithWhere = firstToParse.match(
       new RegExp(
-        `^exile\\s+the\\s+top\\s+${quantityPattern}\\s+cards?\\s+of\\s+${sourcePattern}\\s+librar(?:y|ies)(?:\\s+face down)?\\s*$`,
+        `^exile\\s+the\\s+top\\s+(.+?)\\s+of\\s+${sourcePattern}\\s+librar(?:y|ies)(?:\\s+face down)?(?:,\\s*where\\s+x\\s+is\\s+(.+))?\\s*$`,
         'i'
       )
     );
+    if (directManyWithWhere) {
+      const whereRaw = String(directManyWithWhere[3] || '').trim();
+      const quantityTail = whereRaw
+        ? `${String(directManyWithWhere[1] || '').trim()}, where x is ${whereRaw}`
+        : String(directManyWithWhere[1] || '').trim();
+      const parsed = parseQuantityWithOptionalWhereX(quantityTail);
+      amount = parsed.amount;
+      whereX = parsed.whereX;
+      who = mapLibrarySourceToPlayerSelector(directManyWithWhere[2]);
+    }
+
+    const directMany = !amount
+      ? firstToParse.match(
+          new RegExp(
+            `^exile\\s+the\\s+top\\s+${quantityPattern}\\s+cards?\\s+of\\s+${sourcePattern}\\s+librar(?:y|ies)(?:\\s+face down)?\\s*$`,
+            'i'
+          )
+        )
+      : null;
     if (directMany) {
       amount = parseQuantity(directMany[1]);
       who = mapLibrarySourceToPlayerSelector(directMany[2]);
@@ -152,6 +174,7 @@ export function tryParseExileTopOnly(params: {
     kind: 'exile_top',
     who,
     amount,
+    ...(whereX ? { whereX } : {}),
     raw:
       clauses
         .slice(idx, idx + consumed)

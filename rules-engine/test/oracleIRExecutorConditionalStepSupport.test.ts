@@ -51,4 +51,195 @@ describe('oracleIRExecutorConditionalStepSupport', () => {
 
     expect(result).toBe(true);
   });
+
+  it('treats "you do" as false when the antecedent optional action did not apply', () => {
+    const result = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'you do' } as any,
+      nextState: { players: [], battlefield: [] } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1' } as any,
+      lastActionOutcome: null,
+      lastStepOutcome: { kind: 'unsupported', stepKind: 'pay_mana' },
+    });
+    expect(result).toBe(false);
+  });
+
+  it('treats "you search your library this way" as true after an applied library search', () => {
+    const result = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'you search your library this way' } as any,
+      nextState: { players: [], battlefield: [] } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1' } as any,
+      lastActionOutcome: { kind: 'applied', stepKind: 'search_library' },
+    });
+    expect(result).toBe(true);
+  });
+
+  it('evaluates persist-style counter checks on the referenced source', () => {
+    const state = {
+      players: [{ id: 'p1', graveyard: [], hand: [], library: [], exile: [], life: 40 }],
+      battlefield: [
+        {
+          id: 'bf-source',
+          controller: 'p1',
+          type_line: 'Creature',
+          counters: {},
+        },
+      ],
+    } as any;
+
+    const result = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'it had no -1/-1 counters on it' } as any,
+      nextState: state,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1', sourceId: 'bf-source' } as any,
+      lastActionOutcome: null,
+    });
+
+    expect(result).toBe(true);
+  });
+
+  it('evaluates milled-this-way land checks from ctx.lastMilledCards', () => {
+    const result = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'a land card was milled this way' } as any,
+      nextState: { players: [], battlefield: [] } as any,
+      controllerId: 'p1' as any,
+      ctx: {
+        controllerId: 'p1',
+        lastMilledCards: [{ type_line: 'Basic Land — Forest' }],
+      } as any,
+      lastActionOutcome: { kind: 'applied', stepKind: 'mill' },
+    });
+    expect(result).toBe(true);
+  });
+
+  it('evaluates ability resolve count thresholds from ctx', () => {
+    const second = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'this is the second time this ability has resolved this turn' } as any,
+      nextState: { players: [], battlefield: [] } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1', abilityResolveCountThisTurn: 2 } as any,
+      lastActionOutcome: null,
+    });
+    expect(second).toBe(true);
+  });
+
+  it('evaluates revolt-style permanent-left checks from game state', () => {
+    const result = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'a permanent left the battlefield under your control this turn' } as any,
+      nextState: { permanentLeftBattlefieldThisTurn: { p1: true } } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1' } as any,
+      lastActionOutcome: null,
+    });
+    expect(result).toBe(true);
+  });
+
+  it('evaluates raid and greatest-power battlefield checks', () => {
+    const raid = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'you attacked this turn' } as any,
+      nextState: {
+        battlefield: [{ id: 'c1', controller: 'p1', type_line: 'Creature', attackedThisTurn: true }],
+      } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1' } as any,
+      lastActionOutcome: null,
+    });
+    expect(raid).toBe(true);
+
+    const greatestPower = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'you control the creature with the greatest power or tied for the greatest power' } as any,
+      nextState: {
+        battlefield: [
+          { id: 'c1', controller: 'p1', type_line: 'Creature', power: 5 },
+          { id: 'c2', controller: 'p2', type_line: 'Creature', power: 2 },
+        ],
+      } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1' } as any,
+      lastActionOutcome: null,
+    });
+    expect(greatestPower).toBe(true);
+  });
+
+  it('evaluates hand-this-way negatives from look-choose antecedents', () => {
+    const didNotPut = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: "you didn't put a card into your hand this way" } as any,
+      nextState: { players: [], battlefield: [] } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1' } as any,
+      lastActionOutcome: { kind: 'applied', stepKind: 'look_choose_from_top' },
+      lastMovedCards: [],
+    });
+    expect(didNotPut).toBe(true);
+  });
+
+  it('evaluates party, poison, kicked, and exile-this-way checks', () => {
+    const partyState = {
+      players: [{ id: 'p1', hand: [], library: [], graveyard: [], exile: [], life: 40 }],
+      battlefield: [
+        { id: 'c1', controller: 'p1', type_line: 'Creature — Human Cleric' },
+        { id: 'c2', controller: 'p1', type_line: 'Creature — Human Rogue' },
+        { id: 'c3', controller: 'p1', type_line: 'Creature — Human Warrior' },
+        { id: 'c4', controller: 'p1', type_line: 'Creature — Human Wizard' },
+      ],
+    } as any;
+    expect(
+      evaluateConditionalWrapperCondition({
+        condition: { kind: 'if', raw: 'you have a full party' } as any,
+        nextState: partyState,
+        controllerId: 'p1' as any,
+        ctx: { controllerId: 'p1' } as any,
+        lastActionOutcome: null,
+      })
+    ).toBe(true);
+
+    const poison = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'an opponent has three or more poison counters' } as any,
+      nextState: { players: [{ id: 'p1' }, { id: 'p2' }], poisonCounters: { p2: 3 } } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1' } as any,
+      lastActionOutcome: null,
+    });
+    expect(poison).toBe(true);
+
+    const kicked = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'it was kicked' } as any,
+      nextState: { battlefield: [{ id: 'bf-source', controller: 'p1', wasKicked: true, type_line: 'Sorcery' }] } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1', sourceId: 'bf-source' } as any,
+      lastActionOutcome: null,
+    });
+    expect(kicked).toBe(true);
+
+    const exiledThisWay = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'a creature is put into exile this way' } as any,
+      nextState: { players: [], battlefield: [] } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1' } as any,
+      lastActionOutcome: { kind: 'applied', stepKind: 'exile' },
+      lastMovedCards: [{ type_line: 'Creature — Bear' }],
+    });
+    expect(exiledThisWay).toBe(true);
+  });
+
+  it('evaluates spell mana value thresholds and bare you-don\'t defaults', () => {
+    const spellMv = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: "that spell's mana value is 5 or greater" } as any,
+      nextState: { stack: [{ id: 'stack-spell-1', card: { cmc: 5 } }] } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1', referenceSpellManaValue: 5, targetSpellId: 'stack-spell-1' } as any,
+      lastActionOutcome: null,
+    });
+    expect(spellMv).toBe(true);
+
+    const youDont = evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: "you don't" } as any,
+      nextState: { players: [], battlefield: [] } as any,
+      controllerId: 'p1' as any,
+      ctx: { controllerId: 'p1' } as any,
+      lastActionOutcome: null,
+    });
+    expect(youDont).toBe(true);
+  });
 });

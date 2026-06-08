@@ -28,6 +28,8 @@ export interface OracleIRSelectorContext {
   readonly eachOfThoseOpponents?: readonly PlayerID[];
   /** Bound chosen objects for multi-selection antecedents such as "the chosen creatures". */
   readonly chosenObjectIds?: readonly string[];
+  /** Combat trigger subject for pronouns like "that creature" in block/become-blocked effects. */
+  readonly combatOpponentCreatureId?: string;
   /** Explicit chosen dungeon id for venture selection. */
   readonly chosenDungeonId?: string;
   /** Explicit chosen room id for venture branch selection. */
@@ -107,7 +109,19 @@ export interface OracleIRExecutionEventHint {
   readonly voteChoiceCounts?: Readonly<Record<string, number>>;
   /** Whether a gift cost was paid / promised for gift-conditional spell text. */
   readonly giftPromised?: boolean;
+  /** Whether a library search step applied during this resolution. */
+  readonly searchedLibraryThisWay?: boolean;
+  /** Cards milled by the most recent mill step in this resolution. */
+  readonly lastMilledCards?: readonly any[];
+  /** How many times this ability has resolved this turn when known. */
+  readonly abilityResolveCountThisTurn?: number;
 }
+
+export type OracleIRStepOutcome = {
+  readonly kind: 'applied' | 'choice_required' | 'impossible' | 'unsupported';
+  readonly stepKind: OracleEffectStep['kind'];
+  readonly count?: number;
+};
 
 export interface OracleIRExecutionContext {
   readonly controllerId: PlayerID;
@@ -175,6 +189,12 @@ export interface OracleIRExecutionContext {
   readonly voteChoiceCounts?: Readonly<Record<string, number>>;
   /** Whether a gift cost was paid / promised for gift-conditional spell text. */
   readonly giftPromised?: boolean;
+  /** Whether a library search step applied during this resolution. */
+  readonly searchedLibraryThisWay?: boolean;
+  /** Cards milled by the most recent mill step in this resolution. */
+  readonly lastMilledCards?: readonly any[];
+  /** How many times this ability has resolved this turn when known. */
+  readonly abilityResolveCountThisTurn?: number;
   /**
    * Optional selector bindings supplied by the caller from trigger/target resolution context.
    * This allows relational selectors such as "each of those opponents" to execute
@@ -200,4 +220,6 @@ export interface OracleIRExecutionResult {
    * here so callers can queue the appropriate player prompts.
    */
   readonly pendingOptionalSteps: readonly OracleEffectStep[];
+  /** Outcome of the final executed step in this invocation (including nested branches). */
+  readonly lastStepOutcome?: OracleIRStepOutcome | null;
 }

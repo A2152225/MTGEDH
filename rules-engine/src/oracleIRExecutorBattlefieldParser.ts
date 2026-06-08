@@ -6,7 +6,9 @@ import {
 export type SimpleBattlefieldSelector = {
   readonly kind: 'battlefield_selector';
   readonly types: readonly SimplePermanentType[];
-  readonly controllerFilter: 'any' | 'you' | 'opponents';
+  readonly controllerFilter: 'any' | 'you' | 'opponents' | 'target_player';
+  readonly colorsAnyOf?: readonly string[];
+  readonly excludeSourceId?: boolean;
 };
 
 export type SimplePermanentType =
@@ -163,9 +165,12 @@ export function parseSimpleBattlefieldSelector(
     } else if (/^your\s+/i.test(oppPlural)) {
       controllerFilter = 'you';
       remainder = oppPlural.replace(/^your\s+/i, '').trim();
+    } else if (/^target\s+/i.test(oppPlural)) {
+      remainder = oppPlural.trim();
     } else {
       if (
         /\byou control\b/i.test(oppPlural) ||
+        /\bthey control\b/i.test(oppPlural) ||
         /\b(?:your opponents|opponents)\s+control\b/i.test(oppPlural) ||
         /\b(?:each opponent|an opponent)\s+controls\b/i.test(oppPlural) ||
         /\byou\s+(?:don'?t|do not)\s+control\b/i.test(oppPlural)
@@ -195,30 +200,63 @@ export function parseSimpleBattlefieldSelector(
   if (/\byou control\b/i.test(remainder)) controllerFilter = 'you';
   if (/\b(?:your opponents|opponents)\s+control\b/i.test(remainder)) controllerFilter = 'opponents';
   if (/\b(?:each opponent|an opponent)\s+controls\b/i.test(remainder)) controllerFilter = 'opponents';
+  if (/\bthey control\b/i.test(remainder)) controllerFilter = 'target_player';
   if (/\byou\s+(?:don'?t|do not)\s+control\b/i.test(remainder)) controllerFilter = 'opponents';
 
   remainder = remainder
     .replace(/\byou control\b/i, '')
     .replace(/\b(?:your opponents|opponents)\s+control\b/i, '')
     .replace(/\b(?:each opponent|an opponent)\s+controls\b/i, '')
+    .replace(/\bthey control\b/i, '')
     .replace(/\byou\s+(?:don'?t|do not)\s+control\b/i, '')
     .trim();
 
   if (!remainder) return null;
-  if (/\bnonland\b/.test(remainder) && !/^nonland\s+permanents?\b/.test(remainder)) return null;
+  const excludeSourceId = /^(?:another|other)\b/i.test(remainder);
+  remainder = remainder.replace(/^(?:a|an|the|another|other)\s+/i, '').trim();
+  remainder = remainder.replace(/^target\s+/i, '').trim();
+  if (!remainder) return null;
+  if (/\bnonland\b/.test(remainder) && !/^(?:target\s+)?nonland\s+permanents?\b/.test(remainder)) return null;
 
   if (/^nonland\s+permanents?\b/.test(remainder)) {
-    return { kind: 'battlefield_selector', types: ['nonland_permanent'], controllerFilter };
+    return { kind: 'battlefield_selector', types: ['nonland_permanent'], controllerFilter, excludeSourceId };
   }
 
   if (/^permanents?\b/.test(remainder)) {
-    return { kind: 'battlefield_selector', types: ['permanent'], controllerFilter };
+    return { kind: 'battlefield_selector', types: ['permanent'], controllerFilter, excludeSourceId };
+  }
+
+  const COLOR_WORD_TO_SYMBOL: Record<string, string> = {
+    white: 'W',
+    blue: 'U',
+    black: 'B',
+    red: 'R',
+    green: 'G',
+  };
+
+  let colorsAnyOf: string[] | undefined;
+  const colorOrMatch = remainder.match(
+    /^((?:white|blue|black|red|green)(?:\s+or\s+(?:white|blue|black|red|green))+)\s+(.+)$/i
+  );
+  if (colorOrMatch) {
+    colorsAnyOf = String(colorOrMatch[1] || '')
+      .split(/\s+or\s+/i)
+      .map(color => COLOR_WORD_TO_SYMBOL[String(color || '').trim().toLowerCase()])
+      .filter((color): color is string => Boolean(color));
+    remainder = String(colorOrMatch[2] || '').trim();
+  } else {
+    const singleColorMatch = remainder.match(/^(white|blue|black|red|green)\s+(.+)$/i);
+    if (singleColorMatch) {
+      const color = COLOR_WORD_TO_SYMBOL[String(singleColorMatch[1] || '').trim().toLowerCase()];
+      if (color) colorsAnyOf = [color];
+      remainder = String(singleColorMatch[2] || '').trim();
+    }
   }
 
   const cleaned = remainder.replace(/\bpermanents?\b/g, '').trim();
   if (!cleaned) return null;
 
-  const parts = cleaned.split(/\s*(?:,|and\/or|and|or)\s*/i).filter(Boolean);
+  const parts = cleaned.split(/\s*(?:,|and\/or|\band\b|\bor\b)\s*/i).filter(Boolean);
   if (parts.length === 0) return null;
 
   const allowed = new Set<SimplePermanentType>([
@@ -232,13 +270,19 @@ export function parseSimpleBattlefieldSelector(
   ]);
   const types: SimplePermanentType[] = [];
   for (const part of parts) {
-    let t = part.trim().toLowerCase();
+    let t = part.trim().toLowerCase().replace(/^(?:a|an|the)\s+/, '');
     if (t.endsWith('s')) t = t.slice(0, -1);
     if (!allowed.has(t as SimplePermanentType)) return null;
     types.push(t as SimplePermanentType);
   }
 
-  return { kind: 'battlefield_selector', types, controllerFilter };
+  return {
+    kind: 'battlefield_selector',
+    types,
+    controllerFilter,
+    ...(colorsAnyOf && colorsAnyOf.length > 0 ? { colorsAnyOf } : {}),
+    excludeSourceId,
+  };
 }
 
 export function parseSimplePermanentTypeFromText(text: string): SimplePermanentType | null {

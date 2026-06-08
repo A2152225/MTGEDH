@@ -73,6 +73,17 @@ describe('Oracle templates: tokens / scry / mill / goad', () => {
     expect(spec?.maxTargets).toBe(1);
   });
 
+  it('categorizeSpell: Increasing Confusion mills X (2X from graveyard)', () => {
+    const oracle =
+      'Target player mills X cards. If this spell was cast from a graveyard, that player mills twice that many cards instead.\nFlashback {X}{U} (You may cast this card from your graveyard for its flashback cost. Then exile it.)';
+    const spec = categorizeSpell('Increasing Confusion', oracle);
+    expect(spec?.op).toBe('MILL_TARGET_PLAYER');
+    expect(spec?.millCountIsX).toBe(true);
+    expect(spec?.millCountDoubleIfCastFromGraveyard).toBe(true);
+    expect(spec?.minTargets).toBe(1);
+    expect(spec?.maxTargets).toBe(1);
+  });
+
   it('categorizeSpell: "Each opponent mills two cards." -> MILL_EACH_OPPONENT', () => {
     const spec = categorizeSpell('Opp Mill', 'Each opponent mills two cards.');
     expect(spec?.op).toBe('MILL_EACH_OPPONENT');

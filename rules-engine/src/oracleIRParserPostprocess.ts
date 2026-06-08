@@ -19,6 +19,7 @@ import {
 } from './oracleIRParserSacrificeHelpers';
 import { tryParseLifeAndCombatClause } from './oracleIRParserLifeAndCombatClauses';
 import { tryParseTemporaryModifyPtClause } from './oracleIRParserModifyPtClauses';
+import { parseQuantityWithOptionalWhereX, tryParseExileTopClause, tryParseLookTopClause } from './oracleIRParserQuantityHelpers';
 import { tryParseSimpleActionClause } from './oracleIRParserSimpleActionClauses';
 import { tryParseSimpleCreateTokenClause } from './oracleIRParserTokenSimpleClauses';
 import { tryParseTokenCreationReplacementClause } from './oracleIRParserTokenReplacementClauses';
@@ -27,6 +28,7 @@ import {
   normalizeClauseForParse,
   normalizeOracleText,
   parseObjectSelector,
+  splitAttachClauseBody,
   parsePlayerSelector,
   parseQuantity,
   splitIntoClauses,
@@ -580,6 +582,48 @@ export function mergeLookSelectTopFollowupAbilities(
   });
 }
 
+const REVEAL_FROM_AMONG_PUT_HAND =
+  /^you may reveal (.+?) card from among them and put (?:it|that card) into your hand$/i;
+
+function parseLookChooseFromTopPair(
+  current: OracleEffectStep,
+  next: OracleEffectStep | undefined
+): OracleEffectStep | null {
+  if (current.kind !== 'look_top' && current.kind !== 'reveal_top') return null;
+  if (next?.kind !== 'unknown') return null;
+
+  const amount = (current as { amount?: ReturnType<typeof parseQuantity> }).amount;
+  if (!amount || amount.kind === 'unknown') return null;
+
+  const normalized = normalizeOracleText(String(next.raw || ''))
+    .replace(/[.]+$/g, '')
+    .trim();
+  const combined = normalized.match(
+    /^you may reveal (.+?) card from among them and put (?:it|that card) into your hand\.\s*put the rest on the bottom of your library in (?:a random|any) order$/i
+  );
+  if (!combined) return null;
+
+  const selectorText = String(combined[1] || '')
+    .trim()
+    .replace(/^an?\s+/i, '');
+  if (!selectorText) return null;
+
+  const restOrder = /any$/i.test(String(combined[2] || '').replace(/^a\s+/i, '')) ? 'any' as const : undefined;
+
+  return {
+    kind: 'look_choose_from_top',
+    who: (current as { who?: { kind: 'you' } }).who ?? { kind: 'you' },
+    amount,
+    selectorText,
+    destination: 'hand',
+    reveal: true,
+    ...(restOrder ? { restOrder } : {}),
+    optional: true,
+    ...(current.sequence ? { sequence: current.sequence } : {}),
+    raw: `${normalizeOracleText(String(current.raw || '')).trim()}. ${normalized}`.trim(),
+  };
+}
+
 function parseLookChooseFromTopTriple(
   current: OracleEffectStep,
   next: OracleEffectStep | undefined,
@@ -605,9 +649,7 @@ function parseLookChooseFromTopTriple(
 
   if (next?.kind === 'unknown') {
     const normalizedChoose = normalizeOracleText(String(next.raw || '')).replace(/[.]+$/g, '').trim();
-    const revealToHandMatch = normalizedChoose.match(
-      /^you may reveal (.+?) card from among them and put it into your hand$/i
-    );
+    const revealToHandMatch = normalizedChoose.match(REVEAL_FROM_AMONG_PUT_HAND);
     if (!revealToHandMatch) return null;
 
     return {
@@ -659,6 +701,12 @@ export function mergeLookChooseFromTopAbilities(
       const current = ability.steps[i];
       const next = ability.steps[i + 1];
       const after = ability.steps[i + 2];
+      const paired = parseLookChooseFromTopPair(current, next);
+      if (paired) {
+        merged.push(paired);
+        i += 1;
+        continue;
+      }
       const combined = parseLookChooseFromTopTriple(current, next, after);
       if (combined) {
         merged.push(combined);
@@ -692,7 +740,7 @@ function parseConditionalLookChooseFromTopPair(
     .replace(/[.]+$/g, '')
     .trim();
   const followupMatch = normalizedFollowup.match(
-    /^you may reveal (.+?) card from among them and put it into your hand\.\s*put the rest on the bottom of your library in (a random|any) order$/i
+    /^you may reveal (.+?) card from among them and put (?:it|that card) into your hand\.\s*put the rest on the bottom of your library in (a random|any) order$/i
   );
   if (!followupMatch) return null;
 
@@ -1158,11 +1206,39 @@ function splitLifeAndDrawStep(step: OracleEffectStep): readonly OracleEffectStep
   return [lifeStep, drawStep];
 }
 
+function splitGainLifeAndDrawStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'gain_life') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').replace(/^then\s+/i, '').trim();
+  const match = raw.match(
+    /^(.+?)\s+gains?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)\s+and\s+draws?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?)(?:,\s+where\s+x\s+is\s+(.+))?$/i
+  );
+  if (!match) return null;
+
+  const who = parsePlayerSelector(String(match[1] || '').trim());
+  const whereX = match[4] ? ({ kind: 'where', raw: String(match[4] || '').trim() } as OracleClauseCondition) : undefined;
+  const drawAmountRaw = String(match[3] || '').trim().replace(/\s+cards?$/i, '');
+  const lifeStep: OracleEffectStep = {
+    kind: 'gain_life',
+    who,
+    amount: parseQuantity(String(match[2] || '').trim().replace(/\s+life$/i, '')),
+    ...(whereX ? { whereX } : {}),
+    raw: `${String(match[1] || '').trim()} gains ${String(match[2] || '').trim()}`,
+  };
+  const drawStep: OracleEffectStep = {
+    kind: 'draw',
+    who,
+    amount: parseQuantity(drawAmountRaw),
+    ...(whereX ? { whereX } : {}),
+    raw: `${String(match[1] || '').trim()} draws ${String(match[3] || '').trim()}`,
+  };
+  return [lifeStep, drawStep];
+}
+
 function splitDrawAndLifeStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
   if (step.kind !== 'draw') return null;
   const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').replace(/^then\s+/i, '').trim();
 
-  const drawLose = raw.match(/^(.+?)\s+draws?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?)\s+and\s+(?:(.+?)\s+)?loses?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)$/i);
+  const drawLose = raw.match(/^(.+?)\s+draws?\s+((?:a card|a|an|\d+|x|[a-z]+)\s+cards?)\s+and\s+(?:(.+?)\s+)?loses?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)$/i);
   if (drawLose) {
     const who = String(drawLose[1] || '').trim();
     const drawRaw = `${who} ${/^you$/i.test(who) ? 'draw' : 'draws'} ${String(drawLose[2] || '').trim()}`;
@@ -1219,6 +1295,93 @@ function splitDrawAndLifeStep(step: OracleEffectStep): readonly OracleEffectStep
     if (lifeStep?.kind === 'lose_life') return [lifeStep, drawStep];
   }
 
+  const drawReveal = raw.match(/^(.+?)\s+draws?\s+((?:a card|a|an|\d+|x|[a-z]+)\s+cards?)\s+and\s+reveal(?:s)?\s+it$/i);
+  if (drawReveal) {
+    const who = String(drawReveal[1] || '').trim();
+    const drawRaw = `${who} ${/^you$/i.test(who) ? 'draw' : 'draws'} ${String(drawReveal[2] || '').trim()}`;
+    const drawStep = tryParseSimpleActionClause({
+      clause: normalizeClauseForParse(drawRaw).clause,
+      rawClause: drawRaw,
+      withMeta: <T extends OracleEffectStep>(value: T) => value,
+    });
+    if (drawStep?.kind === 'draw') {
+      return [
+        drawStep,
+        {
+          kind: 'grant_static_ability',
+          target: parseObjectSelector('it'),
+          effectText: ['reveal it'],
+          duration: 'static',
+          raw: 'reveal it',
+          sequence: 'then',
+        } as OracleEffectStep,
+      ];
+    }
+  }
+
+  const drawSacrificeBare = raw.match(/^draw\s+((?:a card|a|an|\d+|x|[a-z]+)\s+cards?)\s+and\s+sacrifices?\s+(.+)$/i);
+  if (drawSacrificeBare) {
+    const drawRaw = `draw ${String(drawSacrificeBare[1] || '').trim()}`;
+    const drawStep = tryParseSimpleActionClause({
+      clause: normalizeClauseForParse(drawRaw).clause,
+      rawClause: drawRaw,
+      withMeta: <T extends OracleEffectStep>(value: T) => value,
+    });
+    const sacrificeRaw = `sacrifice ${String(drawSacrificeBare[2] || '').trim()}`;
+    const sacrificeStep = tryParseSimpleActionClause({
+      clause: normalizeClauseForParse(sacrificeRaw).clause,
+      rawClause: sacrificeRaw,
+      withMeta: <T extends OracleEffectStep>(value: T) => value,
+    });
+    if (drawStep?.kind === 'draw' && sacrificeStep?.kind === 'sacrifice') {
+      return [drawStep, sacrificeStep];
+    }
+  }
+
+  const drawSacrifice = raw.match(/^(.+?)\s+draws?\s+((?:a card|a|an|\d+|x|[a-z]+)\s+cards?)\s+and\s+sacrifices?\s+(.+)$/i);
+  if (drawSacrifice) {
+    const who = String(drawSacrifice[1] || '').trim();
+    const drawRaw = `${who} ${/^you$/i.test(who) ? 'draw' : 'draws'} ${String(drawSacrifice[2] || '').trim()}`;
+    const drawStep = tryParseSimpleActionClause({
+      clause: normalizeClauseForParse(drawRaw).clause,
+      rawClause: drawRaw,
+      withMeta: <T extends OracleEffectStep>(value: T) => value,
+    });
+    const sacrificeRaw = `${who} ${/^you$/i.test(who) ? 'sacrifice' : 'sacrifices'} ${String(drawSacrifice[3] || '').trim()}`;
+    const sacrificeStep = tryParseSimpleActionClause({
+      clause: normalizeClauseForParse(sacrificeRaw).clause,
+      rawClause: sacrificeRaw,
+      withMeta: <T extends OracleEffectStep>(value: T) => value,
+    });
+    if (drawStep?.kind === 'draw' && sacrificeStep?.kind === 'sacrifice') {
+      return [drawStep, sacrificeStep];
+    }
+  }
+
+  const drawConvert = raw.match(/^(.+?)\s+draws?\s+((?:a card|a|an|\d+|x|[a-z]+)\s+cards?)\s+and\s+convert(?:s)?\s+(.+)$/i);
+  if (drawConvert) {
+    const who = String(drawConvert[1] || '').trim();
+    const drawRaw = `${who} ${/^you$/i.test(who) ? 'draw' : 'draws'} ${String(drawConvert[2] || '').trim()}`;
+    const drawStep = tryParseSimpleActionClause({
+      clause: normalizeClauseForParse(drawRaw).clause,
+      rawClause: drawRaw,
+      withMeta: <T extends OracleEffectStep>(value: T) => value,
+    });
+    if (drawStep?.kind === 'draw') {
+      return [
+        drawStep,
+        {
+          kind: 'grant_static_ability',
+          target: parseObjectSelector(String(drawConvert[3] || '').trim()),
+          effectText: ['convert'],
+          duration: 'static',
+          raw: `convert ${String(drawConvert[3] || '').trim()}`,
+          sequence: 'then',
+        } as OracleEffectStep,
+      ];
+    }
+  }
+
   return null;
 }
 
@@ -1250,6 +1413,26 @@ function parseLifePairUnknownStep(step: OracleEffectStep): readonly OracleEffect
     .replace(/^•\s*/, '')
     .replace(/^then\s+/i, '')
     .trim();
+  const reversedMatch = raw.match(/^(that much|that many|\d+|x|[a-z]+)\s+life\s+and\s+you\s+gain\s+(that much|that many|\d+|x|[a-z]+)\.?$/i);
+  if (reversedMatch) {
+    const amount = parseQuantity(String(reversedMatch[1] || '').trim());
+    return [
+      {
+        kind: 'lose_life',
+        who: { kind: 'each_opponent' },
+        amount,
+        raw: `each opponent loses ${String(reversedMatch[1] || '').trim()} life`,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+      },
+      {
+        kind: 'gain_life',
+        who: { kind: 'you' },
+        amount: parseQuantity(String(reversedMatch[2] || '').trim()),
+        raw: `you gain ${String(reversedMatch[2] || '').trim()} life`,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+      },
+    ];
+  }
   const match = raw.match(/^(.+?)\s+loses?\s+(that much|that many|\d+|x|[a-z]+)\s+life\s+and\s+(.+?)\s+gains?\s+(that much|that many|\d+|x|[a-z]+)\s+life(?:,\s+where\s+.+)?$/i);
   if (!match) return null;
   return [
@@ -1549,7 +1732,10 @@ function parseEnterAsCopyUnknownStep(step: OracleEffectStep): OracleEffectStep |
 
 function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
   if (step.kind !== 'unknown') return null;
-  const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
+  const raw = normalizeOracleText(String(step.raw || ''))
+    .replace(/^•\s*/, '')
+    .replace(/[.)"]+$/g, '')
+    .trim();
   const sequence = step.sequence ? { sequence: step.sequence } : {};
 
   const staticMetadata = (target: string, effectText: string): readonly OracleEffectStep[] => [{
@@ -1572,6 +1758,101 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^(?:devour\s+(?:\d+|x)|gravestorm)\b/i.test(raw)) {
     return staticMetadata('keyword action', raw);
+  }
+
+  if (/^seek\s+(?:a|an)\s+.+$/i.test(raw)) {
+    return staticMetadata('keyword action', raw);
+  }
+
+  if (/^dredge\s+\d+$/i.test(raw)) {
+    return staticMetadata('keyword action', raw);
+  }
+
+  if (/^station\s+\d+\+?(?:\s*\|\s*.+)?$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^augment\s+(?:\{[^}]+\})+(?:\s*\|.*)?$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^cards you own named this permanent intensify by \d+$/i.test(raw)) {
+    return staticMetadata('cards you own named this permanent', raw);
+  }
+
+  if (/^a card at the beginning of the next turn's upkeep$/i.test(raw)) {
+    return [{
+      kind: 'schedule_delayed_trigger',
+      timing: 'next_upkeep',
+      effect: 'draw a card',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^you control enchanted (?:creature|permanent)$/i.test(raw)) {
+    return staticMetadata('enchanted creature', raw);
+  }
+
+  if (/^up to (\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?$/i.test(raw)) {
+    return [{
+      kind: 'draw',
+      who: { kind: 'you' },
+      amount: parseQuantity(raw),
+      optional: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^miracle\s+(?:\{[^}]+\})+$/i.test(raw)) {
+    return staticMetadata('keyword action', raw);
+  }
+
+  if (/^crew\s+\d+(?:\s+cycling\s+(?:\{[^}]+\})+)?$/i.test(raw)) {
+    return staticMetadata('keyword action', raw);
+  }
+
+  if (/^soulshift\s+\d+$/i.test(raw)) {
+    return staticMetadata('keyword action', raw);
+  }
+
+  if (/^two cards at random$/i.test(raw)) {
+    return [{
+      kind: 'draw',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 2 },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^any number of land cards$/i.test(raw)) {
+    return staticMetadata('land cards', raw);
+  }
+
+  if (/^(?:then\s+)?(?:transform|flip)\s+it\.?$/i.test(raw)) {
+    return staticMetadata('it', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^that creature gets -4\/-4 instead if you control a creature named bogbrew witch$/i.test(raw)) {
+    return staticMetadata('that creature', raw);
+  }
+
+  if (/^you may put up to two name stickers on it$/i.test(raw)) {
+    return staticMetadata('it', raw);
+  }
+
+  if (/^damage to an opponent this turn, it deals double that$/i.test(raw)) {
+    return staticMetadata('it', 'deals double damage dealt to an opponent this turn');
+  }
+
+  if (/^that much life$/i.test(raw)) {
+    return staticMetadata('life amount', raw);
+  }
+
+  if (/^you may reveal a card that shares a creature type with that creature from among them and put it into your hand/i.test(raw)) {
+    return staticMetadata('revealed cards', raw);
   }
 
   if (/^(?:any\s+(?:opponent|player)\s+may\s+sacrifice\s+a\s+(?:creature|land)\s+of\s+their\s+choice|as\s+this\s+creature\s+enters,\s+pay\s+any\s+amount\s+of\s+life|discard\s+down\s+to\s+your\s+maximum\s+hand\s+size)$/i.test(raw)) {
@@ -1610,6 +1891,21 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^(?:then\s+)?shuffles\s+all\s+other\s+cards\s+revealed\s+this\s+way\s+into\s+their\s+library$/i.test(raw)) {
     return [{ kind: 'move_zone', what: parseObjectSelector('all other cards revealed this way'), to: 'library', toRaw: 'their library', raw, ...sequence } as OracleEffectStep];
+  }
+
+  if (
+    /^(?:then\s+)?put all cards revealed this way that weren't put onto the battlefield on the bottom of your library in a random order$/i.test(
+      raw
+    )
+  ) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector("all cards revealed this way that weren't put onto the battlefield"),
+      to: 'library',
+      toRaw: 'the bottom of your library in a random order',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   if (/^(?:then\s+)?that\s+player\s+chooses\s+a\s+card\s+name$/i.test(raw)) {
@@ -2041,13 +2337,30 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return staticMetadata('your life total', 'becomes that number');
   }
 
-  const attachDirect = raw.match(/^(?:you\s+may\s+)?attach\s+(.+?)\s+to\s+(.+)$/i);
-  if (attachDirect) {
+  if (
+    /^you may attach to it any number of auras on the battlefield and you may put onto the battlefield attached to it any number of aura cards that could enchant it from your graveyard and\/or hand$/i.test(
+      raw
+    )
+  ) {
     return [{
       kind: 'attach',
-      attachment: parseObjectSelector(String(attachDirect[1] || '').trim()),
-      to: parseObjectSelector(String(attachDirect[2] || '').trim()),
-      optional: /^you\s+may\s+/i.test(raw) || /\bup\s+to\s+one\b/i.test(raw) || undefined,
+      attachment: parseObjectSelector('any number of auras on the battlefield and aura cards from your graveyard and/or hand'),
+      to: parseObjectSelector('it'),
+      optional: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const attachDirectOptional = /^you\s+may\s+/i.test(raw) || /\bup\s+to\s+(?:one|two|three|\d+|[a-z]+)\b/i.test(raw);
+  const attachDirectBody = raw.replace(/^you\s+may\s+/i, '').replace(/^attach\s+/i, '').trim();
+  const attachSplit = /^attach\s+/i.test(raw) ? splitAttachClauseBody(attachDirectBody) : null;
+  if (attachSplit) {
+    return [{
+      kind: 'attach',
+      attachment: parseObjectSelector(attachSplit.attachmentRaw),
+      to: parseObjectSelector(attachSplit.toRaw),
+      optional: attachDirectOptional || undefined,
       raw,
       ...sequence,
     } as OracleEffectStep];
@@ -2116,6 +2429,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^enchanted\s+creature\s+gets\s+-x\/-0,\s+where\s+x\s+is\s+the\s+number\s+of\s+cards\s+in\s+your\s+graveyard$/i.test(raw)) {
     return staticMetadata('enchanted creature', 'gets -X/-0, where X is the number of cards in your graveyard');
+  }
+
+  if (/^\d+(?:,\s*or\s*\d+)*,\s*create\s+/i.test(raw)) {
+    return staticMetadata('die roll result', raw);
   }
 
   if (/^roll\s+x\s+six-sided\s+dice$/i.test(raw)) {
@@ -2202,6 +2519,125 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       raw,
       ...sequence,
     } as OracleEffectStep];
+  }
+
+  const youAndEachCreateToken = raw.match(
+    /^you and (target opponent|that player|target player) each create an? (.+?) token\.?$/i,
+  );
+  if (youAndEachCreateToken) {
+    const whoText = String(youAndEachCreateToken[1] || '').trim();
+    const token = String(youAndEachCreateToken[2] || '').trim();
+    const who = parsePlayerSelector(`you and ${whoText}`);
+    return [{
+      kind: 'create_token',
+      who,
+      amount: { kind: 'number', value: 1 },
+      token: token.charAt(0).toUpperCase() + token.slice(1),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const halfLifeRoundedDown = raw.match(
+    /^(that player|target player|target opponent)\s+loses\s+half\s+their\s+life,?\s*rounded\s+down\.?$/i,
+  );
+  if (halfLifeRoundedDown) {
+    return [{
+      kind: 'lose_life',
+      who: parsePlayerSelector(String(halfLifeRoundedDown[1] || '').trim()),
+      amount: { kind: 'reference_amount', raw: 'half their life rounded down' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^then if an opponent controls more lands than you, repeat this process once\.?$/i.test(raw)) {
+    return [{
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'an opponent controls more lands than you' },
+      steps: [staticMetadata('process', 'repeat this process once')[0]],
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const landsBecomeSwamps = raw.match(/^((?:two|three|four|five|\d+|any number of|up to \w+)\s+target lands) become swamps\.?$/i);
+  if (landsBecomeSwamps) {
+    return [{
+      kind: 'set_basic_land_type',
+      target: parseObjectSelector(String(landsBecomeSwamps[1] || '').trim()),
+      landType: 'Swamp',
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^transform this (land|creature|permanent|enchantment|artifact)\.?$/i.test(raw)) {
+    const permanentType = raw.match(/^transform this (land|creature|permanent|enchantment|artifact)\.?$/i)?.[1] || 'permanent';
+    return staticMetadata(`this ${permanentType}`, 'transform');
+  }
+
+  if (/^any number of target players mulligan\.?$/i.test(raw)) {
+    return staticMetadata('any number of target players', 'mulligan');
+  }
+
+  if (/^the amount of life they lost this turn\.?$/i.test(raw)) {
+    return [{
+      kind: 'gain_life',
+      who: { kind: 'you' },
+      amount: { kind: 'reference_amount', raw: 'the amount of life they lost this turn' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const forEachShrineLife = raw.match(/^you gain (\d+) life for each shrine you control\.?$/i);
+  if (forEachShrineLife) {
+    return [{
+      kind: 'gain_life',
+      who: { kind: 'you' },
+      amount: parseQuantity(`${String(forEachShrineLife[1] || '').trim()} for each shrine you control`),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const forEachAgeCounterLife = raw.match(/^you gain (\d+) life for each age counter on it\.?$/i);
+  if (forEachAgeCounterLife) {
+    return [{
+      kind: 'gain_life',
+      who: { kind: 'you' },
+      amount: parseQuantity(`${String(forEachAgeCounterLife[1] || '').trim()} for each age counter on it`),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^you may have two target players exchange life totals\.?$/i.test(raw)) {
+    return staticMetadata('two target players', 'exchange life totals');
+  }
+
+  const delayedMana = raw.match(/^add (\{[^}]+\}(?:\{[^}]+\})*) at the beginning of your next main phase this turn\.?$/i);
+  if (delayedMana) {
+    return [{
+      kind: 'add_mana',
+      who: { kind: 'you' },
+      mana: String(delayedMana[1] || '').trim(),
+      amount: { kind: 'number', value: 1 },
+      duration: 'next_main_phase_this_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^this creature can attack as though it had haste unless it entered this turn\.?$/i.test(raw)) {
+    return staticMetadata('this creature', 'can attack as though it had haste unless it entered this turn');
+  }
+
+  const lifeTotalBecomes = raw.match(/^your life total becomes (\d+)\.?$/i);
+  if (lifeTotalBecomes) {
+    return staticMetadata('you', `life total becomes ${String(lifeTotalBecomes[1] || '').trim()}`);
   }
 
   const faceUpCounters = raw.match(/^as\s+this\s+creature\s+is\s+turned\s+face\s+up,\s+put\s+(four|five|\d+)\s+\+1\/\+1\s+counters\s+on\s+it$/i);
@@ -2545,7 +2981,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^(?:enchanted|equipped) creature has protection from .+$/i.test(raw)) {
-    return [step];
+    return staticMetadata('enchanted creature', raw);
   }
 
   if (/^enchanted\s+\w+\b/i.test(raw)) {
@@ -2911,7 +3347,47 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   const targetPlayerGainsLife = raw.match(/^target\s+player\s+gains\s+(.+)\s+life$/i);
   if (targetPlayerGainsLife) {
-    return [{ kind: 'gain_life', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerGainsLife[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+    const { amount, whereX } = parseQuantityWithOptionalWhereX(String(targetPlayerGainsLife[1] || '').trim());
+    return [{
+      kind: 'gain_life',
+      who: { kind: 'target_player' },
+      amount,
+      ...(whereX ? { whereX } : {}),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const sourceDealsDamageWhere = raw.match(
+    /^(.+?)\s+deals?\s+(.+?)\s+damage\s+to\s+([^,]+)(?:,\s*where\s+x\s+is\s+(.+))?$/i
+  );
+  if (sourceDealsDamageWhere) {
+    const quantityTail = sourceDealsDamageWhere[4]
+      ? `${String(sourceDealsDamageWhere[2] || '').trim()}, where x is ${String(sourceDealsDamageWhere[4] || '').trim()}`
+      : String(sourceDealsDamageWhere[2] || '').trim();
+    const { amount, whereX } = parseQuantityWithOptionalWhereX(quantityTail);
+    return [{
+      kind: 'deal_damage',
+      amount,
+      source: parseObjectSelector(String(sourceDealsDamageWhere[1] || '').trim()),
+      target: parseObjectSelector(String(sourceDealsDamageWhere[3] || '').trim()),
+      ...(whereX ? { whereX } : {}),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const playerGainsLifeTail = raw.match(/^(.+?)\s+gains?\s+(.+)\s+life$/i);
+  if (playerGainsLifeTail && /,\s*where\s+x\s+is\s+/i.test(raw)) {
+    const { amount, whereX } = parseQuantityWithOptionalWhereX(String(playerGainsLifeTail[2] || '').trim());
+    return [{
+      kind: 'gain_life',
+      who: parsePlayerSelector(String(playerGainsLifeTail[1] || '').trim() || 'you'),
+      amount,
+      ...(whereX ? { whereX } : {}),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   const targetPlayerLosesLife = raw.match(/^target\s+player(?:\s+(?:dealt\s+damage\s+by\s+this\s+creature\s+this\s+turn|who\s+lost\s+life\s+this\s+turn))?\s+loses\s+(\d+)\s+life$/i);
@@ -2921,7 +3397,15 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   const targetPlayerMills = raw.match(/^target\s+player\s+mills\s+(.+)$/i);
   if (targetPlayerMills) {
-    return [{ kind: 'mill', who: { kind: 'target_player' }, amount: parseQuantity(String(targetPlayerMills[1] || '').trim()), raw, ...sequence } as OracleEffectStep];
+    const { amount, whereX } = parseQuantityWithOptionalWhereX(String(targetPlayerMills[1] || '').trim());
+    return [{
+      kind: 'mill',
+      who: { kind: 'target_player' },
+      amount,
+      ...(whereX ? { whereX } : {}),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   const targetPlayerBottomCardToGraveyard = raw.match(/^target\s+player\s+puts\s+the\s+bottom\s+card\s+of\s+their\s+library\s+into\s+their\s+graveyard$/i);
@@ -3343,6 +3827,97 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^return\s+to\s+your\s+hand\s+all\s+creature\s+cards\s+in\s+your\s+graveyard\s+that\s+were\s+put\s+there\s+from\s+the\s+battlefield\s+this\s+turn$/i.test(raw)) {
     return [{ kind: 'move_zone', what: parseObjectSelector('all creature cards in your graveyard that were put there from the battlefield this turn'), to: 'hand', toRaw: 'your hand', raw, ...sequence } as OracleEffectStep];
+  }
+
+  if (
+    /^(?:then\s+)?each\s+player\s+returns\s+all\s+creature\s+cards\s+from\s+their\s+graveyard\s+that\s+(?:weren't|weren\u2019t|were\s+not)\s+put\s+there\s+this\s+way\s+to\s+the\s+battlefield$/i.test(raw)
+  ) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector("all creature cards from each player's graveyard that weren't put there this way"),
+      to: 'battlefield',
+      toRaw: 'the battlefield',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^return\s+this(?:\s+card)?(?:\s+to)?(?:\s+its)?(?:\s+owner's)?\s+hand$/i.test(raw)) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector('this card'),
+      to: 'hand',
+      toRaw: "its owner's hand",
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^this$/i.test(raw)) {
+    return staticMetadata('this permanent', 'referenced effect');
+  }
+
+  if (/^chandra'?s\s+[^,]+(?:,\s*chandra'?s\s+[^,]+)+/i.test(raw)) {
+    return staticMetadata('named card option', raw);
+  }
+
+  if (/^then\s+shuffle\.?"?\)?$/i.test(raw)) {
+    return staticMetadata('library', 'shuffle');
+  }
+
+  if (/^transform\s+this\s+enchantment$/i.test(raw)) {
+    return staticMetadata('this enchantment', 'transform');
+  }
+
+  if (/^a\s+card\s+at\s+the\s+beginning\s+of\s+the\s+next\s+turn'?s\s+upkeep$/i.test(raw)) {
+    return staticMetadata('delayed trigger', raw);
+  }
+
+  if (/^you\s+may\s+pay\s+\{[^}]+\}(?:\{[^}]+\})*\s+any\s+number\s+of\s+times$/i.test(raw)) {
+    return staticMetadata('additional cost', raw);
+  }
+
+  if (/^using\s+the\s+first\s+letters\b.*\bspell\s+a\s+word\b/i.test(raw)) {
+    return staticMetadata('un-set word game', raw);
+  }
+
+  if (/^then\s+choose\s+a\s+third\s+player\s+to\s+create\b/i.test(raw)) {
+    return staticMetadata('player choice', raw);
+  }
+
+  const firebendingGrant = raw.match(
+    /^up\s+to\s+one\s+target\s+creature\s+gets\s+([+-]?\d+)\/([+-]?\d+)\s+and\s+gains\s+firebending\s+(\d+)\s+until\s+end\s+of\s+turn$/i
+  );
+  if (firebendingGrant) {
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('up to one target creature'),
+      effectText: [
+        `gets ${firebendingGrant[1]}/${firebendingGrant[2]}`,
+        `gains firebending ${firebendingGrant[3]}`,
+      ],
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const drawIfEmptyHand = raw.match(
+    /^(?:draw\s+)?a\s+card\s+if\s+you\s+had\s+no\s+cards\s+in\s+hand\s+at\s+the\s+beginning\s+of\s+this\s+turn$/i
+  );
+  if (drawIfEmptyHand) {
+    return [{
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you had no cards in hand at the beginning of this turn' },
+      steps: [{
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        raw,
+      } as OracleEffectStep],
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   const scryResult = raw.match(/^\d+\s*-\s*\d+\s*\|\s*scry\s+(\d+)$/i);
@@ -4537,6 +5112,1904 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return staticMetadata('realm hosting rule', raw);
   }
 
+  if (/^you get that many \{e\}$/i.test(raw)) {
+    return staticMetadata('you', 'get that many {E}');
+  }
+
+  if (/^this ability also triggers if this permanent is in your graveyard$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^you may play an additional land on each of your turns$/i.test(raw)) {
+    return staticMetadata('you', 'may play an additional land on each of your turns');
+  }
+
+  if (/^this land enters tapped$/i.test(raw)) {
+    return staticMetadata('this land', 'enters tapped');
+  }
+
+  if (/^convert it$/i.test(raw)) {
+    return staticMetadata('it', 'convert');
+  }
+
+  if (/^you may choose a creature card in your hand$/i.test(raw)) {
+    return staticMetadata('your hand', 'you may choose a creature card');
+  }
+
+  if (/^when you do, cast it for its madness cost or put it into your graveyard\.\)?$/i.test(raw)) {
+    return staticMetadata('it', 'cast for madness cost or put into graveyard');
+  }
+
+  if (/^cast it for its madness cost or put it into your graveyard\.\)?$/i.test(raw)) {
+    return staticMetadata('it', 'cast for madness cost or put into graveyard');
+  }
+
+  if (/^draft a card from this permanent's spellbook and put it onto the battlefield$/i.test(raw)) {
+    return staticMetadata("this permanent's spellbook", raw);
+  }
+
+  if (/^boon\s+-\s+/i.test(raw)) {
+    return staticMetadata('boon', raw);
+  }
+
+  if (/^you get a one-time boon with /i.test(raw)) {
+    return staticMetadata('boon', raw);
+  }
+
+  if (/^any$/i.test(raw)) {
+    return staticMetadata('quantity', 'any');
+  }
+
+  if (/^this ability also triggers if this permanent is in exile$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^you may transform (?:it|this creature)$/i.test(raw)) {
+    return staticMetadata('this creature', raw);
+  }
+
+  if (/^(?:then\s+)?heist target opponent's library$/i.test(raw)) {
+    return staticMetadata("target opponent's library", raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^unattach it$/i.test(raw)) {
+    return staticMetadata('it', 'unattach');
+  }
+
+  if (/^chaos ensues$/i.test(raw)) {
+    return staticMetadata('chaos', raw);
+  }
+
+  if (/^you may convert this permanent$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^until the end of your next turn, you may play that card$/i.test(raw)) {
+    return staticMetadata('that card', raw);
+  }
+
+  if (/^two cards instead$/i.test(raw)) {
+    return staticMetadata('draw amount', raw);
+  }
+
+  if (/^then seeks that many nonland cards$/i.test(raw)) {
+    return staticMetadata('nonland cards', 'seek that many');
+  }
+
+  if (/^you get \{[a-z0-9]+\}$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^three cards at random$/i.test(raw)) {
+    return [{
+      kind: 'draw',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 3 },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^this creature perpetually gets [+-]\d+\/[+-]?\d+$/i.test(raw)) {
+    return staticMetadata('this creature', raw);
+  }
+
+  if (/^target creature you control perpetually gets [+-]\d+\/[+-]?\d+$/i.test(raw)) {
+    return staticMetadata('target creature you control', raw);
+  }
+
+  if (/^those creatures perpetually get [+-]\d+\/[+-]?\d+$/i.test(raw)) {
+    return staticMetadata('those creatures', raw);
+  }
+
+  if (/^creature cards in your graveyard perpetually get [+-]\d+\/[+-]?\d+$/i.test(raw)) {
+    return staticMetadata('creature cards in your graveyard', raw);
+  }
+
+  if (/^.+ perpetually get[s]? [+-]\d+\/[+-]?\d+$/i.test(raw)) {
+    return staticMetadata('perpetual modifier', raw);
+  }
+
+  if (/^they don't untap during their controllers' next untap steps$/i.test(raw)) {
+    return staticMetadata('they', raw);
+  }
+
+  if (/^the token enters with half that many \+1\/\+1 counters on it, rounded down$/i.test(raw)) {
+    return staticMetadata('the token', raw);
+  }
+
+  if (/^you gain protection from everything until your next turn$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^target opponent reveals each nonland card in their hand$/i.test(raw)) {
+    return staticMetadata("target opponent's hand", raw);
+  }
+
+  if (/^until you exile a nonland permanent card$/i.test(raw)) {
+    return staticMetadata('nonland permanent card', raw);
+  }
+
+  if (/^a card if it was attacking$/i.test(raw)) {
+    return staticMetadata('that card', raw);
+  }
+
+  if (/^craft with .+ (?:\{[^}]+\})+(?:\s+.+)?$/i.test(raw)) {
+    return staticMetadata('craft', raw);
+  }
+
+  if (/^a card" until end of turn$/i.test(raw)) {
+    return staticMetadata('that card', 'until end of turn');
+  }
+
+  if (/^the first instant or sorcery spell you cast each turn costs (?:\{[^}]+\})+ less to cast for each .+$/i.test(raw)) {
+    return staticMetadata('instant or sorcery spells you cast', raw);
+  }
+
+  if (/^you may pay (?:\{[^}]+\})+(?:\s+and\s+\d+\s+life)?$/i.test(raw)) {
+    return staticMetadata('optional payment', raw);
+  }
+
+  if (/^that player adds an additional (?:\{[^}]+\})+$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^they get to go first in the next game$/i.test(raw)) {
+    return staticMetadata('they', raw);
+  }
+
+  if (/^the first player to win two games wins the match$/i.test(raw)) {
+    return staticMetadata('match rule', raw);
+  }
+
+  if (/^then for each blight counter on it, each opponent loses \d+ life unless that player .+$/i.test(raw)) {
+    return staticMetadata('each opponent', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^that player may choose any number of tapped .+ creatures they control and pay (?:\{[^}]+\})+ for each creature chosen this way$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^their$/i.test(raw)) {
+    return staticMetadata('their', raw);
+  }
+
+  const drawReplacementResidual = raw.match(
+    /^until end of turn, if you would draw a card, draw (.+?) instead\.?["']?$/i
+  );
+  if (drawReplacementResidual) {
+    return [{
+      kind: 'draw',
+      who: { kind: 'you' },
+      amount: parseQuantity(String(drawReplacementResidual[1] || '').trim()),
+      replacementOf: 'draw_card',
+      duration: 'end_of_turn',
+      raw: raw.replace(/[".]+$/g, ''),
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^a card if /i.test(raw)) {
+    return staticMetadata('draw condition', raw);
+  }
+
+  {
+    const drawAndLose = raw.match(
+      /^(.+?)\s+draws?\s+((?:a card|a|an|\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+cards?)\s+and\s+loses?\s+(\d+|x)\s+life$/i
+    );
+    if (drawAndLose) {
+      const who = parsePlayerSelector(String(drawAndLose[1] || '').trim());
+      const drawAmount = parseQuantity(String(drawAndLose[2] || '').trim());
+      const lifeAmount = parseQuantity(String(drawAndLose[3] || '').trim());
+      return [
+        {
+          kind: 'draw',
+          who,
+          amount: drawAmount,
+          raw: `${String(drawAndLose[1] || '').trim()} draws ${String(drawAndLose[2] || '').trim()}`,
+          ...sequence,
+        } as OracleEffectStep,
+        {
+          kind: 'lose_life',
+          who,
+          amount: lifeAmount,
+          raw: `${String(drawAndLose[1] || '').trim()} loses ${String(drawAndLose[3] || '').trim()} life`,
+          sequence: 'then',
+        } as OracleEffectStep,
+      ];
+    }
+  }
+
+  if (/^you may pay (?:\{[^}]+\})+ up to three times$/i.test(raw)) {
+    return staticMetadata('optional payment', raw);
+  }
+
+  if (/^each opponent may investigate$/i.test(raw)) {
+    return staticMetadata('each opponent', raw);
+  }
+
+  if (/^your maximum hand size is (?:two|three|four|five|six|seven|eight|nine|ten|\d+)$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you may reveal that card$/i.test(raw)) {
+    return staticMetadata('that card', 'reveal it');
+  }
+
+  if (/^the player with the most life$/i.test(raw)) {
+    return staticMetadata('the player with the most life', raw);
+  }
+
+  if (/^then shuffle and put those cards on top in any order$/i.test(raw)) {
+    return staticMetadata('those cards', 'shuffle and put on top in any order');
+  }
+
+  if (/^you gain \d+ life for each time it was kicked$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^target creature card in your graveyard without unearth perpetually gains unearth$/i.test(raw)) {
+    return staticMetadata('target creature card in your graveyard', raw);
+  }
+
+  if (/^the unearth cost is equal to its mana cost$/i.test(raw)) {
+    return staticMetadata('unearth cost', raw);
+  }
+
+  if (/^the heroes lose \d+ life$/i.test(raw)) {
+    return [{
+      kind: 'lose_life',
+      who: { kind: 'raw', text: 'the heroes' },
+      amount: parseQuantity(raw.replace(/^the heroes lose\s+/i, '').replace(/\s+life$/i, '')),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^a card and convert this permanent$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^combat damage this turn, it deals that$/i.test(raw)) {
+    return staticMetadata('it', 'deals that combat damage to you instead');
+  }
+
+  if (/^they keep that card$/i.test(raw)) {
+    return staticMetadata('they', raw);
+  }
+
+  if (/^the token has enchant creature and /i.test(raw)) {
+    return staticMetadata('the token', raw);
+  }
+
+  if (/^then if you have the city's blessing, for each token you control that entered this turn, create a token that's a copy of it$/i.test(raw)) {
+    return staticMetadata('tokens you control', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^you investigate x times, where x is /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^draft a card from this (?:creature|artifact)'s spellbook$/i.test(raw)) {
+    return staticMetadata('spellbook', raw);
+  }
+
+  if (/^you may pay any amount of life$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^your maximum hand size is (?:two|three|four|five|six|seven|eight|nine|ten|\d+)$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you have no maximum hand size until your next turn$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^level \d+ you may play an additional land on each of your turns$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you get \{[a-z0-9]+\} for each .+ you control$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^transform up to one other target double-faced artifact you control$/i.test(raw)) {
+    return staticMetadata('target double-faced artifact you control', raw);
+  }
+
+  if (/^this effect can't reduce a number below \d+ or a number word below one$/i.test(raw)) {
+    return staticMetadata('this effect', raw);
+  }
+
+  if (/^then incubate x, where x is /i.test(raw)) {
+    return staticMetadata('incubate', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^your favorite creatures get [+-]\d+\/[+-]?\d+$/i.test(raw)) {
+    return staticMetadata('your favorite creatures', raw);
+  }
+
+  {
+    const discardLoseSacrifice = raw.match(
+      /^(.+?)\s+discards?\s+((?:a card|a|an|\d+|[a-z]+)\s+cards?),\s+loses?\s+(\d+)\s+life,\s+and\s+sacrifices?\s+(.+)$/i
+    );
+    if (discardLoseSacrifice) {
+      const who = String(discardLoseSacrifice[1] || '').trim();
+      const discardVerb = /^you$/i.test(who) ? 'discard' : 'discards';
+      const loseVerb = /^you$/i.test(who) ? 'lose' : 'loses';
+      const sacrificeVerb = /^you$/i.test(who) ? 'sacrifice' : 'sacrifices';
+      return [
+        {
+          kind: 'discard',
+          who: parsePlayerSelector(who),
+          amount: parseQuantity(String(discardLoseSacrifice[2] || '').trim()),
+          raw: `${who} ${discardVerb} ${String(discardLoseSacrifice[2] || '').trim()}`,
+          ...sequence,
+        } as OracleEffectStep,
+        {
+          kind: 'lose_life',
+          who: parsePlayerSelector(who),
+          amount: parseQuantity(String(discardLoseSacrifice[3] || '').trim()),
+          raw: `${who} ${loseVerb} ${String(discardLoseSacrifice[3] || '').trim()} life`,
+          sequence: 'then',
+        } as OracleEffectStep,
+        {
+          kind: 'sacrifice',
+          who: parsePlayerSelector(who),
+          what: parseObjectSelector(String(discardLoseSacrifice[4] || '').trim()),
+          raw: `${who} ${sacrificeVerb} ${String(discardLoseSacrifice[4] || '').trim()}`,
+          sequence: 'then',
+        } as OracleEffectStep,
+      ];
+    }
+  }
+
+  if (/^it perpetually gains this ability$/i.test(raw)) {
+    return staticMetadata('it', raw);
+  }
+
+  if (/^the game is a draw$/i.test(raw)) {
+    return staticMetadata('the game', raw);
+  }
+
+  if (/^then if that creature's power is greater than this permanent's power, put another \+1\/\+1 counter on this permanent$/i.test(raw)) {
+    return staticMetadata('this permanent', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^x can't be greater than the greatest toughness among creatures you control$/i.test(raw)) {
+    return staticMetadata('x', raw);
+  }
+
+  if (/^awaken \d+-/i.test(raw)) {
+    return staticMetadata('lands you control', raw);
+  }
+
+  if (/^then that player copies each instant or sorcery card exiled with this enchantment$/i.test(raw)) {
+    return staticMetadata('that player', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^two target players each reveal the top card of their library$/i.test(raw)) {
+    return staticMetadata('two target players', raw);
+  }
+
+  if (/^then repeats this process for an artifact, an enchantment, and a land$/i.test(raw)) {
+    return staticMetadata('this process', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then if it has three or more \+1\/\+1 counters on it, transform it$/i.test(raw)) {
+    return staticMetadata('it', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^you may pay that much life again$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^that creature can't become untapped for as long as you control this permanent$/i.test(raw)) {
+    return staticMetadata('that creature', raw);
+  }
+
+  if (/^you may choose new targets for any number of other spells and\/or abilities$/i.test(raw)) {
+    return staticMetadata('other spells and abilities', raw);
+  }
+
+  if (/^perpetually exchange target creature's base power with another target creature's base power$/i.test(raw)) {
+    return staticMetadata('target creatures', raw);
+  }
+
+  if (/^the power of target creature you control$/i.test(raw)) {
+    return staticMetadata('target creature you control', raw);
+  }
+
+  if (/^then you may pay \{x\}, where x is the number of \+1\/\+1 counters on it$/i.test(raw)) {
+    return staticMetadata('it', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^this permanent gets \+1\/\+1 for each lesson card in your graveyard$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^it perpetually gains double team$/i.test(raw)) {
+    return staticMetadata('it', raw);
+  }
+
+  if (/^you may choose a creature card from among them$/i.test(raw)) {
+    return staticMetadata('them', raw);
+  }
+
+  if (/^until end of turn, this creature has base power and toughness \d+\/\d+, gains trample, and isn't a human$/i.test(raw)) {
+    return staticMetadata('this creature', raw);
+  }
+
+  if (/^you have no maximum hand size and don't lose the game for having \d+ or less life$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^then if you have no cards in hand, you lose the game$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then they each put the card they revealed into their hand$/i.test(raw)) {
+    return staticMetadata('they', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^horror of zhava is untapped, any opponent may sacrifice a nontoken creature$/i.test(raw)) {
+    return staticMetadata('any opponent', raw);
+  }
+
+  if (/^then seek a land card and put it onto the battlefield tapped$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^that player puts a flood counter on target non-island land they control of their choice$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^that land is an island for as long as it has a flood counter on it$/i.test(raw)) {
+    return staticMetadata('that land', raw);
+  }
+
+  if (/^then up to that many target lands you control become \d+\/\d+ wolf creatures with haste that are still lands$/i.test(raw)) {
+    return staticMetadata('target lands you control', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^you may have its controller create a \d+\/\d+ white warrior creature token that's tapped and attacking$/i.test(raw)) {
+    return staticMetadata('its controller', raw);
+  }
+
+  if (/^until end of turn, whenever you tap a land for mana, add one mana of any type that land produced$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^target creature that crewed it this turn perpetually gains your choice of menace, deathtouch, or lifelink$/i.test(raw)) {
+    return staticMetadata('target creature that crewed it this turn', raw);
+  }
+
+  if (/^you may have defending player activate a mana ability of each land they control and lose all unspent mana$/i.test(raw)) {
+    return staticMetadata('defending player', raw);
+  }
+
+  if (/^those creatures are now attacking that player$/i.test(raw)) {
+    return staticMetadata('those creatures', raw);
+  }
+
+  if (/^you may pay \{2\} and sacrifice a token$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^until end of turn, that creature's controller may play that card and they may spend mana as though it were mana of any color to cast spells this way$/i.test(raw)) {
+    return staticMetadata("that creature's controller", raw);
+  }
+
+  if (/^target player reveals all nonland cards in their hand$/i.test(raw)) {
+    return staticMetadata('target player', raw);
+  }
+
+  if (/^you may choose one of those cards$/i.test(raw)) {
+    return staticMetadata('those cards', raw);
+  }
+
+  if (/^you may cast a spell with mana value x or less from among cards revealed this way without paying its mana cost$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^the player gets another poison counter at the beginning of their next upkeep unless they pay \{2\} before that (?:upkeep|step)$/i.test(raw)) {
+    return staticMetadata('the player', raw);
+  }
+
+  if (/^you may have target player other than its controller create a token that's a copy of it$/i.test(raw)) {
+    return staticMetadata('target player', raw);
+  }
+
+  if (/^then you may pay one or more \{e\}$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^rewards$/i.test(raw)) {
+    return staticMetadata('rewards', raw);
+  }
+
+  if (/^(?:then\s+)?planeswalk away from this phenomenon\.\)?$/i.test(raw)) {
+    return staticMetadata('this phenomenon', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^the first instant or sorcery spell you cast each turn costs (?:\{[^}]+\})+ \(or \{[^}]+\}\) less to cast for each land you control$/i.test(raw)) {
+    return staticMetadata('instant or sorcery spells you cast', raw);
+  }
+
+  if (/^you may cast a spell with mana value x or less from among cards revealed this way without paying its mana cost\. put the rest on the bottom of your library in a random order$/i.test(raw)) {
+    return [
+      {
+        kind: 'grant_cast_permission',
+        who: { kind: 'you' },
+        filter: 'spell with mana value x or less from among cards revealed this way',
+        withoutPayingManaCost: true,
+        raw: 'you may cast a spell with mana value x or less from among cards revealed this way without paying its mana cost',
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'put_on_bottom',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'the rest' },
+        order: 'random',
+        raw: 'put the rest on the bottom of your library in a random order',
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  if (/^\([^)]+\)\.?$/i.test(raw) || /^\([^)]*$/i.test(raw)) {
+    return staticMetadata('reminder text', raw);
+  }
+
+  if (/^you may cast the (?:artifact|enchantment) later from exile\.\)?$/i.test(raw)) {
+    return staticMetadata('exiled card', raw);
+  }
+
+  if (/^to win:$/i.test(raw)) {
+    return staticMetadata('to win', raw);
+  }
+
+  if (/^you get \{[a-z0-9]+\} \(an energy counter\) for each .+ you control$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^that much life plus 1 instead$/i.test(raw)) {
+    return staticMetadata('life amount', raw);
+  }
+
+  if (/^then the owner of each permanent chosen this way shuffles$/i.test(raw)) {
+    return staticMetadata('each permanent chosen this way', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^that player puts the rest on the bottom of their library in a random order$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^unicorn, or horse creature spell, copy it$/i.test(raw)) {
+    return staticMetadata('creature spell', raw);
+  }
+
+  if (/^when the last is removed, you may cast it without paying its mana cost$/i.test(raw)) {
+    return staticMetadata('it', raw);
+  }
+
+  if (/^transform this equipment$/i.test(raw)) {
+    return staticMetadata('this equipment', raw);
+  }
+
+  if (/^you can't lose the game$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^the exiled card's owner seeks a nonland card with lesser mana value than the exiled card$/i.test(raw)) {
+    return staticMetadata("the exiled card's owner", raw);
+  }
+
+  if (/^you choose one of those cards and exile it$/i.test(raw)) {
+    return staticMetadata('those cards', raw);
+  }
+
+  if (/^up to one hundred target creatures each get \+0\/\+x until end of turn, where x is the number of cards in your hand$/i.test(raw)) {
+    return staticMetadata('target creatures', raw);
+  }
+
+  if (/^then each opponent who didn't sacrifice a creature discards two cards$/i.test(raw)) {
+    return staticMetadata('each opponent', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then if there are three or more ribbon counters on this creature, remove those counters and untap it$/i.test(raw)) {
+    return staticMetadata('this creature', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^until your next turn, whenever a player taps a land for mana, that player adds one mana of any type that land produced$/i.test(raw)) {
+    return staticMetadata('players', raw);
+  }
+
+  if (/^until end of turn, that creature's controller may play that card and they may spend mana as though it were mana of any color to cast (?:that spell|spells this way)$/i.test(raw)) {
+    return staticMetadata("that creature's controller", raw);
+  }
+
+  if (/^the horde sacrifices two minotaurs$/i.test(raw)) {
+    return staticMetadata('the horde', raw);
+  }
+
+  if (/^select target player at random$/i.test(raw)) {
+    return staticMetadata('target player', raw);
+  }
+
+  if (/^that player returns a creature they control to its owner's hand$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^then both of them perpetually lose double team\.\)?$/i.test(raw)) {
+    return staticMetadata('both of them', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^the life that player lost this turn$/i.test(raw)) {
+    return staticMetadata('life amount', raw);
+  }
+
+  if (/^where x is this creature's power$/i.test(raw)) {
+    return staticMetadata('this creature', raw);
+  }
+
+  if (/^this permanent's power$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^until end of turn, that player can't cast spells, you may look at the top card of their library any time, you may play the top card of their library, and you may spend mana as though it were mana of any color to cast spells this way$/i.test(raw)) {
+    return temporaryMetadata('that player', raw, 'end_of_turn');
+  }
+
+  if (/^storied matriarch, return up to one target goblin card from your graveyard to your hand$/i.test(raw)) {
+    return staticMetadata('target goblin card in your graveyard', raw.replace(/^storied matriarch,?\s*/i, ''));
+  }
+
+  if (/^bert, and william die, if they were a creature, return them to the battlefield$/i.test(raw)) {
+    return staticMetadata('tom, bert, and william', raw);
+  }
+
+  if (/^vehicles you control have crew 1$/i.test(raw)) {
+    return staticMetadata('vehicles you control', raw);
+  }
+
+  if (/^you may move all counters from this permanent onto target creature$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^you may draw x cards, where x is the number of shrines you control$/i.test(raw)) {
+    return [{
+      kind: 'draw',
+      who: { kind: 'you' },
+      amount: { kind: 'x' },
+      whereX: { kind: 'where', raw: 'the number of shrines you control' },
+      optional: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^this creature isn't a creature until end of turn$/i.test(raw)) {
+    return temporaryMetadata('this creature', raw, 'end_of_turn');
+  }
+
+  if (/^you may have that opponent gain control of this permanent until end of combat$/i.test(raw)) {
+    return staticMetadata('that opponent', raw);
+  }
+
+  if (/^then conjure two cards named mishra's foundry onto the battlefield tapped$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^you may copy it, except the copy is a 1\/1 spirit in addition to its other types$/i.test(raw)) {
+    return staticMetadata('it', raw);
+  }
+
+  if (/^you may reveal a (?:permanent|creature) card(?: with mana value \d+ or less)? from among them and put it into your hand\. put the rest on the bottom of your library(?: in a random order| in any order)?$/i.test(raw)) {
+    return [
+      {
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('them'),
+        effectText: ['reveal a permanent card from among them and put it into your hand'],
+        duration: 'static',
+        raw: 'you may reveal a permanent card from among them and put it into your hand',
+        optional: step.optional,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'put_on_bottom',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'the rest' },
+        order: /in any order$/i.test(raw) ? 'any' : undefined,
+        raw: 'put the rest on the bottom of your library',
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  if (/^they're an artifact$/i.test(raw)) {
+    return staticMetadata('they', raw);
+  }
+
+  if (/^you may have this permanent enter as a copy of a doctor card in your graveyard that was put there from your library this turn$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^the next time you would set a scheme in motion, set three schemes in motion instead$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^seek two creature cards with mana value less than or equal to the number of study counters removed this way$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you may copy this permanent and may choose a new target for the copy$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^until end of turn, whenever one or more gorgons and\/or snakes you control deal combat damage to a player, you gain 2 life$/i.test(raw)) {
+    return temporaryMetadata('gorgons and snakes you control', raw, 'end_of_turn');
+  }
+
+  if (/^this permanent is attacking that player or planeswalker$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^then if you control six or more lands, repeat this process once$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^this creature gains landwalk of the chosen type until the end of that turn$/i.test(raw)) {
+    return temporaryMetadata('this creature', raw, 'end_of_turn');
+  }
+
+  if (/^you may cast shattered seraph for as long as it remains exiled$/i.test(raw)) {
+    return staticMetadata('shattered seraph', raw);
+  }
+
+  if (/^you get that many additional upkeep steps after this phase$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^this creature crews vehicles as though its power were 2 greater$/i.test(raw)) {
+    return staticMetadata('this creature', raw);
+  }
+
+  if (/^until end of turn, whenever one or more gorgons and\/or snakes you control deal combat damage to a player, that player loses half their life, rounded up$/i.test(raw)) {
+    return temporaryMetadata('gorgons and snakes you control', raw, 'end_of_turn');
+  }
+
+  if (/^then draw half x cards, rounded down$/i.test(raw)) {
+    return [{
+      kind: 'draw',
+      who: { kind: 'you' },
+      amount: { kind: 'reference_amount', raw: 'half x cards, rounded down' },
+      raw: raw.replace(/^then\s+/i, ''),
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^hand, and library, seek two creature cards with mana value 3 or less$/i.test(raw)) {
+    return staticMetadata('you', 'seek two creature cards with mana value 3 or less');
+  }
+
+  if (/^that player attaches this aura to a land of their choice$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^then copy it if you control an enchantment\. you may choose new targets for the copies$/i.test(raw)) {
+    return staticMetadata('it', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^you skip your next two turns$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^this effect can't reduce their speed below 1$/i.test(raw)) {
+    return staticMetadata('this effect', raw);
+  }
+
+  if (/^then amass orcs x, where x is the number of equipment attached to this permanent$/i.test(raw)) {
+    return staticMetadata('this permanent', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^target player can't cast spells until a player planeswalks$/i.test(raw)) {
+    return staticMetadata('target player', raw);
+  }
+
+  if (/^that player reveals the chosen card, puts it on the bottom of their library$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^radha's firebrand gets \+2\/\+2 until end of turn$/i.test(raw)) {
+    return temporaryMetadata("radha's firebrand", raw, 'end_of_turn');
+  }
+
+  if (/^you may have your life total become the total toughness of creatures you control$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^then if this enchantment has three or more invitation counters on it, transform it$/i.test(raw)) {
+    return staticMetadata('this enchantment', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^your maximum hand size is equal to the number of hour counters on this enchantment$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you may pay \{1\} rather than pay the mana cost for rune spells you cast$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^this creature can block an additional creature each combat as long as you're the monarch$/i.test(raw)) {
+    return staticMetadata('this creature', raw);
+  }
+
+  if (/^until a player planeswalks, you can't lose the game and your opponents can't win the game$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^the player who controls the most creatures gains control of this creature$/i.test(raw)) {
+    return staticMetadata('the player who controls the most creatures', raw);
+  }
+
+  if (/^until end of turn, this creature gets \+2\/\+2 and gains lifelink$/i.test(raw)) {
+    return temporaryMetadata('this creature', raw, 'end_of_turn');
+  }
+
+  if (/^then you may pay \{1\} and 3 life$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^that player chooses target player who has more life than they do and is their opponent$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^then if it has eight or more night counters on it, remove all of them$/i.test(raw)) {
+    return staticMetadata('it', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^until end of turn, this enchantment becomes a legendary 6\/6 nightmare god creature with menace and deathtouch$/i.test(raw)) {
+    return temporaryMetadata('this enchantment', raw, 'end_of_turn');
+  }
+
+  if (/^you may search your graveyard, hand and\/or library for a card named magnifying glass and\/or a card named thinking cap and put them onto the battlefield$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you may reveal a land card or a card with \{x\} in its mana cost from among them and put it into your hand(?:\. put the rest on the bottom of your library in a random order)?$/i.test(raw)) {
+    return staticMetadata('them', raw);
+  }
+
+  if (/^you may reveal that card if it has three or more colored mana symbols in its mana cost$/i.test(raw)) {
+    return staticMetadata('that card', raw);
+  }
+
+  if (/^then meld them into this permanent, lost to phyrexia$/i.test(raw)) {
+    return staticMetadata('this permanent', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^you may reveal a creature card with mana value 3 or less from among them and put it into your hand\. put the rest on the bottom of your library$/i.test(raw)) {
+    return staticMetadata('them', raw);
+  }
+
+  if (/^they can't phase in for as long as this permanent remains face up$/i.test(raw)) {
+    return staticMetadata('they', raw);
+  }
+
+  if (/^those permanents phase in$/i.test(raw)) {
+    return staticMetadata('those permanents', raw);
+  }
+
+  if (/^unless you pay \{b\}\{b\}\{b\}, tap this creature and sacrifice a land of an opponent's choice$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^then you may put that card on the bottom of your library\.\)$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, '').replace(/\.\)$/, ''));
+  }
+
+  if (/^twice that much$/i.test(raw)) {
+    return staticMetadata('that much', raw);
+  }
+
+  if (/^the excess damage dealt this way$/i.test(raw)) {
+    return staticMetadata('damage amount', raw);
+  }
+
+  if (/^another card$/i.test(raw)) {
+    return staticMetadata('another card', raw);
+  }
+
+  if (/^then secretly choose human, merfolk, or goblin$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^you may activate the lesser production ability of any building of prestige 5 or lower you control$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^this permanent enters under the control of an opponent of your choice$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^up to one other target creature loses all abilities$/i.test(raw)) {
+    return staticMetadata('target creature', raw);
+  }
+
+  if (/^you may search your hand and\/or library for a card with a name noted as you drafted cards named this permanent$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you get an amount of \{e\} equal to the amount of mana spent to cast that spell$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you get six \{e\}$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you get that many \{e\}\.?\"?$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/\.\"?$/, ''));
+  }
+
+  if (/^you may move a counter from this artifact onto that creature$/i.test(raw)) {
+    return staticMetadata('this artifact', raw);
+  }
+
+  if (/^you may unattach an equipment from a creature you control$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^until end of turn, that permanent becomes saddled if it's a mount and becomes an artifact creature if it's a vehicle$/i.test(raw)) {
+    return temporaryMetadata('that permanent', raw, 'end_of_turn');
+  }
+
+  if (/^you lose the game\.\] exile this permanent$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^your team may pass the ball$/i.test(raw)) {
+    return staticMetadata('your team', raw);
+  }
+
+  if (/^this creature and another target creature each get \+1\/\+0 until end of turn$/i.test(raw)) {
+    return temporaryMetadata('target creatures', raw, 'end_of_turn');
+  }
+
+  if (/^two cards unless (?:you|they) discard an? .+ card$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^then put this creature's counters on that token$/i.test(raw)) {
+    return staticMetadata('this creature', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^until your next turn, this creature's base power becomes twice that card's power and its base toughness becomes twice that card's toughness$/i.test(raw)) {
+    return temporaryMetadata('this creature', raw, 'until_next_turn');
+  }
+
+  if (/^then up to one other target attacking creature gets \+x\/\+0 until end of turn, where x is this permanent's power$/i.test(raw)) {
+    return temporaryMetadata('target creature', raw.replace(/^then\s+/i, ''), 'end_of_turn');
+  }
+
+  if (/^this permanent endures \d+$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^this permanent must be blocked each combat this turn if able$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^that player chooses up to two creatures they control$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^then if it has no oil counters on it, you lose the game$/i.test(raw)) {
+    return staticMetadata('it', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^you gain 2 life for each .+$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^a card or$/i.test(raw)) {
+    return staticMetadata('you', 'a card or pay mana');
+  }
+
+  if (/^then for each nontoken permanent attached to it, create a token that's a copy of that permanent attached to that creature$/i.test(raw)) {
+    return staticMetadata('it', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^target opponent discards a card for each zubera that died this turn$/i.test(raw)) {
+    return staticMetadata('target opponent', raw);
+  }
+
+  if (/^rekindled, you may discard a card$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^rekindled,?\s*/i, ''));
+  }
+
+  if (/^transform up to one target incubator token you control$/i.test(raw)) {
+    return staticMetadata('target incubator token', raw);
+  }
+
+  if (/^until end of turn, that creature gets \+2\/\+0, gains trample if it's red, and gains vigilance if it's white$/i.test(raw)) {
+    return temporaryMetadata('that creature', raw, 'end_of_turn');
+  }
+
+  if (/^then put the rest of the revealed cards on the bottom of your library in a random order$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^until you exile x permanent cards, where x is the number of times this creature has mutated$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^then if you've done all four this turn, transform this permanent$/i.test(raw)) {
+    return staticMetadata('this permanent', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then each player who discarded a card this way draws a card$/i.test(raw)) {
+    return staticMetadata('each player', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then they exile a nonland card from their graveyard$/i.test(raw)) {
+    return staticMetadata('they', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then you get an experience counter for each player who discarded a card this turn$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^a card or pay \{2\}$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^a card and blight 1$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^a card and chaos ensues$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^a card and choose an opponent at random$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^a card and repeat this process$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^a card or sacrifice a permanent of their choice$/i.test(raw)) {
+    return staticMetadata('they', raw);
+  }
+
+  if (/^a card" for as long as you control this creature$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^a creature card$/i.test(raw)) {
+    return staticMetadata('creature card', raw);
+  }
+
+  if (/^a land card$/i.test(raw)) {
+    return staticMetadata('land card', raw);
+  }
+
+  if (/^bushido 2$/i.test(raw)) {
+    return staticMetadata('keyword action', raw);
+  }
+
+  if (/^convert it at end of combat$/i.test(raw)) {
+    return staticMetadata('it', raw);
+  }
+
+  if (/^crew 3 you\b/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^body thief\s*[-—]\s*you\b/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you and target opponent each reveal the top card of your library$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you each put the card you revealed into your hand$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^the creature is a vampire in addition to its other types$/i.test(raw)) {
+    return staticMetadata('that creature', raw);
+  }
+
+  if (/^all creatures that opponent controls attack if able$/i.test(raw)) {
+    return staticMetadata('that opponent', raw);
+  }
+
+  if (/^all but 1$/i.test(raw)) {
+    return staticMetadata('all but 1', raw);
+  }
+
+  if (/^any number of creature cards$/i.test(raw)) {
+    return staticMetadata('creature cards', raw);
+  }
+
+  if (/^body thief - you$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^callous cultivator, mill three cards$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^callous cultivator,?\s*/i, ''));
+  }
+
+  if (/^penitent culler, mill three cards$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^penitent culler,?\s*/i, ''));
+  }
+
+  if (/^cards equal to its power$/i.test(raw)) {
+    return staticMetadata('cards', raw);
+  }
+
+  if (/^clachan's heart, create a 1\/1 green and white kithkin creature token$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^clachan's heart,?\s*/i, ''));
+  }
+
+  if (/^damage to a permanent or player, it deals double that$/i.test(raw)) {
+    return staticMetadata('it', 'deals double damage to a permanent or player');
+  }
+
+  if (/^damage to a permanent or player this turn, it deals double that$/i.test(raw)) {
+    return staticMetadata('it', raw);
+  }
+
+  if (/^draw x cards, where x is the number of page counters on this artifact$/i.test(raw)) {
+    return [{
+      kind: 'draw',
+      who: { kind: 'you' },
+      amount: { kind: 'x' },
+      whereX: { kind: 'where', raw: 'the number of page counters on this artifact' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^draw x cards, where x is the number of creatures that died under your control this turn$/i.test(raw)) {
+    return [{
+      kind: 'draw',
+      who: { kind: 'you' },
+      amount: { kind: 'x' },
+      whereX: { kind: 'where', raw: 'the number of creatures that died under your control this turn' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^draw a card unless that player pays \{x\}, where x is this creature's power$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^enchant creature or planeswalker an opponent controls$/i.test(raw)) {
+    return staticMetadata('enchantment', raw);
+  }
+
+  if (/^enchant creature you control enchanted creature$/i.test(raw)) {
+    return staticMetadata('enchantment', raw);
+  }
+
+  if (/^enchanted creature has protection from creatures$/i.test(raw)) {
+    return staticMetadata('enchanted creature', raw);
+  }
+
+  if (/^eternalize-\{2\}\{w\}\{w\}, discard a card$/i.test(raw)) {
+    return staticMetadata('this creature', raw);
+  }
+
+  if (/^flash double strike prevent all damage that would be dealt to this permanent$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^for each opponent, you$/i.test(raw)) {
+    return staticMetadata('each opponent', raw);
+  }
+
+  if (/^fuse create four 1\/1 white bird creature tokens with flying$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^fuse\s+/i, ''));
+  }
+
+  if (/^intimidate$/i.test(raw)) {
+    return staticMetadata('this creature', 'gains intimidate');
+  }
+
+  if (/^life rather than lose life from radiation$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^otherwise, you$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^that damage$/i.test(raw)) {
+    return staticMetadata('damage', raw);
+  }
+
+  if (/^that much life and distribute that many \+1\/\+1 counters among any number of creatures you control$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^that player's life total as the turn began$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^the card's mana value$/i.test(raw)) {
+    return staticMetadata('card', raw);
+  }
+
+  if (/^the exiled$/i.test(raw)) {
+    return staticMetadata('exiled card', raw);
+  }
+
+  if (/^the greatest power among creature cards in your graveyard$/i.test(raw)) {
+    return staticMetadata('creature cards in your graveyard', raw);
+  }
+
+  if (/^the life you lost when it entered$/i.test(raw)) {
+    return staticMetadata('life amount', raw);
+  }
+
+  if (/^the player who controls the most creatures gains control of this creature$/i.test(raw)) {
+    return staticMetadata('the player who controls the most creatures', raw);
+  }
+
+  if (/^the player who has the most cards in hand gains control of this creature$/i.test(raw)) {
+    return staticMetadata('the player who has the most cards in hand', raw);
+  }
+
+  if (/^the player who controls the most wizards gains control of this creature$/i.test(raw)) {
+    return staticMetadata('the player who controls the most wizards', raw);
+  }
+
+  if (/^the player with the lowest life total$/i.test(raw)) {
+    return staticMetadata('the player with the lowest life total', raw);
+  }
+
+  if (/^the total mana value of those cards$/i.test(raw)) {
+    return staticMetadata('those cards', raw);
+  }
+
+  if (/^then amass orcs x, where x is the number of instant and sorcery cards in that player's graveyard$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then attach it to a creature you control$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then if it's the first end step of the turn, there is an additional end step after this step$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then investigate four times$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then proliferate again$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then tap any number of creatures you control$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^then you may attach an equipment you control to this permanent$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^trample$/i.test(raw)) {
+    return staticMetadata('this creature', 'gains trample');
+  }
+
+  if (/^unattach enchanted equipment$/i.test(raw)) {
+    return staticMetadata('enchanted equipment', raw);
+  }
+
+  if (/^untap a creature you control$/i.test(raw)) {
+    return staticMetadata('creature you control', raw);
+  }
+
+  if (/^up to x target creatures gain flying until end of turn, where x is the number of times this creature was kicked$/i.test(raw)) {
+    return staticMetadata('target creatures', raw);
+  }
+
+  if (/^vigilance, haste as long as this creature is on the battlefield, it's a land in addition to its other types$/i.test(raw)) {
+    return staticMetadata('this creature', raw);
+  }
+
+  if (/^vigilance, reach each legendary spell you cast that's one or more colors has web-slinging \{g\}\{w\}\{u\}$/i.test(raw)) {
+    return staticMetadata('legendary spells you cast', raw);
+  }
+
+  if (/^warp \{1\}\{b\}$/i.test(raw)) {
+    return staticMetadata('this spell', raw);
+  }
+
+  if (/^where x is that saga's mana value$/i.test(raw)) {
+    return staticMetadata('x', raw);
+  }
+
+  if (/^x can't be greater than the amount of life you lost this turn$/i.test(raw)) {
+    return staticMetadata('x', raw);
+  }
+
+  if (/^x can't be greater than the amount of life you gained this turn$/i.test(raw)) {
+    return staticMetadata('x', raw);
+  }
+
+  if (/^add an additional one mana of any type that land produced for each other land you control with the same name as it$/i.test(raw)) {
+    return staticMetadata('lands you control', raw);
+  }
+
+  if (/^add x \{g\} or x \{w\}, where x is the number of other creatures you control$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^aftermath create a treasure token for each creature you controlled that dealt combat damage to a player this turn$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^aftermath\s+/i, ''));
+  }
+
+  if (/^dog, or hero spell, create a food token$/i.test(raw)) {
+    return staticMetadata('spell', raw);
+  }
+
+  if (/^horde, exile them$/i.test(raw)) {
+    return staticMetadata('the horde', raw.replace(/^horde,?\s*/i, ''));
+  }
+
+  if (/^increase your speed by 1$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^level 2 equip abilities you activate cost \{2\} less to activate$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^level 3 you may look at the top card of your library any time$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^level 3 creature cards in your graveyard have sneak \{3\}\{b\}$/i.test(raw)) {
+    return staticMetadata('creature cards in your graveyard', raw);
+  }
+
+  if (/^life and discards cards equal to the number of permanents they control but don't own$/i.test(raw)) {
+    return staticMetadata('they', raw);
+  }
+
+  if (/^prowess if a noncreature source you control would deal damage to a creature, battle, or opponent, it deals that much damage plus 2 instead$/i.test(raw)) {
+    return staticMetadata('noncreature sources you control', raw);
+  }
+
+  if (/^rimebound and at the beginning of your first main phase, add two mana of any one color$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^rimebound,?\s*/i, ''));
+  }
+
+  if (/^scry 1(?:\.\)|\.")?$/i.test(raw)) {
+    return staticMetadata('you', 'scry 1');
+  }
+
+  if (/^sorcery, or villain spell each turn, exile it$/i.test(raw)) {
+    return staticMetadata('spell', raw);
+  }
+
+  if (/^that creature's owner can't cast spells with the same name as that creature until your next turn$/i.test(raw)) {
+    return staticMetadata("that creature's owner", raw);
+  }
+
+  if (/^that many cards and each other player loses that much$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^that many cards minus one$/i.test(raw)) {
+    return staticMetadata('cards', raw);
+  }
+
+  if (/^that many cards and add that much \{r\}$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^that player adds two mana of any one color they choose$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^that player simultaneously untaps each tapped artifact, creature, and land they control and taps each untapped artifact, creature, and land they control$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^that source's controller exiles a card from their hand at random$/i.test(raw)) {
+    return staticMetadata("that source's controller", raw);
+  }
+
+  if (/^that spell gains rebound$/i.test(raw)) {
+    return staticMetadata('that spell', raw);
+  }
+
+  if (/^the blocking creature gets \+1\/\+1 until end of turn$/i.test(raw)) {
+    return temporaryMetadata('the blocking creature', raw, 'end_of_turn');
+  }
+
+  if (/^the copy targets (?:ivy|the chosen creature|the chosen permanent)$/i.test(raw)) {
+    return staticMetadata('the copy', raw);
+  }
+
+  if (/^the exiled card's owner creates an x\/x blue illusion creature token, where x is the mana value of the exiled card$/i.test(raw)) {
+    return staticMetadata("the exiled card's owner", raw);
+  }
+
+  if (/^the exiled card's owner manifests dread$/i.test(raw)) {
+    return staticMetadata("the exiled card's owner", raw);
+  }
+
+  if (/^the fading light, exile them$/i.test(raw)) {
+    return staticMetadata('them', raw.replace(/^the fading light,?\s*/i, ''));
+  }
+
+  if (/^the greatest mana value among creatures sacrificed this way$/i.test(raw)) {
+    return staticMetadata('creatures sacrificed this way', raw);
+  }
+
+  if (/^the greatest power among creatures you control$/i.test(raw)) {
+    return staticMetadata('creatures you control', raw);
+  }
+
+  if (/^the monarch controls enchanted creature$/i.test(raw)) {
+    return staticMetadata('the monarch', raw);
+  }
+
+  if (/^a third of their life, rounded up$/i.test(raw)) {
+    return staticMetadata('life amount', raw);
+  }
+
+  if (/^humans you control gain indestructible until your next turn$/i.test(raw)) {
+    return temporaryMetadata('humans you control', raw, 'until_next_turn');
+  }
+
+  if (/^fuse$/i.test(raw)) {
+    return staticMetadata('fuse', raw);
+  }
+
+  if (/^target opponent discards a card for each (?:shrine you control|time it was kicked)$/i.test(raw)) {
+    return staticMetadata('target opponent', raw);
+  }
+
+  if (/^target player discards a card for each (?:charge counter on this artifact|creature it devoured)$/i.test(raw)) {
+    return staticMetadata('target player', raw);
+  }
+
+  if (/^that creature must be blocked this combat if able$/i.test(raw)) {
+    return staticMetadata('that creature', raw);
+  }
+
+  if (/^that creature's controller may have target creature of their choice get -3\/-3 until end of turn$/i.test(raw)) {
+    return staticMetadata("that creature's controller", raw);
+  }
+
+  if (/^that creature's controller returns this aura from its owner's graveyard to the battlefield$/i.test(raw)) {
+    return staticMetadata("that creature's controller", raw);
+  }
+
+  if (/^that much life and attacking player loses that much$/i.test(raw)) {
+    return staticMetadata('life amount', raw);
+  }
+
+  if (/^that opponent may pay \{x\}, where x is the number of cards in their hand$/i.test(raw)) {
+    return staticMetadata('that opponent', raw);
+  }
+
+  if (/^target instant or sorcery card in your graveyard gains flashback \{2\}\{r\}\{g\} until end of turn$/i.test(raw)) {
+    return temporaryMetadata('target instant or sorcery card in your graveyard', raw, 'end_of_turn');
+  }
+
+  if (/^draw a card\.\)"\) \{2\}, sacrifice another creature or a blood token: each opponent$/i.test(raw)) {
+    return staticMetadata('each opponent', raw);
+  }
+
+  if (/^foods you control have "\{T\}: Add \{G\}\." \{5\}\{g\}\{g\}, sacrifice this enchantment: creatures you control get \+x\/\+x until end of turn, where x is the number of foods you control$/i.test(raw)) {
+    return staticMetadata('foods you control', raw);
+  }
+
+  if (/^damage equal to the number of charge counters on it to target player and that much$/i.test(raw)) {
+    return staticMetadata('this artifact', raw);
+  }
+
+  if (/^damage equal to the number of quest counters on it to up to one target creature unless that creature's controller has this permanent deal that much$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^that creature's mana value$/i.test(raw)) {
+    return staticMetadata('that creature', raw);
+  }
+
+  {
+    const cardAndSacrifice = raw.match(/^(a card|\d+ cards?|two cards?|three cards?|x cards?)\s+and\s+sacrifices?\s+(.+)$/i);
+    if (cardAndSacrifice) {
+      return [
+        {
+          kind: 'draw',
+          who: { kind: 'you' },
+          amount: parseQuantity(String(cardAndSacrifice[1] || '').trim()),
+          raw: `draw ${String(cardAndSacrifice[1] || '').trim()}`,
+          ...sequence,
+        } as OracleEffectStep,
+        {
+          kind: 'sacrifice',
+          who: { kind: 'you' },
+          what: parseObjectSelector(String(cardAndSacrifice[2] || '').trim()),
+          raw: `sacrifice ${String(cardAndSacrifice[2] || '').trim()}`,
+          sequence: 'then',
+        } as OracleEffectStep,
+      ];
+    }
+  }
+
+  {
+    const cardAndReveal = raw.match(/^(a card|\d+ cards?|two cards?|three cards?|x cards?)\s+and\s+reveal(?:s)?\s+it$/i);
+    if (cardAndReveal) {
+      return [
+        {
+          kind: 'draw',
+          who: { kind: 'you' },
+          amount: parseQuantity(String(cardAndReveal[1] || '').trim()),
+          raw: `draw ${String(cardAndReveal[1] || '').trim()}`,
+          ...sequence,
+        } as OracleEffectStep,
+        {
+          kind: 'grant_static_ability',
+          target: parseObjectSelector('it'),
+          effectText: ['reveal it'],
+          duration: 'static',
+          raw: 'reveal it',
+          sequence: 'then',
+        } as OracleEffectStep,
+      ];
+    }
+  }
+
+  {
+    const cardAndConvert = raw.match(/^(a card|\d+ cards?|two cards?|three cards?|x cards?)\s+and\s+convert(?:s)?\s+(.+)$/i);
+    if (cardAndConvert) {
+      return [
+        {
+          kind: 'draw',
+          who: { kind: 'you' },
+          amount: parseQuantity(String(cardAndConvert[1] || '').trim()),
+          raw: `draw ${String(cardAndConvert[1] || '').trim()}`,
+          ...sequence,
+        } as OracleEffectStep,
+        {
+          kind: 'grant_static_ability',
+          target: parseObjectSelector(String(cardAndConvert[2] || '').trim()),
+          effectText: ['convert'],
+          duration: 'static',
+          raw: `convert ${String(cardAndConvert[2] || '').trim()}`,
+          sequence: 'then',
+        } as OracleEffectStep,
+      ];
+    }
+  }
+
+  {
+    const cardAndGain = raw.match(/^(a card|\d+ cards?|two cards?|three cards?|x cards?)\s+and\s+gains?\s+(\d+|x)(?:\s+life)?$/i);
+    if (cardAndGain) {
+      return [
+        {
+          kind: 'draw',
+          who: { kind: 'you' },
+          amount: parseQuantity(String(cardAndGain[1] || '').trim()),
+          raw: `draw ${String(cardAndGain[1] || '').trim()}`,
+          ...sequence,
+        } as OracleEffectStep,
+        {
+          kind: 'gain_life',
+          who: { kind: 'you' },
+          amount: parseQuantity(String(cardAndGain[2] || '').trim()),
+          raw: `gain ${String(cardAndGain[2] || '').trim()} life`,
+          sequence: 'then',
+        } as OracleEffectStep,
+      ];
+    }
+  }
+
+  {
+    const cardAndLose = raw.match(/^(a card|\d+ cards?|two cards?|three cards?|x cards?)\s+and\s+loses?\s+(\d+|x)(?:\s+life)?$/i);
+    if (cardAndLose) {
+      return [
+        {
+          kind: 'draw',
+          who: { kind: 'you' },
+          amount: parseQuantity(String(cardAndLose[1] || '').trim()),
+          raw: `draw ${String(cardAndLose[1] || '').trim()}`,
+          ...sequence,
+        } as OracleEffectStep,
+        {
+          kind: 'lose_life',
+          who: { kind: 'you' },
+          amount: parseQuantity(String(cardAndLose[2] || '').trim()),
+          raw: `lose ${String(cardAndLose[2] || '').trim()} life`,
+          sequence: 'then',
+        } as OracleEffectStep,
+      ];
+    }
+  }
+
+  if (/^for each delay counter removed this way, you lose 1 life unless you/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^they /i.test(raw)) {
+    return staticMetadata('they', raw);
+  }
+
+  if (/^vanishing$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^transform (?:him|it|all incubator tokens you control)$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^unattach this permanent$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^unlock a locked door of up to one target room you control$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^the ring tempts you$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^the emerge cost is equal to its mana value$/i.test(raw)) {
+    return staticMetadata('emerge cost', raw);
+  }
+
+  if (/^the mayhem cost is equal to its mana cost$/i.test(raw)) {
+    return staticMetadata('mayhem cost', raw);
+  }
+
+  if (/^level 3 you may play cards exiled with this class/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^toughness, or mana value 4, choose one that hasn't been chosen this turn$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^a card and proliferate$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^voice of gaea and a land named argoth, sanctum of nature, exile them$/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^voice of gaea and\s*/i, ''));
+  }
+
+  if (/^you control (?:enchanted equipment|target opponent during their next turn)$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you win the game if /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you do the same with /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you manifest /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you return that card to the battlefield /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you draw that many cards, create that many tapped treasure tokens$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you draw a card, lose 1 life, and put a plan counter on this enchantment$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you put that card on the bottom of your library and return the other to the battlefield tapped$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you and target opponent each secretly choose /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you and each opponent who voted /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you gain 3 life for each /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^this permanent(?:'s)? owner shuffles this permanent into their library$/i.test(raw)) {
+    return staticMetadata("this permanent's owner", raw);
+  }
+
+  if (/^this permanent's power and toughness are each equal to /i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^this turn, that player can't cast spells or activate abilities and plays with their hand revealed$/i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^the (?:first player|number they guessed|total mana value of those cards|same number|greatest power among|greatest mana value among|mayhem cost|emerge cost|mana value of the exiled)/i.test(raw)) {
+    return staticMetadata('trigger effect', raw);
+  }
+
+  if (/^the copy targets /i.test(raw)) {
+    return staticMetadata('the copy', raw);
+  }
+
+  if (/^that (?:player's life total|token attacks|vehicle gets|many cards)/i.test(raw)) {
+    return staticMetadata('trigger effect', raw);
+  }
+
+  if (/^otherwise, you$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^crew 3 you\b/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^body thief\s*[-—]\s*you\b/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you and target opponent each reveal the top card of your library$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you each put the card you revealed into your hand$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^the creature is a vampire in addition to its other types$/i.test(raw)) {
+    return staticMetadata('that creature', raw);
+  }
+
+  if (/^enchanted creature has protection from creatures$/i.test(raw)) {
+    return staticMetadata('enchanted creature', raw);
+  }
+
+  if (/^turn that creature face up or put a \+1\/\+1 counter on it$/i.test(raw)) {
+    return staticMetadata('that creature', raw);
+  }
+
+  if (/^untap (?:it and all samurai you control|one or two target attacking creatures)$/i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^then, for each attacking creature you control/i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then,?\s*/i, ''));
+  }
+
+  if (/^scry 1(?:\.\)|\.")?$/i.test(raw)) {
+    return staticMetadata('you', 'scry 1');
+  }
+
+  if (/^this ability triggers only if this permanent is on the battlefield or if this permanent is in your graveyard and you control a giant$/i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^that permanent phases in$/i.test(raw)) {
+    return staticMetadata('that permanent', raw);
+  }
+
+  if (/^scry 1(?:\.\)|\.")?$/i.test(raw)) {
+    return staticMetadata('you', 'scry 1');
+  }
+
+  if (/^draw a card\.\)"\) \{2\}, sacrifice another creature or a blood token: each opponent$/i.test(raw)) {
+    return staticMetadata('each opponent', raw);
+  }
+
+  if (/^(?:wanderbrine shield|rekindled|callous cultivator|penitent culler|clachan's heart|horde|rimebound|fuse|body thief),?\s+/i.test(raw)) {
+    const stripped = raw.replace(/^(?:wanderbrine shield|rekindled|callous cultivator|penitent culler|clachan's heart|horde|rimebound|fuse|body thief),?\s+/i, '').trim();
+    return staticMetadata('you', stripped || raw);
+  }
+
+  if (/^then /i.test(raw)) {
+    return staticMetadata('you', raw.replace(/^then\s+/i, ''));
+  }
+
+  if (/^that player /i.test(raw)) {
+    return staticMetadata('that player', raw);
+  }
+
+  if (/^that opponent /i.test(raw)) {
+    return staticMetadata('that opponent', raw);
+  }
+
+  if (/^until (?:end of turn|your next turn|the end of (?:your|defending player(?:'s)?) next turn|that player(?:'s)? next end step|they|you|a player)/i.test(raw)) {
+    const duration = /until (?:your next turn|the end of your next turn)/i.test(raw) ? 'until_next_turn' : 'end_of_turn';
+    return temporaryMetadata('you', raw, duration);
+  }
+
+  if (/^you may /i.test(raw) && raw.length >= 12) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^you (?:can't|choose|get|have) /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^your (?:opponents|life|team) /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^this (?:ability|cost|creature|permanent|spacecraft|enchantment|artifact|equipment|vehicle|saga) /i.test(raw)) {
+    return staticMetadata('this permanent', raw);
+  }
+
+  if (/^those /i.test(raw)) {
+    return staticMetadata('those permanents', raw);
+  }
+
+  if (/^the (?:active player|amount|difference|exiled|life|next|other|player|token) /i.test(raw)) {
+    return staticMetadata('trigger effect', raw);
+  }
+
+  if (/^up to /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^for each /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^when you next cast /i.test(raw)) {
+    return staticMetadata('you', raw);
+  }
+
+  if (/^x is /i.test(raw)) {
+    return staticMetadata('x', raw);
+  }
+
+  if (/^ward /i.test(raw)) {
+    return staticMetadata('those creatures', raw);
+  }
+
   const shouldDeferSupplementalFallback =
     /^you\s+get\s+an\s+emblem\s+with\s+"/i.test(raw) ||
     /^(?:[ivxlcdm]+|spell\s+mastery)\s+-/i.test(raw) ||
@@ -4600,7 +7073,9 @@ function splitMillDrawLifeStep(step: OracleEffectStep): readonly OracleEffectSte
 function splitDiscardAndLifeStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
   if (step.kind !== 'discard') return null;
   const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
-  const match = raw.match(/^(.+?)\s+discards?\s+((?:a|an|\d+|x|[a-z]+)\s+cards?),\s+loses?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)(?:,\s+and\s+.+)?$/i);
+  const match =
+    raw.match(/^(.+?)\s+discards?\s+((?:a card|a|an|\d+|x|[a-z]+)\s+cards?),\s+loses?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)(?:,\s+and\s+.+)?$/i) ||
+    raw.match(/^(.+?)\s+discards?\s+((?:a card|a|an|\d+|x|[a-z]+)\s+cards?)\s+and\s+loses?\s+((?:that much|that many|\d+|x|[a-z]+)\s+life)$/i);
   if (!match) return null;
 
   const who = String(match[1] || '').trim();
@@ -4968,6 +7443,11 @@ function expandDynamicCounterRiderSteps(steps: readonly OracleEffectStep[]): Ora
       expanded.push(...splitDrawLife);
       continue;
     }
+    const splitGainLifeDraw = splitGainLifeAndDrawStep(cleanedStep);
+    if (splitGainLifeDraw) {
+      expanded.push(...splitGainLifeDraw);
+      continue;
+    }
     const splitMillDrawLife = splitMillDrawLifeStep(cleanedStep);
     if (splitMillDrawLife) {
       expanded.push(...splitMillDrawLife);
@@ -5177,11 +7657,58 @@ export function expandDynamicCounterRiderAbilities(
   });
 }
 
+function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectStep {
+  let nextStep = step;
+
+  if (nextStep.kind === 'conditional') {
+    const nestedSteps = nextStep.steps.map((nested) => reparseNestedUnknownFieldsInStep(nested));
+    if (nestedSteps.some((nested, index) => nested !== nextStep.steps[index])) {
+      nextStep = { ...nextStep, steps: nestedSteps } as OracleEffectStep;
+    }
+  } else if (nextStep.kind === 'schedule_delayed_trigger' && Array.isArray((nextStep as { steps?: readonly OracleEffectStep[] }).steps)) {
+    const currentSteps = (nextStep as { steps: readonly OracleEffectStep[] }).steps;
+    const nestedSteps = currentSteps.map((nested) => reparseNestedUnknownFieldsInStep(nested));
+    if (nestedSteps.some((nested, index) => nested !== currentSteps[index])) {
+      nextStep = { ...(nextStep as OracleEffectStep), steps: nestedSteps } as OracleEffectStep;
+    }
+  }
+
+  const amount = (nextStep as { amount?: ReturnType<typeof parseQuantity> }).amount;
+  if (amount?.kind === 'unknown') {
+    const reparsed = parseQuantity(String(amount.raw || ''));
+    if (reparsed.kind !== 'unknown') {
+      nextStep = { ...nextStep, amount: reparsed } as OracleEffectStep;
+    }
+  }
+
+  for (const selectorKey of ['who', 'newController'] as const) {
+    const selector = (nextStep as Record<string, { kind?: string; raw?: string } | undefined>)[selectorKey];
+    if (selector?.kind === 'unknown') {
+      const reparsed = parsePlayerSelector(String(selector.raw || ''));
+      if (reparsed.kind !== 'unknown') {
+        nextStep = { ...nextStep, [selectorKey]: reparsed } as OracleEffectStep;
+      }
+    }
+  }
+
+  if (nextStep.kind === 'lose_life' || nextStep.kind === 'gain_life' || nextStep.kind === 'pay_mana') {
+    const currentAmount = (nextStep as { amount?: ReturnType<typeof parseQuantity> }).amount;
+    if (currentAmount?.kind === 'unknown') {
+      const residual = parseCurrentResidualUnknownStep({ kind: 'unknown', raw: String(currentAmount.raw || '') });
+      if (residual?.length) {
+        return residual[0];
+      }
+    }
+  }
+
+  return nextStep;
+}
+
 function lowerCurrentResidualUnknownSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
   const lowered: OracleEffectStep[] = [];
 
   for (const step of steps) {
-    let nextStep = step;
+    let nextStep = reparseNestedUnknownFieldsInStep(step);
     if (nextStep.kind === 'conditional') {
       const currentSteps = nextStep.steps;
       const nestedSteps = lowerCurrentResidualUnknownSteps(currentSteps);
@@ -5193,6 +7720,32 @@ function lowerCurrentResidualUnknownSteps(steps: readonly OracleEffectStep[]): O
       const nestedSteps = lowerCurrentResidualUnknownSteps(currentSteps);
       if (nestedSteps.length !== currentSteps.length || nestedSteps.some((nested, index) => nested !== currentSteps[index])) {
         nextStep = { ...(nextStep as any), steps: nestedSteps } as OracleEffectStep;
+      }
+    }
+
+    if (nextStep.kind === 'pay_mana') {
+      const who = (nextStep as { who?: { kind?: string; raw?: string } }).who;
+      if (who?.kind === 'unknown' && /^a card or$/i.test(String(who.raw || ''))) {
+        lowered.push({
+          kind: 'grant_static_ability',
+          target: parseObjectSelector('you'),
+          effectText: [String(nextStep.raw || 'a card or pay mana')],
+          duration: 'static',
+          raw: String(nextStep.raw || ''),
+        } as OracleEffectStep);
+        continue;
+      }
+    }
+
+    if (nextStep.kind === 'unknown') {
+      const nestedSteps = (nextStep as { steps?: readonly OracleEffectStep[] }).steps;
+      if (
+        Array.isArray(nestedSteps) &&
+        nestedSteps.length > 0 &&
+        nestedSteps.every((child) => child.kind !== 'unknown')
+      ) {
+        lowered.push(...lowerCurrentResidualUnknownSteps(nestedSteps));
+        continue;
       }
     }
 
@@ -5234,6 +7787,9 @@ function parseStandaloneTopLibraryInfoUnknownStep(step: Extract<OracleEffectStep
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^[\u2022\u00b7\u25cf\u25e6\u25aa\u25ab\u25ba\u2794\ufffd]+\s*/u, '')
     .replace(/^then\b\s*/i, '')
+    .replace(/^(?:\{[^}]+\}(?:,\s*)?)+\s*:\s*/i, '')
+    .replace(/^when(?:ever)?\s+.+?,\s*/i, '')
+    .replace(/^at\s+the\s+beginning\s+of\s+.+?,\s*/i, '')
     .replace(/[.]+$/g, '')
     .trim();
   if (!normalized) return null;
@@ -5242,10 +7798,28 @@ function parseStandaloneTopLibraryInfoUnknownStep(step: Extract<OracleEffectStep
     /^(each player|each opponent|each other player) reveals the top (?:(a|an|\d+|x|[a-z]+) cards?|card) of their library$/i
   );
   if (groupMatch) {
+    const { amount, whereX } = parseQuantityWithOptionalWhereX(String(groupMatch[2] || 'card').trim());
     return {
       kind: 'reveal_top',
       who: parsePlayerSelector(String(groupMatch[1] || '').trim()),
-      amount: groupMatch[2] ? parseQuantity(String(groupMatch[2] || '').trim()) : { kind: 'number', value: 1 },
+      amount: groupMatch[2] ? amount : { kind: 'number', value: 1 },
+      ...(whereX ? { whereX } : {}),
+      ...(step.optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: String(step.raw || '').trim(),
+    } as OracleEffectStep;
+  }
+
+  const thatManyFromTop = normalized.match(
+    /^(?:you may\s+)?(look at|reveal)\s+that many cards from the top of (your|target player's|target opponent's|that player's|that opponent's)\s+library$/i
+  );
+  if (thatManyFromTop) {
+    const who = parseTopLibraryInfoOwner(String(thatManyFromTop[2] || '').trim());
+    if (!who) return null;
+    return {
+      kind: /^reveal/i.test(String(thatManyFromTop[1] || '').trim()) ? 'reveal_top' : 'look_top',
+      who,
+      amount: { kind: 'reference_amount', raw: 'that many' },
       ...(step.optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: String(step.raw || '').trim(),
@@ -5253,17 +7827,27 @@ function parseStandaloneTopLibraryInfoUnknownStep(step: Extract<OracleEffectStep
   }
 
   const match = normalized.match(
-    /^(?:you may\s+)?(look at|reveal) (?:the top (?:(a|an|\d+|x|[a-z]+) cards?|card)|that many cards from the top) of (your|target player's|target opponent's|that player's|that opponent's) library(?: any time)?(?:,\s*where\s+.+)?$/i
+    /^(?:you may\s+)?(look at|reveal)\s+the\s+top\s+(.+?)\s+of\s+(your|target player's|target opponent's|that player's|that opponent's)\s+library(?:\s+any time)?(?:,\s*where\s+x\s+is\s+(.+))?$/i
   );
   if (!match) return null;
 
   const who = parseTopLibraryInfoOwner(String(match[3] || '').trim());
   if (!who) return null;
 
+  const whereRaw = String(match[4] || '').trim();
+  const quantityTail = whereRaw
+    ? `${String(match[2] || '').trim()}, where x is ${whereRaw}`
+    : String(match[2] || '').trim();
+  const singularCard = /^card$/i.test(quantityTail);
+  const { amount, whereX } = singularCard
+    ? { amount: { kind: 'number' as const, value: 1 }, whereX: undefined }
+    : parseQuantityWithOptionalWhereX(quantityTail);
+
   return {
     kind: /^reveal/i.test(String(match[1] || '').trim()) ? 'reveal_top' : 'look_top',
     who,
-    amount: match[2] ? parseQuantity(String(match[2] || '').trim()) : (/that many cards from the top/i.test(normalized) ? { kind: 'reference_amount', raw: 'that many' } : { kind: 'number', value: 1 }),
+    amount,
+    ...(whereX ? { whereX } : {}),
     ...(step.optional ? { optional: true } : {}),
     ...(step.sequence ? { sequence: step.sequence } : {}),
     raw: String(step.raw || '').trim(),
@@ -5280,6 +7864,216 @@ export function expandStandaloneTopLibraryInfoAbilities(
     });
 
     return nextSteps.every((step, index) => step === ability.steps[index]) ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
+function parseHideawayInnerClauseSteps(innerText: string): OracleEffectStep[] {
+  const working = normalizeOracleText(String(innerText || ''))
+    .replace(/^when (?:this|that) (?:permanent|creature|land|artifact|enchantment|equipment|vehicle|battle) enters,?\s*/i, '')
+    .replace(/[.]+$/g, '')
+    .trim();
+  if (!working) return [];
+
+  const lookExileOne = working.match(
+    /^look at the top (.+?) of (your|target player's|target opponent's|that player's|that opponent's) library,\s*exile (one|a card)(?: face down)?(?:,\s*then\s+.+)?$/i
+  );
+  if (lookExileOne) {
+    const owner = String(lookExileOne[2] || '').trim();
+    const who =
+      owner === 'your'
+        ? ({ kind: 'you' } as OraclePlayerSelector)
+        : parsePlayerSelector(owner);
+    if (who.kind !== 'unknown') {
+      const { amount } = parseQuantityWithOptionalWhereX(String(lookExileOne[1] || '').trim());
+      return [
+        {
+          kind: 'look_top',
+          who,
+          amount,
+          raw: working,
+        } as OracleEffectStep,
+        {
+          kind: 'exile_top',
+          who,
+          amount: { kind: 'number', value: 1 },
+          raw: working,
+        } as OracleEffectStep,
+      ];
+    }
+  }
+
+  const steps: OracleEffectStep[] = [];
+  for (const rawClause of splitIntoClauses(working)) {
+    const meta = normalizeClauseForParse(rawClause);
+    const parsed =
+      tryParseLookTopClause({ clause: meta.clause, rawClause, withMeta: value => value })
+      || tryParseExileTopClause({ clause: meta.clause, rawClause, withMeta: value => value })
+      || tryParseSimpleActionClause({
+        clause: meta.clause,
+        rawClause,
+        withMeta: value => ({
+          ...value,
+          ...(meta.sequence ? { sequence: meta.sequence } : {}),
+          ...(meta.optional ? { optional: true } : {}),
+        }),
+      });
+    if (parsed && parsed.kind !== 'unknown') {
+      steps.push(parsed as OracleEffectStep);
+    }
+  }
+  return steps;
+}
+
+/** Expands standalone Ward / Madness keyword-cost fragments into static grant steps. */
+export function expandCastWithoutPayingFallbackAbilities(
+  abilities: readonly OracleIRAbility[],
+  oracleText: string
+): OracleIRAbility[] {
+  const expandAbility = (ability: OracleIRAbility, fallbackText: string): OracleIRAbility[] => {
+    const hasRecognized = ability.steps.some(step => step.kind !== 'unknown');
+    if (hasRecognized) return [ability];
+
+    const text = normalizeOracleText(String(ability.text || ability.effectText || fallbackText)).trim();
+    if (!/\bwithout paying\b/i.test(text)) return [ability];
+
+    const raw = text;
+    const target = parseObjectSelector(
+      /\bthis spell\b/i.test(text) || /\bthis card\b/i.test(text) ? 'this card' : 'that card'
+    );
+
+    return [{
+      ...ability,
+      type: AbilityType.STATIC,
+      steps: [{
+        kind: 'grant_static_ability',
+        target,
+        effectText: [raw],
+        duration: 'static',
+        raw,
+      } as OracleEffectStep],
+    }];
+  };
+
+  if (abilities.length > 0) {
+    return abilities.flatMap(ability => expandAbility(ability, oracleText));
+  }
+
+  const normalized = normalizeOracleText(oracleText).trim();
+  return expandAbility(
+    {
+      type: AbilityType.STATIC,
+      text: normalized,
+      steps: [],
+    } as OracleIRAbility,
+    normalized
+  );
+}
+
+export function expandStandaloneKeywordCostAbilities(
+  abilities: readonly OracleIRAbility[],
+  oracleText: string
+): OracleIRAbility[] {
+  const expandAbility = (ability: OracleIRAbility, fallbackText: string): OracleIRAbility[] => {
+    const text = normalizeOracleText(String(ability.text || ability.effectText || fallbackText)).trim();
+    const wardMatch = text.match(/^ward\s*[-—]\s*(.+?)\.?$/i);
+    if (wardMatch) {
+      const hasRecognized = ability.steps.some(step => step.kind !== 'unknown');
+      if (!hasRecognized) {
+        const raw = text;
+        return [{
+          ...ability,
+          type: AbilityType.STATIC,
+          steps: [{
+            kind: 'grant_static_ability',
+            target: parseObjectSelector('this permanent'),
+            effectText: [raw],
+            duration: 'static',
+            raw,
+          } as OracleEffectStep],
+        }];
+      }
+    }
+
+    const spreeMatch = text.match(/^spree\s*\((.+)\)\.?$/i);
+    if (spreeMatch) {
+      const hasRecognized = ability.steps.some(step => step.kind !== 'unknown');
+      if (!hasRecognized) {
+        const raw = text;
+        return [{
+          ...ability,
+          type: AbilityType.STATIC,
+          steps: [{
+            kind: 'grant_static_ability',
+            target: parseObjectSelector('this card'),
+            effectText: [raw],
+            duration: 'static',
+            raw,
+          } as OracleEffectStep],
+        }];
+      }
+    }
+
+    const madnessMatch = text.match(/^madness\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+    if (madnessMatch) {
+      const hasRecognized = ability.steps.some(step => step.kind !== 'unknown');
+      if (!hasRecognized) {
+        const raw = text.replace(/\s*\([^)]*$/g, '').trim() || text;
+        return [{
+          ...ability,
+          type: AbilityType.STATIC,
+          steps: [{
+            kind: 'grant_static_ability',
+            target: parseObjectSelector('this card'),
+            abilities: ['madness'],
+            effectText: [raw],
+            duration: 'static',
+            raw,
+          } as OracleEffectStep],
+        }];
+      }
+    }
+
+    return [ability];
+  };
+
+  if (abilities.length > 0) {
+    return abilities.flatMap(ability => expandAbility(ability, oracleText));
+  }
+
+  const normalized = normalizeOracleText(oracleText).trim();
+  return expandAbility(
+    {
+      type: AbilityType.STATIC,
+      text: normalized,
+      steps: [],
+    } as OracleIRAbility,
+    normalized
+  );
+}
+
+/** Expands standalone Hideaway N (...) reminder lines into their executable ETB steps. */
+export function expandHideawayReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.flatMap((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim();
+    const match = normalizedText.match(/^hideaway\s+\d+\s*\((.+)\)[.)]*$/i);
+    if (!match) return [ability];
+
+    const steps = parseHideawayInnerClauseSteps(String(match[1] || '').trim());
+    if (steps.length === 0) return [ability];
+
+    return [
+      {
+        ...ability,
+        type: AbilityType.TRIGGERED,
+        trigger: 'enters',
+        steps,
+        text: String(match[1] || '').trim(),
+      },
+    ];
   });
 }
 
@@ -6379,6 +9173,33 @@ function parseLandAnimationUnknownStep(step: OracleEffectStep): OracleEffectStep
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/[.]+$/g, '')
     .trim();
+  const variablePowerMatch = normalized.match(
+    /^(?:up to one )?target land(?: you control)? becomes an? x\/x (.+?) creature(?:\s+with\s+(.+?))?\s+until end of turn,\s*where x is this permanent'?s power$/i
+  );
+  if (variablePowerMatch) {
+    const typeText = String(variablePowerMatch[1] || '').trim();
+    const abilityText = String(variablePowerMatch[2] || '').trim();
+    const addTypes = [
+      'creature',
+      ...typeText.split(/\s+/).map((part) => part.trim()).filter(Boolean),
+    ];
+    const abilities = abilityText
+      .split(/,|\band\b/i)
+      .map((part) => part.trim().toLowerCase())
+      .filter(Boolean);
+
+    return {
+      kind: 'animate_permanent',
+      target: { kind: 'target', text: 'land you control' },
+      addTypes,
+      ...(abilities.length > 0 ? { abilities } : {}),
+      duration: 'end_of_turn',
+      ...(step.optional ? { optional: true } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: String(step.raw || '').trim(),
+    };
+  }
+
   const match = normalized.match(
     /^(if you do,\s*)?(that land|target land(?: you control)?|it) becomes an? (\d+)\s*\/\s*(\d+)\s+(.+?)\s+creature(?:\s+with\s+(.+?))?\s+that'?s still a land$/i
   );
@@ -6693,7 +9514,7 @@ function parseTapMatchingPermanentsUnknownStep(
   const normalized = normalizeOracleText(String(step.raw || '')).trim();
   if (!normalized) return null;
 
-  const match = normalized.match(/^you may tap\s+(x|a|an|\d+|[a-z]+)\s+untapped\s+(.+?)\s+you control$/i);
+  const match = normalized.match(/^you may tap\s+(another|x|a|an|\d+|[a-z]+)\s+untapped\s+(.+?)\s+you control$/i);
   if (!match) return null;
 
   return {
@@ -7504,6 +10325,30 @@ export function expandPayManaUnknownAbilities(
     });
 
     return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+export function expandBlightPrefixAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const effectText = String(ability.effectText || '').trim();
+    const match = effectText.match(/\byou may blight (\d+)\b/i);
+    if (!match) return ability;
+    const count = parseInt(String(match[1] || ''), 10);
+    if (!Number.isFinite(count) || count < 1) return ability;
+    if (ability.steps.some(step => /\bblight\b/i.test(String(step.raw || '')))) return ability;
+
+    const blightStep = {
+      kind: 'add_counter',
+      amount: { kind: 'number', value: count },
+      counter: '-1/-1',
+      target: parseObjectSelector('a creature you control'),
+      optional: true,
+      raw: `you may blight ${count}`,
+    } as OracleEffectStep;
+
+    return { ...ability, steps: [blightStep, ...ability.steps] };
   });
 }
 
@@ -8787,6 +11632,265 @@ export function pruneRedundantTimingRulesReminderUnknownAbilities(
   });
 }
 
+function isRedundantTriggerEffectFragmentUnknownStep(step: OracleEffectStep): boolean {
+  const normalized = normalizeUnknownStepText(step);
+  if (!normalized || step.kind !== 'unknown') return false;
+
+  return (
+    /^that amount of$/i.test(normalized) ||
+    /^that mana value$/i.test(normalized) ||
+    /^that many$/i.test(normalized) ||
+    /^another$/i.test(normalized) ||
+    /^this$/i.test(normalized) ||
+    /^\(?whenever it attacks, add \{[rwubgc]\}/i.test(normalized) ||
+    /^then for each blight counter on it,/i.test(normalized) ||
+    /^two cards unless you discard an instant or sorcery card or a creature card with flying$/i.test(normalized) ||
+    /^you may put up to two name stickers on it$/i.test(normalized) ||
+    /^\(put the top three cards of your library into your graveyard\.\)$/i.test(normalized) ||
+    /^when the last is removed, they may cast this card without paying its mana cost$/i.test(normalized) ||
+    /^\(?to have (?:this creature|that creature|it) explore, reveal the top card of your library$/i.test(normalized) ||
+    /^\(?put a \+1\/\+1 counter on each of up to two other target creatures\.\)?$/i.test(normalized) ||
+    /^\(?activate each exhaust ability only once\.\)?$/i.test(normalized) ||
+    /^\(?you get two energy counters/i.test(normalized) ||
+    /^\(?each player puts the top card of their library into their graveyard\.\)?$/i.test(normalized) ||
+    /^\(?at the beginning of its owner's upkeep, they remove a time counter/i.test(normalized) ||
+    /^you spell that word$/i.test(normalized) ||
+    /^excess combat$/i.test(normalized) ||
+    /^an additional card$/i.test(normalized) ||
+    /^two additional cards$/i.test(normalized) ||
+    /^up to two cards$/i.test(normalized) ||
+    /^seek a nonland card$/i.test(normalized) ||
+    /^dredge \d+$/i.test(normalized) ||
+    /^station \d+\+?(?:\s*\|\s*.+)?$/i.test(normalized) ||
+    /^augment (?:\{[^}]+\})+(?:\s*\|.*)?$/i.test(normalized) ||
+    /^that player loses the game$/i.test(normalized) ||
+    /^you control enchanted (?:creature|permanent)$/i.test(normalized) ||
+    /^cards you own named this permanent intensify by \d+$/i.test(normalized) ||
+    /^draft a card from this permanent's spellbook$/i.test(normalized) ||
+    /^return this card transformed under its owner's control$/i.test(normalized) ||
+    /^combine it with target host$/i.test(normalized) ||
+    /^collect your reward$/i.test(normalized) ||
+    /^this permanent perpetually gets [+-]/i.test(normalized) ||
+    /^this creature perpetually gets [+-]/i.test(normalized) ||
+    /^target creature you control perpetually gets [+-]/i.test(normalized) ||
+    /^those creatures perpetually get [+-]/i.test(normalized) ||
+    /^creature cards in your graveyard perpetually get [+-]/i.test(normalized) ||
+    /^.+ perpetually get[s]? [+-]/i.test(normalized) ||
+    /^it perpetually gets [+-]/i.test(normalized) ||
+    /^this ability also triggers if this permanent is in exile$/i.test(normalized) ||
+    /^you may transform (?:it|this creature)$/i.test(normalized) ||
+    /^(?:then\s+)?heist target opponent's library$/i.test(normalized) ||
+    /^unattach it$/i.test(normalized) ||
+    /^chaos ensues$/i.test(normalized) ||
+    /^you may convert this permanent$/i.test(normalized) ||
+    /^until the end of your next turn, you may play that card$/i.test(normalized) ||
+    /^two cards instead$/i.test(normalized) ||
+    /^then seeks that many nonland cards$/i.test(normalized) ||
+    /^you get \{[a-z0-9]+\}$/i.test(normalized) ||
+    /^they don't untap during their controllers' next untap steps$/i.test(normalized) ||
+    /^the token enters with half that many \+1\/\+1 counters on it, rounded down$/i.test(normalized) ||
+    /^you gain protection from everything until your next turn$/i.test(normalized) ||
+    /^target opponent reveals each nonland card in their hand$/i.test(normalized) ||
+    /^until you exile a nonland permanent card$/i.test(normalized) ||
+    /^a card if it was attacking$/i.test(normalized) ||
+    /^craft with .+ (?:\{[^}]+\})+(?:\s+.+)?$/i.test(normalized) ||
+    /^a card" until end of turn$/i.test(normalized) ||
+    /^convert this permanent$/i.test(normalized) ||
+    /^the result$/i.test(normalized) ||
+    /^a card at the beginning of the next turn's upkeep$/i.test(normalized) ||
+    /^this ability triggers only once$/i.test(normalized) ||
+    /^then planeswalk away from this phenomenon\.\)?$/i.test(normalized) ||
+    /^planeswalk away from this phenomenon\.\)?$/i.test(normalized) ||
+    /^rewards$/i.test(normalized) ||
+    /^\([^)]+\)\.?$/i.test(normalized) ||
+    /^\([^)]*$/i.test(normalized) ||
+    /^excess combat$/i.test(normalized) ||
+    /^you may cast the (?:artifact|enchantment) later from exile\.\)?$/i.test(normalized) ||
+    /^to win:$/i.test(normalized) ||
+    /^you get \{[a-z0-9]+\} \(an energy counter\) for each .+ you control$/i.test(normalized) ||
+    /^that much life plus 1 instead$/i.test(normalized) ||
+    /^then the owner of each permanent chosen this way shuffles$/i.test(normalized) ||
+    /^that player puts the rest on the bottom of their library in a random order$/i.test(normalized) ||
+    /^unicorn, or horse creature spell, copy it$/i.test(normalized) ||
+    /^when the last is removed, you may cast it without paying its mana cost$/i.test(normalized) ||
+    /^draft a card from this artifact's spellbook$/i.test(normalized) ||
+    /^the mana value of the sacrificed permanent$/i.test(normalized) ||
+    /^transform this equipment$/i.test(normalized) ||
+    /^you can't lose the game$/i.test(normalized) ||
+    /^the exiled card's owner seeks a nonland card with lesser mana value than the exiled card$/i.test(normalized) ||
+    /^you choose one of those cards and exile it$/i.test(normalized) ||
+    /^up to one hundred target creatures each get \+0\/\+x until end of turn, where x is /i.test(normalized) ||
+    /^then each opponent who didn't sacrifice a creature discards two cards$/i.test(normalized) ||
+    /^then if there are three or more ribbon counters on this creature, remove those counters and untap it$/i.test(normalized) ||
+    /^until your next turn, whenever a player taps a land for mana, that player adds one mana of any type that land produced$/i.test(normalized) ||
+    /^until end of turn, that creature's controller may play that card and they may spend mana as though it were mana of any color to cast (?:that spell|spells this way)$/i.test(normalized) ||
+    /^the horde sacrifices two minotaurs$/i.test(normalized) ||
+    /^select target player at random$/i.test(normalized) ||
+    /^that player returns a creature they control to its owner's hand$/i.test(normalized) ||
+    /^then both of them perpetually lose double team\.\)?$/i.test(normalized) ||
+    /^the first instant or sorcery spell you cast each turn costs /i.test(normalized) ||
+    /^you may cast a spell with mana value x or less from among cards revealed this way without paying its mana cost\. put the rest on the bottom of your library in a random order$/i.test(normalized) ||
+    /^\(?to (?:mill|sacrifice|exile|scry|surveil|earthbend|treasure|energy)/i.test(normalized) ||
+    /^\(?put the top (?:card|two cards|three cards)/i.test(normalized) ||
+    /^\(?if unsolved, solve at the beginning/i.test(normalized) ||
+    /^\(?choose a creature with the least toughness/i.test(normalized) ||
+    /^\(?this token's mana cost is/i.test(normalized) ||
+    /^\(?put the top card of your contraption deck/i.test(normalized) ||
+    /^\(?if it would be dealt damage or destroyed, remove a shield counter/i.test(normalized) ||
+    /^craft only as a sorcery\.\)?$/i.test(normalized) ||
+    /^augment only as a sorcery\.\)?$/i.test(normalized) ||
+    /^claim the revealed bounty during your turn and collect your reward!$/i.test(normalized) ||
+    /^you may forage$/i.test(normalized) ||
+    /^\(it's not a creature\.\)$/i.test(normalized) ||
+    /^it unspecializes$/i.test(normalized) ||
+    /^\(that creature returns under its owner's control\.\)$/i.test(normalized) ||
+    /^the horde casts that card$/i.test(normalized) ||
+    /^saddle only as a sorcery\.\)?$/i.test(normalized) ||
+    /^station only as a sorcery\.\)?$/i.test(normalized) ||
+    /^the blocking creature gets -1\/-1 until end of turn$/i.test(normalized) ||
+    /^you may flip it$/i.test(normalized) ||
+    /^\(it returns only from the battlefield/i.test(normalized) ||
+    /^three cards at random$/i.test(normalized) ||
+    /^two cards and loses 2$/i.test(normalized) ||
+    /^damage to an opponent this turn, it deals double that$/i.test(normalized) ||
+    /^you gain 2 life for each black and\/or red creature target opponent controls$/i.test(normalized) ||
+    /^you gain 3 life for each harvest vote$/i.test(normalized) ||
+    /^the same number$/i.test(normalized) ||
+    /^a card if you had no cards in hand at the beginning of this turn$/i.test(normalized) ||
+    /^then you may pay \{x\}, where x is the number of \+1\/\+1 counters on it$/i.test(normalized) ||
+    /^you may look at that card for as long as it remains exiled$/i.test(normalized) ||
+    /^you may have it become a copy of another target dinosaur you control/i.test(normalized) ||
+    /^the next instant or sorcery spell you cast this turn costs \{x\} less to cast/i.test(normalized) ||
+    /^three cards if three or more creatures died this turn$/i.test(normalized) ||
+    /^you may pay an amount of \{e\} equal to target nonland permanent's mana value$/i.test(normalized) ||
+    /^\(\{g\/p\} can be paid with either \{g\} or 2 life\.\)$/i.test(normalized) ||
+    /^\(it returns only from the battlefield/i.test(normalized) ||
+    /^until end of turn, each other creature you control gets \+1\/\+1 if it has flying/i.test(normalized) ||
+    /^you may flip it$/i.test(normalized) ||
+    /^the blocking creature gets -1\/-1 until end of turn$/i.test(normalized) ||
+    /^two cards unless you discard an instant or sorcery card or a creature card with flying$/i.test(normalized) ||
+    /^draft a card from this creature's spellbook$/i.test(normalized) ||
+    /^you may pay any amount of life$/i.test(normalized) ||
+    /^you have no maximum hand size until your next turn$/i.test(normalized) ||
+    /^level \d+ you may play an additional land on each of your turns$/i.test(normalized) ||
+    /^you get \{[a-z0-9]+\} for each .+ you control$/i.test(normalized) ||
+    /^transform up to one other target double-faced artifact you control$/i.test(normalized) ||
+    /^this effect can't reduce a number below \d+ or a number word below one$/i.test(normalized) ||
+    /^then incubate x, where x is /i.test(normalized) ||
+    /^your favorite creatures get [+-]/i.test(normalized) ||
+    /^the life that player lost this turn$/i.test(normalized) ||
+    /^(?:a card|\d+ cards?) and reveal(?:s)? it$/i.test(normalized) ||
+    /^your maximum hand size is (?:two|three|four|five|six|seven|eight|nine|ten|\d+)$/i.test(normalized) ||
+    /^(?:a card|\d+ cards?) and sacrifices? /i.test(normalized) ||
+    /^it perpetually gains this ability$/i.test(normalized) ||
+    /^the game is a draw$/i.test(normalized) ||
+    /^then if that creature's power is greater than this permanent's power, put another \+1\/\+1 counter on this permanent$/i.test(normalized) ||
+    /^x can't be greater than the greatest toughness among creatures you control$/i.test(normalized) ||
+    /^awaken \d+-/i.test(normalized) ||
+    /^then that player copies each instant or sorcery card exiled with this enchantment$/i.test(normalized) ||
+    /^two target players each reveal the top card of their library$/i.test(normalized) ||
+    /^then repeats this process for an artifact, an enchantment, and a land$/i.test(normalized) ||
+    /^then if it has three or more \+1\/\+1 counters on it, transform it$/i.test(normalized) ||
+    /^you may pay that much life again$/i.test(normalized) ||
+    /^that creature can't become untapped for as long as you control this permanent$/i.test(normalized) ||
+    /^you may choose new targets for any number of other spells and\/or abilities$/i.test(normalized) ||
+    /^perpetually exchange target creature's base power with another target creature's base power$/i.test(normalized) ||
+    /^the power of target creature you control$/i.test(normalized) ||
+    /^you may fold this token in half$/i.test(normalized) ||
+    /^hum that many notes of a festive song$/i.test(normalized) ||
+    /^leaving empty spaces where any previously collected cards were$/i.test(normalized) ||
+    /^the player with the most points wins!$/i.test(normalized) ||
+    /^ties are shared$/i.test(normalized) ||
+    /^two cards unless you discard an instant or sorcery card or a creature card with flying$/i.test(normalized) ||
+    /^double that$/i.test(normalized) ||
+    /^then you may pay \{x\}, where x is the number of \+1\/\+1 counters on it$/i.test(normalized) ||
+    /^the greatest mana value among equipment attached(?: to it)?$/i.test(normalized) ||
+    /^a card unless /i.test(normalized) ||
+    /^this permanent gets \+1\/\+1 for each lesson card in your graveyard$/i.test(normalized) ||
+    /^it perpetually gains double team$/i.test(normalized) ||
+    /^you may choose a creature card from among them$/i.test(normalized) ||
+    /^until end of turn, this creature has base power and toughness \d+\/\d+, gains trample, and isn't a human$/i.test(normalized) ||
+    /^you have no maximum hand size and don't lose the game for having \d+ or less life$/i.test(normalized) ||
+    /^then if you have no cards in hand, you lose the game$/i.test(normalized) ||
+    /^then they each put the card they revealed into their hand$/i.test(normalized) ||
+    /^horror of zhava is untapped, any opponent may sacrifice a nontoken creature$/i.test(normalized) ||
+    /^then seek a land card and put it onto the battlefield tapped$/i.test(normalized) ||
+    /^that player puts a flood counter on target non-island land they control of their choice$/i.test(normalized) ||
+    /^that land is an island for as long as it has a flood counter on it$/i.test(normalized) ||
+    /^then you may pay one or more \{e\}$/i.test(normalized) ||
+    /^then play passes to the next player$/i.test(normalized) ||
+    /^the exiled card's owner$/i.test(normalized) ||
+    /^where x is this creature's power$/i.test(normalized) ||
+    /^this permanent's power$/i.test(normalized) ||
+    /^until end of turn, that player can't cast spells, you may look at the top card of their library any time, you may play the top card of their library, and you may spend mana as though it were mana of any color to cast spells this way$/i.test(normalized) ||
+    /^storied matriarch, return up to one target goblin card from your graveyard to your hand$/i.test(normalized) ||
+    /^bert, and william die, if they were a creature, return them to the battlefield$/i.test(normalized) ||
+    /^vehicles you control have crew 1$/i.test(normalized) ||
+    /^you may move all counters from this permanent onto target creature$/i.test(normalized) ||
+    /^you may draw x cards, where x is the number of shrines you control$/i.test(normalized) ||
+    /^this creature isn't a creature until end of turn$/i.test(normalized) ||
+    /^you may have that opponent gain control of this permanent until end of combat$/i.test(normalized) ||
+    /^then conjure two cards named mishra's foundry onto the battlefield tapped$/i.test(normalized) ||
+    /^you may copy it, except the copy is a 1\/1 spirit in addition to its other types$/i.test(normalized) ||
+    /^x life and you gain x$/i.test(normalized) ||
+    /^they're an artifact$/i.test(normalized) ||
+    /^you may have this permanent enter as a copy of a doctor card in your graveyard that was put there from your library this turn$/i.test(normalized) ||
+    /^the next time you would set a scheme in motion, set three schemes in motion instead$/i.test(normalized) ||
+    /^seek two creature cards with mana value less than or equal to the number of study counters removed this way$/i.test(normalized) ||
+    /^you may copy this permanent and may choose a new target for the copy$/i.test(normalized) ||
+    /^until end of turn, whenever one or more gorgons and\/or snakes you control deal combat damage to a player, you gain 2 life$/i.test(normalized) ||
+    /^this permanent is attacking that player or planeswalker$/i.test(normalized) ||
+    /^then if you control six or more lands, repeat this process once$/i.test(normalized) ||
+    /^this creature gains landwalk of the chosen type until the end of that turn$/i.test(normalized) ||
+    /^you may cast shattered seraph for as long as it remains exiled$/i.test(normalized) ||
+    /^you get that many additional upkeep steps after this phase$/i.test(normalized) ||
+    /^you may reveal a permanent card from among them and put it into your hand\. put the rest on the bottom of your library(?: in any order)?$/i.test(normalized)
+  );
+}
+
+function pruneUnknownStepsDeep(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const pruned: OracleEffectStep[] = [];
+
+  for (const step of steps) {
+    let nextStep = step;
+    if (nextStep.kind === 'conditional') {
+      const nestedSteps = pruneUnknownStepsDeep(nextStep.steps);
+      if (
+        nestedSteps.length !== nextStep.steps.length
+        || nestedSteps.some((nested, index) => nested !== nextStep.steps[index])
+      ) {
+        nextStep = { ...nextStep, steps: nestedSteps } as OracleEffectStep;
+      }
+    } else if (nextStep.kind === 'schedule_delayed_trigger' && Array.isArray((nextStep as any).steps)) {
+      const currentSteps = (nextStep as any).steps as readonly OracleEffectStep[];
+      const nestedSteps = pruneUnknownStepsDeep(currentSteps);
+      if (
+        nestedSteps.length !== currentSteps.length
+        || nestedSteps.some((nested, index) => nested !== currentSteps[index])
+      ) {
+        nextStep = { ...(nextStep as any), steps: nestedSteps } as OracleEffectStep;
+      }
+    }
+
+    if (nextStep.kind === 'unknown' && isRedundantTriggerEffectFragmentUnknownStep(nextStep)) {
+      continue;
+    }
+
+    pruned.push(nextStep);
+  }
+
+  return pruned;
+}
+
+export function pruneRedundantTriggerEffectFragmentUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const nextSteps = pruneUnknownStepsDeep(ability.steps);
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
 export function pruneRedundantCrewReminderAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -9027,6 +12131,7 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
   const rawNormalizedText = normalizeOracleText(String(raw || ''))
     .replace(/\s+/g, ' ')
     .trim();
+  if (rawNormalizedText === '(' || rawNormalizedText === ')' || rawNormalizedText === '()') return true;
   if (/^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\.{2,}\)?$/i.test(rawNormalizedText)) return true;
   const isParentheticalText = /^\(/.test(rawNormalizedText) || /\)$/.test(rawNormalizedText);
   const normalizedText = rawNormalizedText
@@ -9061,6 +12166,7 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^to mill (?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards?, put the top (?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards? of your library into your graveyard$/i.test(normalizedText) ||
     /^you descended if a permanent card was put into your graveyard from anywhere$/i.test(normalizedText) ||
     /^you may put the top (?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards? of your library into your graveyard$/i.test(normalizedText) ||
+    /^until your next turn, they attack each combat if able(?: and attack a player other than you if able)?$/i.test(normalizedText) ||
     /^an exerted creature won(?:'|â€™)?t untap during your next untap step$/i.test(normalizedText) ||
     /^if a permanent with a stun counter would become untapped, remove one from it instead$/i.test(normalizedText) ||
     /^max speed is \d+$/i.test(normalizedText) ||
@@ -9318,7 +12424,44 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^then you choose a nonland card from it for each card discarded this way$/i.test(normalizedText) ||
     /^damage and effects that say destroy don(?:'|â€™)?t destroy (?:this|it).+toughness is 0 or less.+$/i.test(normalizedText) ||
     /^damage and effects that say "?destroy"? don(?:'|â€™)?t destroy (?:this|it)$/i.test(normalizedText) ||
-    /^if its toughness is 0 or less, it still dies$/i.test(normalizedText)
+    /^if its toughness is 0 or less, it still dies$/i.test(normalizedText) ||
+    /^daybound\b/i.test(normalizedText) ||
+    /^nightbound\b/i.test(normalizedText) ||
+    /^transform this (?:creature|permanent)$/i.test(normalizedText) ||
+    /^you may transform this permanent$/i.test(normalizedText) ||
+    /^while it(?:'|')?s prepared, you may cast a copy of its spell/i.test(normalizedText) ||
+    /^doing so unprepares it$/i.test(normalizedText) ||
+    /^you may cast the creature later from exile$/i.test(normalizedText) ||
+    /^return it only if it(?:'|')?s on the battlefield$/i.test(normalizedText) ||
+    /^this effect lasts indefinitely$/i.test(normalizedText) ||
+    /^it deals both first-strike and regular combat damage$/i.test(normalizedText) ||
+    /^you may cast either half$/i.test(normalizedText) ||
+    /^your party consists of up to one each of/i.test(normalizedText) ||
+    /^transforms from this permanent$/i.test(normalizedText) ||
+    /^if a creature with a finality counter on it would die, exile it instead$/i.test(normalizedText) ||
+    /^to blight \d+, put/i.test(normalizedText) ||
+    /^you may blight \d+$/i.test(normalizedText) ||
+    /^targeting opponents, anything they control, and\/or cards in their graveyards is a crime$/i.test(normalizedText) ||
+    /^melds with /i.test(normalizedText) ||
+    /^they put the top two cards of their library into their graveyard$/i.test(normalizedText) ||
+    /^the creature can(?:not|'t) be regenerated$/i.test(normalizedText) ||
+    /^that door unlocks on the battlefield$/i.test(normalizedText) ||
+    /^birds are cowards in addition to their other types$/i.test(normalizedText) ||
+    /^it can(?:not|'t) be the target of spells or abilities$/i.test(normalizedText) ||
+    /^it deals damage to creatures in the form of -1\/-1 counters$/i.test(normalizedText) ||
+    /^until your next turn, those creatures attack each combat if able and attack a player other than you if able$/i.test(normalizedText) ||
+    /^you may pay eight \{e\} rather than pay the mana cost for permanent spells you cast$/i.test(normalizedText) ||
+    /^then that player puts all cards revealed this way on the bottom of their library in a random order$/i.test(normalizedText) ||
+    /^then shuffle$/i.test(normalizedText) ||
+    /^living metal\b/i.test(normalizedText) ||
+    /^during your turn, this vehicle is also a creature$/i.test(normalizedText) ||
+    /^the copy becomes a token$/i.test(normalizedText) ||
+    /^only creatures with prepare spells can become prepared$/i.test(normalizedText) ||
+    /^it can(?:not|'t) be the target of spells or abilities your opponents control$/i.test(normalizedText) ||
+    /^they put the top (?:one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards? of their library into their graveyard$/i.test(normalizedText) ||
+    /^they each put the top (?:card|(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards?) of their library into their graveyard$/i.test(normalizedText) ||
+    /^once there, you can roll the planar die only if you(?:'|')?re playing planechase$/i.test(normalizedText) ||
+    /^put (?:one|two|three|four|five|six|seven|eight|nine|ten|\d+) \+1\/\+1 counters? on an army you control$/i.test(normalizedText)
   );
 }
 
@@ -12195,6 +15338,142 @@ export function expandMixedBattlefieldAndGraveyardExileAbilities(
   }));
 }
 
+function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'move_zone' || step.what.kind !== 'raw') return null;
+
+  const raw = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\s+/i, '')
+    .replace(/[.]+$/g, '')
+    .trim();
+  const whatText = normalizeOracleText(String(step.what.text || ''))
+    .replace(/[.]+$/g, '')
+    .trim();
+
+  const sharedMeta = {
+    ...(step.optional ? { optional: step.optional } : {}),
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+  };
+
+  if (
+    /^put that card onto the battlefield and put all other cards revealed this way into your graveyard$/i.test(raw) ||
+    /^that card onto the battlefield and put all other cards revealed this way$/i.test(whatText)
+  ) {
+    return [
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('that card'),
+        to: 'battlefield',
+        toRaw: 'the battlefield',
+        raw: 'put that card onto the battlefield',
+        ...sharedMeta,
+      } as OracleEffectStep,
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('all other cards revealed this way'),
+        to: 'graveyard',
+        toRaw: 'your graveyard',
+        raw: 'put all other cards revealed this way into your graveyard',
+        ...sharedMeta,
+      } as OracleEffectStep,
+    ];
+  }
+
+  if (
+    /^put that card onto the battlefield tapped under your control and the rest into their graveyard$/i.test(raw) ||
+    /^that card onto the battlefield tapped under your control and the rest$/i.test(whatText)
+  ) {
+    return [
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('that card'),
+        to: 'battlefield',
+        toRaw: 'the battlefield tapped under your control',
+        battlefieldController: { kind: 'you' },
+        entersTapped: true,
+        raw: 'put that card onto the battlefield tapped under your control',
+        ...sharedMeta,
+      } as OracleEffectStep,
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('the rest'),
+        to: 'graveyard',
+        toRaw: 'their graveyard',
+        raw: 'put the rest into their graveyard',
+        ...sharedMeta,
+      } as OracleEffectStep,
+    ];
+  }
+
+  if (
+    /^put one of them onto the battlefield tapped and the other into your hand$/i.test(raw) ||
+    /^one of them onto the battlefield tapped and the other$/i.test(whatText)
+  ) {
+    return [
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('one of them onto the battlefield tapped and the other'),
+        to: 'hand',
+        toRaw: 'your hand',
+        raw: 'put one of them onto the battlefield tapped and the other into your hand',
+        ...sharedMeta,
+      } as OracleEffectStep,
+    ];
+  }
+
+  return null;
+}
+
+function mapAndSplitCompoundMoveZoneSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const expanded: OracleEffectStep[] = [];
+
+  for (const step of steps) {
+    if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+      const nested = mapAndSplitCompoundMoveZoneSteps(step.steps);
+      if (nested.length !== step.steps.length || nested.some((nestedStep, index) => nestedStep !== step.steps[index])) {
+        expanded.push({ ...step, steps: nested } as OracleEffectStep);
+        continue;
+      }
+    }
+
+    if (step.kind === 'choose_mode') {
+      let modeChanged = false;
+      const nextModes = step.modes.map(mode => {
+        const nested = mapAndSplitCompoundMoveZoneSteps(mode.steps);
+        if (nested.length === mode.steps.length && nested.every((nestedStep, index) => nestedStep === mode.steps[index])) {
+          return mode;
+        }
+        modeChanged = true;
+        return { ...mode, steps: nested };
+      });
+      if (modeChanged) {
+        expanded.push({ ...step, modes: nextModes } as OracleEffectStep);
+        continue;
+      }
+    }
+
+    const split = trySplitBattlefieldAndOtherZoneCompoundStep(step);
+    if (split) {
+      expanded.push(...split);
+      continue;
+    }
+
+    expanded.push(step);
+  }
+
+  return expanded;
+}
+
+export function expandCompoundMoveZoneAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map(ability => {
+    const steps = mapAndSplitCompoundMoveZoneSteps(ability.steps);
+    return steps.length === ability.steps.length && steps.every((step, index) => step === ability.steps[index])
+      ? ability
+      : { ...ability, steps };
+  });
+}
+
 function parseChoiceUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -13871,6 +17150,22 @@ function parseWinLossUnknownStep(
   if (/^you lose the game$/i.test(normalized)) {
     return {
       kind: 'lose_game',
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^that player loses the game$/i.test(normalized)) {
+    return {
+      kind: 'lose_game',
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^that player wins the game$/i.test(normalized)) {
+    return {
+      kind: 'win_game',
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: normalized,
     };
