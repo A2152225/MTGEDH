@@ -24,6 +24,7 @@ export type ExtendedConditionalParams = {
   readonly lastActionOutcome: LastActionOutcome;
   readonly lastMovedCards?: readonly any[];
   readonly lastDiscardedCards?: readonly any[];
+  readonly lastExcessDamageDealtThisWay?: number;
 };
 
 function parseSmallNumberWord(text: string): number | null {
@@ -341,6 +342,16 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
   if (normalizedRaw === 'you discarded a card this way') {
     return antecedentApplied(lastActionOutcome, ['discard']) ? discarded.length > 0 : false;
   }
+  if (/^a creature card (?:is|was) exiled this way$/.test(normalizedRaw)) {
+    return antecedentApplied(lastActionOutcome, ['exile', 'move_zone'])
+      ? moved.some((card) => objectHasType(card, 'creature'))
+      : false;
+  }
+  if (/^a noncreature card (?:is|was) exiled this way$/.test(normalizedRaw)) {
+    return antecedentApplied(lastActionOutcome, ['exile', 'move_zone'])
+      ? moved.some((card) => !objectHasType(card, 'creature'))
+      : false;
+  }
   if (normalizedRaw === "you didn't create a token this way") {
     return lastActionOutcome?.stepKind === 'create_token' ? lastActionOutcome.kind !== 'applied' : true;
   }
@@ -602,6 +613,77 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
   }
 
   {
+    const landControlMatch = normalizedRaw.match(
+      /^you control (four|five|six|seven|eight|nine|ten|\d+|zero|one|two|three|eleven|twelve) or more lands$/i
+    );
+    if (landControlMatch) {
+      const threshold = parseSmallNumberWord(String(landControlMatch[1] || ''));
+      if (threshold === null) return null;
+      const landCount = (nextState.battlefield || []).filter((perm: any) => {
+        if (String(perm?.controller || '').trim() !== controllerId) return false;
+        return /\bland\b/i.test(String(perm?.type_line || perm?.card?.type_line || ''));
+      }).length;
+      return landCount >= threshold;
+    }
+  }
+
+  {
+    const gyCreatureMatch = normalizedRaw.match(
+      /^there are (three|four|five|six|seven|eight|nine|ten|\d+|zero|one|two) or more creature cards in your graveyard$/i
+    );
+    if (gyCreatureMatch) {
+      const threshold = parseSmallNumberWord(String(gyCreatureMatch[1] || ''));
+      if (threshold === null) return null;
+      const creatureCards = getGraveyardCards(nextState, controllerId).filter((card: any) =>
+        /\bcreature\b/i.test(String(card?.type_line || ''))
+      );
+      return creatureCards.length >= threshold;
+    }
+  }
+
+  if (normalizedRaw === 'no life is lost this way') {
+    const lost = Number(
+      (ctx as any).lifeLostThisResolution ??
+        (nextState as any).lifeLostThisResolution ??
+        ((nextState as any).lifeLostThisTurn || {})?.[controllerId] ??
+        -1
+    );
+    if (Number.isFinite(lost) && lost >= 0) return lost === 0;
+    return false;
+  }
+
+  if (normalizedRaw === "you've done all four this turn") {
+    const completed = Number(
+      (nextState as any).modalActionsCompletedThisTurn?.[controllerId] ??
+        (ctx as any).modalActionsCompletedCount ??
+        0
+    );
+    return completed >= 4;
+  }
+
+  {
+    const exchangeFailMatch = normalizedRaw.match(
+      /^you don'?t or can'?t make an exchange(?:,\s*sacrifice .*)?$/i
+    );
+    if (exchangeFailMatch) {
+      if (
+        lastActionOutcome?.stepKind === 'exchange_control' &&
+        lastActionOutcome?.kind === 'applied'
+      ) {
+        return false;
+      }
+      return Boolean((ctx as any).exchangeFailed);
+    }
+  }
+
+  if (normalizedRaw === 'the creature deals damage to a creature this turn') {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const dealtMap = (nextState as any)?.creatureDealtDamageToCreatureThisTurn;
+    if (sourceId && typeof dealtMap?.[sourceId] === 'boolean') return dealtMap[sourceId];
+    return false;
+  }
+
+  {
     const lifeCompareMatch = normalizedRaw.match(/^you have (\d+) or less life$/i);
     if (lifeCompareMatch) {
       const threshold = Number.parseInt(String(lifeCompareMatch[1] || ''), 10);
@@ -658,6 +740,62 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
 
   if (normalizedRaw === 'there are five basic land types among lands you control') {
     return countBasicLandTypesAmongLandsYouControl(nextState, controllerId) >= 5;
+  }
+  {
+    const basicLandTypesMatch = normalizedRaw.match(
+      /^there are (three|four|five|six|seven|eight|nine|ten|\d+|zero|one|two) or more basic land types among lands you control$/i
+    );
+    if (basicLandTypesMatch) {
+      const threshold = parseSmallNumberWord(String(basicLandTypesMatch[1] || ''));
+      if (threshold === null) return null;
+      return countBasicLandTypesAmongLandsYouControl(nextState, controllerId) >= threshold;
+    }
+  }
+  {
+    const landsOrTreefolkMatch = normalizedRaw.match(
+      /^you control (seven|eight|nine|ten|\d+|zero|one|two|three|four|five|six|eleven|twelve) or more lands and\/or treefolk$/i
+    );
+    if (landsOrTreefolkMatch) {
+      const threshold = parseSmallNumberWord(String(landsOrTreefolkMatch[1] || ''));
+      if (threshold === null) return null;
+      const battlefield = getProcessedBattlefield(nextState) as any[];
+      const count = battlefield.filter((perm: any) => {
+        if (String(perm?.controller || '').trim() !== controllerId) return false;
+        return objectHasType(perm, 'land') || objectHasType(perm, 'treefolk');
+      }).length;
+      return count >= threshold;
+    }
+  }
+  if (normalizedRaw === 'excess damage was dealt this way') {
+    const excess = Number(params.lastExcessDamageDealtThisWay ?? (params.ctx as any)?.lastExcessDamageDealtThisWay ?? 0);
+    return excess > 0;
+  }
+  if (normalizedRaw === "you don't control a faerie") {
+    return countControlledMatchingDescriptor(nextState, controllerId, 'faerie') === 0;
+  }
+  if (normalizedRaw === 'the creature you control has trample') {
+    const sourceId = String(
+      params.ctx.targetCreatureId ||
+        params.ctx.selectorContext?.targetCreatureId ||
+        params.ctx.sourceId ||
+        ''
+    ).trim();
+    const perm = sourceId
+      ? findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, sourceId)
+      : getContextSourceObject(params.ctx, (idRaw: string) =>
+          findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, idRaw)
+        );
+    if (!perm) return false;
+    const keywords = String((perm as any)?.keywords || (perm as any)?.card?.keywords || '').toLowerCase();
+    if (keywords.includes('trample')) return true;
+    return hasExecutorClass(perm, 'trample');
+  }
+  if (normalizedRaw === 'a pirate was exiled this way') {
+    const moved = Array.isArray(params.lastMovedCards) ? params.lastMovedCards : [];
+    if (moved.length > 0) {
+      return moved.some((card: any) => objectHasType(card, 'pirate'));
+    }
+    return antecedentApplied(params.lastActionOutcome, ['exile', 'move_zone']);
   }
   if (normalizedRaw === 'an opponent controls more creatures than you') {
     const yours = controlledCreatures(nextState, controllerId).length;
@@ -717,6 +855,32 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     }
     const types = normalizedRaw.includes('artifact') ? ['artifact', 'creature', 'land'] : ['artifact', 'creature'];
     return types.some(typeName => objectHasType(ref, typeName));
+  }
+
+  {
+    const typedCardMatch = normalizedRaw.match(/^it'?s an? (.+?) cards?$/i);
+    if (typedCardMatch) {
+      const ref = getConditionalSubjectCard(params);
+      if (!ref) {
+        const ownerId = String(ctx.lastTopLibraryOwnerId || controllerId || '').trim();
+        const player = (nextState.players || []).find(
+          (entry: any) => String(entry?.id || '').trim() === ownerId
+        ) as any;
+        const library = Array.isArray(player?.library) ? player.library : [];
+        const topCard = library.length > 0 ? library[library.length - 1] : null;
+        if (!topCard) return false;
+        const typeName = String(typedCardMatch[1] || '')
+          .trim()
+          .toLowerCase()
+          .replace(/\s+cards?$/, '');
+        return objectHasType(topCard, typeName);
+      }
+      const typeName = String(typedCardMatch[1] || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+cards?$/, '');
+      return objectHasType(ref, typeName);
+    }
   }
 
   if (normalizedRaw === 'equipped creature is a vampire') {
@@ -784,6 +948,15 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
       const ref = getReferencedObject(nextState, ctx);
       if (!ref) return false;
       return Number(((ref as any)?.counters || {})['+1/+1'] ?? 0) > 0;
+    }
+    const thatCreaturePlusOneMatch = normalizedRaw.match(
+      /^that creature has (three|[a-z0-9]+) or more \+1\/\+1 counters on it$/i
+    );
+    if (thatCreaturePlusOneMatch) {
+      const threshold = parseSmallNumberWord(String(thatCreaturePlusOneMatch[1] || ''));
+      const ref = getReferencedObject(nextState, ctx);
+      if (!ref || threshold === null) return false;
+      return Number(((ref as any)?.counters || {})['+1/+1'] ?? 0) >= threshold;
     }
     if (normalizedRaw === 'this card has no egg counters on it') {
       const ref = getReferencedObject(nextState, ctx);
@@ -1155,6 +1328,43 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     return getSourceCounterCount(nextState, ctx, 'lore') >= 3;
   }
 
+  if (normalizedRaw === 'this enchantment has three or more invitation counters on it') {
+    return getSourceCounterCount(nextState, ctx, 'invitation') >= 3;
+  }
+
+  if (normalizedRaw === 'this is the fourth time this ability has resolved this turn') {
+    const sourceId = String(ctx.sourceId || 'bf-source').trim();
+    const count = Number(
+      (nextState as any)?.abilityResolveCountThisTurn?.[sourceId] ??
+        (ctx as any)?.abilityResolveCountThisTurn ??
+        0
+    );
+    return Number.isFinite(count) ? count >= 4 : false;
+  }
+
+  {
+    const toughnessGteMatch = normalizedRaw.match(/^that creature has toughness (\d+) or greater$/);
+    if (toughnessGteMatch) {
+      const threshold = Number.parseInt(String(toughnessGteMatch[1] || ''), 10);
+      const ref = getReferencedObject(nextState, ctx);
+      const toughnessValue = Number((ref as any)?.effectiveToughness ?? (ref as any)?.toughness ?? (ref as any)?.card?.toughness);
+      const toughness = Number.isFinite(toughnessValue) ? toughnessValue : null;
+      return toughness !== null && Number.isFinite(threshold) ? toughness >= threshold : false;
+    }
+  }
+
+  if (normalizedRaw === 'those creatures have total power 8 or greater') {
+    const totalPower = controlledCreatures(nextState, controllerId).reduce(
+      (sum, perm) => sum + getCreaturePower(perm),
+      0
+    );
+    return totalPower >= 8;
+  }
+
+  if (normalizedRaw === 'if no one does' || normalizedRaw === 'no one does') {
+    return false;
+  }
+
   if (normalizedRaw === 'the exploited creature had power 3 or greater') {
     const power = Number((ctx as any)?.lastExploitedCreaturePower ?? getLastAntecedentCreaturePower(params));
     return Number.isFinite(power) ? power >= 3 : false;
@@ -1232,6 +1442,17 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
       const card = getConditionalSubjectCard(params);
       const mv = card ? getCardManaValue((card as any)?.card || card) : null;
       return mv !== null && Number.isFinite(threshold) ? mv <= threshold : false;
+    }
+    const mvWasLteMatch = normalizedRaw.match(/^its mana value was (\d+) or less$/);
+    if (mvWasLteMatch) {
+      const threshold = Number.parseInt(String(mvWasLteMatch[1] || ''), 10);
+      if (!Number.isFinite(threshold)) return null;
+      if (params.lastActionOutcome?.stepKind !== 'destroy' || params.lastActionOutcome?.kind !== 'applied') {
+        return false;
+      }
+      const card = getConditionalSubjectCard(params);
+      const mv = card ? getCardManaValue((card as any)?.card || card) : null;
+      return mv !== null ? mv <= threshold : false;
     }
   }
 

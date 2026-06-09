@@ -388,5 +388,55 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
     }
   }
 
+  {
+    const m = raw.match(/^x is the number of colors among those creatures$/i);
+    if (m) {
+      const colors = new Set<string>();
+      for (const perm of controlled as any[]) {
+        if (!hasExecutorClass(perm, 'creature')) continue;
+        for (const color of getColorsFromObject(perm)) colors.add(color);
+      }
+      return colors.size;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of time counters among permanents you control$/i);
+    if (m) {
+      let total = 0;
+      for (const perm of controlled as any[]) {
+        total += getCounterCountOnObject(perm, 'time');
+      }
+      return total;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of counters on permanents you control$/i);
+    if (m) {
+      let total = 0;
+      for (const perm of controlled as any[]) {
+        const counters = (perm as any)?.counters || {};
+        for (const value of Object.values(counters)) {
+          const count = Number(value);
+          if (Number.isFinite(count) && count > 0) total += Math.floor(count);
+        }
+      }
+      return total;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of other elves you control$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      return controlled.filter((perm: any) => {
+        const id = String(perm?.id || '').trim();
+        if (sourceId && id === sourceId) return false;
+        return typeLineLower(perm).includes('elf');
+      }).length;
+    }
+  }
+
   return null;
 }

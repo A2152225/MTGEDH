@@ -285,6 +285,7 @@ const TRIGGER_CONDITION_EVENT_HINTS = [
   /\bbecomes blocked$/i,
   /\bdeals combat damage(?: to (?:a|an|target) [a-z0-9' -]+)?$/i,
   /\bdeals damage(?: to (?:a|an|target) [a-z0-9' -]+)?$/i,
+  /\bis dealt (?:combat )?damage(?: to [^,]+)?$/i,
   /\b(?:you|an opponent|each opponent|a player|opponent) casts? (?:a|an|your|their|target) [a-z0-9' -]+$/i,
   /\bdraws? (?:a|an|\d+|x|[a-z]+)?\s*cards?$/i,
   /\bdiscards? (?:a|an|\d+|x|[a-z]+)?\s*cards?$/i,
@@ -314,6 +315,18 @@ function stripLeadingTriggeredAbilityLabel(text: string): string {
   );
 }
 
+function looksLikeTriggerEffectFragment(text: string): boolean {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+  if (/^(?:they|you|that player|that opponent|each (?:player|opponent)|target (?:player|opponent))\b/i.test(trimmed)) {
+    return true;
+  }
+  if (/^(?:you may|if you do|choose|create|draw|exile|return|put|sacrifice|destroy|tap|untap|gain|lose|mill|discover|search|reveal|shuffle|scry|surveil|proliferate|blight)\b/i.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
 function looksLikeCompleteTriggerCondition(text: string): boolean {
   const normalized = String(text || '').trim();
   if (!normalized) return false;
@@ -323,6 +336,11 @@ function looksLikeCompleteTriggerCondition(text: string): boolean {
   if (/^the beginning of the next end step\b/i.test(normalized)) return false;
   if (/,/.test(normalized) && /\b(?:exile|draw|you may play|for as long as they remain)\b/i.test(normalized)) {
     return false;
+  }
+  const commaIndex = normalized.indexOf(',');
+  if (commaIndex >= 0) {
+    const afterComma = normalized.slice(commaIndex + 1).trim();
+    if (looksLikeTriggerEffectFragment(afterComma)) return false;
   }
   return TRIGGER_CONDITION_EVENT_HINTS.some(pattern => pattern.test(normalized));
 }

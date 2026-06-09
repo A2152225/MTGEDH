@@ -11,9 +11,10 @@ type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
 function splitMoveZoneReturnClause(clause: string): { readonly whatRaw: string; readonly toRaw: string } | null {
   const normalized = normalizeOracleText(clause);
-  if (!normalized.toLowerCase().startsWith('return ')) return null;
+  const lowered = normalized.toLowerCase();
+  if (!lowered.startsWith('return ') && !lowered.startsWith('you may return ')) return null;
 
-  const body = normalized.slice('return '.length);
+  const body = normalized.replace(/^you\s+may\s+return\s+/i, 'return ').slice('return '.length);
   const boundary = /\s+to\s+/gi;
   let match: RegExpExecArray | null;
   while ((match = boundary.exec(body)) !== null) {

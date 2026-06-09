@@ -2900,7 +2900,18 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const earthbendMatch = clause.match(/^earthbend\s+(a|an|\d+|x|[a-z]+)$/i);
+    const earthbendWhereMatch = clause.match(/^(?:you\s+)?earthbend\s+x,\s+where\s+x\s+is\s+(.+)$/i);
+    if (earthbendWhereMatch) {
+      return withMeta({
+        kind: 'earthbend',
+        target: parseObjectSelector('target land you control'),
+        amount: { kind: 'x' },
+        whereX: { kind: 'where', raw: String(earthbendWhereMatch[1] || '').trim() },
+        raw: rawClause,
+      });
+    }
+
+    const earthbendMatch = clause.match(/^(?:you\s+)?earthbend\s+(a|an|\d+|x|[a-z]+)$/i);
     if (earthbendMatch) {
       return withMeta({
         kind: 'earthbend',
@@ -3157,6 +3168,33 @@ export function tryParseSimpleActionClause(args: {
       return withMeta({
         kind: 'become_renowned',
         target: parseObjectSelector(String(renownedMatch[1] || '').trim()),
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const transformMatch = clause.match(
+      /^transform\s+(this\s+(?:land|creature|permanent|enchantment|artifact|equipment)|.+?)(?:[.]\s*.*)?$/i
+    );
+    if (transformMatch) {
+      const targetText = /^this\s+/i.test(String(transformMatch[1] || '').trim())
+        ? String(transformMatch[1] || 'this creature').trim()
+        : 'this creature';
+      return withMeta({
+        kind: 'turn_face_up',
+        target: parseObjectSelector(targetText),
+        raw: rawClause,
+        });
+    }
+  }
+
+  {
+    const convertMatch = clause.match(/^convert\s+(?:this\s+permanent|.+?)(?:[.]\s*.*)?$/i);
+    if (convertMatch) {
+      return withMeta({
+        kind: 'turn_face_up',
+        target: parseObjectSelector('this permanent'),
         raw: rawClause,
         });
     }

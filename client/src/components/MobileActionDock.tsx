@@ -21,11 +21,14 @@ export interface MobileActionDockProps {
   onOpenHand?: () => void;
   onOpenStack?: () => void;
   onOpenMana?: () => void;
+  onOpenDeck?: () => void;
   onOpenMore?: () => void;
   handCount?: number;
   stackCount?: number;
   passDisabled?: boolean;
   highlightPass?: boolean;
+  highlightDeck?: boolean;
+  deckLabel?: string;
 }
 
 interface DockButtonProps {
@@ -94,11 +97,14 @@ export const MobileActionDock: React.FC<MobileActionDockProps> = ({
   onOpenHand,
   onOpenStack,
   onOpenMana,
+  onOpenDeck,
   onOpenMore,
   handCount,
   stackCount,
   passDisabled,
   highlightPass,
+  highlightDeck,
+  deckLabel = 'Deck',
 }) => {
   return (
     <div
@@ -122,6 +128,9 @@ export const MobileActionDock: React.FC<MobileActionDockProps> = ({
         paddingRight: `calc(${spacing.sm}px + ${safeArea.right})`,
       }}
     >
+      {onOpenDeck && (
+        <DockButton label={deckLabel} highlight={highlightDeck} onClick={onOpenDeck} />
+      )}
       <DockButton label="Pass" highlight={highlightPass} disabled={passDisabled} onClick={onPassPriority} />
       {onOpenHand && <DockButton label="Hand" badge={handCount} onClick={onOpenHand} />}
       {onOpenStack && <DockButton label="Stack" badge={stackCount} onClick={onOpenStack} />}

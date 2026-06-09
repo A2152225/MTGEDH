@@ -601,6 +601,7 @@ export type OracleEffectStep =
       readonly kind: 'earthbend';
       readonly target: OracleObjectSelector;
       readonly amount: OracleQuantity;
+      readonly whereX?: OracleClauseCondition;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

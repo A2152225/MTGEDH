@@ -36,7 +36,8 @@ export type SimpleCardType =
   | 'legendary_creature'
   | 'legendary_permanent'
   | 'nonlegendary_permanent'
-  | 'equipment';
+  | 'equipment'
+  | 'noncreature';
 
 /** Map shorthand owner zones ("an opponent's graveyard") to bound-target phrasing the parsers already understand. */
 export function normalizeBoundPlayerZoneSelectorText(text: string): string {
@@ -73,6 +74,12 @@ export type MoveZoneSingleTargetCriteria = {
   readonly manaValueLteLandsControlled?: boolean;
   readonly powerLtReference?: boolean;
   readonly usesChosenCreatureType?: boolean;
+  readonly requiresCyclingAbility?: boolean;
+  readonly requiresKickerAbility?: boolean;
+  readonly requiresAwaken?: boolean;
+  readonly requiresNonbattle?: boolean;
+  readonly manaValueLtReferenceManaValue?: boolean;
+  readonly requiredNamed?: string;
   readonly excludePutIntoGraveyardThisTurn?: boolean;
   readonly manaValueGte?: number;
   readonly isColorless?: boolean;
@@ -311,6 +318,7 @@ export function cardMatchesType(card: any, type: SimpleCardType): boolean {
     return cardRepresentsPermanent(card);
   }
   if (type === 'nonland') return !typeLine.includes('land');
+  if (type === 'noncreature') return !typeLine.includes('creature');
   if (type === 'noncreature_nonland_permanent') {
     return cardRepresentsPermanent(card) && !typeLine.includes('creature') && !typeLine.includes('land');
   }
@@ -345,11 +353,32 @@ function parseStaticManaValueLteConstraint(typeText: string): MoveZoneSingleTarg
     normalized.match(/^(.+?)\s+with\s+mana\s+value\s+(\d+)\s+or\s+less$/i);
   if (!numericConstraintMatch) return null;
 
-  const parsedCardType = parseSimpleCardTypeFromText(String(numericConstraintMatch[1] || '').trim());
+  const typePart = String(numericConstraintMatch[1] || '').trim();
+  const parsedCardType =
+    !typePart || /^cards?$/i.test(typePart) ? ('any' as const) : parseSimpleCardTypeFromText(typePart);
   const manaValueLte = Number.parseInt(String(numericConstraintMatch[2] || ''), 10);
   if (!parsedCardType || !Number.isFinite(manaValueLte)) return null;
 
   return { cardType: parsedCardType, manaValueLte };
+}
+
+function parseStaticManaValueGteConstraint(typeText: string): MoveZoneSingleTargetCriteria | null {
+  const normalized = String(typeText || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return null;
+
+  const numericConstraintMatch =
+    normalized.match(/^(.+?)(?:\s+cards?)?\s+with\s+mana\s+value\s+(\d+)\s+or\s+greater$/i) ||
+    normalized.match(/^card\s+with\s+mana\s+value\s+(\d+)\s+or\s+greater$/i);
+  if (!numericConstraintMatch) return null;
+
+  const typePart = String(numericConstraintMatch[1] || '').trim();
+  const parsedCardType = typePart ? parseSimpleCardTypeFromText(typePart) : null;
+  const manaValueGte = Number.parseInt(String(numericConstraintMatch[2] || ''), 10);
+  if (!Number.isFinite(manaValueGte)) return null;
+
+  return { cardType: parsedCardType || 'any', manaValueGte };
 }
 
 function parseStaticPowerLteConstraint(typeText: string): MoveZoneSingleTargetCriteria | null {
@@ -371,18 +400,40 @@ function parseStaticPowerLteConstraint(typeText: string): MoveZoneSingleTargetCr
 }
 
 function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTargetCriteria | null {
-  const normalized = String(typeText || '').trim();
+  const normalized = String(typeText || '')
+    .replace(/,\s*where\s+x\s+is\b.*$/i, '')
+    .trim();
   if (!normalized) return null;
 
   const constrained = parseStaticManaValueLteConstraint(normalized);
   if (constrained) return constrained;
 
+  const gteConstrained = parseStaticManaValueGteConstraint(normalized);
+  if (gteConstrained) return gteConstrained;
+
   const powerConstrained = parseStaticPowerLteConstraint(normalized);
   if (powerConstrained) return powerConstrained;
+
+  if (/^nonland permanent card with mana value x or less$/i.test(normalized)) {
+    return { cardType: 'permanent', typeLineTermsNoneOf: ['creature', 'land'], manaValueLte: -1 };
+  }
+  if (/^noncreature, nonland permanent card with mana value x or less$/i.test(normalized)) {
+    return {
+      cardType: 'permanent',
+      typeLineTermsNoneOf: ['creature', 'land'],
+      manaValueLte: -1,
+    };
+  }
 
   let normalizedTypeText = normalized;
   let manaValueLtReferencePower = false;
   let manaValueLteReferencePower = false;
+  let manaValueLtReferenceManaValue = false;
+  const lesserManaValueMatch = normalizedTypeText.match(/^(.+?)\s+with\s+lesser\s+mana\s+value(?:\s+than\s+that\s+card|\s+than\s+the\s+creature\s+that\s+died)?$/i);
+  if (lesserManaValueMatch) {
+    normalizedTypeText = String(lesserManaValueMatch[1] || '').trim();
+    manaValueLtReferenceManaValue = true;
+  }
   const dynamicPowerLteConstraintMatch = normalizedTypeText.match(
     /^(.+?)\s+with\s+mana\s+value\s+less\s+than\s+or\s+equal\s+to\s+(?:this|that)\s+(?:permanent|creature)'s\s+power$/i
   );
@@ -478,6 +529,103 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
     };
   }
 
+  const sharedCriteriaExtras = {
+    ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
+    ...(requiredAnyColors.length > 0 ? { colorsAnyOf: requiredAnyColors } : {}),
+    ...(noAbilities ? { noAbilities: true } : {}),
+    ...(requiredCounter ? { requiredCounter } : {}),
+    ...(nameExclusion ? { notNamed: nameExclusion } : {}),
+    ...(manaValueLtReferencePower ? { manaValueLtReferencePower: true } : {}),
+    ...(manaValueLteReferencePower ? { manaValueLteReferencePower: true } : {}),
+    ...(manaValueLtReferenceManaValue ? { manaValueLtReferenceManaValue: true } : {}),
+  };
+
+  if (/^(?:card|permanent card) of the chosen type$/i.test(normalizedTypeText)) {
+    return { cardType: 'any', usesChosenCreatureType: true, ...sharedCriteriaExtras };
+  }
+
+  if (/^(?:card|permanent card) with a cycling ability$/i.test(normalizedTypeText)) {
+    return { cardType: 'permanent', requiresCyclingAbility: true, ...sharedCriteriaExtras };
+  }
+
+  if (/^(?:card|permanent card) with a kicker ability$/i.test(normalizedTypeText)) {
+    return { cardType: 'any', requiresKickerAbility: true, ...sharedCriteriaExtras };
+  }
+
+  if (/^noncreature(?: card)?$/i.test(normalizedTypeText)) {
+    return { cardType: 'noncreature', ...sharedCriteriaExtras };
+  }
+
+  if (/^outlaw(?: card)?$/i.test(normalizedTypeText)) {
+    return { cardType: 'any', typeLineTermsAnyOf: ['outlaw'], ...sharedCriteriaExtras };
+  }
+
+  if (/^(?:land card|card|permanent card) with awaken(?:\s+\d+)?$/i.test(normalizedTypeText)) {
+    return { cardType: 'any', requiresAwaken: true, ...sharedCriteriaExtras };
+  }
+
+  if (/^nonbattle permanent(?: card)?$/i.test(normalizedTypeText)) {
+    return { cardType: 'permanent', requiresNonbattle: true, ...sharedCriteriaExtras };
+  }
+
+  if (/^spirit permanent(?: card)?$/i.test(normalizedTypeText)) {
+    return {
+      cardType: 'permanent',
+      typeLineTermsAnyOf: ['spirit'],
+      ...sharedCriteriaExtras,
+    };
+  }
+
+  if (/^card named this permanent$/i.test(normalizedTypeText)) {
+    return { cardType: 'any', requiredNamed: 'this permanent', ...sharedCriteriaExtras };
+  }
+
+  const subtypeCardMatch = normalizedTypeText.match(/^([a-z][a-z'-]+) card$/i);
+  if (subtypeCardMatch) {
+    const subtype = String(subtypeCardMatch[1] || '').trim().toLowerCase();
+    if (subtype && !['creature', 'artifact', 'enchantment', 'instant', 'sorcery', 'land', 'planeswalker', 'battle'].includes(subtype)) {
+      return {
+        cardType: 'any',
+        typeLineTermsAnyOf: [subtype],
+        ...sharedCriteriaExtras,
+      };
+    }
+  }
+
+  if (
+    /^[a-z][a-z'-]+$/i.test(normalizedTypeText) &&
+    !parseSimpleCardTypeFromText(normalizedTypeText) &&
+    !normalizeCreatureTypeCriteriaTerm(normalizedTypeText)
+  ) {
+    return {
+      cardType: 'any',
+      typeLineTermsAnyOf: [normalizedTypeText.toLowerCase()],
+      ...sharedCriteriaExtras,
+    };
+  }
+
+  if (/^saga card(?: with mana value x)?$/i.test(normalizedTypeText)) {
+    return {
+      cardType: 'any',
+      typeLineTermsAnyOf: ['saga'],
+      ...(normalizedTypeText.includes('x') ? { manaValueLte: -1 } : {}),
+      ...sharedCriteriaExtras,
+    };
+  }
+
+  if (/^dragon permanent(?: card)?$/i.test(normalizedTypeText)) {
+    return { cardType: 'any', typeLineTermsAnyOf: ['dragon'], ...sharedCriteriaExtras };
+  }
+
+  if (/^noncreature, nonland permanent card(?: with mana value x or less)?$/i.test(normalizedTypeText)) {
+    return {
+      cardType: 'permanent',
+      typeLineTermsNoneOf: ['creature', 'land'],
+      ...(normalizedTypeText.includes('x') ? { manaValueLte: -1 } : {}),
+      ...sharedCriteriaExtras,
+    };
+  }
+
   const parsedCardType = parseSimpleCardTypeFromText(normalizedTypeText);
   if (parsedCardType) {
     return {
@@ -540,6 +688,7 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
       ...(nameExclusion ? { notNamed: nameExclusion } : {}),
       ...(manaValueLtReferencePower ? { manaValueLtReferencePower: true } : {}),
       ...(manaValueLteReferencePower ? { manaValueLteReferencePower: true } : {}),
+      ...(manaValueLtReferenceManaValue ? { manaValueLtReferenceManaValue: true } : {}),
     };
   }
 
@@ -555,10 +704,12 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
       ...(nameExclusion ? { notNamed: nameExclusion } : {}),
       ...(manaValueLtReferencePower ? { manaValueLtReferencePower: true } : {}),
       ...(manaValueLteReferencePower ? { manaValueLteReferencePower: true } : {}),
+      ...(manaValueLtReferenceManaValue ? { manaValueLtReferenceManaValue: true } : {}),
     };
   }
 
   if (manaValueLteReferencePower) return { cardType: 'any', manaValueLteReferencePower: true };
+  if (manaValueLtReferenceManaValue) return { cardType: 'any', manaValueLtReferenceManaValue: true };
   return manaValueLtReferencePower ? { cardType: 'any', manaValueLtReferencePower: true } : null;
 }
 
@@ -694,6 +845,17 @@ export function cardMatchesMoveZoneSingleTargetCriteria(
     }
   }
 
+  if (criteria.manaValueLtReferenceManaValue) {
+    const manaValue = getCardManaValue(card);
+    if (
+      manaValue === null ||
+      !Number.isFinite(referenceManaValue) ||
+      manaValue >= Number(referenceManaValue)
+    ) {
+      return false;
+    }
+  }
+
   if (criteria.manaValueLteReferencePower) {
     const manaValue = getCardManaValue(card);
     if (
@@ -725,6 +887,14 @@ export function cardMatchesMoveZoneSingleTargetCriteria(
     if (excludedName && cardName && excludedName === cardName) return false;
   }
 
+  if (criteria.requiredNamed) {
+    const requiredName = normalizeCardNameForCriteria(
+      /^this permanent$/i.test(criteria.requiredNamed) ? referenceCardName : criteria.requiredNamed
+    );
+    const cardName = normalizeCardNameForCriteria(String(card?.name || ''));
+    if (!requiredName || !cardName || requiredName !== cardName) return false;
+  }
+
   if (criteria.putIntoGraveyardThisTurn) {
     const putIntoGraveyardTurn = Number((card as any)?.putIntoGraveyardTurn);
     if (!Number.isFinite(putIntoGraveyardTurn) || !Number.isFinite(currentTurn) || putIntoGraveyardTurn !== currentTurn) {
@@ -737,6 +907,17 @@ export function cardMatchesMoveZoneSingleTargetCriteria(
     if (Number.isFinite(putIntoGraveyardTurn) && Number.isFinite(currentTurn) && putIntoGraveyardTurn === currentTurn) {
       return false;
     }
+  }
+
+  if (criteria.requiresCyclingAbility && !cardHasCyclingAbility(card)) return false;
+
+  if (criteria.requiresKickerAbility && !cardHasKickerAbility(card)) return false;
+
+  if (criteria.requiresAwaken && !cardHasAwakenAbility(card)) return false;
+
+  if (criteria.requiresNonbattle) {
+    const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+    if (typeLine.includes('battle') || !cardRepresentsPermanent(card)) return false;
   }
 
   return true;
@@ -852,6 +1033,75 @@ export function parseMoveZoneAllFromYourGraveyard(what: { readonly kind: string;
   const parsed = parseSimpleCardTypeFromText(typeText);
   if (!parsed) return null;
   return { cardType: parsed };
+}
+
+function stripMoveZoneSelectorPrefix(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .replace(/^[\u2022•]\s+/, '')
+    .replace(/^[a-z0-9][a-z0-9\s'.,/&-]{0,40}\s+-\s+/i, '')
+    .replace(/^repair\s+-\s+/i, '')
+    .trim();
+}
+
+export function parseMoveZoneShuffleAllFromYourGraveyardIntoLibrary(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): { readonly cardType: SimpleCardType } | boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || (what as any).raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.\s]+$/g, '');
+  const typedMatch = raw.match(
+    /^(?:then\s+)?shuffle\s+all\s+(.+?)\s+cards?\s+from\s+your\s+graveyard\s+into\s+your\s+library$/
+  );
+  if (typedMatch) {
+    const parsed = parseSimpleCardTypeFromText(String(typedMatch[1] || '').trim());
+    if (parsed) return { cardType: parsed };
+  }
+  if (
+    raw === 'all cards from your graveyard into your library' ||
+    raw === 'shuffle all cards from your graveyard into your library' ||
+    /^then shuffle all cards from your graveyard into your library$/.test(raw)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function shufflePlayerGraveyardIntoLibrary(state: GameState, playerId: PlayerID): GameState {
+  return shuffleTypedCardsFromPlayerGraveyardIntoLibrary(state, playerId, 'any');
+}
+
+export function shuffleTypedCardsFromPlayerGraveyardIntoLibrary(
+  state: GameState,
+  playerId: PlayerID,
+  cardType: SimpleCardType
+): GameState {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return state;
+  const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+  if (graveyard.length === 0) return state;
+  const toShuffle: any[] = [];
+  const kept: any[] = [];
+  for (const card of graveyard) {
+    if (cardMatchesType(card, cardType)) toShuffle.push(card);
+    else kept.push(card);
+  }
+  if (toShuffle.length === 0) return state;
+  for (let i = toShuffle.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [toShuffle[i], toShuffle[j]] = [toShuffle[j], toShuffle[i]];
+  }
+  const library = Array.isArray(player.library) ? [...player.library] : [];
+  return {
+    ...state,
+    players: state.players.map(p =>
+      p.id === playerId ? ({ ...(p as any), graveyard: kept, library: [...library, ...toShuffle] } as any) : p
+    ),
+  } as GameState;
 }
 
 export function parseMoveZoneAllFromTargetPlayersGraveyard(what: {
@@ -971,33 +1221,48 @@ export function parseMoveZoneSingleTargetFromYourGraveyard(what: {
   | MoveZoneSingleTargetCriteria
   | null {
   if (what.kind !== 'raw') return null;
-  const raw = String((what as any).text || '').trim();
-  if (!raw) return null;
+  const candidates = [
+    String((what as any).text || '').trim(),
+    String((what as any).raw || '').trim(),
+  ].filter(Boolean);
 
-  const withTurn = stripPutIntoGraveyardThisTurnQualifier(raw);
-  const withCounter = parseTrailingZoneCounterRequirement(withTurn.selectorText, 'from your graveyard');
-  const cleaned = withCounter.selectorText;
-  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+  for (let raw of candidates) {
+    raw = stripMoveZoneSelectorPrefix(raw);
+    const embedded = raw.match(
+      /(?:you\s+may\s+)?return\s+((?:up to one\s+)?(?:(?:other|another)\s+)?target\s+.+?\s+from\s+your\s+graveyard)(?:\s+to\s+.+)?$/i
+    );
+    if (embedded) {
+      raw = String(embedded[1] || '').trim();
+    }
 
-  if (!/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+/i.test(lower)) return null;
-  if (!/\bfrom your graveyard\b/i.test(lower)) return null;
+    const withTurn = stripPutIntoGraveyardThisTurnQualifier(raw);
+    const withCounter = parseTrailingZoneCounterRequirement(withTurn.selectorText, 'from your graveyard');
+    const cleaned = withCounter.selectorText;
+    const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
-  if (/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+cards?\s+from\s+your\s+graveyard$/i.test(lower)) {
-    return { cardType: 'any' };
+    if (!/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+/i.test(lower)) continue;
+    if (!/\bfrom your graveyard\b/i.test(lower)) continue;
+
+    if (/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+cards?\s+from\s+your\s+graveyard$/i.test(lower)) {
+      return { cardType: 'any' };
+    }
+
+    const m = cleaned.match(/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+(.+?)\s+from\s+your\s+graveyard$/i);
+    if (!m) continue;
+
+    const typeText = String(m[1] || '')
+      .trim()
+      .replace(/,\s*where\s+x\s+is\b.*$/i, '');
+    if (!typeText) continue;
+    const parsed = parseMoveZoneSingleTargetCriteria(typeText);
+    if (!parsed) continue;
+    return {
+      ...parsed,
+      ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
+      ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
+    };
   }
-
-  const m = cleaned.match(/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+(.+?)\s+from\s+your\s+graveyard$/i);
-  if (!m) return null;
-
-  const typeText = String(m[1] || '').trim();
-  if (!typeText) return null;
-  const parsed = parseMoveZoneSingleTargetCriteria(typeText);
-  if (!parsed) return null;
-  return {
-    ...parsed,
-    ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
-    ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
-  };
+  return null;
 }
 
 export function parseMoveZoneRandomSingleFromYourGraveyard(
@@ -1053,18 +1318,27 @@ export function parseMoveZoneTargetAndSameNamedFromYourGraveyard(what: {
   | MoveZoneSingleTargetCriteria
   | null {
   if (what.kind !== 'raw') return null;
-  const raw = String((what as any).text || '').trim();
-  if (!raw) return null;
+  const candidates = [
+    String((what as any).text || '').trim(),
+    String((what as any).raw || '').trim(),
+  ].filter(Boolean);
 
-  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
-  const match = cleaned.match(
-    /^target\s+(.+?)\s+and\s+all\s+other\s+cards\s+with\s+the\s+same\s+name\s+as\s+that\s+card\s+from\s+your\s+graveyard$/i
-  );
-  if (!match) return null;
+  for (const candidate of candidates) {
+    const cleaned = stripMoveZoneSelectorPrefix(candidate).replace(/[.\s]+$/g, '').trim();
+    const match =
+      cleaned.match(
+        /^(?:return\s+)?target\s+(.+?)\s+and\s+all\s+other\s+cards\s+with\s+the\s+same\s+name\s+as\s+that\s+card\s+from\s+your\s+graveyard$/i
+      ) ||
+      cleaned.match(
+        /^(?:you\s+may\s+)?return\s+target\s+(.+?)\s+and\s+all\s+other\s+cards\s+with\s+the\s+same\s+name\s+as\s+that\s+card\s+from\s+your\s+graveyard(?:\s+to\s+.+)?$/i
+      );
+    if (!match) continue;
 
-  const typeText = String(match[1] || '').trim();
-  if (!typeText) return null;
-  return parseMoveZoneSingleTargetCriteria(typeText);
+    const typeText = String(match[1] || '').trim();
+    if (!typeText) continue;
+    return parseMoveZoneSingleTargetCriteria(typeText);
+  }
+  return null;
 }
 
 export function selectRandomMatchingCardIdFromGraveyard(
@@ -1168,33 +1442,38 @@ export function parseMoveZoneSingleTargetFromAGraveyard(what: {
   | MoveZoneSingleTargetCriteria
   | null {
   if (what.kind !== 'raw') return null;
-  const raw = String((what as any).text || '').trim();
-  if (!raw) return null;
+  const candidates = [
+    stripMoveZoneSelectorPrefix(String((what as any).text || '')),
+    stripMoveZoneSelectorPrefix(String((what as any).raw || '')),
+  ].filter(Boolean);
 
-  const withTurn = stripPutIntoGraveyardThisTurnQualifier(raw);
-  const withCounter = parseTrailingZoneCounterRequirement(withTurn.selectorText, 'from a graveyard');
-  const cleaned = withCounter.selectorText;
-  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+  for (const raw of candidates) {
+    const withTurn = stripPutIntoGraveyardThisTurnQualifier(raw);
+    const withCounter = parseTrailingZoneCounterRequirement(withTurn.selectorText, 'from a graveyard');
+    const cleaned = withCounter.selectorText;
+    const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
-  if (!/^(?:up to one\s+)?(?:other\s+)?target\s+/i.test(lower)) return null;
-  if (!/\bfrom a graveyard\b/i.test(lower)) return null;
+    if (!/^(?:up to one\s+)?(?:other\s+)?target\s+/i.test(lower)) continue;
+    if (!/\bfrom a graveyard\b/i.test(lower)) continue;
 
-  if (/^(?:up to one\s+)?(?:other\s+)?target\s+cards?\s+from\s+a\s+graveyard$/i.test(lower)) {
-    return { cardType: 'any' };
+    if (/^(?:up to one\s+)?(?:other\s+)?target\s+cards?\s+from\s+a\s+graveyard$/i.test(lower)) {
+      return { cardType: 'any' };
+    }
+
+    const m = cleaned.match(/^(?:up to one\s+)?(?:other\s+)?target\s+(.+?)\s+from\s+a\s+graveyard$/i);
+    if (!m) continue;
+
+    const typeText = String(m[1] || '').trim();
+    if (!typeText) continue;
+    const parsed = parseMoveZoneSingleTargetCriteria(typeText);
+    if (!parsed) continue;
+    return {
+      ...parsed,
+      ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
+      ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
+    };
   }
-
-  const m = cleaned.match(/^(?:up to one\s+)?(?:other\s+)?target\s+(.+?)\s+from\s+a\s+graveyard$/i);
-  if (!m) return null;
-
-  const typeText = String(m[1] || '').trim();
-  if (!typeText) return null;
-  const parsed = parseMoveZoneSingleTargetCriteria(typeText);
-  if (!parsed) return null;
-  return {
-    ...parsed,
-    ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
-    ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
-  };
+  return null;
 }
 
 type ExactGraveyardSelection =
@@ -2304,6 +2583,22 @@ export function parseMoveZoneThatSpell(what: {
   return raw === 'that spell';
 }
 
+export function parseMoveZoneThisSpellToHandInsteadOfGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || (what as any).raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.\s]+$/g, '');
+  return (
+    raw === 'put this spell into your hand instead of into your graveyard as it resolves' ||
+    /^put this spell into your hand instead of into your graveyard(?: as it resolves)?$/.test(raw)
+  );
+}
+
 export function parseMoveZoneUpToCountBattlefieldBounce(what: {
   readonly kind: string;
   readonly text?: string;
@@ -2383,6 +2678,63 @@ export function parseMoveZoneUpToTypedCardsFromAmongThem(what: {
   const parsed = parseSimpleCardTypeFromText(typeText) || parseSimpleCardTypeFromText(`${typeText} card`);
   if (!parsed) return null;
   return { maxCount, cardType: parsed };
+}
+
+export function parseMoveZonePutAllTypedAndFromAmongThem(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): { readonly criteriaAnyOf: readonly MoveZoneSingleTargetCriteria[] } | null {
+  if (what.kind !== 'raw') return null;
+  const raw = stripMoveZoneSelectorPrefix(String((what as any).text || (what as any).raw || ''))
+    .trim()
+    .replace(/[.\s]+$/g, '')
+    .split(/\.\s*then\b/i)[0]
+    .trim();
+  const match = raw.match(/^put all (.+?) cards from among them into your hand$/i);
+  if (!match) return null;
+  const typeClause = String(match[1] || '').trim();
+  if (!/\band\b/i.test(typeClause)) return null;
+  const parts = typeClause.split(/\s+and\s+/i).map(part => part.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  const criteriaAnyOf: MoveZoneSingleTargetCriteria[] = [];
+  for (const part of parts) {
+    const subtype = parseCreatureSubtypeWord(part);
+    const parsed =
+      parseMoveZoneSingleTargetCriteria(`${part} card`) ||
+      parseMoveZoneSingleTargetCriteria(part) ||
+      (subtype ? { cardType: 'creature' as const, creatureTypesAnyOf: [subtype] } : null) ||
+      (parseSimpleCardTypeFromText(part) ? { cardType: parseSimpleCardTypeFromText(part)! } : null);
+    if (!parsed) return null;
+    criteriaAnyOf.push(parsed);
+  }
+  return { criteriaAnyOf };
+}
+
+export function parseMoveZoneOneOnTopRestOnBottomLibrary(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): { readonly optional: boolean } | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || (what as any).raw || '')
+    .trim()
+    .replace(/[.\s]+$/g, '');
+  if (
+    /^you may put one of those cards on top of your library\. put the rest on the bottom of your library in a random order$/i.test(
+      raw
+    )
+  ) {
+    return { optional: true };
+  }
+  if (
+    /^put one of those cards on top of your library\. put the rest on the bottom of your library in a random order$/i.test(
+      raw
+    )
+  ) {
+    return { optional: false };
+  }
+  return null;
 }
 
 export function parseMoveZoneCardFromAmongThoseCards(what: {
@@ -3494,7 +3846,10 @@ export function parseMoveZoneThatManyCardsFromTopOfLibrary(what: {
 }): boolean {
   if (what.kind !== 'raw') return false;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
-  return raw === 'that many cards from the top of your library';
+  return (
+    raw === 'that many cards from the top of your library' ||
+    raw === 'cards from the top of your library equal to the damage prevented this way'
+  );
 }
 
 export function parseMoveZoneThatManyCardsFromTopOfLibraryFaceDown(what: {
@@ -4113,6 +4468,19 @@ export function cardHasCyclingAbility(card: any): boolean {
     }
   }
   return /\bcycling\b/i.test(getCardOracleText(card));
+}
+
+export function cardHasKickerAbility(card: any): boolean {
+  for (const keywords of [card?.keywords, card?.card?.keywords]) {
+    if (Array.isArray(keywords) && keywords.some((entry: any) => String(entry || '').toLowerCase() === 'kicker')) {
+      return true;
+    }
+  }
+  return /\bkicker\b/i.test(getCardOracleText(card));
+}
+
+export function cardHasAwakenAbility(card: any): boolean {
+  return /\bawaken\b/i.test(getCardOracleText(card));
 }
 
 export function selectGraveyardCardsWithTotalManaValueLte(
@@ -5705,8 +6073,13 @@ function canCardEnterAttachedToTarget(
 ): boolean {
   if (!card || !target) return false;
   const candidateCard = applyBattlefieldEntryCardOverrides(card, entryOverrides);
-  if (!getCardTypeLineLower(candidateCard).includes('aura')) return false;
+  const typeLineLower = getCardTypeLineLower(candidateCard);
+  const isAura = typeLineLower.includes('aura');
+  const isEquipment = typeLineLower.includes('equipment');
+  if (!isAura && !isEquipment) return false;
   if (!hasExecutorClass(target, 'creature')) return false;
+
+  if (isEquipment) return true;
 
   const oracleTextLower = getCardOracleTextLower(candidateCard);
   if (!/\benchant creature\b/i.test(oracleTextLower)) return false;
@@ -5878,6 +6251,32 @@ export function returnTargetAndSameNamedCardsFromYourGraveyardToHand(
   targetCardId: string,
   criteria: MoveZoneSingleTargetCriteria
 ): { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[]; readonly movedCards: readonly any[] } | { readonly kind: 'impossible' } {
+  const moved = collectTargetAndSameNamedCardsFromGraveyard(state, playerId, targetCardId, criteria);
+  if (moved.kind !== 'selected') return { kind: 'impossible' };
+
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { kind: 'impossible' };
+  const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+  const updatedPlayers = state.players.map(p =>
+    p.id === playerId ? ({ ...(p as any), graveyard: moved.kept, hand: [...hand, ...moved.moved] } as any) : p
+  );
+
+  return {
+    kind: 'applied',
+    state: { ...state, players: updatedPlayers as any } as any,
+    log: [`${playerId} returns ${moved.moved.length} card(s) with the same name from graveyard to hand`],
+    movedCards: moved.moved,
+  };
+}
+
+function collectTargetAndSameNamedCardsFromGraveyard(
+  state: GameState,
+  playerId: PlayerID,
+  targetCardId: string,
+  criteria: MoveZoneSingleTargetCriteria
+):
+  | { readonly kind: 'impossible' }
+  | { readonly kind: 'selected'; readonly kept: readonly any[]; readonly moved: readonly any[] } {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { kind: 'impossible' };
 
@@ -5903,17 +6302,47 @@ export function returnTargetAndSameNamedCardsFromYourGraveyardToHand(
   }
 
   if (moved.length === 0) return { kind: 'impossible' };
+  return { kind: 'selected', kept, moved };
+}
 
-  const hand = Array.isArray(player.hand) ? [...player.hand] : [];
-  const updatedPlayers = state.players.map(p =>
-    p.id === playerId ? ({ ...(p as any), graveyard: kept, hand: [...hand, ...moved] } as any) : p
-  );
+export function returnTargetAndSameNamedCardsFromYourGraveyardToBattlefield(
+  state: GameState,
+  playerId: PlayerID,
+  targetCardId: string,
+  criteria: MoveZoneSingleTargetCriteria,
+  entersTapped?: boolean
+): { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[]; readonly movedCards: readonly any[] } | { readonly kind: 'impossible' } {
+  const collected = collectTargetAndSameNamedCardsFromGraveyard(state, playerId, targetCardId, criteria);
+  if (collected.kind !== 'selected') return { kind: 'impossible' };
 
+  let workingState = state;
+  const combinedLog: string[] = [];
+  for (const card of collected.moved) {
+    const cardId = String((card as any)?.id || '').trim();
+    if (!cardId) continue;
+    const result = moveTargetedCardFromGraveyard(
+      workingState,
+      playerId,
+      cardId,
+      criteria,
+      'battlefield',
+      playerId,
+      entersTapped,
+      undefined,
+      undefined,
+      undefined
+    );
+    if (result.kind === 'impossible') continue;
+    workingState = result.state;
+    combinedLog.push(...(result.log || []));
+  }
+
+  if (combinedLog.length === 0) return { kind: 'impossible' };
   return {
     kind: 'applied',
-    state: { ...state, players: updatedPlayers as any } as any,
-    log: [`${playerId} returns ${moved.length} card(s) with the same name from graveyard to hand`],
-    movedCards: moved,
+    state: workingState,
+    log: combinedLog,
+    movedCards: collected.moved,
   };
 }
 

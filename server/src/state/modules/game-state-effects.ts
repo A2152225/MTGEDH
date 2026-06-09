@@ -44,6 +44,7 @@
 
 import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
+import { checkThassasOracleWin } from "../../../../rules-engine/src/winEffectCards.js";
 import { grantTelepathyForPlayer, revokeTelepathyForPlayer } from "./telepathy.js";
 import { getDurableLibraryPermissionForCard } from "./durable-permissions.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
@@ -671,7 +672,16 @@ export function getPlayerLife(ctx: GameContext, playerId: string): number {
  */
 export function getLibraryCount(ctx: GameContext, playerId: string): number {
   const zones = (ctx as any).zones?.[playerId];
-  return zones?.libraryCount ?? zones?.library?.length ?? 0;
+  const fromZones = zones?.libraryCount ?? zones?.library?.length;
+  if (typeof fromZones === 'number') return fromZones;
+
+  const library = (ctx as any).libraries?.get?.(playerId);
+  if (Array.isArray(library)) return library.length;
+
+  const player = (ctx.state?.players || []).find((entry: any) => String(entry?.id || '') === String(playerId));
+  if (Array.isArray(player?.library)) return player.library.length;
+
+  return 0;
 }
 
 /**
@@ -744,6 +754,39 @@ export function checkEndStepWinConditions(ctx: GameContext, playerId: string): W
   }
   
   return null;
+}
+
+/**
+ * Resolve Thassa's Oracle ETB win when devotion to blue >= library size.
+ * Returns true when the game ends.
+ */
+export function tryResolveThassasOracleWin(
+  ctx: GameContext,
+  playerId: string,
+  sourceName?: string,
+): boolean {
+  const normalizedSource = String(sourceName || '').trim().toLowerCase();
+  if (normalizedSource && !normalizedSource.includes("thassa's oracle")) {
+    return false;
+  }
+
+  const librarySize = getLibraryCount(ctx, playerId);
+  const result = checkThassasOracleWin(
+    playerId as PlayerID,
+    librarySize,
+    (ctx.state?.battlefield || []) as any,
+    ctx.state?.players as any,
+    ((ctx.state as any)?.winLossEffects || []) as any,
+  );
+
+  if (!result.playerWins || !result.winningPlayerId || !(ctx.state as any)) {
+    return false;
+  }
+
+  (ctx.state as any).winner = result.winningPlayerId;
+  (ctx.state as any).gameOver = true;
+  (ctx.state as any).winCondition = result.winReason || `${sourceName || "Thassa's Oracle"}: devotion win`;
+  return true;
 }
 
 /**

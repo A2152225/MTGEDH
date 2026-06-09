@@ -584,6 +584,44 @@ export function resolveUnknownMillUntilAmountForPlayer(
   return library.length;
 }
 
+function resolvePlayerByLifeTotal(state: GameState, mode: 'most' | 'least'): readonly PlayerID[] {
+  const entries = (state.players || [])
+    .map((player: any) => ({
+      id: String(player?.id || '').trim(),
+      life: Number(player?.life ?? 0),
+    }))
+    .filter(entry => Boolean(entry.id));
+  if (entries.length === 0) return [];
+
+  const targetLife =
+    mode === 'most'
+      ? Math.max(...entries.map(entry => entry.life))
+      : Math.min(...entries.map(entry => entry.life));
+  const matches = entries.filter(entry => entry.life === targetLife).map(entry => entry.id as PlayerID);
+  return matches.length === 1 ? matches : matches.slice(0, 1);
+}
+
+function resolvePlayersFromRawSelectorText(
+  state: GameState,
+  rawText: string,
+  ctx: OracleIRExecutionContext
+): readonly PlayerID[] {
+  const normalized = String(rawText || '')
+    .replace(/\u2019/g, "'")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (!normalized) return [];
+
+  if (normalized === 'the player with the most life') return resolvePlayerByLifeTotal(state, 'most');
+  if (normalized === 'the player with the lowest life total') return resolvePlayerByLifeTotal(state, 'least');
+  if (normalized === "the exiled card's owner" || normalized === 'the exiled cards owner') {
+    return resolvePlayers(state, { kind: 'owner_of_source' }, ctx);
+  }
+
+  return resolvePlayersFromDamageTarget(state, { kind: 'raw', text: rawText }, ctx);
+}
+
 export function resolvePlayers(
   state: GameState,
   selector: OraclePlayerSelector,
@@ -740,8 +778,14 @@ export function resolvePlayers(
       return hasValidController ? [controllerId] : [];
     }
     case 'unknown':
-    default:
-      return [];
+    default: {
+      const rawText =
+        (selector as any).kind === 'raw'
+          ? String((selector as any).text || '')
+          : String((selector as any).raw || '');
+      if (!rawText) return [];
+      return resolvePlayersFromRawSelectorText(state, rawText, ctx);
+    }
   }
 }
 

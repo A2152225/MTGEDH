@@ -94,6 +94,18 @@ function resolveBattlefieldPermanentBySelector(
   }
 
   if (normalized === 'target creature' || normalized === 'target creature you control') {
+    const matches = battlefield.filter(
+      perm => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'creature')
+    );
+    const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
+    if (preferred.length >= 1) {
+      const sorted = [...preferred].sort((left, right) =>
+        String((left as any)?.id || '').trim().localeCompare(String((right as any)?.id || '').trim())
+      );
+      return String((sorted[0] as any)?.id || '').trim();
+    }
+    if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
+    if (matches.length > 1) return 'player_choice_required';
     return String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
   }
 

@@ -6,6 +6,8 @@ import { socket } from '../socket';
 import type { SavedDeckSummary, SavedDeckDetail, DeckFolder } from '../../../shared/src/decks';
 import type { GameID } from '../../../shared/src/types';
 import { PreconBrowser } from './PreconBrowser';
+import { useIsTouch } from '../hooks/useIsTouch';
+import { colors, fontSize, radii, safeArea, spacing, touch, z } from '../theme';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
 
@@ -51,6 +53,8 @@ export function DeckManagerModal({
   wide,
   onUseSavedDeck
 }: DeckManagerModalProps) {
+  const isTouch = useIsTouch();
+  const useSheet = isTouch;
   const [tab, setTab] = useState<'local' | 'server' | 'preview' | 'precons'>('local');
 
   // Local input
@@ -147,9 +151,10 @@ export function DeckManagerModal({
   };
   const modalWidth = calcWidth();
 
-  // Follow anchor element each frame and clamp to viewport (consider modalWidth so it doesn't go off-screen)
+  // Follow anchor element each frame and clamp to viewport (consider modalWidth so it doesn't go off-screen).
+  // On touch devices we use a full-width bottom sheet instead of tethering.
   useEffect(() => {
-    if (!open || !anchorEl) {
+    if (!open || !anchorEl || useSheet) {
       setPos(null);
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       return;
@@ -185,7 +190,26 @@ export function DeckManagerModal({
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       window.removeEventListener('resize', onResize);
     };
-  }, [open, anchorEl, modalWidth]);
+  }, [open, anchorEl, modalWidth, useSheet]);
+
+  const stackColumns = useSheet ? '1fr' : '1fr 1fr';
+
+  const tabButtonStyle = (active: boolean, accent?: string): React.CSSProperties => ({
+    flex: useSheet ? 1 : undefined,
+    minHeight: useSheet ? touch.minHitTarget : undefined,
+    padding: useSheet ? `${spacing.sm}px ${spacing.md}px` : '4px 10px',
+    fontSize: fontSize.sm,
+    fontWeight: active ? 600 : 500,
+    borderRadius: radii.md,
+    border: `1px solid ${active ? (accent || colors.accent) : colors.borderSubtle}`,
+    background: active ? (accent ? `${accent}33` : colors.accentSoft) : colors.surfaceTransparent,
+    color: active ? colors.textPrimary : colors.textSecondary,
+    cursor: active ? 'default' : 'pointer',
+  });
+
+  const actionButtonStyle: React.CSSProperties = useSheet
+    ? { minHeight: touch.minHitTarget, padding: `${spacing.sm}px ${spacing.md}px`, fontSize: fontSize.sm }
+    : { fontSize: 11 };
 
   const filteredLocal = useMemo(() => {
     const q = localFilter.trim().toLowerCase();
@@ -224,6 +248,15 @@ export function DeckManagerModal({
     }
   };
 
+  const importPastedText = () => {
+    if (!localText.trim()) { setLocalErr('Paste a decklist first'); return; }
+    setLocalErr(null);
+    onImportText(localText, localName.trim() || undefined, cacheCards);
+    if (alsoSaveToServer && canServer && gameId && localName.trim()) {
+      socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText, cacheCards });
+    }
+  };
+
   // Use server deck: if parent provided onUseSavedDeck, call it; otherwise emit directly.
   const importServer = (deckId: string) => {
     if (onUseSavedDeck) {
@@ -246,24 +279,68 @@ export function DeckManagerModal({
   };
 
   const backdropStyle: React.CSSProperties = {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 120
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.55)',
+    zIndex: z.modalBackdrop,
+    display: useSheet ? 'flex' : 'block',
+    alignItems: useSheet ? 'flex-end' : undefined,
+    justifyContent: useSheet ? 'center' : undefined,
   };
 
-  const wrapperStyle: React.CSSProperties = pos ? {
-    position: 'fixed',
-    left: pos.left,
-    top: pos.top,
-    transform: 'translate(-50%, 8px)',
-    zIndex: 121,
-    pointerEvents: 'auto'
-  } : {
-    position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 121
-  };
-  const modalStyle: React.CSSProperties = {
-    background: '#202225', border: '1px solid #444', borderRadius: 8, padding: '14px 16px',
-    width: modalWidth, minWidth: 480, maxWidth: '96vw', maxHeight: '80vh', overflow: 'auto',
-    boxShadow: '0 4px 18px rgba(0,0,0,0.65)', color: '#eee'
-  };
+  const wrapperStyle: React.CSSProperties = useSheet
+    ? {
+        position: 'relative',
+        width: '100%',
+        zIndex: z.modal,
+        pointerEvents: 'auto',
+      }
+    : pos
+      ? {
+          position: 'fixed',
+          left: pos.left,
+          top: pos.top,
+          transform: 'translate(-50%, 8px)',
+          zIndex: z.modal,
+          pointerEvents: 'auto',
+        }
+      : {
+          position: 'fixed',
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex: z.modal,
+        };
+
+  const modalStyle: React.CSSProperties = useSheet
+    ? {
+        background: colors.surfaceRaised,
+        borderTop: `1px solid ${colors.border}`,
+        borderTopLeftRadius: radii.xl,
+        borderTopRightRadius: radii.xl,
+        padding: `${spacing.md}px ${spacing.lg}px`,
+        paddingBottom: `calc(${spacing.md}px + ${safeArea.bottom})`,
+        width: '100%',
+        maxHeight: '92vh',
+        overflow: 'auto',
+        boxShadow: '0 -8px 32px rgba(0,0,0,0.55)',
+        color: colors.textPrimary,
+        display: 'flex',
+        flexDirection: 'column',
+      }
+    : {
+        background: '#202225',
+        border: '1px solid #444',
+        borderRadius: 8,
+        padding: '14px 16px',
+        width: modalWidth,
+        minWidth: 480,
+        maxWidth: '96vw',
+        maxHeight: '80vh',
+        overflow: 'auto',
+        boxShadow: '0 4px 18px rgba(0,0,0,0.65)',
+        color: '#eee',
+      };
 
   const content = (
     <div
@@ -278,20 +355,44 @@ export function DeckManagerModal({
           style={modalStyle}
           onClick={stopBubble}
         >
+          {useSheet && (
+            <div
+              aria-hidden="true"
+              style={{
+                alignSelf: 'center',
+                width: 36,
+                height: 4,
+                borderRadius: radii.pill,
+                background: colors.borderStrong,
+                marginBottom: spacing.sm,
+              }}
+            />
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <h4 style={{ margin: 0, fontSize: 15 }}>Deck Manager</h4>
-            <button type="button" onClick={onClose}>Close</button>
+            <h4 style={{ margin: 0, fontSize: useSheet ? fontSize.xl : 15 }}>Deck Manager</h4>
+            <button type="button" onClick={onClose} style={actionButtonStyle}>Close</button>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <button type="button" onClick={() => { setTab('local'); setDetail(null); }} disabled={tab === 'local'}>Local</button>
-            {canServer && <button type="button" onClick={() => { setTab('server'); setDetail(null); }} disabled={tab === 'server'}>Server</button>}
-            <button type="button" onClick={() => { setTab('precons'); setDetail(null); }} disabled={tab === 'precons'} style={{ background: tab === 'precons' ? undefined : '#2a4a2a' }}>📦 Precons</button>
-            {detail && <button type="button" onClick={() => setTab('preview')} disabled={tab === 'preview'}>Preview</button>}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={() => { setTab('local'); setDetail(null); }} disabled={tab === 'local'} style={tabButtonStyle(tab === 'local')}>Local</button>
+            {canServer && (
+              <button type="button" onClick={() => { setTab('server'); setDetail(null); }} disabled={tab === 'server'} style={tabButtonStyle(tab === 'server')}>
+                Server
+              </button>
+            )}
+            <button type="button" onClick={() => { setTab('precons'); setDetail(null); }} disabled={tab === 'precons'} style={tabButtonStyle(tab === 'precons', '#22c55e')}>
+              📦 Precons
+            </button>
+            {detail && (
+              <button type="button" onClick={() => setTab('preview')} disabled={tab === 'preview'} style={tabButtonStyle(tab === 'preview')}>
+                Preview
+              </button>
+            )}
           </div>
 
           {tab === 'local' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: stackColumns, gap: 16 }}>
               <div>
                 <div style={{ fontSize: 12, marginBottom: 6 }}>Paste decklist</div>
                 <textarea
@@ -321,9 +422,14 @@ export function DeckManagerModal({
                       setLocalText(content);
                     }}
                   />
-                  <button type="button" onClick={saveLocal} disabled={!localText.trim() || !localName.trim()}>Save Locally</button>
+                  <button type="button" onClick={importPastedText} disabled={!localText.trim()} style={actionButtonStyle}>
+                    Import Deck
+                  </button>
+                  <button type="button" onClick={saveLocal} disabled={!localText.trim() || !localName.trim()} style={actionButtonStyle}>
+                    Save Locally
+                  </button>
                   {canServer && (
-                    <button type="button" onClick={saveServer} disabled={!localText.trim() || !localName.trim() || saving}>
+                    <button type="button" onClick={saveServer} disabled={!localText.trim() || !localName.trim() || saving} style={actionButtonStyle}>
                       {saving ? 'Saving…' : 'Save to Server'}
                     </button>
                   )}
@@ -347,7 +453,7 @@ export function DeckManagerModal({
                         <div style={{ fontSize: 12, color: '#eee', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
                         <div style={{ fontSize: 10, color: '#999' }}>{new Date(d.savedAt).toLocaleString()}</div>
                       </div>
-                      <button type="button" onClick={() => importLocal(d)} style={{ fontSize: 11 }}>Import</button>
+                      <button type="button" onClick={() => importLocal(d)} style={actionButtonStyle}>Import</button>
                       <button
                         type="button"
                         onClick={() => {
@@ -356,7 +462,7 @@ export function DeckManagerModal({
                           saveLocalAll(next);
                           setLocalList(next);
                         }}
-                        style={{ fontSize: 11, color: '#f87171' }}
+                        style={{ ...actionButtonStyle, color: '#f87171' }}
                       >
                         Delete
                       </button>
@@ -368,16 +474,27 @@ export function DeckManagerModal({
           )}
 
           {tab === 'server' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: stackColumns, gap: 16 }}>
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12 }}>Server Decks ({serverDecks.length})</span>
-                  <input value={serverFilter} onChange={e => setServerFilter(e.target.value)} placeholder="Filter" style={{ width: 140 }} />
+                  <input value={serverFilter} onChange={e => setServerFilter(e.target.value)} placeholder="Filter" style={{ width: useSheet ? '100%' : 140 }} />
                 </div>
-                <div style={{ border: '1px solid #333', borderRadius: 6, padding: 6, maxHeight: 320, overflowY: 'auto', background: '#111' }}>
+                <div style={{ border: '1px solid #333', borderRadius: 6, padding: 6, maxHeight: useSheet ? 280 : 320, overflowY: 'auto', background: '#111' }}>
                   {filteredServer.length === 0 && <div style={{ fontSize: 12, color: '#888' }}>None</div>}
                   {filteredServer.map(d => (
-                    <div key={d.id} style={{ borderBottom: '1px solid #222', padding: '6px 4px', display: 'grid', gridTemplateColumns: '1fr auto auto auto auto auto', gap: 6, alignItems: 'center' }}>
+                    <div
+                      key={d.id}
+                      style={{
+                        borderBottom: '1px solid #222',
+                        padding: '8px 4px',
+                        display: useSheet ? 'flex' : 'grid',
+                        flexDirection: useSheet ? 'column' : undefined,
+                        gridTemplateColumns: useSheet ? undefined : '1fr auto auto auto auto auto',
+                        gap: useSheet ? 8 : 6,
+                        alignItems: useSheet ? 'stretch' : 'center',
+                      }}
+                    >
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12, color: '#eee', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 4 }}>
                           {d.name}
@@ -389,33 +506,35 @@ export function DeckManagerModal({
                           {new Date(d.created_at).toLocaleDateString()} • {d.created_by_name} • {d.card_count} cards
                         </div>
                       </div>
-                      <button type="button" onClick={() => requestDetail(d.id)} style={{ fontSize: 11 }}>View</button>
-                      <button type="button" onClick={() => importServer(d.id)} style={{ fontSize: 11 }}>Use</button>
-                      {!d.has_cached_cards && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button type="button" onClick={() => requestDetail(d.id)} style={actionButtonStyle}>View</button>
+                        <button type="button" onClick={() => importServer(d.id)} style={actionButtonStyle}>Use</button>
+                        {!d.has_cached_cards && (
+                          <button
+                            type="button"
+                            onClick={() => cacheDeck(d.id)}
+                            disabled={cachingDeckId === d.id}
+                            style={{ ...actionButtonStyle, color: '#fbbf24' }}
+                            title="Cache card data for faster loading"
+                          >
+                            {cachingDeckId === d.id ? '…' : 'Cache'}
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => cacheDeck(d.id)}
-                          disabled={cachingDeckId === d.id}
-                          style={{ fontSize: 11, color: '#fbbf24' }}
-                          title="Cache card data for faster loading"
+                          onClick={() => { gameId && socket.emit('renameSavedDeck', { gameId, deckId: d.id, name: prompt('Rename deck', d.name) || d.name }); }}
+                          style={actionButtonStyle}
                         >
-                          {cachingDeckId === d.id ? '…' : 'Cache'}
+                          Rename
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => { gameId && socket.emit('renameSavedDeck', { gameId, deckId: d.id, name: prompt('Rename deck', d.name) || d.name }); }}
-                        style={{ fontSize: 11 }}
-                      >
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { gameId && socket.emit('deleteSavedDeck', { gameId, deckId: d.id }); }}
-                        style={{ fontSize: 11, color: '#f87171' }}
-                      >
-                        Delete
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => { gameId && socket.emit('deleteSavedDeck', { gameId, deckId: d.id }); }}
+                          style={{ ...actionButtonStyle, color: '#f87171' }}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -443,7 +562,7 @@ export function DeckManagerModal({
                   type="button"
                   onClick={saveServer}
                   disabled={!localText.trim() || !localName.trim() || saving}
-                  style={{ marginTop: 8 }}
+                  style={{ marginTop: 8, ...actionButtonStyle }}
                 >
                   {saving ? 'Saving…' : 'Save to Server'}
                 </button>
@@ -465,9 +584,9 @@ export function DeckManagerModal({
               <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid #333', padding: 8, borderRadius: 6, background: '#111' }}>
                 <pre style={{ fontSize: 11, lineHeight: '14px', whiteSpace: 'pre-wrap' }}>{detail.text}</pre>
               </div>
-              <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                <button type="button" onClick={() => importServer(detail.id)}>Use This Deck</button>
-                <button type="button" onClick={() => setTab('server')}>Back</button>
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" onClick={() => importServer(detail.id)} style={actionButtonStyle}>Use This Deck</button>
+                <button type="button" onClick={() => setTab('server')} style={actionButtonStyle}>Back</button>
               </div>
             </div>
           )}

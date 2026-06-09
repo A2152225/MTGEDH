@@ -3,7 +3,7 @@ import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQua
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
-const TOKEN_AMOUNT_PATTERN = '(?:twice\\s+x|that many|that much|a|an|\\d+|x|[a-z]+)';
+const TOKEN_AMOUNT_PATTERN = '(?:twice\\s+that\\s+many|twice\\s+x|that many|that much|a|an|\\d+|x|[a-z]+)';
 
 const PLAYER_SUBJECT_PREFIX =
   "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
@@ -46,6 +46,7 @@ function parseAttachmentTargetFromClause(clauseText: string) {
 
 function parseTokenQuantity(raw: string | undefined) {
   const s = String(raw || '').trim();
+  if (/^twice\s+that\s+many$/i.test(s)) return { kind: 'reference_amount' as const, raw: 'twice that many' };
   if (/^twice\s+x$/i.test(s)) return { kind: 'x' as const };
   return parseQuantity(raw);
 }

@@ -72,6 +72,13 @@ function parseGraveyardKeywordAbilityCost(rawCost: string | undefined): string |
   return undefined;
 }
 
+function normalizeWardAbilityPart(part: string): string | null {
+  const match = String(part || '').trim().match(/^ward\s+\{([^}]+)\}$/i);
+  if (!match) return null;
+  const costBody = String(match[1] || '').trim();
+  return /^\d+$/.test(costBody) ? `ward ${costBody}` : `ward {${costBody}}`;
+}
+
 function parseKeywordAbilityList(raw: string): string[] {
   const normalized = normalizeOracleText(raw)
     .replace(/"[^"]*"/g, ' ')
@@ -91,6 +98,11 @@ function parseKeywordAbilityList(raw: string): string[] {
 
   const abilities: string[] = [];
   for (const part of parts) {
+    const wardAbility = normalizeWardAbilityPart(part);
+    if (wardAbility) {
+      if (!abilities.includes(wardAbility)) abilities.push(wardAbility);
+      continue;
+    }
     if (!STATIC_KEYWORD_ABILITIES.has(part)) return [];
     if (!abilities.includes(part)) abilities.push(part);
   }
@@ -404,7 +416,11 @@ export function tryParseStaticAbilityGrantClause(args: {
       kind: 'grant_static_ability',
       target: parseObjectSelector(targetText),
       ...(abilities.length > 0 ? { abilities } : {}),
-      ...(effectText.length > 0 ? { effectText } : wardCostMatch ? { effectText: [tail] } : {}),
+      ...(effectText.length > 0
+        ? { effectText }
+        : wardCostMatch && !abilities.some((ability) => ability.startsWith('ward'))
+          ? { effectText: [tail] }
+          : {}),
       ...(power !== undefined ? { power } : {}),
       ...(toughness !== undefined ? { toughness } : {}),
       duration: /^(?:equipped|enchanted)\b/i.test(targetText) ? 'while_attached' : 'static',
@@ -1021,7 +1037,7 @@ export function tryParseStaticAbilityGrantClause(args: {
     kind: 'grant_static_ability',
     target: parseObjectSelector(targetText),
     ...(abilities.length > 0 ? { abilities } : {}),
-    ...(effectText.length > 0 ? { effectText } : wardCostMatch ? { effectText: [tail] } : {}),
+    ...(effectText.length > 0 ? { effectText } : {}),
     duration: 'static',
     raw: rawClause,
   });

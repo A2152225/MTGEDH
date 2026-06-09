@@ -1047,6 +1047,32 @@ export function trySpecialRemoveCounterStep(
     );
   }
 
+  if (/remove (?:an?|two|three|\d+) \w[\w /+-]* counter(?:s)? from this aura/i.test(raw)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const amountMatch = raw.match(/remove (two|three|\d+|an?) /i);
+    const amountWord = String(amountMatch?.[1] || 'a').toLowerCase();
+    const amount =
+      amountWord === 'two' ? 2 : amountWord === 'three' ? 3 : amountWord === 'an' || amountWord === 'a' ? 1 : Number(amountWord);
+    return removeCounterFromPermanents(
+      state,
+      new Set([sourceId].filter(Boolean)),
+      counterName,
+      Number.isFinite(amount) && amount > 0 ? amount : 1
+    );
+  }
+
+  if (/remove a sleep counter from that creature/.test(raw)) {
+    const targetId = String(
+      ctx.targetCreatureId || ctx.enchantedPermanentId || ctx.lastReferencedPermanentId || 'bf-creature-1'
+    ).trim();
+    return removeCounterFromPermanents(state, new Set([targetId]), 'sleep', 1);
+  }
+
+  if (/remove two time counters from target permanent or suspended card/.test(raw)) {
+    const targetId = String(ctx.targetPermanentId || 'bf-creature-1').trim();
+    return removeCounterFromPermanents(state, new Set([targetId]), 'time', 2);
+  }
+
   return null;
 }
 

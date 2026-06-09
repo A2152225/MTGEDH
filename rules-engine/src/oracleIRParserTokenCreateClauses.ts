@@ -7,10 +7,11 @@ import {
   parseQuantity,
 } from './oracleIRParserUtils';
 
-const TOKEN_AMOUNT_PATTERN = '(?:twice\\s+x|that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
+const TOKEN_AMOUNT_PATTERN = '(?:twice\\s+that\\s+many|twice\\s+x|that many|that much|a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
 
 function parseTokenQuantity(raw: string | undefined): OracleQuantity {
   const s = String(raw || '').trim();
+  if (/^twice\s+that\s+many$/i.test(s)) return { kind: 'reference_amount', raw: 'twice that many' };
   if (/^twice\s+x$/i.test(s)) return { kind: 'x' };
   return parseQuantity(raw);
 }

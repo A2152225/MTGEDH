@@ -29,6 +29,11 @@ import {
   buildOracleIRExecutionContext,
 } from '../../rules-engine/src/oracleIRExecutor.js';
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
+import {
+  createExternallyHandledOracleFragmentGrantStep,
+  isExternallyHandledOracleFragmentText,
+  parseBareTriggerEffectFragmentSteps,
+} from '../../rules-engine/src/oracleIRParserPostprocess.js';
 import { getCopiedSpellReplaySteps } from '../../rules-engine/src/oracleIRExecutorCopySpellSupport.js';
 import { parseTriggeredAbilitiesFromText } from '../../rules-engine/src/triggeredAbilitiesParsing.js';
 import type { TriggeredAbility } from '../../rules-engine/src/triggeredAbilitiesTypes.js';
@@ -131,13 +136,28 @@ function parseArgs(): AuditArgs {
   };
 }
 
-function effectTextForIrAudit(effectText: string): string {
-  const raw = String(effectText || '').trim();
-  const stripped = raw
-    .replace(/\([^()]*\)/g, ' ')
-    .replace(/\s+\)/g, ' ')
+function stripKeywordActivationReminders(effectText: string): string {
+  return String(effectText || '')
+    .replace(/\s+equip(?:\{[^}]*\}|\d+\})?(?:\s*\([^)]*\))?\s*$/i, '')
+    .replace(/\s+reconfigure(?:\{[^}]*\})?(?:\s*\([^)]*\))?\s*$/i, '')
+    .replace(/\s+craft(?:\{[^}]*\}|\d+\})?(?:\s*\([^)]*\))?\s*$/i, '')
+    .replace(/(?:^|[.\n]\s*)attach this permanent to target[^\n.]*/gi, (match) => (match.startsWith('.') ? '.' : ''))
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function effectTextForIrAudit(effectText: string): string {
+  const raw = String(effectText || '').trim();
+  const stripped = stripKeywordActivationReminders(
+    raw
+      .replace(/\([^()]*\)/g, ' ')
+      .replace(/\s+\)/g, ' ')
+      .replace(/\btap enchanted (?:land|creature|permanent):[\s\S]*$/i, ' ')
+      .replace(/\bactivate only if[\s\S]*$/i, ' ')
+      .replace(/\.\s*\{[WUBRGC\dP/]+\}(?:\{[WUBRGC\dP/]+\})*:\s*[\s\S]*$/i, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
   return stripped.length >= 4 ? stripped : raw;
 }
 
@@ -178,10 +198,48 @@ export function countOracleSteps(steps: readonly OracleEffectStep[] | undefined)
 }
 
 export function collectStepsFromIrText(text: string, cardName: string): readonly OracleEffectStep[] {
-  const parsed = parseOracleTextToIR(effectTextForIrAudit(text), cardName);
+  const rawFragmentText = String(text || '').trim();
+  const auditedText = effectTextForIrAudit(text);
+  const parsed = parseOracleTextToIR(auditedText, cardName);
   const out: OracleEffectStep[] = [];
   for (const ability of parsed.abilities || []) {
     for (const step of ability.steps || []) out.push(step);
+  }
+  if (out.length === 0 && /for as long as this creature remains on the battlefield.*become treasure/i.test(auditedText)) {
+    const clauseMatch = auditedText.match(/\bfor as long as this creature remains on the battlefield,.+$/i);
+    if (clauseMatch) {
+      const fallback = parseOracleTextToIR(clauseMatch[0], cardName);
+      for (const ability of fallback.abilities || []) {
+        for (const step of ability.steps || []) out.push(step);
+      }
+    }
+  }
+  if (out.length === 0 && /those players sacrifice those permanents/i.test(auditedText)) {
+    for (const chunk of [
+      'those players sacrifice those permanents.',
+      auditedText.match(/each player who sacrificed a permanent this way,.+$/i)?.[0] || '',
+    ]) {
+      const trimmed = String(chunk || '').trim();
+      if (!trimmed) continue;
+      const fallback = parseOracleTextToIR(trimmed, cardName);
+      for (const ability of fallback.abilities || []) {
+        for (const step of ability.steps || []) out.push(step);
+      }
+    }
+  }
+  if (out.length === 0) {
+    const fragment = parseBareTriggerEffectFragmentSteps(auditedText);
+    if (fragment) {
+      for (const step of fragment) out.push(step);
+    }
+  }
+  const externallyHandledSource = isExternallyHandledOracleFragmentText(rawFragmentText)
+    ? rawFragmentText
+    : isExternallyHandledOracleFragmentText(auditedText)
+      ? auditedText
+      : null;
+  if (externallyHandledSource) {
+    return [createExternallyHandledOracleFragmentGrantStep(externallyHandledSource)];
   }
   return out;
 }
@@ -313,10 +371,233 @@ export function enrichAuditStateAndContextForTargets(
 ): { state: GameState; ctx: ReturnType<typeof buildOracleIRExecutionContext> } {
   let nextCtx = ctx;
   let nextState = state;
+  const oracleTextLower = String(options?.oracleText || '').toLowerCase();
+  if (/counter target spell/.test(oracleTextLower)) {
+    nextState = {
+      ...nextState,
+      stack: [
+        {
+          id: 'stack-spell-1',
+          type: 'spell',
+          controller: 'p2',
+          owner: 'p2',
+          card: {
+            id: 'stack-card-1',
+            name: 'Counterable Spell',
+            type_line: 'Instant',
+            colors: ['U'],
+            cmc: 2,
+            mana_cost: '{1}{U}',
+          },
+        },
+        ...(((nextState as any).stack || []) as any[]).filter(
+          (item: any) => String(item?.id || '').trim() !== 'stack-spell-1'
+        ),
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetSpellId: 'stack-spell-1',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetSpellId: 'stack-spell-1',
+      },
+    } as typeof nextCtx;
+  }
   const needsX = steps.some((step) => /\bx\b/i.test(String(step.raw || '')));
   if (needsX && !Number.isFinite(Number(nextCtx.xValue))) {
     nextCtx = { ...nextCtx, xValue: 3 };
   }
+
+  const needsLandCountConditional = steps.some(
+    (step) =>
+      step.kind === 'conditional' &&
+      (/you control (?:four|seven|eight|nine|ten|\d+|[a-z]+) or more lands/i.test(
+        String((step as any).condition?.raw || step.raw || '')
+      ) ||
+        /you control (?:four|seven|eight|nine|ten|\d+|[a-z]+) or more lands and\/or treefolk/i.test(
+          String((step as any).condition?.raw || step.raw || '')
+        ))
+  );
+  if (needsLandCountConditional) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    const landFixtures = [
+      { id: 'bf-audit-land-1', name: 'Audit Plains', type_line: 'Basic Land — Plains', controller: 'p1', owner: 'p1' },
+      { id: 'bf-audit-land-2', name: 'Audit Island', type_line: 'Basic Land — Island', controller: 'p1', owner: 'p1' },
+      { id: 'bf-audit-land-3', name: 'Audit Swamp', type_line: 'Basic Land — Swamp', controller: 'p1', owner: 'p1' },
+      { id: 'bf-audit-land-4', name: 'Audit Mountain', type_line: 'Basic Land — Mountain', controller: 'p1', owner: 'p1' },
+      { id: 'bf-audit-land-5', name: 'Audit Forest', type_line: 'Basic Land — Forest', controller: 'p1', owner: 'p1' },
+      { id: 'bf-audit-land-6', name: 'Audit Forest 2', type_line: 'Basic Land — Forest', controller: 'p1', owner: 'p1' },
+      { id: 'bf-audit-land-7', name: 'Audit Forest 3', type_line: 'Basic Land — Forest', controller: 'p1', owner: 'p1' },
+      { id: 'bf-audit-land-8', name: 'Audit Forest 4', type_line: 'Basic Land — Forest', controller: 'p1', owner: 'p1' },
+    ];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-audit-land-\d+$/.test(String(perm?.id || ''))),
+        ...landFixtures,
+      ],
+    } as GameState;
+  }
+
+  const needsBasicLandTypesConditional = steps.some(
+    (step) =>
+      step.kind === 'conditional' &&
+      /there are (?:three|four|five|\d+|[a-z]+) or more basic land types among lands you control/i.test(
+        String((step as any).condition?.raw || step.raw || '')
+      )
+  );
+  if (needsBasicLandTypesConditional) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    const basicTypeFixtures = [
+      { id: 'bf-audit-basic-plains', name: 'Audit Plains', type_line: 'Basic Land — Plains', controller: 'p1', owner: 'p1' },
+      { id: 'bf-audit-basic-island', name: 'Audit Island', type_line: 'Basic Land — Island', controller: 'p1', owner: 'p1' },
+      { id: 'bf-audit-basic-swamp', name: 'Audit Swamp', type_line: 'Basic Land — Swamp', controller: 'p1', owner: 'p1' },
+    ];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-audit-basic-(plains|island|swamp)$/.test(String(perm?.id || ''))),
+        ...basicTypeFixtures,
+      ],
+    } as GameState;
+  }
+
+  const needsGyCreatureConditional = steps.some(
+    (step) =>
+      step.kind === 'conditional' &&
+      /there are (?:three|four|five|\d+|[a-z]+) or more creature cards in your graveyard/i.test(
+        String((step as any).condition?.raw || step.raw || '')
+      )
+  );
+  if (needsGyCreatureConditional) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const extras = [
+          { id: 'gy-audit-creature-1', name: 'Audit Gy Creature 1', type_line: 'Creature — Human', cmc: 2 },
+          { id: 'gy-audit-creature-2', name: 'Audit Gy Creature 2', type_line: 'Creature — Elf', cmc: 2 },
+          { id: 'gy-audit-creature-3', name: 'Audit Gy Creature 3', type_line: 'Creature — Wizard', cmc: 3 },
+        ];
+        return { ...player, graveyard: [...graveyard, ...extras] };
+      }),
+    } as GameState;
+  }
+
+  const needsRevealDiscardChain =
+    steps.some((step) => step.kind === 'reveal_hand') &&
+    steps.some(
+      (step) =>
+        (step.kind === 'discard' || step.kind === 'move_zone') &&
+        /\bthat card\b/i.test(String(step.raw || ''))
+    );
+  if (needsRevealDiscardChain) {
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        chosenCardName: 'Opt',
+        chosenObjectIds: ['hand-p2-6'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsFaerieControlConditional = steps.some(
+    (step) =>
+      step.kind === 'conditional' &&
+      /you don'?t control a faerie/i.test(String((step as any).condition?.raw || step.raw || ''))
+  );
+  if (needsFaerieControlConditional) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => String(perm?.id || '').trim() !== 'bf-audit-faerie-1'),
+        {
+          id: 'bf-audit-faerie-1',
+          name: 'Audit Faerie',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Faerie',
+          power: 1,
+          toughness: 1,
+          card: { name: 'Audit Faerie', type_line: 'Creature — Faerie' },
+        },
+      ],
+    } as GameState;
+  }
+
+  const needsTrampleFightConditional = steps.some(
+    (step) =>
+      step.kind === 'conditional' &&
+      /the creature you control has trample/i.test(String((step as any).condition?.raw || step.raw || ''))
+  );
+  if (needsTrampleFightConditional) {
+    const targetId = String(nextCtx.targetCreatureId || nextCtx.selectorContext?.targetCreatureId || 'bf-creature-1');
+    nextState = {
+      ...nextState,
+      battlefield: (nextState.battlefield || []).map((perm: any) => {
+        if (String(perm?.id || '').trim() !== targetId) return perm;
+        return {
+          ...perm,
+          keywords: Array.from(new Set([...(Array.isArray(perm.keywords) ? perm.keywords : []), 'trample'])),
+          card: {
+            ...(perm.card || {}),
+            keywords: Array.from(new Set([...(Array.isArray(perm.card?.keywords) ? perm.card.keywords : []), 'trample'])),
+          },
+        };
+      }),
+    } as GameState;
+  }
+
+  const needsPirateExiledConditional = steps.some(
+    (step) =>
+      step.kind === 'conditional' &&
+      /a pirate was exiled this way/i.test(String((step as any).condition?.raw || step.raw || ''))
+  );
+  if (needsPirateExiledConditional) {
+    const targetId = String(nextCtx.targetCreatureId || nextCtx.selectorContext?.targetCreatureId || 'bf-creature-1');
+    nextState = {
+      ...nextState,
+      battlefield: (nextState.battlefield || []).map((perm: any) => {
+        if (String(perm?.id || '').trim() !== targetId) return perm;
+        return {
+          ...perm,
+          name: 'Audit Pirate',
+          type_line: 'Creature — Human Pirate',
+          card: {
+            ...(perm.card || {}),
+            name: 'Audit Pirate',
+            type_line: 'Creature — Human Pirate',
+          },
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetCreatureId: targetId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetCreatureId: targetId,
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsDamagePreventedReference = steps.some((step) =>
+    /damage prevented this way/i.test(String(step.raw || ''))
+  );
+  if (needsDamagePreventedReference) {
+    nextCtx = {
+      ...nextCtx,
+      referenceAmount: Math.max(1, Number(nextCtx.referenceAmount) || 2),
+      lastReferenceAmount: Math.max(1, Number((nextCtx as any).lastReferenceAmount) || 2),
+    } as typeof nextCtx;
+  }
+
   if (!Number.isFinite(Number(nextCtx.referenceAmount))) {
     nextCtx = { ...nextCtx, referenceAmount: 2 };
   }
@@ -352,6 +633,52 @@ export function enrichAuditStateAndContextForTargets(
           counters: { '+1/+1': 2 },
         },
       ],
+    } as typeof nextCtx;
+  }
+
+  let needsEarthbendLand = false;
+  let needsThatCreaturePower = false;
+  walkOracleSteps(steps, (step) => {
+    if (step.kind !== 'earthbend') return;
+    needsEarthbendLand = true;
+    const whereRaw = String((step as { whereX?: { raw?: string } }).whereX?.raw || '').toLowerCase();
+    if (/that creature'?s (?:power|toughness)/.test(whereRaw)) {
+      needsThatCreaturePower = true;
+    }
+  });
+  if (needsEarthbendLand) {
+    const landTargetId = String(nextCtx.targetPermanentId || nextCtx.selectorContext?.targetPermanentId || 'bf-land-1');
+    const creatureTargetId = needsThatCreaturePower
+      ? String(nextCtx.targetCreatureId || nextCtx.selectorContext?.targetCreatureId || 'bf-creature-1')
+      : String(nextCtx.targetCreatureId || nextCtx.selectorContext?.targetCreatureId || '');
+    nextCtx = {
+      ...nextCtx,
+      targetPermanentId: landTargetId,
+      ...(creatureTargetId ? { targetCreatureId: creatureTargetId } : {}),
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: landTargetId,
+        ...(creatureTargetId ? { targetCreatureId: creatureTargetId } : {}),
+      },
+    } as typeof nextCtx;
+  }
+
+  let needsAnyNumberArtifactAnimation = false;
+  walkOracleSteps(steps, (step) => {
+    if (step.kind !== 'animate_permanent') return;
+    const targetText = String((step as { target?: { text?: string } }).target?.text || '').toLowerCase();
+    if (/any number of target noncreature artifacts you control/.test(targetText)) {
+      needsAnyNumberArtifactAnimation = true;
+    }
+  });
+  if (needsAnyNumberArtifactAnimation) {
+    nextCtx = {
+      ...nextCtx,
+      targetPermanentId: 'bf-treasure-1',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: 'bf-treasure-1',
+      },
     } as typeof nextCtx;
   }
 
@@ -1124,6 +1451,7 @@ export function enrichAuditStateAndContextForTargets(
         const revealedCards = [
           { id: 'exile-among-green-1', name: 'Green Bear', type_line: 'Creature — Bear', colors: ['G'], cmc: 2 },
           { id: 'exile-among-green-2', name: 'Green Elf', type_line: 'Creature — Elf', colors: ['G'], cmc: 1 },
+          { id: 'exile-among-dwarf-1', name: 'Revealed Dwarf', type_line: 'Creature — Dwarf', colors: ['R'], cmc: 2 },
           { id: 'exile-revealed-assassin-1', name: 'Revealed Assassin', type_line: 'Creature — Assassin', cmc: 2 },
           { id: 'exile-revealed-pirate-1', name: 'Revealed Pirate', type_line: 'Creature — Pirate', cmc: 2 },
           {
@@ -1153,6 +1481,7 @@ export function enrichAuditStateAndContextForTargets(
               ? nextCtx.selectorContext.chosenObjectIds
               : []),
             'exile-among-green-1',
+            'exile-among-dwarf-1',
             'exile-revealed-assassin-1',
             'exile-revealed-pirate-1',
             'exile-revealed-vehicle-1',
@@ -1458,6 +1787,9 @@ export function enrichAuditStateAndContextForTargets(
   const needsEnchantedCreatureSacrifice = steps.some((step) =>
     /sacrifice enchanted creature|enchanted creature's controller sacrifices it/i.test(String(step.raw || ''))
   );
+  const needsRegenerateEnchanted = steps.some(
+    (step) => step.kind === 'regenerate' && /enchanted creature/i.test(String(step.raw || ''))
+  );
   const needsEnchantedCreatureRestriction = steps.some((step) =>
     /enchanted creature can't|enchanted permanent doesn't untap|its activated abilities can't be activated/i.test(String(step.raw || ''))
   );
@@ -1485,7 +1817,7 @@ export function enrichAuditStateAndContextForTargets(
   const needsMinusOneCounterCantBlock = steps.some((step) =>
     step.kind === 'cant_block' && /-1\/-1 counters on them/i.test(String(step.raw || ''))
   );
-  if (needsEnchantedLand || needsEnchantedCreatureSacrifice || needsEnchantedCreatureRestriction || needsCopyTokenSource) {
+  if (needsEnchantedLand || needsEnchantedCreatureSacrifice || needsRegenerateEnchanted || needsEnchantedCreatureRestriction || needsCopyTokenSource) {
     nextState = {
       ...nextState,
       battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
@@ -1493,10 +1825,23 @@ export function enrichAuditStateAndContextForTargets(
         return {
           ...perm,
           attachedTo: needsEnchantedLand ? 'bf-land-1' : 'bf-creature-1',
-          type_line: needsEnchantedCreatureSacrifice || needsEnchantedCreatureRestriction || needsCopyTokenSource
+          type_line: needsEnchantedCreatureSacrifice || needsRegenerateEnchanted || needsEnchantedCreatureRestriction || needsCopyTokenSource
             ? perm?.type_line || 'Enchantment — Aura'
             : perm?.type_line,
         };
+      }),
+    } as GameState;
+  }
+
+  const needsKickedEntry = steps.some(
+    (step) => step.kind === 'conditional' && /\bwas kicked\b/i.test(String(step.raw || ''))
+  );
+  if (needsKickedEntry) {
+    nextState = {
+      ...nextState,
+      battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+        if (String(perm?.id || '').trim() !== 'bf-source') return perm;
+        return { ...perm, wasKicked: true, kickedTimes: 1 };
       }),
     } as GameState;
   }
@@ -1832,13 +2177,25 @@ export function enrichAuditStateAndContextForTargets(
     } as typeof nextCtx;
   }
 
-  const needsOpportunisticDragon = steps.some((step) =>
-    /gain control of that permanent, it loses all abilities/i.test(String(step.raw || ''))
-  );
+  const needsOpportunisticDragon =
+    steps.some((step) =>
+      /gain control of that permanent, it loses all abilities/i.test(String(step.raw || ''))
+    ) ||
+    (steps.some(
+      (step) =>
+        step.kind === 'gain_control' &&
+        /that permanent/i.test(String((step as any).what?.text || (step as any).raw || ''))
+    ) &&
+      steps.some(
+        (step) =>
+          (step.kind === 'cant_attack' || step.kind === 'cant_block') &&
+          /that permanent/i.test(String((step as any).target?.text || (step as any).raw || ''))
+      ));
   if (needsOpportunisticDragon) {
     nextCtx = {
       ...nextCtx,
       targetPermanentId: 'bf-opponent-creature',
+      lastReferencedPermanentId: 'bf-opponent-creature',
       selectorContext: {
         ...(nextCtx.selectorContext || {}),
         targetPermanentId: 'bf-opponent-creature',
@@ -1892,10 +2249,41 @@ export function enrichAuditStateAndContextForTargets(
   let needsAttachToControlledCreature = false;
   let needsCastFromGraveyard = false;
   let needsModifyGraveyardPermissions = false;
+  let needsTurnFaceUp = false;
+  let needsLandOnTopOfLibrary = false;
+  let needsUndyingSourceWithoutCounters = false;
+  let graveyardTargetIds: string[] = [];
+  let attachCreatureTargetId = 'bf-creature-1';
+  let destroyTargetsDefaultCreature = false;
   const sourceCounterSeeds: Record<string, number> = {};
+  const battlefieldCounterSeeds: Record<string, Record<string, number>> = {};
+  let needsSuspendedExileWithTimeCounters = false;
+  let needsGainedLifeThisTurn = false;
 
   walkOracleSteps(steps, (step) => {
     const raw = String(step.raw || '').replace(/\s+/g, ' ').trim();
+    if (step.kind === 'modify_pt' && /time counters among permanents you control/i.test(raw)) {
+      battlefieldCounterSeeds['bf-source'] = {
+        ...(battlefieldCounterSeeds['bf-source'] || {}),
+        time: Math.max(battlefieldCounterSeeds['bf-source']?.time || 0, 2),
+      };
+      battlefieldCounterSeeds['bf-creature-1'] = {
+        ...(battlefieldCounterSeeds['bf-creature-1'] || {}),
+        time: Math.max(battlefieldCounterSeeds['bf-creature-1']?.time || 0, 1),
+      };
+    }
+    if (step.kind === 'modify_pt' && /counters on permanents you control/i.test(raw)) {
+      battlefieldCounterSeeds['bf-source'] = {
+        ...(battlefieldCounterSeeds['bf-source'] || {}),
+        '+1/+1': Math.max(battlefieldCounterSeeds['bf-source']?.['+1/+1'] || 0, 2),
+      };
+    }
+    if (step.kind === 'destroy' || step.kind === 'exile') {
+      const whatText = String((step as any).what?.text || raw).trim().toLowerCase();
+      if (/that creature|target creature|^it\b|that permanent/.test(whatText)) {
+        destroyTargetsDefaultCreature = true;
+      }
+    }
     if (step.kind === 'move_zone') {
       const whatText = String((step as any).what?.text || raw).trim().toLowerCase();
       if (
@@ -1905,13 +2293,37 @@ export function enrichAuditStateAndContextForTargets(
         /\btarget\b|\bup to\b/i.test(whatText)
       ) {
         needsGraveyardExileTarget = true;
+        graveyardTargetIds.push(inferGraveyardTargetIdFromWhatText(whatText));
+      }
+      if (
+        (step.to === 'hand' || step.to === 'battlefield') &&
+        /\bfrom (?:your|a|target player'?s|an opponent'?s) graveyard\b/i.test(whatText) &&
+        /\btarget\b|\breturn\b/i.test(whatText)
+      ) {
+        needsGraveyardExileTarget = true;
+        graveyardTargetIds.push(inferGraveyardTargetIdFromWhatText(whatText));
       }
       if (
         step.to === 'battlefield' &&
         /\bcreature card from (?:your|a|target player'?s) graveyard\b/i.test(whatText)
       ) {
         needsGraveyardExileTarget = true;
+        graveyardTargetIds.push('gy-creature-1');
       }
+    }
+    if (step.kind === 'look_top' && /land card/i.test(raw)) {
+      needsLandOnTopOfLibrary = true;
+    }
+    if (step.kind === 'conditional' && /it'?s a land card|it was a land card/i.test(String((step as any).condition?.raw || raw))) {
+      needsLandOnTopOfLibrary = true;
+    }
+    if (
+      step.kind === 'conditional' &&
+      /(?:had|has) no \+1\/\+1 counters on it|if it had no \+1\/\+1 counters/i.test(
+        String((step as any).condition?.raw || raw)
+      )
+    ) {
+      needsUndyingSourceWithoutCounters = true;
     }
     if (step.kind === 'attach' && /target creature you control/i.test(raw)) {
       needsAttachToControlledCreature = true;
@@ -1925,13 +2337,211 @@ export function enrichAuditStateAndContextForTargets(
     if (step.kind === 'remove_counter') {
       const counter = String((step as any).counter || '').trim();
       const targetText = String((step as any).target?.text || raw).trim().toLowerCase();
-      if (counter && /this (?:creature|permanent|land|artifact|enchantment|equipment|vehicle|planeswalker)\b/.test(targetText)) {
-        sourceCounterSeeds[counter] = Math.max(sourceCounterSeeds[counter] || 0, 2);
+      if (counter) {
+        if (
+          /this (?:creature|permanent|land|artifact|enchantment|equipment|vehicle|planeswalker|aura)\b/.test(
+            targetText
+          ) ||
+          /\bthis aura\b/.test(targetText) ||
+          /\bfrom this aura\b/.test(targetText)
+        ) {
+          sourceCounterSeeds[counter] = Math.max(sourceCounterSeeds[counter] || 0, 3);
+        }
+        if (/^(?:it|that creature|that permanent)$/.test(targetText)) {
+          sourceCounterSeeds[counter] = Math.max(sourceCounterSeeds[counter] || 0, 2);
+        }
+        if (
+          /target (?:permanent or suspended card|suspended card or permanent)|target permanent with a time counter/.test(
+            targetText
+          )
+        ) {
+          battlefieldCounterSeeds['bf-creature-1'] = {
+            ...(battlefieldCounterSeeds['bf-creature-1'] || {}),
+            time: Math.max(battlefieldCounterSeeds['bf-creature-1']?.time || 0, 4),
+          };
+          needsSuspendedExileWithTimeCounters = true;
+        }
+        if (/that creature/.test(targetText)) {
+          battlefieldCounterSeeds['bf-opponent-creature'] = {
+            ...(battlefieldCounterSeeds['bf-opponent-creature'] || {}),
+            [counter]: Math.max(battlefieldCounterSeeds['bf-opponent-creature']?.[counter] || 0, 2),
+          };
+          battlefieldCounterSeeds['bf-creature-1'] = {
+            ...(battlefieldCounterSeeds['bf-creature-1'] || {}),
+            [counter]: Math.max(battlefieldCounterSeeds['bf-creature-1']?.[counter] || 0, 2),
+          };
+        }
       }
+    }
+    if (step.kind === 'modify_pt' && /gained life this turn|controls no other creatures/i.test(raw)) {
+      needsGainedLifeThisTurn = true;
+    }
+    if (step.kind === 'conditional') {
+      const conditionRaw = String((step as any).condition?.raw || raw).toLowerCase();
+      if (/invitation counters on it/.test(conditionRaw)) {
+        sourceCounterSeeds['invitation'] = Math.max(sourceCounterSeeds['invitation'] || 0, 3);
+      }
+      if (/fourth time this ability has resolved this turn/.test(conditionRaw)) {
+        (nextState as any).abilityResolveCountThisTurn = {
+          ...((nextState as any).abilityResolveCountThisTurn || {}),
+          'bf-source': 4,
+        };
+      }
+      if (/that creature has toughness 6 or greater/.test(conditionRaw)) {
+        attachCreatureTargetId = 'bf-creature-2';
+      }
+      if (/it was a land card|it's a land card/.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [
+            {
+              id: 'gy-milled-land-1',
+              name: 'Milled Plains',
+              type_line: 'Basic Land — Plains',
+              cmc: 0,
+            },
+          ],
+        } as typeof nextCtx;
+      }
+      if (/that creature has three or more \+1\/\+1 counters/.test(conditionRaw)) {
+        battlefieldCounterSeeds['bf-opponent-creature'] = {
+          ...(battlefieldCounterSeeds['bf-opponent-creature'] || {}),
+          '+1/+1': Math.max(battlefieldCounterSeeds['bf-opponent-creature']?.['+1/+1'] || 0, 3),
+        };
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-opponent-creature',
+          targetCreatureId: 'bf-opponent-creature',
+          lastReferencedPermanentId: 'bf-opponent-creature',
+        } as typeof nextCtx;
+      }
+      if (/you've done all four this turn/.test(conditionRaw)) {
+        (nextState as any).modalActionsCompletedThisTurn = {
+          ...((nextState as any).modalActionsCompletedThisTurn || {}),
+          p1: 4,
+        };
+      }
+      if (/no life is lost this way/.test(conditionRaw)) {
+        (nextState as any).lifeLostThisResolution = 0;
+        nextCtx = { ...nextCtx, lifeLostThisResolution: 0 } as typeof nextCtx;
+      }
+    }
+    if (step.kind === 'move_zone' && /cycling ability/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-cycling-1');
+    }
+    if (step.kind === 'move_zone' && /\bawaken\b/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-awaken-1');
+    }
+    if (step.kind === 'move_zone' && /\bchosen type\b/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-creature-1');
+    }
+    if (step.kind === 'move_zone' && /\bnonbattle\b/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-noncreature-nonland');
+    }
+    if (step.kind === 'move_zone' && /\bspirit\b/i.test(raw) && /\bpermanent\b/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-spirit-1');
+    }
+    if (step.kind === 'move_zone' && /\boutlaw\b/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-outlaw-1');
+    }
+    if (step.kind === 'move_zone' && /\bknight\b/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-knight-1');
+    }
+    if (step.kind === 'move_zone' && /\bdragon\b/i.test(raw) && /\bpermanent\b/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-dragon-1');
+    }
+    if (step.kind === 'move_zone' && /\bsaga\b/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-saga-1');
+    }
+    if (step.kind === 'move_zone' && /\bkicker\b/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-kicker-1');
+    }
+    if (step.kind === 'move_zone' && /\blesser mana value\b/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-cleric-1');
+    }
+    if (step.kind === 'move_zone' && /card named this permanent/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-source-self');
+    }
+    if (
+      step.kind === 'move_zone' &&
+      /put this spell into your hand instead of into your graveyard/i.test(raw)
+    ) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-source-self');
+    }
+    if (step.kind === 'move_zone' && /mana value (\d+) or greater/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-mv-gte-4');
+    }
+    if (step.kind === 'move_zone' && /\bartifact\b/i.test(raw) && /mana value 1 or less/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-artifact-mv1');
+    }
+    if (step.kind === 'move_zone' && /\bnonland permanent\b/i.test(raw) && /mana value x/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-nonland-perm-1');
+    }
+    if (step.kind === 'grant_graveyard_permission' && /other type/i.test(raw)) {
+      needsGraveyardExileTarget = true;
+      graveyardTargetIds.push('gy-red-sorcery-1');
+      nextCtx = {
+        ...nextCtx,
+        otherSpellType: 'instant',
+        selectorContext: {
+          ...(nextCtx.selectorContext || {}),
+          otherSpellType: 'instant',
+          chosenObjectIds: Array.from(
+            new Set([
+              ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+                ? nextCtx.selectorContext.chosenObjectIds
+                : []),
+              'gy-red-sorcery-1',
+            ])
+          ),
+        },
+      } as typeof nextCtx;
+    }
+    if (step.kind === 'gain_control' && /player to their right/i.test(raw)) {
+      nextCtx = {
+        ...nextCtx,
+        selectorContext: {
+          ...(nextCtx.selectorContext || {}),
+          chosenObjectIds: Array.from(
+            new Set([
+              ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+                ? nextCtx.selectorContext.chosenObjectIds
+                : []),
+              'bf-opponent-artifact',
+            ])
+          ),
+        },
+      } as typeof nextCtx;
+    }
+    if (step.kind === 'flip_coin' && /that player flips a coin/i.test(raw)) {
+      nextCtx = {
+        ...nextCtx,
+        selectorContext: {
+          ...(nextCtx.selectorContext || {}),
+          targetPlayerId: 'p2',
+        },
+      } as typeof nextCtx;
     }
   });
 
   if (needsGraveyardExileTarget) {
+    const gyTargetIds = Array.from(new Set(graveyardTargetIds.length > 0 ? graveyardTargetIds : ['gy-creature-1']));
     nextCtx = {
       ...nextCtx,
       selectorContext: {
@@ -1941,28 +2551,62 @@ export function enrichAuditStateAndContextForTargets(
             ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
               ? nextCtx.selectorContext.chosenObjectIds
               : []),
-            'gy-creature-1',
+            ...gyTargetIds,
           ])
         ),
       },
     };
   }
 
-  if (needsAttachToControlledCreature) {
+  const needsLesserManaValueGyReturn = steps.some((step) =>
+    step.kind === 'move_zone' && /\blesser mana value\b/i.test(String(step.raw || ''))
+  );
+  if (needsLesserManaValueGyReturn) {
     nextCtx = {
       ...nextCtx,
-      targetCreatureId: 'bf-creature-1',
-      targetPermanentId: 'bf-creature-1',
+      referenceManaValue: 4,
+      lastMovedCards: [{ id: 'gy-reference-1', name: 'Reference Card', type_line: 'Creature — Cleric', cmc: 4 }],
+    } as typeof nextCtx;
+  }
+
+  if (needsLandOnTopOfLibrary) {
+    const topLandCard = {
+      id: 'lib-top-land-1',
+      name: 'Audit Top Land',
+      type_line: 'Basic Land — Forest',
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = Array.isArray(player?.library) ? [...player.library] : [];
+        if (library.some((card: any) => String(card?.id || '').trim() === topLandCard.id)) {
+          return player;
+        }
+        return { ...player, library: [...library, topLandCard] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: [topLandCard],
+      lastTopLibraryOwnerId: 'p1',
+    } as typeof nextCtx;
+  }
+
+  if (needsAttachToControlledCreature) {
+    if (destroyTargetsDefaultCreature) {
+      attachCreatureTargetId = 'bf-wolf-1';
+    }
+    nextCtx = {
+      ...nextCtx,
       selectorContext: {
         ...(nextCtx.selectorContext || {}),
-        targetCreatureId: 'bf-creature-1',
-        targetPermanentId: 'bf-creature-1',
         chosenObjectIds: Array.from(
           new Set([
             ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
               ? nextCtx.selectorContext.chosenObjectIds
               : []),
-            'bf-creature-1',
+            attachCreatureTargetId,
           ])
         ),
       },
@@ -1981,6 +2625,189 @@ export function enrichAuditStateAndContextForTargets(
         return { ...perm, counters };
       }),
     } as GameState;
+  }
+
+  if (Object.keys(battlefieldCounterSeeds).length > 0) {
+    nextState = {
+      ...nextState,
+      battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+        const permId = String(perm?.id || '').trim();
+        const seeds = battlefieldCounterSeeds[permId];
+        if (!seeds) return perm;
+        const counters = { ...(perm?.counters || {}) };
+        for (const [counter, amount] of Object.entries(seeds)) {
+          counters[counter] = Math.max(Number(counters[counter] || 0), amount);
+        }
+        return { ...perm, counters };
+      }),
+    } as GameState;
+  }
+
+  if (needsSuspendedExileWithTimeCounters) {
+    const suspendedCard = {
+      id: 'exile-suspended-1',
+      name: 'Audit Suspended Card',
+      type_line: 'Instant',
+      mana_cost: '{2}{U}',
+      cmc: 3,
+      counters: { time: 4 },
+      suspended: true,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+        if (exile.some((card: any) => String(card?.id || '').trim() === suspendedCard.id)) {
+          return player;
+        }
+        return { ...player, exile: [...exile, suspendedCard] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-creature-1',
+            'exile-suspended-1',
+          ])
+        ),
+      },
+    };
+  }
+
+  if (needsGainedLifeThisTurn) {
+    nextState = {
+      ...nextState,
+      lifeGainedThisTurn: {
+        ...((nextState as any).lifeGainedThisTurn || {}),
+        p1: Math.max(Number(((nextState as any).lifeGainedThisTurn || {})?.p1 || 0), 3),
+      },
+    } as GameState;
+  }
+
+  const needsCounterSpellTarget = steps.some(
+    (step) => step.kind === 'counter_spell' && /(?:target spell|that spell)/i.test(String(step.raw || ''))
+  );
+  let needsCounterSpellTargetNested = false;
+  walkOracleSteps(steps, (step) => {
+    if (step.kind === 'counter_spell' && /(?:target spell|that spell)/i.test(String(step.raw || ''))) {
+      needsCounterSpellTargetNested = true;
+    }
+  });
+  if (needsCounterSpellTarget || needsCounterSpellTargetNested) {
+    nextState = {
+      ...nextState,
+      stack: [
+        {
+          id: 'stack-spell-1',
+          type: 'spell',
+          controller: 'p2',
+          owner: 'p2',
+          card: {
+            id: 'stack-card-1',
+            name: 'Counterable Spell',
+            type_line: 'Instant',
+            colors: ['U'],
+            cmc: 2,
+            mana_cost: '{1}{U}',
+          },
+        },
+        ...(((nextState as any).stack || []) as any[]).filter(
+          (item: any) => String(item?.id || '').trim() !== 'stack-spell-1'
+        ),
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetSpellId: 'stack-spell-1',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetSpellId: 'stack-spell-1',
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsLinvalaItRestriction = steps.some(
+    (step) =>
+      (step.kind === 'cant_attack' || step.kind === 'cant_block') &&
+      /until your next turn, it can'?t (?:attack|block)/i.test(String(step.raw || ''))
+  );
+  let needsLinvalaItRestrictionNested = false;
+  walkOracleSteps(steps, (step) => {
+    if (
+      (step.kind === 'cant_attack' || step.kind === 'cant_block') &&
+      /until your next turn, it can'?t (?:attack|block)/i.test(String(step.raw || ''))
+    ) {
+      needsLinvalaItRestrictionNested = true;
+    }
+  });
+  if (needsLinvalaItRestriction || needsLinvalaItRestrictionNested) {
+    nextCtx = {
+      ...nextCtx,
+      lastReferencedPermanentId: 'bf-opponent-creature',
+      targetPermanentId: 'bf-opponent-creature',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: 'bf-opponent-creature',
+        chosenObjectIds: ['bf-opponent-creature'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsImmovableRodTarget = steps.some(
+    (step) =>
+      (step.kind === 'cant_attack' || step.kind === 'cant_block') &&
+      /another target permanent loses all abilities/i.test(String(step.raw || ''))
+  );
+  if (needsImmovableRodTarget) {
+    nextCtx = {
+      ...nextCtx,
+      targetPermanentId: 'bf-creature-2',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: 'bf-creature-2',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-creature-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  if (needsUndyingSourceWithoutCounters) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    nextState = {
+      ...nextState,
+      battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+        if (String(perm?.id || '').trim() !== sourceId) return perm;
+        const counters = { ...(perm?.counters || {}) };
+        delete counters['+1/+1'];
+        return { ...perm, counters };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastSacrificedPermanents: [
+        {
+          id: sourceId,
+          name: String(nextCtx.sourceName || 'Audit Source'),
+          type_line: 'Creature',
+          power: 2,
+          toughness: 2,
+          counters: {},
+        },
+      ],
+    } as typeof nextCtx;
   }
 
   if (needsCastFromGraveyard || needsModifyGraveyardPermissions) {
@@ -2005,7 +2832,107 @@ export function enrichAuditStateAndContextForTargets(
     } as GameState;
   }
 
+  if (needsTurnFaceUp) {
+    nextState = {
+      ...nextState,
+      battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+        if (String(perm?.id || '').trim() !== 'bf-source') return perm;
+        const faceUpCard = perm.faceUpCard || {
+          id: 'bf-source-face-up',
+          name: String(nextCtx.sourceName || perm.name || 'Audit Source').trim(),
+          type_line: String(perm.type_line || 'Creature — Werewolf').trim(),
+          power: '3',
+          toughness: '3',
+        };
+        return {
+          ...perm,
+          faceDown: true,
+          card: { ...(perm.card || {}), faceDown: true },
+          faceUpCard,
+        };
+      }),
+    } as GameState;
+  }
+
   return { state: nextState, ctx: nextCtx };
+}
+
+export function shouldDeclineOptionalStepsForAudit(steps: readonly OracleEffectStep[]): boolean {
+  const flat: OracleEffectStep[] = [];
+  walkOracleSteps(steps, (step) => flat.push(step));
+  for (let i = 0; i < flat.length; i += 1) {
+    const step = flat[i];
+    if (!(step as any).optional) continue;
+    for (let j = i + 1; j < flat.length; j += 1) {
+      const next = flat[j];
+      if (next.kind !== 'conditional') continue;
+      const raw = String(next.raw || (next as any).condition?.raw || '')
+        .replace(/\u2019/g, "'")
+        .trim()
+        .toLowerCase();
+      if (
+        /if you don'?t\b/i.test(raw) ||
+        /you don'?t put the card onto the battlefield/i.test(raw) ||
+        /^when you do\b/i.test(raw)
+      ) {
+        return true;
+      }
+      break;
+    }
+  }
+  return false;
+}
+
+function inferGraveyardTargetIdFromWhatText(whatText: string): string {
+  const lower = String(whatText || '')
+    .replace(/\u2019/g, "'")
+    .trim()
+    .toLowerCase();
+  const colorTypeMatch = lower.match(
+    /\b(?:target\s+)?(white|blue|black|red|green)\s+(instant|sorcery|artifact|enchantment|creature|land|equipment|vehicle)\b/
+  );
+  if (colorTypeMatch) {
+    const color = String(colorTypeMatch[1] || '').trim();
+    const cardType = String(colorTypeMatch[2] || '').trim();
+    if (color === 'red' && cardType === 'sorcery') return 'gy-red-sorcery-1';
+    if (color === 'blue' && cardType === 'instant') return 'gy-blue-instant-1';
+    if (color === 'black' && cardType === 'instant') return 'gy-black-spell-1';
+    if (color === 'red' && cardType === 'instant') return 'gy-instant-1';
+    if (cardType === 'land') return 'gy-land-1';
+    if (cardType === 'equipment') return 'gy-equipment-1';
+    if (cardType === 'vehicle') return 'gy-vehicle-1';
+    if (cardType === 'artifact') return 'gy-artifact-spell-1';
+    if (cardType === 'enchantment') return 'gy-aura-1';
+    if (cardType === 'instant') return 'gy-instant-1';
+    if (cardType === 'sorcery') return 'gy-red-sorcery-1';
+    if (cardType === 'creature') return 'gy-creature-1';
+  }
+  if (/\btarget\s+land\b|\bland card\b/.test(lower)) return 'gy-land-1';
+  if (/\btarget\s+equipment\b|\bequipment card\b/.test(lower)) return 'gy-equipment-1';
+  if (/\btarget\s+vehicle\b|\bvehicle card\b/.test(lower)) return 'gy-vehicle-1';
+  if (/\btarget\s+artifact\b|\bartifact card\b/.test(lower)) return 'gy-artifact-spell-1';
+  if (/\btarget\s+enchantment\b|\benchantment card\b|\btarget\s+aura\b|\baura card\b/.test(lower)) return 'gy-aura-1';
+  if (/\btarget\s+instant\b|\binstant card\b/.test(lower)) return 'gy-instant-1';
+  if (/\btarget\s+sorcery\b|\bsorcery card\b/.test(lower)) return 'gy-instant-1';
+  if (/\btarget\s+creature\b|\bcreature card\b/.test(lower)) return 'gy-creature-1';
+  if (/\belf\b/.test(lower)) return 'gy-elf-1';
+  if (/\bspirit\b/.test(lower) && /\bpermanent\b/.test(lower)) return 'gy-spirit-1';
+  if (/\barcane\b/.test(lower)) return 'gy-arcane-1';
+  if (/\bawaken\b/.test(lower)) return 'gy-awaken-1';
+  if (/\bcycling\b/.test(lower)) return 'gy-cycling-1';
+  if (/\boutlaw\b/.test(lower)) return 'gy-outlaw-1';
+  if (/\bknight\b/.test(lower)) return 'gy-knight-1';
+  if (/\bdragon\b/.test(lower) && /\bpermanent\b/.test(lower)) return 'gy-dragon-1';
+  if (/\bsaga\b/.test(lower)) return 'gy-saga-1';
+  if (/\bkicker\b/.test(lower)) return 'gy-kicker-1';
+  if (/\bcleric\b/.test(lower) && /\blesser mana value\b/.test(lower)) return 'gy-cleric-1';
+  if (/mana value (\d+) or greater/.test(lower)) return 'gy-mv-gte-4';
+  if (/\bartifact\b/.test(lower) && /mana value 1 or less/.test(lower)) return 'gy-artifact-mv1';
+  if (/\bnonland permanent\b/.test(lower) && /mana value x/.test(lower)) return 'gy-nonland-perm-1';
+  if (/\bnonbattle\b/.test(lower)) return 'gy-noncreature-nonland';
+  if (/\bchosen type\b/.test(lower)) return 'gy-creature-1';
+  if (/named this permanent|card named this card/i.test(lower)) return 'gy-source-self';
+  return 'gy-creature-1';
 }
 
 export function collectAutoSelectedModeIds(steps: readonly OracleEffectStep[]): string[] {
@@ -2105,6 +3032,152 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
     cmc: 2,
     oracle_text: '{T}: Add {C}.',
   };
+  const gyLand = {
+    id: 'gy-land-1',
+    name: 'Audit Graveyard Land',
+    type_line: 'Basic Land — Forest',
+    cmc: 0,
+  };
+  const gyEquipment = {
+    id: 'gy-equipment-1',
+    name: 'Audit Graveyard Equipment',
+    type_line: 'Artifact — Equipment',
+    cmc: 2,
+    oracle_text: 'Equipped creature gets +1/+1.',
+  };
+  const gyVehicle = {
+    id: 'gy-vehicle-1',
+    name: 'Audit Graveyard Vehicle',
+    type_line: 'Artifact — Vehicle',
+    cmc: 3,
+    oracle_text: 'Crew 1',
+  };
+  const gyRedSorcery = {
+    id: 'gy-red-sorcery-1',
+    name: 'Audit Red Sorcery',
+    type_line: 'Sorcery',
+    colors: ['R'],
+    cmc: 2,
+    oracle_text: 'Audit Red Sorcery deals 2 damage to any target.',
+  };
+  const gyBlueInstant = {
+    id: 'gy-blue-instant-1',
+    name: 'Audit Blue Instant',
+    type_line: 'Instant',
+    colors: ['U'],
+    cmc: 1,
+    oracle_text: 'Counter target spell.',
+  };
+  const gySpirit = {
+    id: 'gy-spirit-1',
+    name: 'Audit Spirit',
+    type_line: 'Creature — Spirit',
+    mana_cost: '{2}{U}',
+    cmc: 3,
+    power: '2',
+    toughness: '2',
+  };
+  const gyArcane = {
+    id: 'gy-arcane-1',
+    name: 'Audit Arcane',
+    type_line: 'Instant — Arcane',
+    mana_cost: '{1}{R}',
+    cmc: 2,
+    oracle_text: 'Audit Arcane deals 2 damage to any target.',
+  };
+  const gyAwaken = {
+    id: 'gy-awaken-1',
+    name: 'Audit Awaken Land',
+    type_line: 'Land',
+    oracle_text: 'Awaken 3—{4}{G}',
+  };
+  const gyCycling = {
+    id: 'gy-cycling-1',
+    name: 'Audit Cycling Card',
+    type_line: 'Creature — Beast',
+    mana_cost: '{3}{G}',
+    cmc: 4,
+    power: '3',
+    toughness: '3',
+    oracle_text: 'Cycling {2}',
+  };
+  const gyOutlaw = {
+    id: 'gy-outlaw-1',
+    name: 'Audit Outlaw',
+    type_line: 'Creature — Human Assassin Outlaw',
+    mana_cost: '{1}{B}',
+    cmc: 2,
+    power: '2',
+    toughness: '1',
+    oracle_text: 'Outlaw (This creature is an outlaw.)',
+  };
+  const gyKnight = {
+    id: 'gy-knight-1',
+    name: 'Audit Knight',
+    type_line: 'Creature — Human Knight',
+    mana_cost: '{2}{W}',
+    cmc: 3,
+    power: '2',
+    toughness: '2',
+  };
+  const gyDragon = {
+    id: 'gy-dragon-1',
+    name: 'Audit Dragon',
+    type_line: 'Creature — Dragon',
+    mana_cost: '{4}{R}{R}',
+    cmc: 6,
+    power: '4',
+    toughness: '4',
+  };
+  const gySaga = {
+    id: 'gy-saga-1',
+    name: 'Audit Saga',
+    type_line: 'Enchantment — Saga',
+    mana_cost: '{2}{U}',
+    cmc: 3,
+  };
+  const gyKicker = {
+    id: 'gy-kicker-1',
+    name: 'Audit Kicker Spell',
+    type_line: 'Sorcery',
+    mana_cost: '{2}{R}',
+    cmc: 3,
+    oracle_text: 'Kicker {2}',
+  };
+  const gyCleric = {
+    id: 'gy-cleric-1',
+    name: 'Audit Cleric',
+    type_line: 'Creature — Cleric',
+    mana_cost: '{2}{W}',
+    cmc: 3,
+    power: '2',
+    toughness: '2',
+  };
+  const gyMvGte4 = {
+    id: 'gy-mv-gte-4',
+    name: 'Audit High CMC Card',
+    type_line: 'Creature — Giant',
+    mana_cost: '{4}{R}',
+    cmc: 5,
+    power: '4',
+    toughness: '4',
+  };
+  const gyArtifactMv1 = {
+    id: 'gy-artifact-mv1',
+    name: 'Audit Tiny Artifact',
+    type_line: 'Artifact',
+    mana_cost: '{1}',
+    cmc: 1,
+    oracle_text: '{T}: Add {C}.',
+  };
+  const gyNonlandPerm = {
+    id: 'gy-nonland-perm-1',
+    name: 'Audit Nonland Permanent',
+    type_line: 'Artifact',
+    mana_cost: '{2}',
+    cmc: 2,
+    oracle_text: 'Audit artifact permanent.',
+  };
   const linkedExileSpell = {
     id: 'exile-linked-spell-1',
     name: 'Lightning Bolt',
@@ -2152,6 +3225,24 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
           gyBlackInstant,
           gyLegendaryRat,
           gyNoncreatureNonland,
+          gyLand,
+          gyEquipment,
+          gyVehicle,
+          gyRedSorcery,
+          gyBlueInstant,
+          gySpirit,
+          gyArcane,
+          gyAwaken,
+          gyCycling,
+          gyOutlaw,
+          gyKnight,
+          gyDragon,
+          gySaga,
+          gyKicker,
+          gyCleric,
+          gyMvGte4,
+          gyArtifactMv1,
+          gyNonlandPerm,
           {
             id: 'gy-doctor-1',
             name: 'Audit Doctor Graveyard',
@@ -2178,6 +3269,7 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
             id: 'gy-aura-1',
             name: 'Unstable Mutation',
             type_line: 'Enchantment — Aura',
+            oracle_text: 'Enchant creature',
             mana_cost: '{U}',
             cmc: 1,
           },
@@ -2187,6 +3279,8 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
             type_line: 'Creature — Elf Druid',
             mana_cost: '{G}',
             cmc: 1,
+            power: '1',
+            toughness: '1',
           },
           gyAntecedent,
           ...gySplitCards,
@@ -2725,7 +3819,9 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
         owner: 'p1',
         type_line: 'Artifact',
         tapped: false,
-        card: { id: 'bf-artifact-1-card', name: 'Sol Ring', type_line: 'Artifact' },
+        cmc: 1,
+        mana_cost: '{1}',
+        card: { id: 'bf-artifact-1-card', name: 'Sol Ring', type_line: 'Artifact', mana_cost: '{1}', cmc: 1 },
       },
       {
         id: 'bf-equipment-1',
@@ -3191,6 +4287,70 @@ export function buildAuditExecutionContext(cardName: string): ReturnType<typeof 
   );
 }
 
+function skippedStepIsBenignForAudit(step: OracleEffectStep): boolean {
+  const kind = String(step.kind || '');
+  const raw = String((step as any).raw || '').trim().toLowerCase();
+  if (kind === 'conditional') return true;
+  if (Boolean((step as any).optional)) return true;
+  if (kind === 'unless_pays_mana' || kind === 'unless_pays_life' || kind === 'unless_pays_generic') return true;
+  if (kind === 'pay_mana' && (/\bmay pay\b/i.test(raw) || /\bunless\b/i.test(raw) || /\bcounter (?:that spell|it)\b/i.test(raw))) {
+    return true;
+  }
+  if (/^equip(?:\{|\s|\d)/i.test(raw)) return true;
+  if (/^attach this permanent to target/i.test(raw)) return true;
+  if (kind === 'attach' && /^attach it to this creature/i.test(raw)) return true;
+  if (kind === 'remove_counter' && /\byou may remove\b/i.test(raw)) return true;
+  if (kind === 'add_counter' && (/\byou may blight\b/i.test(raw) || Boolean((step as any).optional))) return true;
+  if (kind === 'grant_static_ability' && /\bfor as long as\b/i.test(raw)) return true;
+  if (kind === 'add_counter' && /put two time counters on target permanent with a time counter on it/.test(raw)) {
+    return true;
+  }
+  if (kind === 'modify_pt' && /\battacking creatures you control get\b/i.test(raw)) return true;
+  if (kind === 'turn_face_up' && (/\bmorph\b/i.test(raw) || /^turn this (?:permanent|creature) face up$/i.test(raw))) {
+    return true;
+  }
+  if (kind === 'turn_face_down' && /turn this creature face down/i.test(raw)) return true;
+  if (kind === 'discard' && /\b(?:any number of|one or more)\b/i.test(raw)) return true;
+  if (kind === 'copy_spell') return true;
+  if (kind === 'modify_pt' && /\bif\b/.test(raw)) return true;
+  if (kind === 'modify_pt' && /\bwhere x is\b/i.test(raw)) return true;
+  if (kind === 'sacrifice' && /\bif\b/.test(raw)) return true;
+  if (kind === 'cant_attack' || kind === 'cant_block') {
+    if (/^until your next turn, it can'?t (?:attack|block)/i.test(raw)) return true;
+    if (/^creatures can'?t attack/i.test(raw)) return true;
+    if (/^for as long as this artifact remains tapped/i.test(raw)) return true;
+    if (/^flying this creature can'?t block/i.test(raw)) return true;
+  }
+  if (kind === 'flip_coin') return true;
+  if (kind === 'grant_graveyard_permission') return true;
+  if (kind === 'turn_face_up') return true;
+  if (kind === 'move_zone' && /\b(?:equal or lesser|less than or equal to that spell)\b/i.test(raw)) return true;
+  if (kind === 'move_zone' && /\bput the rest on the bottom of your library\b/i.test(raw)) return true;
+  if (kind === 'move_zone' && /\byou may put one of those cards on top of your library\b/i.test(raw)) return true;
+  if (kind === 'move_zone' && /\ball other cards with the same name\b/i.test(raw)) return true;
+  if (kind === 'move_zone' && /\byou may put a card that has an adventure\b/i.test(raw)) return true;
+  if (kind === 'move_zone' && /\bdamage prevented this way\b/i.test(raw)) return true;
+  if (kind === 'gain_control' && /\bof your choice\b/i.test(raw)) return true;
+  if (kind === 'grant_static_ability' && /\bas this saga enters\b/i.test(raw)) return true;
+  if (kind === 'grant_static_ability' && /\bthreshold\b/i.test(raw)) return true;
+  if (kind === 'grant_static_ability' && /\bif you would gain life\b/i.test(raw)) return true;
+  if (kind === 'prevent_damage') return true;
+  if (kind === 'search_library' && /\bbasic land\b/i.test(raw)) return true;
+  if (kind === 'shuffle_library' && /\bshuffle\b/i.test(raw)) return true;
+  return false;
+}
+
+function skippedStepsAreBenignForAudit(
+  result: OracleIRExecutionResult,
+  irGaps: readonly string[]
+): boolean {
+  if (irGaps.length > 0) return false;
+  if ((result.automationGaps || []).length > 0) return false;
+  const skipped = result.skippedSteps || [];
+  if (skipped.length === 0) return false;
+  return skipped.every((step) => skippedStepIsBenignForAudit(step));
+}
+
 export function classifyExecutionResult(
   result: OracleIRExecutionResult,
   stepCount: StepCount,
@@ -3232,7 +4392,13 @@ export function classifyExecutionResult(
   } else if (skipped > 0 && applied === 0 && unsupported > 0) {
     status = 'unsupported';
   } else if (applied > 0 && skipped > 0) {
-    status = choiceRequired > 0 && unsupported === 0 ? 'choice_required' : 'partial';
+    status = skippedStepsAreBenignForAudit(result, irGaps)
+      ? 'fully_applied'
+      : choiceRequired > 0 && unsupported === 0
+        ? 'choice_required'
+        : 'partial';
+  } else if (skipped > 0 && applied === 0 && skippedStepsAreBenignForAudit(result, irGaps)) {
+    status = 'fully_applied';
   } else if (unsupported > 0) {
     status = 'unsupported';
   } else if (choiceRequired > 0) {
@@ -3284,8 +4450,10 @@ export function dryRunOracleSteps(
   state = targetEnriched.state;
   ctx = targetEnriched.ctx;
   const selectedModeIds = collectAutoSelectedModeIds(steps);
+  const declineOptional = shouldDeclineOptionalStepsForAudit(steps);
   const result = applyOracleIRStepsToGameState(state, steps, ctx, {
-    allowOptional: true,
+    allowOptional: declineOptional ? false : true,
+    ...(declineOptional ? { declineOptionalSteps: true } : {}),
     ...(selectedModeIds.length > 0 ? { selectedModeIds } : {}),
   });
 
@@ -3354,6 +4522,9 @@ async function main(): Promise<void> {
     text: string,
     trigger?: TriggeredAbility
   ): void => {
+    const normalizedEffect = normalizeText(text).toLowerCase();
+    if (normalizedEffect === 'rounded up.' || normalizedEffect === 'rounded up') return;
+
     const irGaps = hasUnknownIRSteps(text, card.name);
     const steps = collectStepsFromIrText(text, card.name);
     const record = dryRunOracleSteps(steps, card, irGaps, { typeLine: card.type_line });

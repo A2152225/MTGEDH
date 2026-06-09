@@ -86,8 +86,16 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
   {
     const m = raw.match(/^x is (?:that|this|its) creature'?s (power|toughness)$/i);
     if (m) {
-      if (!targetCreatureId) return null;
-      const target = battlefield.find((p: any) => p.id === targetCreatureId) as any;
+      const targetId = String(
+        targetCreatureId ||
+          ctx?.targetCreatureId ||
+          ctx?.selectorContext?.targetCreatureId ||
+          ctx?.targetPermanentId ||
+          ctx?.selectorContext?.targetPermanentId ||
+          ''
+      ).trim();
+      if (!targetId) return null;
+      const target = findObjectById(targetId) ?? battlefield.find((p: any) => p.id === targetId) as any;
       if (!target) return null;
       const which = String(m[1] || '').toLowerCase();
       const rawValue = which === 'power'

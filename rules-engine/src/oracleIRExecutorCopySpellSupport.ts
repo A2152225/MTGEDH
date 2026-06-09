@@ -58,15 +58,23 @@ function parseReplayStepsFromOracleText(oracleText: string, sourceName: string):
   const normalizedText = String(oracleText || '').trim();
   if (!normalizedText) return [];
 
+  const collectReplaySteps = (steps: readonly OracleEffectStep[]): OracleEffectStep[] => {
+    const out: OracleEffectStep[] = [];
+    for (const candidate of steps) {
+      if (candidate.kind === 'conditional' && Array.isArray(candidate.steps)) {
+        out.push(...collectReplaySteps(candidate.steps));
+        continue;
+      }
+      if (candidate.kind === 'copy_spell' && candidate.subject === 'this_spell') continue;
+      if (candidate.kind !== 'unknown' && candidate.kind !== 'copy_chapter_ability') {
+        out.push(candidate);
+      }
+    }
+    return out;
+  };
+
   const copiedIr = parseOracleTextToIR(normalizedText, sourceName);
-  return copiedIr.abilities
-    .flatMap((ability) => ability.steps)
-    .filter(
-      (candidate): candidate is OracleEffectStep =>
-        candidate.kind !== 'unknown' &&
-        candidate.kind !== 'copy_chapter_ability' &&
-        !(candidate.kind === 'copy_spell' && candidate.subject === 'this_spell')
-    );
+  return collectReplaySteps(copiedIr.abilities.flatMap(ability => ability.steps));
 }
 
 function getStackSpellTypeLine(stackItem: any): string {

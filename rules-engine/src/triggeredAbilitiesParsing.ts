@@ -245,6 +245,15 @@ function splitCompoundTriggerConditions(condition: string): string[] {
   return expanded;
 }
 
+function stripKeywordActivationRemindersFromEffect(effectText: string): string {
+  return String(effectText || '')
+    .replace(/\s+equip(?:\{[^}]*\}|\d+\})?(?:\s*\([^)]*\))?\s*$/i, '')
+    .replace(/\s+reconfigure(?:\{[^}]*\})?(?:\s*\([^)]*\))?\s*$/i, '')
+    .replace(/(?:^|[.\n]\s*)attach this permanent to target[^\n.]*/gi, (match) => (match.startsWith('.') ? '.' : ''))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function normalizeTriggeredEffectTextCase(effectText: string): string {
   let inQuotes = false;
   let normalized = '';
@@ -308,7 +317,7 @@ export function parseTriggeredAbilitiesFromText(
         ? TriggerKeyword.WHENEVER
         : TriggerKeyword.WHEN;
 
-    let effect = String(parsedAbility.effect || '').trim();
+    let effect = stripKeywordActivationRemindersFromEffect(String(parsedAbility.effect || '').trim());
     const normalizedEffect = effect.toLowerCase();
     const normalizedTriggerCondition = triggerCondition.toLowerCase();
 

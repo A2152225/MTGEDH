@@ -2,7 +2,7 @@ import type { PlayerID } from "../../../../shared/src/index.js";
 import { buildZoneObjectWithRetainedCounters, mergeRetainedCountersForBattlefieldEntry } from "../../../../shared/src/zoneRetainedCounters.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, addTokenCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue, calculateVariablePT } from "../utils.js";
-import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus, processLifeChange, applyMillReplacements, hasSpellMastery, resolveOpponentDirectedDamage } from "./game-state-effects.js";
+import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus, processLifeChange, applyMillReplacements, hasSpellMastery, resolveOpponentDirectedDamage, tryResolveThassasOracleWin } from "./game-state-effects.js";
 import { 
   detectKeywords, 
   getAttackTriggerKeywords, 
@@ -5677,6 +5677,57 @@ function parseDeterministicManaToPool(manaText: string): { W: number; U: number;
   return total > 0 ? out : null;
 }
 
+function resolveAddCounterTargetPermanentId(
+  targetTextRaw: string,
+  caster: PlayerID,
+  state: any,
+  sourcePermanentId?: string,
+  sourceId?: string,
+  spellName?: string,
+): string {
+  const targetText = String(targetTextRaw || '')
+    .replace(/\u2019/g, "'")
+    .trim()
+    .toLowerCase();
+  const sourcePermId = String(sourcePermanentId || sourceId || '').trim();
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+
+  if (
+    !targetText ||
+    targetText === 'it' ||
+    targetText === '~' ||
+    targetText === 'this creature' ||
+    targetText === 'this permanent' ||
+    targetText === 'this planeswalker' ||
+    targetText === 'this land' ||
+    targetText === 'this artifact' ||
+    targetText === 'this enchantment' ||
+    targetText === 'this equipment' ||
+    targetText === 'this vehicle'
+  ) {
+    return sourcePermId;
+  }
+
+  const normalizedSpellName = String(spellName || '').trim().toLowerCase();
+  if (normalizedSpellName && (targetText === normalizedSpellName || targetText.includes(normalizedSpellName))) {
+    return sourcePermId;
+  }
+
+  const exactNameMatch = battlefield.find(
+    (perm: any) => String(perm?.card?.name || '').trim().toLowerCase() === targetText
+  );
+  if (exactNameMatch?.id) return String(exactNameMatch.id).trim();
+
+  const controlledNameMatch = battlefield.find(
+    (perm: any) =>
+      String(perm?.controller || '').trim() === String(caster || '').trim() &&
+      String(perm?.card?.name || '').trim().toLowerCase() === targetText
+  );
+  if (controlledNameMatch?.id) return String(controlledNameMatch.id).trim();
+
+  return sourcePermId;
+}
+
 function applyOracleIRFallbackForUncategorizedSpell(
   ctx: GameContext,
   oracleText: string,
@@ -5708,6 +5759,7 @@ function applyOracleIRFallbackForUncategorizedSpell(
       lower.includes('damage') ||
       lower.includes('prevent') ||
       lower.includes('deal') ||
+      lower.includes('counter') ||
       lower.includes('sacrifice') ||
       lower.includes('destroy') ||
       (lower.includes('create') && lower.includes('token')) ||
@@ -5999,6 +6051,32 @@ function applyOracleIRFallbackForUncategorizedSpell(
           } catch (err) {
             debugWarn(1, `[oracleIR] Failed to queue sacrifice step(s) for ${spellName}:`, err);
           }
+          break;
+        }
+        case 'add_counter': {
+          const counterType = String((step as any).counter || '+1/+1').trim();
+          const amount = resolveOracleQuantityToNumber((step as any).amount, xValue, {
+            state: (ctx as any).state,
+            controllerId: caster,
+            sourceId: sourcePermanentId || sourceId,
+            whereX: (step as any).whereX,
+          });
+          if (!counterType || !amount || amount <= 0) break;
+
+          const targetText = String((step as any).target?.text || (step as any).target?.raw || '').trim();
+          const targetPermanentId = resolveAddCounterTargetPermanentId(
+            targetText,
+            caster,
+            (ctx as any).state,
+            sourcePermanentId,
+            sourceId,
+            spellName,
+          );
+          if (!targetPermanentId) break;
+
+          updateCounters(ctx, targetPermanentId, { [counterType]: amount });
+          debug(2, `[oracleIR] ${spellName}: added ${amount} ${counterType} counter(s) to ${targetPermanentId}`);
+          applied++;
           break;
         }
         case 'deal_damage': {
@@ -10989,7 +11067,10 @@ export function executeTriggerEffect(
     (state as any).cityBlessing[String(controller)] = true;
   }
 
-  if (desc.includes('you win the game') && !(state as any).gameOver) {
+  const thassaConditionalWin = /if x is greater than or equal to the number of cards in your library.*you win the game/i.test(desc);
+  if (thassaConditionalWin || String(sourceName || '').toLowerCase().includes("thassa's oracle")) {
+    tryResolveThassasOracleWin(ctx, controller, sourceName);
+  } else if (desc.includes('you win the game') && !(state as any).gameOver) {
     (state as any).winner = controller;
     (state as any).gameOver = true;
     (state as any).winCondition = `${sourceName}: you win the game`;
@@ -12391,6 +12472,7 @@ export function executeTriggerEffect(
     triggerItem,
   );
   if (triggeredOracleIRApplied > 0) {
+    tryResolveThassasOracleWin(ctx, controller, sourceName);
     return;
   }
   

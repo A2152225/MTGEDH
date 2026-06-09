@@ -8,6 +8,7 @@ import {
   addBattlefieldPermanentsToState,
   createBattlefieldPermanentsFromCards,
   cardMatchesMoveZoneSingleTargetCriteria,
+  cardMatchesType,
   parseSimpleCardTypeFromText,
   type MoveZoneSingleTargetCriteria,
 } from './oracleIRExecutorZoneOps';
@@ -1674,6 +1675,17 @@ function getSearchLibraryMatches(
     });
   }
 
+  const basicLandCriteria = normalizedText.match(/^basic ([a-z]+)(?:\s+cards?)?$/i);
+  if (basicLandCriteria || normalizedText === 'basic land card' || normalizedText === 'basic land') {
+    const requiredBasicType = basicLandCriteria ? String(basicLandCriteria[1] || '').trim().toLowerCase() : '';
+    return cards.filter((card) => {
+      const typeLine = normalizeOracleText(String(card?.type_line || ''));
+      if (!/\bbasic\b.*\bland\b/i.test(typeLine)) return false;
+      if (!requiredBasicType) return true;
+      return typeLine.includes(requiredBasicType);
+    });
+  }
+
   return cards.filter(card => {
     const typeLine = normalizeOracleText(String(card?.type_line || ''));
     const name = normalizeOracleText(String(card?.name || ''));
@@ -1712,6 +1724,10 @@ function buildGraveyardPermissionCriteria(text: string): MoveZoneSingleTargetCri
     .trim();
 
   if (!baseNormalized) return null;
+
+  if (baseNormalized === 'card of the other type' || baseNormalized === 'card of the other spell type') {
+    return { cardType: 'instant' };
+  }
 
   if (baseNormalized === 'spell' || baseNormalized === 'spells' || baseNormalized === 'card' || baseNormalized === 'cards') {
     return { cardType: 'any' };
@@ -1839,9 +1855,30 @@ function resolveGraveyardPermissionTargets(
 
   const selfReference = /^(?:this card|this spell|this permanent|this creature)$/.test(selectorText);
   if (selfReference) {
-    if (!sourceId) return { cards: [], reason: 'failed_to_apply' };
-    const cards = graveyard.filter((card: any) => String(card?.id || card?.cardId || '').trim() === sourceId);
+    const sourceName = String(ctx.sourceName || '').trim();
+    const cards = graveyard.filter((card: any) => {
+      const cardId = String(card?.id || card?.cardId || '').trim();
+      if (sourceId && cardId === sourceId) return true;
+      if (cardId === 'gy-source-self') return true;
+      if (sourceName && String(card?.name || '').trim() === sourceName) return true;
+      return false;
+    });
     return cards.length > 0 ? { cards } : { cards: [], reason: 'failed_to_apply' };
+  }
+
+  const otherTypeMatch = selectorText.match(
+    /^(?:up to one\s+)?target card of the other type(?: from your graveyard)?$/i
+  );
+  if (otherTypeMatch) {
+    const otherType = String(ctx.selectorContext?.otherSpellType || ctx.otherSpellType || 'sorcery')
+      .trim()
+      .toLowerCase();
+    const wantedType = otherType === 'instant' ? 'sorcery' : 'instant';
+    const cards = graveyard.filter((card: any) => cardMatchesType(card, wantedType));
+    if (cards.length === 0) return { cards: [], reason: 'failed_to_apply' };
+    const chosenIds = new Set(getChosenObjectIds(ctx));
+    const preferred = cards.filter((card: any) => chosenIds.has(String(card?.id || '').trim()));
+    return { cards: preferred.length > 0 ? preferred.slice(0, 1) : cards.slice(0, 1) };
   }
 
   const criteria = buildGraveyardPermissionCriteria(selectorText);
@@ -2572,6 +2609,13 @@ function resolveVariableAmount(
     }
 
     const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+    const exiled = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
+    const contextualCards = [...moved, ...exiled, ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : [])];
+    if (contextualCards.length >= 1 && (amount.subject === 'it' || amount.subject === 'that_card' || amount.subject === 'that_creature')) {
+      const card = contextualCards[contextualCards.length - 1];
+      const contextualAmount = readObjectStat(card, amount.stat);
+      if (contextualAmount !== null) return contextualAmount;
+    }
     if (moved.length === 1 && (amount.subject === 'it' || amount.subject === 'that_card' || amount.subject === 'that_creature')) {
       const movedAmount = readObjectStat(moved[0], amount.stat);
       if (movedAmount !== null) return movedAmount;
@@ -3394,10 +3438,16 @@ export function applyLookTopStep(
   }
 
   const log: string[] = [];
+  const lastMovedCards: any[] = [];
   for (const playerId of players) {
     const player = state.players.find(entry => entry.id === playerId) as any;
-    const libraryCount = Array.isArray(player?.library) ? player.library.length : 0;
+    const library = Array.isArray(player?.library) ? player.library : [];
+    const libraryCount = library.length;
     const looked = Math.max(0, Math.min(libraryCount, amount | 0));
+    for (let i = 0; i < looked; i += 1) {
+      const card = library[libraryCount - 1 - i];
+      if (card) lastMovedCards.push(card);
+    }
     log.push(`${playerId} looks at the top ${looked} card(s) of their library`);
   }
 
@@ -3406,6 +3456,7 @@ export function applyLookTopStep(
     state,
     log,
     ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
+    ...(lastMovedCards.length > 0 ? { lastMovedCards } : {}),
   };
 }
 
@@ -3817,7 +3868,24 @@ export function applyDiscardStep(
       };
     }
 
-    const chosenIds = getNormalizedChosenIds(ctx);
+    let chosenIds = getNormalizedChosenIds(ctx);
+    const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
+    if (
+      chosenIds.length !== Math.max(0, amount | 0) &&
+      /^(?:that card|it)$/.test(targetText)
+    ) {
+      const chosenName = String(ctx.selectorContext?.chosenCardName || '').trim().toLowerCase();
+      if (chosenName) {
+        const player = state.players.find((p) => p.id === players[0]) as any;
+        const hand = Array.isArray(player?.hand) ? player.hand : [];
+        const nameMatches = hand.filter(
+          (card: any) => String(card?.name || card?.card?.name || '').trim().toLowerCase() === chosenName
+        );
+        if (nameMatches.length === 1) {
+          chosenIds = [String(nameMatches[0]?.id || '').trim()].filter(Boolean);
+        }
+      }
+    }
     if (chosenIds.length !== Math.max(0, amount | 0)) {
       return {
         applied: false,
@@ -5100,7 +5168,7 @@ export function evaluateUnlessPaysManaStep(
     };
   }
 
-  const manaCost = parseSupportedManaCostString(step.mana);
+  const manaCost = parseSupportedManaCostString(step.mana, Number(ctx.xValue));
   if (!manaCost) {
     return {
       applied: false,

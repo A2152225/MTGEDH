@@ -1168,6 +1168,15 @@ describe('Oracle Text Parser', () => {
       expect(result?.triggerCondition).toBe('a nontoken, non-Angel creature you control dies');
       expect(result?.effect).toBe("return that card to the battlefield under its owner's control with a +1/+1 counter on it.");
     });
+
+    it('should not split effect commas after passive damage triggers', () => {
+      const result = parseTriggeredAbility(
+        'Whenever enchanted player is dealt damage, they lose half their life, rounded up.'
+      );
+      expect(result).not.toBeNull();
+      expect(result?.triggerCondition).toBe('enchanted player is dealt damage');
+      expect(result?.effect).toBe('they lose half their life, rounded up.');
+    });
   });
 
   describe('parseReplacementEffect', () => {

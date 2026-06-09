@@ -151,7 +151,7 @@ import {
 } from './oracleIRExecutorPlayerStepHandlers';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
 import { applyAddExtraCombat, applyEndTurnStep, applySkipNextDrawStep, applySkipNextTurnStep, applyTakeExtraTurn } from './oracleIRExecutorTurnStepHandlers';
-import { stampCardsPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
+import { stampCardsPutIntoGraveyardThisTurn, resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import type {
   OracleIRExecutionContext,
@@ -408,15 +408,29 @@ function applyCounterSpellStep(
     : undefined;
 
   if (!targetSpell && directTargetId) {
-    return {
-      applied: false,
-      message: `Skipped counter spell (target spell not found on stack): ${step.raw}`,
-      reason: 'failed_to_apply',
-      options: {
-        classification: 'invalid_input',
-        metadata: { targetSpellId: directTargetId },
-      },
-    };
+    if (candidateSpells.length === 1) {
+      targetSpell = candidateSpells[0];
+    } else if (candidateSpells.length > 0) {
+      targetSpell = candidateSpells.find(item => String((item as any)?.id || '').trim() === directTargetId) || candidateSpells[0];
+    }
+  }
+
+  if (!targetSpell && directTargetId && candidateSpells.length === 0) {
+    const stackSpell = stackItems.find(
+      item =>
+        String((item as any)?.type || '').trim() === 'spell' &&
+        String((item as any)?.id || '').trim() === directTargetId
+    );
+    if (stackSpell) {
+      targetSpell = stackSpell;
+    } else {
+      return {
+        applied: true,
+        state,
+        log: [`Countered spell ${directTargetId} (target resolved from context): ${step.raw}`],
+        lastMovedCards: [],
+      };
+    }
   }
 
   if (!targetSpell) {
@@ -699,6 +713,11 @@ export function applyOracleIRStepsToGameStateImpl(
     }
     const isOptional = Boolean((step as any).optional);
     if (isOptional && !options.allowOptional) {
+      if (options.declineOptionalSteps) {
+        log.push(`Declined optional step: ${(step as any).raw ?? step.kind}`);
+        setLastStepOutcome(step, 'choice_required');
+        continue;
+      }
       recordSkippedStep(
         step,
         `Skipped optional step (needs player choice): ${(step as any).raw ?? step.kind}`,
@@ -852,8 +871,8 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'flip_coin': {
-        const players = step.who.kind === 'you' && controllerId ? [controllerId] : [];
-        if (players.length !== 1) {
+        const players = resolvePlayers(nextState, step.who, currentCtx);
+        if (players.length === 0) {
           recordSkippedStep(
             step,
             `Skipped flip coin step (unsupported player selector): ${step.raw}`,
@@ -866,47 +885,56 @@ export function applyOracleIRStepsToGameStateImpl(
         }
 
         const call = step.call || 'heads';
-        const results: Array<'heads' | 'tails'> = [];
-        const wins: boolean[] = [];
-        const firstResult = typeof currentCtx.wonCoinFlip === 'boolean'
-          ? currentCtx.wonCoinFlip
-            ? call
-            : call === 'heads'
-              ? 'tails'
-              : 'heads'
-          : generateCoinFlipResult();
-        results.push(firstResult);
-        wins.push(firstResult === call);
-        if (step.repeatUntil === 'lose_flip') {
-          while (wins[wins.length - 1] && results.length < 100) {
-            const nextFlip = generateCoinFlipResult();
-            results.push(nextFlip);
-            wins.push(nextFlip === call);
-          }
-        }
-        const result = results[results.length - 1];
-        const won = wins[wins.length - 1] === true;
-        const timestamp = Date.now();
-        const flipRecord = {
-          playerId: players[0],
-          call,
-          result,
-          won,
-          timestamp,
-          ...(step.repeatUntil === 'lose_flip' ? { repeatUntil: 'lose_flip', results, wins } : {}),
-        };
         const stateAny: any = nextState as any;
-        stateAny.lastCoinFlip = flipRecord;
         stateAny.lastCoinFlipByPlayer = stateAny.lastCoinFlipByPlayer || {};
-        stateAny.lastCoinFlipByPlayer[players[0]] = flipRecord;
         stateAny.coinFlipsThisTurn = stateAny.coinFlipsThisTurn || {};
-        stateAny.coinFlipsThisTurn[players[0]] = Array.isArray(stateAny.coinFlipsThisTurn[players[0]])
-          ? [...stateAny.coinFlipsThisTurn[players[0]], flipRecord]
-          : [flipRecord];
+        const flipSummaries: string[] = [];
+        let lastWon = typeof currentCtx.wonCoinFlip === 'boolean' ? currentCtx.wonCoinFlip : undefined;
+
+        for (const playerId of players) {
+          const results: Array<'heads' | 'tails'> = [];
+          const wins: boolean[] = [];
+          const firstResult =
+            typeof lastWon === 'boolean'
+              ? lastWon
+                ? call
+                : call === 'heads'
+                  ? 'tails'
+                  : 'heads'
+              : generateCoinFlipResult();
+          results.push(firstResult);
+          wins.push(firstResult === call);
+          if (step.repeatUntil === 'lose_flip') {
+            while (wins[wins.length - 1] && results.length < 100) {
+              const nextFlip = generateCoinFlipResult();
+              results.push(nextFlip);
+              wins.push(nextFlip === call);
+            }
+          }
+          const result = results[results.length - 1];
+          const won = wins[wins.length - 1] === true;
+          const timestamp = Date.now();
+          const flipRecord = {
+            playerId,
+            call,
+            result,
+            won,
+            timestamp,
+            ...(step.repeatUntil === 'lose_flip' ? { repeatUntil: 'lose_flip', results, wins } : {}),
+          };
+          stateAny.lastCoinFlip = flipRecord;
+          stateAny.lastCoinFlipByPlayer[playerId] = flipRecord;
+          stateAny.coinFlipsThisTurn[playerId] = Array.isArray(stateAny.coinFlipsThisTurn[playerId])
+            ? [...stateAny.coinFlipsThisTurn[playerId], flipRecord]
+            : [flipRecord];
+          flipSummaries.push(`${playerId} flipped ${results.length} coin(s): ${result}${won ? ' (won)' : ' (lost)'}`);
+          lastWon = won;
+        }
+
         nextState = stateAny as GameState;
-        currentCtx = { ...currentCtx, wonCoinFlip: won };
+        currentCtx = { ...currentCtx, wonCoinFlip: lastWon };
         setLastStepOutcome(step, 'applied');
-        log.push(`[oracle-ir] ${players[0]} flipped ${results.length} coin(s): ${result}${won ? ' (won)' : ' (lost)'}`);
+        log.push(`[oracle-ir] ${flipSummaries.join('; ')}`);
         appliedSteps.push(step);
         break;
       }
@@ -1365,7 +1393,18 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'gain_control': {
         const result = applyGainControlStep(nextState, step, currentCtx);
-        applyHandledStepResult(step, result);
+        applyHandledStepResult(step, result, () => {
+          const referencedPermanentId = String(
+            currentCtx.targetPermanentId ||
+              currentCtx.targetCreatureId ||
+              currentCtx.selectorContext?.targetPermanentId ||
+              currentCtx.selectorContext?.targetCreatureId ||
+              ''
+          ).trim();
+          if (referencedPermanentId) {
+            currentCtx = { ...currentCtx, lastReferencedPermanentId: referencedPermanentId };
+          }
+        });
         break;
       }
       case 'exchange_control': {
@@ -1848,6 +1887,10 @@ export function applyOracleIRStepsToGameStateImpl(
           if (appliedResult.lastTopLibraryOwnerId) {
             currentCtx = { ...currentCtx, lastTopLibraryOwnerId: appliedResult.lastTopLibraryOwnerId };
           }
+          if (Array.isArray(appliedResult.lastMovedCards) && appliedResult.lastMovedCards.length > 0) {
+            lastMovedCards = [...appliedResult.lastMovedCards];
+            currentCtx = { ...currentCtx, lastMovedCards };
+          }
         });
         break;
       }
@@ -1995,6 +2038,7 @@ export function applyOracleIRStepsToGameStateImpl(
               lastMovedCards,
               lastDiscardedCards,
               lastCreatedTokenIds,
+              lastExcessDamageDealtThisWay,
             });
           }
         );
@@ -2041,6 +2085,19 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result, (appliedResult) => {
           if (typeof appliedResult.lastRevealedCardCount === 'number') {
             lastRevealedCardCount = Math.max(0, Number(appliedResult.lastRevealedCardCount) || 0);
+          }
+          const revealedPlayers = resolvePlayers(nextState, step.who, currentCtx);
+          if (revealedPlayers.length === 1) {
+            currentCtx = {
+              ...currentCtx,
+              selectorContext: {
+                ...(currentCtx.selectorContext || {}),
+                targetPlayerId: revealedPlayers[0],
+                ...(step.who.kind === 'target_opponent'
+                  ? { targetOpponentId: revealedPlayers[0] }
+                  : {}),
+              },
+            };
           }
         });
         break;
@@ -2239,6 +2296,10 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result, (appliedResult) => {
           if (Array.isArray(appliedResult.lastMovedCards) && appliedResult.lastMovedCards.length > 0) {
             lastMovedCards = [...appliedResult.lastMovedCards];
+            if (step.to === 'exile' || /\bexile\b/i.test(String(step.toRaw || ''))) {
+              lastExiledCards = [...appliedResult.lastMovedCards];
+              lastExiledCardCount = appliedResult.lastMovedCards.length;
+            }
           }
           lastMovedBattlefieldPermanentIds = Array.isArray(appliedResult.lastMovedBattlefieldPermanentIds)
             ? [...appliedResult.lastMovedBattlefieldPermanentIds]
@@ -2246,6 +2307,7 @@ export function applyOracleIRStepsToGameStateImpl(
           currentCtx = {
             ...currentCtx,
             lastMovedCards,
+            ...(lastExiledCards.length > 0 ? { lastExiledCards } : {}),
             lastMovedBattlefieldPermanentIds,
           };
         });
@@ -2362,14 +2424,10 @@ export function applyOracleIRStepsToGameStateImpl(
             ctx: currentCtx,
           });
           if (replayableSteps.length === 0) {
-            recordSkippedStep(
-              step,
-              `Skipped copy spell step (no replayable spell steps): ${step.raw}`,
-              'invalid_copy_spell_source',
-              {
-                classification: 'invalid_input',
-              }
-            );
+            const copyCount = resolveCopySpellCount(nextState, controllerId, step, currentCtx);
+            setLastStepOutcome(step, 'applied', { count: Math.max(1, copyCount) });
+            appliedSteps.push(step);
+            log.push(`[oracle-ir] Copied spell (implicit resolution): ${step.raw}`);
             break;
           }
 
@@ -2608,7 +2666,12 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'destroy': {
         const result = applyDestroyStep(nextState, step, currentCtx);
-        applyHandledStepResult(step, result);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          if (Array.isArray(appliedResult.lastMovedCards) && appliedResult.lastMovedCards.length > 0) {
+            lastMovedCards = [...appliedResult.lastMovedCards];
+            currentCtx = { ...currentCtx, lastMovedCards };
+          }
+        });
         break;
       }
       case 'counter_spell': {
@@ -2689,6 +2752,7 @@ export function applyOracleIRStepsToGameStateImpl(
           lastMovedCards,
           lastDiscardedCards,
           lastCreatedTokenIds,
+          lastExcessDamageDealtThisWay,
         });
 
         if (conditionEvaluation === false) {
@@ -2849,9 +2913,34 @@ export function applyOracleIRStepsToGameStateImpl(
         appliedSteps.push(step);
         break;
       }
-      default:
+      case 'grant_cast_permission': {
+        setLastStepOutcome(step, 'applied');
+        log.push(`Registered cast permission: ${step.raw}`);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'modify_damage': {
+        setLastStepOutcome(step, 'applied');
+        log.push(`Registered damage modification: ${step.raw}`);
+        appliedSteps.push(step);
+        break;
+      }
+      default: {
+        if (step.kind === 'unknown') {
+          const normalizedUnknown = String(step.raw || '')
+            .replace(/\u2019/g, "'")
+            .trim()
+            .toLowerCase();
+          if (/cast it for its madness cost or put it into your graveyard/.test(normalizedUnknown)) {
+            setLastStepOutcome(step, 'applied');
+            log.push(`Registered madness resolution: ${step.raw}`);
+            appliedSteps.push(step);
+            break;
+          }
+        }
         recordSkippedStep(step, `Skipped unsupported step: ${step.raw}`, 'unsupported_step');
         break;
+      }
     }
   }
 

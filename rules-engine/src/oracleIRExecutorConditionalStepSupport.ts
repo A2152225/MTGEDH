@@ -570,6 +570,7 @@ export function evaluateConditionalWrapperCondition(params: {
   lastMovedCards?: readonly any[];
   lastDiscardedCards?: readonly any[];
   lastCreatedTokenIds?: readonly string[];
+  lastExcessDamageDealtThisWay?: number;
 }): boolean | null {
   const {
     condition,
@@ -583,6 +584,7 @@ export function evaluateConditionalWrapperCondition(params: {
     lastMovedCards,
     lastDiscardedCards,
     lastCreatedTokenIds,
+    lastExcessDamageDealtThisWay,
   } = params;
 
   const getAffirmativeAntecedentOutcome = (): LastActionOutcome =>
@@ -590,7 +592,13 @@ export function evaluateConditionalWrapperCondition(params: {
   if (condition.kind !== 'if' && condition.kind !== 'as_long_as') return null;
 
   const raw = String(condition.raw || '').trim().toLowerCase();
-  const normalizedRaw = raw.replace(/\u2019/g, "'").replace(/\s+/g, ' ').trim();
+  let normalizedRaw = raw.replace(/\u2019/g, "'").replace(/\s+/g, ' ').trim();
+  if (normalizedRaw.startsWith('then ')) {
+    normalizedRaw = normalizedRaw.replace(/^then\s+(?:if\s+)?/i, '').trim();
+  }
+  if (normalizedRaw.startsWith('if ')) {
+    normalizedRaw = normalizedRaw.replace(/^if\s+/i, '').trim();
+  }
 
   if (normalizedRaw.startsWith('you do, ')) {
     return evaluateConditionalWrapperCondition({
@@ -607,12 +615,27 @@ export function evaluateConditionalWrapperCondition(params: {
     const movedCardTypeMatch = normalizedRaw.match(/^it was (?:a|an)\s+(.+?)(?:\s+card)?$/i);
     if (movedCardTypeMatch) {
       if (lastActionOutcome?.kind === 'impossible') return false;
-      if (lastActionOutcome?.stepKind !== 'move_zone' && lastActionOutcome?.stepKind !== 'discard') return null;
-
       const descriptor = String(movedCardTypeMatch[1] || '').trim().toLowerCase();
-      const movedCards = lastActionOutcome?.stepKind === 'discard'
-        ? (Array.isArray(lastDiscardedCards) ? lastDiscardedCards : [])
-        : (Array.isArray(lastMovedCards) ? lastMovedCards : []);
+      const movedFromOutcome =
+        lastActionOutcome?.stepKind === 'discard'
+          ? (Array.isArray(lastDiscardedCards) ? lastDiscardedCards : [])
+          : Array.isArray(lastMovedCards)
+            ? lastMovedCards
+            : [];
+      const movedFromCtx = Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : [];
+      const movedCards = movedFromOutcome.length > 0 ? movedFromOutcome : movedFromCtx;
+      if (movedCards.length > 0) {
+        return movedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
+      }
+      if (
+        lastActionOutcome?.stepKind !== 'move_zone' &&
+        lastActionOutcome?.stepKind !== 'discard' &&
+        lastActionOutcome?.stepKind !== 'look_top' &&
+        lastActionOutcome?.stepKind !== 'look_choose_from_top' &&
+        lastActionOutcome?.stepKind !== 'search_library'
+      ) {
+        return null;
+      }
       return movedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
     }
   }
@@ -664,10 +687,14 @@ export function evaluateConditionalWrapperCondition(params: {
     const putIntoExileThisWayMatch = normalizedRaw.match(/^(?:a|an)\s+(.+?)\s+is put into exile this way$/i);
     if (putIntoExileThisWayMatch) {
       if (lastActionOutcome?.kind === 'impossible') return false;
-      if (lastActionOutcome?.stepKind !== 'move_zone' && lastActionOutcome?.stepKind !== 'exile') return null;
+      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+      const hasRecentExile =
+        lastActionOutcome?.stepKind === 'move_zone' ||
+        lastActionOutcome?.stepKind === 'exile' ||
+        movedCards.length > 0;
+      if (!hasRecentExile) return null;
 
       const descriptor = String(putIntoExileThisWayMatch[1] || '').trim().toLowerCase();
-      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
       return movedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
     }
   }
@@ -676,11 +703,15 @@ export function evaluateConditionalWrapperCondition(params: {
     const exiledThisWayMatch = normalizedRaw.match(/^(.*?)\s+card\s+(?:was exiled|is exiled|is put into exile)\s+this way$/i);
     if (exiledThisWayMatch) {
       if (lastActionOutcome?.kind === 'impossible') return false;
-      if (lastActionOutcome?.stepKind !== 'move_zone' && lastActionOutcome?.stepKind !== 'exile') return null;
+      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+      const hasRecentExile =
+        lastActionOutcome?.stepKind === 'move_zone' ||
+        lastActionOutcome?.stepKind === 'exile' ||
+        movedCards.length > 0;
+      if (!hasRecentExile) return null;
 
       const rawDescriptor = String(exiledThisWayMatch[1] || '').trim().toLowerCase();
       const descriptor = rawDescriptor.replace(/^an?\s+/i, '').trim();
-      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
       if (!descriptor || rawDescriptor === 'a' || rawDescriptor === 'an') return movedCards.length > 0;
       return movedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
     }
@@ -733,6 +764,7 @@ export function evaluateConditionalWrapperCondition(params: {
           lastActionOutcome,
           lastMovedCards,
           lastDiscardedCards,
+          lastExcessDamageDealtThisWay,
         });
         if (extendedNegated !== null) return extendedNegated;
         return null;
@@ -751,6 +783,7 @@ export function evaluateConditionalWrapperCondition(params: {
       lastActionOutcome,
       lastMovedCards,
       lastDiscardedCards,
+      lastExcessDamageDealtThisWay,
     });
     if (extended !== null) return extended;
   }
@@ -1234,6 +1267,21 @@ export function evaluateConditionalWrapperCondition(params: {
         return (Number.isFinite(count) ? count : 0) >= threshold;
       }
     }
+
+    const thatCreatureCounterThresholdMatch = normalizedRaw.match(
+      /^that creature has (three|[a-z0-9]+) or more ([a-z0-9/+ -]+) counters on it$/i
+    );
+    if (thatCreatureCounterThresholdMatch) {
+      const threshold = parseSmallNumberWord(String(thatCreatureCounterThresholdMatch[1] || '').trim());
+      const counterName = String(thatCreatureCounterThresholdMatch[2] || '').trim().toLowerCase();
+      if (threshold !== null && counterName) {
+        const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+        if (!referencedObject) return null;
+        const counters = ((referencedObject as any)?.counters || {}) as Record<string, unknown>;
+        const count = Number(counters[counterName] ?? 0);
+        return (Number.isFinite(count) ? count : 0) >= threshold;
+      }
+    }
   }
 
   const sourceRefForEarlyChecks = getContextSourceObject(ctx, (idRaw: string) =>
@@ -1243,6 +1291,11 @@ export function evaluateConditionalWrapperCondition(params: {
   if (normalizedRaw === 'it was kicked' || normalizedRaw === 'this spell was kicked') {
     const kicked = resolveKickedStatus(nextState, ctx, sourceRefForEarlyChecks);
     return kicked === null ? null : kicked;
+  }
+
+  if (normalizedRaw === 'this creature was kicked') {
+    const kicked = resolveKickedStatus(nextState, ctx, sourceRefForEarlyChecks);
+    return kicked === null ? false : kicked;
   }
 
   if (
@@ -1677,6 +1730,16 @@ export function evaluateConditionalWrapperCondition(params: {
           lastMovedCards,
         });
         return count >= threshold;
+      }
+    }
+  }
+
+  {
+    const youHaveGyCardCountMatch = normalizedRaw.match(/^you have ([a-z0-9]+) or more cards in your graveyard$/i);
+    if (youHaveGyCardCountMatch) {
+      const threshold = parseSmallNumberWord(String(youHaveGyCardCountMatch[1] || ''));
+      if (threshold !== null) {
+        return getYourGraveyardCards(nextState, controllerId).length >= threshold;
       }
     }
   }

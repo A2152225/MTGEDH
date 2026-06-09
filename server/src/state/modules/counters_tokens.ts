@@ -2178,6 +2178,57 @@ export function runSBA(ctx: GameContext) {
     }
   }
   
+  // Rule 704.5e: If a copy of a card is in any zone other than the stack or the battlefield, it ceases to exist.
+  const isCopyInIllegalZone = (card: any): boolean => Boolean(card?.isCopy);
+  for (const playerId of Object.keys(zones)) {
+    const playerZones = zones[playerId];
+    if (!playerZones) continue;
+
+    if (Array.isArray(playerZones.graveyard)) {
+      const beforeCount = playerZones.graveyard.length;
+      playerZones.graveyard = playerZones.graveyard.filter((card: any) => !isCopyInIllegalZone(card)) as any;
+      if (playerZones.graveyard.length !== beforeCount) {
+        playerZones.graveyardCount = playerZones.graveyard.length;
+        debug(2, `[runSBA] Removed ${beforeCount - playerZones.graveyard.length} copy card(s) from ${playerId}'s graveyard (704.5e)`);
+        changed = true;
+      }
+    }
+
+    if (Array.isArray(playerZones.hand)) {
+      const beforeCount = playerZones.hand.length;
+      playerZones.hand = playerZones.hand.filter((card: any) => !isCopyInIllegalZone(card)) as any;
+      if (playerZones.hand.length !== beforeCount) {
+        playerZones.handCount = playerZones.hand.length;
+        debug(2, `[runSBA] Removed ${beforeCount - playerZones.hand.length} copy card(s) from ${playerId}'s hand (704.5e)`);
+        changed = true;
+      }
+    }
+
+    if (Array.isArray(playerZones.exile)) {
+      const beforeCount = playerZones.exile.length;
+      playerZones.exile = playerZones.exile.filter((card: any) => !isCopyInIllegalZone(card)) as any;
+      if (playerZones.exile.length !== beforeCount) {
+        playerZones.exileCount = playerZones.exile.length;
+        debug(2, `[runSBA] Removed ${beforeCount - playerZones.exile.length} copy card(s) from ${playerId}'s exile (704.5e)`);
+        changed = true;
+      }
+    }
+
+    const library = (ctx as any).libraries?.get(playerId);
+    if (Array.isArray(library)) {
+      const beforeCount = library.length;
+      const cleanedLibrary = library.filter((card: any) => !isCopyInIllegalZone(card));
+      if (cleanedLibrary.length !== beforeCount) {
+        (ctx as any).libraries.set(playerId, cleanedLibrary);
+        if (playerZones.libraryCount !== undefined) {
+          playerZones.libraryCount = cleanedLibrary.length;
+        }
+        debug(2, `[runSBA] Removed ${beforeCount - cleanedLibrary.length} copy card(s) from ${playerId}'s library (704.5e)`);
+        changed = true;
+      }
+    }
+  }
+
   // Update god creature status based on devotion (Rule 704.5n - gods with insufficient devotion aren't creatures)
   updateGodCreatureStatus(ctx);
   

@@ -384,6 +384,7 @@ function controlledByYou(perm: any, ctx: OracleIRExecutionContext): boolean {
 function stripCompoundRestrictionPrefix(value: string): string {
   return String(value || '')
     .replace(/^for as long as this creature remains on the battlefield,\s+gain control of that permanent,\s+/i, '')
+    .replace(/^for as long as this artifact remains tapped,\s+/i, '')
     .replace(/\s+loses all abilities,?\s+and\s+/i, ' ')
     .trim();
 }
@@ -398,6 +399,21 @@ export function inferTargetTextFromStepRaw(step: OracleEffectStep): string {
   }
 
   if (step.kind === 'cant_block' || step.kind === 'cant_attack') {
+    if (/^until your next turn, it can'?t (?:attack|block)/i.test(raw)) {
+      return 'it';
+    }
+    if (/^flying this creature can'?t block/i.test(raw)) {
+      return 'this creature';
+    }
+    if (/^creatures can'?t attack(?: or block)?(?: this turn)?\.?$/i.test(raw)) {
+      return 'all creatures';
+    }
+    if (/^for as long as this creature remains on the battlefield, gain control of that permanent/i.test(raw)) {
+      return 'that permanent';
+    }
+    if (/^for as long as this artifact remains tapped, another target permanent/i.test(raw)) {
+      return 'another target permanent';
+    }
     const compoundAttackOrBlock = raw.match(/^(.+?)\s+can['\u2019]t attack or block(?:\s+this\s+turn)?\.?$/i);
     if (compoundAttackOrBlock) {
       const target = stripCompoundRestrictionPrefix(String(compoundAttackOrBlock[1] || ''))
@@ -410,7 +426,11 @@ export function inferTargetTextFromStepRaw(step: OracleEffectStep): string {
     const match = raw.match(/^(.+?)\s+can['\u2019]t\s+(?:block|attack)(?:\s+this\s+turn)?\.?$/i);
     if (match) {
       return stripCompoundRestrictionPrefix(String(match[1] || ''))
+        .replace(/\s+loses all abilities,?\s+and\s+it$/i, 'it')
         .replace(/\s+loses all abilities and$/i, '')
+        .replace(/\s+loses all abilities$/i, '')
+        .replace(/^until your next turn,\s*/i, '')
+        .replace(/^another\s+/i, '')
         .trim();
     }
   }
@@ -469,6 +489,32 @@ export function effectiveStepTarget(
   if (existing && /\b(?:gain control|loses all abilities|for as long as this creature remains)\b/i.test(existing)) {
     const inferred = inferTargetTextFromStepRaw(step);
     if (inferred) return { kind: 'raw', text: inferred };
+  }
+  if (!existing && (step.kind === 'cant_attack' || step.kind === 'cant_block')) {
+    const inferred = inferTargetTextFromStepRaw(step);
+    if (inferred) return { kind: 'raw', text: inferred };
+  }
+  if (
+    existing &&
+    (step.kind === 'cant_attack' || step.kind === 'cant_block') &&
+    /^flying\b/i.test(existing)
+  ) {
+    return { kind: 'raw', text: 'this creature' };
+  }
+  if (
+    existing &&
+    (step.kind === 'cant_attack' || step.kind === 'cant_block') &&
+    /until your next turn,\s*it\b/i.test(existing)
+  ) {
+    return { kind: 'raw', text: 'it' };
+  }
+  if (
+    existing &&
+    (step.kind === 'cant_attack' || step.kind === 'cant_block') &&
+    (/^for as long as this artifact remains tapped,\s*another target permanent\b/i.test(existing) ||
+      /\banother target permanent loses all abilities\b/i.test(existing))
+  ) {
+    return { kind: 'raw', text: 'another target permanent' };
   }
   if (existing) return { kind: 'raw', text: existing };
   const inferred = inferTargetTextFromStepRaw(step);

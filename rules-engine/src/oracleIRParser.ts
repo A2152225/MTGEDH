@@ -70,6 +70,8 @@ import {
   annotateDestroyMetadataAbilities,
   annotateCounterMetadataAbilities,
   annotateSacrificeMetadataAbilities,
+  enrichAnnihilatorGrantMetadataAbilities,
+  enrichWardGrantMetadataAbilities,
   expandParadigmKeywordAbilities,
   pruneStaticMyriadReminderTailAbilities,
   expandGraveyardPermissionModifierUnknownAbilities,
@@ -138,6 +140,7 @@ import {
   pruneRedundantCrewReminderAbilities,
   pruneRedundantChampionReminderAbilities,
   pruneExternallyHandledStaticUnknownAbilities,
+  expandStandaloneStaticKeywordAbilities,
   pruneExternallyHandledTemporaryLandBonusUnknownSteps,
   pruneCurrentBatchReminderUnknownAbilities,
   repairSubjectlessDrawAfterZoneShuffleAbilities,
@@ -177,6 +180,7 @@ import {
   mergeConditionalMoveZoneCounterFollowupAbilities,
   expandDynamicCounterRiderAbilities,
   lowerCurrentResidualUnknownAbilities,
+  parseBareTriggerEffectFragmentSteps,
   mergeConditionalGraveyardReminderFollowupAbilities,
   expandStandaloneTopLibraryInfoAbilities,
   expandHideawayReminderAbilities,
@@ -1643,6 +1647,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
   abilities = expandRepeatedProliferateUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
+  abilities = expandStandaloneStaticKeywordAbilities(abilities);
   abilities = pruneExternallyHandledStaticUnknownAbilities(abilities);
   abilities = repairSubjectlessDrawAfterZoneShuffleAbilities(abilities);
   abilities = mergeConditionalLookChooseFromTopAbilities(abilities);
@@ -1652,6 +1657,16 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandStandaloneKeywordCostAbilities(abilities, normalizedOracleText);
   abilities = expandCastWithoutPayingFallbackAbilities(abilities, normalizedOracleText);
   abilities = lowerCurrentResidualUnknownAbilities(abilities);
+  abilities = abilities.map((ability) => {
+    if ((ability.steps || []).length > 0) return ability;
+    const fragment = parseBareTriggerEffectFragmentSteps(
+      String(ability.effectText || (ability as { text?: string }).text || '')
+    );
+    if (!fragment || fragment.length === 0) return ability;
+    return { ...ability, steps: [...fragment] };
+  });
+  abilities = enrichAnnihilatorGrantMetadataAbilities(abilities);
+  abilities = enrichWardGrantMetadataAbilities(abilities);
   abilities = pruneRedundantTriggerEffectFragmentUnknownAbilities(abilities);
   if (preserveChapterRetargetUnknown) {
     abilities = abilities.map((ability) => ({

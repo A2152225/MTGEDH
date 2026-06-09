@@ -1444,8 +1444,14 @@ function resolveContextualBattlefieldPermanents(
 
   const sourceId = String(ctx.sourceId || '').trim();
   if (parsed.mode === 'self') {
-    if (!sourceId) return [];
-    const selfPermanent = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId);
+    const lastReferencedId = String((ctx as any).lastReferencedPermanentId || '').trim();
+    const boundTargetId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
+    const chosenId = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+      ? String(ctx.selectorContext.chosenObjectIds[0] || '').trim()
+      : '';
+    const resolvedId = lastReferencedId || boundTargetId || chosenId || sourceId;
+    if (!resolvedId) return [];
+    const selfPermanent = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === resolvedId);
     return selfPermanent ? [selfPermanent] : [];
   }
 
@@ -4143,7 +4149,12 @@ export function applyCantBlockStep(
   step: Extract<OracleEffectStep, { kind: 'cant_block' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
-  if (step.duration && step.duration !== 'end_of_turn' && step.duration !== 'static') {
+  if (
+    step.duration &&
+    step.duration !== 'end_of_turn' &&
+    step.duration !== 'static' &&
+    step.duration !== 'until_next_turn'
+  ) {
     return {
       applied: false,
       message: `Skipped cant_block static restriction (continuous text handled elsewhere): ${step.raw}`,
@@ -4171,9 +4182,18 @@ export function applyCantBlockStep(
     };
   }
 
+  const cantBlockExpiresAt =
+    step.duration === 'end_of_turn'
+      ? 'end_of_turn'
+      : step.duration === 'until_next_turn'
+        ? 'leaves_battlefield'
+        : 'leaves_battlefield';
   const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
     descriptions: ["can't block"],
-    expiresAt: step.duration === 'end_of_turn' ? 'end_of_turn' : 'leaves_battlefield',
+    expiresAt: cantBlockExpiresAt,
+    ...(step.duration === 'until_next_turn' && ctx.controllerId
+      ? { expiresOnControllerTurn: ctx.controllerId }
+      : {}),
   });
 
   return {
@@ -4188,7 +4208,12 @@ export function applyCantAttackStep(
   step: Extract<OracleEffectStep, { kind: 'cant_attack' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
-  if (step.duration && step.duration !== 'end_of_turn' && step.duration !== 'static') {
+  if (
+    step.duration &&
+    step.duration !== 'end_of_turn' &&
+    step.duration !== 'static' &&
+    step.duration !== 'until_next_turn'
+  ) {
     return {
       applied: false,
       message: `Skipped cant_attack static restriction (continuous text handled elsewhere): ${step.raw}`,
@@ -4198,6 +4223,40 @@ export function applyCantAttackStep(
 
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const effectiveTarget = effectiveStepTarget(step);
+  const targetText = String((effectiveTarget as any)?.text || '').trim().toLowerCase();
+  if (targetText === 'all creatures' || targetText === 'creatures') {
+    const creatures = battlefield.filter((perm: any) =>
+      String(perm?.type_line || perm?.card?.type_line || '')
+        .toLowerCase()
+        .includes('creature')
+    );
+    if (creatures.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped cant_attack (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    const massExpiresAt =
+      step.duration === 'end_of_turn'
+        ? 'end_of_turn'
+        : step.duration === 'until_next_turn'
+          ? 'leaves_battlefield'
+          : 'leaves_battlefield';
+    const nextState = applyTemporaryEffectToPermanents(state, creatures, ctx, {
+      descriptions: ["can't attack"],
+      expiresAt: massExpiresAt,
+      ...(step.duration === 'until_next_turn' && ctx.controllerId
+        ? { expiresOnControllerTurn: ctx.controllerId }
+        : {}),
+    });
+    return {
+      applied: true,
+      state: nextState,
+      log: [`Applied can't-attack to ${creatures.length} creature(s)`],
+    };
+  }
+
   const targets = resolveDirectBattlefieldPermanents(battlefield, effectiveTarget as any, ctx);
   if (targets.length === 0) {
     return {
@@ -4216,9 +4275,18 @@ export function applyCantAttackStep(
     };
   }
 
+  const cantAttackExpiresAt =
+    step.duration === 'end_of_turn'
+      ? 'end_of_turn'
+      : step.duration === 'until_next_turn'
+        ? 'leaves_battlefield'
+        : 'leaves_battlefield';
   const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
     descriptions: ["can't attack"],
-    expiresAt: step.duration === 'end_of_turn' ? 'end_of_turn' : 'leaves_battlefield',
+    expiresAt: cantAttackExpiresAt,
+    ...(step.duration === 'until_next_turn' && ctx.controllerId
+      ? { expiresOnControllerTurn: ctx.controllerId }
+      : {}),
   });
 
   return {
@@ -4527,7 +4595,17 @@ export function applyEarthbendStep(
   step: Extract<OracleEffectStep, { kind: 'earthbend' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
-  const amountValue = quantityToNumber(step.amount, ctx);
+  const controllerId = (String(ctx.controllerId || '').trim() || String((state.players || [])[0]?.id || '').trim()) as PlayerID;
+  const amountValue = resolveOracleQuantity(state, controllerId, step.amount, ctx, {
+    whereX: step.whereX,
+    targetCreatureId: String(
+      ctx.targetCreatureId ||
+        ctx.selectorContext?.targetCreatureId ||
+        ctx.targetPermanentId ||
+        ctx.selectorContext?.targetPermanentId ||
+        ''
+    ).trim() || undefined,
+  });
   if (amountValue === null || amountValue < 0) {
     return {
       applied: false,
@@ -4565,7 +4643,6 @@ export function applyEarthbendStep(
   }
 
   const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
-  const controllerId = (String(ctx.controllerId || '').trim() || String((targets[0] as any)?.controller || '').trim()) as PlayerID;
 
   const nextBattlefield = battlefield.map((permanent: any) => {
     const permanentId = String((permanent as any)?.id || '').trim();
@@ -4689,7 +4766,10 @@ export function applyAnimatePermanentStep(
       ? subtypeMassTargets
       : boundMatches.length > 0
       ? boundMatches.slice(0, 1)
-      : explicitTargetId && (/^(?:target|that|the)\b/.test(targetText) || targetText === 'it')
+      : explicitTargetId && (
+        /^(?:target|that|the)\b/.test(targetText) ||
+        /\bany number of target\b/.test(targetText)
+      )
       ? battlefield.filter((perm: any) => String((perm as any)?.id || '').trim() === explicitTargetId)
       : isMassTarget && selectorMassTargets.length > 0
         ? selectorMassTargets
@@ -5309,6 +5389,72 @@ export function applyGainControlStep(
       applied: true,
       state: { ...(state as any), battlefield: nextBattlefield } as GameState,
       log: ['Each player gained control of nontoken permanents they own'],
+    };
+  }
+
+  if (/each player gains control of all creatures they own/.test(raw)) {
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const nextBattlefield = battlefield.map((permanent: any) => {
+      if (!permanentMatchesType(permanent, 'creature')) return permanent;
+      const ownerId = String(permanent?.owner || permanent?.controller || '').trim();
+      const controllerId = String(permanent?.controller || '').trim();
+      if (!ownerId || ownerId === controllerId) return permanent;
+      return { ...permanent, controller: ownerId, summoningSickness: true };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: ['Each player gained control of creatures they own'],
+    };
+  }
+
+  if (/each player gains control of each land they own that you control/.test(raw)) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const nextBattlefield = battlefield.map((permanent: any) => {
+      if (!permanentMatchesType(permanent, 'land')) return permanent;
+      if (String(permanent?.controller || '').trim() !== controllerId) return permanent;
+      const ownerId = String(permanent?.owner || permanent?.controller || '').trim();
+      if (!ownerId || ownerId === controllerId) return permanent;
+      return { ...permanent, controller: ownerId };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: ['Each player gained control of lands they own that you controlled'],
+    };
+  }
+
+  if (/each player gains control of a nonland permanent of your choice controlled by the player to their right/.test(raw)) {
+    const playerIds = (state.players || []).map((player: any) => String(player?.id || '').trim()).filter(Boolean);
+    if (playerIds.length < 2) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (unsupported player selector): ${step.raw}`,
+        reason: 'unsupported_player_selector',
+      };
+    }
+    const chosenIds = new Set(
+      (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [])
+        .map(id => String(id || '').trim())
+        .filter(Boolean)
+    );
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const nextBattlefield = battlefield.map((permanent: any) => {
+      const permanentId = String(permanent?.id || '').trim();
+      const currentController = String(permanent?.controller || '').trim();
+      if (!currentController || permanentMatchesType(permanent, 'land')) return permanent;
+      const playerIndex = playerIds.indexOf(currentController);
+      if (playerIndex < 0) return permanent;
+      const gainingPlayerId = playerIds[(playerIndex + playerIds.length - 1) % playerIds.length];
+      if (!gainingPlayerId || gainingPlayerId === currentController) return permanent;
+      if (chosenIds.size > 0 && !chosenIds.has(permanentId)) return permanent;
+      return { ...permanent, controller: gainingPlayerId, summoningSickness: true };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: ['Each player gained control of a nonland permanent from the player to their right'],
     };
   }
 
@@ -6533,6 +6679,22 @@ function resolveRemoveCounterTargets(
     if (boundMatches.length > 0) return boundMatches.slice(0, 1);
   }
 
+  if (/^this aura$/i.test(normalizedTargetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const source = battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId);
+    if (source) return [source];
+  }
+
+  if (/^that creature$/i.test(normalizedTargetText)) {
+    const targetId = String(
+      ctx.targetCreatureId || ctx.enchantedPermanentId || ctx.lastReferencedPermanentId || ''
+    ).trim();
+    if (targetId) {
+      const match = battlefield.find((perm: any) => String(perm?.id || '').trim() === targetId);
+      if (match) return [match];
+    }
+  }
+
   if (/^target permanent$/i.test(normalizedTargetText)) {
     const boundIds = collectBoundBattlefieldIds(ctx);
     const boundMatches = battlefield.filter((perm: any) =>
@@ -7538,7 +7700,15 @@ export function applyDestroyStep(
   }
 
   const result = finalizeBattlefieldRemoval(stateWithShields, removed, removedIds, kept, 'graveyard', 'destroyed');
-  return { applied: true, state: result.state, log: [...log, ...result.log] };
+  const movedCards = removed
+    .filter(perm => !(perm as any).isToken)
+    .map(perm => buildZoneObjectWithRetainedCounters((perm as any).card || perm, perm, 'graveyard'));
+  return {
+    applied: true,
+    state: result.state,
+    log: [...log, ...result.log],
+    ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+  };
 }
 
 export function applyRegenerateStep(

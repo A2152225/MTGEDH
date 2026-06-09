@@ -54,6 +54,7 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^that$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'that' };
   if (/^this$/i.test(trimmed)) return { kind: 'number', value: 1 };
   if (/^twice that much$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^twice that many$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^the excess damage dealt this way$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^another card$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'another card' };
   if (/^a card or pay \{2\}$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };

@@ -3660,6 +3660,8 @@ export function App() {
   const canPass = !!safeView && !!you && safeView.priority === you;
   const isYouPlayer =
     !!safeView && !!you && Array.isArray(safeView.players) && safeView.players.some((p) => p.id === you);
+  const showMobileDeckAccess = isTable && isTouch && viewportWidth < 900 && !!safeView && !!you && isYouPlayer;
+  const needsDeckImport = yourLibraryCount === 0;
 
   // Pre-game and mulligan state
   const isPreGame = useMemo(() => {
@@ -3804,6 +3806,20 @@ export function App() {
       setShowDeckImportPrompt(true);
     }
   }, [isYouPlayer, isPreGame, you, safeView]);
+
+  // Open the full deck manager (local / server / precons) when auto-prompt fires.
+  React.useEffect(() => {
+    if (showDeckImportPrompt) {
+      setTableDeckMgrOpen(true);
+    }
+  }, [showDeckImportPrompt]);
+
+  const handleDeckMgrOpenChange = React.useCallback((open: boolean) => {
+    setTableDeckMgrOpen(open);
+    if (!open) {
+      setShowDeckImportPrompt(false);
+    }
+  }, []);
 
   // Reset prompt state when leaving game
   React.useEffect(() => {
@@ -5363,6 +5379,46 @@ export function App() {
           </div>
         )}
 
+        {/* Mobile deck access — local, server, and precon tabs via DeckManagerModal */}
+        {showMobileDeckAccess && needsDeckImport && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              flexWrap: "wrap",
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(167, 139, 250, 0.55)",
+              background: "linear-gradient(90deg, rgba(76, 29, 149, 0.35), rgba(37, 99, 235, 0.25))",
+              boxShadow: "0 4px 16px rgba(124, 58, 237, 0.25)",
+            }}
+          >
+            <div style={{ fontSize: 13, color: "#ede9fe", lineHeight: 1.4 }}>
+              <strong>Import a deck to play.</strong> Choose from local saves, server decks, or Commander precons.
+            </div>
+            <button
+              type="button"
+              onClick={() => handleDeckMgrOpenChange(true)}
+              style={{
+                minHeight: 44,
+                padding: "8px 16px",
+                borderRadius: 8,
+                border: "1px solid rgba(167, 139, 250, 0.8)",
+                background: "linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)",
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Open Deck Manager
+            </button>
+          </div>
+        )}
+
         {/* TABLE / PLAYING FIELD (chat handled as overlay inside TableLayout) */}
         <div
           style={{
@@ -5465,7 +5521,7 @@ export function App() {
               onUseSavedDeck={(deckId) => requestUseSavedDeck(deckId)}
               onLocalImportConfirmChange={handleLocalImportConfirmChange}
               externalDeckMgrOpen={tableDeckMgrOpen}
-              onDeckMgrOpenChange={setTableDeckMgrOpen}
+              onDeckMgrOpenChange={handleDeckMgrOpenChange}
               externalDeckMgrAnchorEl={topDeckMgrAnchorEl}
               focusedPlayerId={focusedPlayerId}
               gameId={safeView.id}
@@ -5793,13 +5849,15 @@ export function App() {
           viewports during an active table. Surfaces the most-used Pass action
           where the desktop utility rail is hidden. Desktop is unaffected
           because the gate requires both touch input AND viewport < 900. */}
-      {isTable && isTouch && viewportWidth < 900 && safeView && you && (
+      {showMobileDeckAccess && (
         <MobileActionDock
           onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
           highlightPass={safeView.priority === you}
           handCount={safeView.zones?.[you]?.handCount ?? 0}
           stackCount={safeView.stack?.length ?? 0}
-          onOpenMore={() => toast.info('Open the desktop utility rail for more actions')}
+          onOpenDeck={() => handleDeckMgrOpenChange(true)}
+          highlightDeck={needsDeckImport}
+          deckLabel={needsDeckImport ? "Import" : "Deck"}
         />
       )}
 

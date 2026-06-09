@@ -504,10 +504,10 @@ export function verifyStateBasedActionsAutomation(): AutomationCheckResult[] {
   results.push({
     category: 'State-Based Actions',
     feature: 'Copy Zone Movement',
-    status: AutomationStatus.PENDING,
+    status: AutomationStatus.PARTIAL,
     description: 'Copy of spell/ability not on stack ceases to exist',
     rulesReference: 'Rule 704.5e',
-    details: 'Not yet implemented',
+    details: 'runSBA removes isCopy cards from hand/graveyard/exile/library; stack/battlefield copies retained',
     priority: 'low',
   });
 
@@ -803,10 +803,10 @@ export function verifyGameSetupAndWinConditions(): AutomationCheckResult[] {
   results.push({
     category: 'Win Conditions',
     feature: 'Win Effect Cards',
-    status: AutomationStatus.PENDING,
+    status: AutomationStatus.PARTIAL,
     description: 'Cards like Laboratory Maniac, Thassa\'s Oracle',
     rulesReference: 'Rule 104.2b',
-    details: 'Individual card effects need specific handling',
+    details: 'Lab Man/Jace draw replacement in checkEmptyLibraryDraw; upkeep wins in win-conditions.ts; Thassa ETB devotion win via tryResolveThassasOracleWin in stack.ts',
     priority: 'medium',
   });
 

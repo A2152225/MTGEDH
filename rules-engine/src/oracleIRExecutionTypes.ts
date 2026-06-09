@@ -8,6 +8,11 @@ export interface OracleIRExecutionOptions {
    */
   readonly allowOptional?: boolean;
   /**
+   * When true with allowOptional=false, optional steps are declined deterministically
+   * for audit/dry-run flows (no automation gap, not counted as player choice).
+   */
+  readonly declineOptionalSteps?: boolean;
+  /**
    * Explicit selected mode ids for a choose_mode step when already chosen by a player.
    */
   readonly selectedModeIds?: readonly string[];
@@ -167,6 +172,8 @@ export interface OracleIRExecutionContext {
   readonly targetCreatureId?: string;
   /** Optional direct target permanent binding used by targeted effects like Merrow Reejerey. */
   readonly targetPermanentId?: string;
+  /** Most recent non-source permanent referenced by gain-control style steps in this resolution. */
+  readonly lastReferencedPermanentId?: string;
   /** Optional direct target spell binding used by stack-targeted effects like counterspells. */
   readonly targetSpellId?: string;
   /** Choice for effects worded as "tap or untap target permanent." */

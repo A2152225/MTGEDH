@@ -1730,6 +1730,1054 @@ function parseEnterAsCopyUnknownStep(step: OracleEffectStep): OracleEffectStep |
   } as OracleEffectStep;
 }
 
+const STANDALONE_KEYWORD_STATICS = [
+  'double strike',
+  'first strike',
+  'indestructible',
+  'trample',
+  'haste',
+  'vigilance',
+  'lifelink',
+  'deathtouch',
+  'menace',
+  'reach',
+  'flying',
+  'hexproof',
+  'flash',
+  'defender',
+  'wither',
+  'infect',
+  'prowess',
+  'shadow',
+  'shroud',
+  'convoke',
+  'banding',
+  'riot',
+] as const;
+
+function isKeywordOnlyStaticAbilityText(text: string): boolean {
+  const normalized = normalizeOracleText(text).replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  const withoutParens = normalized
+    .replace(/;/g, ',')
+    .replace(/\s*\([^()]*(?:\([^()]*\)[^()]*)*\)\.?\s*$/g, '')
+    .replace(/\s*\([^)]*$/g, '')
+    .trim();
+  if (!withoutParens) return false;
+  if (/^enchant\b/i.test(withoutParens)) return false;
+  if (/\b(?:when|whenever|at the beginning|choose|destroy|create|draw|exile|sacrifice)\b/i.test(withoutParens)) {
+    return false;
+  }
+  return /\b(?:flying|trample|haste|vigilance|lifelink|deathtouch|menace|reach|first strike|double strike|hexproof|indestructible|prowess|ward\s+\{|protection from|toxic\s+\d+|convoke|shadow|shroud|flash|defender|banding|riot|firebending\s+\d+)\b/i.test(
+    withoutParens
+  );
+}
+
+function hasNonBandingKeywordOnlyStaticText(text: string): boolean {
+  const withoutBandingTail = normalizeOracleText(text)
+    .replace(/;\s*banding\b[^.]*/gi, '')
+    .replace(/,\s*banding\b[^.]*/gi, '')
+    .replace(/\bbanding\b(?:\s*\([^)]*\))?/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!withoutBandingTail) return false;
+  return isKeywordOnlyStaticAbilityText(withoutBandingTail);
+}
+
+function normalizeWardKeywordAbility(costRaw: string): string {
+  const cost = String(costRaw || '').trim();
+  const simple = cost.match(/^\{(\d+)\}$/);
+  return simple ? `ward ${simple[1]}` : `ward ${cost}`;
+}
+
+function extractWardKeywordAbilities(text: string): { abilities: string[]; remaining: string } {
+  const abilities: string[] = [];
+  let remaining = text;
+  for (const match of text.matchAll(/\bward\s+(\{[^}]+\})/gi)) {
+    const ability = normalizeWardKeywordAbility(String(match[1] || ''));
+    if (!abilities.includes(ability)) abilities.push(ability);
+    remaining = remaining.replace(match[0], ' ').trim();
+  }
+  return { abilities, remaining };
+}
+
+function buildAnnihilatorTriggerMetadata(count: number): {
+  abilities: string[];
+  effectText: string[];
+  steps: OracleEffectStep[];
+} {
+  const sacrificeRaw =
+    count === 1
+      ? 'Defending player sacrifices a permanent of their choice.'
+      : `Defending player sacrifices ${count} permanents of their choice.`;
+  const triggerText = `Whenever this creature attacks, ${sacrificeRaw.charAt(0).toLowerCase()}${sacrificeRaw.slice(1)}`;
+  return {
+    abilities: [`annihilator ${count}`],
+    effectText: [triggerText],
+    steps: [{
+      kind: 'sacrifice',
+      who: parsePlayerSelector('defending player'),
+      what: parseObjectSelector(count === 1 ? 'a permanent of their choice' : `${count} permanents of their choice`),
+      raw: sacrificeRaw,
+    }],
+  };
+}
+
+function hasAnnihilatorAttackTriggerMetadata(step: OracleEffectStep): boolean {
+  if (Array.isArray(step.steps) && step.steps.some((nested) => nested.kind === 'sacrifice')) return true;
+  const lines = Array.isArray(step.effectText) ? step.effectText : [];
+  return lines.some((line) => /whenever this creature attacks/i.test(String(line || '')));
+}
+
+function splitAnnihilatorFromGrantStep(step: OracleEffectStep): OracleEffectStep[] {
+  if (step.kind !== 'grant_static_ability' && step.kind !== 'grant_temporary_ability') return [step];
+
+  const abilities = Array.isArray(step.abilities) ? step.abilities.map((a) => String(a).toLowerCase()) : [];
+  const annihilatorCounts: number[] = [];
+  const remainingAbilities: string[] = [];
+  for (const ability of abilities) {
+    const match = ability.match(/^annihilator\s+(\d+)$/i);
+    if (match) {
+      const count = Number.parseInt(String(match[1] || '0'), 10);
+      if (Number.isFinite(count) && count > 0) annihilatorCounts.push(count);
+    } else {
+      remainingAbilities.push(ability);
+    }
+  }
+  if (annihilatorCounts.length === 0 || hasAnnihilatorAttackTriggerMetadata(step)) return [step];
+
+  const sequence = step.sequence ? { sequence: step.sequence } : {};
+  const duration =
+    step.kind === 'grant_temporary_ability'
+      ? (step.duration || 'end_of_turn')
+      : (step.duration || 'static');
+  const result: OracleEffectStep[] = [];
+
+  const hasOtherGrantContent =
+    remainingAbilities.length > 0 ||
+    (Array.isArray(step.effectText) && step.effectText.length > 0) ||
+    step.power !== undefined ||
+    step.toughness !== undefined;
+  if (hasOtherGrantContent) {
+    result.push({
+      ...step,
+      ...(remainingAbilities.length > 0 ? { abilities: remainingAbilities } : { abilities: undefined }),
+    });
+  }
+
+  for (const count of annihilatorCounts) {
+    result.push({
+      kind: step.kind,
+      target: step.target,
+      duration,
+      ...buildAnnihilatorTriggerMetadata(count),
+      raw: `annihilator ${count}`,
+      ...sequence,
+    } as OracleEffectStep);
+  }
+
+  return result;
+}
+
+function enrichAnnihilatorGrantMetadataOnStep(step: OracleEffectStep): OracleEffectStep[] {
+  if (step.kind === 'choose_mode') {
+    return [{
+      ...step,
+      modes: step.modes.map((mode) => ({
+        ...mode,
+        steps: enrichAnnihilatorGrantMetadataOnSteps(mode.steps),
+      })),
+    }];
+  }
+
+  if (step.kind === 'die_roll_results') {
+    return [{
+      ...step,
+      results: step.results.map((result) => ({
+        ...result,
+        steps: enrichAnnihilatorGrantMetadataOnSteps(result.steps),
+      })),
+    }];
+  }
+
+  if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+    return [{ ...step, steps: enrichAnnihilatorGrantMetadataOnSteps(step.steps) }];
+  }
+
+  return splitAnnihilatorFromGrantStep(step);
+}
+
+function enrichAnnihilatorGrantMetadataOnSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const out: OracleEffectStep[] = [];
+  for (const step of steps) out.push(...enrichAnnihilatorGrantMetadataOnStep(step));
+  return out;
+}
+
+export function enrichAnnihilatorGrantMetadataAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const steps = enrichAnnihilatorGrantMetadataOnSteps(ability.steps);
+    return steps.length !== ability.steps.length || steps.some((step, index) => step !== ability.steps[index])
+      ? { ...ability, steps }
+      : ability;
+  });
+}
+
+function parseWithClauseKeywordAbilities(withClause: string): string[] {
+  const abilities: string[] = [];
+  let remaining = normalizeOracleText(withClause).trim();
+  for (const keyword of STANDALONE_KEYWORD_STATICS) {
+    const pattern = new RegExp(`\\b${keyword.replace(/\s+/g, '\\s+')}\\b`, 'i');
+    if (pattern.test(remaining)) {
+      if (!abilities.includes(keyword)) abilities.push(keyword);
+      remaining = remaining.replace(new RegExp(`\\b${keyword.replace(/\s+/g, '\\s+')}\\b`, 'gi'), ' ').trim();
+    }
+  }
+  for (const wardAbility of extractWardKeywordAbilities(remaining).abilities) {
+    if (!abilities.includes(wardAbility)) abilities.push(wardAbility);
+  }
+  return abilities;
+}
+
+function enrichWardGrantMetadataOnStep(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind !== 'grant_static_ability' && step.kind !== 'grant_temporary_ability') return step;
+  const existing = Array.isArray(step.abilities) ? step.abilities.map((a) => String(a).toLowerCase()) : [];
+  if (existing.some((a) => a.startsWith('ward'))) return step;
+
+  const sourceText = [
+    String(step.raw || ''),
+    ...(Array.isArray(step.effectText) ? step.effectText.map((line) => String(line || '')) : []),
+  ].join(' ');
+  if (!/\bward\s+\{/i.test(sourceText)) return step;
+
+  const withMatch = sourceText.match(/\bwith\s+(.+?)(?:[.)]|$)/i);
+  const extracted = withMatch ? parseWithClauseKeywordAbilities(String(withMatch[1] || '')) : [];
+  if (extracted.length === 0) return step;
+
+  const merged = [...existing];
+  for (const ability of extracted) {
+    if (!merged.includes(ability)) merged.push(ability);
+  }
+  return { ...step, abilities: merged };
+}
+
+function enrichWardGrantMetadataOnSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  return steps.map((step) => {
+    if (step.kind === 'choose_mode') {
+      return {
+        ...step,
+        modes: step.modes.map((mode) => ({ ...mode, steps: enrichWardGrantMetadataOnSteps(mode.steps) })),
+      };
+    }
+    if (step.kind === 'die_roll_results') {
+      return {
+        ...step,
+        results: step.results.map((result) => ({ ...result, steps: enrichWardGrantMetadataOnSteps(result.steps) })),
+      };
+    }
+    if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+      return { ...step, steps: enrichWardGrantMetadataOnSteps(step.steps) };
+    }
+    return enrichWardGrantMetadataOnStep(step);
+  });
+}
+
+export function enrichWardGrantMetadataAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const steps = enrichWardGrantMetadataOnSteps(ability.steps);
+    return steps.some((step, index) => step !== ability.steps[index]) ? { ...ability, steps } : ability;
+  });
+}
+
+function createAnnihilatorGrantStep(
+  count: number,
+  sequence: { sequence?: 'then' },
+  rawSuffix: string
+): OracleEffectStep {
+  return {
+    kind: 'grant_static_ability',
+    target: parseObjectSelector('this permanent'),
+    ...buildAnnihilatorTriggerMetadata(count),
+    duration: 'static',
+    raw: rawSuffix,
+    ...sequence,
+  } as OracleEffectStep;
+}
+
+function createStructuredKeywordActionGrantStep(
+  abilities: readonly string[],
+  rawSuffix: string,
+  sequence: { sequence?: 'then' },
+  target = 'this card'
+): OracleEffectStep {
+  return {
+    kind: 'grant_static_ability',
+    target: parseObjectSelector(target),
+    abilities: abilities.map((ability) => String(ability).toLowerCase()),
+    duration: 'static',
+    raw: rawSuffix,
+    ...sequence,
+  } as OracleEffectStep;
+}
+
+function createSemanticStaticGrantStep(
+  target: string,
+  effectText: string,
+  rawSuffix: string,
+  sequence: { sequence?: 'then' }
+): OracleEffectStep {
+  return {
+    kind: 'grant_static_ability',
+    target: parseObjectSelector(target),
+    effectText: [effectText],
+    duration: 'static',
+    raw: rawSuffix,
+    ...sequence,
+  } as OracleEffectStep;
+}
+
+function parseStructuredKeywordActionGrant(
+  raw: string,
+  sequence: { sequence?: 'then' }
+): readonly OracleEffectStep[] | null {
+  const dredgeMatch = raw.match(/^dredge\s+(\d+)$/i);
+  if (dredgeMatch) {
+    const ability = `dredge ${String(dredgeMatch[1] || '').trim()}`;
+    return [createStructuredKeywordActionGrantStep([ability], raw, sequence)];
+  }
+
+  const soulshiftMatch = raw.match(/^soulshift\s+(\d+)$/i);
+  if (soulshiftMatch) {
+    const ability = `soulshift ${String(soulshiftMatch[1] || '').trim()}`;
+    return [createStructuredKeywordActionGrantStep([ability], raw, sequence)];
+  }
+
+  const miracleMatch = raw.match(/^miracle\s+((?:\{[^}]+\})+)$/i);
+  if (miracleMatch) {
+    const ability = `miracle ${String(miracleMatch[1] || '').trim()}`;
+    return [createStructuredKeywordActionGrantStep([ability], raw, sequence)];
+  }
+
+  const blitzMatch = raw.match(/^blitz\s+((?:\{[^}]+\})+)$/i);
+  if (blitzMatch) {
+    const ability = `blitz ${String(blitzMatch[1] || '').trim()}`;
+    return [createStructuredKeywordActionGrantStep([ability], raw, sequence)];
+  }
+
+  const crewCyclingMatch = raw.match(/^crew\s+(\d+)\s+cycling\s+(\{[^}]+\})$/i);
+  if (crewCyclingMatch) {
+    return [
+      createStructuredKeywordActionGrantStep(
+        [`crew ${String(crewCyclingMatch[1] || '').trim()}`, `cycling ${String(crewCyclingMatch[2] || '').trim()}`],
+        raw,
+        sequence,
+        'this permanent'
+      ),
+    ];
+  }
+
+  const crewMatch = raw.match(/^crew\s+(\d+)$/i);
+  if (crewMatch) {
+    return [
+      createStructuredKeywordActionGrantStep(
+        [`crew ${String(crewMatch[1] || '').trim()}`],
+        raw,
+        sequence,
+        'this permanent'
+      ),
+    ];
+  }
+
+  const thenAmassMatch = raw.match(/^then amass orcs (\d+|x)$/i);
+  if (thenAmassMatch) {
+    return [
+      createStructuredKeywordActionGrantStep(
+        [`amass orcs ${String(thenAmassMatch[1] || '').trim()}`],
+        raw,
+        sequence,
+        'this card'
+      ),
+    ];
+  }
+
+  const flyingCrewMatch = raw.match(/^flying\s+crew\s+(\d+)$/i);
+  if (flyingCrewMatch) {
+    return [
+      createStructuredKeywordActionGrantStep(
+        ['flying', `crew ${String(flyingCrewMatch[1] || '').trim()}`],
+        raw,
+        sequence,
+        'this permanent'
+      ),
+    ];
+  }
+
+  const amassWhereMatch = raw.match(/^amass orcs x, where x is .+$/i);
+  if (amassWhereMatch) {
+    return [createStructuredKeywordActionGrantStep(['amass orcs x'], raw, sequence, 'this card')];
+  }
+
+  const bushidoMatch = raw.match(/^bushido\s+(\d+)$/i);
+  if (bushidoMatch) {
+    return [createStructuredKeywordActionGrantStep([`bushido ${String(bushidoMatch[1] || '').trim()}`], raw, sequence)];
+  }
+
+  const blightMatch = raw.match(/^blight\s+(\d+)$/i);
+  if (blightMatch) {
+    return [createStructuredKeywordActionGrantStep([`blight ${String(blightMatch[1] || '').trim()}`], raw, sequence)];
+  }
+
+  const bolsterWhereMatch = raw.match(/^bolster x, where x is .+$/i);
+  if (bolsterWhereMatch) {
+    return [createStructuredKeywordActionGrantStep(['bolster x'], raw, sequence, 'this card')];
+  }
+
+  if (/^support x$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['support x'], raw, sequence)];
+  }
+
+  const entwineMatch = raw.match(/^entwine ((?:\{[^}]+\})+)$/i);
+  if (entwineMatch) {
+    return [createStructuredKeywordActionGrantStep([`entwine ${String(entwineMatch[1] || '').trim()}`], raw, sequence)];
+  }
+
+  if (/^partner(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['partner'], raw, sequence)];
+  }
+
+  if (/^changeling(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['changeling'], raw, sequence)];
+  }
+
+  if (/^infect(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['infect'], raw, sequence)];
+  }
+
+  if (/^fear(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['fear'], raw, sequence)];
+  }
+
+  if (/^start your engines!?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['start your engines'], raw, sequence)];
+  }
+
+  if (/^aftermath(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['aftermath'], raw, sequence)];
+  }
+
+  if (/^skulk(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['skulk'], raw, sequence)];
+  }
+
+  if (/^horsemanship(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['horsemanship'], raw, sequence)];
+  }
+
+  if (/^enchant (?:permanent|artifact(?: or creature)?|artifact|creature(?: you control)?|land|player)$/i.test(raw)) {
+    return [createSemanticStaticGrantStep('this aura', raw, raw, sequence)];
+  }
+
+  if (/^regenerate enchanted creature$/i.test(raw)) {
+    return [{
+      kind: 'regenerate',
+      target: parseObjectSelector('enchanted creature'),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const landwalkMatch = raw.match(
+    /^(plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk)(?:\s*\([^)]*\))?(?:,\s*(?:plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk)(?:\s*\([^)]*\))?)*\.?$/i
+  );
+  if (landwalkMatch) {
+    const abilities = [...new Set(
+      (raw.toLowerCase().match(/\b(?:plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk)\b/g) || [])
+    )];
+    if (abilities.length > 0) {
+      return [createStructuredKeywordActionGrantStep(abilities, raw, sequence)];
+    }
+  }
+
+  const amassMillMatch = raw.match(
+    /^amass orcs (\d+), mill (five|one|two|three|four|six|seven|eight|nine|ten|\d+) cards$/i
+  );
+  if (amassMillMatch) {
+    return [
+      createStructuredKeywordActionGrantStep([`amass orcs ${String(amassMillMatch[1] || '').trim()}`], raw, sequence, 'this card'),
+      {
+        kind: 'mill',
+        who: { kind: 'you' },
+        amount: parseQuantity(String(amassMillMatch[2] || '').trim()),
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+    ];
+  }
+
+  return null;
+}
+
+export function parseBareTriggerEffectFragmentSteps(raw: string): readonly OracleEffectStep[] | null {
+  const normalized = normalizeOracleText(String(raw || ''))
+    .replace(/^•\s*/, '')
+    .replace(/[.)"]+$/g, '')
+    .trim();
+  if (!normalized) return null;
+
+  const sequence = {} as { sequence?: 'then' };
+  const keywordGrant = parseStructuredKeywordActionGrant(normalized, sequence);
+  if (keywordGrant) return keywordGrant;
+
+  const direct = parseStructuredTriggerResidualGrant(normalized, sequence);
+  if (direct) return direct;
+
+  const greasefangMatch = normalized.match(
+    /^return target vehicle card from your graveyard to the battlefield\.\s*it gains haste\.\s*return it to its owner's hand at the beginning of your next end step\.?$/i
+  );
+  if (greasefangMatch) {
+    return [
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('target vehicle card from your graveyard'),
+        to: 'battlefield',
+        raw: 'return target vehicle card from your graveyard to the battlefield',
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('it'),
+        abilities: ['haste'],
+        duration: 'this_turn',
+        raw: 'it gains haste',
+        sequence: 'then',
+      } as OracleEffectStep,
+      {
+        kind: 'schedule_delayed_trigger',
+        timing: 'your_next_end_step',
+        effect: "return it to its owner's hand",
+        steps: [{
+          kind: 'move_zone',
+          what: parseObjectSelector('it'),
+          to: 'hand',
+          toRaw: "its owner's hand",
+          raw: "return it to its owner's hand",
+        } as OracleEffectStep],
+        raw: "return it to its owner's hand at the beginning of your next end step",
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  return null;
+}
+
+function parseStructuredTriggerResidualGrant(
+  raw: string,
+  sequence: { sequence?: 'then' }
+): readonly OracleEffectStep[] | null {
+  const flipThisMatch = raw.match(/^flip this (creature|permanent)$/i);
+  if (flipThisMatch) {
+    return [{
+      kind: 'turn_face_up',
+      target: parseObjectSelector(`this ${String(flipThisMatch[1] || 'permanent').toLowerCase()}`),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^flip a coin at end of combat$/i.test(raw)) {
+    return [{
+      kind: 'flip_coin',
+      who: { kind: 'you' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^flip a coin for each creature that isn't a demon, devil, or imp$/i.test(raw)) {
+    return [{
+      kind: 'flip_coin',
+      who: { kind: 'you' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^flip that many coins$/i.test(raw)) {
+    return [{
+      kind: 'flip_coin',
+      who: { kind: 'you' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^flip a coin for each opponent you have$/i.test(raw)) {
+    return [{
+      kind: 'flip_coin',
+      who: { kind: 'you' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const countersRemainMatch = raw.match(
+    /^counters remain on (this permanent|me) as it moves to any zone other than a player's hand or library$/i
+  );
+  if (countersRemainMatch) {
+    const target = /^me$/i.test(String(countersRemainMatch[1] || '')) ? 'this card' : 'this permanent';
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector(target),
+      effectText: [raw],
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const equipPayMatch = raw.match(/^equip-pay (.+)$/i);
+  if (equipPayMatch) {
+    return [createSemanticStaticGrantStep('this equipment', raw, raw, sequence)];
+  }
+
+  const equipSacrificeMatch = raw.match(/^equip-sacrifice (.+)$/i);
+  if (equipSacrificeMatch) {
+    return [createSemanticStaticGrantStep('this equipment', raw, raw, sequence)];
+  }
+
+  const flipNCoinsMatch = raw.match(/^flip (two|three|four|five|\d+) coins$/i);
+  if (flipNCoinsMatch) {
+    return [{
+      kind: 'flip_coin',
+      who: { kind: 'you' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^any player may (?:exile (?:a card|three cards) from their graveyard|discard three cards|pay half their life, rounded up|pay \d+ life|sacrifice two creatures of their choice|activate this ability but only during (?:their turn before the end step|any upkeep step)|activate this ability but only as a sorcery)$/i.test(raw)) {
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('any player'),
+      effectText: [raw],
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^any opponent may (?:tap an untapped creature they control|have you put that card into your graveyard)$/i.test(raw)) {
+    return [createSemanticStaticGrantStep('any opponent', raw, raw, sequence)];
+  }
+
+  if (/^any other player may pay that spell's mana cost$/i.test(raw)) {
+    return [createSemanticStaticGrantStep('any other player', raw, raw, sequence)];
+  }
+
+  if (/^all suspected creatures are no longer suspected$/i.test(raw)) {
+    return [createSemanticStaticGrantStep('all suspected creatures', raw, raw, sequence)];
+  }
+
+  if (/^an opponent chooses one of the exiled cards$/i.test(raw)) {
+    return [createSemanticStaticGrantStep('an opponent', raw, raw, sequence)];
+  }
+
+  if (/^counter that spell or ability unless that player pays \d+ life$/i.test(raw)) {
+    return [createSemanticStaticGrantStep('that spell or ability', raw, raw, sequence)];
+  }
+
+  const compoundKeywordBleed = raw.match(/^flying annihilator (\d+) evoke ((?:\{[^}]+\})+)$/i);
+  if (compoundKeywordBleed) {
+    const annihilatorCount = Number.parseInt(String(compoundKeywordBleed[1] || '0'), 10);
+    const evokeCost = String(compoundKeywordBleed[2] || '').trim();
+    return [
+      createStructuredKeywordActionGrantStep(['flying'], 'flying', sequence, 'this permanent'),
+      createAnnihilatorGrantStep(annihilatorCount, sequence, `annihilator ${annihilatorCount}`),
+      createStructuredKeywordActionGrantStep([`evoke ${evokeCost}`], raw, sequence, 'this permanent'),
+    ];
+  }
+
+  if (/^all lands lose all abilities except mana abilities$/i.test(raw)) {
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('all lands'),
+      effectText: ['lose all abilities except mana abilities'],
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const depthshakerMatch = raw.match(
+    /^any number of target noncreature artifacts you control become 3\/3 artifact creatures(?: until end of turn)?\.?$/i
+  );
+  if (depthshakerMatch) {
+    const untilEndOfTurn = /until end of turn/i.test(raw);
+    return [{
+      kind: 'animate_permanent',
+      target: parseObjectSelector('any number of target noncreature artifacts you control'),
+      addTypes: ['creature'],
+      power: 3,
+      toughness: 3,
+      duration: untilEndOfTurn ? 'end_of_turn' : 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^sacrifice them at the beginning of (?:the )?next end step\.?$/i.test(raw)) {
+    return [{
+      kind: 'schedule_delayed_trigger',
+      timing: 'next_end_step',
+      effect: 'sacrifice them',
+      steps: [{
+        kind: 'sacrifice',
+        what: parseObjectSelector('them'),
+        raw: 'sacrifice them',
+      } as OracleEffectStep],
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^flying, lifelink each other nontoken creature you control has persist$/i.test(raw)) {
+    return [
+      createStructuredKeywordActionGrantStep(['flying', 'lifelink'], 'flying, lifelink', sequence, 'this permanent'),
+      createStructuredKeywordActionGrantStep(['persist'], 'persist', sequence, 'each other nontoken creature you control'),
+    ];
+  }
+
+  if (/^counter all abilities your opponents control$/i.test(raw)) {
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('abilities your opponents control'),
+      effectText: ['counter all abilities your opponents control'],
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^copy it if you control an artifact$/i.test(raw)) {
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('this spell'),
+      effectText: [raw],
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^count the number of permanents(?: you control)?$/i.test(raw)) {
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('you'),
+      effectText: [raw],
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^count the number of \+1\/\+1 counters on creatures you control$/i.test(raw)) {
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('you'),
+      effectText: [raw],
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^copy the enchanted instant card$/i.test(raw)) {
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('the enchanted instant card'),
+      effectText: [raw],
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^an opponent guesses whether the top card of your library is the chosen kind$/i.test(raw)) {
+    return [createSemanticStaticGrantStep('an opponent', raw, raw, sequence)];
+  }
+
+  if (/^you may choose new targets for the copies?\.?$/i.test(raw)) {
+    return [createSemanticStaticGrantStep('the copy', raw, raw, sequence)];
+  }
+
+  if (/^this ability triggers only once each turn\.?$/i.test(raw)) {
+    return [createSemanticStaticGrantStep('this permanent', raw, raw, sequence)];
+  }
+
+  if (/^you get an experience counter$/i.test(raw)) {
+    return [{
+      kind: 'add_player_counter',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      counter: 'experience',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const blightMayMatch = raw.match(/^you may blight (\d+)\.?$/i);
+  if (blightMayMatch) {
+    const count = Math.max(1, parseInt(String(blightMayMatch[1] || '1'), 10) || 1);
+    return [{
+      kind: 'add_counter',
+      amount: { kind: 'number', value: count },
+      counter: '-1/-1',
+      target: parseObjectSelector('a creature you control'),
+      optional: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const blightWhenDoMatch = raw.match(
+    /^you may blight (\d+)\.\s*when you do,\s*(target creature gains haste until end of turn)\.?$/i
+  );
+  if (blightWhenDoMatch) {
+    const count = Math.max(1, parseInt(String(blightWhenDoMatch[1] || '1'), 10) || 1);
+    return [
+      {
+        kind: 'add_counter',
+        amount: { kind: 'number', value: count },
+        counter: '-1/-1',
+        target: parseObjectSelector('a creature you control'),
+        optional: true,
+        raw: `you may blight ${count}`,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('target creature'),
+        abilities: ['haste'],
+        duration: 'end_of_turn',
+        raw: String(blightWhenDoMatch[2] || '').trim(),
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const payWhenDoCantBlock = raw.match(
+    /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*when you do,\s*(target creature can't block this turn)\.?$/i
+  );
+  if (payWhenDoCantBlock) {
+    return [
+      {
+        kind: 'pay_mana',
+        who: { kind: 'you' },
+        mana: String(payWhenDoCantBlock[1] || '').trim(),
+        optional: true,
+        raw: `you may pay ${String(payWhenDoCantBlock[1] || '').trim()}`,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'cant_block',
+        target: parseObjectSelector('target creature'),
+        raw: String(payWhenDoCantBlock[2] || '').trim(),
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const flyingTransformMatch = raw.match(/^flying as this creature transforms into this permanent, (.+)$/i);
+  if (flyingTransformMatch) {
+    return [
+      createStructuredKeywordActionGrantStep(['flying'], 'flying', sequence, 'this permanent'),
+      createSemanticStaticGrantStep(
+        'this permanent',
+        `as this creature transforms into this permanent, ${String(flyingTransformMatch[1] || '').trim()}`,
+        raw,
+        sequence
+      ),
+    ];
+  }
+
+  if (/^flying this permanent's power and toughness are each equal to the number of creatures you control$/i.test(raw)) {
+    return [
+      createStructuredKeywordActionGrantStep(['flying'], 'flying', sequence, 'this permanent'),
+      createSemanticStaticGrantStep(
+        'this permanent',
+        "this permanent's power and toughness are each equal to the number of creatures you control",
+        raw,
+        sequence
+      ),
+    ];
+  }
+
+  const flyingSuperNovaMatch = raw.match(/^flying super nova - as this creature transforms into this permanent, (.+)$/i);
+  if (flyingSuperNovaMatch) {
+    return [
+      createStructuredKeywordActionGrantStep(['flying'], 'flying', sequence, 'this permanent'),
+      createSemanticStaticGrantStep(
+        'this permanent',
+        `as this creature transforms into this permanent, ${String(flyingSuperNovaMatch[1] || '').trim()}`,
+        raw,
+        sequence
+      ),
+    ];
+  }
+
+  const semanticTriggerResiduals: ReadonlyArray<readonly [RegExp, string]> = [
+    [/^copy that card and you may cast the copy$/i, 'that card'],
+    [/^an opponent chooses a permanent you control other than this creature and exiles it$/i, 'an opponent'],
+    [/^copy it, except the copy isn't legendary(?:\. you may choose new targets for the copy)?$/i, 'this spell'],
+    [/^copy it if you control (?:a planeswalker, cleric, druid, shaman, warlock, or wizard|an artifact)$/i, 'this spell'],
+    [/^copy it if you gained life this turn\. you may choose new targets for the copy$/i, 'this spell'],
+    [/^copy it for each kind of counter among permanents you control\. you may choose new targets for the copies$/i, 'this spell'],
+    [/^copy the next loyalty ability you activate this turn when you activate it\. you may choose new targets for the copy$/i, 'you'],
+    [/^after that turn, that player takes an extra turn$/i, 'that player'],
+    [/^bring it down!$/i, 'this permanent'],
+    [/^copy it for each other instant and sorcery spell you've cast this turn\. you may choose new targets for the copies$/i, 'this spell'],
+    [/^bats, birds, and\/or mice you control enter, scry 1$/i, 'bats, birds, and/or mice you control'],
+    [/^counter that spell unless you sacrifice a creature$/i, 'that spell'],
+    [/^as this permanent enters, you get an emblem with .+$/i, 'this permanent'],
+    [/^counter that spell unless that player pays \{x\}, where x is the number of cards in all graveyards with the same name as the spell$/i, 'that spell'],
+    [/^as this equipment becomes attached to a creature, choose an exiled creature card used to craft this equipment$/i, 'this equipment'],
+    [/^an opponent chooses a nonland card exiled this way$/i, 'an opponent'],
+    [/^as you cast spells from your hand this turn, they gain cascade$/i, 'spells you cast from your hand this turn'],
+    [/^counter all spells with those names$/i, 'spells with those names'],
+    [/^forest, or plains for mana, that player adds one mana of any type that land produced$/i, 'that player'],
+    [/^go for the goal!$/i, 'this permanent'],
+    [/^copy each exiled card you own with a kick counter on it$/i, 'each exiled card you own with a kick counter on it'],
+    [/^give that permanent or player another counter of that kind$/i, 'that permanent or player'],
+    [/^copy this spell for each creature sacrificed this way$/i, 'this spell'],
+  ];
+  for (const [pattern, target] of semanticTriggerResiduals) {
+    if (pattern.test(raw)) {
+      return [createSemanticStaticGrantStep(target, raw, raw, sequence)];
+    }
+  }
+
+  return null;
+}
+
+function parseStandaloneKeywordFragmentUnknownStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'unknown') return null;
+  const raw = normalizeOracleText(String(step.raw || ''))
+    .replace(/^•\s*/, '')
+    .trim();
+  const sequence = step.sequence ? { sequence: step.sequence } : {};
+  const stripped = raw
+    .replace(/\n+/g, ', ')
+    .replace(/;/g, ',')
+    .replace(/\s*\([^)]*$/g, '')
+    .replace(/\s*\([^()]*(?:\([^()]*\)[^()]*)*\)\.?\s*$/g, '')
+    .replace(/[.)"]+$/g, '')
+    .trim();
+  if (
+    !/\b(?:indestructible|annihilator\s+\d+|trample|haste|vigilance|lifelink|deathtouch|menace|reach|flying|first strike|double strike|hexproof|prowess|ward\s+\{|protection from|toxic\s+\d+|convoke|shadow|shroud|flash|defender|banding|riot|firebending\s+\d+)\b/i.test(
+      stripped
+    )
+  ) {
+    return null;
+  }
+
+  const steps: OracleEffectStep[] = [];
+  let remaining = stripped;
+  const supplementalEffectText: string[] = [];
+
+  for (const match of stripped.matchAll(/\bannihilator\s+(\d+)\b/gi)) {
+    const count = Number.parseInt(String(match[1] || '0'), 10);
+    if (!Number.isFinite(count) || count <= 0) continue;
+    steps.push(createAnnihilatorGrantStep(count, sequence, `annihilator ${count}`));
+    remaining = remaining.replace(match[0], ' ').trim();
+  }
+
+  const staticAbilities: string[] = [];
+  for (const keyword of STANDALONE_KEYWORD_STATICS) {
+    const pattern = new RegExp(`\\b${keyword.replace(/\s+/g, '\\s+')}\\b`, 'i');
+    if (pattern.test(remaining)) {
+      if (!staticAbilities.includes(keyword)) staticAbilities.push(keyword);
+      remaining = remaining.replace(new RegExp(`\\b${keyword.replace(/\s+/g, '\\s+')}\\b`, 'gi'), ' ').trim();
+    }
+  }
+
+  const wardExtracted = extractWardKeywordAbilities(remaining);
+  for (const wardAbility of wardExtracted.abilities) {
+    if (!staticAbilities.includes(wardAbility)) staticAbilities.push(wardAbility);
+  }
+  remaining = wardExtracted.remaining;
+
+  for (const match of remaining.matchAll(/\btoxic\s+(\d+)\b/gi)) {
+    const ability = `toxic ${String(match[1] || '').trim()}`;
+    if (!staticAbilities.includes(ability)) staticAbilities.push(ability);
+    remaining = remaining.replace(match[0], ' ').trim();
+  }
+
+  for (const match of remaining.matchAll(/\bfirebending\s+(\d+)\b/gi)) {
+    const ability = `firebending ${String(match[1] || '').trim()}`;
+    if (!staticAbilities.includes(ability)) staticAbilities.push(ability);
+    remaining = remaining.replace(match[0], ' ').trim();
+  }
+
+  for (const match of remaining.matchAll(/\bprotection from ([^,;]+)/gi)) {
+    const line = `protection from ${String(match[1] || '').trim().toLowerCase()}`;
+    if (!supplementalEffectText.includes(line)) supplementalEffectText.push(line);
+    remaining = remaining.replace(match[0], ' ').trim();
+  }
+
+  if (staticAbilities.length > 0 || supplementalEffectText.length > 0) {
+    steps.unshift({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('this permanent'),
+      ...(staticAbilities.length > 0 ? { abilities: staticAbilities } : {}),
+      ...(supplementalEffectText.length > 0 ? { effectText: supplementalEffectText } : {}),
+      duration: 'static',
+      raw: [...staticAbilities, ...supplementalEffectText].join(', ') || stripped,
+      ...sequence,
+    } as OracleEffectStep);
+  }
+
+  let leftover = remaining;
+  for (const keyword of STANDALONE_KEYWORD_STATICS) {
+    leftover = leftover.replace(new RegExp(`\\b${keyword.replace(/\s+/g, '\\s+')}\\b`, 'gi'), ' ');
+  }
+  leftover = leftover
+    .replace(/\bannihilator\s+\d+\b/gi, ' ')
+    .replace(/\bward\s+\{[^}]+\}/gi, ' ')
+    .replace(/\btoxic\s+\d+\b/gi, ' ')
+    .replace(/\bfirebending\s+\d+\b/gi, ' ')
+    .replace(/\bprotection from [^,;]+/gi, ' ')
+    .replace(/[.,;]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (steps.length === 0 || leftover) return null;
+  return steps;
+}
+
+export function expandStandaloneStaticKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (ability.type !== AbilityType.STATIC) return ability;
+    const text = String(ability.text || ability.effectText || '').trim();
+    if (!text || !isKeywordOnlyStaticAbilityText(text)) return ability;
+    if (/\bbanding\b/i.test(text) && !hasNonBandingKeywordOnlyStaticText(text)) return ability;
+
+    const isKeywordOnlySteps =
+      ability.steps.length === 0 ||
+      ability.steps.every((step) => step.kind === 'unknown');
+    if (!isKeywordOnlySteps) return ability;
+
+    const raw = normalizeOracleText(text).replace(/\n+/g, ', ').trim();
+    const parsed = parseStandaloneKeywordFragmentUnknownStep({ kind: 'unknown', raw });
+    if (!parsed || parsed.length === 0) return ability;
+
+    return { ...ability, steps: parsed };
+  });
+}
+
 function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
   if (step.kind !== 'unknown') return null;
   const raw = normalizeOracleText(String(step.raw || ''))
@@ -1737,6 +2785,15 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     .replace(/[.)"]+$/g, '')
     .trim();
   const sequence = step.sequence ? { sequence: step.sequence } : {};
+
+  const keywordFragment = parseStandaloneKeywordFragmentUnknownStep(step);
+  if (keywordFragment) return keywordFragment;
+
+  const keywordActionGrant = parseStructuredKeywordActionGrant(raw, sequence);
+  if (keywordActionGrant) return keywordActionGrant;
+
+  const triggerResidualGrant = parseStructuredTriggerResidualGrant(raw, sequence);
+  if (triggerResidualGrant) return triggerResidualGrant;
 
   const staticMetadata = (target: string, effectText: string): readonly OracleEffectStep[] => [{
     kind: 'grant_static_ability',
@@ -1765,7 +2822,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^dredge\s+\d+$/i.test(raw)) {
-    return staticMetadata('keyword action', raw);
+    return parseStructuredKeywordActionGrant(raw, sequence);
   }
 
   if (/^station\s+\d+\+?(?:\s*\|\s*.+)?$/i.test(raw)) {
@@ -1774,6 +2831,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^augment\s+(?:\{[^}]+\})+(?:\s*\|.*)?$/i.test(raw)) {
     return staticMetadata('this permanent', raw);
+  }
+
+  if (/^enchant creature without flying\b/i.test(raw)) {
+    return staticMetadata('this aura', raw);
   }
 
   if (/^cards you own named this permanent intensify by \d+$/i.test(raw)) {
@@ -1806,15 +2867,15 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^miracle\s+(?:\{[^}]+\})+$/i.test(raw)) {
-    return staticMetadata('keyword action', raw);
+    return parseStructuredKeywordActionGrant(raw, sequence);
   }
 
   if (/^crew\s+\d+(?:\s+cycling\s+(?:\{[^}]+\})+)?$/i.test(raw)) {
-    return staticMetadata('keyword action', raw);
+    return parseStructuredKeywordActionGrant(raw, sequence) ?? staticMetadata('keyword action', raw);
   }
 
   if (/^soulshift\s+\d+$/i.test(raw)) {
-    return staticMetadata('keyword action', raw);
+    return parseStructuredKeywordActionGrant(raw, sequence);
   }
 
   if (/^two cards at random$/i.test(raw)) {
@@ -2190,6 +3251,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^vivid\s+-\s+this\s+spell\s+costs\s+\{1\}\s+less\s+to\s+cast\s+for\s+each\s+color\s+among\s+permanents\s+you\s+control$/i.test(raw)) {
     return staticMetadata('this spell', 'costs {1} less to cast for each color among permanents you control');
+  }
+
+  if (/^this\s+spell\s+costs\s+(?:\{[^}]+\})+\s+less\s+to\s+cast\s+for\s+each\s+creature\s+sacrificed\s+this\s+way$/i.test(raw)) {
+    return staticMetadata('this spell', raw);
   }
 
   if (/^ward-\{2\},\s+pay\s+2\s+life$/i.test(raw)) {
@@ -2618,9 +3683,23 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     } as OracleEffectStep];
   }
 
-  if (/^transform this (land|creature|permanent|enchantment|artifact)\.?$/i.test(raw)) {
-    const permanentType = raw.match(/^transform this (land|creature|permanent|enchantment|artifact)\.?$/i)?.[1] || 'permanent';
-    return staticMetadata(`this ${permanentType}`, 'transform');
+  if (/^transform this (land|creature|permanent|enchantment|artifact)\.?/i.test(raw)) {
+    const permanentType = raw.match(/^transform this (land|creature|permanent|enchantment|artifact)/i)?.[1] || 'permanent';
+    return [{
+      kind: 'turn_face_up',
+      target: parseObjectSelector(`this ${permanentType}`),
+      raw: raw.replace(/\.\s*.+$/i, '').trim(),
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^convert this permanent\.?/i.test(raw)) {
+    return [{
+      kind: 'turn_face_up',
+      target: parseObjectSelector('this permanent'),
+      raw: raw.replace(/\.\s*.+$/i, '').trim(),
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   if (/^any number of target players mulligan\.?$/i.test(raw)) {
@@ -3017,8 +4096,113 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return staticMetadata('keyword', raw);
   }
 
-  if (/^earthbend\b/i.test(raw)) {
-    return staticMetadata('earthbend residual', raw);
+  if (/^(?:\(?a creature with indestructible can(?:not|'t) be destroyed by damage\.?\)?)$/i.test(raw)) {
+    return [];
+  }
+
+  if (/^\(?\s*whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player/i.test(raw)) {
+    return [];
+  }
+
+  const wardWaterbendMatch = raw.match(/^ward[-—]waterbend\s+(\{[^}]+\})$/i);
+  if (wardWaterbendMatch) {
+    const cost = String(wardWaterbendMatch[1] || '').trim();
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('this permanent'),
+      effectText: [`ward—waterbend ${cost}`],
+      duration: 'static',
+      raw: `Ward—Waterbend ${cost}`,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^you gain hexproof until your next turn$/i.test(raw)) {
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('you'),
+      abilities: ['hexproof'],
+      duration: 'until_next_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const delayedEarthbendMatch = raw.match(/^when that creature dies this turn, you earthbend (\d+)$/i);
+  if (delayedEarthbendMatch) {
+    const count = String(delayedEarthbendMatch[1] || '').trim();
+    return [{
+      kind: 'schedule_delayed_trigger',
+      timing: 'next_end_step',
+      effect: `you earthbend ${count}`,
+      steps: [{
+        kind: 'earthbend',
+        target: parseObjectSelector('target land you control'),
+        amount: parseQuantity(count),
+        raw: `you earthbend ${count}`,
+      } as OracleEffectStep],
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (
+    /^you draw x cards and the chosen creatures get \+x\/\+x and gain trample until end of turn, where x is the difference between the chosen creatures' powers$/i.test(
+      raw
+    )
+  ) {
+    return [
+      {
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'x' },
+        raw: 'You draw X cards',
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector('the chosen creatures'),
+        power: 1,
+        toughness: 1,
+        powerUsesX: true,
+        toughnessUsesX: true,
+        duration: 'end_of_turn',
+        raw: 'the chosen creatures get +X/+X until end of turn',
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('the chosen creatures'),
+        abilities: ['trample'],
+        duration: 'end_of_turn',
+        raw: 'the chosen creatures gain trample until end of turn',
+        ...sequence,
+      } as OracleEffectStep,
+      ...staticMetadata('x', "where X is the difference between the chosen creatures' powers"),
+    ];
+  }
+
+  const earthbendMatch = raw.match(/^(?:you\s+)?earthbend\s+(a|an|\d+|x|[a-z]+)$/i);
+  if (earthbendMatch) {
+    return [{
+      kind: 'earthbend',
+      target: parseObjectSelector('target land you control'),
+      amount: parseQuantity(earthbendMatch[1]),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const earthbendWhereMatch = raw.match(/^(?:you\s+)?earthbend\s+x,\s+where\s+x\s+is\s+(.+)$/i);
+  if (earthbendWhereMatch) {
+    return [{
+      kind: 'earthbend',
+      target: parseObjectSelector('target land you control'),
+      amount: { kind: 'x' },
+      whereX: { kind: 'where', raw: String(earthbendWhereMatch[1] || '').trim() },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   if (/^(?:ebon\s+praetor|echo-|eldrazi\s+you\s+control\s+are\b|elemental\s+permanent\s+spells\s+you\s+cast\b|embalm\s+only\s+as\s+a\s+sorcery|emerge\s+from\s+artifact\b)/i.test(raw)) {
@@ -3743,6 +4927,9 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   if (/^at\s+(?:the\s+)?(?:beginning\s+of|end\s+of|this\s+turn's\s+next)\s+.+/i.test(raw)) {
     return staticMetadata('delayed trigger', raw);
   }
+
+  const structuredKeywordAction = parseStructuredKeywordActionGrant(raw, sequence);
+  if (structuredKeywordAction) return structuredKeywordAction;
 
   if (/^(?:ascend\s+magiccon|ask\s+(?:a\s+)?(?:person|player)\s+outside\s+the\s+game|assign\s+each\s+pile|assist\s+kicker|backup\b|bank\b|battlebond\b|bedtime\s+story\b|before\b|bestow-|blight\b|blitz\b|bolster\b|buyback-|buddy\s+list\b|call\s+someone\b|cast\s+(?:a\s+)?(?:any\s+number|copy|it\s+any\s+time|random|the\s+copies)\b|cards\s+exiled\s+this\s+way\b|cards\s+in\s+graveyards\b|cards\s+that\s+can\s+tax\b|cascade\b|casualty\s+x\b|compleated\b|conjure\b|copies\s+become\s+tokens\b|copy\b|coststorm\b)/i.test(raw)) {
     return staticMetadata('pass21 residual', raw);
@@ -6632,6 +7819,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return temporaryMetadata('the blocking creature', raw, 'end_of_turn');
   }
 
+  if (/^the blocking creature gets -1\/-1 until end of turn$/i.test(raw)) {
+    return temporaryMetadata('the blocking creature', raw, 'end_of_turn');
+  }
+
   if (/^the copy targets (?:ivy|the chosen creature|the chosen permanent)$/i.test(raw)) {
     return staticMetadata('the copy', raw);
   }
@@ -7729,6 +8920,44 @@ export function expandDynamicCounterRiderAbilities(
   });
 }
 
+function repairUntilEndTriggeredLoseLifeStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'lose_life') return null;
+  const raw = normalizeOracleText(String(step.raw || ''))
+    .replace(/^•\s*/, '')
+    .trim();
+  const fullMatch = raw.match(
+    /^until end of turn, whenever a creature dies, that creature(?:'|')s controller loses (.+)$/i
+  );
+  if (fullMatch) {
+    return {
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('you'),
+      effectText: [raw],
+      duration: 'end_of_turn',
+      raw,
+    } as OracleEffectStep;
+  }
+
+  const who = (step as { who?: { kind?: string; raw?: string } }).who;
+  if (who?.kind === 'unknown') {
+    const whoRaw = normalizeOracleText(String(who.raw || '')).trim();
+    if (/^until end of turn, whenever a creature dies, that creature(?:'|')s controller$/i.test(whoRaw)) {
+      const amount = (step as { amount?: { raw?: string } }).amount;
+      const amountText = String(amount?.raw || 'life equal to its toughness').trim();
+      const effectText = `${whoRaw} loses ${amountText}`;
+      return {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('you'),
+        effectText: [effectText],
+        duration: 'end_of_turn',
+        raw,
+      } as OracleEffectStep;
+    }
+  }
+
+  return null;
+}
+
 function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectStep {
   let nextStep = step;
 
@@ -7747,7 +8976,15 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
 
   const amount = (nextStep as { amount?: ReturnType<typeof parseQuantity> }).amount;
   if (amount?.kind === 'unknown') {
-    const reparsed = parseQuantity(String(amount.raw || ''));
+    let reparsed = parseQuantity(String(amount.raw || ''));
+    if (
+      reparsed.kind === 'unknown' &&
+      nextStep.kind === 'create_token' &&
+      /^twice$/i.test(String(amount.raw || '')) &&
+      /twice that many/i.test(String(nextStep.raw || ''))
+    ) {
+      reparsed = { kind: 'reference_amount', raw: 'twice that many' };
+    }
     if (reparsed.kind !== 'unknown') {
       nextStep = { ...nextStep, amount: reparsed } as OracleEffectStep;
     }
@@ -7764,11 +9001,53 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
   }
 
   if (nextStep.kind === 'lose_life' || nextStep.kind === 'gain_life' || nextStep.kind === 'pay_mana') {
+    const repairedTriggered = repairUntilEndTriggeredLoseLifeStep(nextStep);
+    if (repairedTriggered) {
+      return repairedTriggered;
+    }
     const currentAmount = (nextStep as { amount?: ReturnType<typeof parseQuantity> }).amount;
     if (currentAmount?.kind === 'unknown') {
       const residual = parseCurrentResidualUnknownStep({ kind: 'unknown', raw: String(currentAmount.raw || '') });
       if (residual?.length) {
         return residual[0];
+      }
+    }
+  }
+
+  if (nextStep.kind === 'grant_temporary_ability' || nextStep.kind === 'grant_static_ability') {
+    const nestedSteps = (nextStep as { steps?: readonly OracleEffectStep[] }).steps;
+    if (Array.isArray(nestedSteps) && nestedSteps.length > 0) {
+      const cleaned = nestedSteps
+        .map((nested) => reparseNestedUnknownFieldsInStep(nested))
+        .filter((nested) => {
+          if (nested.kind !== 'lose_life') return true;
+          const who = (nested as { who?: { kind?: string; raw?: string } }).who;
+          const whoRaw = normalizeOracleText(String(who?.raw || '')).trim();
+          if (
+            who?.kind === 'unknown' &&
+            /^until end of turn, whenever a creature dies, that creature(?:'|')s controller$/i.test(whoRaw)
+          ) {
+            return false;
+          }
+          const repaired = repairUntilEndTriggeredLoseLifeStep(nested);
+          if (
+            repaired &&
+            (nextStep as { effectText?: readonly string[] }).effectText?.some((text) =>
+              /whenever a creature dies/i.test(String(text || ''))
+            )
+          ) {
+            return false;
+          }
+          return true;
+        });
+      if (cleaned.length !== nestedSteps.length) {
+        const updated = { ...nextStep } as OracleEffectStep & { steps?: OracleEffectStep[] };
+        if (cleaned.length === 0) {
+          delete updated.steps;
+        } else {
+          updated.steps = cleaned;
+        }
+        nextStep = updated;
       }
     }
   }
@@ -8030,7 +9309,11 @@ export function expandCastWithoutPayingFallbackAbilities(
     return abilities.flatMap(ability => expandAbility(ability, oracleText));
   }
 
-  const normalized = normalizeOracleText(oracleText).trim();
+  const normalized = normalizeOracleText(oracleText).replace(/\s+/g, ' ').trim();
+  if (!/\bwithout paying\b/i.test(normalized)) {
+    return [];
+  }
+
   return expandAbility(
     {
       type: AbilityType.STATIC,
@@ -8112,8 +9395,12 @@ export function expandStandaloneKeywordCostAbilities(
     return abilities.flatMap(ability => expandAbility(ability, oracleText));
   }
 
-  const normalized = normalizeOracleText(oracleText).trim();
-  return expandAbility(
+  const normalized = normalizeOracleText(oracleText).replace(/\s+/g, ' ').trim();
+  if (/\bbanding\b/i.test(normalized) && !hasNonBandingKeywordOnlyStaticText(normalized)) {
+    return [];
+  }
+
+  const expanded = expandAbility(
     {
       type: AbilityType.STATIC,
       text: normalized,
@@ -8121,6 +9408,10 @@ export function expandStandaloneKeywordCostAbilities(
     } as OracleIRAbility,
     normalized
   );
+  if (expanded.length === 1 && expanded[0].steps.length === 0) {
+    return [];
+  }
+  return expanded;
 }
 
 /** Expands standalone Hideaway N (...) reminder lines into their executable ETB steps. */
@@ -10459,7 +11750,7 @@ export function expandBlightPrefixAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
   return abilities.map((ability) => {
-    const effectText = String(ability.effectText || '').trim();
+    const effectText = String(ability.effectText || ability.text || '').trim();
     const match = effectText.match(/\byou may blight (\d+)\b/i);
     if (!match) return ability;
     const count = parseInt(String(match[1] || ''), 10);
@@ -12189,6 +13480,13 @@ export function pruneLateKeywordReminderOnlyAbilities(
         return [];
       }
 
+      if (
+        (ability.steps.length === 0 || ability.steps.every((step) => step.kind === 'unknown')) &&
+        /^x can't be 0\. activate only during your turn\b/i.test(normalizedText)
+      ) {
+        return [];
+      }
+
       const isUnknownOnlyAbility = ability.steps.length === 0 || ability.steps.every((step) => step.kind === 'unknown');
 
       if (
@@ -12198,7 +13496,7 @@ export function pruneLateKeywordReminderOnlyAbilities(
           /^ascend(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^banding(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^bargain(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
-          /^bloodthirst\s+\d+(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
+          /^bloodthirst\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^bushido\s+\d+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^conspire(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
           /^crew\s+\d+[.)]*$/i.test(normalizedText) ||
@@ -12233,8 +13531,28 @@ export function pruneLateKeywordReminderOnlyAbilities(
           /^riot(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
           /^vanishing\s+\d+(?:\s*\(.*)?[.)]*$/i.test(normalizedText) ||
           /^wither(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
-          /^splice(?:\s+onto\s+.+?)?\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText)
+          /^splice(?:\s+onto\s+.+?)?\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^partner(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^changeling(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^infect(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^fear(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^start your engines!?[.)]*$/i.test(normalizedText) ||
+          /^attach this permanent to target creature you control(?:\.\s*activate only as a sorcery)?[.)]*$/i.test(normalizedText) ||
+          /^reconfigure\s+(?:\{[^}]+\})+(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^(?:plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk)(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^aftermath(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^skulk(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^horsemanship(?:\s*\(.*\))?[.)]*$/i.test(normalizedText) ||
+          /^enchant (?:permanent|artifact(?: or creature)?|artifact|creature(?: you control)?|land|player)[.)]*$/i.test(normalizedText) ||
+          /^do this only once each turn[.)]*$/i.test(normalizedText)
         )
+      ) {
+        return [];
+      }
+
+      if (
+        isUnknownOnlyAbility &&
+        /^as this saga enters and after your draw step, add a lore counter/i.test(normalizedText)
       ) {
         return [];
       }
@@ -12270,10 +13588,42 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
   const normalizedModalHeader = normalizedText.replace(/\s*-\s*$/g, '').trim();
 
   return (
-    /^as this saga enters and after your draw step, add a lore counter$/i.test(normalizedText) ||
+    /^as this saga enters and after your draw step, add a lore counter(?:\.\s*sacrifice after [ivxlcdm]+\.?)?$/i.test(normalizedText) ||
+    /^as a saga enters, choose a chapter and start with that many lore counters(?:\.\s*sacrifice after [ivxlcdm]+\.?)?$/i.test(normalizedText) ||
+    /^read ahead \(choose a chapter and start with that many lore counters(?:\.\s*sacrifice after [ivxlcdm]+\.?)?$/i.test(normalizedText) ||
+    /^partner(?:\s*\(you can have two commanders if both have partner(?:\.?\s*each other)?\))?\.?$/i.test(normalizedText) ||
+    /^infect(?:\s*\(this creature deals damage to creatures in the form of -1\/-1 counters and to players in the form of poison counters\))?\.?$/i.test(normalizedText) ||
+    /^fear(?:\s*\(this creature can(?:not|'t) be blocked except by artifact creatures and(?:\/or)? black creatures\))?\.?$/i.test(normalizedText) ||
+    /^start your engines!?\.?$/i.test(normalizedText) ||
+    /^attach this permanent to target creature you control(?:\.\s*activate only as a sorcery\.?)?$/i.test(normalizedText) ||
+    /^reconfigure\s+(?:\{[^}]+\})*(?:\s*\([^)]*\))?\.?$/i.test(normalizedText) ||
+    /^(?:plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk)(?:\s*\([^)]*\))?(?:,\s*(?:plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk)(?:\s*\([^)]*\))?)*\.?$/i.test(normalizedText) ||
+    /^aftermath(?:\s*\(cast this spell only from your graveyard\. then exile it\))?\.?$/i.test(normalizedText) ||
+    /^skulk(?:\s*\(this creature can(?:not|'t) be blocked by creatures with greater power\))?\.?$/i.test(normalizedText) ||
+    /^skulk$/i.test(normalizedText) ||
+    /^horsemanship(?:\s*\(this creature can(?:not|'t) be blocked except by creatures with horsemanship\))?\.?$/i.test(normalizedText) ||
+    /^horsemanship$/i.test(normalizedText) ||
+    /^enchant (?:permanent|artifact(?: or creature)?|artifact|creature(?: you control)?|land|player)$/i.test(normalizedText) ||
+    /^do this only once each turn\.?$/i.test(normalizedText) ||
+    /^as a siege enters,.+$/i.test(normalizedText) ||
+    /^threshold\s*[-—]\s*as long as there are (?:seven|\d+) or more cards in your graveyard,.+$/i.test(normalizedText) ||
+    /^this land enters tapped unless\b.+/i.test(normalizedText) ||
+    /^this permanent enters tapped unless\b.+/i.test(normalizedText) ||
+    /^return this card transformed under its owner's control(?:\.\s*craft only as a sorcery\.?)?$/i.test(normalizedText) ||
+    /^spell mastery\s*[-—]\s*if there are two or more instant and\/or sorcery cards in your graveyard,.+$/i.test(normalizedText) ||
+    /^gift a card\s*\(.+$/i.test(normalizedText) ||
     /^devoid \(this card has no color\)?$/i.test(normalizedText) ||
     /^gain the next level as a sorcery to add its ability$/i.test(normalizedText) ||
     /^offspring\s+(?:\{[^}]+\})+\s*\(you may pay an additional (?:\{[^}]+\})+ as you cast this spell$/i.test(normalizedText) ||
+    /^offspring\s+(?:\{[^}]+\})+\s*\(/i.test(normalizedText) ||
+    /^partner-friends forever\s*\(/i.test(normalizedText) ||
+    /^enchant creature or vehicle$/i.test(normalizedText) ||
+    /^this spell costs \{1\} less to cast for each instant and sorcery card in your graveyard\.?$/i.test(normalizedText) ||
+    /^this spell costs \{1\} less to cast for each creature card in your graveyard\.?$/i.test(normalizedText) ||
+    /^this spell costs \{1\} less to cast for each creature in your party\.?\s*(?:\(|$)/i.test(normalizedText) ||
+    /^enchant land you control$/i.test(normalizedText) ||
+    /^gift a\b/i.test(normalizedText) ||
+    /^casualty \d+\b/i.test(normalizedText) ||
     /^enchant (?:creature(?: you control)?|land|player)$/i.test(normalizedText) ||
     /^ward\s*(?:\{[^}]+\}|\d+)$/i.test(normalizedText) ||
     /^ward\s*(?:-|-)\s*(?:discard|sacrifice|pay)\b.+$/i.test(normalizedText) ||
@@ -12302,6 +13652,10 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^damage causes loss of life$/i.test(normalizedText) ||
     /^damage dealt to creatures(?: by this creature)? also causes (?:that much )?loss of life$/i.test(normalizedText) ||
     /^damage dealt by it also causes you to gain that much life$/i.test(normalizedText) ||
+    /^if you would gain life, you gain that much life plus \d+ instead\.?$/i.test(normalizedText) ||
+    /^x can't be 0\.?$/i.test(normalizedText) ||
+    /^hideaway\s+\d+\b/i.test(normalizedText) ||
+    /^as long as this permanent is paired with another creature,.+$/i.test(normalizedText) ||
     /^if you cast a spell this way, you still pay its costs$/i.test(normalizedText) ||
     /^you can play a land this way only if you have an available land play remaining$/i.test(normalizedText) ||
     /^if you cast this permanent this way, you can(?:'|â€™)?t play the other card$/i.test(normalizedText) ||
@@ -12592,6 +13946,25 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
   );
 }
 
+export function isExternallyHandledOracleFragmentText(raw: string): boolean {
+  return isCurrentBatchReminderOrPlatformOnlyText(raw);
+}
+
+export function createExternallyHandledOracleFragmentGrantStep(raw: string): OracleEffectStep {
+  const normalized = normalizeOracleText(String(raw || ''))
+    .replace(/\s+/g, ' ')
+    .trim();
+  const keywordGrant = parseStructuredKeywordActionGrant(normalized, {});
+  if (keywordGrant && keywordGrant.length > 0) return keywordGrant[0];
+  return {
+    kind: 'grant_static_ability',
+    target: parseObjectSelector('this permanent'),
+    effectText: [normalized],
+    duration: 'static',
+    raw: normalized,
+  } as OracleEffectStep;
+}
+
 function isClueArtifactReminderTailText(raw: string): boolean {
   const normalizedText = normalizeOracleText(String(raw || ''))
     .replace(/^[()\s]+/, '')
@@ -12851,7 +14224,17 @@ export function pruneRedundantBandingReminderUnknownAbilities(
     if (!referencesBanding) return [ability];
 
     const nextSteps = ability.steps.filter((step) => !isRedundantBandingReminderUnknownStep(step));
-    if (nextSteps.length === ability.steps.length) return [ability];
+    if (nextSteps.length === ability.steps.length) {
+      const abilityText = String(ability.text || ability.effectText || '').trim();
+      if (
+        nextSteps.length === 0 &&
+        /\bbanding\b/i.test(abilityText) &&
+        !hasNonBandingKeywordOnlyStaticText(abilityText)
+      ) {
+        return [];
+      }
+      return [ability];
+    }
 
     const onlyKeywordStepsRemain = nextSteps.length > 0 && nextSteps.every((step) => {
       if (step.kind !== 'unknown') return false;
@@ -12862,6 +14245,13 @@ export function pruneRedundantBandingReminderUnknownAbilities(
     });
 
     if (nextSteps.length === 0 || onlyKeywordStepsRemain) {
+      const abilityText = String(ability.text || ability.effectText || '').trim();
+      if (
+        isKeywordOnlyStaticAbilityText(abilityText) &&
+        hasNonBandingKeywordOnlyStaticText(abilityText)
+      ) {
+        return [{ ...ability, steps: nextSteps }];
+      }
       return [];
     }
 
@@ -12930,6 +14320,15 @@ export function pruneExternallyHandledStaticUnknownAbilities(
     const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
       .replace(/\s+/g, ' ')
       .trim();
+    const hasStructuredKeywordGrant = ability.steps.some(
+      (step) =>
+        step.kind === 'grant_static_ability' &&
+        Array.isArray((step as { abilities?: string[] }).abilities) &&
+        ((step as { abilities?: string[] }).abilities?.length || 0) > 0
+    );
+    if (hasStructuredKeywordGrant) {
+      return [ability];
+    }
     const isUnknownOnlyAbility = ability.steps.length > 0 && ability.steps.every((step) => step.kind === 'unknown');
 
     if (
@@ -14553,6 +15952,7 @@ function uniqueLifeCandidates(rawText: string | undefined): string[] {
 function parseLifeMetadataStep(rawText: string | undefined): OracleEffectStep | null {
   for (const candidate of uniqueLifeCandidates(rawText)) {
     const normalized = normalizeClauseForParse(candidate);
+    if (/^until end of turn,\s+whenever\b/i.test(normalized.clause)) continue;
     const triggerBody = normalized.clause.match(/^(?:(?:when|whenever)\b.+?|at the beginning of\b.+?),\s+(.+)$/i);
     const body = triggerBody ? String(triggerBody[1] || '').trim() : normalized.clause;
     const andLife = body.match(/\band\s+((?:you|each player|each other player|each opponent|target player|target opponent|that player|that opponent)\s+(?:gains?|loses?)\s+.+?\s+life)$/i);
@@ -15587,6 +16987,43 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
   return null;
 }
 
+function trySplitOpportunisticDragonCompoundStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  const raw = normalizeOracleText(String(step.raw || ''))
+    .replace(/^•\s*/, '')
+    .replace(/[.)"]+$/g, '')
+    .trim();
+  const match = raw.match(
+    /^for as long as this creature remains on the battlefield, gain control of that permanent, it loses all abilities, and it can(?:'|\u2019)?t attack(?: or block)?\.?$/i
+  );
+  if (!match) return null;
+
+  const sharedMeta = step.sequence ? { sequence: step.sequence } : {};
+  return [
+    {
+      kind: 'gain_control',
+      what: parseObjectSelector('that permanent'),
+      newController: { kind: 'you' },
+      duration: 'static',
+      raw,
+      ...sharedMeta,
+    } as OracleEffectStep,
+    {
+      kind: 'cant_attack',
+      target: parseObjectSelector('that permanent'),
+      duration: 'static',
+      raw: "that permanent can't attack",
+      ...sharedMeta,
+    } as OracleEffectStep,
+    {
+      kind: 'cant_block',
+      target: parseObjectSelector('that permanent'),
+      duration: 'static',
+      raw: "that permanent can't block",
+      ...sharedMeta,
+    } as OracleEffectStep,
+  ];
+}
+
 function mapAndSplitCompoundMoveZoneSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
   const expanded: OracleEffectStep[] = [];
 
@@ -15618,6 +17055,12 @@ function mapAndSplitCompoundMoveZoneSteps(steps: readonly OracleEffectStep[]): O
     const split = trySplitBattlefieldAndOtherZoneCompoundStep(step);
     if (split) {
       expanded.push(...split);
+      continue;
+    }
+
+    const opportunisticSplit = trySplitOpportunisticDragonCompoundStep(step);
+    if (opportunisticSplit) {
+      expanded.push(...opportunisticSplit);
       continue;
     }
 

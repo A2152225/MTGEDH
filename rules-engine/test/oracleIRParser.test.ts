@@ -1,5 +1,6 @@
 ﻿import { describe, it, expect } from 'vitest';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
+import { parseBareTriggerEffectFragmentSteps } from '../src/oracleIRParserPostprocess';
 
 function unwrapLeadingConditionalSteps(steps: readonly any[]): readonly any[] {
   const first = steps[0];
@@ -283,6 +284,572 @@ Whenever this creature attacks, you may cast an Ally spell from among cards you 
         amount: { kind: 'number', value: 2 },
         target: { kind: 'raw', text: 'target land you control' },
         raw: 'earthbend 2',
+      }),
+    ]);
+  });
+
+  it('parses earthbend X with where-X on a single step', () => {
+    const ir = parseOracleTextToIR(
+      'earthbend X, where X is the number of creatures you control with power 4 or greater.',
+      'The Boulder'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'earthbend',
+        amount: { kind: 'x' },
+        whereX: { kind: 'where', raw: 'the number of creatures you control with power 4 or greater' },
+        target: { kind: 'raw', text: 'target land you control' },
+      }),
+    ]);
+  });
+
+  it('parses bare trigger fragments for experience counter and Greasefang vehicle return', () => {
+    const experience = parseOracleTextToIR('you get an experience counter', 'Azlask, the Corrupting');
+    expect(experience.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'add_player_counter',
+        counter: 'experience',
+        amount: { kind: 'number', value: 1 },
+      }),
+    ]);
+
+    const greasefang = parseBareTriggerEffectFragmentSteps(
+      "return target vehicle card from your graveyard to the battlefield. it gains haste. return it to its owner's hand at the beginning of your next end step."
+    );
+    expect(greasefang?.map((step) => step.kind)).toEqual([
+      'move_zone',
+      'grant_temporary_ability',
+      'schedule_delayed_trigger',
+    ]);
+  });
+
+  it('parses keyword-only static oracle lines into grant_static_ability steps', () => {
+    const flying = parseOracleTextToIR('Flying', 'Sunspire Griffin');
+    expect(flying.abilities).toEqual([
+      expect.objectContaining({
+        type: 'static',
+        text: 'Flying',
+        steps: [
+          expect.objectContaining({
+            kind: 'grant_static_ability',
+            abilities: ['flying'],
+            target: { kind: 'raw', text: 'this permanent' },
+          }),
+        ],
+      }),
+    ]);
+
+    const compound = parseOracleTextToIR('Flying, vigilance', 'Segovian Angel');
+    expect(compound.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: expect.arrayContaining(['flying', 'vigilance']),
+      }),
+    ]);
+
+    const lifelink = parseOracleTextToIR(
+      'Lifelink (Damage dealt by this creature also causes you to gain that much life.)',
+      'Blood Glutton'
+    );
+    expect(lifelink.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['lifelink'],
+      }),
+    ]);
+
+    const protection = parseOracleTextToIR('Flying, protection from red', 'Bay Falcon');
+    expect(protection.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['flying'],
+        effectText: ['protection from red'],
+      }),
+    ]);
+
+    const banding = parseOracleTextToIR(
+      'Trample; banding (Any creatures with banding, and up to one without, can attack in a band.)',
+      'War Elephant'
+    );
+    expect(banding.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: expect.arrayContaining(['trample', 'banding']),
+      }),
+    ]);
+
+    const firebendingCompound = parseOracleTextToIR('Trample, firebending 4, haste', 'Ozai, the Phoenix King');
+    expect(firebendingCompound.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: expect.arrayContaining(['trample', 'firebending 4', 'haste']),
+      }),
+    ]);
+
+    const enchantRestriction = parseOracleTextToIR('Enchant creature without flying', 'Roots');
+    expect(enchantRestriction.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        target: { kind: 'raw', text: 'this aura' },
+        effectText: ['Enchant creature without flying'],
+      }),
+    ]);
+  });
+
+  it('parses P6 keyword audit edge cases into structured IR', () => {
+    const fatalFissure = parseOracleTextToIR(
+      'Choose target creature. When that creature dies this turn, you earthbend 4. (Target land you control becomes a 0/0 creature with haste that\'s still a land. Put four +1/+1 counters on it. When it dies or is exiled, return it to the battlefield tapped.)',
+      'Fatal Fissure'
+    );
+    expect(collectUnknownSteps(fatalFissure)).toEqual([]);
+    expect(fatalFissure.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'choose_target_creature' }),
+        expect.objectContaining({
+          kind: 'schedule_delayed_trigger',
+          steps: [expect.objectContaining({ kind: 'earthbend', amount: { kind: 'number', value: 4 } })],
+        }),
+      ])
+    );
+
+    const blossomingCalm = parseOracleTextToIR(
+      'You gain hexproof until your next turn. You gain 2 life.',
+      'Blossoming Calm'
+    );
+    expect(collectUnknownSteps(blossomingCalm)).toEqual([]);
+    expect(blossomingCalm.abilities[0]?.steps?.[0]).toEqual(
+      expect.objectContaining({
+        kind: 'grant_temporary_ability',
+        abilities: ['hexproof'],
+        duration: 'until_next_turn',
+      })
+    );
+
+    const unagi = parseOracleTextToIR(
+      'Flash\nWard—Waterbend {4}. (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {4}. They can tap their artifacts and creatures to help. Each one pays for {1}.)',
+      'The Unagi of Kyoshi Island'
+    );
+    expect(
+      collectUnknownSteps(unagi).some((step) => /^ward[-—]waterbend/i.test(String(step.raw || '')))
+    ).toBe(false);
+    expect(unagi.abilities.flatMap((a) => a.steps)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_static_ability',
+          effectText: ['ward—waterbend {4}'],
+        }),
+      ])
+    );
+
+    const aegisAngel = parseOracleTextToIR(
+      'Flying (This creature can\'t be blocked except by creatures with flying or reach.)\nWhen this creature enters, another target permanent gains indestructible for as long as you control this creature. (Effects that say "destroy" don\'t destroy it. A creature with indestructible can\'t be destroyed by damage.)',
+      'Aegis Angel'
+    );
+    expect(collectUnknownSteps(aegisAngel)).toEqual([]);
+
+    const spryAndMighty = parseOracleTextToIR(
+      "Choose exactly two creatures you control. You draw X cards and the chosen creatures get +X/+X and gain trample until end of turn, where X is the difference between the chosen creatures' powers.",
+      'Spry and Mighty'
+    );
+    expect(collectUnknownSteps(spryAndMighty)).toEqual([]);
+    expect(spryAndMighty.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'draw', amount: { kind: 'x' } }),
+        expect.objectContaining({ kind: 'modify_pt', powerUsesX: true, toughnessUsesX: true }),
+        expect.objectContaining({ kind: 'grant_temporary_ability', abilities: ['trample'] }),
+      ])
+    );
+  });
+
+  it('promotes trigger keyword-action fragments to structured grant_static_ability steps', async () => {
+    const { collectStepsFromIrText } = await import('../../server/scripts/executor-coverage-audit.ts');
+
+    const blitzSteps = collectStepsFromIrText(
+      "exile the top card of each player's library. you may play those cards this turn, and you may spend mana as though it were mana of any type to cast them. blitz {2}{r}",
+      'Mezzio Mugger'
+    );
+    expect(blitzSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_static_ability',
+          abilities: ['blitz {2}{r}'],
+          target: { kind: 'raw', text: 'this card' },
+        }),
+      ])
+    );
+
+    const dredgeSteps = collectStepsFromIrText('you gain 2 life. dredge 2', 'Golgari Brownscale');
+    expect(dredgeSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_static_ability',
+          abilities: ['dredge 2'],
+        }),
+      ])
+    );
+
+    const compoundSteps = collectStepsFromIrText('transform this enchantment. flying crew 1', 'Sidequest: Card Collection');
+    expect(compoundSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_static_ability',
+          abilities: expect.arrayContaining(['flying', 'crew 1']),
+        }),
+      ])
+    );
+  });
+
+  it('promotes isolated keyword reminder fragments to structured grant_static_ability steps', async () => {
+    const { collectStepsFromIrText, dryRunOracleSteps } = await import('../../server/scripts/executor-coverage-audit.ts');
+
+    const partnerSteps = collectStepsFromIrText(
+      'Partner (You can have two commanders if both have partner.)',
+      'Thrasios, Triton Hero'
+    );
+    expect(partnerSteps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['partner'],
+      }),
+    ]);
+
+    const changelingSteps = collectStepsFromIrText('Changeling (This card is every creature type.)', 'Mirror Entity');
+    expect(changelingSteps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['changeling'],
+      }),
+    ]);
+
+    const infectSteps = collectStepsFromIrText(
+      'Infect (This creature deals damage to creatures in the form of -1/-1 counters and to players in the form of poison counters.)',
+      'Blight Mamba'
+    );
+    expect(infectSteps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['infect'],
+      }),
+    ]);
+
+    const attachSteps = collectStepsFromIrText(
+      'Attach this permanent to target creature you control. Activate only as a sorcery.',
+      'Experimental Lab'
+    );
+    expect(attachSteps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        effectText: expect.arrayContaining([
+          expect.stringMatching(/^attach this permanent to target creature you control/i),
+        ]),
+      }),
+    ]);
+
+    const sagaSteps = collectStepsFromIrText(
+      '(As this Saga enters and after your draw step, add a lore counter. Sacrifice after VI.)',
+      'Long List of the Ents'
+    );
+    expect(sagaSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_static_ability',
+          effectText: expect.arrayContaining([
+            expect.stringMatching(/\bas this saga enters and after your draw step/i),
+          ]),
+        }),
+      ])
+    );
+
+    const onceSteps = collectStepsFromIrText('Do this only once each turn.', 'Lucy MacLean');
+    expect(onceSteps).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'grant_static_ability' })])
+    );
+
+    const skulkSteps = collectStepsFromIrText(
+      "Skulk (This creature can't be blocked by creatures with greater power.)",
+      'Vampire Cutthroat'
+    );
+    expect(skulkSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'grant_static_ability', abilities: ['skulk'] }),
+      ])
+    );
+
+    const enchantSteps = collectStepsFromIrText('Enchant permanent', 'Rune of Sustenance');
+    expect(enchantSteps).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'grant_static_ability' })])
+    );
+
+    const etbSteps = collectStepsFromIrText(
+      'This land enters tapped unless you control two or more basic lands.',
+      ' Concealed Courtyard'
+    );
+    expect(etbSteps).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'grant_static_ability' })])
+    );
+
+    const regenSteps = collectStepsFromIrText('Regenerate enchanted creature.', 'Keldon Mantle');
+    const regenRec = dryRunOracleSteps(
+      regenSteps,
+      { name: 'Keldon Mantle', type_line: 'Enchantment — Aura', oracle_text: 'Regenerate enchanted creature.' },
+      [],
+      { typeLine: 'Enchantment — Aura' }
+    );
+    expect(regenRec.status).toBe('fully_applied');
+  });
+
+  it('promotes trigger residual fragments to structured steps', async () => {
+    const { collectStepsFromIrText } = await import('../../server/scripts/executor-coverage-audit.ts');
+
+    const flipSteps = collectStepsFromIrText('flip this creature', 'Initiate of Blood');
+    expect(flipSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'turn_face_up', target: { kind: 'raw', text: 'this creature' } }),
+      ])
+    );
+
+    const coinSteps = collectStepsFromIrText('flip a coin at end of combat', 'Fickle Efreet');
+    expect(coinSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'flip_coin', who: { kind: 'you' } }),
+      ])
+    );
+
+    const skullbriarSteps = collectStepsFromIrText(
+      "counters remain on this permanent as it moves to any zone other than a player's hand or library",
+      'Skullbriar, the Walking Grave'
+    );
+    expect(skullbriarSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_static_ability',
+          target: { kind: 'raw', text: 'this permanent' },
+        }),
+      ])
+    );
+    expect(skullbriarSteps.some((step) => String((step as any).target?.text || '').includes('pass21'))).toBe(false);
+
+    const sarumanSteps = collectStepsFromIrText("amass orcs x, where x is that spell's mana value", 'Saruman, the White Hand');
+    expect(sarumanSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_static_ability',
+          abilities: ['amass orcs x'],
+        }),
+      ])
+    );
+
+    const entwineSteps = collectStepsFromIrText('entwine {2}{b}', 'Shriveling Rot');
+    expect(entwineSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_static_ability',
+          abilities: ['entwine {2}{b}'],
+        }),
+      ])
+    );
+    expect(entwineSteps.some((step) => String((step as any).target?.text || '').includes('pass30'))).toBe(false);
+
+    const flyingTransformSteps = collectStepsFromIrText(
+      'flying as this creature transforms into this permanent, choose an opponent',
+      'Zenos yae Galvus'
+    );
+    expect(flyingTransformSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'grant_static_ability', abilities: ['flying'] }),
+      ])
+    );
+    expect(flyingTransformSteps.some((step) => String((step as any).target?.text || '').includes('pass32'))).toBe(false);
+  });
+
+  it('parses has/have ward templating into abilities array', () => {
+    const saruman = parseOracleTextToIR('Goblins and Orcs you control have ward {2}.', 'Saruman, the White Hand');
+    expect(saruman.abilities.flatMap((a) => a.steps)).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['ward 2'],
+      }),
+    ]);
+
+    const chains = parseOracleTextToIR('Enchanted creature has ward {2}.', 'Chains of Custody');
+    expect(chains.abilities.flatMap((a) => a.steps)).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['ward 2'],
+      }),
+    ]);
+
+    const invasion = parseOracleTextToIR(
+      'Other transformed permanents you control have trample and ward {2}.',
+      'Invasion of Pyrulea // Gargantuan Slabhorn'
+    );
+    expect(invasion.abilities.flatMap((a) => a.steps)).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['trample', 'ward 2'],
+      }),
+    ]);
+
+    const dancingSword = parseOracleTextToIR(
+      'You may have this equipment become a 2/1 Construct artifact creature with flying and ward {1}.',
+      'Dancing Sword'
+    );
+    expect(dancingSword.abilities.flatMap((a) => a.steps)).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['flying', 'ward 1'],
+      }),
+    ]);
+  });
+
+  it('parses compound static keyword lines with ward costs', () => {
+    const imperiosaur = parseOracleTextToIR('Trample, ward {2}', 'Ancient Imperiosaur');
+    expect(collectUnknownSteps(imperiosaur)).toEqual([]);
+    expect(imperiosaur.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['trample', 'ward 2'],
+        target: { kind: 'raw', text: 'this permanent' },
+      }),
+    ]);
+
+    const tyrranax = parseOracleTextToIR('Trample, ward {4}, haste', 'Tyrranax Rex');
+    expect(collectUnknownSteps(tyrranax)).toEqual([]);
+    expect(tyrranax.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['trample', 'haste', 'ward 4'],
+      }),
+    ]);
+
+    const khenra = parseOracleTextToIR(
+      'Trample, ward {2}, prowess, prowess (Each instance of prowess triggers separately.)',
+      'Khenra Spellspear // Gitaxian Spellstalker'
+    );
+    expect(collectUnknownSteps(khenra)).toEqual([]);
+    expect(khenra.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['trample', 'prowess', 'ward 2'],
+      }),
+    ]);
+
+    const spiderMan = parseOracleTextToIR(
+      "Vigilance, trample (Attacking doesn't cause this creature to tap",
+      'Spider-Man, Miles Morales'
+    );
+    expect(collectUnknownSteps(spiderMan)).toEqual([]);
+    expect(spiderMan.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: expect.arrayContaining(['vigilance', 'trample']),
+        target: { kind: 'raw', text: 'this permanent' },
+      }),
+    ]);
+    expect(spiderMan.abilities[0]?.steps[0]?.abilities).toHaveLength(2);
+  });
+
+  it('parses standalone keyword fragments as distinct static and annihilator attack-trigger grants', () => {
+    const ulamog = parseOracleTextToIR(
+      'Destroy target permanent. Indestructible, annihilator 4 (Whenever this creature attacks, defending player sacrifices four permanents of their choice.)',
+      'Ulamog, the Infinite Gyre'
+    );
+    expect(collectUnknownSteps(ulamog)).toEqual([]);
+    const ulamogSteps = ulamog.abilities.flatMap((ability) => ability.steps);
+    expect(ulamogSteps).toEqual([
+      expect.objectContaining({ kind: 'destroy', raw: 'Destroy target permanent' }),
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['indestructible'],
+        target: { kind: 'raw', text: 'this permanent' },
+      }),
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['annihilator 4'],
+        effectText: ['Whenever this creature attacks, defending player sacrifices 4 permanents of their choice.'],
+        steps: [
+          expect.objectContaining({
+            kind: 'sacrifice',
+            who: { kind: 'target_opponent' },
+            raw: 'Defending player sacrifices 4 permanents of their choice.',
+          }),
+        ],
+      }),
+    ]);
+
+    const flayerTail = parseOracleTextToIR('Annihilator 2 trample', 'Flayer of Loyalties');
+    expect(collectUnknownSteps(flayerTail)).toEqual([]);
+    expect(flayerTail.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['trample'],
+      }),
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['annihilator 2'],
+        effectText: ['Whenever this creature attacks, defending player sacrifices 2 permanents of their choice.'],
+      }),
+    ]);
+  });
+
+  it('enriches annihilator metadata on temporary and static grant clause paths', () => {
+    const flayer = parseOracleTextToIR(
+      'Until end of turn, it has base power and toughness 10/10 and gains trample, annihilator 2, and haste.',
+      'Flayer of Loyalties'
+    );
+    const flayerSteps = flayer.abilities.flatMap((ability) => ability.steps);
+    expect(flayerSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_temporary_ability',
+          abilities: ['trample', 'haste'],
+          duration: 'end_of_turn',
+        }),
+        expect.objectContaining({
+          kind: 'grant_temporary_ability',
+          abilities: ['annihilator 2'],
+          duration: 'end_of_turn',
+          effectText: ['Whenever this creature attacks, defending player sacrifices 2 permanents of their choice.'],
+          steps: [
+            expect.objectContaining({
+              kind: 'sacrifice',
+              who: { kind: 'target_opponent' },
+            }),
+          ],
+        }),
+      ])
+    );
+
+    const azlask = parseOracleTextToIR(
+      'Scions and spawns you control gain indestructible and annihilator 1 until end of turn.',
+      'Azlask, the Swelling Scourge'
+    );
+    const azlaskSteps = azlask.abilities.flatMap((ability) => ability.steps);
+    expect(azlaskSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'grant_temporary_ability', abilities: ['indestructible'] }),
+        expect.objectContaining({
+          kind: 'grant_temporary_ability',
+          abilities: ['annihilator 1'],
+          effectText: ['Whenever this creature attacks, defending player sacrifices a permanent of their choice.'],
+        }),
+      ])
+    );
+
+    const idol = parseOracleTextToIR('It has annihilator 2.', 'Idol of False Gods');
+    const idolSteps = idol.abilities.flatMap((ability) => ability.steps);
+    expect(idolSteps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_static_ability',
+        abilities: ['annihilator 2'],
+        effectText: ['Whenever this creature attacks, defending player sacrifices 2 permanents of their choice.'],
+        steps: [
+          expect.objectContaining({
+            kind: 'sacrifice',
+            who: { kind: 'target_opponent' },
+          }),
+        ],
       }),
     ]);
   });
