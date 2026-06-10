@@ -44,7 +44,10 @@ import {
   applyEngineEffects,
   runSBA,
 } from "./modules/counters_tokens";
-import { pushStack, resolveTopOfStack, playLand, exileEntireStack } from "./modules/stack";
+import { pushStack } from "./modules/stackPushUtils.js";
+import { resolveTopOfStack } from "./modules/stackResolveTopOfStackUtils.js";
+import { playLand } from "./modules/stackPlayLandUtils.js";
+import { exileEntireStack } from "./modules/stackExileUtils.js";
 import { viewFor } from "./modules/view";
 import { applyEvent, replay, reset, skip, unskip, remove } from "./modules/applyEvent";
 import { mulberry32 } from "../utils/rng";

@@ -20,7 +20,7 @@ import { requiresColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
 import { checkAndPromptOpeningHandActions, isOpeningHandBattlefieldCard } from "./opening-hand";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
-import { inferTriggeredAbilityTargetMetadata } from "../state/modules/stack.js";
+import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferGenericTriggeredAbilityTargetMetadata } from "../state/modules/triggers/index.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
@@ -34,7 +34,11 @@ import {
 import { PAY_X_LIFE_CARDS, cardManaValue, getMaxPayableLife, validateLifePayment, uid, oracleTextReferencesCard } from "../state/utils";
 import { continueCastFromGraveyardAbility, detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../state/resolution/index.js";
-import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js";
+import {
+  extractModalModesForSpellCast,
+  extractModalModesFromOracleText,
+  matchModalModeOptions,
+} from "../utils/oraclePromptContext.js";
 import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
@@ -1812,7 +1816,7 @@ async function restoreSuspendedLibrarySearchStep(
  *
  * Only runs for `type === 'spell'` or `type === 'ability'` stack items.
  * `choose_mode` steps are skipped here because modal selection is handled
- * at cast time via extractModalModesFromOracleText.
+ * at cast time via extractModalModesForSpellCast.
  */
 async function processOracleIRInteractions(
   io: Server,
@@ -1856,7 +1860,7 @@ async function processOracleIRInteractions(
 
   for (const ability of (ir?.abilities ?? [])) {
     for (const step of (ability?.steps ?? [])) {
-      // choose_mode is handled at cast time via extractModalModesFromOracleText
+      // choose_mode is handled at cast time via extractModalModesForSpellCast
       if (step.kind === 'choose_mode') continue;
       // Only queue prompts for optional ("you may") steps
       if (!(step as any).optional) continue;
@@ -5817,7 +5821,7 @@ export async function requestCastSpellForSocket(
 
     const modalSpellInfo = isInstantOrSorcery
       ? adjustModalSpellInfoForTeamworkCast(
-          adjustModalSpellInfoForCurrentCast(extractModalModesFromOracleText(baseOracleText), game.state, String(playerId), baseOracleText),
+          adjustModalSpellInfoForCurrentCast(extractModalModesForSpellCast(baseOracleText, cardName), game.state, String(playerId), baseOracleText),
           baseOracleText,
           (cardForCast as any)?.teamworkWasPaid === true || (cardInHand as any)?.teamworkWasPaid === true,
         )
@@ -7158,17 +7162,17 @@ export async function requestCastSpellForSocket(
   }
 }
 
-function getSelectedModalOracleText(oracleText: string, selectedModes?: unknown): string {
+function getSelectedModalOracleText(oracleText: string, selectedModes?: unknown, spellName = ''): string {
   const selectedModeIds = Array.isArray(selectedModes)
     ? selectedModes.map((mode: unknown) => String(mode || '')).filter(Boolean)
     : [];
 
   if (selectedModeIds.length === 0) return oracleText;
 
-  const modalInfo = extractModalModesFromOracleText(oracleText);
+  const modalInfo = extractModalModesForSpellCast(oracleText, spellName);
   if (!modalInfo) return oracleText;
 
-  const selectedOptions = modalInfo.options.filter((option) => selectedModeIds.includes(String(option.id)));
+  const selectedOptions = matchModalModeOptions(modalInfo, selectedModeIds);
   if (selectedOptions.length === 0) return oracleText;
 
   return selectedOptions.map((option) => option.raw).join('\n');
@@ -7343,14 +7347,13 @@ function getEntwineCostForSelectedModes(oracleText: string, selectedModes?: unkn
 
   if (selectedModeIds.length === 0) return undefined;
 
-  const modalInfo = extractModalModesFromOracleText(oracleText);
+  const modalInfo = extractModalModesForSpellCast(oracleText);
   if (!modalInfo?.entwineCost) return undefined;
 
-  const selectedSet = new Set(selectedModeIds);
-  const allModeIds = modalInfo.options.map((option) => String(option.id));
-  if (allModeIds.length === 0 || selectedSet.size !== allModeIds.length) return undefined;
+  const matchedOptions = matchModalModeOptions(modalInfo, selectedModeIds);
+  if (matchedOptions.length !== modalInfo.options.length) return undefined;
 
-  return allModeIds.every((id) => selectedSet.has(id)) ? modalInfo.entwineCost : undefined;
+  return modalInfo.entwineCost;
 }
 
 function repeatManaCost(cost: string, count: number): string {
@@ -8531,7 +8534,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Permanents like Glorious Sunrise have "At the beginning of combat on your turn, choose one ΓÇö" which is a TRIGGER, not a modal spell
       const modalSpellInfo = isInstantOrSorcery
         ? adjustModalSpellInfoForTeamworkCast(
-            adjustModalSpellInfoForCurrentCast(extractModalModesFromOracleText(baseOracleText), game.state, String(playerId), baseOracleText),
+            adjustModalSpellInfoForCurrentCast(
+              extractModalModesForSpellCast(baseOracleText, String(cardInHand.name || '')),
+              game.state,
+              String(playerId),
+              baseOracleText,
+            ),
             baseOracleText,
             (cardInHand as any)?.teamworkWasPaid === true,
           )

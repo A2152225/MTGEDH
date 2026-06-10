@@ -7,6 +7,7 @@ import {
   type OracleIRExecutionOptions,
   type OracleIRExecutionResult,
 } from '../../../../rules-engine/src/oracleIRExecutor.js';
+import { resolveSingleCreatureTargetId } from '../../../../rules-engine/src/oracleIRExecutorCreatureStepUtils.js';
 import { resolveOracleQuantity } from '../../../../rules-engine/src/oracleIRExecutorResolveQuantity.js';
 import { resolvePlayers } from '../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
 import { buildSacrificeTargetSelectionOptions } from '../../../../rules-engine/src/oracleIRExecutorBattlefieldStepHandlers.js';
@@ -15,6 +16,7 @@ import {
   buildExploreDecisionFromStep,
   buildLookChooseFromTopSelectionOptions,
   buildLookSelectTopSelectionOptions,
+  buildSearchLibrarySelectionOptions,
 } from '../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
 import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
 import type { GameContext } from '../context.js';
@@ -28,7 +30,34 @@ import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
  * while rules-engine Oracle IR reads/writes player.library on state.players.
  * Hydrate before IR execution and sync back afterward.
  */
+/**
+ * Clone ctx.libraries for Oracle IR shadow probes so draw/mill steps cannot mutate live game libraries.
+ */
+export function buildShadowProbeContext(ctx: GameContext): GameContext {
+  const libraries = (ctx as any).libraries as Map<PlayerID, any[]> | undefined;
+  const clonedLibraries = new Map<PlayerID, any[]>();
+  if (libraries && typeof libraries.entries === 'function') {
+    for (const [playerId, cards] of libraries.entries()) {
+      clonedLibraries.set(
+        playerId as PlayerID,
+        Array.isArray(cards) ? cards.map((card) => ({ ...card })) : [],
+      );
+    }
+  }
+  return { ...(ctx as any), libraries: clonedLibraries } as GameContext;
+}
+
 export function hydrateOracleIRPlayerZonesFromContext(ctx: GameContext, state: any): void {
+  for (const player of state.players || []) {
+    const playerId = String(player?.id || '').trim();
+    if (!playerId) continue;
+
+    const lifeFromState = state.life?.[playerId];
+    if (typeof lifeFromState === 'number') {
+      player.life = lifeFromState;
+    }
+  }
+
   const libraries = (ctx as any).libraries as Map<string, any[]> | undefined;
   if (!libraries || typeof libraries.get !== 'function') return;
 
@@ -76,7 +105,7 @@ export function syncOracleIRPlayerZonesToContext(
   graveyardBefore: Map<string, Set<string>>,
 ): void {
   const libraries = (ctx as any).libraries as Map<string, any[]> | undefined;
-  if (!libraries || typeof libraries.set !== 'function') return;
+  const canSyncLibraries = Boolean(libraries && typeof libraries.set === 'function');
 
   const zones = state.zones = state.zones || {};
   let changed = false;
@@ -84,6 +113,14 @@ export function syncOracleIRPlayerZonesToContext(
   for (const player of state.players || []) {
     const playerId = String(player?.id || '').trim();
     if (!playerId) continue;
+
+    if (typeof player.life === 'number') {
+      state.life = state.life || {};
+      state.life[playerId] = player.life;
+      changed = true;
+    }
+
+    if (!canSyncLibraries) continue;
 
     const playerZones = zones[playerId] = zones[playerId] || {
       hand: [],
@@ -717,6 +754,797 @@ function queueLookChooseChoicePromptsFromOracleIRResult(
   }
 }
 
+function queueSearchLibraryChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (String(gap.stepKind || '') !== 'search_library') continue;
+
+    const step = findSkippedOracleStep(result, gap);
+    if (!step || step.kind !== 'search_library') continue;
+
+    const built = buildSearchLibrarySelectionOptions(
+      state,
+      step as Extract<OracleEffectStep, { kind: 'search_library' }>,
+      params.irCtx,
+    );
+    if (!built || built.matches.length === 0) continue;
+
+    const queueKey = `search_library:${String((step as any).raw || '')}:${built.playerId}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    const destination = built.destination === 'battlefield'
+      ? 'battlefield'
+      : built.destination === 'graveyard'
+        ? 'graveyard'
+        : built.destination === 'exile'
+          ? 'exile'
+          : built.destination === 'top'
+            ? 'top'
+            : built.destination === 'bottom'
+              ? 'bottom'
+              : 'hand';
+
+    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      type: ResolutionStepType.LIBRARY_SEARCH,
+      playerId: built.playerId,
+      description: `${sourceName}: ${String((step as any).raw || 'Search your library')}`,
+      mandatory: (step as any).optional !== true,
+      sourceId,
+      sourceName,
+      searchCriteria: String((step as any).raw || 'Search your library'),
+      minSelections: built.minSelections,
+      maxSelections: built.maxSelections,
+      destination,
+      reveal: Boolean((step as any).revealFound),
+      shuffleAfter: (step as any).shuffle !== false,
+      availableCards: built.matches.map(normalizeTopLibraryPromptCard),
+      oracleIrChoiceStepJson: JSON.stringify([step]),
+      oracleIrControllerId: params.controller,
+      oracleIrSourceId: sourceId,
+      oracleIrSourceName: sourceName,
+    } as any, result, params) as any);
+  }
+}
+
+function parseChoosePileRevealCount(raw: string): number {
+  const match = String(raw || '').match(
+    /reveal\s+the\s+top\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+cards?/i,
+  );
+  if (!match) return 3;
+  const token = String(match[1] || '').toLowerCase();
+  const words: Record<string, number> = {
+    a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  };
+  if (words[token] !== undefined) return words[token];
+  const parsed = parseInt(token, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
+}
+
+function listActiveOpponentIds(state: any, controller: PlayerID): PlayerID[] {
+  return (state.players || [])
+    .filter((player: any) => String(player?.id || '') !== String(controller) && !player?.eliminated)
+    .map((player: any) => String(player.id).trim() as PlayerID)
+    .filter(Boolean);
+}
+
+function revealCardsFromControllerLibrary(
+  ctx: GameContext,
+  state: any,
+  controller: PlayerID,
+  count: number,
+): any[] {
+  const libraries = (ctx as any).libraries as Map<string, any[]> | undefined;
+  const player = (state.players || []).find((entry: any) => String(entry?.id || '') === String(controller));
+  let library = libraries?.get(controller);
+  if (!Array.isArray(library)) {
+    library = Array.isArray(player?.library)
+      ? [...player.library]
+      : [...(state.zones?.[controller]?.library || [])];
+  } else {
+    library = [...library];
+  }
+
+  const revealCount = Math.min(Math.max(0, count), library.length);
+  const revealed = library.splice(0, revealCount).map((card: any) => ({ ...card, zone: 'revealed' }));
+
+  if (libraries) {
+    libraries.set(controller, library);
+  }
+  if (player) {
+    player.library = library.map((card: any) => ({ ...card, zone: 'library' }));
+  }
+
+  const zones = state.zones || {};
+  const playerZones = { ...(zones[controller] || {}) };
+  playerZones.library = library;
+  playerZones.libraryCount = library.length;
+  state.zones = { ...zones, [controller]: playerZones };
+
+  return revealed;
+}
+
+function findNextLastSplitPileStep(steps: readonly OracleEffectStep[] | undefined): OracleEffectStep | undefined {
+  if (!Array.isArray(steps)) return undefined;
+  return steps.find((step) => step?.kind === 'choose_pile' && (step as any).source === 'last_split_piles');
+}
+
+function buildChoosePileSplitMetadata(
+  step: OracleEffectStep,
+  controller: PlayerID,
+  sourceName: string,
+  sourceId: string | undefined,
+  revealed: readonly any[],
+  result: OracleIRExecutionResult,
+  params: { controller: PlayerID; sourceName?: string; sourceId?: string },
+) {
+  const originalOrder = revealed.map((card) => String(card?.id || '')).filter(Boolean);
+  const chosenDestination = String((step as any).chosenDestination || 'hand');
+  const otherDestination = String((step as any).otherDestination || 'graveyard');
+  const nextChoosePileStep = findNextLastSplitPileStep(result.pendingContinuationSteps);
+  const choiceStepJson = nextChoosePileStep ? JSON.stringify([nextChoosePileStep]) : undefined;
+
+  return attachOracleIrResumeMetadata({
+    items: revealed.map((card) => ({
+      id: card.id,
+      label: card.name || card.id,
+      description: card.type_line,
+      imageUrl: card.image_uris?.normal || card.image_uris?.small,
+    })),
+    minPerPile: 0,
+    choosePileFromSplitChoice: true,
+    choosePileFromSplitChooserPlayerId: controller,
+    choosePileFromSplitSourceName: sourceName,
+    choosePileFromSplitItems: revealed.map((card) => ({ ...card })),
+    choosePileFromSplitOriginalOrder: originalOrder,
+    choosePileFromSplitChosenAction: 'move_cards',
+    choosePileFromSplitChosenDestination: chosenDestination,
+    choosePileFromSplitOtherDestination: otherDestination,
+    choosePileFromSplitMovePlayerId: controller,
+    choosePileFromSplitChoiceDescription: `${sourceName}: Choose a pile`,
+    choosePileFromSplitSplitMessage: `${sourceName}: The cards were separated into two piles.`,
+    ...(choiceStepJson ? {
+      oracleIrChoiceStepJson: choiceStepJson,
+      oracleIrPlayerChoiceKind: 'choose_pile',
+      oracleIrControllerId: controller,
+      oracleIrSourceId: sourceId,
+      oracleIrSourceName: sourceName,
+    } : {}),
+  } as Record<string, unknown>, result, params);
+}
+
+function queueChoosePileChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (String(gap.stepKind || '') !== 'choose_pile') continue;
+
+    const step = findSkippedOracleStep(result, gap);
+    if (!step || step.kind !== 'choose_pile') continue;
+
+    const chooser = String((gap.metadata as any)?.chooser || params.controller).trim() as PlayerID;
+    const queueKey = `choose_pile:${String((step as any).source || '')}:${String((step as any).raw || '')}:${chooser}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    const stepSource = String((step as any).source || 'last_split_piles');
+
+    if (stepSource === 'top_library') {
+      const revealCount = parseChoosePileRevealCount(String((step as any).raw || ''));
+      const revealed = revealCardsFromControllerLibrary(ctx, state, params.controller, revealCount);
+      if (revealed.length === 0) continue;
+
+      const opponents = listActiveOpponentIds(state, params.controller);
+      const splitMetadata = buildChoosePileSplitMetadata(
+        step,
+        params.controller,
+        sourceName,
+        sourceId,
+        revealed,
+        result,
+        params,
+      );
+
+      if (opponents.length === 0) {
+        const zones = state.zones?.[params.controller] || {};
+        const hand = Array.isArray(zones.hand) ? [...zones.hand] : [];
+        for (const card of revealed) {
+          hand.push({ ...card, zone: 'hand' });
+        }
+        state.zones = {
+          ...(state.zones || {}),
+          [params.controller]: {
+            ...zones,
+            hand,
+            handCount: hand.length,
+          },
+        };
+        continue;
+      }
+
+      if (opponents.length > 1) {
+        ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+          type: ResolutionStepType.OPTION_CHOICE,
+          playerId: params.controller,
+          description: `${sourceName}: Choose an opponent to separate the revealed cards into two piles`,
+          mandatory: (step as any).optional !== true,
+          sourceId,
+          sourceName,
+          options: opponents.map((opponentId) => ({ id: opponentId, label: opponentId })),
+          minSelections: 1,
+          maxSelections: 1,
+          choosePlayerForTwoPileSplitChoice: true,
+          choosePlayerForTwoPileSplitController: params.controller,
+          choosePlayerForTwoPileSplitSourceName: sourceName,
+          choosePlayerForTwoPileSplitDescription: `${sourceName}: Separate the revealed cards into two piles`,
+          choosePlayerForTwoPileSplitItems: revealed.map((card) => ({
+            id: card.id,
+            label: card.name || card.id,
+            description: card.type_line,
+            imageUrl: card.image_uris?.normal || card.image_uris?.small,
+          })),
+          choosePlayerForTwoPileSplitMinPerPile: 0,
+          ...splitMetadata,
+        } as any, result, params) as any);
+        continue;
+      }
+
+      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        type: ResolutionStepType.TWO_PILE_SPLIT,
+        playerId: opponents[0],
+        description: `${sourceName}: Separate the revealed cards into two piles`,
+        mandatory: (step as any).optional !== true,
+        sourceId,
+        sourceName,
+        ...splitMetadata,
+      } as any, result, params) as any);
+      continue;
+    }
+
+    const storedSplit = (state as any).oracleIrLastSplitPiles as {
+      pileA?: string[];
+      pileB?: string[];
+      items?: any[];
+      originalOrder?: string[];
+      chosenDestination?: string;
+      otherDestination?: string;
+      movePlayerId?: PlayerID;
+    } | undefined;
+
+    const pilePayload = storedSplit?.pileA && storedSplit?.pileB
+      ? {
+          choosePileFromSplitChoice: true,
+          choosePileFromSplitChooserPlayerId: chooser,
+          choosePileFromSplitSourceName: sourceName,
+          choosePileFromSplitItems: storedSplit.items || [],
+          choosePileFromSplitOriginalOrder: storedSplit.originalOrder,
+          choosePileFromSplitChosenAction: 'move_cards',
+          choosePileFromSplitChosenDestination: storedSplit.chosenDestination
+            || String((step as any).chosenDestination || 'hand'),
+          choosePileFromSplitOtherDestination: storedSplit.otherDestination
+            || String((step as any).otherDestination || 'graveyard'),
+          choosePileFromSplitMovePlayerId: storedSplit.movePlayerId || params.controller,
+          choosePileFromSplitPileA: storedSplit.pileA,
+          choosePileFromSplitPileB: storedSplit.pileB,
+        }
+      : {};
+
+    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: chooser,
+      description: `${sourceName}: ${String((step as any).raw || 'Choose a pile')}`,
+      mandatory: (step as any).optional !== true,
+      sourceId,
+      sourceName,
+      options: [
+        { id: 'pileA', label: 'Pile A' },
+        { id: 'pileB', label: 'Pile B' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      oracleIrChoiceStepJson: JSON.stringify([step]),
+      oracleIrControllerId: params.controller,
+      oracleIrSourceId: sourceId,
+      oracleIrSourceName: sourceName,
+      oracleIrPlayerChoiceKind: 'choose_pile',
+      ...pilePayload,
+    } as any, result, params) as any);
+  }
+}
+
+function queueChangeTargetChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (String(gap.stepKind || '') !== 'change_target') continue;
+
+    const step = findSkippedOracleStep(result, gap);
+    if (!step || step.kind !== 'change_target') continue;
+
+    const metadata = (gap.metadata || {}) as Record<string, unknown>;
+    const phase = String(metadata.changeTargetPhase || 'choose_spell').trim();
+    const queueKey = `change_target:${phase}:${String((step as any).raw || '')}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    if (phase === 'choose_new_target') {
+      const chosenSpellId = String(metadata.chosenSpellId || '').trim();
+      const candidateTargetIds = Array.isArray(metadata.candidateTargetIds)
+        ? metadata.candidateTargetIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+      const validTargets = (state.battlefield || [])
+        .filter((perm: any) => candidateTargetIds.length === 0 || candidateTargetIds.includes(String(perm?.id || '')))
+        .map((perm: any) => ({
+          id: String(perm.id || ''),
+          name: String(perm?.card?.name || perm?.name || 'Permanent'),
+          type: 'permanent',
+        }))
+        .filter((target: any) => target.id);
+
+      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: params.controller,
+        description: `${sourceName}: ${String((step as any).raw || 'Choose a new target')}`,
+        mandatory: (step as any).optional !== true,
+        sourceId,
+        sourceName,
+        minTargets: 1,
+        maxTargets: 1,
+        validTargets,
+        oracleIrChoiceStepJson: JSON.stringify([step]),
+        oracleIrControllerId: params.controller,
+        oracleIrSourceId: sourceId,
+        oracleIrSourceName: sourceName,
+        oracleIrChangeTargetPhase: 'choose_new_target',
+        oracleIrTargetSpellId: chosenSpellId,
+      } as any, result, params) as any);
+      continue;
+    }
+
+    const candidateSpellIds = Array.isArray(metadata.candidateSpellIds)
+      ? metadata.candidateSpellIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const stack = Array.isArray(state.stack) ? state.stack : [];
+    const options = candidateSpellIds.map((spellId) => {
+      const item = stack.find((entry: any) => String(entry?.id || '') === spellId);
+      const name = String(item?.card?.name || item?.name || item?.sourceName || spellId);
+      return { id: spellId, label: name };
+    }).filter((option) => option.id);
+
+    if (options.length === 0) continue;
+
+    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: params.controller,
+      description: `${sourceName}: ${String((step as any).raw || 'Choose a spell')}`,
+      mandatory: (step as any).optional !== true,
+      sourceId,
+      sourceName,
+      options,
+      minSelections: 1,
+      maxSelections: 1,
+      oracleIrChoiceStepJson: JSON.stringify([step]),
+      oracleIrControllerId: params.controller,
+      oracleIrSourceId: sourceId,
+      oracleIrSourceName: sourceName,
+      oracleIrChangeTargetPhase: 'choose_spell',
+    } as any, result, params) as any);
+  }
+}
+
+function extractOracleIrSelectionIds(selections: unknown): string[] {
+  if (typeof selections === 'string') {
+    const id = selections.trim();
+    return id ? [id] : [];
+  }
+  if (Array.isArray(selections)) {
+    return selections
+      .map((entry) => {
+        if (typeof entry === 'string') return entry.trim();
+        if (entry && typeof entry === 'object') {
+          return String((entry as any).id || (entry as any).optionId || (entry as any).value || '').trim();
+        }
+        return '';
+      })
+      .filter(Boolean);
+  }
+  if (selections && typeof selections === 'object') {
+    const record = selections as Record<string, unknown>;
+    for (const key of ['selectedIds', 'selectedCardIds', 'selectedTargetIds', 'targets', 'selections']) {
+      if (Array.isArray(record[key])) {
+        return extractOracleIrSelectionIds(record[key]);
+      }
+    }
+  }
+  return [];
+}
+
+function buildConniveDiscardPrompt(
+  state: any,
+  step: Extract<OracleEffectStep, { kind: 'connive' }>,
+  irCtx: OracleIRExecutionContext,
+): { playerId: PlayerID; discardCount: number; hand: any[] } | null {
+  const targetId = resolveSingleCreatureTargetId(state, step.target, irCtx);
+  if (!targetId) return null;
+
+  const target = (state.battlefield || []).find((perm: any) => String(perm?.id || '').trim() === targetId);
+  const playerId = String(target?.controller || irCtx.controllerId || '').trim() as PlayerID;
+  if (!playerId) return null;
+
+  const amount = resolveOracleQuantity(
+    state,
+    irCtx.controllerId,
+    step.amount as OracleQuantity,
+    irCtx,
+    playerId,
+    { whereX: (step as any).whereX },
+  );
+  if (amount === null || amount <= 0) return null;
+
+  const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === playerId);
+  const hand = Array.isArray(player?.hand) ? player.hand : [];
+  if (hand.length <= amount) return null;
+
+  return {
+    playerId,
+    discardCount: amount,
+    hand: hand.map((card: any) => ({
+      id: String(card?.id || ''),
+      name: String(card?.name || card?.card?.name || card?.id || 'Card'),
+      type_line: card?.type_line || card?.card?.type_line,
+      oracle_text: card?.oracle_text || card?.card?.oracle_text,
+      imageUrl: card?.image_uris?.normal || card?.imageUrl,
+      mana_cost: card?.mana_cost || card?.card?.mana_cost,
+      cmc: card?.cmc ?? card?.card?.cmc,
+    })).filter((card) => card.id),
+  };
+}
+
+function buildPlayerChoicePrompt(
+  step: Extract<OracleEffectStep, { kind: 'player_choice' }>,
+  params: { controller: PlayerID; sourceName: string; sourceId?: string },
+): Record<string, unknown> | null {
+  const description = `${params.sourceName}: ${String(step.raw || 'Make a choice')}`;
+  const base = {
+    mandatory: step.optional !== true,
+    sourceId: params.sourceId,
+    sourceName: params.sourceName,
+    oracleIrChoiceStepJson: JSON.stringify([step]),
+    oracleIrControllerId: params.controller,
+    oracleIrSourceId: params.sourceId,
+    oracleIrSourceName: params.sourceName,
+    oracleIrPlayerChoiceKind: step.choice,
+  };
+
+  if (step.choice === 'card_type') {
+    return {
+      ...base,
+      type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+      playerId: params.controller,
+      description,
+    };
+  }
+
+  if (step.choice === 'letter') {
+    const options = Array.isArray(step.options) && step.options.length > 0
+      ? step.options.map((value) => ({ id: String(value), label: String(value) }))
+      : 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((letter) => ({ id: letter, label: letter }));
+    return {
+      ...base,
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: params.controller,
+      description,
+      options,
+      minSelections: 1,
+      maxSelections: 1,
+    };
+  }
+
+  if (step.choice === 'odd_even') {
+    return {
+      ...base,
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: params.controller,
+      description,
+      options: [
+        { id: 'odd', label: 'Odd' },
+        { id: 'even', label: 'Even' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+    };
+  }
+
+  const genericOptions = Array.isArray(step.options)
+    ? step.options.map((value) => ({ id: String(value), label: String(value) })).filter((option) => option.id)
+    : [];
+  if (genericOptions.length === 0) return null;
+
+  return {
+    ...base,
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: params.controller,
+    description,
+    options: genericOptions,
+    minSelections: 1,
+    maxSelections: 1,
+  };
+}
+
+function manaSymbolToColorCode(symbol: string): string | null {
+  const match = String(symbol || '').trim().match(/^\{?([WUBRG])\}?$/i);
+  return match ? match[1]!.toUpperCase() : null;
+}
+
+function poolKeyToManaSymbol(poolKey: string): string | null {
+  const normalized = String(poolKey || '').trim().toLowerCase();
+  const codeByPoolKey: Record<string, string> = {
+    white: 'W',
+    blue: 'U',
+    black: 'B',
+    red: 'R',
+    green: 'G',
+    colorless: 'C',
+  };
+  const code = codeByPoolKey[normalized] || (normalized.match(/^[wubrg]$/) ? normalized.toUpperCase() : '');
+  return code ? `{${code}}` : null;
+}
+
+function buildChosenManaFromDistribution(distribution: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const [color, countRaw] of Object.entries(distribution)) {
+    const count = Number(countRaw || 0);
+    const code = String(color || '').trim().toUpperCase();
+    if (!Number.isFinite(count) || count <= 0 || !/^[WUBRG]$/.test(code)) continue;
+    for (let index = 0; index < count; index += 1) {
+      parts.push(`{${code}}`);
+    }
+  }
+  return parts.join('');
+}
+
+function buildAddManaColorSelectionPrompt(
+  state: any,
+  step: Extract<OracleEffectStep, { kind: 'add_mana' }>,
+  irCtx: OracleIRExecutionContext,
+  params: { controller: PlayerID; sourceName: string; sourceId?: string },
+): Record<string, unknown> | null {
+  let allowedColors = Array.isArray(step.manaOptions)
+    ? step.manaOptions.map(manaSymbolToColorCode).filter(Boolean) as string[]
+    : [];
+  if (allowedColors.length === 0 && step.requiresChosenMana) {
+    allowedColors = ['W', 'U', 'B', 'R', 'G'];
+  }
+  if (allowedColors.length <= 1) {
+    return null;
+  }
+
+  const playerIds = [...resolvePlayers(state, step.who, irCtx)];
+  const playerId = playerIds[0] || params.controller;
+  if (!playerId) return null;
+
+  const rawText = String(step.raw || '').trim();
+  const amount = resolveOracleQuantity(state, params.controller, step.amount as OracleQuantity, irCtx)
+    ?? (step.amount?.kind === 'number' ? Math.max(0, Math.floor(step.amount.value)) : 1)
+    ?? 1;
+  const requiresCombinationChoice = /any combination of/i.test(rawText) && amount > 1;
+  const requiresRepeatedSingleChoice = /any one color/i.test(rawText) && amount > 1;
+
+  const base = {
+    type: ResolutionStepType.MANA_COLOR_SELECTION,
+    playerId,
+    sourceId: params.sourceId,
+    sourceName: params.sourceName,
+    description: `${params.sourceName}: ${rawText || 'Choose a color'}`,
+    mandatory: step.optional !== true,
+    oracleIrChoiceStepJson: JSON.stringify([step]),
+    oracleIrControllerId: params.controller,
+    oracleIrSourceId: params.sourceId,
+    oracleIrSourceName: params.sourceName,
+    cardName: params.sourceName,
+  };
+
+  if (requiresCombinationChoice || requiresRepeatedSingleChoice) {
+    return {
+      ...base,
+      selectionKind: 'distribution',
+      totalAmount: amount,
+      availableColors: allowedColors,
+      allowedColors,
+      amount,
+    };
+  }
+
+  return {
+    ...base,
+    selectionKind: 'any_color',
+    amount: Math.max(1, amount),
+    allowedColors,
+  };
+}
+
+function queueAddManaChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (String(gap.stepKind || '') !== 'add_mana') continue;
+
+    const step = findSkippedOracleStep(result, gap);
+    if (!step || step.kind !== 'add_mana') continue;
+
+    const prompt = buildAddManaColorSelectionPrompt(
+      state,
+      step as Extract<OracleEffectStep, { kind: 'add_mana' }>,
+      params.irCtx,
+      { controller: params.controller, sourceName, sourceId },
+    );
+    if (!prompt) continue;
+
+    const queueKey = `add_mana:${String((step as any).raw || '')}:${String(prompt.playerId || params.controller)}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata(prompt, result, params) as any);
+  }
+}
+
+function queueConniveChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (String(gap.stepKind || '') !== 'connive') continue;
+
+    const step = findSkippedOracleStep(result, gap);
+    if (!step || step.kind !== 'connive') continue;
+
+    const built = buildConniveDiscardPrompt(state, step as Extract<OracleEffectStep, { kind: 'connive' }>, params.irCtx);
+    if (!built || built.hand.length <= built.discardCount) continue;
+
+    const targetId = resolveSingleCreatureTargetId(state, (step as any).target, params.irCtx) || undefined;
+    const queueKey = `connive:${String((step as any).raw || '')}:${built.playerId}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      type: ResolutionStepType.DISCARD_SELECTION,
+      playerId: built.playerId,
+      description: `${sourceName}: ${String((step as any).raw || 'Connive')}`,
+      mandatory: (step as any).optional !== true,
+      sourceId,
+      sourceName,
+      hand: built.hand,
+      discardCount: built.discardCount,
+      minDiscardCount: built.discardCount,
+      maxDiscardCount: built.discardCount,
+      currentHandSize: built.hand.length,
+      reason: 'connive',
+      oracleIrChoiceStepJson: JSON.stringify([step]),
+      oracleIrTargetPermanentId: targetId,
+      oracleIrControllerId: params.controller,
+      oracleIrSourceId: sourceId,
+      oracleIrSourceName: sourceName,
+    } as any, result, params) as any);
+  }
+}
+
+function queuePlayerChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  _state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (String(gap.stepKind || '') !== 'player_choice') continue;
+
+    const step = findSkippedOracleStep(result, gap);
+    if (!step || step.kind !== 'player_choice') continue;
+
+    const queueKey = `player_choice:${String((step as any).choice || '')}:${String((step as any).raw || '')}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    const prompt = buildPlayerChoicePrompt(
+      step as Extract<OracleEffectStep, { kind: 'player_choice' }>,
+      { controller: params.controller, sourceName, sourceId },
+    );
+    if (!prompt) continue;
+
+    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata(prompt, result, params) as any);
+  }
+}
+
 function findSkippedOracleStep(
   result: OracleIRExecutionResult,
   gap: { readonly stepKind?: string; readonly raw?: string }
@@ -949,7 +1777,8 @@ export function resumeOracleIRStepWithChoiceFromResolution(
     sourceId?: string;
     sourceName?: string;
     steps: readonly OracleEffectStep[];
-    chosenObjectIds: readonly string[];
+    chosenObjectIds?: readonly string[];
+    selectorContext?: Record<string, unknown>;
     targetPlayerId?: PlayerID;
     targetSpellId?: string;
   },
@@ -958,12 +1787,13 @@ export function resumeOracleIRStepWithChoiceFromResolution(
     return null;
   }
 
-  const chosenObjectIds = params.chosenObjectIds
+  const chosenObjectIds = (params.chosenObjectIds || [])
     .map((id) => String(id || '').trim())
     .filter(Boolean);
-  if (chosenObjectIds.length === 0) {
-    return null;
-  }
+  const selectorContext = {
+    ...(params.selectorContext || {}),
+    ...(chosenObjectIds.length > 0 ? { chosenObjectIds } : {}),
+  };
 
   const irCtx = buildOracleIRExecutionContext(
     {
@@ -971,12 +1801,19 @@ export function resumeOracleIRStepWithChoiceFromResolution(
       sourceId: params.sourceId,
       sourceName: params.sourceName,
       targetSpellId: params.targetSpellId,
-      selectorContext: { chosenObjectIds },
+      ...(typeof params.selectorContext?.targetPermanentId === 'string'
+        ? { targetPermanentId: String(params.selectorContext.targetPermanentId) }
+        : {}),
+      selectorContext,
     },
     {
       targetPlayerId: params.targetPlayerId,
       targetSpellId: params.targetSpellId,
-      chosenObjectIds,
+      targetPermanentId: typeof params.selectorContext?.targetPermanentId === 'string'
+        ? String(params.selectorContext.targetPermanentId)
+        : undefined,
+      chosenObjectIds: chosenObjectIds.length > 0 ? chosenObjectIds : undefined,
+      ...(params.selectorContext || {}),
     },
   );
 
@@ -1018,17 +1855,111 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
     return null;
   }
 
-  const rawSelections = response.selections;
-  const chosenObjectIds = Array.isArray(rawSelections)
-    ? rawSelections.map((entry) => String(entry || '').trim()).filter(Boolean)
-    : [];
+  const firstStep = choiceSteps[0];
+  const playerChoiceKind = String(step?.oracleIrPlayerChoiceKind || (firstStep as any)?.choice || '').trim();
+  const selectionIds = extractOracleIrSelectionIds(response.selections);
+  const controller = String(step?.oracleIrControllerId || step?.playerId || '').trim() as PlayerID;
+  const probeCtx = buildOracleIRExecutionContext({
+    controllerId: controller,
+    sourceId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
+    sourceName: String(step?.oracleIrSourceName || step?.sourceName || '').trim() || undefined,
+    targetPermanentId: String(step?.oracleIrTargetPermanentId || '').trim() || undefined,
+  });
+
+  let chosenObjectIds: string[] | undefined;
+  let selectorContext: Record<string, unknown> | undefined;
+  let targetPermanentId: string | undefined = String(step?.oracleIrTargetPermanentId || '').trim() || undefined;
+
+  if (firstStep?.kind === 'connive') {
+    targetPermanentId = targetPermanentId
+      || resolveSingleCreatureTargetId((ctx as any).state, (firstStep as any).target, probeCtx)
+      || undefined;
+  }
+
+  if (firstStep?.kind === 'add_mana') {
+    const selectionKind = String(step?.selectionKind || 'any_color');
+    if (selectionKind === 'distribution') {
+      const distribution = response.selections;
+      if (!distribution || typeof distribution !== 'object' || Array.isArray(distribution)) {
+        return null;
+      }
+      const chosenMana = buildChosenManaFromDistribution(distribution as Record<string, unknown>);
+      if (!chosenMana) {
+        return null;
+      }
+      selectorContext = { chosenMana };
+    } else {
+      const poolKey = typeof response.selections === 'string'
+        ? response.selections
+        : selectionIds[0];
+      const chosenMana = poolKeyToManaSymbol(String(poolKey || ''));
+      if (!chosenMana) {
+        return null;
+      }
+      selectorContext = { chosenMana };
+    }
+  } else if (firstStep?.kind === 'choose_pile' || playerChoiceKind === 'choose_pile') {
+    const pileId = selectionIds[0] || '';
+    if (!pileId) {
+      return null;
+    }
+    selectorContext = { chosenPile: pileId, pileChoice: pileId };
+  } else if (firstStep?.kind === 'change_target') {
+    const phase = String(step?.oracleIrChangeTargetPhase || 'choose_spell').trim();
+    if (phase === 'choose_new_target') {
+      const chosenSpellId = String(step?.oracleIrTargetSpellId || '').trim();
+      if (!chosenSpellId || selectionIds.length === 0) {
+        return null;
+      }
+      chosenObjectIds = [chosenSpellId, ...selectionIds];
+      selectorContext = { chosenSpellId, chosenObjectIds };
+    } else if (selectionIds.length === 0) {
+      return null;
+    } else {
+      chosenObjectIds = selectionIds;
+      selectorContext = { chosenSpellId: selectionIds[0], chosenObjectIds: selectionIds };
+    }
+  } else if (firstStep?.kind === 'connive' || firstStep?.kind === 'discard' || firstStep?.kind === 'sacrifice' || firstStep?.kind === 'search_library') {
+    if (selectionIds.length === 0) {
+      return null;
+    }
+    chosenObjectIds = selectionIds;
+  } else if (firstStep?.kind === 'player_choice' || playerChoiceKind) {
+    const choiceId = selectionIds[0] || '';
+    if (!choiceId) {
+      return null;
+    }
+    if (playerChoiceKind === 'letter' || (firstStep as any)?.choice === 'letter') {
+      selectorContext = { chosenLetter: choiceId.slice(0, 1) };
+    } else if (playerChoiceKind === 'odd_even' || (firstStep as any)?.choice === 'odd_even') {
+      const normalized = choiceId.toLowerCase();
+      if (normalized !== 'odd' && normalized !== 'even') {
+        return null;
+      }
+      selectorContext = { chosenOddEven: normalized };
+    } else if (playerChoiceKind === 'card_type' || (firstStep as any)?.choice === 'card_type') {
+      selectorContext = { chosenCreatureType: choiceId };
+    } else {
+      selectorContext = { chosenObjectIds: [choiceId] };
+    }
+  } else if (selectionIds.length > 0) {
+    chosenObjectIds = selectionIds;
+  } else {
+    return null;
+  }
+
+  const mergedSelectorContext = {
+    ...(selectorContext || {}),
+    ...(targetPermanentId ? { targetPermanentId } : {}),
+  };
 
   return resumeOracleIRStepWithChoiceFromResolution(ctx, {
-    controller: String(step?.oracleIrControllerId || step?.playerId || '').trim() as PlayerID,
+    controller,
     sourceId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
     sourceName: String(step?.oracleIrSourceName || step?.sourceName || '').trim() || undefined,
     steps: choiceSteps,
-    chosenObjectIds,
+    ...(chosenObjectIds ? { chosenObjectIds } : {}),
+    ...(Object.keys(mergedSelectorContext).length > 0 ? { selectorContext: mergedSelectorContext } : {}),
   });
 }
 
@@ -1120,6 +2051,23 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
   });
+  queueConniveChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueAddManaChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queuePlayerChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+  });
   queueProliferateChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -1143,6 +2091,22 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
+  });
+  queueSearchLibraryChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueChoosePileChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+  });
+  queueChangeTargetChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
   });
   return result;
 }

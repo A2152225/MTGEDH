@@ -69,7 +69,9 @@ import {
   runSBA,
 } from "./counters_tokens.js";
 import { evaluateAction } from "../../rules-engine/index.js";
-import { pushStack, resolveTopOfStack, playLand } from "./stack.js";
+import { pushStack } from "./stackPushUtils.js";
+import { resolveTopOfStack } from "./stackResolveTopOfStackUtils.js";
+import { playLand } from "./stackPlayLandUtils.js";
 import { nextTurn, nextStep, passPriority } from "./turn.js";
 import { reconcileZonesConsistency } from "./zones.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";

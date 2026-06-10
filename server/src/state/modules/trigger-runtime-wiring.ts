@@ -11,7 +11,7 @@ import { isSupportedCopyPermanentTriggerPattern } from './trigger-copy-permanent
 export { isSupportedCopyPermanentTriggerPattern } from './trigger-copy-permanent.js';
 
 /**
- * Step kinds handled by applyOracleIRFallbackForUncategorizedSpell for mandatory steps.
+ * Step kinds handled by applyOracleIRUncategorizedSpellFallback for mandatory steps.
  * Optional steps are skipped unless listed in TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS.
  */
 export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
@@ -139,6 +139,23 @@ export function parseTriggerEffectSteps(effectText: string, cardName: string): O
     }
   }
   return steps;
+}
+
+/**
+ * Parse oracle/trigger effect text to IR steps. Uses full-card IR first (spell-style),
+ * then falls back to trigger-fragment normalization used by executeTriggerEffect.
+ */
+export function collectOracleEffectSteps(oracleText: string, sourceName: string): OracleEffectStep[] {
+  const text = String(oracleText || '').trim();
+  if (!text) return [];
+
+  const ir = parseOracleTextToIR(text, sourceName);
+  const fromAbilities = (ir.abilities || []).flatMap((ability) => ability.steps || []);
+  if (fromAbilities.length > 0) {
+    return fromAbilities as OracleEffectStep[];
+  }
+
+  return parseTriggerEffectSteps(text, sourceName);
 }
 
 function collectUnwiredTriggerStepGaps(steps: readonly OracleEffectStep[]): string[] {

@@ -86,6 +86,48 @@ export function setDayNightState(state: any, next: DayNight): void {
   applyDayNightTransforms(state);
 }
 
+export function applyExplicitDayNightChangeFromText(state: any, rawText: string): void {
+  if (!state || !rawText) return;
+  try {
+    const text = String(rawText).replace(/\u2019/g, "'").toLowerCase();
+
+    if (text.includes('daybound') || text.includes('nightbound')) return;
+
+    const toggleNightToDay = /if\s+(?:it'?s|it\s+is)\s+night\s*,\s*it\s+becomes\s+day\b[\s\S]*?otherwise\s*,\s*it\s+becomes\s+night\b/.test(text);
+    const toggleDayToNight = /if\s+(?:it'?s|it\s+is)\s+day\s*,\s*it\s+becomes\s+night\b[\s\S]*?otherwise\s*,\s*it\s+becomes\s+day\b/.test(text);
+    if (toggleNightToDay) {
+      setDayNightState(state, state.dayNight === 'night' ? 'day' : 'night');
+      return;
+    }
+    if (toggleDayToNight) {
+      setDayNightState(state, state.dayNight === 'day' ? 'night' : 'day');
+      return;
+    }
+
+    const conditionalDayToNight = /\bif\s+(?:it'?s|it\s+is)\s+day\s*,?\s*it\s+becomes\s+night\b/.test(text);
+    const conditionalNightToDay = /\bif\s+(?:it'?s|it\s+is)\s+night\s*,?\s*it\s+becomes\s+day\b/.test(text);
+    if (conditionalDayToNight) {
+      if (state.dayNight === 'day') setDayNightState(state, 'night');
+      return;
+    }
+    if (conditionalNightToDay) {
+      if (state.dayNight === 'night') setDayNightState(state, 'day');
+      return;
+    }
+
+    if (/\bit\s+becomes\s+day\b/.test(text)) {
+      setDayNightState(state, 'day');
+      return;
+    }
+    if (/\bit\s+becomes\s+night\b/.test(text)) {
+      setDayNightState(state, 'night');
+      return;
+    }
+  } catch {
+    // best-effort
+  }
+}
+
 export function ensureInitialDayNightDesignationFromBattlefield(state: any): void {
   if (!state?.battlefield) return;
   const dn: unknown = state.dayNight;

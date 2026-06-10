@@ -133,3 +133,82 @@ export function recordCardLeftGraveyardThisTurn(ctx: GameContext, ownerId: strin
     // best-effort only
   }
 }
+
+function getPermanentSpellTypeWords(card: any): string[] {
+  const typeLine = String(card?.type_line || card?.typeLine || '').toLowerCase();
+  return ['artifact', 'creature', 'enchantment', 'planeswalker', 'battle']
+    .filter((typeWord) => new RegExp(`\\b${typeWord}\\b`, 'i').test(typeLine));
+}
+
+export function recordGraveyardPermanentTypesCastThisTurn(state: any, playerId: string, card: any): void {
+  const permanentTypes = getPermanentSpellTypeWords(card);
+  if (permanentTypes.length === 0) return;
+
+  state.graveyardPermanentTypesCastThisTurn = state.graveyardPermanentTypesCastThisTurn || {};
+  const playerEntry = state.graveyardPermanentTypesCastThisTurn[String(playerId)] =
+    state.graveyardPermanentTypesCastThisTurn[String(playerId)] || {};
+
+  for (const typeWord of permanentTypes) {
+    playerEntry[typeWord] = true;
+  }
+}
+
+export function recordCommittedCrimeThisTurn(state: any, controllerId: string, targets: any[]): void {
+  const normalizedController = String(controllerId || '').trim();
+  if (!normalizedController || !Array.isArray(targets) || targets.length === 0) return;
+
+  try {
+    const playerIds = new Set(
+      Array.isArray(state?.players)
+        ? state.players.map((player: any) => String(player?.id ?? '')).filter(Boolean)
+        : [],
+    );
+    const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+    let committed = false;
+
+    for (const target of targets) {
+      if (target && typeof target === 'object' && (target.type === 'player' || target.type === 'permanent')) {
+        if (target.type === 'player') {
+          if (String(target.id || '') !== normalizedController) {
+            committed = true;
+            break;
+          }
+          continue;
+        }
+        const permController = target.controllerId ? String(target.controllerId) : '';
+        if (permController && permController !== normalizedController) {
+          committed = true;
+          break;
+        }
+        continue;
+      }
+
+      const targetId = String(typeof target === 'string' ? target : (target?.id ?? '')).trim();
+      if (!targetId) continue;
+      if (playerIds.has(targetId)) {
+        if (targetId !== normalizedController) {
+          committed = true;
+          break;
+        }
+        continue;
+      }
+      const perm = battlefield.find((entry: any) => String(entry?.id ?? '') === targetId);
+      const permController = perm?.controller ? String(perm.controller) : '';
+      if (permController && permController !== normalizedController) {
+        committed = true;
+        break;
+      }
+    }
+
+    if (committed) {
+      state.committedCrimeThisTurn = state.committedCrimeThisTurn || {};
+      state.committedCrimeThisTurn[normalizedController] = true;
+      state.crimeCommittedThisTurn = state.crimeCommittedThisTurn || {};
+      state.crimeCommittedThisTurn[normalizedController] = true;
+      state.hasCommittedCrimeThisTurn = state.hasCommittedCrimeThisTurn || {};
+      state.hasCommittedCrimeThisTurn[normalizedController] = true;
+    }
+  } catch {
+    // best-effort only
+  }
+}

@@ -15,7 +15,8 @@ import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLi
 import { movePermanentToGraveyard, trackPermanentSacrificedThisTurn } from "../state/modules/counters_tokens.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { queueSacrificeTriggers } from "../state/modules/triggers/sacrifice.js";
-import { queueSelfETBTriggersForPermanent, triggerETBEffectsForPermanent, triggerETBEffectsForToken } from "../state/modules/stack";
+import { queueSelfETBTriggersForPermanent, triggerETBEffectsForToken } from "../state/modules/triggerEtbEntryEffects.js";
+import { triggerETBEffectsForPermanent } from "../state/modules/triggerEtbPermanentEffects.js";
 import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { 
   getManaAbilitiesForPermanent, 

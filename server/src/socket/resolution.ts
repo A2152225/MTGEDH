@@ -89,20 +89,28 @@ import {
   clearPrisonersDilemmaChoiceBatch,
   recordDivineReckoningChoice,
   recordPrisonersDilemmaChoice,
-  applyTriggeredReanimationEntryRiders,
-  applyMyriadTokenCopies,
+} from "../state/modules/spellLegacyChoiceBatchUtils.js";
+import {
+  queueTributeChoiceOnEntry,
+} from "../state/modules/triggerTributeChoiceUtils.js";
+import { executeTriggerEffect } from "../state/modules/stackExecuteTriggerEffectUtils.js";
+import { applyTriggeredReanimationEntryRiders } from "../state/modules/triggerReanimationRiders.js";
+import { applyMyriadTokenCopies } from "../state/modules/triggerMyriadTokenUtils.js";
+import {
   applyPermanentBecomeCopyOfTargetPermanent,
   applyPermanentBecomeCopyOfCardData,
   findExiledCardById,
-  executeTriggerEffect,
-  inferTriggeredAbilityTargetMetadata,
+} from "../state/modules/permanent-copy.js";
+import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
+import {
   queueSelfETBTriggersForPermanent,
-  queueTributeChoiceOnEntry,
+  triggerETBEffectsForToken,
+} from "../state/modules/triggerEtbEntryEffects.js";
+import {
   returnExiledCardToBattlefield,
   scheduleExiledCardReturnToBattlefield,
-  triggerETBEffectsForPermanent,
-  triggerETBEffectsForToken,
-} from "../state/modules/stack.js";
+} from "../state/modules/executeSpellEffect.js";
+import { triggerETBEffectsForPermanent } from "../state/modules/triggerEtbPermanentEffects.js";
 import {
   buildPaymentCostAdjustmentPayload,
   creatureHasHaste,
@@ -118,6 +126,7 @@ import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../ut
 import { cleanupCardLeavingExile, removePlayableFromExileForCard, stripPlayableFromExileTags } from "../state/modules/playable-from-exile.js";
 import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "../state/modules/durable-permissions.js";
 import { destroyPermanent, movePermanentToExile, removePermanent } from "../state/modules/counters_tokens.js";
+import { markPermanentEnteredFromZone } from "../state/modules/triggerDelayedEffectUtils.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
 import { transformPermanentToFace } from "../state/modules/day-night.js";
@@ -176,32 +185,6 @@ type ResolutionPaymentItem = {
   count?: number;
   producedColors?: string[]; // Added producedColors property
 };
-
-function markPermanentEnteredFromZone(permanent: any, zone: string): void {
-  const normalizedZone = String(zone || '').trim().toLowerCase();
-  if (!permanent || !normalizedZone) return;
-
-  permanent.enteredFromZone = normalizedZone;
-  if (normalizedZone === 'graveyard') {
-    permanent.enteredFromGraveyard = true;
-  }
-
-  if (permanent.card && typeof permanent.card === 'object') {
-    permanent.card = {
-      ...(permanent.card as any),
-      enteredFromZone: normalizedZone,
-      ...(normalizedZone === 'graveyard' ? { enteredFromGraveyard: true } : null),
-    };
-  }
-
-  if (permanent.faceUpCard && typeof permanent.faceUpCard === 'object') {
-    permanent.faceUpCard = {
-      ...(permanent.faceUpCard as any),
-      enteredFromZone: normalizedZone,
-      ...(normalizedZone === 'graveyard' ? { enteredFromGraveyard: true } : null),
-    };
-  }
-}
 
 function cloneCascadeZoneCard(card: any, zone: 'library' | 'exile'): any {
   return card && typeof card === 'object' ? { ...card, zone } : card;
@@ -10994,6 +10977,10 @@ async function handleStepResponse(
 
     case ResolutionStepType.MANA_COLOR_SELECTION: {
       const stepData = step as any;
+      if (String(stepData.oracleIrChoiceStepJson || '').trim()) {
+        debug(2, `[Resolution] Mana color selection delegated to oracle IR apply: ${String(stepData.cardName || step.sourceName || 'Ability')}`);
+        break;
+      }
       const selectionKind = String(stepData.selectionKind || 'any_color');
       const permanentId = String(stepData.permanentId || step.sourceId || '');
       const cardName = String(stepData.cardName || step.sourceName || '');
@@ -16975,6 +16962,11 @@ async function handleTargetSelectionResponse(
   
   if (!Array.isArray(selections)) {
     debugWarn(1, `[Resolution] Invalid target selections: not an array`);
+    return;
+  }
+
+  if (String((step as any)?.oracleIrChoiceStepJson || '').trim()) {
+    debug(2, `[Resolution] Target selection delegated to oracle IR apply: ${String(step.sourceName || 'Ability')}`);
     return;
   }
   
@@ -24185,7 +24177,9 @@ async function handleLibrarySearchResponse(
   const { uid, parsePT, cardManaValue } = await import("../state/utils.js");
   const { applyCounterModifications } = await import("../state/modules/counters_tokens.js");
   const { getETBTriggersForPermanent } = await import("../state/modules/triggered-abilities.js");
-  const { triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkPermanentEntersTapped } = await import("../state/modules/stack.js");
+  const { triggerETBEffectsForPermanent, detectEntersWithCounters } = await import("../state/modules/stack.js");
+  const { creatureWillHaveHaste } = await import("../state/modules/creatureEntryHasteUtils.js");
+  const { checkPermanentEntersTapped } = await import("../state/modules/triggerPermanentEntersTapped.js");
   
   const state = game.state || {};
   const battlefield = state.battlefield = state.battlefield || [];
@@ -26096,7 +26090,23 @@ async function handleTwoPileSplitResponse(
       choosePileFromSplitChatMessage: stepData.choosePileFromSplitChatMessage,
       choosePileFromSplitPileA: pileA,
       choosePileFromSplitPileB: pileB,
+      oracleIrChoiceStepJson: stepData.oracleIrChoiceStepJson,
+      oracleIrResumeStepsJson: stepData.oracleIrResumeStepsJson,
+      oracleIrControllerId: stepData.oracleIrControllerId,
+      oracleIrSourceId: stepData.oracleIrSourceId || stepData.sourceId,
+      oracleIrSourceName: stepData.oracleIrSourceName || sourceName,
+      oracleIrPlayerChoiceKind: stepData.oracleIrPlayerChoiceKind,
     } as any);
+
+    (game.state as any).oracleIrLastSplitPiles = {
+      pileA,
+      pileB,
+      items: splitItems,
+      originalOrder: stepData.choosePileFromSplitOriginalOrder,
+      chosenDestination: stepData.choosePileFromSplitChosenDestination,
+      otherDestination: stepData.choosePileFromSplitOtherDestination,
+      movePlayerId: stepData.choosePileFromSplitMovePlayerId,
+    };
 
     appendQueuedResolutionPromptEvent(game, gameId, {
       playerId: chooserPlayerId,
@@ -26779,6 +26789,14 @@ async function handleOptionChoiceResponse(
   const playerId = response.playerId;
   
   debug(2, `[Resolution] Option choice response from ${playerId}: ${selectedOption}`);
+
+  if (
+    String(stepData?.oracleIrChoiceStepJson || '').trim()
+    && stepData?.choosePileFromSplitChoice !== true
+  ) {
+    debug(2, `[Resolution] Option choice delegated to oracle IR apply: ${String(step.sourceName || 'Ability')}`);
+    return;
+  }
 
   const extractId = (sel: any): string | null => {
     if (typeof sel === 'string') return sel;
@@ -29838,6 +29856,12 @@ async function handleOptionChoiceResponse(
       choosePileFromSplitChoiceDescription: stepData.choosePileFromSplitChoiceDescription,
       choosePileFromSplitChatMessage: stepData.choosePileFromSplitChatMessage,
       choosePileFromSplitSplitMessage: `${sourceName}: ${getPlayerName(game, chosenOpponentId)} separated the cards into two piles.`,
+      oracleIrChoiceStepJson: stepData.oracleIrChoiceStepJson,
+      oracleIrResumeStepsJson: stepData.oracleIrResumeStepsJson,
+      oracleIrControllerId: stepData.oracleIrControllerId,
+      oracleIrSourceId: stepData.oracleIrSourceId || stepData.sourceId,
+      oracleIrSourceName: stepData.oracleIrSourceName || sourceName,
+      oracleIrPlayerChoiceKind: stepData.oracleIrPlayerChoiceKind,
     } as any);
 
     try {
@@ -31447,7 +31471,9 @@ async function handleOptionChoiceResponse(
     const { uid, parsePT, cardManaValue } = await import('../state/utils.js');
     const { applyCounterModifications } = await import('../state/modules/counters_tokens.js');
     const { getETBTriggersForPermanent } = await import('../state/modules/triggered-abilities.js');
-    const { triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkPermanentEntersTapped } = await import('../state/modules/stack.js');
+    const { triggerETBEffectsForPermanent, detectEntersWithCounters } = await import('../state/modules/stack.js');
+    const { creatureWillHaveHaste } = await import('../state/modules/creatureEntryHasteUtils.js');
+    const { checkPermanentEntersTapped } = await import('../state/modules/triggerPermanentEntersTapped.js');
     const battlefield = state.battlefield = state.battlefield || [];
     const createdPermanentId = await putCardOntoBattlefield(
       libraryCard,

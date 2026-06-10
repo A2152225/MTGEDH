@@ -1,5 +1,5 @@
 import { appendEvent } from '../db/index.js';
-import { inferTriggeredAbilityTargetMetadata } from '../state/modules/stack.js';
+import { inferTriggeredAbilityTargetMetadata } from '../state/modules/inferTriggeredAbilityTargetMetadata.js';
 import { uid } from '../state/utils.js';
 import { debugWarn } from '../utils/debug.js';
 

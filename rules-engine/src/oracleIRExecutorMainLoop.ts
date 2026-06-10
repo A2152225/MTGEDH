@@ -108,6 +108,7 @@ import {
   applyAbandonSchemeStep,
   applyClashStep,
   applyChoosePileStep,
+  applyChangeTargetStep,
   applyCollectEvidenceStep,
   applyConniveStep,
   applyCreateEmblemStep,
@@ -521,14 +522,20 @@ function getLastDieRollResultForPlayer(state: GameState, playerId: PlayerID): nu
 }
 
 const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
+  'add_mana',
+  'change_target',
+  'choose_pile',
+  'connive',
   'discard',
   'explore',
   'look_choose_from_top',
   'look_select_top',
+  'player_choice',
   'proliferate',
   'populate',
   'sacrifice',
   'scry',
+  'search_library',
   'surveil',
 ]);
 
@@ -679,6 +686,9 @@ export function applyOracleIRStepsToGameStateImpl(
     onApplied?: (appliedResult: any) => void
   ): boolean => {
     if ('message' in result) {
+      if (result.state) {
+        nextState = result.state;
+      }
       recordSkippedStep(step, result.message, result.reason, result.options);
       return false;
     }
@@ -1461,20 +1471,8 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'change_target': {
-        const stackItems = Array.isArray((nextState as any).stack) ? [ ...((nextState as any).stack as any[]) ] : [];
-        const stackSpellIds = stackItems
-          .filter(item => String((item as any)?.type || '').trim() === 'spell')
-          .map(item => String((item as any)?.id || '').trim())
-          .filter(Boolean);
-        recordSkippedStep(
-          step,
-          `Skipped change-target step (requires target choice): ${step.raw}`,
-          'player_choice_required',
-          {
-            classification: 'player_choice',
-            metadata: { stackSpellCount: stackSpellIds.length, candidateSpellIds: stackSpellIds },
-          }
-        );
+        const result = applyChangeTargetStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
         break;
       }
       case 'grant_graveyard_permission': {

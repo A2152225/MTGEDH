@@ -1,5 +1,6 @@
 import type { GameState, PlayerID, TargetRef, BattlefieldPermanent } from '../../../shared/src';
 import { inferManaValueConstraintFromText, type DynamicManaValueContext } from '../state/modules/graveyard-mana-value.js';
+import { maybeSuppressRetiredCategorizeSpellSpec } from '../state/modules/oracleIrSpellLegacyRouting.js';
 
 // Re-export TargetRef for consumers of this module
 export type { TargetRef };
@@ -762,7 +763,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };
 }
 
-export function categorizeSpell(_name: string, oracleText?: string): SpellSpec | null {
+function categorizeSpellLegacy(_name: string, oracleText?: string): SpellSpec | null {
   const normalizedOracleText = String(oracleText || '').replace(/\u2019/g, "'");
   const t = normalizedOracleText
     .split(/\r?\n/)
@@ -2900,6 +2901,15 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
 
   return null;
+}
+
+export function categorizeSpell(name: string, oracleText?: string): SpellSpec | null {
+  return maybeSuppressRetiredCategorizeSpellSpec(categorizeSpellLegacy(name, oracleText));
+}
+
+/** Legacy matcher without ORACLE_IR_SPELL_PRIMARY retirement — for parity/shadow tests. */
+export function categorizeSpellWithoutPrimaryRetirement(name: string, oracleText?: string): SpellSpec | null {
+  return categorizeSpellLegacy(name, oracleText);
 }
 
 function isCreature(p: BattlefieldPermanent) {

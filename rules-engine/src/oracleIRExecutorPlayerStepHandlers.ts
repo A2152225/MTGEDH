@@ -425,6 +425,7 @@ type StepSkipResult = {
   readonly applied: false;
   readonly message: string;
   readonly reason: 'unknown_amount' | 'unsupported_player_selector' | 'player_choice_required' | 'failed_to_apply' | 'invalid_input';
+  readonly state?: GameState;
   readonly options?: {
     readonly classification?: 'ambiguous' | 'player_choice' | 'invalid_input';
     readonly metadata?: Record<string, string | number | boolean | readonly string[]>;
@@ -1930,6 +1931,42 @@ function getSearchLibraryMatches(
   });
 }
 
+export function buildSearchLibrarySelectionOptions(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'search_library' }>,
+  ctx: OracleIRExecutionContext,
+): {
+  playerId: PlayerID;
+  matches: any[];
+  maxResults: number;
+  minSelections: number;
+  maxSelections: number;
+  destination: string;
+} | null {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) return null;
+
+  const playerId = players[0];
+  const player = state.players.find((entry) => entry.id === playerId) as any;
+  if (!player) return null;
+
+  const library = Array.isArray(player.library) ? player.library : [];
+  const matches = getSearchLibraryMatches(library, step, state, ctx);
+  if (!matches || matches.length === 0) return null;
+
+  const maxResults = Math.max(1, Number(step.maxResults || 1) || 1);
+  if (matches.length <= maxResults) return null;
+
+  return {
+    playerId,
+    matches,
+    maxResults,
+    minSelections: 1,
+    maxSelections: maxResults,
+    destination: String(step.destination || 'hand'),
+  };
+}
+
 function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
   const chosen = Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [];
   const direct = [ctx.targetCreatureId, ctx.targetPermanentId];
@@ -3262,7 +3299,35 @@ export function applySearchLibraryStep(
     }
 
     const maxResults = Math.max(1, Number(step.maxResults || 1) || 1);
-    const selected = matches.slice(0, maxResults);
+    const chosenIds = getNormalizedChosenIds(ctx);
+    let selected: any[];
+
+    if (chosenIds.length > 0) {
+      const matchById = new Map(
+        matches.map((card) => [String(card?.id || card?.cardId || '').trim(), card] as const),
+      );
+      selected = chosenIds
+        .map((id) => matchById.get(String(id || '').trim()))
+        .filter(Boolean) as any[];
+      if (selected.length === 0 || selected.length > maxResults) {
+        return {
+          applied: false,
+          message: `Skipped library search (invalid card choice): ${step.raw}`,
+          reason: 'failed_to_apply',
+          options: { classification: 'invalid_input', persist: false },
+        };
+      }
+    } else if (matches.length > maxResults) {
+      return {
+        applied: false,
+        message: `Skipped library search (requires card choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    } else {
+      selected = matches.slice(0, maxResults);
+    }
+
     const selectedIds = new Set(selected.map(card => String(card?.id || card?.cardId || '').trim()).filter(Boolean));
     const remainingLibrary = library.filter(card => !selectedIds.has(String(card?.id || card?.cardId || '').trim()));
     const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
@@ -3521,6 +3586,33 @@ export function applyChoosePileStep(
 ): PlayerStepHandlerResult {
   const choosers = resolvePlayers(state, step.chooser, ctx);
   if (choosers.length !== 1) {
+    if (
+      step.chooser.kind === 'target_opponent'
+      && choosers.length === 0
+      && String(step.source || '') === 'top_library'
+    ) {
+      const controllerId = ctx.controllerId;
+      const opponents = (state.players || [])
+        .map((player) => player.id)
+        .filter((playerId) => playerId !== controllerId);
+      if (opponents.length > 1) {
+        return {
+          applied: false,
+          message: `Skipped choose pile (requires opponent choice): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: {
+            classification: 'player_choice',
+            metadata: {
+              chooser: controllerId,
+              source: step.source,
+              chosenDestination: step.chosenDestination || '',
+              otherDestination: step.otherDestination || '',
+            },
+          },
+        };
+      }
+    }
+
     return {
       applied: false,
       message: `Skipped choose pile (requires deterministic chooser): ${step.raw}`,
@@ -3552,6 +3644,113 @@ export function applyChoosePileStep(
     applied: true,
     state,
     log: [`${choosers[0]} chose pile ${chosenPile}`],
+  };
+}
+
+export function applyChangeTargetStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'change_target' }>,
+  ctx: OracleIRExecutionContext,
+): PlayerStepHandlerResult {
+  const stack = Array.isArray((state as any).stack) ? [...((state as any).stack as any[])] : [];
+  const targetedSpells = stack.filter(
+    (item) =>
+      String((item as any)?.type || '').trim() === 'spell'
+      && Array.isArray((item as any)?.targets)
+      && (item as any).targets.length > 0,
+  );
+
+  if (targetedSpells.length === 0) {
+    return {
+      applied: true,
+      state,
+      log: [`No targeted spells on the stack for change target: ${step.raw}`],
+    };
+  }
+
+  const chosenIds = getNormalizedChosenIds(ctx);
+  let chosenSpellId = String(
+    ctx.selectorContext?.chosenSpellId || ctx.targetSpellId || chosenIds[0] || '',
+  ).trim();
+
+  if (!chosenSpellId) {
+    if (targetedSpells.length === 1) {
+      chosenSpellId = String((targetedSpells[0] as any)?.id || '').trim();
+    } else {
+      return {
+        applied: false,
+        message: `Skipped change target (requires spell choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: {
+          classification: 'player_choice',
+          metadata: {
+            changeTargetPhase: 'choose_spell',
+            candidateSpellIds: targetedSpells
+              .map((item) => String((item as any)?.id || '').trim())
+              .filter(Boolean),
+          },
+        },
+      };
+    }
+  }
+
+  const spellIndex = stack.findIndex((item) => String((item as any)?.id || '').trim() === chosenSpellId);
+  if (spellIndex < 0) {
+    return {
+      applied: false,
+      message: `Skipped change target (spell not found): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  const spell = { ...(stack[spellIndex] as any) };
+  const existingTargets = Array.isArray(spell.targets) ? [...spell.targets] : [];
+  const newTargetIds = chosenIds
+    .filter((id) => id !== chosenSpellId)
+    .concat(
+      (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [])
+        .map((id) => String(id || '').trim())
+        .filter((id) => id && id !== chosenSpellId),
+    )
+    .filter((id, index, array) => array.indexOf(id) === index);
+
+  if (step.newTarget && newTargetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped change target (requires new target choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: {
+          changeTargetPhase: 'choose_new_target',
+          chosenSpellId,
+          candidateTargetIds: (state.battlefield || [])
+            .map((perm: any) => String(perm?.id || '').trim())
+            .filter(Boolean),
+        },
+      },
+    };
+  }
+
+  if (newTargetIds.length > 0) {
+    spell.targets = newTargetIds.map((id) => {
+      const existing = existingTargets.find(
+        (target: any) => String(target?.id || target || '').trim() === id,
+      );
+      if (existing && typeof existing === 'object') {
+        return { ...existing, id };
+      }
+      return { id, type: 'permanent' };
+    });
+  }
+
+  const nextStack = [...stack];
+  nextStack[spellIndex] = spell;
+  return {
+    applied: true,
+    state: { ...(state as any), stack: nextStack } as GameState,
+    log: [`Changed targets of ${chosenSpellId}${newTargetIds.length > 0 ? ` to ${newTargetIds.join(', ')}` : ''}`],
   };
 }
 
@@ -4931,17 +5130,80 @@ export function applyConniveStep(
 
   const handLength = Array.isArray(player.hand) ? player.hand.length : 0;
   const libraryLength = Array.isArray(player.library) ? player.library.length : 0;
+  const chosenIds = (ctx.selectorContext?.chosenObjectIds || [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+
+  if (chosenIds.length > 0) {
+    if (chosenIds.length !== amount) {
+      return {
+        applied: false,
+        message: `Skipped connive (expected ${amount} discard choice(s), got ${chosenIds.length}): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'invalid_input', persist: false },
+      };
+    }
+
+    const discardResult = discardSpecificCardsForPlayer(state, targetControllerId as PlayerID, chosenIds);
+    if (!discardResult.applied) {
+      return {
+        applied: false,
+        message: `Skipped connive (invalid discard choice): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'invalid_input', persist: false },
+      };
+    }
+
+    const discardedNonlands = discardResult.discardedCards.filter((card: any) => !getCardTypeLineLower(card).includes('land')).length;
+    let nextState = discardResult.state as GameState;
+    const log = [...discardResult.log];
+
+    if (discardedNonlands > 0) {
+      const counters = { ...((target?.counters || {}) as Record<string, number>) };
+      const currentCount = Number(counters['+1/+1'] ?? 0);
+      counters['+1/+1'] = (Number.isFinite(currentCount) ? currentCount : 0) + discardedNonlands;
+      battlefield[targetIndex] = {
+        ...target,
+        counters,
+      };
+      nextState = { ...(nextState as any), battlefield } as GameState;
+      log.push(`Added ${discardedNonlands} +1/+1 counter(s) to ${targetId}`);
+    }
+
+    return {
+      applied: true,
+      state: nextState,
+      log,
+      lastDiscardedCardCount: discardResult.discardedCount,
+      lastDiscardedCards: discardResult.discardedCards,
+      lastMovedCards: discardResult.discardedCards,
+    };
+  }
+
   const drawnCount = Math.min(amount, Math.max(0, libraryLength));
-  if (handLength + drawnCount > amount) {
+  if (handLength + drawnCount < amount) {
     return {
       applied: false,
+      message: `Skipped connive (not enough cards to discard): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  const drawResult = drawCardsForPlayer(state, targetControllerId as PlayerID, amount);
+  const playerAfterDraw = drawResult.state.players.find((entry: any) => String(entry?.id || '').trim() === targetControllerId) as any;
+  const handAfterDraw = Array.isArray(playerAfterDraw?.hand) ? playerAfterDraw.hand : [];
+
+  if (handAfterDraw.length > amount) {
+    return {
+      applied: false,
+      state: drawResult.state,
       message: `Skipped connive (requires discard choice): ${step.raw}`,
       reason: 'player_choice_required',
       options: { classification: 'player_choice' },
     };
   }
 
-  const drawResult = drawCardsForPlayer(state, targetControllerId as PlayerID, amount);
   const discardResult = discardCardsForPlayer(drawResult.state, targetControllerId as PlayerID, amount);
   const discardedNonlands = discardResult.discardedCards.filter((card: any) => !getCardTypeLineLower(card).includes('land')).length;
   const log = [...drawResult.log, ...discardResult.log];

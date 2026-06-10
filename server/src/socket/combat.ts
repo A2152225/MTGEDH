@@ -20,7 +20,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
-import { inferTriggeredAbilityTargetMetadata } from "../state/modules/stack.js";
+import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { getEnergyCount, spendEnergyCounters } from "../state/utils.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 

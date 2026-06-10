@@ -13,7 +13,7 @@
 import { createContext, type GameContext } from "../context";
 import type { PlayerID, GameEvent } from "../types";
 
-import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
+import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn, recordGraveyardPermanentTypesCastThisTurn } from "./turn-tracking.js";
 
 import {
   importDeckResolved,
@@ -54,23 +54,23 @@ import { cleanupCardLeavingExile, removePlayableFromExileForCard, stripPlayableF
 import { buildEmbalmOrEternalizeTokenPermanent } from "./graveyard-tokens.js";
 import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { transformPermanentToFace } from "./day-night.js";
+import { castSpell } from "./stackCastSpellUtils.js";
+import { pushStack } from "./stackPushUtils.js";
+import { resolveTopOfStack } from "./stackResolveTopOfStackUtils.js";
+import { playLand } from "./stackPlayLandUtils.js";
+import { applyMyriadTokenCopies } from "./triggerMyriadTokenUtils.js";
+import { triggerETBEffectsForToken } from "./triggerEtbEntryEffects.js";
 import {
   applyDivineReckoningBatchResult,
   applyPrisonersDilemmaBatchResult,
-  applyMyriadTokenCopies,
-  castSpell,
   clearDivineReckoningChoiceBatch,
   clearPrisonersDilemmaChoiceBatch,
   createDivineReckoningChoiceBatch,
   createPrisonersDilemmaChoiceBatch,
-  pushStack,
   recordDivineReckoningChoice,
   recordPrisonersDilemmaChoice,
-  resolveTopOfStack,
-  playLand,
-  triggerETBEffectsForToken,
-} from "./stack";
-import { exileEntireStack } from "./stack";
+} from "./spellLegacyChoiceBatchUtils.js";
+import { exileEntireStack } from "./stackExileUtils.js";
 import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText, buildCastFromGraveyardCard, getMatchingGraveyardCastingPermission } from "./graveyard-permissions.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
 import {
@@ -821,25 +821,6 @@ function normalizeRecordedManaMap(raw: unknown): Record<string, number> {
   }
 
   return normalized;
-}
-
-function getPermanentSpellTypeWords(card: any): string[] {
-  const typeLine = String(card?.type_line || card?.typeLine || '').toLowerCase();
-  return ['artifact', 'creature', 'enchantment', 'planeswalker', 'battle']
-    .filter((typeWord) => new RegExp(`\\b${typeWord}\\b`, 'i').test(typeLine));
-}
-
-function recordGraveyardPermanentTypesCastThisTurn(state: any, playerId: string, card: any): void {
-  const permanentTypes = getPermanentSpellTypeWords(card);
-  if (permanentTypes.length === 0) return;
-
-  state.graveyardPermanentTypesCastThisTurn = state.graveyardPermanentTypesCastThisTurn || {};
-  const playerEntry = state.graveyardPermanentTypesCastThisTurn[String(playerId)] =
-    state.graveyardPermanentTypesCastThisTurn[String(playerId)] || {};
-
-  for (const typeWord of permanentTypes) {
-    playerEntry[typeWord] = true;
-  }
 }
 
 function inferLegacyManaReplay(rawState: any, permanent: any, playerId: string, manaColor: unknown, abilityId?: unknown): Record<string, number> {

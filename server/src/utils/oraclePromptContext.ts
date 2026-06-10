@@ -1,3 +1,5 @@
+import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
+
 export interface OraclePromptContext {
   readonly flags: {
     readonly hasTargets: boolean;
@@ -294,6 +296,100 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
   const allOptionsHaveTargets = rawOptions.every(o => /\btarget\b/i.test(o) || /\bany target\b/i.test(o));
 
   return { minModes, maxModes, normalMinModes, normalMaxModes, entwineCost, options, allOptionsHaveTargets };
+}
+
+function isOracleIrSpellPrimaryEnabledForCast(): boolean {
+  const raw = String(process.env.ORACLE_IR_SPELL_PRIMARY || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+/**
+ * When Oracle IR spell primary is enabled, align cast-time modal option ids with
+ * IR choose_mode labels while preserving legacy min/max/entwine/teamwork metadata.
+ */
+export function extractModalModesForSpellCast(
+  oracleText: string,
+  spellName = '',
+): OracleModalModeInfo | undefined {
+  const legacy = extractModalModesFromOracleText(oracleText);
+  if (!legacy || !isOracleIrSpellPrimaryEnabledForCast()) {
+    return legacy;
+  }
+
+  try {
+    const ir = parseOracleTextToIR(oracleText, spellName);
+    let chooseModeStep: { modes?: readonly { label?: string; raw?: string }[] } | undefined;
+    for (const ability of ir.abilities || []) {
+      for (const step of ability.steps || []) {
+        if (step?.kind === 'choose_mode') {
+          chooseModeStep = step as { modes?: readonly { label?: string; raw?: string }[] };
+          break;
+        }
+      }
+      if (chooseModeStep) break;
+    }
+
+    const irModes = Array.isArray(chooseModeStep?.modes) ? chooseModeStep.modes : [];
+    if (irModes.length < 2) {
+      return legacy;
+    }
+
+    const options = irModes.map((mode, idx) => {
+      const raw = String(mode.raw || mode.label || '').trim();
+      const label = raw.length > 60 ? `${raw.slice(0, 57)}...` : raw;
+      const id = String(mode.label || `Mode ${idx + 1}`).trim();
+      return {
+        id,
+        label,
+        description: raw,
+        raw,
+      };
+    });
+
+    return {
+      ...legacy,
+      options,
+      allOptionsHaveTargets: options.every(
+        (option) => /\btarget\b/i.test(option.raw) || /\bany target\b/i.test(option.raw),
+      ),
+    };
+  } catch {
+    return legacy;
+  }
+}
+
+export function matchModalModeOptions(
+  modalInfo: OracleModalModeInfo,
+  selectedModeIds: readonly string[],
+): OracleModalModeInfo['options'] {
+  const matched: OracleModalModeInfo['options'][number][] = [];
+
+  for (const rawId of selectedModeIds) {
+    const id = String(rawId || '').trim();
+    if (!id) continue;
+
+    const direct = modalInfo.options.find((option) => option.id === id);
+    if (direct) {
+      matched.push(direct);
+      continue;
+    }
+
+    const modeIndexMatch = /^mode[_-]?(\d+)$/i.exec(id);
+    if (modeIndexMatch) {
+      const option = modalInfo.options[parseInt(modeIndexMatch[1], 10) - 1];
+      if (option) {
+        matched.push(option);
+        continue;
+      }
+    }
+
+    const byLabel = modalInfo.options.find((option) => option.label === id);
+    if (byLabel) {
+      matched.push(byLabel);
+    }
+  }
+
+  return matched;
 }
 
 export function getOracleTextFromResolutionStep(step: unknown): string | undefined {

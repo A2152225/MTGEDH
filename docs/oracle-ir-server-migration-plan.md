@@ -71,7 +71,7 @@ oracle text
 | **Optional may (game-actions)** | `queueMayAbilityStep` callback | Partial — single optional step via `applyOracleIRStepsOnServer` |
 | **Spell resolves** | `categorizeSpell` → spec hydration → `executeSpellEffect` | **Fallback only** — `applyOracleIRFallbackForUncategorizedSpell` after spec miss |
 | **Triggered ability** | `executeTriggerEffect` (~26k lines of matchers) | **Tail fallback** — `applyOracleIRFallbackForTriggeredEffect` → same uncategorized fallback |
-| **Optional trigger deferral** | Custom 2-step Effect Program (`stack.ts` ~560) | Effect Program for yes/no only; defers to stack re-push |
+| **Optional trigger deferral** | Custom 2-step Effect Program (`stackResolveTriggeredAbilityOptionalUtils.ts`) | Effect Program for yes/no only; defers to stack re-push |
 | **Planeswalker loyalty** | `tryResolvePlaneswalkerLoyaltyTemplate` (~100 template cases) | Separate system; not IR |
 | **Supplemental spell riders** | `applySupplementalOracleIRForResolvedSpell` | Ad-hoc unknown-step handlers |
 
@@ -79,9 +79,30 @@ oracle text
 
 | Role | Path |
 |------|------|
-| Stack / spell / trigger resolution | `server/src/state/modules/stack.ts` |
+| Stack / spell / trigger resolution (barrel) | `server/src/state/modules/stack.ts` (~130 lines, re-exports only) |
+| Stack resolution shared types | `server/src/state/modules/stackResolveSharedTypes.ts` (continuation/result types for top-of-stack, instant/sorcery, trigger legacy body) |
+| Top-of-stack orchestration | `server/src/state/modules/stackResolveTopOfStackUtils.ts` |
+| Top-of-stack preface (pop/fizzle/mox) | `server/src/state/modules/stackResolveTopOfStackPrefaceUtils.ts` |
+| Top-of-stack dispatch (ability/trigger/spell) | `server/src/state/modules/stackResolveTopOfStackDispatchUtils.ts` |
+| Top-of-stack post-resolution (SBA) | `server/src/state/modules/stackResolveTopOfStackPostResolutionUtils.ts` |
+| Trigger effect dispatch (orchestrator) | `server/src/state/modules/stackExecuteTriggerEffectUtils.ts` |
+| Trigger legacy body (post-IR handlers) | `server/src/state/modules/stackExecuteTriggerEffectLegacyBodyUtils.ts` |
+| Trigger legacy tail (IR fallback + regex) | `server/src/state/modules/stackExecuteTriggerEffectTailUtils.ts` |
+| Trigger effect preface (pre-IR) | `server/src/state/modules/stackExecuteTriggerEffectPrefaceUtils.ts` |
+| Trigger IR uncategorized fallback | `server/src/state/modules/stackExecuteTriggerEffectIrFallbackUtils.ts` |
+| Instant/sorcery orchestration | `server/src/state/modules/stackResolveInstantSorceryOrchestratorUtils.ts` |
+| Instant/sorcery preface (IR + spec) | `server/src/state/modules/stackResolveInstantSorceryPrefaceUtils.ts` |
+| Instant/sorcery legacy resolution | `server/src/state/modules/stackResolveInstantSorceryLegacyResolutionUtils.ts` |
+| Permanent spell orchestration | `server/src/state/modules/stackResolvePermanentSpellOrchestratorUtils.ts` |
+| Permanent spell post-entry (ETB/tribute/squad) | `server/src/state/modules/stackResolvePermanentSpellPostEntryUtils.ts` |
+| Triggered ability deferrals | `server/src/state/modules/stackResolveTriggeredAbilityDeferralUtils.ts` |
+| Triggered ability orchestration | `server/src/state/modules/stackResolveTriggeredAbilityOrchestratorUtils.ts` |
 | Handwritten spell categorization | `server/src/rules-engine/targeting.ts` (`categorizeSpell`, ~4k lines) |
 | IR server adapter + choice queues | `server/src/state/modules/oracleIrServerZoneSync.ts` |
+| Activated ability early (fetch/cycling) | `server/src/state/modules/stackResolveAbilityEarlyHandlersUtils.ts` |
+| Activated ability mid (fight/equip/etc.) | `server/src/state/modules/stackResolveAbilityMidHandlersUtils.ts` |
+| Activated ability late (IR + deferrals) | `server/src/state/modules/stackResolveAbilityLateHandlersUtils.ts` |
+| Activated ability barrel | `server/src/state/modules/stackResolveAbilityHandlersUtils.ts` |
 | Activated ability IR gate | `server/src/state/modules/oracleIrAbilityExecution.ts` |
 | Resolution UI + resume | `server/src/socket/resolution.ts` |
 | Effect Program server glue | `server/src/state/effects/effectProgramResolutionService.ts`, `effectProgramQueueAdapter.ts` |
@@ -107,7 +128,8 @@ Responsibilities:
 **Call sites today (production):**
 - `oracleIrAbilityExecution.ts` — activated abilities (**primary**)
 - `game-actions.ts` — optional may-step callback
-- `stack.ts` — only `unless_pays_mana` / `unless_pays_life` / `conditional` inside uncategorized fallback
+- `stackExecuteTriggerEffectIrFallbackUtils.ts` — `unless_pays_mana` / `unless_pays_life` / `conditional` inside trigger uncategorized fallback
+- `oracleIrUncategorizedSpellFallback.ts` — spell uncategorized fallback (via `stackResolveSpellUncategorizedUtils.ts`)
 
 ### Choice queue wiring (Phase 3 — R1)
 
@@ -121,6 +143,14 @@ Responsibilities:
 | `explore` | `queueExploreChoicePromptsFromOracleIRResult` | `EXPLORE_DECISION` | choice bind + resume | `oracle-ir-explore` |
 | `sacrifice` | `queueSacrificeChoicePromptsFromOracleIRResult` | `TARGET_SELECTION` | choice bind + resume | `oracle-ir-sacrifice` |
 | `look_choose_from_top`, `look_select_top` | `queueLookChooseChoicePromptsFromOracleIRResult` | `LIBRARY_SEARCH` | validation-only in resolution; IR applies zones | `oracle-ir-look-choose` |
+| `connive` | `queueConniveChoicePromptsFromOracleIRResult` | `DISCARD_SELECTION` | choice bind + resume | `oracle-ir-connive` |
+| `player_choice` | `queuePlayerChoicePromptsFromOracleIRResult` | `OPTION_CHOICE` / `CREATURE_TYPE_CHOICE` | choice bind + resume | `oracle-ir-player-choice` |
+| `add_mana` (any-color) | `queueAddManaChoicePromptsFromOracleIRResult` | `MANA_COLOR_SELECTION` | choice bind + resume | `oracle-ir-add-mana` |
+| `fateseal`, `clash` | Effect Program (`startOracleEffectProgramOnServer`) | `PLAYER_CHOICE` → `FATESEAL` / `CLASH` | `resumeEffectProgramResolution` | `oracle-ir-fateseal-clash-effect-program` |
+| `search_library` | `queueSearchLibraryChoicePromptsFromOracleIRResult` | `LIBRARY_SEARCH` | choice bind + resume | `oracle-ir-search-library` |
+| `choose_pile` | `queueChoosePileChoicePromptsFromOracleIRResult` | `OPTION_CHOICE` | choice bind + resume | `oracle-ir-choose-pile` |
+| `change_target` | `queueChangeTargetChoicePromptsFromOracleIRResult` | `OPTION_CHOICE` / `TARGET_SELECTION` | choice bind + resume | `oracle-ir-change-target` |
+| `add_mana` (distribution) | `queueAddManaChoicePromptsFromOracleIRResult` | `MANA_COLOR_SELECTION` (`distribution`) | choice bind + resume | `oracle-ir-add-mana-distribution` |
 
 Resolution hooks (`resolution.ts`):
 - `maybeApplyOracleIrChoiceStepFromResolution` — re-runs paused step with `chosenObjectIds` from `oracleIrChoiceStepJson`
@@ -135,21 +165,19 @@ These pause correctly in the **rules-engine** (and often in **Effect Program** t
 | Step / choice kind | Effect Program support | Server queue | Notes |
 |--------------------|------------------------|--------------|-------|
 | `choose_mode` | Yes (`buildEffectProgramFromOracleIR`) | Effect Program only | Modal spells need Pattern B end-to-end on server |
-| `fateseal` | Yes (multi-step program) | No | Opponent + fateseal sub-choices |
-| `clash` | Yes (multi-step program) | No | Opponent + clash reveal |
 | `choose_opponent`, `choose_color`, `choose_creature_type`, `choose_card_name`, `choose_target_creature` | Yes (ORACLE_CHOICE_STEP_KINDS) | Partial / ad-hoc | Some flow through targeting UI before IR |
-| `add_mana` + `requiresChosenMana` | Yes | No | Any-color mana modal exists but not unified |
-| `player_choice` (generic) | Parser step | No | 137 dry-run pauses in full-card audit |
-| `connive`, `ring_tempts_you`, `move_counters`, `choose_pile`, `change_target` | Executor yes | No | Deterministic or choice-heavy |
+| `add_mana` + distribution / multi-color sequences | Yes | Partial | Single any-color wired; combination distribution via `selectionKind: distribution` |
+| `ring_tempts_you`, `move_counters` | Executor yes | No | Deterministic or choice-heavy |
 | `copy_spell`, `search_library` | Executor yes | No | Complex multi-phase |
 
 ---
 
 ## The handwritten fallback problem
 
-### `applyOracleIRFallbackForUncategorizedSpell`
+### `applyOracleIRUncategorizedSpellFallback`
 
-Location: `stack.ts` ~5970
+Location: `server/src/state/modules/oracleIrUncategorizedSpellFallback.ts`  
+Entry: `stackResolveSpellUncategorizedUtils.ts` → `tryApplyInstantSorceryUncategorizedSpellFallback`
 
 Called when:
 - Spell has no `spellSpec` from `categorizeSpell`
@@ -166,10 +194,9 @@ Called when:
 
 ### `executeTriggerEffect`
 
-Location: `stack.ts` ~10796
-
-~26k lines. Runs **before** Oracle IR fallback. Contains:
-- Regex draw / lose-life / explore shortcuts
+Location: `server/src/state/modules/stackExecuteTriggerEffectUtils.ts`  
+IR tail fallback: `stackExecuteTriggerEffectIrFallbackUtils.ts` → `applyOracleIRFallbackForTriggeredEffect`
+Runs **before** Oracle IR fallback. Legacy regex dispatch lives in `oracleIrTriggerLegacy*.ts` modules; `executeTriggerEffect` orchestrates them. Contains:
 - Card-name-specific branches
 - Graveyard permission riders
 - Duplicated logic that IR executor already implements
@@ -178,7 +205,7 @@ Location: `stack.ts` ~10796
 
 ### `categorizeSpell` + `executeSpellEffect`
 
-Location: `targeting.ts` + `stack.ts` ~23689
+Location: `targeting.ts` + `stackResolveInstantSorceryOrchestratorUtils.ts` (and spell sub-modules)
 
 `categorizeSpell` pattern-matches simple single-clause spells (draw N, discard N, destroy all, counter target spell, etc.) into `SpellSpec` opcodes. `executeSpellEffect` dispatches ~30 opcode kinds (`DrawCards`, `QueueScry`, `DestroyPermanent`, …).
 
@@ -207,7 +234,7 @@ Location: `server/src/state/planeswalker/templates/resolve.ts`
 
 | Use case | Status |
 |----------|--------|
-| Optional triggered ability yes/no deferral | **Production** — custom 2-step program in `stack.ts` |
+| Optional triggered ability yes/no deferral | **Production** — custom 2-step program in `stackResolveTriggeredAbilityOptionalUtils.ts` |
 | Full card / trigger / spell resolution | **Not production** — handlers exist but are not the primary resolver |
 | Resolution resume | **Production** — `resumeEffectProgramResolution` in `resolution.ts` when `effectProgramPrompt: true` |
 
@@ -306,7 +333,7 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
 - No regressions in existing integration tests
 - Duplicate application prevented (draw twice, double scry queue)
 
-**Primary files:** `stack.ts` (`resolveTopOfStack`), `oracleIrServerZoneSync.ts`
+**Primary files:** `stackResolveTopOfStackUtils.ts`, `oracleIrServerZoneSync.ts`
 
 ---
 
@@ -327,7 +354,7 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
 - Integration tests for top ETB / dies / attack trigger families
 - Measurable reduction in `executeTriggerEffect` line count
 
-**Primary files:** `stack.ts`, `effectProgramResolutionService.ts`, `triggered-abilities.ts`
+**Primary files:** `stackResolve*OrchestratorUtils.ts`, `stackExecuteTriggerEffectUtils.ts`, `effectProgramResolutionService.ts`, `triggered-abilities.ts`
 
 ---
 
@@ -337,12 +364,9 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
 
 **Batch order (by dry-run volume × gameplay frequency):**
 
-1. **Already done:** scry, surveil, unless-pay, discard, proliferate, populate, explore, sacrifice, look-choose
+1. **Already done:** scry, surveil, unless-pay, discard, proliferate, populate, explore, sacrifice, look-choose, connive, player_choice, add_mana (any-color + distribution), fateseal, clash (Effect Program), search_library, choose_pile, change_target
 2. **Effect Program + server:** `choose_mode` (modal spells / PW -1 abilities)
-3. **Direct queue:** `add_mana` any-color; generic `player_choice`
-4. **Effect Program:** fateseal, clash
-5. **Direct queue:** connive, `search_library`, `choose_pile`, `change_target`
-6. **Lower priority:** ring tempts, move_counters edge cases
+3. **Lower priority:** ring tempts, move_counters edge cases; choose_pile card movement via legacy split flow
 
 **Per-step checklist:**
 - [ ] `build*SelectionOptions` in executor (if not exists)
@@ -371,7 +395,7 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
 - Infrastructure not expressible as card oracle text
 
 **Exit criteria:**
-- `stack.ts` spell/trigger resolution shrinks substantially
+- `stack.ts` remains a re-export barrel; orchestrator modules shrink as IR primary grows
 - No duplicate scry/surveil/discard queue paths
 
 ---
@@ -489,4 +513,21 @@ Update this file when:
 
 | Date | Change |
 |------|--------|
-| 2026-06-10 | Initial document. Phase 3 R1 choice wiring complete (scry through look-choose). Parser 0 gaps. Full-card executor 50,268 / 51,207 fully applied. |
+| 2026-06-10 | `choose_pile` + `change_target` queue/resume wiring; `applyChangeTargetStep` replaces main-loop stub; `add_mana` added to halt set (distribution sequences). |
+| 2026-06-10 | `search_library` halts when `matches.length > maxResults`; `queueSearchLibraryChoicePromptsFromOracleIRResult` + resume via `LIBRARY_SEARCH` / `oracleIrChoiceStepJson`. |
+| 2026-06-10 | Fateseal/clash Effect Program server integration tests (`oracle-ir-fateseal-clash-effect-program`); spell/trigger primary paths already route these via `requiresEffectProgramOrchestration` + `startOracleEffectProgramOnServer`. |
+| 2026-06-10 | Connive resume fix: `oracleIrTargetPermanentId` on queued discard step; connive integration test passes. `queueAddManaChoicePromptsFromOracleIRResult` wires any-color `add_mana` through `MANA_COLOR_SELECTION` + IR resume (skips legacy pool path when `oracleIrChoiceStepJson` set). |
+| 2026-06-10 | Phase 3 batch: `queueConniveChoicePromptsFromOracleIRResult` + `queuePlayerChoicePromptsFromOracleIRResult`; connive draws before discard pause; player_choice letter/odd_even/card_type via OPTION/CREATURE_TYPE prompts. |
+| 2026-06-10 | Phase 3 started: `oracleIrEffectProgramServer.ts` routes unresolved `choose_mode`/optional/fateseal/clash through Effect Program (`startOracleEffectProgramOnServer`); zone sync after EP runs in `effectProgramResolutionService`. |
+| 2026-06-10 | Phase 2 started: `oracleIrTriggerExecution.ts` — IR-first trigger resolve with `ORACLE_IR_TRIGGER_PRIMARY` flag; shadow probe before `executeTriggerEffect` regex corpus. |
+| 2026-06-10 | Phase 1 started: `oracleIrSpellExecution.ts` — IR-first spell resolve with `ORACLE_IR_SPELL_PRIMARY` flag; shadow probe logs when legacy would also match. Optional steps in uncategorized fallback delegate to `applyOracleIRStepsOnServer`. |
+| 2026-06-10 | Stack refactor batch 92: `ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS` synced to runtime-wired fallback + optional trigger step kinds. |
+| 2026-06-10 | Stack refactor batch 91: `TriggeredAbilityDeferralOptions` in shared types; deferral utils typed against shared contract. |
+| 2026-06-10 | Stack refactor batch 90: permanent spell entry/post-entry types (`PermanentBattlefieldEntryOutcome`, `PermanentBattlefieldEntryOptions`, `PermanentSpellPostEntryOptions`) in shared types. |
+| 2026-06-10 | Stack refactor batch 89: `InstantSorcerySpellShapeFlags` moved to `stackResolveSharedTypes.ts`; shape detector re-exports from shared types. |
+| 2026-06-10 | Stack refactor batch 88: `InstantSorceryPrefaceContinuation` composes shape/outcome/metadata types; added `InstantSorceryOracleIrSpellOptions` + `InstantSorceryRemovalTargetMetadataOptions`. |
+| 2026-06-10 | Stack refactor batch 87: `InstantSorceryOracleIrSpellOutcome` + `InstantSorceryRemovalTargetMetadata` moved to `stackResolveSharedTypes.ts`. |
+| 2026-06-10 | Stack refactor batch 86: shared resolve option types (`InstantSorceryStackResolveOptions`, `PermanentSpellStackResolveOptions`, `TriggeredAbilityStackResolveOptions`); removed `ExecuteTriggerEffectForSpellFn` alias. |
+| 2026-06-10 | Stack refactor batch 85: `TriggerEffectLegacyBodyContinuation` + `TriggerEffectLegacyBodyResult` moved to `stackResolveSharedTypes.ts`; tail imports shared types (not legacy body). |
+| 2026-06-10 | Stack refactor batch 84: `InstantSorceryPrefaceContinuation` + `InstantSorceryPrefaceResult` moved to `stackResolveSharedTypes.ts`; legacy resolution imports shared types (not preface). |
+| 2026-06-10 | Stack refactor batch 83: `ResolveTopOfStackContinuation` + `ResolveTopOfStackPrefaceResult` moved to `stackResolveSharedTypes.ts`; preface re-exports; dispatch imports shared types (not preface). |

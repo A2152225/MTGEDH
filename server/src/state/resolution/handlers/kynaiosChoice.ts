@@ -8,12 +8,10 @@ import {
 import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
 import { applyCounterModifications } from '../../modules/counters_tokens.js';
-import {
-  checkPermanentEntersTapped,
-  detectEntersWithCounters,
-  queueSelfETBTriggersForPermanent,
-  triggerETBEffectsForPermanent,
-} from '../../modules/stack.js';
+import { checkPermanentEntersTapped } from '../../modules/triggerPermanentEntersTapped.js';
+import { detectEntersWithCounters } from '../../modules/detectEntersWithCounters.js';
+import { queueSelfETBTriggersForPermanent } from '../../modules/triggerEtbEntryEffects.js';
+import { triggerETBEffectsForPermanent } from '../../modules/triggerEtbPermanentEffects.js';
 
 function drawKynaiosCard(game: any, playerId: PlayerID): void {
   if (typeof game?.drawCards === 'function') {

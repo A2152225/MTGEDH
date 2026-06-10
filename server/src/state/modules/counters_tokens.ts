@@ -26,6 +26,7 @@ import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
 import { queueTokenCreatedTriggers } from "./triggers/tokens.js";
 import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacementEvent } from "./replacement-effects.js";
+import { triggerETBEffectsForToken } from "./triggerEtbEntryEffects.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -1119,11 +1120,7 @@ export function createToken(
 
     // Fire ETB triggers (including the token's own ETBs if applicable).
     try {
-      const stackMod = require('./stack.js');
-      const triggerETB = stackMod?.triggerETBEffectsForPermanent;
-      if (typeof triggerETB === 'function') {
-        triggerETB(ctx as any, tokenPerm, controller);
-      }
+      triggerETBEffectsForToken(ctx as any, tokenPerm, controller);
     } catch {
       // Defensive: do not block token creation.
     }
@@ -1222,11 +1219,7 @@ export function createCopyTokensOfCard(
 
     // Fire ETB triggers for the copy token.
     try {
-      const stackMod = require('./stack.js');
-      const triggerETB = stackMod?.triggerETBEffectsForPermanent;
-      if (typeof triggerETB === 'function') {
-        triggerETB(ctx as any, tokenPerm, controller);
-      }
+      triggerETBEffectsForToken(ctx as any, tokenPerm, controller);
     } catch {
       // Defensive.
     }
@@ -2352,4 +2345,41 @@ export function updateGodCreatureStatus(ctx: GameContext): void {
   }
   
   if (changed) bumpSeq();
+}
+
+/**
+ * Calculate token doubling multiplier from battlefield effects.
+ */
+export function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
+  let multiplier = 1;
+  const battlefield = state.battlefield || [];
+
+  for (const perm of battlefield) {
+    const permName = (perm.card?.name || '').toLowerCase();
+    const permOracle = (perm.card?.oracle_text || '').toLowerCase();
+
+    if (permName.includes('primal vigor')) {
+      multiplier *= 2;
+      continue;
+    }
+
+    if (perm.controller !== controller) continue;
+
+    if (permName.includes('ojer taq') ||
+        (permOracle.includes('three times that many') && permOracle.includes('token'))) {
+      multiplier *= 3;
+    }
+
+    if (permName.includes('anointed procession') ||
+        permName.includes('parallel lives') ||
+        permName.includes('doubling season') ||
+        permName.includes('mondrak, glory dominus') ||
+        permName.includes('adrix and nev') ||
+        (permName.includes('elspeth') && permOracle.includes('twice that many')) ||
+        (permOracle.includes('twice that many') && permOracle.includes('token'))) {
+      multiplier *= 2;
+    }
+  }
+
+  return multiplier;
 }

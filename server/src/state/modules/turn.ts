@@ -20,7 +20,9 @@ import { appendEvent } from '../../db/index.js';
 import { drawCards } from "./zones.js";
 import { resetConvokeGrantsForNewTurn } from "./casting-modifiers.js";
 import { recalculatePlayerEffects, canDamageBePrevented, clearTemporaryLandBonuses, processLifeChange, resolveCombatDamageToOpponent } from "./game-state-effects.js";
-import { clearTemporaryEtbTriggers, detectEntersWithCounters, triggerETBEffectsForPermanent } from "./stack.js";
+import { detectEntersWithCounters } from "./detectEntersWithCounters.js";
+import { clearTemporaryEtbTriggers } from "./triggerEtbEntryEffects.js";
+import { triggerETBEffectsForPermanent } from "./triggerEtbPermanentEffects.js";
 import { 
   getBeginningOfCombatTriggers, 
   getEndStepTriggers, 
