@@ -4,6 +4,7 @@ import {
   parseDecklist,
   fetchCardByExactNameStrict,
   validateDeck,
+  getCommanderFormatRestrictions,
   shouldSkipDeckLine,
   fetchDeckFromMoxfield,
   isMoxfieldUrl,
@@ -37,6 +38,13 @@ import {
 
 // Minimum number of cards to consider a precon import as a "full deck"
 const MIN_PRECON_DECK_SIZE = 50;
+
+async function validateDeckForGame(format: string, validationCards: any[]) {
+  const fmt = String(format || 'commander').toLowerCase();
+  const formatRestrictions =
+    fmt === 'commander' ? await getCommanderFormatRestrictions() : undefined;
+  return validateDeck(format, validationCards, { formatRestrictions });
+}
 
 /**
  * Generate a unique instance ID for a card to avoid duplicate ID issues
@@ -1417,7 +1425,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       // Run deck validation against game format
       try {
         const format = (game.state && (game.state as any).format) || "commander";
-        const validation = validateDeck(format, validationCards);
+        const validation = await validateDeckForGame(format, validationCards);
         
         if (validation.illegal.length > 0 || validation.warnings.length > 0) {
           socket.emit("deckValidationResult", {
@@ -3335,7 +3343,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         // Run deck validation against game format
         try {
           const format = (game.state && (game.state as any).format) || "commander";
-          const validation = validateDeck(format, validationCards);
+          const validation = await validateDeckForGame(format, validationCards);
           
           if (validation.illegal.length > 0 || validation.warnings.length > 0) {
             socket.emit("deckValidationResult", {

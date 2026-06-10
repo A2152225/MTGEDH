@@ -2877,6 +2877,106 @@ function parseStructuredTriggerResidualGrant(
     }
   }
 
+  if (/^you\s+may\s+have\s+this\s+creature\s+become\s+a\s+copy\s+of\s+another\s+target\s+creature,\s+except\s+it\s+has\s+this\s+ability$/i.test(raw)) {
+    return [{
+      kind: 'copy_permanent',
+      target: parseObjectSelector('this creature'),
+      source: parseObjectSelector('another target creature'),
+      retainAbilityText: 'it has this ability',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^this creature becomes a copy of that creature,\s+except it has this ability$/i.test(raw)) {
+    return [{
+      kind: 'copy_permanent',
+      target: parseObjectSelector('this creature'),
+      source: parseObjectSelector('that creature'),
+      retainAbilityText: 'it has this ability',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^that creature becomes a copy of this creature\.?$/i.test(raw)) {
+    return [{
+      kind: 'copy_permanent',
+      target: parseObjectSelector('that creature'),
+      source: parseObjectSelector('this creature'),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^then, not counting that draw, if you drew more cards this turn than an opponent drew on their last turn, you may put a land card from your hand onto the battlefield$/i.test(raw)) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector('a land card from your hand'),
+      to: 'battlefield',
+      optional: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^then, if you have 1,000 or more life, you lose the game$/i.test(raw)) {
+    return [{
+      kind: 'lose_game',
+      who: { kind: 'you' },
+      conditionText: 'if you have 1,000 or more life',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^then, double the amount of life you lose and cards you draw for the rest of the game from this ability$/i.test(raw)) {
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('this permanent'),
+      effectText: ['double the amount of life you lose and cards you draw for the rest of the game from this ability'],
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^the next time you would lose the game this turn, instead draw three cards and your life total becomes 5$/i.test(raw)) {
+    return [
+      { kind: 'draw', who: { kind: 'you' }, amount: { kind: 'number', value: 3 }, raw, ...sequence } as OracleEffectStep,
+      {
+        kind: 'set_life_total',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 5 },
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  if (/^you and that player may each put a permanent card from your hand onto the battlefield$/i.test(raw)) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector('a permanent card from your hand'),
+      to: 'battlefield',
+      who: { kind: 'each_player' },
+      optional: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^curse defending player$/i.test(raw)) {
+    return [{
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      token: 'Curse enchantment token attached to defending player',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
   return null;
 }
 
@@ -3595,7 +3695,76 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^you\s+may\s+have\s+this\s+creature\s+become\s+a\s+copy\s+of\s+another\s+target\s+creature,\s+except\s+it\s+has\s+this\s+ability$/i.test(raw)) {
-    return staticMetadata('this creature', 'may become a copy of another target creature, except it has this ability');
+    return [{
+      kind: 'copy_permanent',
+      target: parseObjectSelector('this creature'),
+      source: parseObjectSelector('another target creature'),
+      retainAbilityText: 'it has this ability',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^this creature becomes a copy of that creature,\s+except it has this ability$/i.test(raw)) {
+    return [{
+      kind: 'copy_permanent',
+      target: parseObjectSelector('this creature'),
+      source: parseObjectSelector('that creature'),
+      retainAbilityText: 'it has this ability',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^that creature becomes a copy of this creature\.?$/i.test(raw)) {
+    return [{
+      kind: 'copy_permanent',
+      target: parseObjectSelector('that creature'),
+      source: parseObjectSelector('this creature'),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^then, not counting that draw, if you drew more cards this turn than an opponent drew on their last turn, you may put a land card from your hand onto the battlefield$/i.test(raw)) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector('a land card from your hand'),
+      to: 'battlefield',
+      optional: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^then, if you have 1,000 or more life, you lose the game$/i.test(raw)) {
+    return staticMetadata('you', 'lose the game if you have 1,000 or more life');
+  }
+
+  if (/^then, double the amount of life you lose and cards you draw for the rest of the game from this ability$/i.test(raw)) {
+    return staticMetadata('this permanent', 'double the amount of life you lose and cards you draw for the rest of the game from this ability');
+  }
+
+  if (/^three cards and your life total becomes 5$/i.test(raw)) {
+    return [
+      { kind: 'draw', who: { kind: 'you' }, amount: { kind: 'number', value: 3 }, raw, ...sequence } as OracleEffectStep,
+      staticMetadata('your life total', 'becomes 5')[0]!,
+    ];
+  }
+
+  if (/^you and that player may each put a permanent card from your hand onto the battlefield$/i.test(raw)) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector('a permanent card from your hand'),
+      to: 'battlefield',
+      optional: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^curse defending player$/i.test(raw)) {
+    return staticMetadata('defending player', 'curse defending player');
   }
 
   if (/^you\s+may\s+look\s+at\s+cards\s+exiled\s+with\s+this\s+creature$/i.test(raw)) {
@@ -22500,10 +22669,140 @@ export function repairEventideDrawLoseLifeSteps(steps: readonly OracleEffectStep
   });
 }
 
+function parseEffectClausesToSteps(text: string): OracleEffectStep[] {
+  const out: OracleEffectStep[] = [];
+  for (const clause of splitIntoClauses(text)) {
+    const cleaned = String(clause || '').trim().replace(/^•\s*/, '');
+    if (!cleaned) continue;
+    const simple = parseSimpleCounterTailStep(cleaned);
+    if (simple) {
+      out.push(simple);
+      continue;
+    }
+    const combat = parseLifeTailStep(cleaned);
+    if (combat) out.push(combat);
+  }
+  return out;
+}
+
+export function repairRandomChooseModeSagaAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const effectText = String(ability.effectText || ability.text || '').trim();
+    if (!/choose one at random/i.test(effectText)) return ability;
+
+    const normalized = normalizeOracleText(effectText).replace(/\s+/g, ' ');
+    const bulletIndex = normalized.search(/•/);
+    if (bulletIndex < 0) return ability;
+    const parts = normalized
+      .slice(bulletIndex)
+      .split(/\s*•\s*/)
+      .map((part) => String(part || '').trim())
+      .filter(Boolean);
+    if (parts.length < 2) return ability;
+
+    const modes = parts
+      .map((body, index) => {
+        const labeled = body.match(/^(.+?!)\s*[-–—]\s*(.+)$/);
+        const label = labeled ? String(labeled[1] || '').trim() : `Mode ${index + 1}`;
+        const modeBody = labeled ? String(labeled[2] || '').trim() : body;
+        const steps = parseEffectClausesToSteps(modeBody);
+        if (steps.length === 0) return null;
+        return { label, raw: modeBody, steps };
+      })
+      .filter(Boolean) as Array<{ label: string; raw: string; steps: OracleEffectStep[] }>;
+
+    if (modes.length < 2) return ability;
+
+    return {
+      ...ability,
+      steps: [
+        {
+          kind: 'choose_mode',
+          minModes: 1,
+          maxModes: 1,
+          modes,
+          raw: 'Choose one at random',
+        } as OracleEffectStep,
+      ],
+    };
+  });
+}
+
+function repairEmblemWithNestedConditionalSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const out: OracleEffectStep[] = [];
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    const next = steps[index + 1];
+    if (
+      step.kind === 'create_emblem' &&
+      next?.kind === 'conditional' &&
+      /would be put into your graveyard/i.test(String((next as any).condition?.raw || ''))
+    ) {
+      out.push({
+        ...step,
+        abilities: [
+          'You may cast instant and sorcery spells from your graveyard. If a spell cast this way would be put into your graveyard, exile it instead.',
+        ],
+      });
+      index += 1;
+      continue;
+    }
+    out.push(step);
+  }
+  return out;
+}
+
+function repairFroghemothCounterAndLifeSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  return steps.map((step) => {
+    if (
+      step.kind === 'add_counter' &&
+      /this creature for each creature card exiled this way/i.test(String((step as any).target?.text || step.raw || ''))
+    ) {
+      return {
+        ...step,
+        target: parseObjectSelector('this creature'),
+        raw: 'Put a +1/+1 counter on this creature for each creature card exiled this way',
+      };
+    }
+    if (
+      step.kind === 'gain_life' &&
+      (step as any).amount?.kind === 'reference_amount' &&
+      /noncreature card exiled this way/i.test(String((step as any).amount?.raw || ''))
+    ) {
+      return {
+        ...step,
+        amount: { kind: 'reference_amount', raw: 'noncreature cards exiled this way' },
+      };
+    }
+    return step;
+  });
+}
+
+function repairFightDamageSourceSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  return steps.map((step) => {
+    if (step.kind !== 'deal_damage') return step;
+    const sourceText = String((step as any).source?.text || '').trim();
+    if (!/fights?\b/i.test(sourceText) && !/this creature/i.test(sourceText)) return step;
+    const cleanedSource = sourceText.replace(/^[^-•]*[-–—]\s*/i, '').trim() || 'this creature';
+    return {
+      ...step,
+      source: parseObjectSelector(/^this creature$/i.test(cleanedSource) ? 'this creature' : cleanedSource),
+    };
+  });
+}
+
 function repairAbilityExecutionSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
-  return repairEventideDrawLoseLifeSteps(
-    repairCompoundExileLookSteps(
-      repairGraveyardChooseThenReturnSteps(repairMoveZoneSelectorSteps(steps))
+  return repairFightDamageSourceSteps(
+    repairFroghemothCounterAndLifeSteps(
+      repairEmblemWithNestedConditionalSteps(
+        repairEventideDrawLoseLifeSteps(
+          repairCompoundExileLookSteps(
+            repairGraveyardChooseThenReturnSteps(repairMoveZoneSelectorSteps(steps))
+          )
+        )
+      )
     )
   );
 }

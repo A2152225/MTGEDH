@@ -197,6 +197,7 @@ import {
   splitCompoundChosenCardsMoveZoneAbilities,
   repairSplitChooseModeBulletAbilities,
   repairGapClosureAbilitySteps,
+  repairRandomChooseModeSagaAbilities,
   mergeLookSelectTopFollowupAbilities,
   pruneRedundantImpulseCleanupUnknownAbilities,
   pruneDuplicateGraveyardReminderAbilities,
@@ -1684,6 +1685,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = splitCompoundChosenCardsMoveZoneAbilities(abilities);
   abilities = repairSplitChooseModeBulletAbilities(abilities);
   abilities = repairGapClosureAbilitySteps(abilities);
+  abilities = repairRandomChooseModeSagaAbilities(abilities);
   abilities = abilities.map((ability) => {
     if ((ability.steps || []).length > 0) return ability;
     const fragment = parseBareTriggerEffectFragmentSteps(

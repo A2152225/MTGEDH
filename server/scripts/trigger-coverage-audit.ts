@@ -37,7 +37,7 @@ import { detectLeftGraveyardTriggers, detectPutIntoGraveyardTriggers, detectExil
 import { detectMillTriggers } from '../src/state/modules/triggers/mill.js';
 import { detectBlockTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectCombatDamageTriggers } from '../src/state/modules/triggered-abilities.js';
-import { isExternallyHandledOracleFragmentText } from '../../rules-engine/src/oracleIRParserPostprocess.js';
+import { isExternallyHandledOracleFragmentText, repairGapClosureAbilitySteps, repairRandomChooseModeSagaAbilities } from '../../rules-engine/src/oracleIRParserPostprocess.js';
 import { detectDeathTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectETBTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectLTBTriggers } from '../src/state/modules/triggered-abilities.js';
@@ -59,6 +59,7 @@ import { detectSacrificeTriggers } from '../src/state/modules/triggers/sacrifice
 import { detectSpellCounteredTriggers, detectMutateTriggers, detectDealtDamageTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectTokenCreatedTriggers } from '../src/state/modules/triggers/tokens.js';
 import { detectPayLifeTriggers } from '../src/state/modules/triggers/pay-life.js';
+import { getTriggerRuntimeWiringGaps } from '../src/state/modules/trigger-runtime-wiring.js';
 
 type OracleCard = {
   oracle_id?: string;
@@ -119,7 +120,8 @@ type CoverageStatus =
   | 'event_unknown'
   | 'not_detected'
   | 'intervening_if_unknown'
-  | 'effect_ir_gap';
+  | 'effect_ir_gap'
+  | 'runtime_wiring_gap';
 
 type PatternRecord = {
   templateKey: string;
@@ -133,6 +135,7 @@ type PatternRecord = {
   statuses: Set<CoverageStatus>;
   interveningIfClauses: Set<string>;
   effectGapSamples: Set<string>;
+  runtimeWiringGapSamples: Set<string>;
 };
 
 type AuditStats = {
@@ -528,12 +531,26 @@ function buildTriggerTemplate(trigger: TriggeredAbility, triggerCondition: strin
 
 function effectTextForIrAudit(effectText: string): string {
   const raw = String(effectText || '').trim();
-  const stripped = raw
+  const preserveModalBullets = /[\u2022•]/.test(raw) && /\bchoose\b/i.test(raw);
+
+  let processed = raw
     .replace(/\([^()]*\)/g, ' ')
     .replace(/\s+\)/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return stripped.length >= 4 ? stripped : raw;
+    .replace(/\btap enchanted (?:land|creature|permanent):[\s\S]*$/i, ' ')
+    .replace(/\bactivate only if[\s\S]*$/i, ' ')
+    .replace(/\.\s*\{[WUBRGC\dP/]+\}(?:\{[WUBRGC\dP/]+\})*:\s*[\s\S]*$/i, ' ');
+
+  if (!preserveModalBullets) {
+    processed = processed.replace(/\s+/g, ' ').trim();
+  } else {
+    processed = processed
+      .replace(/[^\S\n]+/g, ' ')
+      .replace(/\s*([\u2022•])\s*/g, '\n• ')
+      .replace(/\n{2,}/g, '\n')
+      .trim();
+  }
+
+  return processed.length >= 4 ? processed : raw;
 }
 
 function isIgnorableUnknownIrGap(raw: string): boolean {
@@ -804,7 +821,25 @@ function isIgnorableUnknownIrGap(raw: string): boolean {
     /^each player who controls the most creatures investigates$/i.test(n) ||
     /^x target attacking creatures become blocked$/i.test(n) ||
     /^this card any time you could cast an instant$/i.test(n) ||
-    /^target player draws x cards and loses x life, where x is the number of creatures they control of the chosen type$/i.test(n)
+    /^target player draws x cards and loses x life, where x is the number of creatures they control of the chosen type$/i.test(n) ||
+    /^use a unique item that completely fits on this creature for each knickknack counter$/i.test(n) ||
+    /^this match is now worth \d+ base points instead of \d+$/i.test(n) ||
+    /^offer them a high-five$/i.test(n) ||
+    /^choose a tournament-legal non-aura permanent card at random$/i.test(n) ||
+    /^create a token that's a copy of one of the following at random/i.test(n) ||
+    /^the plane effects of the unknown event don't apply to this game/i.test(n) ||
+    /^this contraption assembles a number of contraptions equal to the difference between those results$/i.test(n) ||
+    /^create one of the following at random you don't already control/i.test(n) ||
+    /^erase whatever text you use this way$/i.test(n) ||
+    /^then, starting with you, each player assigns their creatures to the left or right of the volcano$/i.test(n) ||
+    /^level 4\+ \d+\/\d+ flying you may activate abilities of artifacts your opponents control/i.test(n) ||
+    /^advocate eternal and its partner, support \d+ and investigate/i.test(n) ||
+    /^• treasure • food •/i.test(n) ||
+    /^give this creature and the tokens unique names$/i.test(n) ||
+    /^all damage dealt by this creature to an opponent counts as commander damage/i.test(n) ||
+    /^(?:s?kitter eel|ash zealot|unstoppable ash|viashino warrior|ruin crab|heartstone)$/i.test(n) ||
+    /^toughness, or loyalty equal to the chosen number, target artifact or creature becomes/i.test(n) ||
+    /^that player$/i.test(n)
   );
 }
 
@@ -813,9 +848,10 @@ export function hasUnknownIRSteps(effectText: string, cardName: string): string[
   const rawText = String(effectText || '').trim();
   if (isExternallyHandledOracleFragmentText(rawText)) return [];
   const parsed = parseOracleTextToIR(effectTextForIrAudit(effectText), cardName);
+  const repairedAbilities = repairRandomChooseModeSagaAbilities(repairGapClosureAbilitySteps(parsed.abilities || []));
   const gaps: string[] = [];
 
-  for (const ability of parsed.abilities || []) {
+  for (const ability of repairedAbilities) {
     for (const step of ability.steps || []) {
       collectUnknownSteps(step, gaps, true);
     }
@@ -3492,6 +3528,16 @@ function assessTrigger(card: OracleCard, trigger: TriggeredAbility): CoverageSta
     statuses.push('effect_ir_gap');
   }
 
+  const runtimeWiringGaps = getTriggerRuntimeWiringGaps(trigger.effect, card.name);
+  if (
+    runtimeWiringGaps.length > 0 &&
+    effectGaps.length === 0 &&
+    serverDetectsTrigger(card, trigger) &&
+    !isIgnorableCardForIrGap(card)
+  ) {
+    statuses.push('runtime_wiring_gap');
+  }
+
   if (statuses.includes('event_unknown') && serverDetectsTrigger(card, trigger)) {
     statuses.splice(statuses.indexOf('event_unknown'), 1);
   }
@@ -3531,6 +3577,7 @@ async function main(): Promise<void> {
       not_detected: 0,
       intervening_if_unknown: 0,
       effect_ir_gap: 0,
+      runtime_wiring_gap: 0,
     },
     castTriggerCount: 0,
     castTriggerGaps: 0,
@@ -3592,6 +3639,7 @@ async function main(): Promise<void> {
           statuses: new Set<CoverageStatus>(),
           interveningIfClauses: new Set<string>(),
           effectGapSamples: new Set<string>(),
+          runtimeWiringGapSamples: new Set<string>(),
         };
         patterns.set(templateKey, record);
       }
@@ -3604,6 +3652,9 @@ async function main(): Promise<void> {
       if (trigger.interveningIfClause) record.interveningIfClauses.add(trigger.interveningIfClause);
       for (const gap of hasUnknownIRSteps(trigger.effect, card.name).slice(0, 2)) {
         if (record.effectGapSamples.size < 5) record.effectGapSamples.add(gap);
+      }
+      for (const gap of getTriggerRuntimeWiringGaps(trigger.effect, card.name).slice(0, 2)) {
+        if (record.runtimeWiringGapSamples.size < 5) record.runtimeWiringGapSamples.add(gap);
       }
     }
   }
@@ -3628,6 +3679,7 @@ async function main(): Promise<void> {
     notDetectedExamples: p.notDetectedExamples,
     interveningIfClauses: [...p.interveningIfClauses].slice(0, 5),
     effectGapSamples: [...p.effectGapSamples],
+    runtimeWiringGapSamples: [...p.runtimeWiringGapSamples],
     sampleEffect: p.effectSnippet,
   }));
 
@@ -3667,6 +3719,7 @@ async function main(): Promise<void> {
     notDetectedByEvent: summarizeByEvent(gapPatterns, 'not_detected'),
     unknownInterveningIfByEvent: summarizeByEvent(gapPatterns, 'intervening_if_unknown'),
     effectIrGapsByEvent: summarizeByEvent(gapPatterns, 'effect_ir_gap'),
+    runtimeWiringGapsByEvent: summarizeByEvent(gapPatterns, 'runtime_wiring_gap'),
   };
 
   fs.writeFileSync(outPath, JSON.stringify(report, null, 2), 'utf8');

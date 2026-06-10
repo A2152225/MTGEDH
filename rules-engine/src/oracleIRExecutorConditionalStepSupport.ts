@@ -1456,6 +1456,13 @@ export function evaluateConditionalWrapperCondition(params: {
     return null;
   }
 
+  if (normalizedRaw === "they can't" || normalizedRaw === 'they cannot') {
+    if (lastActionOutcome?.kind === 'impossible') return true;
+    if (lastActionOutcome?.stepKind === 'discard' && lastActionOutcome?.kind === 'applied') return false;
+    if (lastActionOutcome?.stepKind === 'discard' && lastActionOutcome?.kind === 'impossible') return true;
+    return null;
+  }
+
   if (normalizedRaw === 'a creature died this turn') {
     return Boolean((nextState as any)?.creatureDiedThisTurn);
   }

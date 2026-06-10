@@ -642,16 +642,165 @@ export async function fetchCardsFromSetByColorIdentity(
 //
 // Deck legality (format-level)
 //
-export function validateDeck(format: string, cards: ScryfallCard[]): { illegal: { name: string; reason: string }[]; warnings: string[] } {
+
+export type FormatRestrictionLists = {
+  banned: ReadonlySet<string>;
+  restricted: ReadonlySet<string>;
+};
+
+export type ValidateDeckOptions = {
+  /** Normalized (lcKey) names from live Scryfall searches, e.g. banned:commander */
+  formatRestrictions?: FormatRestrictionLists;
+};
+
+const commanderRestrictionsTtlMs = Number(
+  process.env.SCRYFALL_COMMANDER_RESTRICTIONS_TTL_MS ?? 24 * 60 * 60 * 1000,
+);
+
+let commanderRestrictionsCache: (FormatRestrictionLists & { fetchedAt: number }) | null = null;
+
+function restrictionNameKeys(card: Pick<ScryfallCard, 'name' | 'card_faces'>): string[] {
+  const keys = new Set<string>();
+  const primary = lcKey(card.name);
+  if (primary) keys.add(primary);
+  if (Array.isArray(card.card_faces)) {
+    for (const face of card.card_faces) {
+      const faceKey = lcKey(String(face?.name || ''));
+      if (faceKey) keys.add(faceKey);
+    }
+  }
+  return Array.from(keys);
+}
+
+async function fetchScryfallSearchUniqueCards(query: string): Promise<ScryfallCard[]> {
+  const cards: ScryfallCard[] = [];
+  let url: string | null =
+    `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=cards`;
+
+  while (url) {
+    const page = await doFetchJSON(url);
+    if (page?.object === 'error') {
+      if (page.code === 'not_found') return cards;
+      throw new Error(String(page.details || page.code || 'Scryfall search failed'));
+    }
+
+    for (const entry of page?.data || []) {
+      cards.push(toCachedCard(entry));
+    }
+
+    url = page?.has_more ? page.next_page : null;
+    if (url) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  return cards;
+}
+
+function buildRestrictionNameSet(cards: ScryfallCard[]): Set<string> {
+  const names = new Set<string>();
+  for (const card of cards) {
+    for (const key of restrictionNameKeys(card)) {
+      names.add(key);
+    }
+  }
+  return names;
+}
+
+/**
+ * Fetch Commander ban/restricted lists from Scryfall search (cached, TTL configurable).
+ * Uses `banned:commander` and `restricted:commander` so ban list updates without redeploying oracle-cards.json.
+ */
+export async function getCommanderFormatRestrictions(options?: {
+  forceRefresh?: boolean;
+}): Promise<FormatRestrictionLists> {
+  const now = Date.now();
+  if (
+    !options?.forceRefresh &&
+    commanderRestrictionsCache &&
+    now - commanderRestrictionsCache.fetchedAt < commanderRestrictionsTtlMs
+  ) {
+    return {
+      banned: commanderRestrictionsCache.banned,
+      restricted: commanderRestrictionsCache.restricted,
+    };
+  }
+
+  try {
+    const [bannedCards, restrictedCards] = await Promise.all([
+      fetchScryfallSearchUniqueCards('banned:commander'),
+      fetchScryfallSearchUniqueCards('restricted:commander'),
+    ]);
+
+    commanderRestrictionsCache = {
+      fetchedAt: now,
+      banned: buildRestrictionNameSet(bannedCards),
+      restricted: buildRestrictionNameSet(restrictedCards),
+    };
+
+    debug(1, '[scryfall] Refreshed commander restriction lists', {
+      banned: commanderRestrictionsCache.banned.size,
+      restricted: commanderRestrictionsCache.restricted.size,
+    });
+
+    return {
+      banned: commanderRestrictionsCache.banned,
+      restricted: commanderRestrictionsCache.restricted,
+    };
+  } catch (error) {
+    debugWarn(1, '[scryfall] Failed to fetch commander restriction lists from Scryfall', error);
+    if (commanderRestrictionsCache) {
+      return {
+        banned: commanderRestrictionsCache.banned,
+        restricted: commanderRestrictionsCache.restricted,
+      };
+    }
+    return { banned: new Set<string>(), restricted: new Set<string>() };
+  }
+}
+
+/** Test hook — clears cached Scryfall ban/restricted lists. */
+export function resetCommanderFormatRestrictionsCacheForTests(): void {
+  commanderRestrictionsCache = null;
+}
+
+function matchesFormatRestriction(
+  card: ScryfallCard,
+  restrictions: FormatRestrictionLists | undefined,
+): { banned?: boolean; restricted?: boolean } {
+  if (!restrictions) return {};
+  for (const key of restrictionNameKeys(card)) {
+    if (restrictions.banned.has(key)) return { banned: true };
+    if (restrictions.restricted.has(key)) return { restricted: true };
+  }
+  return {};
+}
+
+export function validateDeck(
+  format: string,
+  cards: ScryfallCard[],
+  options?: ValidateDeckOptions,
+): { illegal: { name: string; reason: string }[]; warnings: string[] } {
   const illegal: { name: string; reason: string }[] = [];
   const warnings: string[] = [];
   const fmt = (format || "").toLowerCase();
+  const restrictions = options?.formatRestrictions;
 
-  // Format legality flags (from Scryfall)
+  // Format legality flags (from card record) + live Scryfall ban/restricted lists
   for (const c of cards) {
     const status = c.legalities?.[fmt];
     if (status && status !== "legal") {
       illegal.push({ name: c.name, reason: `not legal in ${format} (${status})` });
+      continue;
+    }
+
+    const liveRestriction = matchesFormatRestriction(c, restrictions);
+    if (liveRestriction.banned) {
+      illegal.push({ name: c.name, reason: `banned in ${format} (Scryfall ban list)` });
+      continue;
+    }
+    if (liveRestriction.restricted) {
+      illegal.push({ name: c.name, reason: `restricted in ${format} (Scryfall restricted list)` });
     }
   }
 

@@ -4936,8 +4936,15 @@ export function parseMoveZoneUpToThatManyFromTheirGraveyard(what: {
   readonly raw?: string;
 }): MoveZoneUpToTargetCountSpec | null {
   if (what.kind !== 'raw') return null;
-  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
-  if (raw !== 'up to that many target cards from their graveyard') return null;
+  const raw = normalizeBoundPlayerZoneSelectorText(String((what as any).text || '').trim())
+    .toLowerCase()
+    .replace(/[.\s]+$/g, '');
+  if (
+    raw !== 'up to that many target cards from their graveyard' &&
+    raw !== "up to that many target cards from target opponent's graveyard"
+  ) {
+    return null;
+  }
   return { maxCount: 0, criteria: { cardType: 'any' }, useReferenceAmount: true };
 }
 

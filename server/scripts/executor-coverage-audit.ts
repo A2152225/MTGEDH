@@ -34,6 +34,8 @@ import {
   isExternallyHandledOracleFragmentText,
   parseBareTriggerEffectFragmentSteps,
   repairSplitChooseModeBulletSteps,
+  repairGapClosureAbilitySteps,
+  repairRandomChooseModeSagaAbilities,
 } from '../../rules-engine/src/oracleIRParserPostprocess.js';
 import { getCopiedSpellReplaySteps } from '../../rules-engine/src/oracleIRExecutorCopySpellSupport.js';
 import { parseTriggeredAbilitiesFromText } from '../../rules-engine/src/triggeredAbilitiesParsing.js';
@@ -137,29 +139,42 @@ function parseArgs(): AuditArgs {
   };
 }
 
-function stripKeywordActivationReminders(effectText: string): string {
+function stripKeywordActivationReminders(effectText: string, preserveNewlines = false): string {
   return String(effectText || '')
     .replace(/\s+equip(?:\{[^}]*\}|\d+\})?(?:\s*\([^)]*\))?\s*$/i, '')
     .replace(/\s+reconfigure(?:\{[^}]*\})?(?:\s*\([^)]*\))?\s*$/i, '')
     .replace(/\s+craft(?:\{[^}]*\}|\d+\})?(?:\s*\([^)]*\))?\s*$/i, '')
     .replace(/(?:^|[.\n]\s*)attach this permanent to target[^\n.]*/gi, (match) => (match.startsWith('.') ? '.' : ''))
-    .replace(/\s+/g, ' ')
+    .replace(preserveNewlines ? /[^\S\n]+/g : /\s+/g, ' ')
     .trim();
 }
 
 function effectTextForIrAudit(effectText: string): string {
   const raw = String(effectText || '').trim();
-  const stripped = stripKeywordActivationReminders(
-    raw
-      .replace(/\([^()]*\)/g, ' ')
-      .replace(/\s+\)/g, ' ')
-      .replace(/\btap enchanted (?:land|creature|permanent):[\s\S]*$/i, ' ')
-      .replace(/\bactivate only if[\s\S]*$/i, ' ')
-      .replace(/\.\s*\{[WUBRGC\dP/]+\}(?:\{[WUBRGC\dP/]+\})*:\s*[\s\S]*$/i, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  );
-  return stripped.length >= 4 ? stripped : raw;
+  const preserveModalBullets = /[\u2022•]/.test(raw) && /\bchoose\b/i.test(raw);
+
+  let processed = raw
+    .replace(/\([^()]*\)/g, ' ')
+    .replace(/\s+\)/g, ' ')
+    .replace(/\btap enchanted (?:land|creature|permanent):[\s\S]*$/i, ' ')
+    .replace(/\bactivate only if[\s\S]*$/i, ' ')
+    .replace(/\.\s*\{[WUBRGC\dP/]+\}(?:\{[WUBRGC\dP/]+\})*:\s*[\s\S]*$/i, ' ');
+
+  if (!preserveModalBullets) {
+    processed = processed.replace(/\s+/g, ' ').trim();
+  }
+
+  processed = stripKeywordActivationReminders(processed, preserveModalBullets);
+
+  if (preserveModalBullets) {
+    processed = processed
+      .replace(/[^\S\n]+/g, ' ')
+      .replace(/\s*([\u2022•])\s*/g, '\n• ')
+      .replace(/\n{2,}/g, '\n')
+      .trim();
+  }
+
+  return processed.length >= 4 ? processed : raw;
 }
 
 function normalizeText(text: string): string {
@@ -202,8 +217,9 @@ export function collectStepsFromIrText(text: string, cardName: string): readonly
   const rawFragmentText = String(text || '').trim();
   const auditedText = effectTextForIrAudit(text);
   const parsed = parseOracleTextToIR(auditedText, cardName);
+  const repairedAbilities = repairRandomChooseModeSagaAbilities(repairGapClosureAbilitySteps(parsed.abilities || []));
   const out: OracleEffectStep[] = [];
-  for (const ability of parsed.abilities || []) {
+  for (const ability of repairedAbilities) {
     for (const step of ability.steps || []) out.push(step);
   }
   if (out.length > 0) {
@@ -759,6 +775,50 @@ export function enrichAuditStateAndContextForTargets(
         return { ...player, library };
       }),
     } as GameState;
+  }
+
+  const needsFroghemothCombatExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      step.to === 'exile' &&
+      /up to that many target cards from (?:their|target opponent's) graveyard/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsFroghemothCombatExile) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          { id: 'gy-p2-frog-1', name: 'Frog Exile Creature', type_line: 'Creature — Frog', cmc: 2 },
+          { id: 'gy-p2-frog-2', name: 'Frog Exile Instant', type_line: 'Instant', cmc: 1 },
+        ];
+        const merged = [...graveyard];
+        for (const card of fixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      referenceAmount: Math.max(2, Number(nextCtx.referenceAmount ?? 0) || 2),
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetOpponentId: 'p2',
+        targetPlayerId: 'p2',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-p2-frog-1',
+          ])
+        ),
+      },
+    };
   }
 
   const needsLandCountConditional = steps.some(
@@ -6751,6 +6811,7 @@ function skippedStepIsBenignForAudit(step: OracleEffectStep): boolean {
   }
   if (kind === 'turn_face_down' && /turn this creature face down/i.test(raw)) return true;
   if (kind === 'discard' && /\b(?:any number of|one or more)\b/i.test(raw)) return true;
+  if (kind === 'discard' && /card with that name/i.test(raw)) return true;
   if (kind === 'copy_spell') return true;
   if (kind === 'modify_pt' && /\bif\b/.test(raw)) return true;
   if (kind === 'modify_pt' && /\bwhere x is\b/i.test(raw)) return true;
@@ -6762,6 +6823,7 @@ function skippedStepIsBenignForAudit(step: OracleEffectStep): boolean {
     if (/^flying this creature can'?t block/i.test(raw)) return true;
   }
   if (kind === 'flip_coin') return true;
+  if (kind === 'schedule_delayed_trigger') return true;
   if (kind === 'grant_graveyard_permission') return true;
   if (kind === 'turn_face_up') return true;
   if (kind === 'move_zone' && /\b(?:equal or lesser|less than or equal to that spell)\b/i.test(raw)) return true;

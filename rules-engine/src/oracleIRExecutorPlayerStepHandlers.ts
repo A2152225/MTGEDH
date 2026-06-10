@@ -357,6 +357,10 @@ function resolveAddManaAmount(
         const referenceAmount = Number(ctx.referenceAmount);
         return Number.isFinite(referenceAmount) ? Math.max(0, referenceAmount) : 2;
       }
+      case 'noncreature cards exiled this way': {
+        const exiledCards = Array.isArray(ctx.lastExiledCards) ? ctx.lastExiledCards : [];
+        return exiledCards.filter((card: any) => !getCardTypeLineLower(card).includes('creature')).length;
+      }
       default: {
         const evaluated = evaluateModifyPtWhereX(state, ctx.controllerId, `X is ${normalized}`, undefined, ctx);
         if (evaluated !== null) return Math.max(0, evaluated);
@@ -2335,6 +2339,13 @@ export function applyModifyGraveyardPermissionsStep(
   );
 
   if (step.scope !== 'last_granted_graveyard_cards' || grantedIds.size === 0) {
+    if (step.castedPermanentEntersWithCounters) {
+      return {
+        applied: true,
+        state,
+        log: [`Escape entry carries counters: ${step.raw}`],
+      };
+    }
     return {
       applied: false,
       message: `Skipped graveyard permission modifier (no granted cards in context): ${step.raw}`,
@@ -3881,6 +3892,73 @@ export function applyDiscardStep(
       message: `Skipped discard (unknown amount): ${step.raw}`,
       reason: 'unknown_amount',
       options: { classification: 'ambiguous' },
+    };
+  }
+
+  const amountRaw = String((step.amount as any)?.raw || '').trim().toLowerCase();
+  if (
+    (step.amount as any)?.kind === 'reference_amount' &&
+    /card with that name/.test(amountRaw)
+  ) {
+    if (players.length !== 1) {
+      return {
+        applied: false,
+        message: `Skipped discard (requires deterministic player binding): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+
+    const chosenName = String(ctx.selectorContext?.chosenCardName || '').trim().toLowerCase();
+    if (!chosenName) {
+      return {
+        applied: false,
+        message: `Skipped discard (requires chosen card name): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+
+    const player = state.players.find((p) => p.id === players[0]) as any;
+    const hand = Array.isArray(player?.hand) ? player.hand : [];
+    const nameMatches = hand.filter(
+      (card: any) => String(card?.name || card?.card?.name || '').trim().toLowerCase() === chosenName
+    );
+    if (nameMatches.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped discard (no card with chosen name in hand): ${step.raw}`,
+        reason: 'impossible_action',
+        options: { persist: false },
+      };
+    }
+    if (nameMatches.length === 1) {
+      const result = discardSpecificCardsForPlayer(state, players[0], [
+        String(nameMatches[0]?.id || '').trim(),
+      ].filter(Boolean));
+      if (!result.applied) {
+        return {
+          applied: false,
+          message: `Skipped discard (chosen card unavailable): ${step.raw}`,
+          reason: 'failed_to_apply',
+          options: { persist: false },
+        };
+      }
+      return {
+        applied: true,
+        state: result.state,
+        log: result.log,
+        lastDiscardedCardCount: result.discardedCount,
+        lastDiscardedCards: result.discardedCards,
+        lastMovedCards: result.discardedCards,
+      };
+    }
+
+    return {
+      applied: false,
+      message: `Skipped discard (requires chosen card binding): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
     };
   }
 

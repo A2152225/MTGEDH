@@ -322,14 +322,50 @@ function getCachedLocalCardNamesForChoice(database: DB, criteria: CardNameChoice
   return candidateNames.slice();
 }
 
+function isSuspiciousDuplicateFaces(card: LocalCardLookupRecord): boolean {
+  if (!Array.isArray(card.card_faces) || card.card_faces.length < 2) return false;
+  const faceNames = card.card_faces
+    .map((face) => normalizeLookupName(String(face?.name || '')))
+    .filter(Boolean);
+  return faceNames.length >= 2 && faceNames.every((name) => name === faceNames[0]);
+}
+
+/** Higher rank = preferred default printing for deck lookup / validation. */
+export function commanderLegalityRank(card: LocalCardLookupRecord): number {
+  const status = String(card.legalities?.commander || '').toLowerCase();
+  switch (status) {
+    case 'legal':
+      return 4;
+    case 'restricted':
+      return 3;
+    case 'not_legal':
+      return 2;
+    case 'banned':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 function candidateQuality(card: LocalCardLookupRecord): number {
-  return Number(Boolean(card.oracle_text))
+  let score = Number(Boolean(card.oracle_text))
     + Number(Boolean(card.image_uris?.normal || card.image_uris?.small))
     + Number(Boolean(card.card_faces?.length));
+  if (isSuspiciousDuplicateFaces(card)) {
+    score -= 2;
+  }
+  return score;
 }
 
 function pickBetterCandidate(existing: StoredCandidate | undefined, candidate: StoredCandidate): StoredCandidate {
   if (!existing) return candidate;
+
+  const existingLegality = commanderLegalityRank(existing.payload);
+  const candidateLegality = commanderLegalityRank(candidate.payload);
+  if (candidateLegality !== existingLegality) {
+    return candidateLegality > existingLegality ? candidate : existing;
+  }
+
   if (candidate.quality !== existing.quality) {
     return candidate.quality > existing.quality ? candidate : existing;
   }

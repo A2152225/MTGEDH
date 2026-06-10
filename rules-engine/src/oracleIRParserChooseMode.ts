@@ -12,7 +12,7 @@ import { normalizeOracleText } from './oracleIRParserUtils';
  * - "Choose any number of modes -"
  */
 const CHOOSE_MODE_HEADER_RE =
-  /^Choose\s+(?:one\s+that\s+has(?:n't| not)\s+been\s+chosen|one\s+or\s+both|one\s+or\s+more|up\s+to\s+one|one|two|three|four|up\s+to\s+(?:one|two|three|four|\w+)|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?(?:you\s+may\s+)?choose\s+(?:both|any\s+number)\s+instead[.\u2014-]?)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014]|\.|)\s*$/i;
+  /^Choose\s+(?:one\s+at\s+random|one\s+that\s+has(?:n't| not)\s+been\s+chosen|one\s+or\s+both|one\s+or\s+more|up\s+to\s+one|one|two|three|four|up\s+to\s+(?:one|two|three|four|\w+)|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?(?:you\s+may\s+)?choose\s+(?:both|any\s+number)\s+instead[.\u2014-]?)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014]|\.|)\s*$/i;
 
 function splitChooseModeHeaderText(headerText: string): {
   readonly prefixText: string;
@@ -56,10 +56,14 @@ function resolveChooseModeLimits(headerText: string): {
   const chooseAnyNumberInstead = /(?:you may\s+)?choose any number instead/i.test(headerText);
   const oneOrBothMatch = normalizedHeaderText.match(/^choose\s+one\s+or\s+both\b/i);
   const oneOrMoreMatch = normalizedHeaderText.match(/^choose\s+one\s+or\s+more\b/i);
+  const chooseOneAtRandomMatch = normalizedHeaderText.match(/^choose\s+one\s+at\s+random\b/i);
   const upToMatch = normalizedHeaderText.match(/^choose\s+up\s+to\s+(\w+)/i);
   const exactMatch = normalizedHeaderText.match(/^choose\s+(one|two|three|four)\b/i);
 
-  if (oneOrBothMatch || chooseBothInstead) {
+  if (chooseOneAtRandomMatch) {
+    minModes = 1;
+    maxModes = 1;
+  } else if (oneOrBothMatch || chooseBothInstead) {
     minModes = 1;
     maxModes = 2;
   } else if (oneOrMoreMatch || chooseAnyNumberInstead) {

@@ -87,6 +87,16 @@ import { startEffectProgramResolution } from "../effects/index.js";
 import type { EffectProgram, EffectProgramHandlers } from "../../../../rules-engine/src/effectProgram.js";
 import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser.js";
 import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../../../../rules-engine/src/oracleIR.js";
+import {
+  parseTriggerEffectSteps,
+  wouldOracleIRFallbackPrefilterMatch,
+} from './trigger-runtime-wiring.js';
+import { applyCopyPermanentTriggerStep } from './trigger-copy-permanent.js';
+export {
+  applyPermanentBecomeCopyOfTargetPermanent,
+  applyPermanentBecomeCopyOfCardData,
+  findExiledCardById,
+} from './permanent-copy.js';
 import { resolveOracleQuantity } from "../../../../rules-engine/src/oracleIRExecutor.js";
 import { applyTapOrUntapToBattlefield, resolveTapOrUntapTargetIds } from "../../../../rules-engine/src/oracleIRExecutorBattlefieldOps.js";
 import type { OracleIRExecutionContext } from "../../../../rules-engine/src/oracleIRExecutionTypes.js";
@@ -3805,6 +3815,27 @@ function applyOracleIRFallbackForTriggeredEffect(
     referenceAmount: Number.isFinite(lifeLostReference) && lifeLostReference > 0 ? lifeLostReference : undefined,
   });
 
+  let applied = 0;
+  if (wouldOracleIRFallbackPrefilterMatch(text)) {
+    try {
+      const steps = parseTriggerEffectSteps(text, sourceName);
+      for (const step of steps) {
+        if (step.kind === 'copy_permanent') {
+          applied += applyCopyPermanentTriggerStep(
+            ctx,
+            controller,
+            sourceName,
+            step as Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
+            triggerItem,
+          );
+        }
+      }
+    } catch (err) {
+      debugWarn(1, `[executeTriggerEffect] Oracle IR copy_permanent parse failed for ${sourceName}:`, err);
+    }
+  }
+  if (applied > 0) return applied;
+
   return applyOracleIRFallbackForUncategorizedSpell(
     ctx,
     text,
@@ -5744,29 +5775,8 @@ function applyOracleIRFallbackForUncategorizedSpell(
     const text = String(oracleText || '').trim();
     if (!text) return 0;
 
-    // Quick prefilter to keep this conservative and cheap.
+    if (!wouldOracleIRFallbackPrefilterMatch(text)) return 0;
     const lower = text.toLowerCase();
-    const mightHaveSupported =
-      lower.includes('draw') ||
-      (lower.includes('exile') && lower.includes('top') && lower.includes('library')) ||
-      (lower.includes('add') && lower.includes('{')) ||
-      lower.includes('scry') ||
-      lower.includes('surveil') ||
-      lower.includes('gain') ||
-      lower.includes('lose') ||
-      lower.includes('discard') ||
-      lower.includes('mill') ||
-      (lower.includes('top') && lower.includes('library') && lower.includes('graveyard')) ||
-      lower.includes('damage') ||
-      lower.includes('prevent') ||
-      lower.includes('deal') ||
-      lower.includes('counter') ||
-      lower.includes('sacrifice') ||
-      lower.includes('destroy') ||
-      (lower.includes('create') && lower.includes('token')) ||
-      /\btap\b/.test(lower) ||
-      /\buntap\b/.test(lower);
-    if (!mightHaveSupported) return 0;
 
     const ir = parseOracleTextToIR(text);
     const grantsFreeImpulseCasts = castFromGraveyard === true
@@ -16632,6 +16642,85 @@ export function executeTriggerEffect(
       if (results.length > 0) {
         return; // Keyword handlers processed the effect
       }
+    }
+  }
+
+  if (/^curse defending player/i.test(desc)) {
+    const defendingPlayerId = String(
+      (triggerItem as any)?.defendingPlayer ||
+        (triggerItem as any)?.effectData?.defendingPlayer ||
+        (triggerItem as any)?.targetPlayer ||
+        ''
+    ).trim();
+    if (defendingPlayerId) {
+      const curseId = uid('curse_token');
+      state.battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+      state.battlefield.push({
+        id: curseId,
+        controller,
+        owner: controller,
+        isToken: true,
+        enchantedPlayerId: defendingPlayerId,
+        card: {
+          id: curseId,
+          name: 'Curse',
+          type_line: 'Token Enchantment — Aura Curse',
+          oracle_text: 'Enchant player\nAt the beginning of your upkeep, you lose 1 life.',
+        },
+        type_line: 'Token Enchantment — Aura Curse',
+        cardType: 'Token Enchantment — Aura Curse',
+      });
+      debug(2, `[executeTriggerEffect] ${sourceName}: cursed ${defendingPlayerId}`);
+      return;
+    }
+  }
+
+  if (/then, if you have 1,000 or more life, you lose the game/i.test(desc)) {
+    const lifeTotal = Number(state.life?.[controller] ?? 0);
+    if (lifeTotal >= 1000) {
+      state.life[controller] = 0;
+      debug(2, `[executeTriggerEffect] ${sourceName}: ${controller} lost the game at ${lifeTotal} life`);
+    }
+    return;
+  }
+
+  if (/double the amount of life you lose and cards you draw for the rest of the game from this ability/i.test(desc)) {
+    const sourcePermanentId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '').trim();
+    const sourcePermanent = battlefield.find((perm: any) => String(perm?.id || '').trim() === sourcePermanentId);
+    if (sourcePermanent) {
+      sourcePermanent.upkeepEffectDoubling = true;
+      debug(2, `[executeTriggerEffect] ${sourceName}: enabled upkeep effect doubling`);
+    }
+    return;
+  }
+
+  if (/the next time you would lose the game this turn, instead draw three cards and your life total becomes 5/i.test(desc)) {
+    state.pendingLoseGameReplacements = Array.isArray(state.pendingLoseGameReplacements)
+      ? state.pendingLoseGameReplacements
+      : [];
+    state.pendingLoseGameReplacements.push({
+      playerId: controller,
+      drawCount: 3,
+      lifeTotal: 5,
+      sourceName,
+      expiresAt: 'end_of_turn',
+    });
+    debug(2, `[executeTriggerEffect] ${sourceName}: registered lose-the-game replacement for ${controller}`);
+    return;
+  }
+
+  if (/you and that player may each put a permanent card from your hand onto the battlefield/i.test(desc)) {
+    const targetPlayerId = String(
+      (triggerItem as any)?.targetPlayerId ||
+        (triggerItem as any)?.effectData?.targetPlayerId ||
+        (triggerItem as any)?.targets?.[0]?.id ||
+        (triggerItem as any)?.targets?.[0] ||
+        ''
+    ).trim();
+    if (targetPlayerId) {
+      queueLandPlayFromHandPrompt(ctx, controller as any, sourceName, triggerItem);
+      queueLandPlayFromHandPrompt(ctx, targetPlayerId as any, sourceName, triggerItem);
+      return;
     }
   }
 

@@ -90,6 +90,9 @@ import {
   recordPrisonersDilemmaChoice,
   applyTriggeredReanimationEntryRiders,
   applyMyriadTokenCopies,
+  applyPermanentBecomeCopyOfTargetPermanent,
+  applyPermanentBecomeCopyOfCardData,
+  findExiledCardById,
   executeTriggerEffect,
   inferTriggeredAbilityTargetMetadata,
   queueSelfETBTriggersForPermanent,
@@ -16999,6 +17002,18 @@ async function handleTargetSelectionResponse(
     }
 
     // Default cancelled TARGET_SELECTION: no-op.
+    if (stepAny?.action === 'self_become_copy_of_creature') {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${step.sourceName || 'Permanent'}: ${getPlayerName(game, pid)} chose not to become a copy.`,
+        ts: Date.now(),
+      });
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
     if (stepAny?.action === 'destroy_artifact_enchantment') {
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
@@ -19936,6 +19951,61 @@ async function handleTargetSelectionResponse(
     }
 
     ResolutionQueueManager.addStep(gameId, queuedTapUntapDecisionStep as any);
+    return;
+  }
+
+  if (action === 'self_become_copy_of_creature' || action === 'other_become_copy_of_creature') {
+    const targetId = String(selections[0] || '').trim();
+    if (!targetId) {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${step.sourceName || 'Permanent'}: ${getPlayerName(game, pid)} chose not to become a copy.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    const copySubjectPermanentId = String(
+      action === 'other_become_copy_of_creature'
+        ? ((step as any).copyTargetPermanentId || (step as any).selfBecomeCopySourcePermanentId || step.sourceId || '')
+        : ((step as any).selfBecomeCopySourcePermanentId || step.sourceId || '')
+    ).trim();
+    const retainedAbilityText = String((step as any).retainedAbilityText || '').trim();
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const onBattlefield = battlefield.some((perm: any) => String(perm?.id || '').trim() === targetId);
+    const copyResult = onBattlefield
+      ? applyPermanentBecomeCopyOfTargetPermanent(
+          game.state,
+          copySubjectPermanentId,
+          targetId,
+          retainedAbilityText || undefined,
+        )
+      : (() => {
+          const exiledCard = findExiledCardById(game.state, targetId, String(step.sourceId || '').trim() || undefined);
+          return exiledCard
+            ? applyPermanentBecomeCopyOfCardData(
+                game.state,
+                copySubjectPermanentId,
+                exiledCard,
+                retainedAbilityText || undefined,
+              )
+            : { applied: false as const };
+        })();
+
+    if (copyResult.applied) {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${step.sourceName || 'Permanent'} became a copy of ${copyResult.targetName || 'the chosen card'}.`,
+        ts: Date.now(),
+      });
+      debug(2, `[Resolution] ${copyResult.sourceName || step.sourceName} became a copy of ${copyResult.targetName}`);
+    } else {
+      debugWarn(1, `[Resolution] Failed copy for ${step.sourceName} (subject=${copySubjectPermanentId}, target=${targetId})`);
+    }
     return;
   }
   
