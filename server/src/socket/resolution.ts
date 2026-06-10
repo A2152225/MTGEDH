@@ -4382,6 +4382,16 @@ async function handleAIResolutionStep(
           break;
         }
 
+        // activationPaymentChoice / wardPayment / phyrexianManaChoice and other
+        // mana_payment_choice variants must still be cleared or the queue blocks priority.
+        debugWarn(1, `[Resolution] AI mana_payment_choice without spell payment assembly for ${String(stepData.cardName || stepData.sourceName || 'source')}; cancelling prompt`);
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: { payment: [] },
+          cancelled: true,
+          timestamp: Date.now(),
+        };
         break;
       }
       
@@ -8691,6 +8701,9 @@ export function initializeAIResolutionHandler(io: Server) {
     step?: ResolutionStep
   ) => {
     if (event === ResolutionQueueEvent.STEP_ADDED && step) {
+      if (ResolutionQueueManager.isGameReplaying(gameId)) {
+        return;
+      }
       // Process AI steps asynchronously
       handleAIResolutionStep(io, gameId, step).catch(err => {
         debugError(1, `[Resolution] AI handler error:`, err);
@@ -8729,6 +8742,9 @@ export function initializePriorityResolutionHandler(io: Server): void {
       
       // When first step is added, enter resolution mode (set priority = null)
       if (event === ResolutionQueueEvent.STEP_ADDED) {
+        if (ResolutionQueueManager.isGameReplaying(gameId)) {
+          return;
+        }
         const summary = ResolutionQueueManager.getPendingSummary(gameId);
         // If this is the first step (count = 1), enter resolution mode
         if (summary.pendingCount === 1 && ctx.state.priority !== null) {

@@ -13,10 +13,13 @@
 
 import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
+import { finalizeGameStateAfterReplay } from "./state/modules/replay-prompt-cleanup.js";
 import { buildCommanderCardSnapshot } from "./state/modules/commander.js";
 import { processDrawTriggers } from "./state/modules/zones.js";
+import { ResolutionQueueManager } from "./state/resolution/index.js";
 import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
 import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
+import { clearOptionalPaymentCallbacks } from "./socket/optional-payment-prompts.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import { BOOT_ID } from "./utils/bootId.js";
 
@@ -608,6 +611,11 @@ class GameManagerClass {
     const id = opts.id || `g_${randomUUID()}`;
     if (this.games.has(id)) throw new Error(`Game ${id} already exists`);
 
+    // Defensive: resolution queues are not tied to GameManager lifecycle and can
+    // survive delete/recreate when the same gameId is reused.
+    ResolutionQueueManager.removeQueue(id);
+    clearOptionalPaymentCallbacks(id);
+
     let game: any = null;
 
     // Always prefer createInitialGameState for commander games to get full engine support
@@ -763,6 +771,15 @@ class GameManagerClass {
       this.restoringGames.delete(gameId);
     }
 
+    try {
+      const ctx = (game as any)?.ctx || game;
+      if (ctx?.gameId) {
+        finalizeGameStateAfterReplay(ctx);
+      }
+    } catch {
+      // best-effort only
+    }
+
     // Initialize RulesBridge for rules engine integration
     if (this.ioServer) {
       const bridge = this.syncRulesBridge(gameId, game.state);
@@ -820,12 +837,18 @@ class GameManagerClass {
   deleteGame(gameId: string): boolean {
     // also remove persisted row? intentionally don't delete DB row here to preserve event history.
     this.disposeRulesBridge(gameId);
+    ResolutionQueueManager.removeQueue(gameId);
+    clearOptionalPaymentCallbacks(gameId);
     return this.games.delete(gameId);
   }
 
   clearAllGames(): void {
     for (const gameId of this.rulesBridges.keys()) {
       this.disposeRulesBridge(gameId);
+    }
+    for (const gameId of this.games.keys()) {
+      ResolutionQueueManager.removeQueue(gameId);
+      clearOptionalPaymentCallbacks(gameId);
     }
     this.games.clear();
   }

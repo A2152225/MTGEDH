@@ -353,6 +353,7 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./
 import { processLifeChange, resolveOpponentDirectedDamage } from "./game-state-effects";
 import { markEchoPaid, sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
+import { finalizeGameStateAfterReplay } from "./replay-prompt-cleanup.js";
 import { parseManaCost } from "./mana-check.js";
 import { addRestrictedManaToPool, calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../../rules-engine/src/creatureUpgradeAbilities.js";
@@ -14801,6 +14802,7 @@ export function replay(
     // The queue is not persisted in the event log, so it must not leak across reset/replay.
     try {
       if (ctx?.gameId) {
+        ResolutionQueueManager.beginReplay(ctx.gameId);
         ResolutionQueueManager.clearAllSteps(ctx.gameId);
       }
     } catch {
@@ -14905,6 +14907,11 @@ export function replay(
   } finally {
     // Clear replay mode flag when done
     (ctx as any).isReplaying = false;
+    try {
+      finalizeGameStateAfterReplay(ctx);
+    } catch {
+      // best-effort only
+    }
     try {
       delete (ctx as any)._replayCurrentEventType;
       delete (ctx as any)._replayNextEventType;
