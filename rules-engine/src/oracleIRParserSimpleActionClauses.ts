@@ -1644,6 +1644,18 @@ export function tryParseSimpleActionClause(args: {
       } as OracleEffectStep);
     }
 
+    const drawFromNeighborLibrary = drawClause.match(
+      /^each player draws a card from the library of the player to their right$/i
+    );
+    if (drawFromNeighborLibrary) {
+      return withMeta({
+        kind: 'draw',
+        who: { kind: 'each_player' },
+        amount: { kind: 'number', value: 1 },
+        raw: rawClause,
+      });
+    }
+
     const drawTail = drawClause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+(.+)$`, 'i')
     );
@@ -2223,6 +2235,19 @@ export function tryParseSimpleActionClause(args: {
         optional: true,
         raw: rawClause,
         });
+    }
+
+    const removeAnyAmongBattlefield = clause.match(
+      /^remove\s+any\s+number\s+of\s+counters\s+from\s+among\s+permanents\s+on\s+the\s+battlefield$/i
+    );
+    if (removeAnyAmongBattlefield) {
+      return withMeta({
+        kind: 'remove_counter',
+        amount: { kind: 'any_number' },
+        counter: 'any',
+        target: parseObjectSelector('among permanents on the battlefield'),
+        raw: rawClause,
+      });
     }
 
     const removeUpToCounters = clause.match(/^remove\s+up\s+to\s+(a|an|\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+(.+?)\s+counters?\s+from\s+(.+)$/i);

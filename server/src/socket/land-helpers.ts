@@ -31,7 +31,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * @property costPerTarget - For strive: indicates this cost is per additional target beyond the first
  */
 export interface AdditionalCostResult {
-  type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'reveal' | 'squad' | 'strive' | 'blight' | 'collect_evidence' | 'behold_chosen_type';
+  type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'reveal' | 'squad' | 'strive' | 'blight' | 'collect_evidence' | 'behold_chosen_type' | 'teamwork';
   amount: number;
   filter?: string;
   counterType?: string;
@@ -52,6 +52,10 @@ export interface AdditionalCostResult {
 
   // Behold + chosen creature type additional-cost support
   beholdIsOptional?: boolean;
+
+  // Teamwork additional-cost support
+  teamworkMinPower?: number;
+  teamworkIsOptional?: boolean;
 }
 
 /**
@@ -172,6 +176,21 @@ export function detectAdditionalCost(oracleText: string): AdditionalCostResult |
       type: 'pay_life',
       amount: parseInt(payLifeMatch[1], 10),
     };
+  }
+
+  const teamworkMatch = (oracleText || '').match(
+    /\bTeamwork\s+(\d+)\s*\(\s*As an additional cost to cast this spell,\s*you may tap any number of creatures you control with total power (\d+) or more\.?\s*\)/i,
+  );
+  if (teamworkMatch) {
+    const minPower = Number.parseInt(String(teamworkMatch[2] || teamworkMatch[1] || '0'), 10);
+    if (Number.isFinite(minPower) && minPower > 0) {
+      return {
+        type: 'teamwork',
+        amount: minPower,
+        teamworkMinPower: minPower,
+        teamworkIsOptional: true,
+      };
+    }
   }
 
   // Behold + chosen creature type (Celestial Reunion and similar)

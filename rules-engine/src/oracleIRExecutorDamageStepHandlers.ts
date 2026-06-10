@@ -780,6 +780,24 @@ export function applyPreventDamageStep(
   }
 
   if (
+    step.amount === 'all' &&
+    /source of your choice would deal damage to any target/.test(rawLower)
+  ) {
+    const effect = createGlobalCombatDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      description: 'Prevent the next damage from a chosen source to any target this turn',
+    });
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: ['Prevent the next damage from a chosen source to any target this turn'],
+    };
+  }
+
+  if (
     step.amount !== 'all' &&
     step.recipientTarget?.kind === 'raw' &&
     /any target/i.test(String(step.recipientTarget.text || ''))

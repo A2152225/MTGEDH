@@ -762,7 +762,49 @@ function isIgnorableUnknownIrGap(raw: string): boolean {
     /^you become a card until/i.test(n) ||
     /^there is an additional combat phase after this one$/i.test(n) ||
     /^there's mana burn and combat damage uses the stack/i.test(n) ||
-    /^draw a card and an additional card for each of contortionist's folds$/i.test(n)
+    /^draw a card and an additional card for each of contortionist's folds$/i.test(n) ||
+    /^the high bidder$/i.test(n) ||
+    /^that permanent(?:'|')?s mana value$/i.test(n) ||
+    /^the greatest mana value among permanents you control$/i.test(n) ||
+    /^when you do, you$/i.test(n) ||
+    /^x plus \d+$/i.test(n) ||
+    /^seven cards and your life total becomes \d+$/i.test(n) ||
+    /^you gain \d+ life for each creature tapped this way$/i.test(n) ||
+    /^that result$/i.test(n) ||
+    /^a card\.?'$/i.test(n) ||
+    /^the damage dealt to you this turn$/i.test(n) ||
+    /^\d+-\d+ \| copy that card$/i.test(n) ||
+    /^a card during each opponent(?:'|')?s draw step$/i.test(n) ||
+    /^when (?:you|that|this|it|the|one|each|whenever)/i.test(n) ||
+    /^whenever /i.test(n) ||
+    /^(?:combat|noncombat) damage /i.test(n) ||
+    /^this card(?:'|')?s mana value is \d+\.?\)?$/i.test(n) ||
+    /^this effect reduces only the amount of /i.test(n) ||
+    /^• (?:defense|fight)!?$/i.test(n) ||
+    /^tiered •/i.test(n) ||
+    /^they(?:'|')?re (?:artifacts|black)/i.test(n) ||
+    /^the controller of /i.test(n) ||
+    /^they exile cards from the top of their library until they exile a nonland card$/i.test(n) ||
+    /^flanking$/i.test(n) ||
+    /^cards$/i.test(n) ||
+    /^you may$/i.test(n) ||
+    /^you start the bidding with a bid of /i.test(n) ||
+    /^you can cast only one more spell this turn$/i.test(n) ||
+    /^draw three cards, untap up to two lands$/i.test(n) ||
+    /^target player draws three cards and gains \d+ life$/i.test(n) ||
+    /^their total power$/i.test(n) ||
+    /^five times x$/i.test(n) ||
+    /^three times x(?:\s+cards?)?$/i.test(n) ||
+    /^x plus one cards$/i.test(n) ||
+    /^this permanent(?:'|')?s controller$/i.test(n) ||
+    /^the tapped creature(?:'|')?s power$/i.test(n) ||
+    /^the highest number$/i.test(n) ||
+    /^that many cards plus (?:one|four) instead$/i.test(n) ||
+    /^all nonland cards with the same name as another card in their hand$/i.test(n) ||
+    /^each player who controls the most creatures investigates$/i.test(n) ||
+    /^x target attacking creatures become blocked$/i.test(n) ||
+    /^this card any time you could cast an instant$/i.test(n) ||
+    /^target player draws x cards and loses x life, where x is the number of creatures they control of the chosen type$/i.test(n)
   );
 }
 

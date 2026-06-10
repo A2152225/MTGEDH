@@ -47,8 +47,16 @@ export interface OracleIRSelectorContext {
   readonly chosenBasicLandType?: string;
   /** Bound chosen card name for clauses like "choose a card name." */
   readonly chosenCardName?: string;
+  /** Bound chosen number for clauses like "choose a number greater than 0." */
+  readonly chosenNumber?: number;
+  /** Bound chosen color for clauses like "choose a color." */
+  readonly chosenColor?: string;
+  /** Mana cost paid when an opponent chose to pay only part of a modal cost. */
+  readonly unlessPaysManaAmount?: string;
   /** Bound chosen letter for clauses like "choose a letter." */
   readonly chosenLetter?: string;
+  /** Bound odd/even choice for clauses like "choose odd or even." */
+  readonly chosenOddEven?: 'odd' | 'even';
   /** Bound pay/decline choice for unless-pays-life wrappers when already known. */
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Bound pay/decline choice for unless-pays-mana wrappers when already known. */
@@ -82,8 +90,16 @@ export interface OracleIRExecutionEventHint {
   readonly chosenBasicLandType?: string;
   /** Explicit card-name choice when already known. */
   readonly chosenCardName?: string;
+  /** Explicit numeric choice when already known. */
+  readonly chosenNumber?: number;
+  /** Explicit color choice when already known. */
+  readonly chosenColor?: string;
+  /** Mana amount paid for partial unless/may-pay branches when already known. */
+  readonly unlessPaysManaAmount?: string;
   /** Explicit letter choice when already known. */
   readonly chosenLetter?: string;
+  /** Explicit odd/even choice when already known. */
+  readonly chosenOddEven?: 'odd' | 'even';
   /** Explicit pay/decline choice for unless-pays-life wrappers when already known. */
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Explicit pay/decline choice for unless-pays-mana wrappers when already known. */
@@ -118,9 +134,10 @@ export interface OracleIRExecutionEventHint {
   readonly voteChoiceCounts?: Readonly<Record<string, number>>;
   /** Whether a gift cost was paid / promised for gift-conditional spell text. */
   readonly giftPromised?: boolean;
+  /** Whether a Teamwork additional cost was paid when casting this spell. */
+  readonly teamworkWasPaid?: boolean;
   /** Whether a library search step applied during this resolution. */
   readonly searchedLibraryThisWay?: boolean;
-  /** Cards milled by the most recent mill step in this resolution. */
   readonly lastMilledCards?: readonly any[];
   /** How many times this ability has resolved this turn when known. */
   readonly abilityResolveCountThisTurn?: number;
@@ -164,6 +181,8 @@ export interface OracleIRExecutionContext {
   readonly lastCollectedEvidence?: boolean;
   /** Internal runtime carry-over for nested follow-up steps that reference battlefield permanents moved by prior steps. */
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+  /** Internal runtime carry-over for goad follow-ups that reference "those creatures". */
+  readonly lastGoadedBattlefieldPermanentIds?: readonly string[];
   /** Internal runtime carry-over for top-of-library references like "it" after a look/reveal-top step. */
   readonly lastTopLibraryOwnerId?: PlayerID;
   /** Internal runtime carry-over for scheme effects that refer to "that scheme". */
@@ -200,6 +219,8 @@ export interface OracleIRExecutionContext {
   readonly voteChoiceCounts?: Readonly<Record<string, number>>;
   /** Whether a gift cost was paid / promised for gift-conditional spell text. */
   readonly giftPromised?: boolean;
+  /** Whether a Teamwork additional cost was paid when casting this spell. */
+  readonly teamworkWasPaid?: boolean;
   /** Whether a library search step applied during this resolution. */
   readonly searchedLibraryThisWay?: boolean;
   /** Cards milled by the most recent mill step in this resolution. */

@@ -246,6 +246,12 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
   const normalMinModes = minModes;
   const normalMaxModes = maxModes;
 
+  const teamworkChooseBoth = /\bif this spell was cast using teamwork,\s*choose both instead\b/i.test(text);
+  if (teamworkChooseBoth) {
+    minModes = 1;
+    maxModes = 1;
+  }
+
   // Collect bullet lines that follow.
   const rawOptions: string[] = [];
   for (let i = headerIndex + 1; i < lines.length; i++) {

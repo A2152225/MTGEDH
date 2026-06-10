@@ -247,7 +247,8 @@ export function resolveOracleQuantity(
       contextualCards.length > 0 &&
       (qty.subject === 'it' || qty.subject === 'that_card' || qty.subject === 'that_creature')
     ) {
-      const contextualAmount = readStat(contextualCards[0]);
+      const contextualCard = contextualCards[contextualCards.length - 1];
+      const contextualAmount = readStat(contextualCard);
       if (contextualAmount !== null) return contextualAmount;
     }
 
@@ -261,10 +262,45 @@ export function resolveOracleQuantity(
       sacrificed.length === 1 &&
       (qty.subject === 'that_creature' ||
         qty.subject === 'the_sacrificed_creature' ||
-        qty.subject === 'the_sacrificed_permanent')
+        qty.subject === 'the_sacrificed_permanent' ||
+        qty.subject === 'the_sacrificed_enchantment')
     ) {
       const sacrificedAmount = readStat(sacrificed[0]);
       if (sacrificedAmount !== null) return sacrificedAmount;
+    }
+
+    if (
+      qty.subject === 'that_permanent' ||
+      qty.subject === 'that_wall' ||
+      qty.subject === 'that_equipment'
+    ) {
+      const targetPermanentId = String(
+        ctx.targetPermanentId ||
+          ctx.selectorContext?.targetPermanentId ||
+          ctx.lastReferencedPermanentId ||
+          ''
+      ).trim();
+      if (targetPermanentId) {
+        const targetPermanent = ((state.battlefield || []) as any[]).find(
+          (entry) => String(entry?.id || '').trim() === targetPermanentId
+        );
+        const targetAmount = readStat(targetPermanent);
+        if (targetAmount !== null) return targetAmount;
+      }
+      const destroyed = Array.isArray(runtime?.lastDestroyedPermanents) ? runtime.lastDestroyedPermanents : [];
+      if (destroyed.length >= 1) {
+        const destroyedAmount = readStat(destroyed[destroyed.length - 1]);
+        if (destroyedAmount !== null) return destroyedAmount;
+      }
+    }
+
+    if (qty.subject === 'that_spell') {
+      const spellPower = Number((ctx as any).lastCastSpellPower ?? (ctx as any).targetSpellPower);
+      if (qty.stat === 'power' && Number.isFinite(spellPower)) return Math.max(0, spellPower);
+      if (qty.stat === 'mana_value') {
+        const spellMv = Number((ctx as any).lastCastSpellManaValue ?? (ctx as any).targetSpellManaValue);
+        if (Number.isFinite(spellMv)) return Math.max(0, spellMv);
+      }
     }
 
     if (qty.subject === 'this_creature' || qty.subject === 'this_permanent') {

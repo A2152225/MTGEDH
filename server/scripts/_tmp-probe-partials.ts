@@ -1,65 +1,49 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { applyOracleIRStepsToGameState } from '../../rules-engine/src/oracleIRExecutor.js';
-import { parseTriggeredAbilitiesFromText } from '../../rules-engine/src/triggeredAbilitiesParsing.js';
-import {
-  buildAuditExecutionContext,
-  buildAuditFixtureState,
-  classifyExecutionResult,
-  collectAutoSelectedModeIds,
-  collectStepsFromIrText,
-  countOracleSteps,
-  enrichAuditStateAndContextForCopySteps,
-  enrichAuditStateAndContextForTargets,
-  shouldDeclineOptionalStepsForAudit,
-} from './executor-coverage-audit.ts';
-import {
-  getCombinedOracleText,
-  hasUnknownIRSteps,
-  isCommanderLegalCard,
-  isEligible,
-  isIgnorableCardForIrGap,
-  loadEffectIrParser,
-} from './trigger-coverage-audit.ts';
 
-const repoRoot = path.resolve(import.meta.dirname, '../..');
+import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.ts';
+import { collectStepsFromIrText, dryRunOracleSteps } from './executor-coverage-audit.ts';
+import { getCombinedOracleText, hasUnknownIRSteps, loadEffectIrParser } from './trigger-coverage-audit.ts';
+
 await loadEffectIrParser();
-const cards = JSON.parse(fs.readFileSync(path.join(repoRoot, 'oracle-cards.json'), 'utf8')) as any[];
 
-const names = ['Foot Chopper', 'Smothering Tithe', 'Living Artifact', 'Magnetic Snuffler'];
-for (const name of names) {
-  const card = cards.find((c) => c.name === name);
+const audit = JSON.parse(
+  fs.readFileSync(new URL('./out/executor-coverage-audit.json', import.meta.url), 'utf8')
+) as any;
+
+const partialCards = (audit.items || [])
+  .filter((item: any) => item.status === 'partial')
+  .slice(0, 25);
+
+const cards = JSON.parse(
+  fs.readFileSync(new URL('../../oracle-cards.json', import.meta.url), 'utf8')
+) as any[];
+
+console.log('partial count', partialCards.length);
+
+for (const item of partialCards) {
+  const name = String(item.cardName || item.name || '');
+  const card = cards.find((c: any) => c.name === name);
   if (!card) continue;
   const oracle = getCombinedOracleText(card);
-  for (const trigger of parseTriggeredAbilitiesFromText(oracle, name)) {
-    const effect = String(trigger.effect || '').trim();
-    if (!effect) continue;
-    const irGaps = hasUnknownIRSteps(effect, name);
-    const steps = collectStepsFromIrText(effect, name);
-    const stepCount = countOracleSteps(steps);
-    if (irGaps.length > 0 || stepCount.recognized === 0) continue;
-    const cardRecord = { name: card.name, type_line: card.type_line, oracle_text: oracle };
-    let state = buildAuditFixtureState(card.name, card.type_line);
-    let ctx = buildAuditExecutionContext(card.name);
-    const enriched = enrichAuditStateAndContextForCopySteps(cardRecord, steps, state, ctx);
-    const targetEnriched = enrichAuditStateAndContextForTargets(steps, enriched.state, enriched.ctx, { oracleText: oracle });
-    const declineOptional = shouldDeclineOptionalStepsForAudit(steps);
-    const result = applyOracleIRStepsToGameState(targetEnriched.state, steps, targetEnriched.ctx, {
-      allowOptional: declineOptional ? false : true,
-      ...(declineOptional ? { declineOptionalSteps: true } : {}),
-      ...(collectAutoSelectedModeIds(steps).length > 0 ? { selectedModeIds: collectAutoSelectedModeIds(steps) } : {}),
-    });
-    const record = classifyExecutionResult(result, stepCount, irGaps);
-    if (record.status !== 'partial') continue;
+  const parsed = parseOracleTextToIR(oracle, card.name);
+  for (const ability of parsed.abilities || []) {
+    const text = String(ability.effectText || ability.text || '').trim();
+    if (!text) continue;
+    const irGaps = hasUnknownIRSteps(text, card.name);
+    const steps = collectStepsFromIrText(text, card.name);
+    const rec = dryRunOracleSteps(steps, card, irGaps, { typeLine: card.type_line });
+    if (rec.status !== 'partial') continue;
     console.log('\n===', name, '===');
-    console.log('effect:', effect.slice(0, 100));
-    console.log('status', record.status, 'reasonCodes', record.reasonCodes);
-    console.log('applied', result.appliedSteps?.map((s) => `${s.kind}${(s as any).optional ? '?' : ''}`));
-    console.log('skipped', (result.skippedSteps || []).map((s) => ({
-      kind: (s as any).kind,
-      optional: (s as any).optional,
-      raw: String((s as any).raw || '').slice(0, 70),
-    })));
-    console.log('gaps', result.automationGaps?.map((g) => g.reasonCode));
+    console.log('reasons', rec.reasonCodes, rec.stepKinds);
+    console.log('ABILITY', text.slice(0, 180));
+    const bad = steps.filter((s: any) => {
+      const dryOne = dryRunOracleSteps([s], card, irGaps, { typeLine: card.type_line });
+      return dryOne.status === 'partial' || dryOne.unsupported > 0;
+    });
+    console.log(
+      'bad steps',
+      bad.map((s: any) => ({ kind: s.kind, raw: String(s.raw || '').slice(0, 90), target: (s as any).target }))
+    );
+    break;
   }
 }

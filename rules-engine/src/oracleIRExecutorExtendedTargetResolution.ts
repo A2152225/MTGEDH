@@ -346,6 +346,43 @@ export function resolveTargetPrefixedPermanents(
     return matches.length > 0 ? matches.slice(0, 1) : [];
   }
 
+  const opponentCreaturePowerLteMatch = text.match(
+    /^target creature an opponent controls with power (\d+) or less$/i
+  );
+  if (opponentCreaturePowerLteMatch) {
+    const powerLimit = Number.parseInt(String(opponentCreaturePowerLteMatch[1] || ''), 10);
+    const boundIds = new Set(collectBoundIds(ctx));
+    const controllerId = String(ctx.controllerId || '').trim();
+    const readPower = (perm: any): number => {
+      for (const value of [perm?.effectivePower, perm?.basePower, perm?.card?.power, perm?.power]) {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return 0;
+    };
+    const matches = battlefield.filter((perm) => {
+      const id = String((perm as any)?.id || '').trim();
+      if (boundIds.size > 0 && !boundIds.has(id)) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      if (String((perm as any)?.controller || '').trim() === controllerId) return false;
+      return Number.isFinite(powerLimit) ? readPower(perm) <= powerLimit : true;
+    });
+    return matches.length > 0 ? matches.slice(0, 1) : [];
+  }
+
+  if (/^target (?:artifact or creature|creature or artifact) you control$/i.test(text)) {
+    const boundIds = new Set(collectBoundIds(ctx));
+    const controllerId = String(ctx.controllerId || '').trim();
+    const matches = battlefield.filter((perm) => {
+      const id = String((perm as any)?.id || '').trim();
+      if (boundIds.size > 0 && !boundIds.has(id)) return false;
+      const controller = String((perm as any)?.controller || '').trim();
+      if (controller !== controllerId) return false;
+      return permanentMatchesType(perm, 'artifact') || permanentMatchesType(perm, 'creature');
+    });
+    return matches.length > 0 ? matches.slice(0, 1) : [];
+  }
+
   if (/^another target creature you control$/i.test(text)) {
     const sourceId = String(ctx.sourceId || '').trim();
     const boundIds = new Set(collectBoundIds(ctx));
@@ -399,22 +436,27 @@ export function inferTargetTextFromStepRaw(step: OracleEffectStep): string {
   }
 
   if (step.kind === 'cant_block' || step.kind === 'cant_attack') {
-    if (/^until your next turn, it can'?t (?:attack|block)/i.test(raw)) {
+    const effectiveRaw = raw
+      .replace(/^when you do,\s*/i, '')
+      .replace(/\s*\([^)]*\)\s*$/g, '')
+      .replace(/[.]+$/g, '')
+      .trim();
+    if (/^until your next turn, it can'?t (?:attack|block)/i.test(effectiveRaw)) {
       return 'it';
     }
-    if (/^flying this creature can'?t block/i.test(raw)) {
+    if (/^flying this creature can'?t block/i.test(effectiveRaw)) {
       return 'this creature';
     }
-    if (/^creatures can'?t attack(?: or block)?(?: this turn)?\.?$/i.test(raw)) {
+    if (/^creatures can'?t attack(?: or block)?(?: this turn)?\.?$/i.test(effectiveRaw)) {
       return 'all creatures';
     }
-    if (/^for as long as this creature remains on the battlefield, gain control of that permanent/i.test(raw)) {
+    if (/^for as long as this creature remains on the battlefield, gain control of that permanent/i.test(effectiveRaw)) {
       return 'that permanent';
     }
-    if (/^for as long as this artifact remains tapped, another target permanent/i.test(raw)) {
+    if (/^for as long as this artifact remains tapped, another target permanent/i.test(effectiveRaw)) {
       return 'another target permanent';
     }
-    const compoundAttackOrBlock = raw.match(/^(.+?)\s+can['\u2019]t attack or block(?:\s+this\s+turn)?\.?$/i);
+    const compoundAttackOrBlock = effectiveRaw.match(/^(.+?)\s+can['\u2019]t attack or block(?:\s+this\s+turn)?\.?$/i);
     if (compoundAttackOrBlock) {
       const target = stripCompoundRestrictionPrefix(String(compoundAttackOrBlock[1] || ''))
         .replace(/\s+loses all abilities,?\s+and\s+it$/i, 'it')
@@ -423,7 +465,7 @@ export function inferTargetTextFromStepRaw(step: OracleEffectStep): string {
         .trim();
       return target || 'that permanent';
     }
-    const match = raw.match(/^(.+?)\s+can['\u2019]t\s+(?:block|attack)(?:\s+this\s+turn)?\.?$/i);
+    const match = effectiveRaw.match(/^(.+?)\s+can['\u2019]t\s+(?:block|attack)(?:\s+this\s+turn)?\.?$/i);
     if (match) {
       return stripCompoundRestrictionPrefix(String(match[1] || ''))
         .replace(/\s+loses all abilities,?\s+and\s+it$/i, 'it')
@@ -465,6 +507,8 @@ export function inferTargetTextFromStepRaw(step: OracleEffectStep): string {
   }
 
   if (step.kind === 'turn_face_down') {
+    const faceUpMatch = raw.match(/^turn\s+(it)\s+face up\b/i);
+    if (faceUpMatch) return String(faceUpMatch[1] || '').trim();
     const match = raw.match(/^turn\s+(.+?)\s+face down$/i);
     if (match) return String(match[1] || '').trim();
   }
@@ -515,6 +559,13 @@ export function effectiveStepTarget(
       /\banother target permanent loses all abilities\b/i.test(existing))
   ) {
     return { kind: 'raw', text: 'another target permanent' };
+  }
+  if (
+    existing &&
+    step.kind === 'turn_face_down' &&
+    /^it face up if it'?s\b/i.test(existing)
+  ) {
+    return { kind: 'raw', text: 'it' };
   }
   if (existing) return { kind: 'raw', text: existing };
   const inferred = inferTargetTextFromStepRaw(step);

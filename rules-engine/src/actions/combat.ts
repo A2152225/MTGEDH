@@ -645,6 +645,13 @@ export function canPermanentAttack(
       }
     }
   }
+
+  if (defendingPlayerId && (analyzedPermanent as any).cantAttackPlayers?.[defendingPlayerId]) {
+    return {
+      canParticipate: false,
+      reason: "This creature can't attack that player until that player's next turn",
+    };
+  }
   
   // Check oracle text for "can't attack" effects on attached auras/equipment
   const oracleText = getCombinedPermanentText(analyzedPermanent);

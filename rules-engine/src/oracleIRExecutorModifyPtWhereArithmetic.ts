@@ -2,6 +2,24 @@ import type { GameState, PlayerID } from '../../shared/src';
 
 type EvaluateInner = (expr: string) => number | null;
 
+function parseSmallNumberWord(raw: string): number | null {
+  const normalized = String(raw || '').trim().toLowerCase();
+  if (/^\d+$/.test(normalized)) return Math.max(0, parseInt(normalized, 10) || 0);
+  const words: Record<string, number> = {
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+  return words[normalized] ?? null;
+}
+
 export function tryEvaluateModifyPtWhereArithmetic(args: {
   state: GameState;
   controllerId: PlayerID;
@@ -28,9 +46,9 @@ export function tryEvaluateModifyPtWhereArithmetic(args: {
   }
 
   {
-    const m = raw.match(/^x is (one|\d+) plus (.+)$/i);
+    const m = raw.match(/^x is ((?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)) plus (.+)$/i);
     if (m) {
-      const addend = String(m[1] || '').toLowerCase() === 'one' ? 1 : parseInt(String(m[1] || '0'), 10) || 0;
+      const addend = parseSmallNumberWord(String(m[1] || '')) ?? 0;
       const inner = evaluateInner(String(m[2] || ''));
       if (inner === null) return null;
       return inner + addend;

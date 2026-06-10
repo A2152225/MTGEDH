@@ -3101,6 +3101,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if ((e as any).giftPromised === true) {
               applyToStackItem('giftPromised', true);
             }
+            if ((e as any).teamworkWasPaid === true) {
+              applyToStackItem('teamworkWasPaid', true);
+            }
             if (typeof (e as any).giftRecipient === 'string' && (e as any).giftRecipient) {
               applyToStackItem('giftRecipient', String((e as any).giftRecipient));
             }

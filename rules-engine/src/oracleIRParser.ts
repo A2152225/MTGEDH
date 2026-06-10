@@ -191,6 +191,12 @@ import {
   mergeConditionalLookChooseFromTopAbilities,
   mergeAddManaRestrictionFollowupAbilities,
   mergeTopLibraryBottomRandomTailAbilities,
+  enrichConditionalAmongThemHandRestAbilities,
+  lowerAmongThemChoosePlayerChoiceAbilities,
+  repairQuotedStaticGrantAbilities,
+  splitCompoundChosenCardsMoveZoneAbilities,
+  repairSplitChooseModeBulletAbilities,
+  repairGapClosureAbilitySteps,
   mergeLookSelectTopFollowupAbilities,
   pruneRedundantImpulseCleanupUnknownAbilities,
   pruneDuplicateGraveyardReminderAbilities,
@@ -1304,6 +1310,19 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
             ...(mod.atEndOfCombat ? { atEndOfCombat: mod.atEndOfCombat } : {}),
           } as any;
         }
+        if (mod.grantsDiesTriggerEffect) {
+          const effect = String(mod.grantsDiesTriggerEffect || '').trim();
+          if (effect) {
+            steps.push({
+              kind: 'grant_temporary_dies_trigger',
+              target: parseObjectSelector('that token'),
+              effect: effect.replace(/\.+$/g, '').trim() + '.',
+              duration: 'while_on_battlefield',
+              raw: `It gains "When this token dies, ${effect}."`,
+              sequence: 'then',
+            } as OracleEffectStep);
+          }
+        }
         i += 1;
         continue;
       }
@@ -1494,6 +1513,8 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeConditionalLookChooseFromTopAbilities(abilities);
   abilities = mergeAddManaRestrictionFollowupAbilities(abilities);
   abilities = mergeTopLibraryBottomRandomTailAbilities(abilities);
+  abilities = enrichConditionalAmongThemHandRestAbilities(abilities);
+  abilities = lowerAmongThemChoosePlayerChoiceAbilities(abilities);
   abilities = mergeLookChooseFromTopAbilities(abilities);
   abilities = mergeLookSelectTopFollowupAbilities(abilities);
   abilities = expandStandaloneTopLibraryInfoAbilities(abilities);
@@ -1652,11 +1673,17 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = repairSubjectlessDrawAfterZoneShuffleAbilities(abilities);
   abilities = mergeConditionalLookChooseFromTopAbilities(abilities);
   abilities = mergeLookChooseFromTopAbilities(abilities);
+  abilities = lowerAmongThemChoosePlayerChoiceAbilities(abilities);
   abilities = pruneCurrentBatchReminderUnknownAbilities(abilities);
   abilities = pruneLateKeywordReminderOnlyAbilities(abilities);
   abilities = expandStandaloneKeywordCostAbilities(abilities, normalizedOracleText);
   abilities = expandCastWithoutPayingFallbackAbilities(abilities, normalizedOracleText);
+  abilities = repairQuotedStaticGrantAbilities(abilities);
   abilities = lowerCurrentResidualUnknownAbilities(abilities);
+  abilities = lowerAmongThemChoosePlayerChoiceAbilities(abilities);
+  abilities = splitCompoundChosenCardsMoveZoneAbilities(abilities);
+  abilities = repairSplitChooseModeBulletAbilities(abilities);
+  abilities = repairGapClosureAbilitySteps(abilities);
   abilities = abilities.map((ability) => {
     if ((ability.steps || []).length > 0) return ability;
     const fragment = parseBareTriggerEffectFragmentSteps(

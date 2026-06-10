@@ -33,6 +33,7 @@ import {
   resolvePlayers,
   getPlayableUntilTurnForImpulseDuration,
   resolveUnknownMillUntilAmountForPlayer,
+  resolveRevealUntilReferenceAmountForPlayer,
   isCardExiledWithSource,
   normalizeOracleText,
   stampCardsPutIntoGraveyardThisTurn,
@@ -351,6 +352,10 @@ function resolveAddManaAmount(
       case 'twice that much': {
         const quantity = quantityToNumber({ kind: 'reference_amount', raw: 'that much' }, ctx);
         return quantity === null ? null : Math.max(0, quantity * 2);
+      }
+      case 'the high bid': {
+        const referenceAmount = Number(ctx.referenceAmount);
+        return Number.isFinite(referenceAmount) ? Math.max(0, referenceAmount) : 2;
       }
       default: {
         const evaluated = evaluateModifyPtWhereX(state, ctx.controllerId, `X is ${normalized}`, undefined, ctx);
@@ -2572,6 +2577,10 @@ function resolveVariableAmount(
 
   const numericAmount = quantityToNumber(amount, ctx);
   if (numericAmount !== null) return numericAmount;
+  if (amount.kind === 'x') {
+    const xValue = Number(ctx?.xValue);
+    return Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue)) : null;
+  }
   if (amount.kind === 'unknown') {
     const normalized = normalizeOracleText(String(amount.raw || ''));
     const spellsCastMatch = normalized.match(/^(?:(\d+)\s+)?for each spells? (?:you(?:'ve| have)?|you) cast this turn$|^(\d+)\s+for each spells? (?:you(?:'ve| have)?|you) cast this turn$/i);
@@ -2595,6 +2604,10 @@ function resolveVariableAmount(
     }
     const runtimeAmount = Number(runtime?.lastReferenceAmount);
     if (Number.isFinite(runtimeAmount)) return Math.max(0, runtimeAmount);
+    if (normalized === 'the high bid') {
+      const referenceAmount = Number(ctx.referenceAmount);
+      return Number.isFinite(referenceAmount) ? Math.max(0, referenceAmount) : 2;
+    }
     if (evaluateWhereX) {
       const evaluated = evaluateWhereX(state, controllerId, `X is ${normalized}`, undefined, ctx, runtime);
       if (evaluated !== null) return Math.max(0, evaluated);
@@ -2612,9 +2625,10 @@ function resolveVariableAmount(
     const exiled = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
     const contextualCards = [...moved, ...exiled, ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : [])];
     if (contextualCards.length >= 1 && (amount.subject === 'it' || amount.subject === 'that_card' || amount.subject === 'that_creature')) {
-      const card = contextualCards[contextualCards.length - 1];
-      const contextualAmount = readObjectStat(card, amount.stat);
-      if (contextualAmount !== null) return contextualAmount;
+      for (let index = contextualCards.length - 1; index >= 0; index -= 1) {
+        const contextualAmount = readObjectStat(contextualCards[index], amount.stat);
+        if (contextualAmount !== null) return contextualAmount;
+      }
     }
     if (moved.length === 1 && (amount.subject === 'it' || amount.subject === 'that_card' || amount.subject === 'that_creature')) {
       const movedAmount = readObjectStat(moved[0], amount.stat);
@@ -3442,11 +3456,9 @@ export function applyLookTopStep(
   for (const playerId of players) {
     const player = state.players.find(entry => entry.id === playerId) as any;
     const library = Array.isArray(player?.library) ? player.library : [];
-    const libraryCount = library.length;
-    const looked = Math.max(0, Math.min(libraryCount, amount | 0));
-    for (let i = 0; i < looked; i += 1) {
-      const card = library[libraryCount - 1 - i];
-      if (card) lastMovedCards.push(card);
+    const looked = Math.max(0, Math.min(library.length, amount | 0));
+    if (looked > 0) {
+      lastMovedCards.push(...library.slice(0, looked));
     }
     log.push(`${playerId} looks at the top ${looked} card(s) of their library`);
   }
@@ -3465,18 +3477,6 @@ export function applyRevealTopStep(
   step: Extract<OracleEffectStep, { kind: 'reveal_top' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const amount = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
-    whereX: step.whereX,
-  });
-  if (amount === null) {
-    return {
-      applied: false,
-      message: `Skipped reveal-top (unknown amount): ${step.raw}`,
-      reason: 'unknown_amount',
-      options: { classification: 'ambiguous' },
-    };
-  }
-
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {
@@ -3490,6 +3490,32 @@ export function applyRevealTopStep(
   let totalRevealed = 0;
   const revealedCards: any[] = [];
   for (const playerId of players) {
+    const untilReveal = resolveRevealUntilReferenceAmountForPlayer(state, playerId, step.amount);
+    if (untilReveal) {
+      totalRevealed += untilReveal.count;
+      revealedCards.push(...untilReveal.cards);
+      const revealedNames = untilReveal.cards
+        .map((card: any) => String(card?.name || 'unknown card').trim() || 'unknown card');
+      log.push(
+        revealedNames.length > 0
+          ? `${playerId} reveals ${revealedNames.join(', ')}`
+          : `${playerId} reveals no cards from the top of their library`
+      );
+      continue;
+    }
+
+    const amount = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+      whereX: step.whereX,
+    });
+    if (amount === null) {
+      return {
+        applied: false,
+        message: `Skipped reveal-top (unknown amount): ${step.raw}`,
+        reason: 'unknown_amount',
+        options: { classification: 'ambiguous' },
+      };
+    }
+
     const player = state.players.find(entry => entry.id === playerId) as any;
     const library = Array.isArray(player?.library) ? player.library : [];
     const revealedCount = Math.max(0, Math.min(library.length, amount | 0));
@@ -3978,6 +4004,8 @@ export function applyRevealHandStep(
 
   const log: string[] = [];
   let lastRevealedCardCount = 0;
+  const revealedCards: any[] = [];
+  const revealRandomSingle = /at random/i.test(String(step.raw || ''));
   for (const playerId of players) {
     const player = state.players.find(entry => entry.id === playerId) as any;
     if (!player) {
@@ -3990,8 +4018,11 @@ export function applyRevealHandStep(
     }
 
     const hand = Array.isArray(player.hand) ? player.hand : [];
-    lastRevealedCardCount = Math.max(lastRevealedCardCount, hand.length);
-    const revealedNames = hand
+    const cardsToReveal =
+      revealRandomSingle && hand.length > 0 ? [hand[0]] : hand;
+    lastRevealedCardCount = Math.max(lastRevealedCardCount, cardsToReveal.length);
+    revealedCards.push(...cardsToReveal);
+    const revealedNames = cardsToReveal
       .map((card: any) => String(card?.name || card?.card?.name || card?.id || '').trim())
       .filter(Boolean);
     log.push(
@@ -4004,6 +4035,7 @@ export function applyRevealHandStep(
     state,
     log,
     lastRevealedCardCount,
+    ...(revealedCards.length > 0 ? { lastMovedCards: revealedCards } : {}),
   };
 }
 
@@ -4354,6 +4386,35 @@ export function applyGainLifeStep(
     runtime?: ModifyPtRuntime
   ) => number | null
 ): PlayerStepHandlerResult {
+  if (step.who.kind === 'each_controller_of_those') {
+    const amountIsItsManaValue =
+      (step.amount.kind === 'reference_amount' && /^its mana value$/i.test(String(step.amount.raw || ''))) ||
+      (step.amount.kind === 'object_stat' && step.amount.stat === 'mana_value');
+    if (amountIsItsManaValue) {
+      const cards = [
+        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+        ...(Array.isArray((ctx as any).lastDestroyedPermanents) ? (ctx as any).lastDestroyedPermanents : []),
+      ] as any[];
+      if (cards.length > 0) {
+        let nextState = state;
+        const log: string[] = [];
+        let totalGained = 0;
+        for (const card of cards) {
+          const playerId = String(card?.controller || card?.controllerId || controllerId || '').trim() as PlayerID;
+          const amount = Math.max(0, getCardManaValue(card) ?? (Number(card?.cmc ?? card?.manaValue ?? 0) || 0));
+          if (!playerId || amount <= 0) continue;
+          const result = adjustLife(nextState, playerId, amount);
+          nextState = result.state;
+          log.push(...result.log);
+          totalGained += amount;
+        }
+        if (totalGained > 0) {
+          return { applied: true, state: nextState, log, count: totalGained };
+        }
+      }
+    }
+  }
+
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {

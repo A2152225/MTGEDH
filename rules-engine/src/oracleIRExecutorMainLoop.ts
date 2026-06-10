@@ -662,13 +662,11 @@ export function applyOracleIRStepsToGameStateImpl(
     }
 
     nextState = result.state;
-    setLastStepOutcome(
-      step,
-      'applied',
-      typeof result?.count === 'number' && Number.isFinite(result.count)
-        ? { count: result.count }
-        : undefined
-    );
+    if (typeof result?.count === 'number' && Number.isFinite(result.count)) {
+      setLastStepOutcome(step, 'applied', { count: result.count });
+    } else {
+      setLastStepOutcome(step, 'applied');
+    }
     currentCtx = {
       ...currentCtx,
       ...(typeof lastReferenceAmount === 'number' && Number.isFinite(lastReferenceAmount)
@@ -796,6 +794,15 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyGoadStep(nextState, step, currentCtx, controllerId);
         applyHandledStepResult(step, result, (appliedResult) => {
           lastGoadedCreatures = [...appliedResult.lastGoadedCreatures];
+          const goadedIds = lastGoadedCreatures
+            .map((perm: any) => String(perm?.id || '').trim())
+            .filter(Boolean);
+          if (goadedIds.length > 0) {
+            currentCtx = {
+              ...currentCtx,
+              lastGoadedBattlefieldPermanentIds: goadedIds,
+            };
+          }
         });
         break;
       }
@@ -1737,6 +1744,37 @@ export function applyOracleIRStepsToGameStateImpl(
           break;
         }
 
+        if (step.choice === 'odd_even') {
+          const chosenOddEven = String(currentCtx.selectorContext?.chosenOddEven || '').trim().toLowerCase();
+          if (chosenOddEven !== 'odd' && chosenOddEven !== 'even') {
+            recordSkippedStep(
+              step,
+              `Skipped player choice (${step.choice}): ${step.raw}`,
+              'player_choice_required',
+              {
+                classification: 'player_choice',
+                metadata: {
+                  choice: step.choice,
+                  options: Array.isArray(step.options) ? [...step.options] : undefined,
+                },
+              }
+            );
+            break;
+          }
+
+          currentCtx = {
+            ...currentCtx,
+            selectorContext: {
+              ...(currentCtx.selectorContext || {}),
+              chosenOddEven: chosenOddEven as 'odd' | 'even',
+            },
+          };
+          setLastStepOutcome(step, 'applied');
+          log.push(`Chose ${chosenOddEven}`);
+          appliedSteps.push(step);
+          break;
+        }
+
         recordSkippedStep(
           step,
           `Skipped player choice (${step.choice}): ${step.raw}`,
@@ -2086,6 +2124,10 @@ export function applyOracleIRStepsToGameStateImpl(
           if (typeof appliedResult.lastRevealedCardCount === 'number') {
             lastRevealedCardCount = Math.max(0, Number(appliedResult.lastRevealedCardCount) || 0);
           }
+          if (Array.isArray(appliedResult.lastMovedCards) && appliedResult.lastMovedCards.length > 0) {
+            lastMovedCards = [...appliedResult.lastMovedCards];
+            currentCtx = { ...currentCtx, lastMovedCards };
+          }
           const revealedPlayers = resolvePlayers(nextState, step.who, currentCtx);
           if (revealedPlayers.length === 1) {
             currentCtx = {
@@ -2270,7 +2312,14 @@ export function applyOracleIRStepsToGameStateImpl(
         });
         applyHandledStepResult(step, result, (appliedResult) => {
           lastMovedCards = Array.isArray(appliedResult.lastMovedCards) ? [...appliedResult.lastMovedCards] : lastMovedCards;
-          currentCtx = { ...currentCtx, lastMovedCards };
+          lastMovedBattlefieldPermanentIds = Array.isArray(appliedResult.lastMovedBattlefieldPermanentIds)
+            ? [...appliedResult.lastMovedBattlefieldPermanentIds]
+            : lastMovedBattlefieldPermanentIds;
+          currentCtx = {
+            ...currentCtx,
+            lastMovedCards,
+            lastMovedBattlefieldPermanentIds,
+          };
         });
         break;
       }
@@ -2292,6 +2341,7 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'move_zone': {
         const result = applyMoveZoneStep(nextState, step, currentCtx, {
           lastMovedCards,
+          lastExiledCards,
         });
         applyHandledStepResult(step, result, (appliedResult) => {
           if (Array.isArray(appliedResult.lastMovedCards) && appliedResult.lastMovedCards.length > 0) {

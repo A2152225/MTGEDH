@@ -584,6 +584,46 @@ export function resolveUnknownMillUntilAmountForPlayer(
   return library.length;
 }
 
+function cardMatchesRevealUntilCriterion(card: any, criterion: string): boolean {
+  const normalized = normalizeOracleText(criterion).replace(/^an?\s+/i, '').trim();
+  const typeLine = getCardTypeLineLower(card);
+  if (!typeLine) return false;
+  if (normalized === 'nonland card') return !typeLine.includes('land');
+  if (normalized === 'land card') return typeLine.includes('land');
+  if (normalized.endsWith(' card')) {
+    const typeName = normalized.slice(0, -' card'.length).trim();
+    return typeName ? typeLine.includes(typeName) : false;
+  }
+  return typeLine.includes(normalized);
+}
+
+export function resolveRevealUntilReferenceAmountForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  qty: OracleQuantity
+): { readonly count: number; readonly cards: readonly any[] } | null {
+  if (qty.kind !== 'reference_amount') return null;
+  const raw = normalizeOracleText(String((qty as any).raw || ''));
+  const untilMatch = raw.match(/^until you reveal an? (.+)$/i);
+  if (!untilMatch) return null;
+
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return null;
+  const library: any[] = Array.isArray(player.library) ? player.library : [];
+  const criterion = String(untilMatch[1] || '').trim();
+  const revealedCards: any[] = [];
+
+  for (let i = 0; i < library.length; i += 1) {
+    const card = library[i];
+    revealedCards.push(card);
+    if (cardMatchesRevealUntilCriterion(card, criterion)) {
+      return { count: i + 1, cards: revealedCards };
+    }
+  }
+
+  return revealedCards.length > 0 ? { count: revealedCards.length, cards: revealedCards } : null;
+}
+
 function resolvePlayerByLifeTotal(state: GameState, mode: 'most' | 'least'): readonly PlayerID[] {
   const entries = (state.players || [])
     .map((player: any) => ({
@@ -777,6 +817,43 @@ export function resolvePlayers(
       }
       return hasValidController ? [controllerId] : [];
     }
+    case 'high_bidder': {
+      const bound = normalizeId((ctx as any).highBidderPlayerId ?? ctx.selectorContext?.highBidderPlayerId);
+      if (bound && allPlayerIds.has(bound)) return [bound];
+      return hasValidController ? [controllerId] : [];
+    }
+    case 'source_controller': {
+      const sourceId = String(ctx.sourceId || '').trim();
+      if (sourceId) {
+        const permanent = (state.battlefield || []).find(
+          (entry: any) => String(entry?.id || '').trim() === sourceId
+        ) as any;
+        const sourceController = normalizeId(permanent?.controller || permanent?.controllerId);
+        if (sourceController && allPlayerIds.has(sourceController)) return [sourceController];
+      }
+      const bound = normalizeId(ctx.selectorContext?.targetPlayerId);
+      if (bound && allPlayerIds.has(bound)) return [bound];
+      return hasValidController ? [controllerId] : [];
+    }
+    case 'each_player_who_controls_the_most': {
+      const filter = String((selector as any).filter || 'creatures')
+        .replace(/[.]+$/g, '')
+        .trim()
+        .toLowerCase();
+      const counts = new Map<PlayerID, number>();
+      for (const permanent of (state.battlefield || []) as any[]) {
+        const typeLine = String(permanent?.type_line || permanent?.typeLine || '').toLowerCase();
+        if (filter.includes('creature') && !typeLine.includes('creature')) continue;
+        const owner = normalizeId(permanent?.controller || permanent?.controllerId);
+        if (!owner || !allPlayerIds.has(owner)) continue;
+        counts.set(owner, (counts.get(owner) || 0) + 1);
+      }
+      if (counts.size === 0) return hasValidController ? [controllerId] : [];
+      const max = Math.max(...counts.values());
+      return [...counts.entries()].filter(([, count]) => count === max).map(([id]) => id);
+    }
+    case 'each_controller_of_those':
+      return [];
     case 'unknown':
     default: {
       const rawText =
@@ -859,7 +936,7 @@ export function isThatOwnerOrControllerSelector(raw: string | undefined): boolea
     .replace(/[â€™]/g, "'")
     .trim()
     .toLowerCase();
-  return /^that [a-z0-9][a-z0-9 -]*'s (?:controller|owner)$/i.test(s);
+  return /^(?:that|the) [a-z0-9][a-z0-9 -]*'s (?:controller|owner)$/i.test(s);
 }
 
 export function isThoseOpponentsSelector(raw: string | undefined): boolean {

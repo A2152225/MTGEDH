@@ -100,6 +100,7 @@ import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
 import { buildOpponentMayPayRecordedOutcome } from "./opponent-may-pay-utils.js";
 import { resolveGiftAwareOracleText } from "../../utils/gift.js";
 import { extractModalModesFromOracleText } from "../../utils/oraclePromptContext.js";
+import { tryApplyOracleIRToActivatedAbility } from "./oracleIrAbilityExecution.js";
 import { castCommander } from "./commander.js";
 import { markEchoPaid, sacrificePermanent, stampPermanentControlEntryForEcho } from "./upkeep-triggers.js";
 import {
@@ -13218,6 +13219,26 @@ export function executeTriggerEffect(
   // Matches: Agitator Ant (with goad), Orzhov Advokist (with can't attack), and similar effects
   // Scalable regex pattern to detect these effects
   const eachPlayerCountersPattern = /each player may put (?:two|\d+) \+1\/\+1 counters? on a creature (?:they|that player) controls?/i;
+  const resolveCounterPlacementConditionalText = (
+    triggerDescription: string,
+    item: any,
+    field: any[],
+  ): string => {
+    const parts = [
+      String(triggerDescription || ''),
+      String(item?.effect || ''),
+      String(item?.description || ''),
+      String(item?.card?.oracle_text || ''),
+    ];
+    const sourceId = String(item?.permanentId || item?.source || item?.sourceId || '').trim();
+    if (sourceId) {
+      const sourcePerm = field.find((perm: any) => String(perm?.id || '') === sourceId);
+      if (sourcePerm?.card?.oracle_text) {
+        parts.push(String(sourcePerm.card.oracle_text));
+      }
+    }
+    return parts.join(' ').replace(/['']/g, "'").toLowerCase();
+  };
   if (eachPlayerCountersPattern.test(desc)) {
     // Get all players
     const turnOrder = players.map((p: any) => p.id);
@@ -13231,6 +13252,14 @@ export function executeTriggerEffect(
       debug(2, `[executeTriggerEffect] Agitator Ant: skipping resolution steps during replay`);
       return;
     }
+
+    const conditionalText = resolveCounterPlacementConditionalText(desc, triggerItem, battlefield);
+    const counterEffectType = conditionalText.includes('goad') ? 'goad'
+      : (conditionalText.includes("can't attack") || conditionalText.includes('cannot attack')) ? 'cant_attack'
+      : 'none';
+    const counterOnAccept = counterEffectType === 'goad' ? 'goad'
+      : counterEffectType === 'cant_attack' ? 'cant_attack_controller'
+      : null;
     
     // Create resolution steps for each player
     const stepConfigs = players.map((p: any) => {
@@ -13255,13 +13284,11 @@ export function executeTriggerEffect(
         // This pattern works for many cards: Agitator Ant, Orzhov Advokist, Akroan Horse, etc.
         counterPlacementTrigger: true,
         sourceController: controller, // Who controls the source (for "can't attack you" effects)
-        effectType: desc.toLowerCase().includes('goad') ? 'goad' : 
-                   desc.toLowerCase().includes("can't attack") ? 'cant_attack' : 'none',
+        effectType: counterEffectType,
         conditionalEffect: {
           // Store what happens "if a player does" make the choice
           trigger: 'counter_placement', // What choice they made
-          onAccept: desc.toLowerCase().includes('goad') ? 'goad' :
-                   desc.toLowerCase().includes("can't attack") ? 'cant_attack_controller' : null,
+          onAccept: counterOnAccept,
         },
         triggerDescription: desc, // Store full description for context
         availableCreatures: playerCreatures.map((perm: any) => ({
@@ -17757,6 +17784,26 @@ export function resolveTopOfStack(ctx: GameContext) {
       String(sourceName || 'Activated ability'),
     );
 
+    const activatedOracleForIR = [activatedAbilityText, description].filter(Boolean).join('\n').trim();
+    if (activatedOracleForIR) {
+      const irResult = tryApplyOracleIRToActivatedAbility(ctx, {
+        controller: controller as PlayerID,
+        sourceName,
+        oracleText: activatedOracleForIR,
+        sourcePermanentId: String((item as any).source || ''),
+        stackItemId: String((item as any).id || ''),
+        targets: Array.isArray((item as any).targets) ? (item as any).targets : undefined,
+        teamworkWasPaid: Boolean((item as any)?.teamworkWasPaid ?? (item as any)?.card?.teamworkWasPaid),
+        giftPromised: Boolean((item as any)?.giftPromised ?? (item as any)?.card?.giftPromised),
+        allowOptional: true,
+      });
+      if (irResult.handled) {
+        debug(2, `[resolveTopOfStack] Oracle IR resolved activated ability from ${sourceName} (${irResult.applied} step(s))`);
+        bumpSeq();
+        return;
+      }
+    }
+
     // Handle other activated abilities - execute their effects
     // Use the same effect execution logic as triggered abilities
     debug(2, `[resolveTopOfStack] Executing activated ability from ${sourceName} for ${controller}: ${description}`);
@@ -18438,13 +18485,13 @@ export function resolveTopOfStack(ctx: GameContext) {
           queueResolveTopOfStackPrompt(ctx, {
             type: ResolutionStepType.TARGET_SELECTION,
             playerId: triggerController as PlayerID,
-            description: `${sourceName}: Destroy target artifact or enchantment`,
-            mandatory: true,
+            description: `${sourceName}: You may destroy target artifact or enchantment`,
+            mandatory: false,
             sourceId,
             sourceName,
             validTargets,
             targetTypes: ['artifact', 'enchantment'],
-            minTargets: 1,
+            minTargets: 0,
             maxTargets: 1,
             action: 'destroy_artifact_enchantment',
           } as any);

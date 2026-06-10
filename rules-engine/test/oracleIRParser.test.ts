@@ -1,6 +1,6 @@
 ﻿import { describe, it, expect } from 'vitest';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
-import { parseBareTriggerEffectFragmentSteps } from '../src/oracleIRParserPostprocess';
+import { parseBareTriggerEffectFragmentSteps, isExternallyHandledOracleFragmentText } from '../src/oracleIRParserPostprocess';
 
 function unwrapLeadingConditionalSteps(steps: readonly any[]): readonly any[] {
   const first = steps[0];
@@ -16706,6 +16706,28 @@ This creature has protection from each of the exiled card's card types. (Artifac
         counter: 'ticket',
       }),
     ]);
+  });
+
+  it('parses compound keyword lines into static grants', () => {
+    for (const text of ['Trample, ward {2}', 'Vigilance, reach, ward {2}', 'Flying']) {
+      const ir = parseOracleTextToIR(text, 'Keyword Probe');
+      expect(ir.abilities[0]?.steps?.[0]?.kind).toBe('grant_static_ability');
+    }
+  });
+
+  it('treats common keyword and static fragments as externally handled', () => {
+    const samples = [
+      'Foretell {2} (During your turn, you may cast this spell from exile for its foretell cost.)',
+      'Enchant Mountain',
+      'Suspend 4-{1}{R} (Rather than cast this card from your hand, pay {1}{R} and exile it with four time counters on it.)',
+      'This spell costs {1} less to cast for each creature on the battlefield.',
+      'Partner with Will Kenrith',
+      '...',
+      'A deck can have up to nine cards named Nazgûl.',
+    ];
+    for (const text of samples) {
+      expect(isExternallyHandledOracleFragmentText(text)).toBe(true);
+    }
   });
 
 });

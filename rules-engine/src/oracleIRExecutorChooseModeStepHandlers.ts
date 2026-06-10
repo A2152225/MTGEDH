@@ -85,7 +85,11 @@ export function applyChooseModeStep(
     .filter((mode): mode is { label: string; steps: readonly OracleEffectStep[] } => Boolean(mode));
   const minModes = Math.max(0, Number((step as any).minModes ?? 0) || 0);
   const maxModesRaw = Number((step as any).maxModes ?? -1);
-  const maxModes = Number.isFinite(maxModesRaw) && maxModesRaw >= 0 ? maxModesRaw : Infinity;
+  let maxModes = Number.isFinite(maxModesRaw) && maxModesRaw >= 0 ? maxModesRaw : Infinity;
+  if (Boolean((step as any).teamworkChooseBoth) && ctx.teamworkWasPaid === true) {
+    const modeCount = Array.isArray((step as any).modes) ? (step as any).modes.length : 0;
+    maxModes = Math.min(2, modeCount > 0 ? modeCount : 2);
+  }
 
   if (
     hasDuplicateModeSelection ||

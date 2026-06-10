@@ -45,6 +45,16 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
   } = args;
 
   {
+    const m = raw.match(/^x is the number of snow lands you control$/i);
+    if (m) {
+      return (controlled as any[]).filter((p) => {
+        const tl = typeLineLower(p);
+        return hasExecutorClass(p, 'land') && /\bsnow\b/i.test(tl);
+      }).length;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of basic land types among lands you control$/i);
     if (m) {
       const basicLandTypes = ['plains', 'island', 'swamp', 'mountain', 'forest'];

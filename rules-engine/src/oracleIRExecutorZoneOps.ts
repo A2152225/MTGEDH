@@ -1,6 +1,9 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
 import { cardHasCreatureType, isValidCreatureType } from '../../shared/src/creatureTypes';
-import { mergeRetainedCountersForBattlefieldEntry } from '../../shared/src/zoneRetainedCounters';
+import {
+  buildZoneObjectWithRetainedCounters,
+  mergeRetainedCountersForBattlefieldEntry,
+} from '../../shared/src/zoneRetainedCounters';
 import {
   getCardManaValue,
   getCurrentTurnNumber,
@@ -42,6 +45,11 @@ export type SimpleCardType =
 /** Map shorthand owner zones ("an opponent's graveyard") to bound-target phrasing the parsers already understand. */
 export function normalizeBoundPlayerZoneSelectorText(text: string): string {
   return String(text || '')
+    .replace(/\bin an opponent's (graveyard|hand|exile)\b/gi, "from target opponent's $1")
+    .replace(/\bin target opponent's (graveyard|hand|exile)\b/gi, "from target opponent's $1")
+    .replace(/\bin a player's (graveyard|hand|exile)\b/gi, "from target player's $1")
+    .replace(/\bin target player's (graveyard|hand|exile)\b/gi, "from target player's $1")
+    .replace(/\bin their (graveyard|hand|exile)\b/gi, "from target opponent's $1")
     .replace(/\bfrom an opponent's (graveyard|hand|exile)\b/gi, "from target opponent's $1")
     .replace(/\bfrom a player's (graveyard|hand|exile)\b/gi, "from target player's $1")
     .replace(/\b(?:the )?defending player'?s (graveyard|hand|exile)\b/gi, "from target opponent's $1")
@@ -51,6 +59,7 @@ export function normalizeBoundPlayerZoneSelectorText(text: string): string {
 
 export type MoveZoneSingleTargetCriteria = {
   readonly cardType: SimpleCardType;
+  readonly fromHandOrGraveyardOwner?: 'controller' | 'target_player';
   readonly manaValueLte?: number;
   readonly manaValueAnyOf?: readonly number[];
   readonly manaValueLtReferencePower?: boolean;
@@ -78,6 +87,7 @@ export type MoveZoneSingleTargetCriteria = {
   readonly requiresKickerAbility?: boolean;
   readonly requiresAwaken?: boolean;
   readonly requiresNonbattle?: boolean;
+  readonly excludeBasicLands?: boolean;
   readonly manaValueLtReferenceManaValue?: boolean;
   readonly requiredNamed?: string;
   readonly excludePutIntoGraveyardThisTurn?: boolean;
@@ -1004,6 +1014,10 @@ export function parseMoveZoneAllFromYourGraveyard(what: { readonly kind: string;
     return { cardType: 'instant_or_sorcery' };
   }
 
+  if (/^all mount and vehicle cards from your graveyard$/i.test(lower)) {
+    return { cardType: 'permanent', typeLineTermsAnyOf: ['mount', 'vehicle'] };
+  }
+
   const withoutNumericOrLess = lower
     .replace(/\binstant\s+and\s+sorcery\b/g, 'instant or sorcery')
     .replace(/\bmana value \d+ or less\b/g, '')
@@ -1109,7 +1123,7 @@ export function parseMoveZoneAllFromTargetPlayersGraveyard(what: {
   readonly text?: string;
   readonly raw?: string;
 }):
-  | { readonly cardType: SimpleCardType }
+  | { readonly cardType: SimpleCardType; readonly excludeBasicLands?: boolean }
   | null {
   if (what.kind !== 'raw') return null;
   const raw = normalizeBoundPlayerZoneSelectorText(String((what as any).text || '').trim());
@@ -1119,6 +1133,13 @@ export function parseMoveZoneAllFromTargetPlayersGraveyard(what: {
   const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
   if (!lower.startsWith('all ')) return null;
+  if (
+    /^all\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard\s+other\s+than\s+basic\s+land\s+cards?$/i.test(
+      lower
+    )
+  ) {
+    return { cardType: 'any', excludeBasicLands: true };
+  }
   if (/\b(and|or)\b/i.test(lower)) return null;
   if (!/\bfrom (?:target|that) (?:player|opponent)'s graveyard\b/i.test(lower)) return null;
 
@@ -1193,11 +1214,28 @@ export function parseMoveZoneCountFromTargetPlayersGraveyard(what: {
   if (!/\bfrom (?:target|that) (?:player|opponent)'s graveyard\b/i.test(lower)) return null;
   if (/\b(and|or)\b/i.test(lower)) return null;
 
-  let m = cleaned.match(/^([a-z0-9]+)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i);
+  let m = cleaned.match(/^([a-z0-9]+)\s+target\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i);
   if (m) {
     const count = parseSmallNumberWord(String(m[1] || ''));
     if (count === null || count <= 0) return null;
     return { count, cardType: 'any' };
+  }
+
+  m = cleaned.match(/^([a-z0-9]+)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i);
+  if (m) {
+    const count = parseSmallNumberWord(String(m[1] || ''));
+    if (count === null || count <= 0) return null;
+    return { count, cardType: 'any' };
+  }
+
+  m = cleaned.match(/^([a-z0-9]+)\s+target\s+(.+?)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i);
+  if (m) {
+    const count = parseSmallNumberWord(String(m[1] || ''));
+    if (count === null || count <= 0) return null;
+    const typeText = String(m[2] || '').trim();
+    const parsed = parseSimpleCardTypeFromText(typeText);
+    if (!parsed) return null;
+    return { count, cardType: parsed };
   }
 
   m = cleaned.match(/^([a-z0-9]+)\s+(.+?)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i);
@@ -2290,6 +2328,14 @@ export function parseMoveZoneUpToTargetCountFromYourGraveyard(what: {
   if (!raw) return null;
 
   const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const returnXMatch = cleaned.match(/^return x target (.+?) from your graveyard$/i);
+  if (returnXMatch) {
+    const typeText = String(returnXMatch[1] || '').trim();
+    if (typeText) {
+      const criteria = parseMoveZoneSingleTargetCriteria(typeText);
+      if (criteria) return { maxCount: 0, criteria, useXValue: true };
+    }
+  }
   const thatManyMatch = cleaned.match(/^up to that many target (.+?) from your graveyard$/i);
   if (thatManyMatch) {
     const typeText = String(thatManyMatch[1] || '').trim();
@@ -2894,13 +2940,21 @@ export function parseMoveZoneUpToTargetCardsFromSingleGraveyard(what: {
 export type AmongThemMoveCriteria = MoveZoneSingleTargetCriteria & {
   readonly anyNumber?: boolean;
   readonly maxCount?: number;
+  readonly totalManaValueLte?: number;
+  readonly totalManaValueLteReferenceSacrificedArtifact?: boolean;
   readonly differentPowers?: boolean;
+  readonly bfHandSplit?: boolean;
+  readonly bfLibraryBottomSplit?: boolean;
+  readonly handGySplit?: boolean;
+  readonly handLibraryBottomSplit?: boolean;
+  readonly entersTappedFromWhat?: boolean;
 };
 
 export type ContextualThemSplitSpec =
   | { readonly kind: 'any_number_hand_graveyard_rest' }
   | { readonly kind: 'count_hand_graveyard_rest'; readonly count: number }
-  | { readonly kind: 'count_hand_library_bottom'; readonly count: number };
+  | { readonly kind: 'count_hand_library_bottom'; readonly count: number }
+  | { readonly kind: 'count_those_cards'; readonly count: number };
 
 function parseColoredPermanentAmongThem(typeText: string): AmongThemMoveCriteria | null {
   const match = String(typeText || '')
@@ -2913,8 +2967,9 @@ function parseColoredPermanentAmongThem(typeText: string): AmongThemMoveCriteria
 }
 
 function parseAmongThemOrTypeLineTerms(normalized: string): AmongThemMoveCriteria | null {
-  if (!/,\s*|\s+or\s+/i.test(normalized)) return null;
-  const parts = normalized
+  const normalizedForSplit = normalized.replace(/\band\/or\b/gi, ' or ');
+  if (!/,\s*|\s+or\s+/i.test(normalizedForSplit)) return null;
+  const parts = normalizedForSplit
     .replace(/,\s*or\s+/gi, ',')
     .split(/\s*,\s*|\s+or\s+/i)
     .map(part => part.trim())
@@ -2989,6 +3044,9 @@ const BASIC_LAND_TYPE_NAMES = new Set(['plains', 'island', 'swamp', 'mountain', 
 
 function parseRevealedThisWayTypeText(typeText: string): AmongThemMoveCriteria | null {
   const normalized = String(typeText || '').replace(/\s+/g, ' ').trim();
+  if (/^non-aura permanent$/i.test(normalized)) {
+    return { cardType: 'permanent', typeLineTermsNoneOf: ['aura'], anyNumber: true };
+  }
   if (/^cards of the chosen type$/i.test(normalized)) {
     return { cardType: 'creature', anyNumber: true, usesChosenCreatureType: true };
   }
@@ -3000,6 +3058,8 @@ function parseRevealedThisWayTypeText(typeText: string): AmongThemMoveCriteria |
   if (creatureSubtype) {
     return { cardType: 'creature', creatureTypesAnyOf: [creatureSubtype], anyNumber: true };
   }
+  const amongParsed = parseAmongThemTypeConstraints(normalized);
+  if (amongParsed) return { ...amongParsed, anyNumber: true };
   const parsed = parseCompoundCardTypeFromText(normalized) || parseSimpleCardTypeFromText(normalized);
   if (!parsed) return null;
   return { cardType: parsed, anyNumber: true };
@@ -3045,16 +3105,157 @@ function parseAmongThemTypeConstraints(typeText: string): AmongThemMoveCriteria 
     return { cardType: 'land', typeLineTermsAnyOf: ['gate'] };
   }
 
+  if (/^legendary$/i.test(normalized)) {
+    return { cardType: 'any', typeLineTermsAnyOf: ['legendary'] };
+  }
+
   const parsed = parseSimpleCardTypeFromText(normalized);
   if (!parsed) return null;
   return { cardType: parsed };
 }
 
-export function parseMoveZoneTypedCardFromAmongThem(what: {
+function parseAmongThemSplitFromMoveZoneParts(
+  cleaned: string,
+  step?: {
+    readonly to?: string;
+    readonly toRaw?: string;
+    readonly entersTapped?: boolean;
+    readonly raw?: string;
+  }
+): AmongThemMoveCriteria | null {
+  if (!step) return null;
+  const toRaw = String(step.toRaw || '').toLowerCase();
+  const stepRaw = String(step.raw || '').toLowerCase();
+  const entersTapped =
+    step.entersTapped === true ||
+    /\btapped\b/i.test(toRaw) ||
+    /\btapped\b/i.test(stepRaw) ||
+    /\btapped\b/i.test(cleaned);
+
+  const countBfOneHandMatch = cleaned.match(
+    /^([a-z0-9]+) of them onto the battlefield(?: tapped)? and the other$/i
+  );
+  if (countBfOneHandMatch && step.to === 'hand') {
+    const maxCount = parseSmallNumberWord(String(countBfOneHandMatch[1] || '').trim());
+    if (maxCount && maxCount > 0) {
+      return {
+        cardType: 'any',
+        maxCount,
+        bfHandSplit: true,
+        entersTappedFromWhat: entersTapped,
+      };
+    }
+  }
+
+  const restToLibrary = /\bthe rest\b/.test(toRaw) || /\bthe rest\b/.test(stepRaw);
+  const restToGraveyard = /\bthe rest\b/.test(toRaw) && /\bgraveyard\b/.test(toRaw);
+  if (restToGraveyard && step.to === 'hand') {
+    const anyNumberHandGyMatch = cleaned.match(/^any number of (.+?) cards from among them$/i);
+    if (anyNumberHandGyMatch) {
+      const parsed = parseAmongThemTypeConstraints(String(anyNumberHandGyMatch[1] || '').trim());
+      if (parsed) return { ...parsed, anyNumber: true, handGySplit: true };
+    }
+  }
+
+  const toBattlefield =
+    step.to === 'battlefield' ||
+    /\bbattlefield\b/.test(toRaw) ||
+    /\bonto the battlefield\b/.test(stepRaw);
+  if (!restToLibrary || !toBattlefield) return null;
+
+  const upToLandMatch = cleaned.match(/^up to ([a-z0-9]+) land cards from among them$/i);
+  if (upToLandMatch) {
+    const maxCount = parseSmallNumberWord(String(upToLandMatch[1] || '').trim());
+    if (maxCount && maxCount > 0) {
+      return {
+        cardType: 'land',
+        maxCount,
+        bfLibraryBottomSplit: true,
+        entersTappedFromWhat: entersTapped,
+      };
+    }
+  }
+
+  if (/^a land card from among them$/i.test(cleaned)) {
+    return {
+      cardType: 'land',
+      maxCount: 1,
+      bfLibraryBottomSplit: true,
+      entersTappedFromWhat: entersTapped,
+    };
+  }
+
+  if (/^any number of land cards from among them$/i.test(cleaned)) {
+    return {
+      cardType: 'land',
+      anyNumber: true,
+      bfLibraryBottomSplit: true,
+      entersTappedFromWhat: entersTapped,
+    };
+  }
+
+  const upToSacrificedArtifactTotalMvMatch = cleaned.match(
+    /^up to ([a-z0-9]+) noncreature artifact cards with total mana value less than or equal to the sacrificed artifact's mana value from among them$/i
+  );
+  if (upToSacrificedArtifactTotalMvMatch) {
+    const maxCount = parseSmallNumberWord(String(upToSacrificedArtifactTotalMvMatch[1] || '').trim());
+    if (maxCount && maxCount > 0) {
+      return {
+        cardType: 'artifact',
+        typeLineTermsNoneOf: ['creature'],
+        maxCount,
+        totalManaValueLteReferenceSacrificedArtifact: true,
+        bfLibraryBottomSplit: true,
+      };
+    }
+  }
+
+  const upToCreatureTotalMvMatch = cleaned.match(
+    /^up to ([a-z0-9]+) creature cards with total mana value (\d+) or less from among them$/i
+  );
+  if (upToCreatureTotalMvMatch) {
+    const maxCount = parseSmallNumberWord(String(upToCreatureTotalMvMatch[1] || '').trim());
+    const totalMv = Number.parseInt(String(upToCreatureTotalMvMatch[2] || ''), 10);
+    if (maxCount && maxCount > 0 && Number.isFinite(totalMv)) {
+      return {
+        cardType: 'creature',
+        maxCount,
+        totalManaValueLte: totalMv,
+        bfLibraryBottomSplit: true,
+        entersTappedFromWhat: entersTapped,
+      };
+    }
+  }
+
+  return null;
+}
+
+export function parseMoveZoneAllOfThemWithThatName(what: {
   readonly kind: string;
   readonly text?: string;
   readonly raw?: string;
-}): AmongThemMoveCriteria | null {
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return (
+    raw === 'all of them with that name' ||
+    raw === 'all cards with the chosen name from among them'
+  );
+}
+
+export function parseMoveZoneTypedCardFromAmongThem(
+  what: {
+    readonly kind: string;
+    readonly text?: string;
+    readonly raw?: string;
+  },
+  step?: {
+    readonly to?: string;
+    readonly toRaw?: string;
+    readonly entersTapped?: boolean;
+    readonly raw?: string;
+  }
+): AmongThemMoveCriteria | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim();
   if (!raw) return null;
@@ -3062,14 +3263,60 @@ export function parseMoveZoneTypedCardFromAmongThem(what: {
   const cleaned = raw.replace(/[.\s]+$/g, '').trim();
 
   if (/^a land card from among them onto the battlefield and the rest$/i.test(cleaned)) {
-    return { cardType: 'land' };
+    return { cardType: 'land', bfHandSplit: true };
+  }
+
+  if (/^all land cards from among them onto the battlefield and the rest$/i.test(cleaned)) {
+    return { cardType: 'land', anyNumber: true, bfHandSplit: true };
+  }
+
+  if (/^those land cards$/i.test(cleaned) && step) {
+    const toRaw = String(step.toRaw || '').toLowerCase();
+    if (/\bthe rest\b/.test(toRaw) && /\bbottom\b/.test(toRaw)) {
+      return {
+        cardType: 'land',
+        anyNumber: true,
+        bfLibraryBottomSplit: true,
+        entersTappedFromWhat:
+          step.entersTapped === true || /\btapped\b/i.test(toRaw) || /\btapped\b/i.test(String(step.raw || '')),
+      };
+    }
+  }
+
+  const upToLandBfLibraryBottomMatch = cleaned.match(
+    /^up to ([a-z0-9]+) land cards from among them onto the battlefield(?: tapped)? and the rest$/i
+  );
+  if (upToLandBfLibraryBottomMatch) {
+    const maxCount = parseSmallNumberWord(String(upToLandBfLibraryBottomMatch[1] || '').trim());
+    if (maxCount && maxCount > 0) {
+      return {
+        cardType: 'land',
+        maxCount,
+        bfLibraryBottomSplit: true,
+        entersTappedFromWhat: /\btapped\b/i.test(cleaned),
+      };
+    }
   }
 
   const anyNumberLandSplitMatch = cleaned.match(
     /^any number of land cards from among them onto the battlefield(?: tapped)? and the rest$/i
   );
   if (anyNumberLandSplitMatch) {
-    return { cardType: 'land', anyNumber: true };
+    return {
+      cardType: 'land',
+      anyNumber: true,
+      bfHandSplit: true,
+      entersTappedFromWhat: /\btapped\b/i.test(cleaned),
+    };
+  }
+
+  const anyNumberBfHandSplitMatch = cleaned.match(
+    /^any number of (.+?) cards from among them onto the battlefield and the rest$/i
+  );
+  if (anyNumberBfHandSplitMatch) {
+    const parsed = parseAmongThemTypeConstraints(String(anyNumberBfHandSplitMatch[1] || '').trim());
+    if (!parsed) return null;
+    return { ...parsed, anyNumber: true, bfHandSplit: true };
   }
 
   const anyNumberConstrainedMatch = cleaned.match(
@@ -3115,11 +3362,27 @@ export function parseMoveZoneTypedCardFromAmongThem(what: {
     return { ...parsed, anyNumber: true, differentPowers: true };
   }
 
+  const xCardsHandGyMatch = cleaned.match(/^x cards from among them$/i);
+  if (xCardsHandGyMatch && step) {
+    const toRaw = String(step.toRaw || '').toLowerCase();
+    if (step.to === 'hand' && /\brest\b/i.test(toRaw) && /\bgraveyard\b/i.test(toRaw)) {
+      return { cardType: 'any', maxCount: -1, handGySplit: true };
+    }
+  }
+
   const anyNumberMatch = cleaned.match(/^any\s+number\s+of\s+(.+?)\s+cards?\s+from\s+among\s+them$/i);
   if (anyNumberMatch) {
     const parsed = parseAmongThemTypeConstraints(String(anyNumberMatch[1] || '').trim());
     if (!parsed) return null;
     return { ...parsed, anyNumber: true };
+  }
+
+  if (/^all nonland cards chosen this way$/i.test(cleaned)) {
+    return { cardType: 'nonland', anyNumber: true };
+  }
+
+  if (/^all land cards chosen this way$/i.test(cleaned)) {
+    return { cardType: 'land', anyNumber: true, entersTappedFromWhat: true };
   }
 
   const xManaCostMatch = cleaned.match(/^(?:a|an)\s+card\s+with\s+\{x\}\s+in\s+its\s+mana\s+cost\s+from\s+among\s+them$/i);
@@ -3157,6 +3420,14 @@ export function parseMoveZoneTypedCardFromAmongThem(what: {
     const parsed = parseAmongThemTypeConstraints(String(allFromAmongMatch[1] || '').trim());
     if (!parsed) return null;
     return { ...parsed, anyNumber: true };
+  }
+
+  if (/^a nonland card from among them$/i.test(cleaned)) {
+    return { cardType: 'nonland' };
+  }
+
+  if (/^(?:a|an)\s+card\s+from\s+among\s+them$/i.test(cleaned)) {
+    return { cardType: 'any' };
   }
 
   const constrainedMatch = cleaned.match(
@@ -3205,10 +3476,33 @@ export function parseMoveZoneTypedCardFromAmongThem(what: {
     return parsed;
   }
 
+  const splitFromStep = parseAmongThemSplitFromMoveZoneParts(cleaned, step);
+  if (splitFromStep) return splitFromStep;
+
   const match = cleaned.match(/^(?:a|an)\s+(.+?)\s+card\s+from\s+among\s+them$/i);
   if (!match) return null;
 
   return parseAmongThemTypeConstraints(String(match[1] || '').trim());
+}
+
+export function parseMoveZoneRestOfExiledCards(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'the rest of the exiled cards';
+}
+
+export function parseMoveZoneAllPermanentsYouOwn(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'all permanents you own';
 }
 
 export function parseMoveZoneReturnThisCardAndUpToOneOtherFromGraveyard(what: {
@@ -3244,11 +3538,75 @@ export function parseMoveZoneAllCardsMilledThisWay(what: {
 }): { readonly cardType: SimpleCardType } | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  const eachMatch = raw.match(/^each\s+(.+?)\s+cards?\s+milled this way$/);
+  if (eachMatch) {
+    const parsed = parseSimpleCardTypeFromText(String(eachMatch[1] || '').trim());
+    if (!parsed) return null;
+    return { cardType: parsed };
+  }
   const match = raw.match(/^all\s+(.+?)\s+cards?\s+milled this way$/);
   if (!match) return null;
   const parsed = parseSimpleCardTypeFromText(String(match[1] || '').trim());
   if (!parsed) return null;
   return { cardType: parsed };
+}
+
+export function parseMoveZoneShuffleSourceArtifactAndGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return (
+    raw === 'this artifact and your graveyard' ||
+    raw === 'this permanent and your graveyard' ||
+    raw === 'this enchantment and your graveyard'
+  );
+}
+
+export function parseMoveZoneAllExiledWithNamedSource(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): string | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  const match = raw.match(/^all cards exiled with (.+)$/);
+  if (!match) return null;
+  const name = String(match[1] || '').trim();
+  return name || null;
+}
+
+export function shuffleSourcePermanentAndGraveyardIntoLibrary(
+  state: GameState,
+  controllerId: PlayerID,
+  sourceId: string
+): GameState {
+  const wantedSourceId = String(sourceId || '').trim();
+  const battlefield = [...((state.battlefield || []) as any[])];
+  const sourceIndex = wantedSourceId
+    ? battlefield.findIndex((perm: any) => String(perm?.id || '').trim() === wantedSourceId)
+    : -1;
+  const sourcePermanent = sourceIndex >= 0 ? battlefield[sourceIndex] : null;
+  const sourceCard =
+    sourcePermanent && !(sourcePermanent as any)?.isToken
+      ? buildZoneObjectWithRetainedCounters((sourcePermanent as any)?.card, sourcePermanent, 'library')
+      : null;
+  const nextBattlefield =
+    sourceIndex >= 0 ? battlefield.filter((_: any, index: number) => index !== sourceIndex) : battlefield;
+  let nextState = { ...(state as any), battlefield: nextBattlefield } as GameState;
+  if (sourceCard) {
+    const player = nextState.players.find(p => p.id === controllerId) as any;
+    if (player) {
+      const library = Array.isArray(player.library) ? [...player.library, sourceCard] : [sourceCard];
+      nextState = {
+        ...nextState,
+        players: nextState.players.map(p => (p.id === controllerId ? ({ ...(p as any), library } as any) : p)),
+      } as GameState;
+    }
+  }
+  return shufflePlayerGraveyardIntoLibrary(nextState, controllerId);
 }
 
 export function parseMoveZoneThatCardReference(what: {
@@ -3269,18 +3627,23 @@ export function parseMoveZoneTypedCardFromHandOrGraveyard(what: {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim();
   const cleaned = raw.replace(/[.\s]+$/g, '').trim();
-  const match = cleaned.match(
-    /^(?:a|an)\s+(.+?)\s+card(?:\s+with\s+mana\s+value\s+(\d+)(?:\s+or\s+less)?)?\s+from\s+your\s+hand\s+or\s+graveyard$/i
-  );
+  const match =
+    cleaned.match(
+      /^(?:a|an)\s+(.+?)\s+card(?:\s+with\s+mana\s+value\s+(\d+)(?:\s+or\s+less)?)?\s+from\s+your\s+hand\s+or\s+graveyard$/i
+    ) ||
+    cleaned.match(
+      /^(?:a|an)\s+(.+?)\s+card(?:\s+with\s+mana\s+value\s+(\d+)(?:\s+or\s+less)?)?\s+from\s+that\s+player(?:'s|'s)?\s+graveyard\s+or\s+hand$/i
+    );
   if (!match) return null;
   const typeText = String(match[1] || '').trim();
   const parsed = parseSimpleCardTypeFromText(typeText);
   if (!parsed) return null;
+  const fromHandOrGraveyardOwner = /that\s+player/i.test(cleaned) ? 'target_player' : 'controller';
   const mv = Number.parseInt(String(match[2] || ''), 10);
   if (Number.isFinite(mv) && /\bor\s+less\b/i.test(cleaned)) {
-    return { cardType: parsed, manaValueLte: mv };
+    return { cardType: parsed, manaValueLte: mv, fromHandOrGraveyardOwner };
   }
-  return { cardType: parsed };
+  return { cardType: parsed, fromHandOrGraveyardOwner };
 }
 
 export function parseMoveZoneTypedCardMvLessThanReferenceFromYourHand(what: {
@@ -3322,6 +3685,12 @@ export function parseMoveZoneTypedCardsRevealedThisWay(what: {
 }): AmongThemMoveCriteria | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim().replace(/[.\s]+$/g, '');
+  if (/^the nonland cards revealed this way$/i.test(raw)) {
+    return { cardType: 'nonland', anyNumber: true };
+  }
+  if (/^all cards revealed this way$/i.test(raw)) {
+    return { cardType: 'any' };
+  }
   if (/^all cards of the chosen type revealed this way$/i.test(raw)) {
     return { cardType: 'creature', anyNumber: true, usesChosenCreatureType: true };
   }
@@ -3368,7 +3737,7 @@ export function parseMoveZoneContextualThemSplit(what: {
   const countThoseMatch = raw.match(/^([a-z0-9]+) of those cards$/);
   if (countThoseMatch) {
     const count = parseSmallNumberWord(String(countThoseMatch[1] || '').trim());
-    if (count && count > 0) return { kind: 'count_hand_library_bottom', count };
+    if (count && count > 0) return { kind: 'count_those_cards', count };
   }
   return null;
 }
@@ -3381,6 +3750,46 @@ export function parseMoveZoneAnyNumberThosePermanentCards(what: {
   if (what.kind !== 'raw') return false;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
   return raw === 'any number of those permanent cards';
+}
+
+export function parseMoveZoneThoseCreatureCards(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'those creature cards';
+}
+
+export function parseMoveZoneCompoundCountThemBfHandSplit(
+  what: { readonly kind: string; readonly text?: string; readonly raw?: string },
+  step?: { readonly to?: string; readonly toRaw?: string; readonly raw?: string }
+): AmongThemMoveCriteria | null {
+  if (what.kind !== 'raw' || !step) return null;
+  const raw = String((what as any).text || '').trim().replace(/[.\s]+$/g, '');
+  const match = raw.match(
+    /^([a-z0-9]+) of them onto the battlefield(?: tapped)? under your control and the rest$/i
+  );
+  if (!match || step.to !== 'hand') return null;
+  const maxCount = parseSmallNumberWord(String(match[1] || '').trim());
+  if (!maxCount || maxCount < 1) return null;
+  return {
+    cardType: 'any',
+    maxCount,
+    bfHandSplit: true,
+    entersTappedFromWhat: /\btapped\b/i.test(raw) || /\btapped\b/i.test(String(step.toRaw || '')),
+  };
+}
+
+export function parseMoveZoneAnyNumberMountainsYouControlToHand(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'any number of mountains you control';
 }
 
 export function parseMoveZoneThemAntecedent(what: {
@@ -3429,6 +3838,26 @@ export function parseMoveZoneTheChosenCards(what: {
   if (what.kind !== 'raw') return false;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
   return raw === 'the chosen cards';
+}
+
+export function parseMoveZoneOneOfTheChosenCards(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'one of the chosen cards';
+}
+
+export function parseMoveZoneOtherChosenCards(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'the other chosen cards';
 }
 
 export function parseMoveZoneEachPlayerGraveyardNotPutThisWay(what: {
@@ -3496,6 +3925,79 @@ export function parseMoveZoneThoseCardsNotPlayed(what: {
   if (what.kind !== 'raw') return false;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
   return raw === "any of those cards you didn't play" || raw === 'any of those cards you did not play';
+}
+
+export function parseMoveZoneTheNonlandCard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'the nonland card';
+}
+
+export type ExiledThisWayNotCastCriteria = {
+  readonly cardType: 'any' | 'instant_or_sorcery';
+  readonly withRestToLibraryBottom: boolean;
+};
+
+export function parseMoveZoneExiledThisWayNotCast(
+  what: { readonly kind: string; readonly text?: string; readonly raw?: string },
+  step?: { readonly raw?: string; readonly toRaw?: string }
+): ExiledThisWayNotCastCriteria | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.\s]+$/g, '');
+  if (
+    raw === 'all cards exiled this way that weren\'t cast' ||
+    raw === 'all cards exiled this way that were not cast' ||
+    raw === 'cards exiled this way that weren\'t cast' ||
+    raw === 'cards exiled this way that were not cast'
+  ) {
+    return { cardType: 'any', withRestToLibraryBottom: false };
+  }
+  if (
+    /^the exiled instant and sorcery cards? that weren'?t cast this way$/i.test(raw) ||
+    /^exiled instant and sorcery cards? that weren'?t cast this way$/i.test(raw)
+  ) {
+    const toRaw = String(step?.toRaw || step?.raw || '').toLowerCase();
+    return {
+      cardType: 'instant_or_sorcery',
+      withRestToLibraryBottom: /\bthe rest\b/i.test(toRaw) || /\brest on the bottom\b/i.test(toRaw),
+    };
+  }
+  return null;
+}
+
+export function resolveUncastExiledThisWayCardIds(
+  state: GameState,
+  playerId: PlayerID,
+  exiledSnapshot: readonly any[],
+  criteria: ExiledThisWayNotCastCriteria
+): string[] {
+  const player = state.players.find((entry) => entry.id === playerId) as any;
+  const exile = Array.isArray(player?.exile) ? player.exile : [];
+  const exileById = new Map(
+    exile.map((card: any) => [String(card?.id || '').trim(), card] as const).filter(([id]) => Boolean(id))
+  );
+
+  const ids: string[] = [];
+  for (const snapshot of exiledSnapshot) {
+    const id = String((snapshot as any)?.id ?? (snapshot as any)?.cardId ?? '').trim();
+    if (!id || !exileById.has(id)) continue;
+    const card = exileById.get(id);
+    if (
+      criteria.cardType === 'instant_or_sorcery' &&
+      !cardMatchesMoveZoneSingleTargetCriteria(card, { cardType: 'instant_or_sorcery' })
+    ) {
+      continue;
+    }
+    ids.push(id);
+  }
+  return ids;
 }
 
 export function parseMoveZoneReturnItAndSelfPermanent(what: {
@@ -3666,15 +4168,52 @@ export function parseMoveZoneCountTargetCardsFromSingleGraveyard(what: {
   readonly kind: string;
   readonly text?: string;
   readonly raw?: string;
-}): { readonly count: number; readonly cardType: SimpleCardType } | null {
+}): { readonly count: number; readonly cardType: SimpleCardType; readonly upTo?: boolean } | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim().replace(/[.\s]+$/g, '');
+  const upToMatch = raw.match(/^up to (\w+) target (\w+) cards? from a single graveyard$/i);
+  if (upToMatch) {
+    const count = parseSmallNumberWord(String(upToMatch[1] || '').trim());
+    const parsed = parseSimpleCardTypeFromText(String(upToMatch[2] || '').trim());
+    if (!count || count < 1 || !parsed) return null;
+    return { count, cardType: parsed, upTo: true };
+  }
   const match = raw.match(/^(\w+) target (\w+) cards? from a single graveyard$/i);
   if (!match) return null;
   const count = parseSmallNumberWord(String(match[1] || '').trim());
   const parsed = parseSimpleCardTypeFromText(String(match[2] || '').trim());
   if (!count || count < 1 || !parsed) return null;
   return { count, cardType: parsed };
+}
+
+export function parseMoveZoneAllAurasAttachedToTargetPermanentYouOwn(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'all auras attached to target permanent you own';
+}
+
+export function parseMoveZoneThisCreatureAndCombatantsToLibraryTop(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'this creature and each creature blocking or blocked by it';
+}
+
+export function parseMoveZoneAnyNumberCardsTotalMvXFromYourGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'any number of cards with total mana value x or less from your graveyard';
 }
 
 export function cardHasMorphAbility(card: any): boolean {
@@ -3712,6 +4251,33 @@ export function parseMoveZoneTopTypedCardFromTargetPlayerGraveyard(what: {
   const parsed = parseSimpleCardTypeFromText(String(match[1] || '').trim());
   if (!parsed) return null;
   return { cardType: parsed };
+}
+
+export function parseMoveZoneTopTypedCardFromYourGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): MoveZoneSingleTargetCriteria | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim().replace(/[.\s]+$/g, '');
+  const match = raw.match(/^the top (.+?) card of your graveyard$/i);
+  if (!match) return null;
+  const parsed = parseSimpleCardTypeFromText(String(match[1] || '').trim());
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+export function parseMoveZoneEachCreatureMvXOrLessFromYourGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): MoveZoneSingleTargetCriteria | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  if (raw === 'each creature card with mana value x or less from your graveyard') {
+    return { cardType: 'creature', manaValueLte: -1 };
+  }
+  return null;
 }
 
 export function parseMoveZoneTypedCardFromTargetPlayersGraveyard(what: {
@@ -3848,7 +4414,8 @@ export function parseMoveZoneThatManyCardsFromTopOfLibrary(what: {
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
   return (
     raw === 'that many cards from the top of your library' ||
-    raw === 'cards from the top of your library equal to the damage prevented this way'
+    raw === 'cards from the top of your library equal to the damage prevented this way' ||
+    raw === 'cards from the top of your library equal to the excess damage dealt to that creature this way'
   );
 }
 
@@ -3879,7 +4446,11 @@ export function parseMoveZoneAllOtherCardsRevealedThisWay(what: {
 }): boolean {
   if (what.kind !== 'raw') return false;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
-  return raw === 'all other cards revealed this way';
+  return (
+    raw === 'all other cards revealed this way' ||
+    raw === 'the rest of the revealed cards' ||
+    raw === "all cards revealed this way that weren't put onto the battlefield"
+  );
 }
 
 export function parseMoveZoneTheRevealedCards(what: {
@@ -3933,9 +4504,26 @@ export function parseMoveZoneCountTargetBattlefieldBounce(what: {
   readonly kind: string;
   readonly text?: string;
   readonly raw?: string;
-}): { readonly count: number; readonly selectorText: string } | null {
+}): { readonly count: number; readonly selectorText: string; readonly useXValue?: boolean } | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim().replace(/[.\s]+$/g, '');
+  const returnXMatch = raw.match(/^return x target (.+?)(?:\s+to\b.*)?$/i);
+  if (returnXMatch) {
+    const selectorText = `target ${String(returnXMatch[1] || '').trim()}`;
+    if (selectorText.length > 7) return { count: 0, selectorText, useXValue: true };
+  }
+  const returnAttackingMatch = raw.match(/^return (?:one or two|two) target attacking creatures(?:\s+to\b.*)?$/i);
+  if (returnAttackingMatch) {
+    return { count: 2, selectorText: 'target attacking creatures' };
+  }
+  const returnCreaturesMatch = raw.match(/^return (?:one or two|two) target creatures(?:\s+to\b.*)?$/i);
+  if (returnCreaturesMatch) {
+    return { count: 2, selectorText: 'target creatures' };
+  }
+  const returnAnyNumberControlledMatch = raw.match(/^return any number of target creatures you control(?:\s+to\b.*)?$/i);
+  if (returnAnyNumberControlledMatch) {
+    return { count: 99, selectorText: 'target creatures you control' };
+  }
   let match = raw.match(/^up to ([a-z0-9]+)\s+target\s+(.+)$/i);
   if (match && !/^non[a-z-]+\s+/i.test(String(match[2] || '').trim())) {
     const count = parseSmallNumberWord(String(match[1] || '').trim());
@@ -4083,6 +4671,24 @@ export function parseMoveZoneAnyNumberArtifactCreatureTotalMvFromYourGraveyard(w
   const total = Number.parseInt(String(match[1] || ''), 10);
   if (!Number.isFinite(total)) return null;
   return { totalManaValueLte: total };
+}
+
+export function parseMoveZoneUpToCountTotalMvFromYourGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): { readonly maxCount: number; readonly totalManaValueLte: number; readonly cardType: SimpleCardType } | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  const match = raw.match(
+    /^up to (\w+) (\w+(?:\s+\w+)*) cards with total mana value (\d+) or less from your graveyard$/
+  );
+  if (!match) return null;
+  const maxCount = parseSmallNumberWord(String(match[1] || '').trim());
+  const total = Number.parseInt(String(match[3] || ''), 10);
+  const cardType = parseSimpleCardTypeFromText(String(match[2] || '').trim());
+  if (!maxCount || maxCount < 1 || !Number.isFinite(total) || !cardType) return null;
+  return { maxCount, totalManaValueLte: total, cardType };
 }
 
 export function parseMoveZoneAnyNumberTargetNonlandTotalMv(what: {
@@ -4237,6 +4843,16 @@ export function parseMoveZoneUpToXOtherCreaturesBfOrGy(what: {
     raw === 'up to x other target creatures from the battlefield and/or creature cards from graveyards' ||
     raw === 'up to three other target creatures from the battlefield and/or creature cards from graveyards'
   );
+}
+
+export function parseMoveZoneEachCreatureWithPowerOfChosenQuality(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'each creature with power of the chosen quality';
 }
 
 export function parseMoveZoneEachOpponentCreatureToughnessXOrLess(what: {
@@ -4725,7 +5341,7 @@ export function resolveAmongThemMatchingCardIds(
   if (!player) return [];
 
   const matches: string[] = [];
-  for (const zone of ['hand', 'exile', 'graveyard'] as const) {
+  for (const zone of ['library', 'hand', 'exile', 'graveyard'] as const) {
     const cards = Array.isArray(player?.[zone]) ? player[zone] : [];
     for (const card of cards) {
       const cardId = String((card as any)?.id || '').trim();
@@ -4737,7 +5353,7 @@ export function resolveAmongThemMatchingCardIds(
   }
 
   if (matches.length === 0 && preferred.size > 0) {
-    for (const zone of ['hand', 'exile', 'graveyard'] as const) {
+    for (const zone of ['library', 'hand', 'exile', 'graveyard'] as const) {
       const cards = Array.isArray(player?.[zone]) ? player[zone] : [];
       for (const card of cards) {
         const cardId = String((card as any)?.id || '').trim();
@@ -4753,7 +5369,7 @@ export function resolveAmongThemMatchingCardIds(
     const uniquePowerMatches: string[] = [];
     for (const cardId of matches) {
       let card: any = null;
-      for (const zone of ['hand', 'exile', 'graveyard'] as const) {
+      for (const zone of ['library', 'hand', 'exile', 'graveyard'] as const) {
         const cards = Array.isArray(player?.[zone]) ? player[zone] : [];
         card = cards.find((entry: any) => String(entry?.id || '').trim() === cardId);
         if (card) break;
@@ -5528,6 +6144,83 @@ export function parseMoveZoneAllFromYourExile(what: { readonly kind: string; rea
   return { cardType: parsed };
 }
 
+export function parseMoveZoneTheCardFromYourGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return raw === 'the card from your graveyard';
+}
+
+export function parseMoveZoneUpToXLandsFromHandAndOrGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): { readonly cardType: 'land'; readonly useXValue: true } | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  if (raw === 'up to x land cards from your hand and/or graveyard') {
+    return { cardType: 'land', useXValue: true };
+  }
+  return null;
+}
+
+export function parseMoveZoneAllFromTargetPlayerHandAndGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): { readonly cardType: SimpleCardType } | null {
+  if (what.kind !== 'raw') return null;
+  const raw = normalizeBoundPlayerZoneSelectorText(String((what as any).text || '').trim())
+    .replace(/[.\s]+$/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (
+    raw ===
+      "all noncreature, nonland cards from that player's hand and graveyard" ||
+    raw ===
+      "all noncreature, nonland cards from target player's hand and graveyard" ||
+    raw ===
+      "all noncreature, nonland cards from target opponent's hand and graveyard"
+  ) {
+    return { cardType: 'noncreature_nonland_permanent' };
+  }
+  return null;
+}
+
+export function selectContextualCardsWithTotalManaValueLte(
+  cards: readonly any[],
+  cardType: SimpleCardType,
+  totalManaValueLte: number,
+  maxCount: number,
+  preferredIds: readonly string[] = []
+): string[] {
+  const preferred = new Set(preferredIds.map(id => String(id || '').trim()).filter(Boolean));
+  const candidates = cards.filter((card: any) => {
+    const cardId = String(card?.id || '').trim();
+    if (!cardId || !cardMatchesType(card, cardType)) return false;
+    if (preferred.size > 0 && !preferred.has(cardId)) return false;
+    return true;
+  });
+  const pool = candidates.length > 0 ? candidates : cards.filter((card: any) => cardMatchesType(card, cardType));
+  const selected: string[] = [];
+  let total = 0;
+  for (const card of pool) {
+    if (selected.length >= maxCount) break;
+    const mv = getCardManaValue(card);
+    if (mv === null) continue;
+    if (total + mv > totalManaValueLte) continue;
+    const cardId = String(card?.id || '').trim();
+    if (!cardId) continue;
+    selected.push(cardId);
+    total += mv;
+  }
+  return selected;
+}
+
 export function parseMoveZoneAllFromTargetPlayersHand(what: {
   readonly kind: string;
   readonly text?: string;
@@ -5643,9 +6336,15 @@ export function parseMoveZoneMassBattlefieldCreatureBounce(what: {
   readonly kind: string;
   readonly text?: string;
   readonly raw?: string;
-}): { readonly excludeTypeLineTerm: string } | null {
+}): { readonly excludeTypeLineTerm?: string; readonly excludeChosenCreatureType?: true } | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  if (
+    raw === "all creatures that aren't of the chosen type" ||
+    raw === "all creatures that are not of the chosen type"
+  ) {
+    return { excludeChosenCreatureType: true };
+  }
   let match = raw.match(/^each non-([a-z'-]+) creature$/);
   if (match) return { excludeTypeLineTerm: String(match[1] || '').trim() };
   match = raw.match(/^all non-([a-z'-]+) creatures$/);
@@ -5734,7 +6433,18 @@ export function parseMoveZoneCommandZonePermanent(
   const raw = String(stepRaw || '').toLowerCase();
   if (text === 'this permanent' && /\bfrom the command zone\b/.test(raw)) return true;
   if (text === 'a commander you own from the command zone') return true;
+  if (text === 'your commander') return true;
   return false;
+}
+
+export function parseMoveZoneAllCommandersYouOwnFromCommandZoneAndGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const text = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return text === 'all commanders you own from the command zone and from your graveyard';
 }
 
 export function parseMoveZoneMyraExileInstantSorcery(what: {
@@ -6346,11 +7056,16 @@ export function returnTargetAndSameNamedCardsFromYourGraveyardToBattlefield(
   };
 }
 
+function isBasicLandCard(card: any): boolean {
+  const typeLine = getCardTypeLineLower(card);
+  return /\bbasic\b/.test(typeLine) && /\bland\b/.test(typeLine);
+}
+
 export function exileAllMatchingFromGraveyard(
   state: GameState,
   playerId: PlayerID,
   cardType: SimpleCardType,
-  options?: { readonly colorsAnyOf?: readonly string[] }
+  options?: { readonly colorsAnyOf?: readonly string[]; readonly excludeBasicLands?: boolean }
 ): { state: GameState; log: string[] } {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { state, log: [] };
@@ -6363,6 +7078,10 @@ export function exileAllMatchingFromGraveyard(
 
   for (const card of graveyard) {
     if (!cardMatchesType(card, cardType)) {
+      kept.push(card);
+      continue;
+    }
+    if (options?.excludeBasicLands && isBasicLandCard(card)) {
       kept.push(card);
       continue;
     }
@@ -6581,6 +7300,19 @@ export function parseMoveZoneShuffleAnyNumberTargetCardsFromTargetPlayerGraveyar
   return raw === "any number of target cards from target player's graveyard";
 }
 
+export function parseMoveZoneExileXTargetCardsFromTargetPlayerGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): boolean {
+  if (what.kind !== 'raw') return false;
+  const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  return (
+    raw === "x target cards from target player's graveyard" ||
+    raw === "any number of target cards from target player's graveyard"
+  );
+}
+
 export function parseMoveZoneForEachOpponentUpToOneNonlandBounce(what: {
   readonly kind: string;
   readonly text?: string;
@@ -6634,6 +7366,25 @@ export function parseMoveZoneEnchantedCreatureAndAurasToHand(what: {
   if (what.kind !== 'raw') return false;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
   return raw === 'enchanted creature and all auras attached to that creature';
+}
+
+export function parseMoveZoneDelayedReturnThisCreatureUnderTargetPlayer(step: {
+  readonly what?: { readonly kind?: string; readonly text?: string };
+  readonly raw?: string;
+  readonly to?: string;
+  readonly toRaw?: string;
+}): boolean {
+  const whatText = String((step.what as any)?.text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.\s]+$/g, '');
+  if (whatText !== 'this creature') return false;
+  const combined = `${String(step.raw || '')} ${String(step.toRaw || '')}`.toLowerCase();
+  return (
+    step.to === 'battlefield' &&
+    /\bat the beginning of (?:their|that player'?s) next upkeep\b/.test(combined) &&
+    /\bunder (?:that player'?s|their) control\b/.test(combined)
+  );
 }
 
 export function parseMoveZoneSingleCardExiledWithIt(what: {

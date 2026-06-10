@@ -5,6 +5,7 @@ export type CreateTokenFollowupModifier = {
   withCounters?: Record<string, number>;
   grantsHaste?: 'permanent' | 'until_end_of_turn';
   grantsAbilitiesUntilEndOfTurn?: readonly string[];
+  grantsDiesTriggerEffect?: string;
   atNextEndStep?: 'sacrifice' | 'exile';
   atEndOfCombat?: 'sacrifice' | 'exile';
 };
@@ -13,6 +14,24 @@ export function tryParseCreateTokenFollowupModifier(rawClause: string): CreateTo
   const normalized = normalizeClauseForParse(rawClause);
   const clause = normalizeOracleText(normalized.clause);
   if (!clause) return null;
+
+  {
+    const compoundQuotedDiesMatch = clause.match(
+      /^(it|they|that token|those tokens|the token|the tokens)\s+gains?\s+haste\s+and\s+"when\s+(?:this creature|this permanent|this token|it)\s+dies(?:\s+this\s+turn)?,\s+([^"]+)"\s*\.?\s*(sacrifice|exile)\s+(?:it|them|that token|those tokens|the token|the tokens)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\s*$/i
+    );
+    if (compoundQuotedDiesMatch) {
+      const verb = String(compoundQuotedDiesMatch[3] || '').toLowerCase();
+      const diesEffect = String(compoundQuotedDiesMatch[2] || '')
+        .trim()
+        .replace(/\s*\([^)]*$/g, '')
+        .trim();
+      return {
+        grantsHaste: 'permanent',
+        ...(diesEffect ? { grantsDiesTriggerEffect: diesEffect } : {}),
+        atNextEndStep: verb === 'exile' ? 'exile' : 'sacrifice',
+      };
+    }
+  }
 
   // Haste follow-up: "It/They gain(s) haste (until end of turn)."
   // Note: Oracle frequently omits duration when the objects are short-lived anyway.

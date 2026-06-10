@@ -300,10 +300,32 @@ function resolveReferenceScalerScale(
     const casts = Number((state as any)?.commanderCastsFromCommandZoneThisGame?.[controllerId] ?? 0);
     return Number.isFinite(casts) ? Math.max(0, casts) : 0;
   }
+  if (/^for each card you'?ve drawn this turn$/.test(normalized) || /^for each card you have drawn this turn$/.test(normalized)) {
+    const drawn = Number((state as any)?.cardsDrawnThisTurn?.[controllerId] ?? ctx?.referenceAmount ?? 1);
+    return Number.isFinite(drawn) ? Math.max(0, drawn) : 1;
+  }
   if (/^for each card in your hand$/.test(normalized)) {
     const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === String(controllerId || '').trim());
     const hand = Array.isArray((player as any)?.hand) ? (player as any).hand : [];
     return hand.length;
+  }
+  if (/^for each poison counter its controller has$/.test(normalized)) {
+    const battlefield = (state.battlefield || []) as any[];
+    const targetPermanent = battlefield.find(
+      (perm: any) => String(perm?.id || '').trim() === String(targetCreatureId || '').trim()
+    );
+    const targetController = String(
+      (targetPermanent as any)?.controller || (targetPermanent as any)?.controllerId || ''
+    ).trim();
+    if (!targetController) return null;
+    const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === targetController) as any;
+    const poison = Number(
+      player?.poisonCounters ??
+        (state as any)?.poisonCounters?.[targetController] ??
+        player?.counters?.poison ??
+        0
+    );
+    return Number.isFinite(poison) ? Math.max(0, poison) : 0;
   }
 
   if (/^for each \{b\} or \{r\} spent this way$/.test(normalized)) {
@@ -615,11 +637,25 @@ export function applyModifyPtStep(
 
   const basePower = step.powerUsesX ? ((step.power | 0) * (whereXValue ?? 0)) : (step.power | 0);
   const baseToughness = step.toughnessUsesX ? ((step.toughness | 0) * (whereXValue ?? 0)) : (step.toughness | 0);
-  const powerBonus = basePower * scale;
-  const toughnessBonus = baseToughness * scale;
+  const perTargetScaler =
+    step.scaler?.kind === 'reference_scaler' &&
+    /^for each poison counter its controller has$/i.test(String(step.scaler.raw || '').trim());
 
   let nextState: GameState | null = state;
+  const logLines: string[] = [];
   for (const targetCreatureId of targetCreatureIds) {
+    const effectiveScale = perTargetScaler
+      ? (resolveReferenceScalerScale(
+          state,
+          controllerId,
+          targetCreatureId,
+          String(step.scaler?.raw || ''),
+          runtime,
+          ctx
+        ) ?? 0)
+      : scale;
+    const powerBonus = basePower * effectiveScale;
+    const toughnessBonus = baseToughness * effectiveScale;
     nextState = applyTemporaryPowerToughnessModifier(
       nextState,
       targetCreatureId,
@@ -636,12 +672,16 @@ export function applyModifyPtStep(
         reason: 'target_not_on_battlefield',
       };
     }
+    logLines.push(`1 creature gets ${powerBonus >= 0 ? '+' : ''}${powerBonus}/${toughnessBonus >= 0 ? '+' : ''}${toughnessBonus}`);
   }
 
   return {
     kind: 'applied',
     state: nextState,
-    log: [`${targetCreatureIds.length} creature(s) get +${powerBonus}/+${toughnessBonus} until end of turn`],
+    log: [
+      `${targetCreatureIds.length} creature(s) get ${basePower >= 0 ? '+' : ''}${basePower}/${baseToughness >= 0 ? '+' : ''}${baseToughness} per poison counter until end of turn`,
+      ...logLines,
+    ],
   };
 }
 

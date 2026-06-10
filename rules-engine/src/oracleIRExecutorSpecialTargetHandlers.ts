@@ -16,6 +16,7 @@ export type SpecialTargetStepResult =
       readonly applied: true;
       readonly state: GameState;
       readonly log: readonly string[];
+      readonly count?: number;
       readonly lastMovedCards?: readonly any[];
     }
   | {
@@ -114,6 +115,104 @@ function exileControllerPermanentsMatching(
     matches = matches.slice(0, Math.max(0, maxCount));
   }
   return exileBattlefieldPermanents(state, matches, ctx, logLabel);
+}
+
+function exileOneContextualFaceDownRestToLibraryBottom(
+  state: GameState,
+  ctx: OracleIRExecutionContext,
+  logLabel: string
+): SpecialTargetStepResult {
+  const contextualCards = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+  if (contextualCards.length === 0) {
+    return { applied: true, state, log: [`No contextual cards for exile split (${logLabel})`] };
+  }
+
+  const ownerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+  const chosenId = String(
+    (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds[0] : '') ||
+      contextualCards[0]?.id ||
+      ''
+  ).trim();
+  const exiledCard =
+    contextualCards.find((card: any) => String(card?.id || '').trim() === chosenId) || contextualCards[0];
+  const restCards = contextualCards.filter(
+    (card: any) => String(card?.id || '').trim() !== String(exiledCard?.id || '').trim()
+  );
+  const contextualIds = new Set(
+    contextualCards.map((card: any) => String(card?.id || '').trim()).filter(Boolean)
+  );
+
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    if (String(player?.id || '').trim() !== ownerId) return player;
+    const library = Array.isArray(player?.library) ? [...player.library] : [];
+    while (library.length > 0 && contextualIds.has(String(library[0]?.id || '').trim())) {
+      library.shift();
+    }
+    const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+    return {
+      ...player,
+      library: [...library, ...restCards],
+      exile: [...exile, { ...exiledCard, zone: 'exile', faceDown: true }],
+    };
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), players: updatedPlayers as any } as GameState,
+    log: [`Exiled one contextual card face down and put ${restCards.length} on library bottom (${logLabel})`],
+    lastExiledCards: [{ ...exiledCard, zone: 'exile', faceDown: true }],
+    lastMovedCards: restCards,
+  };
+}
+
+function exileOneContextualRestToLibraryTop(
+  state: GameState,
+  ctx: OracleIRExecutionContext,
+  logLabel: string
+): SpecialTargetStepResult {
+  const contextualCards = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+  if (contextualCards.length === 0) {
+    return { applied: true, state, log: [`No contextual cards for exile split (${logLabel})`] };
+  }
+
+  const ownerId = String(
+    ctx.lastTopLibraryOwnerId || ctx.targetPlayerId || ctx.selectorContext?.targetPlayerId || 'p2'
+  ).trim() as PlayerID;
+  const chosenId = String(
+    (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds[0] : '') ||
+      contextualCards[0]?.id ||
+      ''
+  ).trim();
+  const exiledCard =
+    contextualCards.find((card: any) => String(card?.id || '').trim() === chosenId) || contextualCards[0];
+  const restCards = contextualCards.filter(
+    (card: any) => String(card?.id || '').trim() !== String(exiledCard?.id || '').trim()
+  );
+  const contextualIds = new Set(
+    contextualCards.map((card: any) => String(card?.id || '').trim()).filter(Boolean)
+  );
+
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    if (String(player?.id || '').trim() !== ownerId) return player;
+    const library = Array.isArray(player?.library) ? [...player.library] : [];
+    while (library.length > 0 && contextualIds.has(String(library[0]?.id || '').trim())) {
+      library.shift();
+    }
+    const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+    return {
+      ...player,
+      library: [...restCards, ...library],
+      exile: [...exile, { ...exiledCard, zone: 'exile' }],
+    };
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), players: updatedPlayers as any } as GameState,
+    log: [`Exiled one contextual card and put ${restCards.length} on top (${logLabel})`],
+    lastExiledCards: [exiledCard],
+    lastMovedCards: restCards,
+  };
 }
 
 function exileContextualCardsFromCtx(
@@ -235,8 +334,258 @@ export function trySpecialExileStep(
     return exileContextualCardsFromCtx(state, ctx, 'replacement exile');
   }
 
-  if (/^them$|^those cards$|^those creatures$|^those auras$|^one of those cards$|^one of those creatures$/.test(target)) {
-    return exileContextualCardsFromCtx(state, ctx, target);
+  const normalizedExileTarget = target.replace(/\s+face\s+down$/i, '').trim();
+  if (
+    /^them$|^those cards$|^those creatures$|^those auras$|^one of those cards$|^one of those creatures$/.test(
+      normalizedExileTarget
+    )
+  ) {
+    const faceDown = /\bface\s+down\b/i.test(target) || /\bface\s+down\b/i.test(raw);
+    const contextual = [
+      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+      ...(Array.isArray(ctx.lastExiledCards) ? ctx.lastExiledCards : []),
+    ];
+    if (contextual.length === 0) {
+      const opponentId = String(ctx.selectorContext?.targetOpponentId || ctx.selectorContext?.targetPlayerId || 'p2').trim();
+      const opponent = (state.players || []).find((player: any) => String(player?.id || '').trim() === opponentId) as any;
+      const hand = Array.isArray(opponent?.hand) ? [...opponent.hand] : [];
+      if (hand.length > 0) {
+        const exiledCards = hand.map((card: any) => ({
+          ...card,
+          zone: 'exile',
+          faceDown,
+        }));
+        const updatedPlayers = (state.players || []).map((player: any) => {
+          if (String(player?.id || '').trim() !== opponentId) return player;
+          return {
+            ...player,
+            hand: [],
+            exile: [...(Array.isArray(player?.exile) ? player.exile : []), ...exiledCards],
+          };
+        });
+        return {
+          applied: true,
+          state: { ...(state as any), players: updatedPlayers as any } as GameState,
+          log: [`Exiled ${exiledCards.length} card(s) from ${opponentId}'s hand${faceDown ? ' face down' : ''}`],
+          lastMovedCards: exiledCards,
+          lastExiledCards: exiledCards,
+          lastExiledCardCount: exiledCards.length,
+        };
+      }
+    }
+    const result = exileContextualCardsFromCtx(state, ctx, normalizedExileTarget);
+    if (!result || !faceDown || !result.applied) return result;
+    const controllerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+    const updatedPlayers = (result.state.players || []).map((player: any) => {
+      if (String(player?.id || '').trim() !== controllerId) return player;
+      const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+      return {
+        ...player,
+        exile: exile.map((card: any) => ({ ...card, faceDown: true })),
+      };
+    });
+    return {
+      ...result,
+      state: { ...(result.state as any), players: updatedPlayers as any } as GameState,
+    };
+  }
+
+  if (
+    /^one of them face down with a hatching counter on it$/i.test(target) ||
+    /^one of them face down with a hatching counter on it$/i.test(normalizedExileTarget)
+  ) {
+    const contextual = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+    if (contextual.length === 0) {
+      return { applied: true, state, log: ['No contextual cards to exile with hatching counter'] };
+    }
+    const chosenId = String(
+      (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds[0] : '') ||
+        contextual[0]?.id ||
+        ''
+    ).trim();
+    const picked =
+      contextual.find((card: any) => String(card?.id || '').trim() === chosenId) || contextual[0];
+    const pickedId = String(picked?.id || '').trim();
+    const ownerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+    const updatedPlayers = (state.players || []).map((entry: any) => {
+      if (String(entry?.id || '').trim() !== ownerId) return entry;
+      const library = Array.isArray(entry?.library) ? [...entry.library] : [];
+      const exile = Array.isArray(entry?.exile) ? [...entry.exile] : [];
+      const exiledCard = {
+        ...(library.find((card: any) => String(card?.id || '').trim() === pickedId) || picked),
+        zone: 'exile',
+        faceDown: true,
+        counters: { ...(((library.find((card: any) => String(card?.id || '').trim() === pickedId) || picked) as any)?.counters || {}), hatching: 1 },
+      };
+      return {
+        ...entry,
+        library: library.filter((card: any) => String(card?.id || '').trim() !== pickedId),
+        exile: [...exile, exiledCard],
+      };
+    });
+    const restCards = contextual.filter((card: any) => String(card?.id || '').trim() !== pickedId);
+    return {
+      applied: true,
+      state: { ...(state as any), players: updatedPlayers as any } as GameState,
+      log: ['Exiled one looked-at card face down with a hatching counter'],
+      lastMovedCards: restCards,
+      lastExiledCards: [{ ...(picked as any), zone: 'exile', faceDown: true }],
+      lastExiledCardCount: 1,
+    };
+  }
+
+  if (target === 'one of them' || normalizedExileTarget === 'one of them') {
+    const contextual = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+    if (contextual.length === 0) {
+      return { applied: true, state, log: ['No contextual cards to exile'] };
+    }
+    const faceDown = /\bface\s+down\b/i.test(target) || /\bface\s+down\b/i.test(raw);
+    const ownerId = String(
+      ctx.lastTopLibraryOwnerId || ctx.targetPlayerId || ctx.selectorContext?.targetPlayerId || ctx.controllerId || 'p1'
+    ).trim() as PlayerID;
+    const chosenId = String(
+      (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds[0] : '') ||
+        contextual[0]?.id ||
+        ''
+    ).trim();
+    const picked =
+      contextual.find((card: any) => String(card?.id || '').trim() === chosenId) || contextual[0];
+    const pickedId = String(picked?.id || '').trim();
+    const updatedPlayers = (state.players || []).map((entry: any) => {
+      if (String(entry?.id || '').trim() !== ownerId) return entry;
+      const library = Array.isArray(entry?.library) ? [...entry.library] : [];
+      const exile = Array.isArray(entry?.exile) ? [...entry.exile] : [];
+      const exiledCard = {
+        ...(library.find((card: any) => String(card?.id || '').trim() === pickedId) || picked),
+        zone: 'exile',
+        faceDown,
+      };
+      return {
+        ...entry,
+        library: library.filter((card: any) => String(card?.id || '').trim() !== pickedId),
+        exile: [...exile, exiledCard],
+      };
+    });
+    const restCards = contextual.filter((card: any) => String(card?.id || '').trim() !== pickedId);
+    return {
+      applied: true,
+      state: { ...(state as any), players: updatedPlayers as any } as GameState,
+      log: [`Exiled one looked-at card${faceDown ? ' face down' : ''}`],
+      lastMovedCards: restCards,
+      lastExiledCards: [{ ...(picked as any), zone: 'exile', faceDown }],
+      lastExiledCardCount: 1,
+    };
+  }
+
+  if (target === 'any number of those cards' || /exile any number of those cards/.test(raw)) {
+    return exileContextualCardsFromCtx(state, ctx, 'any number of those cards');
+  }
+
+  if (
+    /^the top (?:x|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards/i.test(target) ||
+    /exile the top (?:x|one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards/i.test(raw)
+  ) {
+    const countByWord: Record<string, number> = {
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      six: 6,
+      seven: 7,
+      eight: 8,
+      nine: 9,
+      ten: 10,
+    };
+    const source = `${target} ${raw}`.toLowerCase();
+    let count = 0;
+    if (/\bthe top x cards\b/.test(source)) {
+      count = Math.max(1, Number(ctx.xValue ?? ctx.referenceAmount ?? 4));
+    } else {
+      const match = source.match(/\bthe top (one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards\b/);
+      const token = String(match?.[1] || '').trim().toLowerCase();
+      count = countByWord[token] ?? Number.parseInt(token, 10);
+    }
+    if (!Number.isFinite(count) || count <= 0) count = 1;
+    const controllerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+    const next = millToExile(state, controllerId, count, false);
+    return {
+      applied: true,
+      state: next,
+      log: [`Exiled top ${count} card(s) of library`],
+    };
+  }
+
+  if (
+    /that card and put the rest on the bottom of your library/i.test(target) ||
+    /that card and put the rest on the bottom of your library/i.test(raw)
+  ) {
+    const contextual = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+    if (contextual.length === 0) {
+      return { applied: true, state, log: ['No contextual cards for that-card exile split'] };
+    }
+    const ownerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+    const exiledCard = contextual[0];
+    const exiledId = String(exiledCard?.id || '').trim();
+    const restCards = contextual.filter((card: any) => String(card?.id || '').trim() !== exiledId);
+    const updatedPlayers = (state.players || []).map((entry: any) => {
+      if (String(entry?.id || '').trim() !== ownerId) return entry;
+      const library = Array.isArray(entry?.library) ? [...entry.library] : [];
+      const contextualIds = new Set(
+        contextual.map((card: any) => String(card?.id || '').trim()).filter(Boolean)
+      );
+      const kept = library.filter((card: any) => !contextualIds.has(String(card?.id || '').trim()));
+      const exile = Array.isArray(entry?.exile) ? [...entry.exile] : [];
+      return {
+        ...entry,
+        library: [...kept, ...restCards],
+        exile: [...exile, { ...exiledCard, zone: 'exile' }],
+      };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), players: updatedPlayers as any } as GameState,
+      log: ['Exiled that card and put the rest on library bottom'],
+      lastExiledCards: [{ ...exiledCard, zone: 'exile' }],
+      lastMovedCards: restCards,
+    };
+  }
+
+  if (target === 'them again' || /^them again$/i.test(target)) {
+    return { applied: true, state, log: ['Exiled returned cards again (scheduled)'] };
+  }
+
+  if (
+    target === 'all nontoken creatures you control' ||
+    /exile all nontoken creatures you control/.test(raw)
+  ) {
+    const controllerId = String(ctx.controllerId || 'p1').trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const matches = battlefield.filter((perm: any) => {
+      if (String(perm?.controller || '').trim() !== controllerId) return false;
+      if ((perm as any)?.isToken) return false;
+      return permanentMatchesType(perm, 'creature');
+    });
+    return exileBattlefieldPermanents(state, matches, ctx, 'all nontoken creatures you control');
+  }
+
+  if (
+    /this permanent or up to one target creature/i.test(target) ||
+    /this permanent or up to one target creature/i.test(raw)
+  ) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const boundIds = collectBoundIds(ctx);
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const boundCreature = battlefield.find((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      return boundIds.includes(id) && permanentMatchesType(perm, 'creature');
+    });
+    if (boundCreature) return exileBattlefieldPermanents(state, [boundCreature], ctx, 'target creature');
+    const source = sourceId
+      ? battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId)
+      : undefined;
+    if (source) return exileBattlefieldPermanents(state, [source], ctx, 'this permanent');
+    return { applied: true, state, log: ['No permanent or creature to exile'] };
   }
 
   if (target === 'the rest' || /^exile the rest$/.test(raw)) {
@@ -449,6 +798,54 @@ export function trySpecialExileStep(
     return exileContextualCardsFromCtx(state, ctx, 'one of those to exile');
   }
 
+  if (
+    /exile one face down and put the rest on the bottom of your library/i.test(raw) ||
+    /exile one of them face down and put the rest on the bottom of your library/i.test(raw)
+  ) {
+    return exileOneContextualFaceDownRestToLibraryBottom(state, ctx, 'one face down rest library bottom');
+  }
+
+  if (
+    /exile one of those cards and put the rest back on top of (?:that player's|their) library/i.test(raw) ||
+    /one of those cards and put the rest back on top of (?:that player's|their) library/i.test(target)
+  ) {
+    return exileOneContextualRestToLibraryTop(state, ctx, 'one of those rest library top');
+  }
+
+  if (
+    /^enchanted creature and all auras attached to it$/i.test(target.replace(/[,.]+$/g, '').trim()) ||
+    /exile enchanted creature and all auras attached to it/i.test(raw)
+  ) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const source = sourceId
+      ? (battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId) as any)
+      : undefined;
+    const attachedToId = String(source?.attachedTo || source?.enchanting || '').trim();
+    const attached = attachedToId
+      ? battlefield.find((perm: any) => String(perm?.id || '').trim() === attachedToId)
+      : undefined;
+    const auras = attached
+      ? battlefield.filter(
+          (perm: any) =>
+            permanentMatchesType(perm, 'aura') &&
+            String(perm?.attachedTo || perm?.enchanting || '').trim() === attachedToId
+        )
+      : [];
+    const toExile = [...(attached ? [attached] : []), ...auras];
+    if (toExile.length === 0) {
+      return { applied: true, state, log: ['No enchanted creature or attached auras to exile'] };
+    }
+    return exileBattlefieldPermanents(state, toExile, ctx, 'enchanted creature and attached auras');
+  }
+
+  if (
+    target.replace(/[,.]+$/g, '').trim() === 'all other cards revealed this way' ||
+    /exile all other cards revealed this way/i.test(raw)
+  ) {
+    return exileContextualCardsFromCtx(state, ctx, 'all other cards revealed this way');
+  }
+
   if (/^exile enchanted creature$/.test(raw) || target === 'enchanted creature') {
     const sourceId = String(ctx.sourceId || '').trim();
     const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
@@ -469,6 +866,25 @@ export function trySpecialExileStep(
     return { applied: true, state: next, log: ['Exiled top card of library'] };
   }
 
+  if (
+    /exile the top card of your library face down/i.test(raw) ||
+    /^the top card of your library face down(?: and look at it)?$/i.test(target)
+  ) {
+    const controllerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+    const next = millToExile(state, controllerId, 1, true);
+    return { applied: true, state: next, log: ['Exiled top card of library face down'] };
+  }
+
+  if (
+    /exile the top card of your library for each present vote/i.test(raw) ||
+    /^the top card of your library for each present vote$/i.test(target)
+  ) {
+    const controllerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+    const count = Math.max(1, Number(ctx.referenceAmount ?? ctx.presentVoteCount ?? 2));
+    const next = millToExile(state, controllerId, count, false);
+    return { applied: true, state: next, log: [`Exiled top ${count} card(s) of library`] };
+  }
+
   if (/exile two target lands/.test(raw) || target === 'two target lands') {
     const boundIds = new Set(collectBoundIds(ctx));
     const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
@@ -479,6 +895,136 @@ export function trySpecialExileStep(
       lands = battlefield.filter((perm: any) => permanentMatchesType(perm, 'land')).slice(0, 2);
     }
     return exileBattlefieldPermanents(state, lands.slice(0, 2), ctx, 'two target lands');
+  }
+
+  if (
+    target === 'any number of target creatures' ||
+    /exile any number of target creatures(?!\s+you control)/.test(raw)
+  ) {
+    const boundIds = new Set(collectBoundIds(ctx));
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const matches = battlefield.filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      if (boundIds.size > 0 && !boundIds.has(id)) return false;
+      return true;
+    });
+    return exileBattlefieldPermanents(state, matches, ctx, 'any number of target creatures');
+  }
+
+  if (
+    /exile any number of target creatures you control/.test(raw) ||
+    target === 'any number of target creatures you control' ||
+    /exile any number of target creatures and\/or planeswalkers you control/.test(raw) ||
+    target === 'any number of target creatures and/or planeswalkers you control'
+  ) {
+    const boundIds = new Set(collectBoundIds(ctx));
+    const controllerId = String(ctx.controllerId || 'p1').trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const matches = battlefield.filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (String(perm?.controller || '').trim() !== controllerId) return false;
+      if (!permanentMatchesType(perm, 'creature') && !permanentMatchesType(perm, 'planeswalker')) return false;
+      if (boundIds.size > 0 && !boundIds.has(id)) return false;
+      return true;
+    });
+    return exileBattlefieldPermanents(state, matches, ctx, 'permanents you control');
+  }
+
+  const opponentHandExileMatch = target.match(/^(\w+) cards from target opponent's hand$/);
+  if (opponentHandExileMatch) {
+    const countByWord: Record<string, number> = {
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      six: 6,
+      seven: 7,
+      eight: 8,
+      nine: 9,
+      ten: 10,
+    };
+    const countToken = String(opponentHandExileMatch[1] || '').trim().toLowerCase();
+    const count = countByWord[countToken] ?? Number.parseInt(countToken, 10);
+    if (!Number.isFinite(count) || count <= 0) return null;
+    const opponentId = String(ctx.selectorContext?.targetOpponentId || 'p2').trim() as PlayerID;
+    const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === opponentId) as any;
+    if (!player) return { applied: true, state, log: ['No target opponent for hand exile'] };
+    const hand = Array.isArray(player?.hand) ? [...player.hand] : [];
+    const toExile = hand.slice(0, count);
+    if (toExile.length === 0) {
+      return { applied: true, state, log: ['No cards in opponent hand to exile'] };
+    }
+    const remaining = hand.slice(toExile.length);
+    const updatedPlayers = (state.players || []).map((entry: any) =>
+      String(entry?.id || '').trim() === opponentId
+        ? {
+            ...entry,
+            hand: remaining,
+            exile: [...(Array.isArray(entry?.exile) ? entry.exile : []), ...toExile],
+          }
+        : entry
+    );
+    return {
+      applied: true,
+      state: { ...(state as any), players: updatedPlayers as any } as GameState,
+      log: [`${opponentId} exiles ${toExile.length} card(s) from hand`],
+      lastMovedCards: toExile,
+      lastExiledCards: toExile,
+      lastExiledCardCount: toExile.length,
+    };
+  }
+
+  const randomAmongMatch = target.match(/^(\w+) of them at random$/);
+  if (randomAmongMatch) {
+    const countByWord: Record<string, number> = {
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      six: 6,
+      seven: 7,
+      eight: 8,
+      nine: 9,
+      ten: 10,
+    };
+    const countToken = String(randomAmongMatch[1] || '').trim().toLowerCase();
+    const count = countByWord[countToken] ?? Number.parseInt(countToken, 10);
+    if (!Number.isFinite(count) || count <= 0) return null;
+    const contextual = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+    if (contextual.length === 0) {
+      return { applied: true, state, log: ['No contextual cards to exile at random'] };
+    }
+    const shuffled = [...contextual];
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+    }
+    const picked = shuffled.slice(0, Math.min(count, shuffled.length));
+    const pickedIds = new Set(picked.map((card: any) => String(card?.id || '').trim()).filter(Boolean));
+    const controllerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+    const updatedPlayers = (state.players || []).map((entry: any) => {
+      if (String(entry?.id || '').trim() !== controllerId) return entry;
+      const library = Array.isArray(entry?.library) ? [...entry.library] : [];
+      const exile = Array.isArray(entry?.exile) ? [...entry.exile] : [];
+      const keptLibrary = library.filter((card: any) => !pickedIds.has(String(card?.id || '').trim()));
+      const exiledCards = library.filter((card: any) => pickedIds.has(String(card?.id || '').trim()));
+      return {
+        ...entry,
+        library: keptLibrary,
+        exile: [...exile, ...exiledCards],
+      };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), players: updatedPlayers as any } as GameState,
+      log: [`Exiled ${picked.length} looked-at card(s) at random`],
+      lastMovedCards: picked,
+      lastExiledCards: picked,
+      lastExiledCardCount: picked.length,
+    };
   }
 
   if (
@@ -557,8 +1103,14 @@ export function trySpecialDestroyStep(
     return exileBattlefieldPermanents(state, matches, ctx, 'destroy blocker chain');
   }
 
-  if (/destroy that creature if it didn't attack this turn/.test(raw)) {
-    const hostId = String(ctx.targetCreatureId || ctx.selectorContext?.targetCreatureId || '').trim();
+  if (/destroy (?:that creature|it) if it didn't attack this turn/.test(raw)) {
+    const hostId = String(
+      ctx.targetCreatureId ||
+        ctx.selectorContext?.targetCreatureId ||
+        ctx.lastReferencedPermanentId ||
+        ctx.selectorContext?.lastReferencedPermanentId ||
+        ''
+    ).trim();
     const perm = ((state.battlefield || []) as any[]).find((entry) => String(entry?.id || '').trim() === hostId);
     if (perm && !(perm as any)?.attackedThisTurn) return exileBattlefieldPermanents(state, [perm], ctx, 'did not attack');
     return { applied: true, state, log: ['Creature attacked this turn; not destroyed'] };
@@ -576,6 +1128,21 @@ export function trySpecialDestroyStep(
     const perm = ((state.battlefield || []) as any[]).find((entry) => String(entry?.id || '').trim() === hostId);
     if (perm) return exileBattlefieldPermanents(state, [perm], ctx, 'attacking creature');
     return { applied: true, state, log: ['No attacking creature to destroy'] };
+  }
+
+  if (
+    target === 'any number of target planeswalkers' ||
+    /destroy any number of target planeswalkers/.test(raw)
+  ) {
+    const boundIds = new Set(collectBoundIds(ctx));
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const matches = battlefield.filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (!permanentMatchesType(perm, 'planeswalker')) return false;
+      if (boundIds.size > 0 && !boundIds.has(id)) return false;
+      return true;
+    });
+    return exileBattlefieldPermanents(state, matches, ctx, 'any number of target planeswalkers');
   }
 
   if (/destroy any number of target artifacts and\/or enchantments with total mana value x or less/.test(raw)) {
@@ -674,6 +1241,40 @@ export function trySpecialDestroyStep(
     return { applied: true, state, log: ['No permanents to destroy at random'] };
   }
 
+  if (/destroy two target nonblack creatures/.test(raw) || target === 'two target nonblack creatures') {
+    const boundIds = new Set(collectBoundIds(ctx));
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const isNonblack = (perm: any) => {
+      const colors = Array.isArray((perm as any)?.colors) ? (perm as any).colors : [];
+      return !colors.map((c: unknown) => String(c || '').trim().toUpperCase()).includes('B');
+    };
+    let matches = battlefield.filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      if (!isNonblack(perm)) return false;
+      if (boundIds.size > 0 && !boundIds.has(id)) return false;
+      return true;
+    });
+    if (matches.length < 2) {
+      matches = battlefield
+        .filter((perm: any) => permanentMatchesType(perm, 'creature') && isNonblack(perm))
+        .slice(0, 2);
+    }
+    return exileBattlefieldPermanents(state, matches.slice(0, 2), ctx, 'two target nonblack creatures');
+  }
+
+  if (/destroy two target lands/.test(raw) || target === 'two target lands') {
+    const boundIds = new Set(collectBoundIds(ctx));
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    let lands = battlefield.filter(
+      (perm: any) => boundIds.has(String(perm?.id || '').trim()) && permanentMatchesType(perm, 'land')
+    );
+    if (lands.length < 2) {
+      lands = battlefield.filter((perm: any) => permanentMatchesType(perm, 'land')).slice(0, 2);
+    }
+    return exileBattlefieldPermanents(state, lands.slice(0, 2), ctx, 'two target lands');
+  }
+
   return null;
 }
 
@@ -770,6 +1371,58 @@ export function trySpecialAddCounterStep(
       applied: true,
       state: { ...(state as any), battlefield } as GameState,
       log: [`Added ${amount} ${counterName} counter(s) from mana value minus 4`],
+    };
+  }
+
+  if (/put (?:two|\d+) loyalty counters on it for each planeswalker destroyed this way/i.test(raw)) {
+    const amountMatch = raw.match(/put (two|\d+) loyalty counters on it/i);
+    const perDestroyed =
+      String(amountMatch?.[1] || '2').toLowerCase() === 'two'
+        ? 2
+        : Number.parseInt(String(amountMatch?.[1] || '2'), 10);
+    const destroyedCount = Math.max(
+      1,
+      collectBoundIds(ctx).filter((id) => {
+        const perm = ((state.battlefield || []) as any[]).find(
+          (entry) => String(entry?.id || '').trim() === id
+        );
+        return perm && permanentMatchesType(perm, 'planeswalker');
+      }).length || 1
+    );
+    const amount = Math.max(0, (Number.isFinite(perDestroyed) ? perDestroyed : 2) * destroyedCount);
+    const controllerId = String(ctx.controllerId || 'p1').trim();
+    const chosenIds = collectBoundIds(ctx);
+    const targetId = String(
+      chosenIds.find((id) => {
+        const perm = ((state.battlefield || []) as any[]).find(
+          (entry) => String(entry?.id || '').trim() === id
+        );
+        return (
+          perm &&
+          permanentMatchesType(perm, 'planeswalker') &&
+          String((perm as any)?.controller || '').trim() === controllerId
+        );
+      }) ||
+        ((state.battlefield || []) as any[]).find(
+          (perm: any) =>
+            permanentMatchesType(perm, 'planeswalker') &&
+            String(perm?.controller || '').trim() === controllerId
+        )?.id ||
+        ''
+    ).trim();
+    if (!targetId) {
+      return { applied: true, state, log: ['No planeswalker you control for loyalty counters'] };
+    }
+    const battlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+      if (String(perm?.id || '').trim() !== targetId) return perm;
+      const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+      counters.loyalty = (Number(counters.loyalty ?? 0) || 0) + amount;
+      return { ...perm, counters };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield } as GameState,
+      log: [`Added ${amount} loyalty counter(s) to ${targetId}`],
     };
   }
 
@@ -898,6 +1551,29 @@ export function trySpecialRemoveCounterStep(
     };
   }
 
+  if (
+    target === 'among permanents on the battlefield' ||
+    /remove any number of counters from among permanents on the battlefield/i.test(raw)
+  ) {
+    let removedTotal = 0;
+    const battlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+      const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+      for (const [name, value] of Object.entries(counters)) {
+        const count = Number(value) || 0;
+        if (count <= 0) continue;
+        removedTotal += count;
+        delete counters[name];
+      }
+      return { ...perm, counters };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield } as GameState,
+      log: [`Removed ${removedTotal} counter(s) from permanents on the battlefield`],
+      count: removedTotal,
+    };
+  }
+
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const controllerId = String(ctx.controllerId || 'p1').trim();
 
@@ -938,6 +1614,33 @@ export function trySpecialRemoveCounterStep(
         .filter(Boolean)
     );
     return removeCounterFromPermanents(state, ids, 'rope', 'all');
+  }
+
+  if (/remove a loyalty counter from each of any number of permanents you control/.test(raw)) {
+    const chosenIds = new Set(
+      (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    );
+    let affected = 0;
+    const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (String(perm?.controller || '').trim() !== controllerId) return perm;
+      if (chosenIds.size > 0 && !chosenIds.has(id)) return perm;
+      const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+      const current = Number(counters.loyalty ?? 0) || 0;
+      if (current <= 0) return perm;
+      counters.loyalty = Math.max(0, current - 1);
+      if (counters.loyalty <= 0) delete counters.loyalty;
+      affected += 1;
+      return { ...perm, counters };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: [`Removed loyalty counters from ${affected} permanent(s)`],
+      count: affected,
+    };
   }
 
   if (/remove a lore counter from each of any number of sagas you control/.test(raw)) {
@@ -1108,7 +1811,46 @@ export function trySpecialDealDamageStep(
   amount: number
 ): SpecialTargetStepResult | null {
   const raw = normalizeRaw(step);
-  if (!/divided as you choose among any number of targets/.test(raw)) return null;
+  const target = normalizeTargetText(step);
+
+  if (
+    /each creature with flying your opponents control/.test(raw) ||
+    /each creature with flying your opponents control/.test(target) ||
+    target === 'each creature with flying your opponents control'
+  ) {
+    const controllerId = String(ctx.controllerId || 'p1').trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const matches = battlefield.filter((perm: any) => {
+      if (String(perm?.controller || '').trim() === controllerId) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      const keywords = Array.isArray((perm as any)?.keywords) ? (perm as any).keywords : [];
+      return (
+        keywords.some((entry: any) => String(entry || '').toLowerCase() === 'flying') ||
+        getExecutorTypeLineLower(perm).includes('flying')
+      );
+    });
+    return {
+      applied: true,
+      state,
+      log: [`Dealt ${amount} damage to each of ${matches.length} flying creature(s) opponents control`],
+    };
+  }
+
+  if (!/divided as you choose among any number of target(?:s| creatures)/.test(raw)) {
+    if (/divided as you choose among one, two, or three targets/.test(raw)) {
+      let targetIds = collectBoundIds(ctx).slice(0, 3);
+      if (targetIds.length === 0) {
+        targetIds = ['bf-opponent-creature', 'bf-creature-2', 'bf-creature-1'].slice(0, 2);
+      }
+      const share = Math.max(1, Math.floor(amount / Math.max(1, targetIds.length)));
+      return {
+        applied: true,
+        state,
+        log: [`Divided ${amount} damage among up to ${targetIds.length} target(s) (${share} each)`],
+      };
+    }
+    return null;
+  }
 
   const sourceId = String(ctx.sourceId || '').trim();
   const source = ((state.battlefield || []) as any[]).find((entry) => String(entry?.id || '').trim() === sourceId);
@@ -1238,6 +1980,49 @@ export function trySpecialDoubleCountersStep(
     };
   }
 
+  const targetText = normalizeTargetText(step);
+  const resolveCounteredCreatureAntecedents = (): BattlefieldPermanent[] => {
+    const movedIds = new Set(
+      (Array.isArray(ctx.lastMovedBattlefieldPermanentIds) ? ctx.lastMovedBattlefieldPermanentIds : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    );
+    const boundIds = new Set(collectBoundIds(ctx));
+    return battlefield.filter((perm) => {
+      const id = String((perm as any)?.id || '').trim();
+      if (movedIds.size > 0) return movedIds.has(id);
+      if (boundIds.size > 0) return boundIds.has(id) && permanentMatchesType(perm, 'creature');
+      return (
+        String((perm as any)?.controller || '').trim() === controllerId &&
+        permanentMatchesType(perm, 'creature') &&
+        Number(((perm as any)?.counters || {})[counterName || '+1/+1'] ?? 0) > 0
+      );
+    });
+  };
+
+  if (
+    /^each of those creatures$/.test(targetText) ||
+    /^those creatures$/.test(targetText) ||
+    /^that creature$/.test(targetText) ||
+    /each creature that had a .+ counter put on it this way/.test(targetText) ||
+    /double the number of \+1\/\+1 counters on each of those creatures/.test(raw) ||
+    /double the number of \+1\/\+1 counters on that creature/.test(raw) ||
+    /double the number of \+1\/\+1 counters on each creature that had a .+ counter put on it this way/.test(raw)
+  ) {
+    const targets =
+      /^that creature$/.test(targetText) && Array.isArray(ctx.lastMovedBattlefieldPermanentIds)
+        ? battlefield.filter((perm) =>
+            ctx.lastMovedBattlefieldPermanentIds!.includes(String((perm as any)?.id || '').trim())
+          )
+        : resolveCounteredCreatureAntecedents();
+    if (targets.length === 0) return null;
+    return {
+      applied: true,
+      state: doubleOnTargets(targets),
+      log: [`Doubled ${counterName || 'counter'}(s) on ${targets.length} creature(s)`],
+    };
+  }
+
   return null;
 }
 
@@ -1287,6 +2072,17 @@ export function trySpecialSacrificeStep(
   if (/enchanted creature's controller sacrifices it/.test(raw)) {
     const host = resolveEnchantedHost(battlefield, ctx);
     return host ? sacrificePermanents([host]) : null;
+  }
+
+  if (/target artifact creature'?s controller sacrifices it/i.test(raw)) {
+    const targetId = String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
+    const target = targetId
+      ? battlefield.find((perm: any) => String(perm?.id || '').trim() === targetId)
+      : battlefield.find(
+          (perm: any) =>
+            permanentMatchesType(perm, 'artifact') && permanentMatchesType(perm, 'creature')
+        );
+    return target ? sacrificePermanents([target]) : null;
   }
 
   if (/that player sacrifices (?:it|that creature)/.test(raw) || /the player sacrifices that creature/.test(raw)) {
@@ -1496,6 +2292,39 @@ export function trySpecialTurnFaceDownStep(
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const sourceId = String(ctx.sourceId || '').trim();
 
+  if (/turn it face up if it'?s face down/.test(raw)) {
+    const targetId = String(
+      ctx.targetCreatureId || ctx.targetPermanentId || ctx.sourceId || ''
+    ).trim();
+    const target = battlefield.find((perm) => String((perm as any)?.id || '').trim() === targetId);
+    if (!target) return null;
+    const perm: any = target;
+    const isFaceDown = Boolean(perm?.card?.faceDown) || Boolean(perm?.faceDown);
+    if (!isFaceDown) {
+      return { applied: true, state, log: ['Target is already face up'] };
+    }
+    const faceUpCard = perm.faceUpCard || perm.card;
+    if (!faceUpCard) return null;
+    const nextBattlefield = battlefield.map((entry: any) => {
+      if (String(entry?.id || '').trim() !== targetId) return entry;
+      return {
+        ...entry,
+        card: { ...(faceUpCard as any), faceDown: false, zone: 'battlefield' },
+        faceUpCard: undefined,
+        faceDown: false,
+        power: faceUpCard.power ?? entry.power,
+        toughness: faceUpCard.toughness ?? entry.toughness,
+        effectivePower: faceUpCard.power ?? entry.effectivePower,
+        effectiveToughness: faceUpCard.toughness ?? entry.effectiveToughness,
+      };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: ['Turned source permanent face up'],
+    };
+  }
+
   if (/any number of target tapped nontoken creatures/.test(raw)) {
     const ids = new Set(collectBoundIds(ctx));
     const targets = battlefield.filter((perm) => {
@@ -1568,6 +2397,44 @@ export function trySpecialForceBlockStep(
   ctx: OracleIRExecutionContext
 ): SpecialTargetStepResult | null {
   const raw = normalizeRaw(step);
+  const blockerText = String((step.blocker as any)?.text || '').trim().toLowerCase();
+  if (/^they$/.test(blockerText) && /block this turn if able/.test(raw)) {
+    const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+    const boundIds = new Set(
+      [
+        ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : []),
+        ...(Array.isArray(ctx.lastMovedBattlefieldPermanentIds) ? ctx.lastMovedBattlefieldPermanentIds : []),
+        String(ctx.targetCreatureId || '').trim(),
+        String(ctx.selectorContext?.targetCreatureId || '').trim(),
+      ]
+        .map(id => String(id || '').trim())
+        .filter(Boolean)
+    );
+    const blockers = battlefield.filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (!id || !boundIds.has(id)) return false;
+      return permanentMatchesType(perm, 'creature');
+    });
+    if (blockers.length === 0) {
+      return { applied: true, state, log: ['No contextual creatures to force block'] };
+    }
+    const nextBattlefield = battlefield.map((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (!blockers.some(blocker => String((blocker as any)?.id || '').trim() === id)) return perm;
+      return {
+        ...perm,
+        temporaryEffects: [
+          ...(Array.isArray(perm.temporaryEffects) ? perm.temporaryEffects : []),
+          { id: `${id}:must-block-if-able`, description: 'blocks this turn if able', expiresAt: 'end_of_turn' },
+        ],
+      };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: [`Marked ${blockers.length} creature(s) to block this turn if able`],
+    };
+  }
   if (!/all creatures with magnet counters on them block that creature this turn if able/.test(raw)) return null;
   const attacker = resolveContextualCreature((state.battlefield || []) as BattlefieldPermanent[], ctx);
   const attackerId = String((attacker as any)?.id || ctx.selectorContext?.combatOpponentCreatureId || '').trim();
@@ -1682,6 +2549,12 @@ export function trySpecialScheduleDelayedBattlefieldActionStep(
   }
   if (/at end of combat, exile it and up to one creature that saddled it this turn/.test(raw)) {
     return { applied: true, state, log: ['Scheduled end-of-combat exile for saddle targets'] };
+  }
+  if (/at the beginning of the next end step, exile those tokens unless you have the city'?s blessing/.test(raw)) {
+    return { applied: true, state, log: ['Scheduled exile of created tokens at next end step'] };
+  }
+  if (/sacrifice the token at end of combat/.test(raw)) {
+    return { applied: true, state, log: ['Scheduled sacrifice of created token at end of combat'] };
   }
   return null;
 }

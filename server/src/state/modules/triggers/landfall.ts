@@ -204,10 +204,27 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   const typedLandEnterMatch = oracleText.match(
     /whenever a ([\w]+) you control enters(?: the battlefield)?,?\s*([^.]+)/i,
   );
+  const typedLandSubtypeWords = new Set([
+    'land',
+    'plains',
+    'island',
+    'swamp',
+    'mountain',
+    'forest',
+    'wastes',
+    'gate',
+    'desert',
+    'cave',
+    'lair',
+    'sphere',
+    'planet',
+    'town',
+    'locus',
+  ]);
   if (typedLandEnterMatch && !triggers.some((t) => (t as any).triggerType === 'typed_land_enter')) {
     const landType = String(typedLandEnterMatch[1] || '').trim().toLowerCase();
     const effectText = String(typedLandEnterMatch[2] || '').trim();
-    if (effectText && landType !== 'land') {
+    if (effectText && typedLandSubtypeWords.has(landType)) {
       triggers.push({
         permanentId,
         cardName,

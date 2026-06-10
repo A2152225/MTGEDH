@@ -55,6 +55,14 @@ export type OraclePlayerSelector =
   | { readonly kind: 'owner_of_moved_cards' }
   /** Owner of the ability's source permanent/card. */
   | { readonly kind: 'owner_of_source' }
+  /** Winner of an auction/bidding mini-game (defaults to controller in assisted dry-runs). */
+  | { readonly kind: 'high_bidder' }
+  /** Controller of the ability's source permanent (e.g. Xantcha's activated ability). */
+  | { readonly kind: 'source_controller' }
+  /** Each player tied for controlling the most permanents of a filter (default: creatures). */
+  | { readonly kind: 'each_player_who_controls_the_most'; readonly filter?: string }
+  /** Each distinct controller among contextual "those" permanents (last moved / chosen). */
+  | { readonly kind: 'each_controller_of_those' }
   | { readonly kind: 'unknown'; readonly raw: string };
 
 export type OracleObjectSelector =
@@ -1452,8 +1460,10 @@ export type OracleEffectStep =
       /** Whether the same mode can be chosen more than once. */
       readonly canRepeatModes?: boolean;
       /** Whether future choices for this source must exclude already-chosen modes. */
-      readonly rememberChosenModes?: boolean;
-      readonly modes: readonly {
+  readonly rememberChosenModes?: boolean;
+  /** When true, max mode count becomes 2 if teamworkWasPaid is set on the execution context. */
+  readonly teamworkChooseBoth?: boolean;
+  readonly modes: readonly {
         readonly label: string;
         /** Raw bullet text for display. */
         readonly raw: string;

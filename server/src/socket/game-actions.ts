@@ -1820,23 +1820,29 @@ async function processOracleIRInteractions(
   topItem: any
 ): Promise<void> {
   if (!topItem) return;
-  // Only process spells and activated abilities; triggered ability effects are
-  // handled by their own trigger resolution path.
+  // Process spells and activated abilities; triggered ability effects use their own path.
   if (topItem.type !== 'spell' && topItem.type !== 'ability') return;
 
   const resolvedCard = topItem.card;
   const resolvedController = String(topItem.controller || '');
-  const oracleText: string = resolvedCard?.oracle_text || '';
+  const isActivatedAbility = topItem.type === 'ability';
+  const oracleText: string = isActivatedAbility
+    ? String((topItem as any)?.activatedAbilityText || (topItem as any)?.description || resolvedCard?.oracle_text || '')
+    : String(resolvedCard?.oracle_text || '');
   if (!oracleText || !resolvedController) return;
 
-  const cardName: string = resolvedCard?.name || 'Spell';
+  const cardName: string = isActivatedAbility
+    ? String((topItem as any)?.sourceName || resolvedCard?.name || 'Ability')
+    : String(resolvedCard?.name || 'Spell');
   const sourceImage: string | undefined = resolvedCard?.image_uris?.small || resolvedCard?.image_uris?.normal;
   const stackItemId: string = String(topItem.id || '');
   const ctx = {
     controllerId: resolvedController as PlayerID,
     sourceId: stackItemId,
     sourceName: cardName,
+    sourceObjectType: isActivatedAbility ? 'ability' as const : 'spell' as const,
     giftPromised: Boolean((topItem as any)?.giftPromised ?? (topItem as any)?.card?.giftPromised),
+    teamworkWasPaid: Boolean((topItem as any)?.teamworkWasPaid ?? (topItem as any)?.card?.teamworkWasPaid),
   };
 
   let ir: any;
@@ -5808,7 +5814,11 @@ export async function requestCastSpellForSocket(
     }
 
     const modalSpellInfo = isInstantOrSorcery
-      ? adjustModalSpellInfoForCurrentCast(extractModalModesFromOracleText(baseOracleText), game.state, String(playerId), baseOracleText)
+      ? adjustModalSpellInfoForTeamworkCast(
+          adjustModalSpellInfoForCurrentCast(extractModalModesFromOracleText(baseOracleText), game.state, String(playerId), baseOracleText),
+          baseOracleText,
+          (cardForCast as any)?.teamworkWasPaid === true || (cardInHand as any)?.teamworkWasPaid === true,
+        )
       : undefined;
     if (modalSpellInfo && (!Array.isArray(selectedModes) || selectedModes.length === 0)) {
       const existing = ResolutionQueueManager
@@ -7187,6 +7197,24 @@ function playerControlsCommanderForModalCast(state: any, playerId: string): bool
   });
 }
 
+function adjustModalSpellInfoForTeamworkCast(
+  modalSpellInfo: ReturnType<typeof extractModalModesFromOracleText>,
+  oracleText: string,
+  teamworkWasPaid?: boolean,
+): ReturnType<typeof extractModalModesFromOracleText> {
+  if (!modalSpellInfo || teamworkWasPaid !== true) return modalSpellInfo;
+
+  const normalizedOracleText = String(oracleText || '').replace(/[’]/g, "'");
+  if (!/\bif this spell was cast using teamwork,\s*choose both instead\b/i.test(normalizedOracleText)) {
+    return modalSpellInfo;
+  }
+
+  return {
+    ...modalSpellInfo,
+    maxModes: Math.min(2, modalSpellInfo.options.length),
+  };
+}
+
 function adjustModalSpellInfoForCurrentCast(
   modalSpellInfo: ReturnType<typeof extractModalModesFromOracleText>,
   state: any,
@@ -8191,6 +8219,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check timing restrictions for sorcery-speed spells
       const giftPromisedForCast = (cardInHand as any).giftPromised === true;
+      const teamworkWasPaidForCast = (cardInHand as any).teamworkWasPaid === true;
       const selectedModes = Array.isArray((cardInHand as any).selectedModes)
         ? (cardInHand as any).selectedModes
         : (targets as any)?.selectedModes;
@@ -8497,7 +8526,11 @@ export function registerGameActions(io: Server, socket: Socket) {
       // IMPORTANT: Only apply to INSTANTS and SORCERIES, not to permanents with triggered abilities
       // Permanents like Glorious Sunrise have "At the beginning of combat on your turn, choose one ΓÇö" which is a TRIGGER, not a modal spell
       const modalSpellInfo = isInstantOrSorcery
-        ? adjustModalSpellInfoForCurrentCast(extractModalModesFromOracleText(baseOracleText), game.state, String(playerId), baseOracleText)
+        ? adjustModalSpellInfoForTeamworkCast(
+            adjustModalSpellInfoForCurrentCast(extractModalModesFromOracleText(baseOracleText), game.state, String(playerId), baseOracleText),
+            baseOracleText,
+            (cardInHand as any)?.teamworkWasPaid === true,
+          )
         : undefined;
       const modesAlreadySelected = (cardInHand as any).selectedModes || (targets as any)?.selectedModes;
       const additionalCostModeInfo = isInstantOrSorcery ? extractAdditionalCostModesFromOracleText(baseOracleText) : undefined;
@@ -9317,6 +9350,59 @@ export function registerGameActions(io: Server, socket: Socket) {
 
           debug(2, `[castSpellFromHand] Queued squad payment for ${cardInHand.name} (cost: ${additionalCost.cost})`);
           return; // Wait for squad payment selection via Resolution Queue
+        } else if (additionalCost.type === 'teamwork') {
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) => s?.type === ResolutionStepType.TEAMWORK_COST_PAYMENT && String((s as any)?.sourceId || '') === String(cardId));
+
+          if (!existing) {
+            const minPower = Number(additionalCost.teamworkMinPower ?? additionalCost.amount ?? 0);
+            const battlefield = Array.isArray(game.state.battlefield) ? game.state.battlefield : [];
+            const availableCreatures = battlefield
+              .filter((p: any) => p && String(p.controller || '') === String(playerId) && !p.tapped)
+              .filter((p: any) => /\bcreature\b/i.test(String(p?.card?.type_line || '')))
+              .map((p: any) => ({
+                permanentId: String(p.id || ''),
+                cardName: String(p?.card?.name || 'Creature'),
+                power: Math.max(0, Number(getEffectivePower(p) || 0)),
+                imageUrl: p?.card?.image_uris?.small || p?.card?.image_uris?.normal,
+              }))
+              .filter((entry: any) => entry.permanentId);
+
+            const teamworkStep = ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TEAMWORK_COST_PAYMENT,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: `You may tap creatures with total power ${minPower} or more as an additional cost to cast ${cardInHand.name}.`,
+              mandatory: false,
+              cardId,
+              cardName: cardInHand.name,
+              teamworkMinPower: minPower,
+              imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              availableCreatures,
+              castSpellFromHandArgs: {
+                cardId,
+                payment,
+                targets,
+                xValue,
+                alternateCostId,
+                convokeTappedCreatures,
+              },
+            } as any);
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              queuedResolutionStep: {
+                ...(teamworkStep as any),
+              },
+            });
+          }
+
+          debug(2, `[castSpellFromHand] Queued teamwork payment for ${cardInHand.name} (min power: ${additionalCost.teamworkMinPower ?? additionalCost.amount})`);
+          return;
         }
       }
 
@@ -11277,6 +11363,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                     giftType: String((cardInHand as any).giftType || '') || undefined,
                   }
                 : {}),
+              ...(teamworkWasPaidForCast === true ? { teamworkWasPaid: true } : {}),
               // Provenance / replay-stable metadata for intervening-if templates.
               fromZone: castSourceZone,
               castFromHand: castSourceZone === 'hand',
@@ -11772,6 +11859,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                       giftType: String((cardInHand as any).giftType || '') || undefined,
                     }
                   : {}),
+                ...(teamworkWasPaidForCast === true ? { teamworkWasPaid: true } : {}),
               },
               targets: targets || [],
               targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
@@ -11783,6 +11871,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                     giftType: String((cardInHand as any).giftType || '') || undefined,
                   }
                 : {}),
+              ...(teamworkWasPaidForCast === true ? { teamworkWasPaid: true } : {}),
               ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
               ...(cantBeCounteredFromCavern ? { cantBeCountered: true } : {}),
               ...(additionalCost && typeof additionalCostPaid === 'boolean'
@@ -11987,6 +12076,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 giftType: String((cardInHand as any).giftType || '') || undefined,
               }
             : {}),
+          ...(teamworkWasPaidForCast === true ? { teamworkWasPaid: true } : {}),
           // Persist mana/payment metadata for deterministic replay / intervening-if.
           manaSpentTotal,
           manaSpentBreakdown: { ...manaConsumption.consumed },

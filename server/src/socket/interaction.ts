@@ -46,6 +46,12 @@ import { countArtifacts, getActiveAbilityConditions, getTotalCreaturePower } fro
 import { detectActivatedAbilityConditionRequirement, type ActivatedAbilityConditionRequirement } from "../state/modules/activated-ability-conditions.js";
 import { buildCastFromGraveyardCard, buildGraveyardCastingPermissionId, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { detectAdditionalCost } from "./land-helpers.js";
+import {
+  applyPowerUpEnteredThisTurnDiscount,
+  isPowerUpAbilityLine,
+  parsePowerUpActivatedAbility,
+  stripPowerUpReminderParenthetical,
+} from "../state/modules/marvelMechanicsHelpers.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -704,6 +710,7 @@ function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; 
     const costLower = cost.toLowerCase();
     if (
       !cost.includes('{') &&
+      !costLower.includes('power-up') &&
       !costLower.includes('tap') &&
       !costLower.includes('sacrifice') &&
       !costLower.includes('discard') &&
@@ -723,7 +730,7 @@ function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; 
   };
 
   for (const rawLine of String(text || '').split(/\r?\n+/)) {
-    const line = rawLine.trim();
+    const line = stripPowerUpReminderParenthetical(rawLine.trim());
     if (!line.includes(':')) continue;
     const lineMatch = line.match(/^([^:]+):\s*(.+)$/);
     if (lineMatch) {
@@ -8910,6 +8917,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const costLower = line.slice(0, colonIndex).toLowerCase();
         return (
           costLower.includes('{') ||
+          costLower.includes('power-up') ||
           costLower.includes('tap') ||
           costLower.includes('sacrifice') ||
           costLower.includes('discard') ||
@@ -8923,6 +8931,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ? String(activatedLines[selectedAbilityIndex] || '').trim()
         : selectedAbilityFullText;
     })();
+
+    const powerUpAbilityInfo = parsePowerUpActivatedAbility(selectedAbilityFullText)
+      || (isPowerUpAbilityLine(selectedAbilityOracleLine) ? parsePowerUpActivatedAbility(selectedAbilityOracleLine) : null);
+    if (powerUpAbilityInfo) {
+      const usedIndices = Array.isArray((permanent as any).powerUpUsedIndices)
+        ? (permanent as any).powerUpUsedIndices.map((value: unknown) => String(value))
+        : [];
+      const powerUpKey = String(selectedAbilityIndex);
+      if (usedIndices.includes(powerUpKey)) {
+        socket.emit('error', {
+          code: 'ABILITY_ALREADY_USED',
+          message: `${cardName}'s power-up ability has already been activated.`,
+        });
+        return;
+      }
+      abilityText = stripPowerUpReminderParenthetical(powerUpAbilityInfo.effectText || abilityText);
+      manaCost = powerUpAbilityInfo.manaCost;
+    }
 
     if (
       isSacrificeCreatureOfChosenTypeCost(selectedAbilityFullText)
@@ -11407,10 +11433,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             return;
           }
 
-          const resolvedManaOnly = xSymbolCount > 0
+          let resolvedManaOnly = xSymbolCount > 0
             ? applyXValueToText(manaOnly, selectedXValue)
             : manaOnly;
 
+          if (powerUpAbilityInfo) {
+            resolvedManaOnly = applyPowerUpEnteredThisTurnDiscount(resolvedManaOnly, permanent);
+          }
+
+          if (!resolvedManaOnly) {
+            // Entire mana cost was discounted away (power-up ETB discount).
+          } else {
           const parsedCost = parseManaCost(resolvedManaOnly);
           const manaPool = getOrInitManaPool(game.state, pid);
           const wouldBeManaAbility = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) &&
@@ -11652,6 +11685,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             message: `${getPlayerName(game, pid)} paid ${resolvedManaOnly} to activate ${cardName}.`,
             ts: Date.now(),
           });
+          }
         }
       }
     }
@@ -12404,6 +12438,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         activatedAbilityText: activatedAbilityTextForStack,
         xValue: selectedXValue,
       } as any;
+
+      if (powerUpAbilityInfo) {
+        (permanent as any).powerUpUsedIndices = Array.isArray((permanent as any).powerUpUsedIndices)
+          ? (permanent as any).powerUpUsedIndices
+          : [];
+        const powerUpKey = String(selectedAbilityIndex);
+        if (!(permanent as any).powerUpUsedIndices.includes(powerUpKey)) {
+          (permanent as any).powerUpUsedIndices.push(powerUpKey);
+        }
+        stackItem.isPowerUpAbility = true;
+        stackItem.powerUpAbilityIndex = selectedAbilityIndex;
+      }
       
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);

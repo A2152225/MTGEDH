@@ -185,6 +185,21 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^the mana value of the sacrificed permanent$/i.test(trimmed)) {
     return { kind: 'object_stat', subject: 'the_sacrificed_permanent', stat: 'mana_value' };
   }
+  if (/^a card before its other effects(?:[.)"]*)?$/i.test(trimmed)) {
+    return { kind: 'number', value: 1 };
+  }
+  if (/^a card(?:\.|\.)["')]*$/i.test(trimmed)) {
+    return { kind: 'number', value: 1 };
+  }
+  if (/^x cards at random$/i.test(trimmed)) {
+    return { kind: 'x' };
+  }
+  if (/^an? .+ card rather than pay this spell's mana cost$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^an? .+ card and another card rather than pay this spell's mana cost$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
   if (/^a card["'] until end of turn$/i.test(trimmed)) {
     return { kind: 'number', value: 1 };
   }
@@ -414,9 +429,78 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^that many cards and each other player loses that much$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
+  if (/^x plus (?:\d+|one)(?:\s+cards?)?$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^(?:two|three|five) times x(?:\s+cards?)?$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^two times x$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^that permanent(?:'|')?s mana value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_permanent', stat: 'mana_value' };
+  if (/^the artifact(?:'|')?s mana value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_artifact', stat: 'mana_value' };
+  if (/^the sacrificed permanent(?:'|')?s mana value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'the_sacrificed_permanent', stat: 'mana_value' };
+  if (/^the sacrificed enchantment(?:'|')?s mana value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'the_sacrificed_enchantment', stat: 'mana_value' };
+  if (/^the milled card(?:'|')?s mana value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'the_milled_card', stat: 'mana_value' };
+  if (/^the mana value of the discarded card$/i.test(trimmed)) return { kind: 'object_stat', subject: 'the_discarded_card', stat: 'mana_value' };
+  if (/^that equipment(?:'|')?s mana value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_equipment', stat: 'mana_value' };
+  if (/^that wall(?:'|')?s mana value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_wall', stat: 'mana_value' };
+  if (/^the mana value of target artifact or creature you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the greatest mana value among (?:permanents|artifacts|historic permanents) you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the greatest mana value among the milled cards$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the greatest mana value of a commander they own on the battlefield or in the command zone$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^the greatest power among mutants you control$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the total mana value of (?:other spells you(?:'|')?ve cast this turn|other permanents you control|the discarded cards|those exiled cards|cards milled this way)$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^the total power of (?:the sacrificed creatures|daleks that died this turn)$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^their total power$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the tapped creature(?:'|')?s power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'the_tapped_creature', stat: 'power' };
+  if (/^that creature(?:'|')?s power plus its toughness$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^that spell(?:'|')?s power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_spell', stat: 'power' };
+  if (/^the power of the (?:chosen creature or card|creature you chose or the card you revealed|card returned this way)$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^the damage dealt to you this turn$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the damage dealt to you this turn' };
+  if (/^the damage already dealt to (?:it|that player) this turn$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the damage dealt, but not more/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the total life lost by all players this turn$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the high bid and gains control of the creature$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^the highest number$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the highest number' };
+  if (/^the chosen player$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the chosen player' };
+  if (/^that result$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'that result' };
+  if (/^that many cards plus (?:one|four) instead$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^that many cards" until end of turn$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^(?:two|three) for each (?:color of mana spent to cast it|creature that convoked it|time it was kicked|other nontoken human you control|time you(?:'|')?ve cast your commander from the command zone this game)$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^three for each (?:creature card exiled this way|\{g\}\{g\} spent to cast it)$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^three cards for each time it was kicked$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^three times the number of creatures tapped this way$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^three for each creature card exiled this way$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^you gain \d+ life for each creature tapped this way$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^seven cards and your life total becomes \d+$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^x life if \{[wubrg]\} was spent to cast this spell and x life if \{[wubrg]\} was spent to cast this spell$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^x life, discards x cards, sacrifices x creatures of their choice$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^x life and mills x cards$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^x target attacking creatures become blocked$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^this card any time you could cast an instant$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^target player draws x cards and loses x life, where x is the number of creatures they control of the chosen type$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^an additional \d+$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^cards$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'cards' };
+  if (/^you may$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'you may' };
+  if (/^a card\.?'$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a card during each opponent(?:'|')?s draw step$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a card of target opponent(?:'|')?s choice$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a card or sacrifice a land$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a card with that name$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^a card at random unless you pay \{e\}\{e\}$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^all other nonland cards$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'all other nonland cards' };
+  if (/^the chosen player$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the chosen player' };
   if (
-    trimmed.length >= 10 &&
-    /^(?:draw|damage|life|cards?|that much|the amount|the difference|twice|for each|until|x is|crew|body thief|enchanted|scry|you and|you each|sacrifice)/i.test(trimmed)
+    trimmed.length >= 3 &&
+    /^(?:draw|damage|life|cards?|that |the |their |its |x plus|twice|three times|five times|two for|three for|for each|until|when |whenever |unless |they(?:'|')?re |they get |each |combat damage|noncombat damage|you start|you can cast|you control target|you copy|you exile|you get an emblem|you look|you lose this|you put the chosen|you return|you shuffle|you take the|target player draws|all nonland|each card|each nonland|each opponent|each player|their activated|while attached|would you like|tiered|• |flanking|an additional|cards$|you may$|the controller|the owners|their controller|this card(?:'|')?s mana value|this effect|this mana|this creature can(?:not|'t) block|this aura(?:'|')?s controller|this artifact(?:'|')?s owner|add one mana of that color unless|draw a card, mill|draw three cards, untap|two cards, draws|you and defending player|you and target opponent|it costs \{4\} less|for each spirit|for each creature, its controller|for each spell and ability|if you do, when each opponent|that creature is black|that creature(?:'|')?s controller may|would you like)/i.test(trimmed)
   ) {
     return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
@@ -429,7 +513,7 @@ export function isThatOwnerOrControllerSelector(raw: string | undefined): boolea
     .replace(/[\u2019]/g, "'")
     .trim()
     .toLowerCase();
-  return /^that [a-z0-9][a-z0-9 -]*'s (?:controller|owner)$/i.test(s);
+  return /^(?:that|the) [a-z0-9][a-z0-9 -]*'s (?:controller|owner)$/i.test(s);
 }
 
 export function isThoseOpponentsSelector(raw: string | undefined): boolean {
@@ -457,6 +541,7 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
 
   if (/\s+each$/.test(s)) return parsePlayerSelector(s.replace(/\s+each$/, ''));
   if (s === 'you') return { kind: 'you' };
+  if (s === 'the chosen player') return { kind: 'target_player' };
   if (s === 'any player') return { kind: 'any_player' };
   if (/^if\b.+,\s*you$/.test(s)) return { kind: 'you' };
   if (/^counter\s+(?:it|that\s+spell|that\s+spell\s+or\s+ability)\s+unless\s+that\s+player$/.test(s)) return { kind: 'target_player' };
@@ -502,6 +587,17 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
   if (s === 'their') return { kind: 'target_player' };
   if (s === 'that attacking player' || s === 'attacking player' || s === 'the attacking player') return { kind: 'target_player' };
   if (s === 'that opponent' || s === 'defending player' || s === 'the defending player') return { kind: 'target_opponent' };
+  if (s === 'the high bidder') return { kind: 'high_bidder' };
+  if (/^this (?:permanent|creature|artifact|enchantment|equipment|vehicle|planeswalker)(?:'|')s controller$/i.test(s)) {
+    return { kind: 'source_controller' };
+  }
+  if (/^each player who controls the most .+$/i.test(s)) {
+    const filter = s.match(/^each player who controls the most (.+)$/i)?.[1]?.trim();
+    return { kind: 'each_player_who_controls_the_most', ...(filter ? { filter } : {}) };
+  }
+  if (/^the controller of each of those (?:artifacts|creatures|permanents|cards)$/i.test(s)) {
+    return { kind: 'each_controller_of_those' };
+  }
   if (s === 'enchanted player') return { kind: 'enchanted_player' };
   if (/^enchanted\s+[a-z0-9 -]+(?:'s)?\s+controller$/.test(s)) return { kind: 'target_player' };
   if (s === 'its controller') return { kind: 'target_player' };

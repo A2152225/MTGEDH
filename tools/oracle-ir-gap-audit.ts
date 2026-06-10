@@ -132,6 +132,11 @@ function shouldIgnoreGap(raw: string, gapType: GapRecord['gapType']): boolean {
 
   const lower = normalized.toLowerCase();
   if (/^as an additional cost to cast this spell, sacrifice a creature or$/.test(lower)) return true;
+  if (/^teamwork \d+\s*\(/i.test(lower)) return true;
+  if (/^while each one is exiled, its owner may cast it for \{2\} rather than its mana cost\.\)?$/.test(lower)) return true;
+  if (/^a food token is an artifact with "\{2\}, \{t\}, sacrifice this token: you gain 3 life\."\)?$/i.test(lower)) return true;
+  if (/^a treasure token is an artifact with "\{t\}, sacrifice this token: add one mana of any color\."\)?$/i.test(lower)) return true;
+  if (/^\+1\/\+1 counters give -1\/-1 and -1\/-1 counters give \+1\/\+1$/i.test(lower)) return true;
   if (/^claim the prize!?$/.test(lower)) return true;
   if (/^this ability triggers only once each turn/.test(lower)) return true;
   if (/^this effect reduces only the amount of colored mana you pay$/.test(lower)) return true;

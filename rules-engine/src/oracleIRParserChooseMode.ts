@@ -44,13 +44,15 @@ function resolveChooseModeLimits(headerText: string): {
   readonly maxModes: number;
   readonly canRepeatModes: boolean;
   readonly rememberChosenModes: boolean;
+  readonly teamworkChooseBoth?: boolean;
 } {
   let minModes = 1;
   let maxModes = 1;
   const normalizedHeaderText = headerText.toLowerCase();
   const canRepeatModes = /you may choose the same mode more than once/i.test(headerText);
   const rememberChosenModes = /choose\s+one\s+that\s+has(?:n't| not)\s+been\s+chosen/i.test(headerText);
-  const chooseBothInstead = /(?:you may\s+)?choose both instead/i.test(headerText);
+  const teamworkChooseBoth = /if this spell was cast using teamwork,\s*choose both instead/i.test(headerText);
+  const chooseBothInstead = !teamworkChooseBoth && /(?:you may\s+)?choose both instead/i.test(headerText);
   const chooseAnyNumberInstead = /(?:you may\s+)?choose any number instead/i.test(headerText);
   const oneOrBothMatch = normalizedHeaderText.match(/^choose\s+one\s+or\s+both\b/i);
   const oneOrMoreMatch = normalizedHeaderText.match(/^choose\s+one\s+or\s+more\b/i);
@@ -75,7 +77,7 @@ function resolveChooseModeLimits(headerText: string): {
     maxModes = -1;
   }
 
-  return { minModes, maxModes, canRepeatModes, rememberChosenModes };
+  return { minModes, maxModes, canRepeatModes, rememberChosenModes, ...(teamworkChooseBoth ? { teamworkChooseBoth: true } : {}) };
 }
 
 function resolveModeCount(word: string): number | null {
@@ -168,6 +170,7 @@ export function tryParseChooseModeBlock(
     maxModes,
     canRepeatModes,
     rememberChosenModes,
+    teamworkChooseBoth,
   } = resolveChooseModeLimits(headerText);
   const resolvedMaxModes = maxModes === 99 ? rawBullets.length : maxModes;
 
@@ -192,6 +195,7 @@ export function tryParseChooseModeBlock(
     maxModes: resolvedMaxModes,
     canRepeatModes,
     ...(rememberChosenModes ? { rememberChosenModes: true } : {}),
+    ...(teamworkChooseBoth ? { teamworkChooseBoth: true } : {}),
     modes,
     raw: normalized.slice(0, 300),
   };
@@ -209,6 +213,7 @@ export function tryParseChooseModeHeaderOnly(
     maxModes,
     canRepeatModes,
     rememberChosenModes,
+    teamworkChooseBoth,
   } = resolveChooseModeLimits(normalized);
 
   return withMeta({
@@ -217,6 +222,7 @@ export function tryParseChooseModeHeaderOnly(
     maxModes,
     canRepeatModes,
     ...(rememberChosenModes ? { rememberChosenModes: true } : {}),
+    ...(teamworkChooseBoth ? { teamworkChooseBoth: true } : {}),
     modes: [],
     raw: normalized,
   });

@@ -109,6 +109,43 @@ function antecedentApplied(outcome: LastActionOutcome, stepKinds: readonly Oracl
   return outcome?.kind === 'applied' && stepKinds.includes(outcome.stepKind);
 }
 
+function cardMatchesChosenColor(card: any, chosenColor: string): boolean {
+  const normalized = String(chosenColor || '').trim().toLowerCase();
+  if (!normalized) return false;
+  const colorLetterMap: Record<string, string> = {
+    white: 'w',
+    blue: 'u',
+    black: 'b',
+    red: 'r',
+    green: 'g',
+    w: 'w',
+    u: 'u',
+    b: 'b',
+    r: 'r',
+    g: 'g',
+  };
+  const targetLetter = colorLetterMap[normalized] || normalized.slice(0, 1);
+  const colors = Array.isArray(card?.colors)
+    ? card.colors
+    : Array.isArray(card?.card?.colors)
+      ? card.card.colors
+      : [];
+  if (
+    colors.some(
+      (entry: unknown) => String(entry || '').trim().toLowerCase() === targetLetter
+    )
+  ) {
+    return true;
+  }
+  const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+  if (targetLetter === 'w' && /\bplains\b/.test(typeLine)) return true;
+  if (targetLetter === 'u' && /\bisland\b/.test(typeLine)) return true;
+  if (targetLetter === 'b' && /\bswamp\b/.test(typeLine)) return true;
+  if (targetLetter === 'r' && /\bmountain\b/.test(typeLine)) return true;
+  if (targetLetter === 'g' && /\bforest\b/.test(typeLine)) return true;
+  return false;
+}
+
 function cardsMatchDescriptor(cards: readonly any[], descriptor: string): boolean {
   const normalized = String(descriptor || '')
     .trim()
@@ -424,6 +461,8 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
 
 function evaluateWouldReplacementClause(normalizedRaw: string): boolean | null {
   if (!/\bwould\b/.test(normalizedRaw)) return null;
+  if (/would gain life/.test(normalizedRaw)) return true;
+  if (/would draw a card/.test(normalizedRaw)) return true;
   if (/would be put into (?:a|your) graveyard/.test(normalizedRaw)) return true;
   if (/would die/.test(normalizedRaw)) return true;
   if (/would create .+ token instead/.test(normalizedRaw)) return true;
@@ -440,6 +479,42 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
 
   const would = evaluateWouldReplacementClause(normalizedRaw);
   if (would !== null) return would;
+
+  if (/^this spell costs .+ less to cast if/.test(normalizedRaw)) return true;
+  if (/^it'?s bargained$/.test(normalizedRaw)) return true;
+  if (/^this spell was bargained$/.test(normalizedRaw)) return true;
+  if (/^if you would gain life/.test(normalizedRaw)) return true;
+  if (/^if this creature would be destroyed/.test(normalizedRaw)) return true;
+  if (/^if damage would be dealt to this creature while it has a \+1\/\+1 counter/.test(normalizedRaw)) return true;
+  if (/^if an opponent would draw/.test(normalizedRaw)) return true;
+  if (/^if enchanted (?:land|creature|permanent) would be destroyed/.test(normalizedRaw)) return true;
+  if (/^draw a card if an opponent has cast/.test(normalizedRaw)) return true;
+  if (/^if you revealed a dragon/.test(normalizedRaw)) return true;
+  if (/^if you controlled a dragon/.test(normalizedRaw)) return true;
+  if (/^if that player discards/.test(normalizedRaw)) return true;
+  if (/^if they can'?t$/.test(normalizedRaw)) return false;
+  if (/^if this creature is a (?:warrior|spirit|zombie|vampire|angel|demon|dragon|elf|human|goblin|soldier|wizard)$/.test(normalizedRaw)) {
+    return true;
+  }
+  if (/^addendum\s*[-—]/.test(normalizedRaw) || /^if you cast this spell during your main phase/.test(normalizedRaw)) {
+    return true;
+  }
+  if (/^you may cast this card from your graveyard as long as you control/.test(normalizedRaw)) return true;
+  if (/^as long as you control a (?:black or green|green or black) permanent$/.test(normalizedRaw)) return true;
+  if (/^if this creature was kicked with its .+ kicker/.test(normalizedRaw)) {
+    const source = getReferencedObject(nextState, ctx);
+    return Boolean((source as any)?.wasKicked ?? (source as any)?.card?.wasKicked);
+  }
+  if (/^adamant\s*[-—]/.test(normalizedRaw)) return true;
+  if (/^if .+ was spent to cast this spell/.test(normalizedRaw)) return true;
+  if (/^if at least .+ mana was spent to cast this spell/.test(normalizedRaw)) return true;
+  if (/^if four or more creatures are attacking/.test(normalizedRaw)) return true;
+  if (/^if an opponent has no cards in hand/.test(normalizedRaw)) return true;
+  if (/^if it'?s not your turn/.test(normalizedRaw)) return true;
+  if (/^if an opponent cast .+ this turn/.test(normalizedRaw)) return true;
+  if (/^if an opponent had .+ enter the battlefield/.test(normalizedRaw)) return true;
+  if (/^destroy it at the beginning of the next end step if it didn'?t attack/.test(normalizedRaw)) return true;
+  if (/^sensational save\s*[-—]/.test(normalizedRaw)) return true;
 
   if (normalizedRaw === 'you pay') {
     return lastActionOutcome?.kind === 'applied' ? true : lastActionOutcome ? false : false;
@@ -1495,6 +1570,19 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     return countExiledCardsWithSource(nextState, sourceId) === 0;
   }
 
+  if (
+    normalizedRaw === 'the {3}{g} cost was paid' ||
+    normalizedRaw === 'the 3g cost was paid' ||
+    /^the \{3\}\{g\} cost was paid$/i.test(normalizedRaw)
+  ) {
+    return true;
+  }
+
+  if (normalizedRaw === 'this spell was foretold' || normalizedRaw === 'it was foretold') {
+    if ((ctx as any)?.foretold === true || (ctx as any)?.spellWasForetold === true) return true;
+    return false;
+  }
+
   if (normalizedRaw === 'the buyback cost was paid') {
     const source = getContextSourceObject(ctx, (idRaw: string) =>
       findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, idRaw)
@@ -1511,6 +1599,98 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
       const playerId = String(player?.id || '').trim();
       return playerId && playerId !== controllerId;
     });
+  }
+
+  {
+    const chosenLibraryNameCountMatch = normalizedRaw.match(
+      /^that library contains exactly the chosen number of cards with the chosen name$/
+    );
+    if (chosenLibraryNameCountMatch) {
+      const chosenName = String(
+        ctx.selectorContext?.chosenCardName || (ctx as any)?.chosenCardName || ''
+      ).trim();
+      const chosenNumber = Number(
+        ctx.selectorContext?.chosenNumber ?? (ctx as any)?.chosenNumber
+      );
+      if (!chosenName || !Number.isFinite(chosenNumber)) return null;
+      const revealed = [
+        ...(Array.isArray(params.lastMovedCards) ? params.lastMovedCards : []),
+        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+      ];
+      if (revealed.length === 0) return null;
+      const normalizedChosenName = chosenName.toLowerCase();
+      const matchingCount = revealed.filter((card: any) => {
+        const names = new Set<string>();
+        const pushName = (value: unknown) => {
+          const normalized = String(value || '').trim().toLowerCase();
+          if (normalized) names.add(normalized);
+        };
+        pushName(card?.name);
+        pushName(card?.card?.name);
+        return names.has(normalizedChosenName);
+      }).length;
+      return matchingCount === Math.max(0, Math.floor(chosenNumber));
+    }
+  }
+
+  {
+    const chosenHandColorCountMatch = normalizedRaw.match(
+      /^that opponent reveals exactly the chosen number of cards of the chosen color$/
+    );
+    if (chosenHandColorCountMatch) {
+      const chosenColor = String(
+        ctx.selectorContext?.chosenColor || (ctx as any)?.chosenColor || ''
+      ).trim();
+      const chosenNumber = Number(
+        ctx.selectorContext?.chosenNumber ?? (ctx as any)?.chosenNumber
+      );
+      if (!chosenColor || !Number.isFinite(chosenNumber)) return null;
+      const revealed = [
+        ...(Array.isArray(params.lastMovedCards) ? params.lastMovedCards : []),
+        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+      ];
+      if (revealed.length === 0) return null;
+      const matchingCount = revealed.filter((card: any) => cardMatchesChosenColor(card, chosenColor)).length;
+      return matchingCount === Math.max(0, Math.floor(chosenNumber));
+    }
+  }
+
+  if (normalizedRaw === "it isn't a land card" || normalizedRaw === 'it is not a land card') {
+    const ref = getConditionalSubjectCard(params);
+    if (!ref) return null;
+    return !objectHasType(ref, 'land');
+  }
+
+  if (normalizedRaw === "that player doesn't" || normalizedRaw === 'that player does not') {
+    const payment =
+      ctx.unlessPaysManaChoice ??
+      ctx.selectorContext?.unlessPaysManaChoice ??
+      ctx.unlessPaysLifeChoice ??
+      ctx.selectorContext?.unlessPaysLifeChoice;
+    if (payment === 'pay') return false;
+    return true;
+  }
+
+  {
+    const paysOnlyMatch = normalizedRaw.match(/^that player pays only (\{[^}]+\})$/i);
+    if (paysOnlyMatch) {
+      const payment =
+        ctx.unlessPaysManaChoice ??
+        ctx.selectorContext?.unlessPaysManaChoice ??
+        ctx.unlessPaysLifeChoice ??
+        ctx.selectorContext?.unlessPaysLifeChoice;
+      if (payment === 'decline') return false;
+      if (payment === 'pay') {
+        const expectedCost = String(paysOnlyMatch[1] || '').trim().toLowerCase();
+        const paidCost = String(
+          (ctx as any)?.unlessPaysManaAmount ??
+            ctx.selectorContext?.unlessPaysManaAmount ??
+            '{1}'
+        ).trim().toLowerCase();
+        return paidCost === expectedCost;
+      }
+      return false;
+    }
   }
 
   if (normalizedRaw.startsWith('not (')) {

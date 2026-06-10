@@ -105,6 +105,7 @@ export const MODIFY_PT_WHERE_ALIASES: Record<string, string> = {
   "x is that creature's toughness": "x is that creature's toughness",
   "x is half the creature's power, rounded down": "x is half that creature's power",
   "x is half the creature's power, rounded up": "x is half that creature's power, rounded up",
+  "x is the number of snow lands you control": "x is the number of snow lands you control",
 };
 
 export function normalizeModifyPtWhereRaw(whereRaw: string): string {

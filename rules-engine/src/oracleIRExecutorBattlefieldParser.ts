@@ -8,6 +8,7 @@ export type SimpleBattlefieldSelector = {
   readonly types: readonly SimplePermanentType[];
   readonly controllerFilter: 'any' | 'you' | 'opponents' | 'target_player';
   readonly colorsAnyOf?: readonly string[];
+  readonly colorlessOnly?: boolean;
   readonly excludeSourceId?: boolean;
 };
 
@@ -235,6 +236,12 @@ export function parseSimpleBattlefieldSelector(
   };
 
   let colorsAnyOf: string[] | undefined;
+  let colorlessOnly = false;
+  const colorlessMatch = remainder.match(/^colorless\s+(.+)$/i);
+  if (colorlessMatch) {
+    colorlessOnly = true;
+    remainder = String(colorlessMatch[1] || '').trim();
+  }
   const colorOrMatch = remainder.match(
     /^((?:white|blue|black|red|green)(?:\s+or\s+(?:white|blue|black|red|green))+)\s+(.+)$/i
   );
@@ -281,6 +288,7 @@ export function parseSimpleBattlefieldSelector(
     types,
     controllerFilter,
     ...(colorsAnyOf && colorsAnyOf.length > 0 ? { colorsAnyOf } : {}),
+    ...(colorlessOnly ? { colorlessOnly: true } : {}),
     excludeSourceId,
   };
 }

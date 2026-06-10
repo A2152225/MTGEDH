@@ -89,6 +89,12 @@ function resolveBattlefieldPermanentBySelector(
     return contextualTargetId || '';
   }
 
+  if (normalized === 'the chosen creature') {
+    if (chosenObjectIds.length === 1) return chosenObjectIds[0];
+    if (chosenObjectIds.length > 1) return 'player_choice_required';
+    return String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
+  }
+
   if (normalized === 'this creature' || normalized === 'this permanent') {
     return String(ctx.sourceId || '').trim();
   }

@@ -43,6 +43,10 @@ function parseBattlefieldController(to: OracleZone, toRaw: string): OraclePlayer
     return { kind: 'owner_of_moved_cards' };
   }
 
+  if (/\bunder\s+(?:their|his\s+or\s+her)\s+control\b/i.test(normalized)) {
+    return { kind: 'owner_of_moved_cards' };
+  }
+
   return undefined;
 }
 

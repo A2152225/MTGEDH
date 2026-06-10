@@ -3381,6 +3381,17 @@ async function handleAIResolutionStep(
         break;
       }
 
+      case ResolutionStepType.TEAMWORK_COST_PAYMENT: {
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: [],
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        break;
+      }
+
       case ResolutionStepType.EXPLORE_DECISION: {
         const stepData = step as any;
         const permanentId = String(stepData.permanentId || step.sourceId || '');
@@ -5480,6 +5491,51 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         if (timesPaid == null || !Number.isInteger(timesPaid) || timesPaid < 0) {
           socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid squad payment selection' });
           return;
+        }
+      }
+    }
+
+    if (step.type === ResolutionStepType.TEAMWORK_COST_PAYMENT) {
+      const stepAny = step as any;
+      const minPower = Number(stepAny.teamworkMinPower ?? 0);
+      if (!cancelled) {
+        const raw = response.selections as any;
+        const selectedIds = Array.isArray(raw)
+          ? raw.map((id) => String(id || '').trim()).filter(Boolean)
+          : [];
+
+        if (selectedIds.length > 0) {
+          const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+          const controlledCreatures = battlefield.filter((perm: any) =>
+            perm &&
+            String(perm.controller || '') === String(pid) &&
+            /\bcreature\b/i.test(String(perm?.card?.type_line || ''))
+          );
+          const controlledIdSet = new Set(controlledCreatures.map((perm: any) => String(perm.id || '')));
+          for (const id of selectedIds) {
+            if (!controlledIdSet.has(id)) {
+              socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected creature is not a valid teamwork payment' });
+              return;
+            }
+            const perm = controlledCreatures.find((entry: any) => String(entry.id || '') === id);
+            if (perm?.tapped) {
+              socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected creature is already tapped' });
+              return;
+            }
+          }
+
+          let totalPower = 0;
+          for (const id of selectedIds) {
+            const perm = controlledCreatures.find((entry: any) => String(entry.id || '') === id);
+            if (perm) totalPower += Math.max(0, Number(getEffectivePower(perm) || 0));
+          }
+          if (totalPower < minPower) {
+            socket.emit('error', {
+              code: 'INVALID_SELECTION',
+              message: `Selected creatures must have total power ${minPower} or more (currently ${totalPower}).`,
+            });
+            return;
+          }
         }
       }
     }
@@ -8799,6 +8855,14 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('cardId' in step) fields.cardId = (step as any).cardId;
       if ('cardName' in step) fields.cardName = (step as any).cardName;
       if ('squadCost' in step) fields.squadCost = (step as any).squadCost;
+      if ('imageUrl' in step) fields.imageUrl = (step as any).imageUrl;
+      break;
+
+    case ResolutionStepType.TEAMWORK_COST_PAYMENT:
+      if ('cardId' in step) fields.cardId = (step as any).cardId;
+      if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('teamworkMinPower' in step) fields.teamworkMinPower = (step as any).teamworkMinPower;
+      if ('availableCreatures' in step) fields.availableCreatures = (step as any).availableCreatures;
       if ('imageUrl' in step) fields.imageUrl = (step as any).imageUrl;
       break;
       
@@ -13872,6 +13936,81 @@ async function handleStepResponse(
       break;
     }
 
+    case ResolutionStepType.TEAMWORK_COST_PAYMENT: {
+      const stepData = step as any;
+      if (response.cancelled) break;
+
+      const castArgs = stepData.castSpellFromHandArgs as any;
+      const cardId = String(stepData.cardId || stepData.sourceId || castArgs?.cardId || '');
+      const cardName = String(stepData.cardName || stepData.sourceName || 'Spell');
+      const minPower = Number(stepData.teamworkMinPower ?? 0);
+
+      const rawSelections = response.selections as any;
+      const selectedIds = Array.isArray(rawSelections)
+        ? rawSelections.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+
+      const zones = (game.state as any)?.zones?.[pid];
+      if (!zones || !Array.isArray(zones.hand)) {
+        emitToPlayer(io, pid as any, 'error', { code: 'NO_ZONES', message: 'Player zones not found' });
+        break;
+      }
+
+      const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+      if (!cardInHand) {
+        emitToPlayer(io, pid as any, 'error', { code: 'CARD_NOT_IN_HAND', message: 'Card not found in hand' });
+        break;
+      }
+
+      let teamworkWasPaid = false;
+      if (selectedIds.length > 0) {
+        const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+        for (const creatureId of selectedIds) {
+          const perm = battlefield.find((entry: any) => entry && String(entry.id || '') === creatureId);
+          if (perm) perm.tapped = true;
+        }
+        teamworkWasPaid = true;
+      }
+
+      (cardInHand as any).teamworkWasPaid = teamworkWasPaid;
+      (cardInHand as any).additionalCostPaid = true;
+
+      appendCastSpellContinuationEvent(gameId, game, {
+        playerId: pid,
+        resolvedStepId: String((step as any).id || ''),
+        resolvedStepType: String((step as any).type || ''),
+        cardId,
+        cardUpdates: {
+          teamworkWasPaid,
+          additionalCostPaid: true,
+        },
+      });
+
+      if (teamworkWasPaid) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} paid Teamwork for ${cardName} (tapped ${selectedIds.length} creature(s) with total power ${minPower}+).`,
+          ts: Date.now(),
+        });
+      }
+
+      const basePayment = Array.isArray(castArgs?.payment) ? castArgs.payment : [];
+      const alreadyMarked = basePayment.some((p: any) => p && p.additionalCostPaid === true);
+      const paymentWithMarker = alreadyMarked ? basePayment : [...basePayment, { additionalCostPaid: true }];
+
+      await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
+        cardId,
+        payment: paymentWithMarker,
+        targets: castArgs?.targets,
+        xValue: castArgs?.xValue,
+        alternateCostId: castArgs?.alternateCostId,
+        convokeTappedCreatures: castArgs?.convokeTappedCreatures,
+      });
+      break;
+    }
+
     case ResolutionStepType.DISCARD_SELECTION:
       await handleDiscardResponse(io, game, gameId, step, response);
       break;
@@ -16860,6 +16999,16 @@ async function handleTargetSelectionResponse(
     }
 
     // Default cancelled TARGET_SELECTION: no-op.
+    if (stepAny?.action === 'destroy_artifact_enchantment') {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${step.sourceName || 'Aura Shards'}: ${getPlayerName(game, pid)} declined to destroy a target.`,
+        ts: Date.now(),
+      });
+      broadcastGame(io, game, gameId);
+    }
     return;
   }
 
@@ -32435,11 +32584,24 @@ async function handleOptionChoiceResponse(
       const creaturesWithCounters: Array<{ id: string; playerId: string }> = [];
       
       // Get the effect metadata from stepData
-      const effectType = stepData.effectType || 'none';
+      let effectType = stepData.effectType || 'none';
       const conditionalEffect = stepData.conditionalEffect || {};
       const sourceName = stepData.sourceName || 'Counter placement effect';
       const sourceController = stepData.sourceController || state.turnPlayer;
       const goadedByPlayerId = String(state.turnPlayer || sourceController || '').trim();
+
+      if (effectType === 'none') {
+        const sourcePerm = battlefield.find((perm: any) =>
+          String(perm?.id || '') === String(stepData.sourceId || '') ||
+          String(perm?.card?.name || '').toLowerCase() === String(sourceName || '').toLowerCase()
+        );
+        const oracleText = String(sourcePerm?.card?.oracle_text || stepData.triggerDescription || '').toLowerCase();
+        if (oracleText.includes('goad')) {
+          effectType = 'goad';
+        } else if (oracleText.includes("can't attack") || oracleText.includes('cannot attack')) {
+          effectType = 'cant_attack';
+        }
+      }
       
       // Apply +1/+1 counters ONLY to creatures whose controllers accepted
       for (const [playerId, selection] of Object.entries(selections)) {

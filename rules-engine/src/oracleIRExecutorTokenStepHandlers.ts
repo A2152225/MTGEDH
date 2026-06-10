@@ -373,7 +373,12 @@ function resolveTokenAmount(
     return contextX === null ? null : contextX * twiceXMultiplier;
   }
 
-  const whereRaw = `X is ${String(whereMatch[1] || '').trim()}`;
+  const whereExpr = String(whereMatch[1] || '')
+    .trim()
+    .replace(/["')\].]+$/g, '')
+    .replace(/[.;:,]+$/g, '')
+    .trim();
+  const whereRaw = `X is ${whereExpr}`;
   const targetCreatureId = String(
     ctx.targetCreatureId ||
       ctx.targetPermanentId ||

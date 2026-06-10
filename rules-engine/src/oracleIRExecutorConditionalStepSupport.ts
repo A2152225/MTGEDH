@@ -1811,6 +1811,38 @@ export function evaluateConditionalWrapperCondition(params: {
     return provenance.castFromZone === 'graveyard';
   }
 
+  if (normalizedRaw === 'this spell was cast from your hand') {
+    return String(ctx.castFromZone || '').trim().toLowerCase() === 'hand';
+  }
+
+  if (normalizedRaw === 'the sacrificed creature was a hamster') {
+    const snapshots = Array.isArray((ctx as any).lastSacrificedPermanents)
+      ? ((ctx as any).lastSacrificedPermanents as any[])
+      : [];
+    if (snapshots.length > 0) {
+      return snapshots.some((entry: any) =>
+        /\bhamster\b/i.test(
+          String(entry?.type_line || entry?.card?.type_line || entry?.subtype || entry?.cardType || '')
+        )
+      );
+    }
+    if (lastActionOutcome?.stepKind !== 'sacrifice') return null;
+    return false;
+  }
+
+  if (normalizedRaw === 'you chose a creature this way') {
+    const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+      ? ctx.selectorContext.chosenObjectIds
+      : [];
+    if (chosenIds.length === 0) return false;
+    return chosenIds.some((id) => {
+      const perm = battlefield.find(
+        (entry: any) => String(entry?.id || '').trim() === String(id || '').trim()
+      );
+      return Boolean(perm) && /\bcreature\b/i.test(String((perm as any)?.type_line || (perm as any)?.card?.type_line || ''));
+    });
+  }
+
   if (normalizedRaw === 'it escaped' || normalizedRaw === 'this permanent escaped') {
     const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
     const provenance = referencedObject

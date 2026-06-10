@@ -288,6 +288,23 @@ function removeExpiredUntilNextTurnEffects(ctx: GameContext, currentPlayerId: Pl
       }
     }
 
+    const cantAttackPlayers = (permanent as any).cantAttackPlayers;
+    if (cantAttackPlayers && typeof cantAttackPlayers === 'object') {
+      const nextRestrictions: Record<string, any> = {};
+      for (const [restrictedPlayerId, entry] of Object.entries(cantAttackPlayers)) {
+        const sourcePlayer = String((entry as any)?.sourcePlayer || restrictedPlayerId || '').trim();
+        if (sourcePlayer === String(currentPlayerId) && String((entry as any)?.until || '') === 'next_turn') {
+          continue;
+        }
+        nextRestrictions[restrictedPlayerId] = entry;
+      }
+      if (Object.keys(nextRestrictions).length > 0) {
+        (permanent as any).cantAttackPlayers = nextRestrictions;
+      } else {
+        delete (permanent as any).cantAttackPlayers;
+      }
+    }
+
     for (const fieldName of ['untilNextTurnCantActivateAbilities', 'untilNextTurnLoseAllAbilities']) {
       const entries = (permanent as any)[fieldName];
       if (!Array.isArray(entries) || entries.length === 0) continue;

@@ -224,6 +224,15 @@ export function permanentMatchesSelector(
     if (!targetPlayerId || permanentControllerId !== targetPlayerId) return false;
   }
 
+  if (sel.colorlessOnly) {
+    const permColors = Array.isArray((perm as any)?.colors)
+      ? (perm as any).colors
+      : Array.isArray((perm as any)?.card?.colors)
+        ? (perm as any).card.colors
+        : [];
+    if (permColors.length > 0) return false;
+  }
+
   if (sel.colorsAnyOf && sel.colorsAnyOf.length > 0) {
     const permColors = Array.isArray((perm as any)?.colors)
       ? (perm as any).colors

@@ -7,8 +7,10 @@ alwaysApply: true
 
 ## Avoid hung sessions
 
-- Do **not** run full-cardbase `tsx -e` scans over `oracle-cards.json` inline in the terminal. Use targeted scripts under `server/scripts/_tmp-probe-*.ts` or `_probe-*.mjs` with early `process.exit`, or the audit script with env limits (`TRIGGER_COVERAGE_TOP`, `TRIGGER_COVERAGE_EVENT`).
-- Prefer `npx vitest run <specific-test-file>` over ad-hoc `tsx -e` one-liners — vitest loads once and exits cleanly.
+- **Never** use `npx tsx -e` or `node -e` for analysis in this repo. Inline one-liners stall on Windows, time out in the agent, and cannot be rerun. Write `server/scripts/_tmp-*.ts` (or use existing audit scripts) and run `npx tsx scripts/<file>.ts`.
+- For corpus-wide metrics, use `npm run executor:coverage`, the `executor-*-gap-analysis.ts` scripts, or `npm run trigger:coverage` with env limits (`EXECUTOR_COVERAGE_ONLY_GAPS`, `EXECUTOR_COVERAGE_SCOPE`, `TRIGGER_COVERAGE_TOP`, `TRIGGER_COVERAGE_EVENT`). Read `server/scripts/out/*.json` before re-scanning.
+- Use targeted scripts under `server/scripts/_tmp-probe-*.ts` or `_probe-*.mjs` with early `process.exit` for single-card or small-batch probes.
+- Prefer `npx vitest run <specific-test-file>` over ad-hoc inline scripts — vitest loads once and exits cleanly.
 - Set `block_until_ms` generously for audits (~120s–300s), but cap probe scripts to a handful of cards.
 - On Windows PowerShell, chain commands with `;` not `&&`.
 

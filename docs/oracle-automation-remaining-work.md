@@ -2,7 +2,7 @@
 
 Living document. Update this file as gaps close and audits are re-run.
 
-**Last updated: 2026-06-09** (parse→execute singleton pass — **0 gaps**; game infra partial: copy SBA 704.5e, win effects)
+**Last updated: 2026-06-09** (batch12 ir_gap pass — **0** `ir_gap` / **0** partial / **0** impossible; trigger corridor **14,290** fully applied / **0** parse→execute gaps)
 
 ## Quick start for a new session
 
@@ -15,8 +15,10 @@ Living document. Update this file as gaps close and audits are re-run.
    npx tsx scripts/executor-target-gap-analysis.ts
    npx tsx scripts/executor-condition-gap-analysis.ts
    npm run executor:keyword-audit
+   $env:EXECUTOR_COVERAGE_SCOPE="full_card"; npm run executor:coverage
+   npx tsx scripts/_tmp-full-card-gap-clusters.ts
    ```
-3. JSON reports land in `server/scripts/out/` (**gitignored** — regenerate locally; do not expect them in git).
+3. JSON reports land in `server/scripts/out/` (**gitignored** — regenerate locally; do not expect them in git). Use named scripts under `server/scripts/` — never inline `tsx -e` (see `.cursor/rules/terminal-hygiene.mdc`).
 4. Trigger parse coverage (separate from executor): `npm run trigger:coverage`
 
 ---
@@ -32,8 +34,8 @@ Scope: commander-legal **triggered-ability effects**, assisted fixture (pre-boun
 | Cards scanned | 29,614 | 29,614 |
 | Trigger effects dry-run | 15,014 | 15,012 |
 | IR gaps (`ir_gap`) | **0** | **0** |
-| Fully applied | 10,502 (70.0%) → 11,050 (73.6%) | **13,642 (90.9%)** |
-| Choice required (expected UI) | 956 (6.4%) → 1,122 (7.5%) | **1,370 (9.1%)** |
+| Fully applied | 10,502 (70.0%) → 11,050 (73.6%) | **14,290 (95.2%)** |
+| Choice required (expected UI) | 956 (6.4%) → 1,122 (7.5%) | **722 (4.8%)** |
 | Assisted execution rate | **76.3%** → **81.1%** | **100%** |
 | Parse→execute gaps | 3,556 → 2,842 items | **0 items** |
 
@@ -41,8 +43,8 @@ Scope: commander-legal **triggered-ability effects**, assisted fixture (pre-boun
 
 | Status | Count |
 |---|---:|
-| `fully_applied` | 13,642 |
-| `choice_required` | 1,370 |
+| `fully_applied` | 14,290 |
+| `choice_required` | 722 |
 | `partial` | 0 |
 | `unsupported` | 0 |
 | `no_steps` | 0 |
@@ -53,11 +55,11 @@ Scope: commander-legal **triggered-ability effects**, assisted fixture (pre-boun
 
 | Rank | Reason code | Baseline → Current |
 |---:|---|---:|
-| 1 | `player_choice_required` | 1,082 → **1,410** (expected UI; not a parse bug) |
-| 2 | `failed_to_apply` | 99 → **2** |
+| 1 | `player_choice_required` | 1,082 → **778** (expected UI; not a parse bug) |
+| 2 | `failed_to_apply` | 99 → **0** |
 | 3 | `impossible_action` | 72 → **0** |
-| 4 | `unsupported_destination` | — → **5** |
-| 5 | `unsupported_where_clause` | — → **8** |
+| 4 | `unsupported_destination` | — → **0** |
+| 5 | `unsupported_where_clause` | — → **0** |
 
 ### Top skipped step kinds (current)
 
@@ -186,17 +188,73 @@ Closed the final 7 singleton gaps (earthbend where-X, Greasefang compound, Azlas
 
 Source: `EXECUTOR_COVERAGE_SCOPE=full_card npm run executor:coverage --workspace=server`
 
-| Metric | Before (2026-06-09) | After keyword pass | After reminder pass | After ETB/regen pass | After conditional pass | After reveal pass | After fight pass |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| Ability clauses dry-run | 52,196 | 51,924 | 51,805 | 51,695 | 51,678 | 51,655 | **51,654** |
-| Fully applied | 46,085 (88.3%) | 46,881 (90.3%) | 47,185 (91.1%) | 47,249 (91.4%) | 47,282 (91.5%) | 47,363 (91.7%) | **47,400 (91.8%)** |
-| Parse→execute gaps | 2,765 on 2,642 cards | 1,736 on 1,666 cards | 1,541 on 1,492 cards | 1,481 on 1,432 cards | 1,497 on 1,447 cards | 1,440 on 1,392 cards | **1,401 on 1,358 cards** |
-| Assisted execution rate | **92.9%** | **94.9%** | **95.6%** | **95.9%** | **95.9%** | **96.1%** | **96.2%** |
-| `ir_gap` | 964 | 926 | 763 | 649 | 632 | 585 | **585** |
-| `no_steps` | 1,356 | 327 | 301 | 279 | 252 | 252 | **227** |
-| `unsupported` | 772 | 772 | 616 | 578 | 578 | 570 | **563** |
+| Metric | Before (2026-06-09) | After keyword pass | After reminder pass | After ETB/regen pass | After conditional pass | After reveal pass | After fight pass | After no_steps pass | After benign-skip pass |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Ability clauses dry-run | 52,196 | 51,924 | 51,805 | 51,695 | 51,678 | 51,655 | 51,654 | 51,048 | **51,044** |
+| Fully applied | 46,085 (88.3%) | 46,881 (90.3%) | 47,185 (91.1%) | 47,249 (91.4%) | 47,282 (91.5%) | 47,363 (91.7%) | 47,400 (91.8%) | 48,088 (94.2%) | **49,444 (96.9%)** |
+| Parse→execute gaps | 2,765 on 2,642 cards | 1,736 on 1,666 cards | 1,541 on 1,492 cards | 1,481 on 1,432 cards | 1,497 on 1,447 cards | 1,440 on 1,392 cards | 1,401 on 1,358 cards | 675 on ~650 cards | **166 on ~160 cards** |
+| Assisted execution rate | **92.9%** | **94.9%** | **95.6%** | **95.9%** | **95.9%** | **96.1%** | **96.2%** | **98.7%** | **99.7%** |
+| `ir_gap` | 964 | 926 | 763 | 649 | 632 | 585 | 585 | 218 | **0** |
+| `no_steps` | 1,356 | 327 | 301 | 279 | 252 | 252 | 227 | 0 | **0** |
+| `unsupported` | 772 | 772 | 616 | 578 | 578 | 570 | 563 | 158 | **0** |
+| `partial` | — | — | — | — | — | 601 | 594 | 506 | **155** → **137** → **135** → **134** → **131** → **130** → **128** → **127** → **122** → **119** → **109** → **40** → **32** → **26** → **20** → **11** → **5** → **0** |
+| `impossible` | — | — | — | — | — | — | — | — | **0** |
 
-Top remaining gap families: gy-return-to-BF + scry (`choice_required`), hand-reveal **may choose** variants, X-divided damage `ir_gap`, ward-color / talent enchant `ir_gap`, landfall draw `unsupported`, partner-character `no_steps`.
+**Current full-card snapshot (2026-06-09 re-audit):** 51,156 clauses dry-run; **49,713** fully applied (97.2%); **1,226** choice_required; parse→execute gaps **0** on **0** cards; assisted **99.6%**; **`impossible` 0**; **`partial` 0**; **`ir_gap` 0**.
+
+**2026-06-09 batch12 ir_gap pass:** **`ir_gap` 217 → 0**. Parser postprocess: reference-stat/`parseQuantity` expansion, `when`-you-do delayed triggers, rhystic/unless-pay misparse repair (pay_mana/lose_life/gain_life/emblem/graveyard-permission), choose_mode nested lowering, emblem lose_life misparse repair. Tests: `oracleIRGapBatch41.test.ts`.
+
+**2026-06-09 batch11 final partials pass:** parse→execute gaps **5 → 0**, **`partial` 5 → 0**, fully applied **49,708 → 49,713**. Mindblaze `reveal_top` library + chosen-name/count conditional; Scrying Glass chosen-color hand count; Wand of Ith `it isn't a land` + unless-pay audit fixture; Winter's Chill `that player doesn't` / `pays only {1}` branches; Caesar `repairSplitChooseModeBulletSteps` for audit effectText re-parse. Tests: `oracleLookChooseExecutor.test.ts` (82 tests).
+
+**2026-06-09 batch10 look-choose pass:** parse→execute gaps **11 → 5**, **`partial` 11 → 5**, fully applied **49,707 → 49,708**. Infernal Offering opponent GY→BF (`requiresExplicitControllerOverride` GY exception + `parsedTypedCardFromTargetPlayerGy` battlefield path + `choose_opponent` audit enrichment); Selective Adaptation compound `one of the chosen cards` ability-level split (`splitCompoundChosenCardsMoveZoneAbilities`); Welcome the Dead turn-stat where-X (`cardsPutIntoYourGraveyardFromNonBattlefieldThisTurn`); Transpose `cast from your hand` conditional; Sculpted Sunburst `you chose a creature this way`; Minsc hamster sacrifice conditional + audit fixture. Tests: `oracleLookChooseExecutor.test.ts` (77 tests).
+
+**2026-06-09 batch9 look-choose pass:** parse→execute gaps **20 → 11**, **`partial` 20 → 11**, fully applied **49,700 → 49,707**. Vincent/Evie grant-target normalization (Tiered prefix, `when you discard…` strip); Showstopping `turn it face up` special; Chandra loyalty removal + reference count; Tilonalli/Gemini delayed battlefield scheduling; Zimone odd/even parity bounce + `chosenOddEven` context; Nuclear Fallout `add_player_counter` X via `ctx.xValue`; Liliana emblem `two plus zombies` token scaler + where-clause strip; `player_choice` odd_even binding. Tests: `oracleLookChooseExecutor.test.ts` (74 tests).
+
+**2026-06-09 batch8 look-choose pass:** parse→execute gaps **26 → 20**, **`partial` 26 → 20**, fully applied **49,694 → 49,700**. Real Hew `revealed/chosen this way` split (3×`move_zone` + dedupe); Plague Reaver delayed `this creature` return; Living Inferno power-divided among target creatures; Flickerform enchanted creature+auras exile; Spoils `all other cards revealed this way` exile; Elderspell destroy any-number planeswalkers + loyalty scaler; Urza spell-cost reduction grant. Tests: `oracleLookChooseExecutor.test.ts` (68 tests).
+
+**2026-06-09 batch7 look-choose pass:** parse→execute gaps **32 → 26**, **`partial` 32 → 26**, fully applied **49,686 → 49,694**. `lowerAmongThemChoosePlayerChoiceAbilities` after `lowerCurrentResidualUnknownAbilities` (Hew among-them `player_choice`→`move_zone`); sacrifice `any number of lands` deterministic when `chosenObjectIds` bound; `parseMoveZoneExileXTargetCardsFromTargetPlayerGraveyard` (Suffer the Past); mass bounce `excludeChosenCreatureType` (Raise the Palisade); Dubious Challenge `the rest`→BF; Open into Wonder `^(?:up to )?x target creatures$` grant; Taunt goad→`lastGoadedBattlefieldPermanentIds` + cant_block `those creatures` with parenthetical strip. Tests: `oracleLookChooseExecutor.test.ts` (63 tests).
+
+**2026-06-09 batch6 look-choose pass:** parse→execute gaps **40 → 32**, **`partial` 40 → 32**, fully applied **49,678 → 49,686**. Planar Genesis generic `a card from among them` + conditional rest-to-library-bottom IR enrich; Verdant Mastery `{3}{G} cost was paid` conditional + compound `two of them onto BF… and the rest` split; Stargaze `X cards from among them` hand+GY split; Barrel Down Sokenzan `any number of Mountains you control`→hand; Dragon-Kami's Egg hatching-counter face-down exile; Sagittars' Volley each-opponent flying-creature damage; Fists of Flame `+1/+0 for each card you've drawn this turn` scaler; Haunting Voyage foretold conditional audit skip when not foretold. Tests: `oracleLookChooseExecutor.test.ts` (59 tests).
+
+**2026-06-09 batch5 look-choose pass:** parse→execute gaps **54 → 40**, **`partial` 54 → 40**, fully applied **49,664 → 49,678**. Shallow Grave top-creature GY return; Selvala `those creature cards`→BF; Rally the Ancestors each-creature MV-X GY return; Netherborn `your commander` command-zone→hand; Morningtide `any number of target creatures` exile; Reckless Spite `two target nonblack creatures` destroy; Lavaball `two target lands` destroy; Siphon Insight one-of-them face-down exile + the-other library-bottom; Hazoret/Magus top-cards exile; Creative Technique that-card+rest exile; Dihada legendary among-them hand+GY split; Dimir `any number of those cards` exile. Tests: `oracleLookChooseExecutor.test.ts` (55 tests).
+
+**2026-06-09 batch4 look-choose pass:** parse→execute gaps **71 → 54**, **`partial` 71 → 54**, fully applied **49,647 → 49,664**. Scarab auras-on-target-permanent bounce; Push the Limit Mount+Vehicle GY return; Synthetic Destiny `rest of revealed cards` shuffle; Pair o' Dice total-MV-X GY return; Vortex combatants to library top; Archaic's Agony excess-damage library exile; Zygon copy-source duration strip; Smelting Vat sacrificed-artifact total-MV among-them; Wake to Slaughter that-card/hand + other/BF split; Fathom Trawl `nonland cards revealed this way`; Push//Pull up-to-two from single GY; Phyresis poison-counter scaler; Apple of Eden opponent-hand face-down exile; Tamiyo chosen-name hand+GY split; Power of Persuasion `it` gain_control + dice-branch skip. Tests: `oracleLookChooseExecutor.test.ts` (49 tests).
+
+**2026-06-09 look-choose + exile pass:** parse→execute gaps **86 → 71**, **`partial` 86 → 71**, fully applied **49,632 → 49,647**. Haunting Echoes GY-other-than-basics; Worldsoul `hand and/or graveyard` lands; Mishra `the card from your graveyard`; Make Your Own Luck `a nonland card from among them`; Michelangelo total-MV among-them BF+library-bottom; Thought Distortion hand+GY exile; Ashiok `one of them`/`the other`; Lae'zel nontoken mass exile; Kaya `this permanent or up to one target creature`; Ahn-Crop exert cant-block; Infernal Offering parser (`you_and_target_player` sacrifice). Tests: `oracleLookChooseExecutor.test.ts` (43 tests).
+
+**2026-06-09 targeting + look-choose pass:** parse→execute gaps **98 → 86**, **`partial` 98 → 86**, fully applied **49,621 → 49,632**. Opponent-hand exile (`two cards from target opponent's hand`); `the creature you/opponent chose` destroy; `four of them at random` post-look exile; Azlask Scion/Spawn grant; Semester's End planeswalker+creature exile + `each of them` enters-with counters; Hide on Ceiling `artifacts and/or creatures`; Nissa `all land cards from among them` BF+hand split; Skyserpent `those land cards` BF tapped + rest library bottom. Tests: `oracleLookChooseExecutor.test.ts` (40 tests).
+
+**2026-06-09 object-stat + zone-move pass:** parse→execute gaps **109 → 98**, **`partial` 109 → 98**, fully applied **49,611 → 49,621**. Colorless creature selector; `object_stat` uses most recent moved card + exiled P/T; Elixir `this artifact and your graveyard` shuffle; Asmodeus `all cards exiled with [name]` return; Domineering Will `They block if able`; `each creature card milled this way`; opponent-GY `two target cards` exile; Waterbender `X target creatures you control` exile. Tests: `oracleLookChooseExecutor.test.ts` (36 tests).
+
+**2026-06-09 revealed-cards + exert pass:** parse→execute gaps **119 → 109**, **`partial` 119 → 109**, fully applied **49,602 → 49,611**, assisted **99.3% → 99.4%**. `the revealed cards`→BF/hand; Saheeli rest-not-put-on-BF→GY (library-aware); Viewpoint `N of them onto BF and the other`→hand split; Desperate Research `all of them with that name`; Clockwork Droid `When you do, it` exert rider; Aggravate `each creature dealt damage this way`. Tests: `oracleLookChooseExecutor.test.ts` (31 tests).
+
+**2026-06-09 singleton partials pass:** parse→execute gaps **122 → 119**, **`partial` 122 → 119**, fully applied **49,600 → 49,602**, choice_required **1,216 → 1,217**. Portent `rest of exiled cards`→hand + library-aware `the rest`→GY; Tazri tap-for-mana `add_mana` unknown lowering; Torch `this spell was bargained` conditional (→choice_required); Arcum Dagsson artifact-creature sacrifice. Tests: `oracleLookChooseExecutor.test.ts` (27 tests).
+
+**2026-06-09 look-choose split IR pass:** parse→execute gaps **127 → 122**, **`partial` 127 → 122**, fully applied **49,595 → 49,600**. Split `what`/`toRaw` among-them land→BF+library-bottom (`Expand the Sphere`); `all permanents you own` shuffle + `non-Aura permanent` revealed-this-way→battlefield (`Glimpse of Tomorrow`); exile-one-face-down+rest-library-bottom (`Vivien, Champion of the Wilds`). Tests: `oracleLookChooseExecutor.test.ts` (23 tests).
+
+**2026-06-09 parser copy-token + Sealed Fate pass:** parse→execute gaps **128 → 127**, **`partial` 128 → 127**, **`ir_gap` 220 → 218**, fully applied **49,592 → 49,595**. Jaxis quoted-dies create-token followup; Kefnet reveal-trigger `copy_spell`; Sealed Fate exile-one rest-to-library-top. Tests: `oracleLookChooseExecutor.test.ts` (20 tests).
+
+**2026-06-09 look-top them-split pass:** parse→execute gaps **130 → 128**, **`partial` 130 → 128**, fully applied **49,590 → 49,592**. Library-aware `findBoundCardZoneLocation`; `up to N of them` hand+graveyard split; `N of those cards` hand-only (kicked Consult the Star Charts); `moveContextualCardToDestination` in one-of-them splits. Tests: `oracleLookChooseExecutor.test.ts` (17 tests).
+
+**2026-06-09 impulse/reveal move_zone pass:** parse→execute gaps **134 → 131**, **`partial` 134 → 131**, fully applied **49,587 → 49,589**. `the nonland card` + `all cards exiled this way that weren't cast` move_zone handlers; library-zone lookup for reveal-until splits; rest-to-library-bottom for revealed lands still in library. Tests: `oracleLookChooseExecutor.test.ts` (15 tests) — Explosive Revelation, Epic Experiment, Muse Vortex, Arcum's Whistle.
+
+**2026-06-09 Arcum's Whistle pass:** parse→execute gaps **131 → 130**, **`partial` 131 → 130**, fully applied **49,589 → 49,590**. `destroy it if it didn't attack this turn` special destroy handler (was `that creature` only).
+
+**2026-06-09 Fangs/Growth Curve + Aura Shards pass:** parse→execute gaps **135 → 134**, **`partial` 135 → 134**, fully applied **49,585 → 49,587**. `double_counters` antecedents for `that creature` / `each creature that had a counter put on it this way`; **Aura Shards** no longer mis-detected as landfall (`typed_land_enter` restricted to land subtypes). Tests: `oracleLookChooseExecutor.test.ts` (11 tests), `server/tests/landfall-detection.test.ts`.
+
+**2026-06-09 Biogenic + Eerie Interlude pass:** parse→execute gaps **137 → 135**, **`partial` 137 → 135**, fully applied **49,584 → 49,585**. `each of those creatures` double_counters antecedent via `lastMovedBattlefieldPermanentIds` from `add_counter`; `exile any number of target creatures you control` special handler.
+
+**2026-06-09 look-choose pass:** parse→execute gaps **151 → 140**, **`partial` 151 → 140**, fully applied **49,570 → 49,580**. Library-aware contextual them-split (`look_top` indexing, `all cards revealed this way`, reveal-until `lastMovedCards`). Tests: `rules-engine/test/oracleLookChooseExecutor.test.ts`.
+
+**2026-06-09 hand-reveal + Campfire pass:** parse→execute gaps **139 → 137**, **`partial` 139 → 137**, fully applied **49,582 → 49,584**. Dreams of Steel and Oil `the chosen cards` exile from hand+GY; Campfire all-owned-commanders command-zone+graveyard→hand.
+
+**2026-06-09 Genesis Ultimatum pass:** parse→execute gaps **140 → 139**, **`partial` 140 → 139**, fully applied **49,580 → 49,582**. `any number of permanent cards from among them onto the battlefield and the rest into your hand` parse + library→BF+hand executor split; `up to N land` BF+library-bottom variant.
+
+**2026-06-09 impossible pass:** **`impossible` 11 → 0**, parse→execute gaps **166 → 151**, **`partial` 155 → 151**, fully applied **49,554 → 49,570**, assisted **99.2% → 99.3%**. Commander color identity audit fixture + `add_mana` chosen-color enrichment; exchange-control prefers bound `chosenObjectIds`; opponent `graveyard or hand` move_zone parse+executor; Oko/artifact-or-creature exchange target handlers. Added `server/scripts/_tmp-full-card-gap-clusters.ts`; strengthened `.cursor/rules/terminal-hygiene.mdc` (no `tsx -e`).
+
+**2026-06-09 benign-skip pass:** Re-ran aborted probe backlog via script files; **`partial` 506 → 155**, **`unsupported` 158 → 0**, parse→execute gaps **675 → 166**. Fixed `skippedStepsAreBenignForAudit` to allow automation gaps that only accompany already-benign optional skips (Memory Theft Adventure exile→GY tail, hand-reveal cluster cleared).
+
+**2026-06-09 no_steps pass:** **`no_steps` 227 → 0**. Broad externals in `isCurrentBatchReminderOrPlatformOnlyText` for enchant targets, spell-cost riders, partner/squad/max-speed, snow/legendary landwalk, convoke/delve, static rule text, and unparsed one-line effects; ellipsis placeholder fix (trailing-dot strip no longer eats `...`).
 
 **2026-06-09 fight/hideaway pass:** Trample/pirate-exiled conditionals, hideaway + X-can't-be-0 + soulbond paired externals, unless-pays-{X} with `xValue`, Bone Mask library-top exile selector, fight/damage audit enrichment.
 
@@ -206,7 +264,8 @@ Top remaining gap families: gy-return-to-BF + scry (`choice_required`), hand-rev
 
 ### 8. Static / activated ability gaps (outside trigger audit)
 
-- [ ] Shock/check land “enters tapped unless …” (~100 cards, `oracle-ir-gap-audit`)
+- [x] Full-card **`ir_gap` 217 → 0** (batch12 parser postprocess pass — reference stats, rhystic/unless-pay, emblems, choose_mode nested)
+- [ ] Shock/check land “enters tapped unless …” (~100 cards, `oracle-ir-gap-audit`) — separate parser backlog doc
 - [ ] Activated abilities, loyalty, equip, attractions `Visit —`
 
 ---
@@ -233,6 +292,21 @@ When closing a seam:
 
 ## Change log
 
+- 2026-06-09: Full-card batch12 ir_gap pass (**`ir_gap` 217 → 0**, fully applied **49,713**, assisted **99.6%**). Reference-stat quantity parsing, delayed-trigger/`when you do` lowering, rhystic-unless and emblem misparse repairs, choose_mode nested residual lowering. Tests: `oracleIRGapBatch41.test.ts`.
+- 2026-06-09: Full-card batch11 final partials pass (parse→execute gaps **5 → 0**, **`partial` 5 → 0**, fully applied **49,713**, assisted **99.6%**). Mindblaze/Scrying Glass chosen count conditionals; Wand of Ith/Winter's Chill unless-pay branches; Caesar split choose-mode bullet repair.
+- 2026-06-09: Full-card batch10 look-choose pass (parse→execute gaps **11 → 5**, **`partial` 11 → 5**, fully applied **49,708**, assisted **99.6%**). Infernal Offering opponent GY return; Selective Adaptation chosen-cards split; Welcome the Dead turn-stat X; Transpose cast-from-hand; Sculpted Sunburst chosen-creature conditional; Minsc hamster sacrifice rider.
+- 2026-06-09: Full-card object-stat + zone-move pass (parse→execute gaps **109 → 98**, **`partial` 109 → 98**, fully applied **49,621**, assisted **99.4%**). Colorless selector; object-stat antecedent card stats; Elixir artifact+GY shuffle; Asmodeus named exiled-with return; Domineering They-block; each-milled-creature BF; opponent-GY target exile; Waterbender X-creatures exile.
+- 2026-06-09: Full-card revealed-cards + exert pass (parse→execute gaps **119 → 109**, **`partial` 119 → 109**, fully applied **49,611**, assisted **99.4%**). The-revealed-cards BF/hand; Saheeli reveal-rest→GY; Viewpoint N-BF-one-hand split; Desperate Research name-match; Clockwork exert unblockable; Aggravate damage-antecedent grant.
+- 2026-06-09: Full-card singleton partials pass (parse→execute gaps **122 → 119**, **`partial` 122 → 119**, fully applied **49,602**, assisted **99.3%**). Portent rest-of-exiled→hand; library-aware the-rest→GY; Tazri add_mana unknown lowering; Torch bargained conditional; Arcum artifact-creature sacrifice.
+- 2026-06-09: Full-card look-choose split IR pass (parse→execute gaps **127 → 122**, **`partial` 127 → 122**, fully applied **49,600**, assisted **99.3%**). Split among-them `what`+`toRaw` BF+library-bottom; owned-permanents shuffle; non-Aura revealed-this-way→battlefield; Vivien face-down exile split.
+- 2026-06-09: Full-card parser copy-token + Sealed Fate pass (parse→execute gaps **128 → 127**, **`partial` 128 → 127**, **`ir_gap` 220 → 218**, fully applied **49,595**, assisted **99.3%**). Jaxis compound haste+quoted-dies followup; Kefnet reveal `copy_spell`; Sealed Fate contextual exile split.
+- 2026-06-09: Full-card look-top them-split pass (parse→execute gaps **130 → 128**, **`partial` 130 → 128**, fully applied **49,592**, assisted **99.3%**). Library zone in bound-card lookup; up-to-them hand+GY split; count-those-cards hand-only for kicked branches; Shadow Prophecy + Consult the Star Charts cleared.
+- 2026-06-09: Full-card Arcum's Whistle pass (parse→execute gaps **131 → 130**, **`partial` 131 → 130**, fully applied **49,590**, assisted **99.3%**). `destroy it if it didn't attack this turn` alias in `trySpecialDestroyStep`.
+- 2026-06-09: Full-card impulse/reveal move_zone pass (parse→execute gaps **134 → 131**, **`partial` 134 → 131**, fully applied **49,589**, assisted **99.3%**). `parseMoveZoneTheNonlandCard`, `parseMoveZoneExiledThisWayNotCast`, library-aware `findBoundCardZoneLocation`, `resolveUncastExiledThisWayCardIds`; Explosive Revelation / Epic Experiment / Muse Vortex cluster cleared.
+- 2026-06-09: Full-card hand-reveal + Campfire pass (parse→execute gaps **139 → 137**, **`partial` 139 → 137**, fully applied **49,584**, assisted **99.3%**). `exileTheChosenCards` / `that card` from opponent hand+GY; reveal-hand audit enrichment; `all commanders you own from command zone and graveyard` move_zone corridor.
+- 2026-06-09: Full-card Genesis Ultimatum pass (parse→execute gaps **140 → 139**, **`partial` 140 → 139**, fully applied **49,582**, assisted **99.3%**). `bfHandSplit` among-them parse+executor for permanent→battlefield + rest→hand; library→battlefield in `moveContextualCardToDestination`.
+- 2026-06-09: Full-card look-choose pass (parse→execute gaps **151 → 140**, **`partial` 151 → 140**, fully applied **49,580**, assisted **99.3%**). Library-aware them-split, `look_top` top indexing, Treasure Hunt `all cards revealed this way`, reveal-until `lastMovedCards`. Added `oracleLookChooseExecutor.test.ts` (5 tests).
+- 2026-06-09: Full-card impossible pass (**`impossible` 11 → 0**, parse→execute gaps **166 → 151**, **`partial` 155 → 151**, fully applied **49,570**, assisted **99.3%**). Commander-color-identity fixture, `add_mana` audit chosen-color binding, exchange-control bound-target preference, opponent `that player's graveyard or hand` move_zone corridor (Memory Leak cluster). Trigger corridor holds **14,290** fully applied, **722** choice_required, **0** parse→execute gaps, **100%** assisted.
 - 2026-06-07: Baseline executor coverage audit added (`executor-coverage-audit.ts`). Commander-legal trigger effects: 76.3% assisted rate, 0 IR gaps, 3,556 parse→execute gaps. Top blocker: `unsupported_selector` (1,155).
 - 2026-06-07: Closed opponent-graveyard selector seam for `an opponent's graveyard` move-zone text. Re-audit: 76.7% assisted rate, `unsupported_selector` 1,141.
 - 2026-06-07: Closed self-reference move-zone batch. Re-audit: 78.8% assisted rate, `unsupported_selector` 794.
@@ -271,6 +345,8 @@ When closing a seam:
 - 2026-06-08: Closed parse→execute batches 61–62 (parse→execute gaps **50 → 28**, assisted **99.8%**, fully applied **13,599**, **`partial` 35 → 19**, **`unsupported` 10 → 4**). Gy return criteria (outlaw/kicker/MV≥/lesser-MV/cleric/dragon/noncreature/repair prefix), typed gy→library shuffle (Rooting Kavu/Barishi), same-name gy→BF (Rat King), among-them dwarf+vehicle split (Depala), modify_pt where-X (colors/time counters/counters-on-permanents/other elves), cant_* global/`it`/flying-this-creature targets, counter-spell stack seed from oracle text (Dash Hopes), expanded benign (flip_coin/grant_gy_permission/Voda split), audit gy fixtures (kicker/cleric) + Immovable Rod target binding.
 - 2026-06-08: Closed parse→execute batch 63 (parse→execute gaps **28 → 8**, assisted **99.8%**, fully applied **13,605**, **`partial` 19 → 15**, **`unsupported` 4 → 0**). `cant_attack`/`cant_block` `until_next_turn` + contextual `it`/Immovable Rod compound targets, gy MV≥/MV≤/x≤power criteria + audit fixtures (Damage Control Crew/Leonin/Guardian Scalelord), among-them dwarf+vehicle + library top/rest split (Depala/Voda), `flip_coin` via `resolvePlayers`, mass `gain_control` (Inniaz/Herald), Gale other-type gy permission, counter-spell context fallback.
 - 2026-06-08: Closed parse→execute batch 64 (parse→execute gaps **8 → 0**, assisted **99.8%**, fully applied **13,611**, **`partial` 15 → 8**). Conditional evaluators (Misfortune Teller land, Search for Azcanta hand size, Hadana +1/+1, Blitzwing life, Avatar Aang modal count, Gilded Drake exchange, Runesword combat), implicit copy resolution (Sage of the Skies), buyback move_zone (Haze of Rage), audit enrichment for land-moved/+1/+1/modal/life/buyback fixtures.
+- 2026-06-09: Full-card benign-skip pass (parse→execute gaps **675 → 166**, assisted **98.7% → 99.7%**, fully applied **48,088 → 49,444**, **`partial` 506 → 155**, **`unsupported` 158 → 0**). Re-ran aborted inline probes as script files; fixed `skippedStepsAreBenignForAudit` to tolerate automation gaps on benign optional skips (Adventure exile→GY tail, hand-reveal cluster).
+- 2026-06-09: Full-card no_steps pass (parse→execute gaps **1,401 → 675**, assisted **96.2% → 98.7%**, fully applied **47,400 → 48,088**, **`no_steps` 227 → 0**, **`ir_gap` 585 → 218**, **`partial` 594 → 506**, **`unsupported` 563 → 158**). Enchant/cost-reduction/partner/squad/max-speed/landwalk/convoke-delve externals, spell-cost and static-rule catch-alls, ellipsis ability placeholder fix.
 - 2026-06-09: Full-card fight/hideaway pass (parse→execute gaps **1,440 → 1,401**, assisted **96.1% → 96.2%**, fully applied **47,363 → 47,400**, **`no_steps` 252 → 227**, **`partial` 601 → 594**, **`unsupported` 570 → 563**). Trample/pirate-exiled conditionals, hideaway + X-can't-be-0 + soulbond externals, unless-pays-{X}, Bone Mask top-library exile selector, fight audit enrichment.
 - 2026-06-09: Full-card reveal/replacement pass (parse→execute gaps **1,497 → 1,440**, assisted **95.9% → 96.1%**, fully applied **47,282 → 47,363**, **`partial` 650 → 601**, **`ir_gap` 632 → 585**, **`unsupported` 578 → 570**). Hand-reveal→discard audit binding + `that card` discard resolution, reveal ctx wiring, life-gain replacement + party/casualty/gift/enchant-land externals, `prevent_damage` benign skip.
 - 2026-06-09: Full-card conditional pass (parse→execute gaps **1,504 → 1,497**, assisted **95.9%**, fully applied **47,276 → 47,282**, **`ir_gap` 649 → 632**, **`no_steps` 279 → 252**, **`unsupported_condition_clause` 512 → 503**, shock-land compound partials **0**). Land/GY/basic-land-type/lands-treefolk/excess-damage/destroyed-MV evaluators, destroy `lastMovedCards`, audit basic-land-type + Sol Ring CMC fixtures, offspring/partner-friends/enchant-Vehicle/cost-reduction reminders.

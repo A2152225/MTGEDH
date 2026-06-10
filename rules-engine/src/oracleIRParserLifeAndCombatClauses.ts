@@ -60,6 +60,9 @@ function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, {
   if (normalized === "that creature's toughness") {
     return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
   }
+  if (normalized === "that equipment's mana value") {
+    return { kind: 'object_stat', subject: 'that_equipment', stat: 'mana_value' };
+  }
   if (normalized === "that spell's mana value") {
     return { kind: 'reference_amount', raw: normalized };
   }
@@ -155,6 +158,15 @@ function parseLifeChangeAmount(
   }
   if (normalized === 'the mana value of the sacrificed permanent') {
     return { kind: 'object_stat', subject: 'the_sacrificed_permanent', stat: 'mana_value' };
+  }
+  if (normalized === "that permanent's mana value") {
+    return { kind: 'object_stat', subject: 'that_permanent', stat: 'mana_value' };
+  }
+  if (normalized === "the sacrificed enchantment's mana value") {
+    return { kind: 'object_stat', subject: 'the_sacrificed_enchantment', stat: 'mana_value' };
+  }
+  if (normalized === 'the high bid') {
+    return { kind: 'reference_amount', raw: normalized };
   }
   if (normalized === 'the power of target creature you control') {
     return { kind: 'object_stat', subject: 'target_creature_you_control', stat: 'power' };
@@ -536,16 +548,30 @@ export function tryParseLifeAndCombatClause(args: {
     }
 
     const equalDividedDamage = damageClause.match(
-      /^(.+?)\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+divided(?:\s+(evenly, rounded down),?\s+among|\s+as you choose among)\s+(.+)$/i
+      /^(.+?)\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+divided\s+as\s+you\s+choose\s+among\s+one,\s+two,\s+or\s+three\s+targets$/i
     );
     if (equalDividedDamage) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: parseDamageAmount(equalDividedDamage[2]),
+        source: parseObjectSelector(String(equalDividedDamage[1] || '').trim()),
+        target: { kind: 'raw', text: 'one, two, or three targets' },
+        division: 'as_you_choose',
+        raw: rawClause,
+      });
+    }
+
+    const equalDividedDamageGeneric = damageClause.match(
+      /^(.+?)\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+divided(?:\s+(evenly, rounded down),?\s+among|\s+as you choose among)\s+(.+)$/i
+    );
+    if (equalDividedDamageGeneric) {
       const whereSuffix = damageClause.match(/,\s*where\s+x\s+is\s+(.+)$/i);
       if (whereSuffix) {
         const evenlyRounded = /\bevenly,?\s+rounded\s+down\b/i.test(damageClause);
         return buildDamageStepFromClauseParts({
-          source: parseObjectSelector(String(equalDividedDamage[1] || '').trim()),
-          quantityTail: `${String(equalDividedDamage[2] || '').trim()}, where x is ${String(whereSuffix[1] || '').trim()}`,
-          target: parseObjectSelector(String(equalDividedDamage[3] || '').trim()),
+          source: parseObjectSelector(String(equalDividedDamageGeneric[1] || '').trim()),
+          quantityTail: `${String(equalDividedDamageGeneric[2] || '').trim()}, where x is ${String(whereSuffix[1] || '').trim()}`,
+          target: parseObjectSelector(String(equalDividedDamageGeneric[3] || '').trim()),
           division: evenlyRounded ? 'evenly_rounded_down' : 'as_you_choose',
           rawClause,
           withMeta,
@@ -553,9 +579,9 @@ export function tryParseLifeAndCombatClause(args: {
       }
       return withMeta({
         kind: 'deal_damage',
-        amount: parseDamageAmount(equalDividedDamage[2]),
-        source: parseObjectSelector(equalDividedDamage[1]),
-        target: parseObjectSelector(equalDividedDamage[3]),
+        amount: parseDamageAmount(equalDividedDamageGeneric[2]),
+        source: parseObjectSelector(equalDividedDamageGeneric[1]),
+        target: parseObjectSelector(equalDividedDamageGeneric[3]),
         division: /\bevenly,?\s+rounded\s+down\b/i.test(damageClause) ? 'evenly_rounded_down' : 'as_you_choose',
         raw: rawClause,
       });

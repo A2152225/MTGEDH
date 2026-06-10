@@ -67,6 +67,17 @@ export function tryEvaluateModifyPtWhereZoneCardCounts(args: {
   }
 
   {
+    const m = raw.match(
+      /^x is the number of cards? that were put into your graveyard from your hand or library this turn$/i
+    );
+    if (m) {
+      const stateAny: any = state as any;
+      const count = Number(stateAny?.cardsPutIntoYourGraveyardFromNonBattlefieldThisTurn?.[controllerId] ?? 0);
+      return Number.isFinite(count) ? Math.max(0, count) : 0;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of cards? in your (graveyard|hand|library|exile)$/i);
     if (m) {
       return getZoneCount(findPlayerById(controllerId), String(m[1] || '').toLowerCase());

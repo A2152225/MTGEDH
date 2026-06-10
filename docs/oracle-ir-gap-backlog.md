@@ -4,41 +4,28 @@ Refreshed from `tools/oracle-ir-gap-audit.ts` against `oracle-cards.json` and `A
 
 ## Current Audit Snapshot
 
-- Unique cards parsed: 29,539
-- Cards with gaps: 12,742
-- Gap records: 17,121
+- Unique cards parsed: 29,971
+- Cards with gaps: 188
+- Gap records: 207
 - Report artifact: `tools/oracle-ir-gap-audit.json`
 
-## Completed In This Pass
+## Completed In This Pass (batch 42)
 
 The following high-frequency seams were implemented and dropped out of the refreshed top-gap list:
 
-1. `then shuffle`
-2. `Add one mana of any color`
-3. `Tap target creature`
-4. `Untap that creature`
-5. `Search your library for a basic land card, put it onto the battlefield tapped, then shuffle`
-6. `its power` damage fragments
-7. `you get {E}{E} (two energy counters)`
-8. static-number `look at the top N ... put a matching card into hand/exile ... put the rest on the bottom in a random order`
-9. `Counter target spell`
-10. `Target opponent reveals their hand`
-11. `Counter target spell unless its controller pays {N}`
-12. controller-scoped plural creature buffs like `Creatures you control get +1/+1 until end of turn`
-13. suspend-style `remove a time counter`
-14. reminder-only `Unearth only as a sorcery.)`
-15. targeted discard-card wording like `That player discards that card`
-16. reminder-only `Turn it face up any time for its mana cost if it's a creature card.)`
-17. reminder-only `Cast it on a later turn for its foretell cost.)`
-18. standalone activated-ability restriction tails like `Activate only once each turn`
-19. standalone combat requirement text like `This creature attacks each combat if able` when combat control already enforces it elsewhere
-20. scry reminder fragments like `Look at the top card of your library` / `You may put that card on the bottom.)`
-21. `Target creature can't block this turn`
+1. Gift promise rider `draw a card before its other effects`
+2. Quoted static grants like `Other blue creatures you control have "Whenever…"`
+3. Orphan `Visit —` attraction headers before `choose_mode`
+4. `You draw two cards, lose 2 life` comma compounds
+5. `Target player discards X cards at random`
+6. `Teamwork N (...)` additional-cost reminder text
+7. `While each one is exiled, its owner may cast it for {2}...` impulse riders
+8. `You gain N life for each creature tapped this way`
+9. Reveal-or-pay additional cost tails misparsed as `pay_mana.who`
 
 Validation completed:
 
-1. `npm run typecheck --workspace=rules-engine`
-2. `npx vitest run test/oracleIRParser.test.ts test/oracleIRExecutor.test.ts`
+1. `npx vitest run test/oracleIRGapBatch42.test.ts`
 
 ## Next Ranked Todo
 
