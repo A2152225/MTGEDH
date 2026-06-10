@@ -7911,6 +7911,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     bypassExilePermissionCheck?: unknown;
     ignoreTimingRestrictions?: unknown;
     allowLibrarySearchCast?: unknown;
+    castEffectId?: unknown;
   }) => {
     const safeGameId = typeof payload?.gameId === 'string' ? payload.gameId : undefined;
     try {
@@ -7938,6 +7939,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const bypassExilePermissionCheck = payload?.bypassExilePermissionCheck === true;
       let ignoreTimingRestrictions = payload?.ignoreTimingRestrictions === true;
       const allowLibrarySearchCast = payload?.allowLibrarySearchCast === true;
+      const castEffectId = typeof payload?.castEffectId === 'string' ? String(payload.castEffectId).trim() : '';
 
       if (!gameId || typeof gameId !== 'string') return;
       if (!cardId || typeof cardId !== 'string') return;
@@ -11785,6 +11787,15 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
             }
 
+            if (castEffectId && game.state.stack && game.state.stack.length > 0) {
+              const topStackItem = game.state.stack[game.state.stack.length - 1];
+              if (topStackItem) {
+                (topStackItem as any).castEffectId = castEffectId;
+                (game.state as any).castEffectIdToStackItemId = (game.state as any).castEffectIdToStackItemId || {};
+                (game.state as any).castEffectIdToStackItemId[castEffectId] = String((topStackItem as any).id || '');
+              }
+            }
+
             // Track per-turn "cast from hand" (best-effort)
             if (castSourceZone === 'hand') {
               game.state.spellsCastFromHandThisTurn = game.state.spellsCastFromHandThisTurn || {};
@@ -11849,6 +11860,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             const stackItem = {
               id: `stack_${Date.now()}_${cardId}`,
               controller: playerId,
+              ...(castEffectId ? { castEffectId } : {}),
               card: {
                 ...cardInHand,
                 zone: "stack",
@@ -11924,6 +11936,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               // Fallback: manually add to stack
               game.state.stack = game.state.stack || [];
               game.state.stack.push(stackItem as any);
+            }
+
+            if (castEffectId) {
+              (game.state as any).castEffectIdToStackItemId = (game.state as any).castEffectIdToStackItemId || {};
+              (game.state as any).castEffectIdToStackItemId[castEffectId] = String(stackItem.id || '');
             }
             
             // Bump sequence
@@ -12767,6 +12784,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         bypassExilePermissionCheck: pendingBypassExilePermissionCheck,
         ignoreTimingRestrictions: pendingIgnoreTimingRestrictions,
         allowLibrarySearchCast: Boolean(suspendedLibrarySearchStep),
+        ...(effectIdStr ? { castEffectId: effectIdStr } : {}),
       });
 
       if (suspendedLibrarySearchStep) {

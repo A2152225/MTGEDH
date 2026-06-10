@@ -221,7 +221,7 @@ import {
 import { tryParseSimpleCreateTokenClause } from './oracleIRParserTokenSimpleClauses';
 import { tryParseTokenCreationReplacementClause } from './oracleIRParserTokenReplacementClauses';
 import { tryParseSimpleActionClause } from './oracleIRParserSimpleActionClauses';
-import { tryParseStaticAbilityGrantClause } from './oracleIRParserStaticAbilityClauses';
+import { tryParseStaticAbilityGrantClause, tryParseRulesTextClause } from './oracleIRParserStaticAbilityClauses';
 import { tryParseTemporaryAbilityClause } from './oracleIRParserTemporaryAbilityClauses';
 import { tryParseTemporaryGrantedDiesTriggerClause } from './oracleIRParserTemporaryTriggeredClauses';
 import { tryParseZoneAndRemovalClause } from './oracleIRParserZoneAndRemovalActions';
@@ -273,6 +273,27 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   {
     const parsed = tryParseDelayedTriggerClause({ clause, rawClause, withMeta });
     if (parsed) return parsed;
+  }
+
+  {
+    const parsed = tryParseRulesTextClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
+    const parsed = tryParseVillainousChoiceStep(clause, undefined);
+    if (parsed) return withMeta(parsed);
+  }
+
+  {
+    if (
+      /^(?:equipped|enchanted)\s+.+?\bgets\s+[+-]?\d+\s*\/\s*[+-]?\d+/i.test(clause)
+      || /^enchanted permanent is\b/i.test(clause)
+      || /\bgets\s+[+-]?\d+\s*\/\s*[+-]?\d+,\s+has\s+"/i.test(clause)
+    ) {
+      const parsed = tryParseStaticAbilityGrantClause({ clause, rawClause, withMeta });
+      if (parsed) return parsed;
+    }
   }
 
   {

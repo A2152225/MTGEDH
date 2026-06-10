@@ -141,6 +141,11 @@ function parseArgs(): AuditArgs {
 
 function stripKeywordActivationReminders(effectText: string, preserveNewlines = false): string {
   return String(effectText || '')
+    .replace(
+      /(?:\.\s*(?:\([^)]*\)\s*)?|\n+\s*)\{[^}]+\}(?:\{[^}]+\})*(?:,\s*|\s*:)\s*[\s\S]*$/i,
+      '.',
+    )
+    .replace(/\.\s*$/g, '')
     .replace(/\s+equip(?:\{[^}]*\}|\d+\})?(?:\s*\([^)]*\))?\s*$/i, '')
     .replace(/\s+reconfigure(?:\{[^}]*\})?(?:\s*\([^)]*\))?\s*$/i, '')
     .replace(/\s+craft(?:\{[^}]*\}|\d+\})?(?:\s*\([^)]*\))?\s*$/i, '')
@@ -1915,6 +1920,31 @@ export function enrichAuditStateAndContextForTargets(
       }),
     } as GameState;
     nextCtx = { ...nextCtx, lastMovedCards: lookFixtures };
+  }
+
+  const needsAlternateCostPaidBranch = steps.some((step) =>
+    /if the \{[^}]+\}(?:\{[^}]+\})* cost was paid/i.test(String(step.raw || '')) ||
+    /if that cost wasn't paid/i.test(String(step.raw || ''))
+  );
+  if (needsAlternateCostPaidBranch) {
+    nextCtx = {
+      ...nextCtx,
+      alternateCostPaid: true,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetOpponentId: nextCtx.selectorContext?.targetOpponentId || 'p2',
+        targetPlayerId: nextCtx.selectorContext?.targetPlayerId || 'p2',
+      },
+    };
+    if (steps.some((step) => step.kind === 'scry' && /^they scry/i.test(String(step.raw || '')))) {
+      nextState = {
+        ...nextState,
+        players: (nextState.players || []).map((player: any) => {
+          if (String(player?.id || '').trim() !== 'p2') return player;
+          return { ...player, library: [] };
+        }),
+      } as GameState;
+    }
   }
 
   const needsVerdantMasteryReveal = steps.some((step) =>

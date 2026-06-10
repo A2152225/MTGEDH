@@ -41,6 +41,13 @@
         body.touch [role="button"] {
           min-height: 44px;
         }
+        /* Portrait: reserve space for the mobile action dock + safe area. */
+        body.touch.orientation-portrait {
+          --mobile-dock-reserve: calc(56px + env(safe-area-inset-bottom, 0px));
+        }
+        body.touch.orientation-landscape {
+          --mobile-dock-reserve: calc(48px + env(safe-area-inset-bottom, 0px));
+        }
       }
       /* Respect reduced-motion preference for any future CSS animations. */
       @media (prefers-reduced-motion: reduce) {

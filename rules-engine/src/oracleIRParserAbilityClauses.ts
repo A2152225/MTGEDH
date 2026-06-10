@@ -239,15 +239,74 @@ function splitConservativeQuotedCreateTokenFollowupClause(args: {
 }): string[] | null {
   const { rawClause, parseEffectClauseToStep } = args;
   const clause = normalizeOracleText(rawClause).replace(/[.]+$/g, '').trim();
-  const match = clause.match(/^(create(?:s)?\s+.+?\btoken(?:s)?\s+with\s+"[^"]+")\s+([A-Z][\s\S]+)$/i);
+  const delayedCleanupMatch = clause.match(
+    /^(create(?:s)?\s+.+?\btokens?\s+(?:with\s+[\s\S]*?"[^"]+"\.?))\s+(exile|sacrifice)\s+(?:it|them|that token|those tokens|the token|the tokens)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\.?$/i
+  );
+  const legacyMatch = delayedCleanupMatch
+    ? null
+    : clause.match(/^(create(?:s)?\s+.+?\btoken(?:s)?\s+with\s+"[^"]+")\s+([A-Z][\s\S]+)$/i);
+  const match = delayedCleanupMatch ?? legacyMatch;
   if (!match) return null;
 
   const first = String(match[1] || '').trim();
-  const second = String(match[2] || '').trim();
+  const second = delayedCleanupMatch
+    ? `${String(match[2] || '').trim()} them at the beginning of the next end step`
+    : String(match[2] || '').trim();
+  const firstStep = parseEffectClauseToStep(first);
+  if (firstStep.kind !== 'create_token') return null;
+  if (!delayedCleanupMatch && parseEffectClauseToStep(second).kind === 'unknown') return null;
+
+  return [first, second];
+}
+
+function splitConservativeDamageDrawGainLifeClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const clause = normalizeOracleText(rawClause).replace(/[.]+$/g, '').trim();
+  const match = clause.match(
+    /^(it|this creature|this permanent|~)\s+deals?\s+x\s+damage\s+to\s+any\s+target,\s+target\s+player\s+draws?\s+x\s+cards,\s+and\s+you\s+gain\s+x\s+life,\s+where\s+x\s+is\s+(.+)$/i,
+  );
+  if (!match) return null;
+
+  const subject = String(match[1] || 'it').trim();
+  const whereTail = String(match[2] || '').trim();
+  if (!whereTail) return null;
+
+  const parts = [
+    `${subject} deals x damage to any target, where x is ${whereTail}`,
+    `target player draws x cards, where x is ${whereTail}`,
+    `you gain x life, where x is ${whereTail}`,
+  ];
+  if (parts.some(part => parseEffectClauseToStep(part).kind === 'unknown')) return null;
+  return parts;
+}
+
+function splitConservativeDrawGainControlClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const clause = normalizeOracleText(rawClause).replace(/[.]+$/g, '').trim();
+  const match = clause.match(
+    /^(.+?)\s+draws?\s+((?:a card|a|an|\d+|two|three|four|five|six|seven|eight|nine|ten|x|[a-z]+)\s+cards?)\s+and\s+(gains?\s+control\s+of\s+.+)$/i,
+  );
+  if (!match) return null;
+
+  const who = String(match[1] || '').trim();
+  const cards = String(match[2] || '').trim();
+  const controlTail = String(match[3] || '').trim();
+  if (!who || !cards || !controlTail) return null;
+
+  const drawVerb = /^you$/i.test(who) ? 'draw' : 'draws';
+  const gainVerb = /^you$/i.test(who) ? 'gain' : 'gains';
+  const first = `${who} ${drawVerb} ${cards}`;
+  const controlBody = controlTail.replace(/^gains?\s+/i, '').trim();
+  const second = `${who} ${gainVerb} ${controlBody}`;
   const firstStep = parseEffectClauseToStep(first);
   const secondStep = parseEffectClauseToStep(second);
-  if (firstStep.kind !== 'create_token' || secondStep.kind === 'unknown') return null;
-
+  if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;
   return [first, second];
 }
 
@@ -343,6 +402,8 @@ export function buildAbilityClauses(args: {
     splitConservativeCantAttackOrBlockClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeQuotedCreateTokenFollowupClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeAndCreateTokenClause({ rawClause: clause, parseEffectClauseToStep }) ??
+    splitConservativeDamageDrawGainLifeClause({ rawClause: clause, parseEffectClauseToStep }) ??
+    splitConservativeDrawGainControlClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCommaDrawGainClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeActionConjunctionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCreateTokenLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??

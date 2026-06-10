@@ -12838,6 +12838,17 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
+      const lowerMatchText = String(match[0] || '').toLowerCase();
+      if (
+        lowerMatchText.includes('spell of the chosen type') ||
+        lowerMatchText.includes('spell from your library') ||
+        lowerMatchText.includes('spell from your graveyard') ||
+        lowerMatchText.includes('spell from exile') ||
+        lowerMatchText.includes('spell from anywhere other than your hand') ||
+        /^from your library\b/i.test(String(match[2] || '').trim())
+      ) {
+        continue;
+      }
       const effectText = extendSpellCopyEffectText(oracleText, match[0], match[1].trim(), match.index);
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'any')) {
         triggers.push({
@@ -12875,7 +12886,8 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         lowerMatchText.includes('spell from your library') ||
         lowerMatchText.includes('spell from your graveyard') ||
         lowerMatchText.includes('spell from exile') ||
-        lowerMatchText.includes('spell from anywhere other than your hand')
+        lowerMatchText.includes('spell from anywhere other than your hand') ||
+        /^from your library\b/i.test(String(match[2] || '').trim())
       ) {
         continue;
       }
@@ -13251,14 +13263,15 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   }
 
   const castInstantOrSorceryWithoutSpellWord = oracleText.match(
-    /whenever you cast an? (instant|sorcery),?\s*([^.]+)/gi,
+    /whenever you cast an? (instant|sorcery)(?! or sorcery(?:\s+spell)?),?\s*([^.]+)/gi,
   );
   if (castInstantOrSorceryWithoutSpellWord) {
     for (const rawMatch of castInstantOrSorceryWithoutSpellWord) {
-      const effectMatch = /whenever you cast an? (instant|sorcery),?\s*([^.]+)/i.exec(rawMatch);
+      const effectMatch = /whenever you cast an? (instant|sorcery)(?! or sorcery(?:\s+spell)?),?\s*([^.]+)/i.exec(rawMatch);
       if (!effectMatch) continue;
       const effectText = extendSpellCopyEffectText(oracleText, effectMatch[0], effectMatch[2].trim());
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'instant_sorcery')) {
+        const copiesSpell = effectText.toLowerCase().includes('copy that spell') || effectText.toLowerCase().includes('copy it');
         triggers.push({
           permanentId,
           cardName,
@@ -13266,6 +13279,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           description: `Whenever you cast an ${effectMatch[1]}, ${effectText}`,
           effect: effectText,
           spellCondition: 'instant_sorcery',
+          copiesSpell,
           mandatory: !effectText.toLowerCase().includes('you may'),
         });
       }
@@ -13490,7 +13504,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const castShortTypePatterns = [
     /whenever you cast a (blue|green|red|white|black|cat|dog|kraken|pegasus|lesson)(?:\s+spell)?,?\s*([^.]+)/gi,
-    /whenever you cast an (aura|artifact|enchantment|instant|sorcery)(?:\s+spell)?,?\s*([^.]+)/gi,
+    /whenever you cast an (aura|artifact|enchantment|instant|sorcery)(?! or sorcery(?:\s+spell)?)(?:\s+spell)?,?\s*([^.]+)/gi,
   ];
   for (const pattern of castShortTypePatterns) {
     let match: RegExpExecArray | null;
@@ -13499,6 +13513,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
       const rawType = String(match[1] || '').trim().toLowerCase();
       const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
       const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
+      const copiesSpell = effectText.toLowerCase().includes('copy that spell') || effectText.toLowerCase().includes('copy it');
       if (!triggers.some((trigger) =>
         trigger.effect === effectText &&
         trigger.spellCondition === spellCondition &&
@@ -13512,6 +13527,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           effect: effectText,
           spellCondition,
           tribalType,
+          copiesSpell,
           mandatory: !effectText.toLowerCase().includes('you may'),
         });
       }

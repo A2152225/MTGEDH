@@ -245,13 +245,25 @@ function splitCompoundTriggerConditions(condition: string): string[] {
   return expanded;
 }
 
-function stripKeywordActivationRemindersFromEffect(effectText: string): string {
+function stripTrailingActivatedAbilityFromEffect(effectText: string): string {
   return String(effectText || '')
-    .replace(/\s+equip(?:\{[^}]*\}|\d+\})?(?:\s*\([^)]*\))?\s*$/i, '')
-    .replace(/\s+reconfigure(?:\{[^}]*\})?(?:\s*\([^)]*\))?\s*$/i, '')
-    .replace(/(?:^|[.\n]\s*)attach this permanent to target[^\n.]*/gi, (match) => (match.startsWith('.') ? '.' : ''))
-    .replace(/\s+/g, ' ')
+    .replace(
+      /(?:\.\s*(?:\([^)]*\)\s*)?|\n+\s*)\{[^}]+\}(?:\{[^}]+\})*(?:,\s*|\s*:)\s*[\s\S]*$/i,
+      '.',
+    )
+    .replace(/\.\s*$/g, '')
     .trim();
+}
+
+function stripKeywordActivationRemindersFromEffect(effectText: string): string {
+  return stripTrailingActivatedAbilityFromEffect(
+    String(effectText || '')
+      .replace(/\s+equip(?:\{[^}]*\}|\d+\})?(?:\s*\([^)]*\))?\s*$/i, '')
+      .replace(/\s+reconfigure(?:\{[^}]*\})?(?:\s*\([^)]*\))?\s*$/i, '')
+      .replace(/(?:^|[.\n]\s*)attach this permanent to target[^\n.]*/gi, (match) => (match.startsWith('.') ? '.' : ''))
+      .replace(/\s+/g, ' ')
+      .trim(),
+  );
 }
 
 function normalizeTriggeredEffectTextCase(effectText: string): string {

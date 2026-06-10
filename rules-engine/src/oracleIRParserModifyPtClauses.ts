@@ -31,8 +31,60 @@ export function tryParseTemporaryModifyPtClause(params: {
 
   const workingClause = normalizeOracleText(clause)
     .replace(/^[\u2022â€¢]\s+/, '')
-    .replace(/^have\s+(?=target|that|the|this|it\b|each|all|creatures?\b)/i, '')
+    .replace(/^have\s+(?=target|that|the|this|it\b|each|all|creatures?\b|unblocked\b)/i, '')
     .trim();
+
+  if (/^unblocked attacking creatures get \+1\/\+0 until end of turn$/i.test(workingClause)) {
+    return withMeta({
+      kind: 'modify_pt',
+      target: { kind: 'raw', text: 'unblocked attacking creatures' },
+      power: 1,
+      toughness: 0,
+      duration: 'end_of_turn',
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
+
+  const additionalTemporaryPtMatch = workingClause.match(
+    new RegExp(
+      String.raw`^(?:then\s+)?(${MODIFY_PT_TARGET_PATTERN})\s+gets?\s+an\s+additional\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$`,
+      'i',
+    ),
+  );
+  if (additionalTemporaryPtMatch) {
+    const targetRaw = String(additionalTemporaryPtMatch[1] || '').trim().toLowerCase();
+    const powerComponent = parseSignedPtComponent(String(additionalTemporaryPtMatch[2] || ''));
+    const toughnessComponent = parseSignedPtComponent(String(additionalTemporaryPtMatch[3] || ''));
+    if (!powerComponent || !toughnessComponent) return null;
+
+    let tail = normalizeOracleText(String(additionalTemporaryPtMatch[4] || ''))
+      .replace(/[,.;]\s*$/g, '')
+      .trim();
+    if (!/\buntil\s+end\s+of\s+turn\b/i.test(tail)) return null;
+    tail = tail
+      .replace(/\buntil\s+end\s+of\s+turn\b/i, '')
+      .replace(/^,\s*/i, '')
+      .trim();
+
+    let condition: { kind: string; raw: string } | undefined;
+    if (tail) {
+      const ifMatch = tail.match(/^if\s+(.+)$/i);
+      if (ifMatch) condition = { kind: 'if', raw: String(ifMatch[1] || '').trim() };
+      else return null;
+    }
+
+    return withMeta({
+      kind: 'modify_pt',
+      target: parseModifyPtTarget(targetRaw),
+      power: powerComponent.value,
+      toughness: toughnessComponent.value,
+      ...(powerComponent.usesX ? { powerUsesX: true } : {}),
+      ...(toughnessComponent.usesX ? { toughnessUsesX: true } : {}),
+      duration: 'end_of_turn',
+      ...(condition ? { condition } : {}),
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
 
   const broadTemporaryPtMatch = workingClause.match(
     new RegExp(String.raw`^(?:then\s+)?(${MODIFY_PT_TARGET_PATTERN})\s+(?:each\s+)?get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$`, 'i')

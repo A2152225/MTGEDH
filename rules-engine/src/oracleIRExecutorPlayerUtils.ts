@@ -811,6 +811,8 @@ export function resolvePlayers(
     case 'target_player': {
       const bound = normalizeId(ctx.selectorContext?.targetPlayerId);
       if (bound && allPlayerIds.has(bound)) return [bound];
+      const boundOpponent = normalizeId(ctx.selectorContext?.targetOpponentId);
+      if (boundOpponent && allPlayerIds.has(boundOpponent)) return [boundOpponent];
       const boundSpellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
       if (boundSpellId) {
         const stackItem = (state.stack || []).find((item: any) => String(item?.id || '').trim() === boundSpellId) as any;
@@ -819,7 +821,7 @@ export function resolvePlayers(
           return [spellControllerId];
         }
       }
-      return [];
+      return opponents.length === 1 ? [opponents[0]] : [];
     }
     case 'owner_of_moved_cards':
       return [];

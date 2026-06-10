@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   assignPermanentsToCells,
   arrowKeyToShiftDirection,
+  BATTLEFIELD_MIN_ROWS,
   buildDisplayPositions,
+  computeRequiredGridRows,
   createBattlefieldGrid,
+  createBattlefieldGridFromDimensions,
   shiftCell,
   snapPixelToCell,
   stackCascadeOffset,
@@ -58,5 +61,19 @@ describe('battlefieldGrid', () => {
     const secondKey = `${placements[1].col},${placements[1].row}`;
     const firstKey = `${placements[0].col},${placements[0].row}`;
     expect(secondKey).not.toBe(firstKey);
+  });
+
+  it('grows rows when auto-placement exceeds a compact grid', () => {
+    const tiny = createBattlefieldGridFromDimensions(3, 2, 135);
+    const entries = Array.from({ length: 8 }, (_, index) => ({
+      id: `p${index}`,
+      preferred: null as { x: number; y: number } | null,
+    }));
+    const rows = computeRequiredGridRows(entries, tiny.cols, 135, BATTLEFIELD_MIN_ROWS, 12);
+    expect(rows).toBeGreaterThan(2);
+    const grown = createBattlefieldGridFromDimensions(tiny.cols, rows, 135);
+    const placements = assignPermanentsToCells(entries, grown);
+    const uniqueCells = new Set(placements.map((p) => `${p.col},${p.row}`));
+    expect(uniqueCells.size).toBe(8);
   });
 });

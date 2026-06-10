@@ -267,6 +267,34 @@ function queueCopyTargetSelection(
   return 1;
 }
 
+export function queueOptionalSelfCopyFromControlledCreature(
+  ctx: GameContext,
+  controller: PlayerID,
+  sourceName: string,
+  sourcePermanentId: string,
+): number {
+  const state = (ctx as any).state;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const sourcePermanent = battlefield.find((perm: any) => String(perm?.id || '').trim() === sourcePermanentId);
+  const validTargets = buildBattlefieldTargetOptions(
+    battlefield,
+    controller,
+    sourcePermanentId,
+    'another creature you control',
+  );
+  if (validTargets.length === 0) return 0;
+  return queueCopyTargetSelection(ctx, {
+    controller,
+    sourceName,
+    sourcePermanentId,
+    sourcePermanent,
+    validTargets,
+    targetDescription: 'another creature you control',
+    isOptional: true,
+    action: 'self_become_copy_of_creature',
+  });
+}
+
 export function applyCopyPermanentTriggerStep(
   ctx: GameContext,
   controller: PlayerID,

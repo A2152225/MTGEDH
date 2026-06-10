@@ -4,6 +4,8 @@ Living document. Update this file as gaps close and audits are re-run.
 
 **Last updated: 2026-06-09** (batch12 ir_gap pass — **0** `ir_gap` / **0** partial / **0** impossible; trigger corridor **14,290** fully applied / **0** parse→execute gaps)
 
+> **Server integration / superseding handwritten resolution:** see **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** for the Layer 3 migration plan (IR-first spells/triggers, Effect Program wiring, choice UI batches, shim retirement). This file covers Layer 1–2 (parser/executor gaps).
+
 ## Quick start for a new session
 
 1. Read this file for current metrics and priority order.

@@ -7,10 +7,16 @@
  * which returns true when the viewport is at-or-below that breakpoint.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { breakpoints } from '../theme';
 
 type BreakpointKey = 'mobile' | 'tablet' | 'desktop';
+
+export type ViewportOrientation = 'portrait' | 'landscape';
+
+export function getViewportOrientation(width: number, height: number): ViewportOrientation {
+  return width >= height ? 'landscape' : 'portrait';
+}
 
 function readWidth(): number {
   if (typeof window === 'undefined') return 1280;
@@ -22,7 +28,7 @@ function readHeight(): number {
   return window.innerHeight;
 }
 
-export function useViewport(): { width: number; height: number } {
+export function useViewport(): { width: number; height: number; orientation: ViewportOrientation } {
   const [size, setSize] = useState<{ width: number; height: number }>(() => ({
     width: readWidth(),
     height: readHeight(),
@@ -38,13 +44,23 @@ export function useViewport(): { width: number; height: number } {
     };
     window.addEventListener('resize', handler);
     window.addEventListener('orientationchange', handler);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handler);
+    }
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', handler);
       window.removeEventListener('orientationchange', handler);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handler);
+      }
     };
   }, []);
-  return size;
+  const orientation = useMemo(
+    () => getViewportOrientation(size.width, size.height),
+    [size.width, size.height],
+  );
+  return { ...size, orientation };
 }
 
 /**

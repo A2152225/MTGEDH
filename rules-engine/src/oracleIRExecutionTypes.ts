@@ -16,6 +16,11 @@ export interface OracleIRExecutionOptions {
    * Explicit selected mode ids for a choose_mode step when already chosen by a player.
    */
   readonly selectedModeIds?: readonly string[];
+  /**
+   * When true, stop executing further steps after a player-choice-required gap on
+   * interactive step kinds so callers can queue UI and resume the tail later.
+   */
+  readonly haltOnPlayerChoiceRequired?: boolean;
 }
 
 export interface OracleIRSelectorContext {
@@ -61,6 +66,8 @@ export interface OracleIRSelectorContext {
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Bound pay/decline choice for unless-pays-mana wrappers when already known. */
   readonly unlessPaysManaChoice?: 'pay' | 'decline';
+  /** Bound explore resolution for nonland reveals (true = mill to graveyard). */
+  readonly exploreToGraveyard?: boolean;
 }
 
 export interface OracleIRExecutionEventHint {
@@ -221,6 +228,8 @@ export interface OracleIRExecutionContext {
   readonly giftPromised?: boolean;
   /** Whether a Teamwork additional cost was paid when casting this spell. */
   readonly teamworkWasPaid?: boolean;
+  /** Whether an alternate "rather than pay this spell's mana cost" cost was paid. */
+  readonly alternateCostPaid?: boolean;
   /** Whether a library search step applied during this resolution. */
   readonly searchedLibraryThisWay?: boolean;
   /** Cards milled by the most recent mill step in this resolution. */
@@ -233,6 +242,11 @@ export interface OracleIRExecutionContext {
    * deterministically in multiplayer when the antecedent set is known.
    */
   readonly selectorContext?: OracleIRSelectorContext;
+  /**
+   * When true, choice-requiring library steps queue UI instead of auto-binding.
+   * Set by server-side Oracle IR execution; dry-run/audit callers leave this unset.
+   */
+  readonly interactivePlayerChoices?: boolean;
 }
 
 export interface OracleIRExecutionResult {
@@ -252,6 +266,11 @@ export interface OracleIRExecutionResult {
    * here so callers can queue the appropriate player prompts.
    */
   readonly pendingOptionalSteps: readonly OracleEffectStep[];
+  /**
+   * Remaining steps not executed because execution halted on a player-choice gap.
+   * Only populated when `haltOnPlayerChoiceRequired` is enabled.
+   */
+  readonly pendingContinuationSteps?: readonly OracleEffectStep[];
   /** Outcome of the final executed step in this invocation (including nested branches). */
   readonly lastStepOutcome?: OracleIRStepOutcome | null;
 }

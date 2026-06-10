@@ -13,8 +13,14 @@ import { hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
 import {
   assignPermanentsToCells,
   arrowKeyToShiftDirection,
+  BATTLEFIELD_SCROLL_VISIBLE_ROWS,
+  battlefieldGridContentHeight,
+  battlefieldGridContentHeightForRows,
   buildDisplayPositions,
-  createBattlefieldGrid,
+  columnCountFromWidth,
+  computeRequiredGridRows,
+  countOccupiedCells,
+  createBattlefieldGridFromDimensions,
   shiftCell,
   snapPixelToCell,
 } from '../utils/battlefieldGrid';
@@ -147,7 +153,12 @@ export function FreeField(props: {
   imagePref: ImagePref;
   tileWidth: number;
   widthPx: number;
-  heightPx: number;
+  /** Rows visible before scrolling when the playmat is collapsed. */
+  viewportRows?: number;
+  /** When true, the playmat grows to fit all rows (no scroll cap). */
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
+  showExpandControl?: boolean;
   draggable?: boolean;
   onMove?: (id: string, x: number, y: number, z?: number) => void;
   highlightTargets?: ReadonlySet<string>;
@@ -183,7 +194,11 @@ export function FreeField(props: {
   appearanceSettings?: AppearanceSettings;
 }) {
   const {
-    perms, allBattlefieldPerms, imagePref, tileWidth, widthPx, heightPx,
+    perms, allBattlefieldPerms, imagePref, tileWidth, widthPx,
+    viewportRows = BATTLEFIELD_SCROLL_VISIBLE_ROWS,
+    expanded = false,
+    onToggleExpanded,
+    showExpandControl = false,
     draggable = false, onMove, highlightTargets, selectedTargets, onCardClick,
     players = [],
     onTap, onUntap, onActivateAbility, onAddCounter, onSacrifice, onRemove,
@@ -201,6 +216,7 @@ export function FreeField(props: {
   } = props;
 
   const tileH = Math.round(tileWidth / 0.72);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ permanent: BattlefieldPermanent; x: number; y: number } | null>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
@@ -315,7 +331,7 @@ export function FreeField(props: {
     setAbilitySelectionModal(null);
   }, [abilitySelectionModal, onActivateAbility]);
 
-  const items = useMemo(() => {
+  const battlefieldLayout = useMemo(() => {
     const placed: Array<{
       id: string;
       name: string;
@@ -356,7 +372,6 @@ export function FreeField(props: {
       cellY?: number;
     }> = [];
 
-    const grid = createBattlefieldGrid(widthPx, heightPx, tileWidth);
     const placementEntries: Array<{ id: string; preferred: { x: number; y: number; z?: number } | null }> = [];
     const permMeta = new Map<string, Omit<(typeof placed)[number], 'id' | 'pos' | 'stackIndex' | 'stackTotal' | 'cellX' | 'cellY'>>();
 
@@ -500,8 +515,13 @@ export function FreeField(props: {
       });
     }
 
+    const cols = columnCountFromWidth(widthPx, tileWidth);
+    const rows = computeRequiredGridRows(placementEntries, cols, tileWidth);
+    const grid = createBattlefieldGridFromDimensions(cols, rows, tileWidth);
     const cellPlacements = assignPermanentsToCells(placementEntries, grid);
     const displayById = buildDisplayPositions(cellPlacements, grid);
+    const occupied = countOccupiedCells(cellPlacements);
+    const totalSlots = grid.cols * grid.rows;
 
     for (const placement of cellPlacements) {
       const meta = permMeta.get(placement.permanentId);
@@ -534,13 +554,25 @@ export function FreeField(props: {
         autoPositionCache.current.delete(key);
       }
     }
-    return placed;
-  }, [perms, allBattlefieldPerms, imagePref, tileWidth, tileH, widthPx, heightPx]);
+    return {
+      items: placed,
+      gridLayout: grid,
+      slotStats: { occupied, total: totalSlots, rows: grid.rows, cols: grid.cols },
+      contentHeightPx: battlefieldGridContentHeight(grid),
+    };
+  }, [perms, allBattlefieldPerms, imagePref, tileWidth, tileH, widthPx]);
 
-  const gridLayout = useMemo(
-    () => createBattlefieldGrid(widthPx, heightPx, tileWidth),
-    [widthPx, heightPx, tileWidth],
+  const items = battlefieldLayout.items;
+  const gridLayout = battlefieldLayout.gridLayout;
+  const slotStats = battlefieldLayout.slotStats;
+  const contentHeightPx = battlefieldLayout.contentHeightPx;
+
+  const viewportCapPx = useMemo(
+    () => battlefieldGridContentHeightForRows(viewportRows, tileWidth),
+    [viewportRows, tileWidth],
   );
+
+  const needsScroll = !expanded && contentHeightPx > viewportCapPx;
 
   const dragTargetCell = useMemo(() => {
     if (!dragPreview) return null;
@@ -627,7 +659,7 @@ export function FreeField(props: {
       const ny = Math.round(active.baseY + dy);
       const snapped = snapPixelToCell(
         clamp(nx, 0, Math.max(0, widthPx - tileWidth)),
-        clamp(ny, 0, Math.max(0, heightPx - tileH)),
+        clamp(ny, 0, Math.max(0, contentHeightPx - tileH)),
         gridLayout,
       );
       const bumpZ = e.altKey ? ((active.z ?? 0) + 1) : active.z;
@@ -638,7 +670,7 @@ export function FreeField(props: {
     drag.current = null;
     setDragPreview(null);
     setIsPointerDragging(false);
-  }, [gridLayout, heightPx, onMove, tileH, tileWidth, widthPx]);
+  }, [gridLayout, contentHeightPx, onMove, tileH, tileWidth, widthPx]);
 
   const cancelDrag = useCallback(() => {
     finishDrag(undefined, false);
@@ -698,7 +730,7 @@ export function FreeField(props: {
     const ny = Math.round(drag.current.baseY + dy);
     const snapped = snapPixelToCell(
       clamp(nx, 0, Math.max(0, widthPx - tileWidth)),
-      clamp(ny, 0, Math.max(0, heightPx - tileH)),
+      clamp(ny, 0, Math.max(0, contentHeightPx - tileH)),
       gridLayout,
     );
     setDragPreview({ id: drag.current.id, x: snapped.x, y: snapped.y });
@@ -729,14 +761,65 @@ export function FreeField(props: {
   const scale = Math.max(0.7, rawScale);
 
   return (
+    <div style={{ width: widthPx }}>
+      {(showExpandControl || slotStats.rows > viewportRows) && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginBottom: 6,
+            fontSize: 11,
+            color: '#cbd5e1',
+          }}
+        >
+          <span>
+            Battlefield: {slotStats.occupied}/{slotStats.total} slots
+            {slotStats.rows > viewportRows && !expanded ? ` · ${slotStats.rows} rows` : ''}
+          </span>
+          {showExpandControl && onToggleExpanded && (
+            <button
+              type="button"
+              onClick={onToggleExpanded}
+              style={{
+                minHeight: 32,
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid rgba(148, 163, 184, 0.45)',
+                background: expanded ? 'rgba(59, 130, 246, 0.25)' : 'rgba(15, 23, 42, 0.85)',
+                color: '#e2e8f0',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              title={expanded ? 'Collapse playmat to scrollable viewport' : 'Expand playmat to show all rows'}
+            >
+              {expanded ? 'Collapse' : 'Expand'}
+            </button>
+          )}
+        </div>
+      )}
+      <div
+        ref={scrollRef}
+        data-no-zoom
+        style={{
+          width: widthPx,
+          maxHeight: expanded ? undefined : viewportCapPx,
+          overflowY: needsScroll ? 'auto' : 'visible',
+          overflowX: 'hidden',
+          borderRadius: 8,
+          border: '1px dashed rgba(255,255,255,0.15)',
+          background: 'rgba(0,0,0,0.18)',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
     <div
       ref={fieldRef}
       style={{
         position: 'relative',
         width: widthPx,
-        height: heightPx,
-        border: '1px dashed rgba(255,255,255,0.15)',
-        borderRadius: 8,
+        height: contentHeightPx,
         background: 'rgba(0,0,0,0.25)',
         overflow: 'visible', // Allow attack indicators to overflow
         touchAction: draggable ? 'none' : undefined,
@@ -802,7 +885,7 @@ export function FreeField(props: {
       {renderItems.map(({ id, name, img, pos, tapped, isCreature, isPlaneswalker, counters, baseP, baseT, raw, effP, effT, abilities, attacking, blocking, blockedBy, baseLoyalty, loyalty, targetedBy, temporaryEffects, attachedTo, attachedToName, hasAttachments, attachmentNames, damageMarked, ptSources, isGroupedTokens, tokenCount, isToken, stackIndex, stackTotal }) => {
         const isDragging = dragPreview?.id === id;
         const x = clamp((isDragging ? dragPreview.x : pos?.x) ?? 0, 0, Math.max(0, widthPx - tileWidth));
-        const y = clamp((isDragging ? dragPreview.y : pos?.y) ?? 0, 0, Math.max(0, heightPx - tileH));
+        const y = clamp((isDragging ? dragPreview.y : pos?.y) ?? 0, 0, Math.max(0, contentHeightPx - tileH));
         const z = pos?.z ?? 0;
         const inStack = (stackTotal ?? 1) > 1;
         const isTopOfStack = inStack && stackIndex === (stackTotal ?? 1) - 1;
@@ -1656,7 +1739,9 @@ export function FreeField(props: {
           </div>
         );
       })}
-      
+    </div>
+      </div>
+
       {/* Context Menu */}
       {contextMenu && (
         <CardContextMenu

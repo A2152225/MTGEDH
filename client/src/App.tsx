@@ -77,7 +77,11 @@ import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
 import { useViewport } from "./hooks/useViewport";
 import { useIsTouch } from "./hooks/useIsTouch";
+import { useMobilePlayLayout } from "./hooks/useMobilePlayLayout";
 import { MobileActionDock } from "./components/MobileActionDock";
+import { SeatStrip } from "./components/SeatStrip";
+import { MobileHandStrip } from "./components/MobileHandStrip";
+import { MobilePlaySheets, type MobilePlaySheet } from "./components/MobilePlaySheets";
 import { toast } from "./components/ToastHost";
 import type { PaymentItem, ManaColor, TriggerShortcut } from "../../shared/src";
 import { GameStatusIndicator } from "./components/GameStatusIndicator";
@@ -480,11 +484,15 @@ export function App() {
    // Cleanup discard selection modal state
   const [discardModalOpen, setDiscardModalOpen] = useState(false);
   const [discardCount, setDiscardCount] = useState(0);
+  const [discardMinCount, setDiscardMinCount] = useState(0);
+  const [discardMaxCount, setDiscardMaxCount] = useState(0);
+  const [discardAnyNumber, setDiscardAnyNumber] = useState(false);
   const [discardMaxHandSize, setDiscardMaxHandSize] = useState(7);
   const [discardResolutionStepId, setDiscardResolutionStepId] = useState<string | null>(null);
   const [discardResolutionReason, setDiscardResolutionReason] = useState<'cleanup' | 'effect'>('cleanup');
   const [discardResolutionTitle, setDiscardResolutionTitle] = useState<string | null>(null);
   const [discardResolutionDescription, setDiscardResolutionDescription] = useState<string | null>(null);
+  const [discardResolutionHand, setDiscardResolutionHand] = useState<KnownCardRef[]>([]);
   
   // Game over notification state
   const [gameOverModalOpen, setGameOverModalOpen] = useState(false);
@@ -608,9 +616,11 @@ export function App() {
   const [tableDeckMgrOpen, setTableDeckMgrOpen] = useState(false);
   const [topDeckMgrAnchorEl, setTopDeckMgrAnchorEl] = useState<HTMLButtonElement | null>(null);
   const [focusedPlayerId, setFocusedPlayerId] = useState<string | null>(null);
+  const [mobilePlaySheet, setMobilePlaySheet] = useState<MobilePlaySheet>(null);
   const [utilityRailCollapsed, setUtilityRailCollapsed] = useState(false);
   const { width: viewportWidth } = useViewport();
   const isTouch = useIsTouch();
+  const mobilePlayLayout = useMobilePlayLayout();
   
   // Graveyard View Modal state
   const [graveyardModalOpen, setGraveyardModalOpen] = useState(false);
@@ -2483,8 +2493,9 @@ export function App() {
         if (you && step.playerId && String(step.playerId) !== String(you)) {
           return;
         }
+        const anyNumberDiscard = (step as any).anyNumberDiscard === true;
         const discardCount = Number(step.discardCount || 0);
-        if (discardCount > 0) {
+        if (anyNumberDiscard || discardCount > 0) {
           // Treat anything other than explicit cleanup as an effect-style prompt.
           // This includes activation-cost prompts which use reason: 'activation_cost'.
           const reason: 'cleanup' | 'effect' = step.reason === 'cleanup' ? 'cleanup' : 'effect';
@@ -2495,6 +2506,9 @@ export function App() {
             if (currentHandSize <= maxHandSize) {
               setDiscardModalOpen(false);
               setDiscardCount(0);
+              setDiscardMinCount(0);
+              setDiscardMaxCount(0);
+              setDiscardAnyNumber(false);
               setDiscardMaxHandSize(7);
               setDiscardResolutionStepId(null);
               setDiscardResolutionReason('cleanup');
@@ -2503,6 +2517,13 @@ export function App() {
               return;
             }
           }
+          setDiscardAnyNumber(anyNumberDiscard);
+          setDiscardMinCount(anyNumberDiscard ? Number((step as any).minDiscardCount ?? 0) : discardCount);
+          setDiscardMaxCount(
+            anyNumberDiscard
+              ? Number((step as any).maxDiscardCount ?? (Array.isArray((step as any).hand) ? (step as any).hand.length : 0))
+              : discardCount
+          );
           setDiscardCount(discardCount);
           setDiscardMaxHandSize(Number(step.maxHandSize || 7));
           setDiscardResolutionStepId(String(step.id));
@@ -2513,6 +2534,11 @@ export function App() {
               : String(step.sourceName || 'Discard')
           );
           setDiscardResolutionDescription(String(step.description || ''));
+          setDiscardResolutionHand(
+            Array.isArray((step as any).hand)
+              ? ((step as any).hand as KnownCardRef[]).filter((card) => card && card.id && card.name)
+              : []
+          );
           setDiscardModalOpen(true);
         }
       }
@@ -3660,7 +3686,12 @@ export function App() {
   }, [safeView?.id, you]);
 
   const isTable = layout === "table";
-  const showUtilityRail = isTable && !!safeView && !!you && viewportWidth >= 900;
+  const showUtilityRail =
+    isTable &&
+    !!safeView &&
+    !!you &&
+    viewportWidth >= 900 &&
+    !mobilePlayLayout.showMobileChrome;
   const showExpandedUtilityRail = showUtilityRail && !utilityRailCollapsed;
   const playerFocusOrder = useMemo(() => {
     if (!safeView?.players || safeView.players.length === 0) return [];
@@ -3684,8 +3715,33 @@ export function App() {
   const canPass = !!safeView && !!you && safeView.priority === you;
   const isYouPlayer =
     !!safeView && !!you && Array.isArray(safeView.players) && safeView.players.some((p) => p.id === you);
-  const showMobileDeckAccess = isTable && isTouch && viewportWidth < 900 && !!safeView && !!you && isYouPlayer;
+  const showMobileChrome =
+    isTable && mobilePlayLayout.showMobileChrome && !!safeView && !!you && isYouPlayer;
   const needsDeckImport = yourLibraryCount === 0;
+  const yourHandCards = useMemo((): KnownCardRef[] => {
+    if (!safeView || !you) return [];
+    const hand = safeView.zones?.[you]?.hand;
+    if (!Array.isArray(hand)) return [];
+    return hand.filter((c): c is KnownCardRef => !!c && typeof c === 'object' && 'id' in c);
+  }, [safeView, you]);
+  const yourHandCount = useMemo(() => {
+    if (!safeView || !you) return 0;
+    const zones = safeView.zones?.[you] as any;
+    if (!zones) return 0;
+    if (typeof zones.handCount === 'number') return zones.handCount;
+    if (Array.isArray(zones.hand)) return zones.hand.length;
+    return 0;
+  }, [safeView, you]);
+
+  useEffect(() => {
+    if (!showMobileChrome || !you) return;
+    setJoinCollapsed(true);
+    setFocusedPlayerId((prev) => prev ?? you);
+  }, [showMobileChrome, you]);
+
+  useEffect(() => {
+    if (!showMobileChrome) setMobilePlaySheet(null);
+  }, [showMobileChrome]);
 
   // Pre-game and mulligan state
   const isPreGame = useMemo(() => {
@@ -5208,26 +5264,33 @@ export function App() {
           )}
         </div>
 
-        {/* HEADER (game id, format) */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <div>
-            <h1 style={{ margin: 0, color: textColors.primary }}>MTGEDH</h1>
-            <div style={{ fontSize: 12, color: textColors.secondary }}>
-              Game: {effectiveGameId} • Format:{" "}
-              {String(safeView?.format ?? "")}
+        {/* HEADER (game id, format) — compact on mobile play */}
+        {!showMobileChrome ? (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div>
+              <h1 style={{ margin: 0, color: textColors.primary }}>MTGEDH</h1>
+              <div style={{ fontSize: 12, color: textColors.secondary }}>
+                Game: {effectiveGameId} • Format:{" "}
+                {String(safeView?.format ?? "")}
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div style={{ fontSize: 11, color: textColors.secondary, padding: '0 2px' }}>
+            {String(safeView?.format ?? "Commander")} • {effectiveGameId}
+          </div>
+        )}
 
         {/* GAME STATUS INDICATOR - Shows turn, phase, step, priority, special designations, and control buttons */}
         {safeView && (
           <GameStatusIndicator
+            compact={showMobileChrome}
             turn={safeView.turn}
             phase={safeView.phase}
             step={safeView.step}
@@ -5417,7 +5480,7 @@ export function App() {
         )}
 
         {/* Mobile deck access — local, server, and precon tabs via DeckManagerModal */}
-        {showMobileDeckAccess && needsDeckImport && (
+        {showMobileChrome && needsDeckImport && (
           <div
             style={{
               display: "flex",
@@ -5454,6 +5517,18 @@ export function App() {
               Open Deck Manager
             </button>
           </div>
+        )}
+
+        {showMobileChrome && safeView && (
+          <SeatStrip
+            players={safeView.players || []}
+            you={you || undefined}
+            turnPlayer={safeView.turnPlayer}
+            focusedPlayerId={focusedPlayerId}
+            monarch={(safeView as any).monarch}
+            initiative={(safeView as any).initiative}
+            onFocusPlayer={setFocusedPlayerId}
+          />
         )}
 
         {/* TABLE / PLAYING FIELD (chat handled as overlay inside TableLayout) */}
@@ -5561,6 +5636,12 @@ export function App() {
               onDeckMgrOpenChange={handleDeckMgrOpenChange}
               externalDeckMgrAnchorEl={topDeckMgrAnchorEl}
               focusedPlayerId={focusedPlayerId}
+              monarch={(safeView as any).monarch}
+              initiative={(safeView as any).initiative}
+              dayNight={(safeView as any).dayNight}
+              cityBlessing={(safeView as any).cityBlessing}
+              embedYourHand={!showMobileChrome}
+              playAreaBottomInset={showMobileChrome ? mobilePlayLayout.playAreaBottomInset : 0}
               gameId={safeView.id}
               stackItems={safeView.stack as any}
               importedCandidates={importedCandidates}
@@ -5886,20 +5967,126 @@ export function App() {
           viewports during an active table. Surfaces the most-used Pass action
           where the desktop utility rail is hidden. Desktop is unaffected
           because the gate requires both touch input AND viewport < 900. */}
-      {showMobileDeckAccess && (
-        <MobileActionDock
-          onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
-          highlightPass={safeView.priority === you}
-          handCount={safeView.zones?.[you]?.handCount ?? 0}
-          stackCount={safeView.stack?.length ?? 0}
-          onOpenDeck={() => handleDeckMgrOpenChange(true)}
-          highlightDeck={needsDeckImport}
-          deckLabel={needsDeckImport ? "Import" : "Deck"}
-        />
+      {showMobileChrome && (
+        <>
+          <MobileHandStrip
+            cards={yourHandCards}
+            handCount={yourHandCount}
+            imagePref={imagePref}
+            thumbWidth={mobilePlayLayout.handStripThumbWidth}
+            playableCards={(safeView as any)?.playableCards}
+            costAdjustments={(safeView as any)?.costAdjustments}
+            appearanceSettings={appearanceSettings}
+            onPlayLand={(cardId) =>
+              safeView && playLandWithPromptSync({ gameId: safeView.id, cardId })
+            }
+            onCast={(cardId) => {
+              if (!safeView || !you) return;
+              const zones = safeView.zones?.[you];
+              const hand = zones?.hand || [];
+              const card = hand.find((c: any) => c?.id === cardId) as KnownCardRef | undefined;
+              if (!card) return;
+              const layout = (card as any).layout || '';
+              const cardFaces = (card as any).card_faces as CardFace[] | undefined;
+              const hasFaces = cardFaces && cardFaces.length >= 2;
+              const needsFaceChoice = hasFaces && (
+                layout === 'split' ||
+                layout === 'adventure' ||
+                layout === 'modal_dfc'
+              );
+              if (needsFaceChoice && cardFaces) {
+                openSplitCardChoice(cardId, card, 'hand');
+              } else {
+                requestCastSpellWithPromptSync({ gameId: safeView.id, cardId });
+              }
+            }}
+            reasonCannotPlayLand={reasonCannotPlayLand}
+            reasonCannotCast={reasonCannotCast}
+            onExpandHand={() => setMobilePlaySheet('hand')}
+            dockHeight={mobilePlayLayout.orientation === 'portrait' ? 56 : 52}
+          />
+          <MobileActionDock
+            onPassPriority={() => socket.emit("passPriority", { gameId: safeView.id, by: you })}
+            passDisabled={!canPass}
+            highlightPass={safeView.priority === you}
+            handCount={yourHandCount}
+            stackCount={safeView.stack?.length ?? 0}
+            onOpenHand={() => setMobilePlaySheet('hand')}
+            onOpenStack={() => setMobilePlaySheet('stack')}
+            onOpenMana={() => setMobilePlaySheet('mana')}
+            onOpenMore={() => setMobilePlaySheet('more')}
+            onOpenDeck={() => handleDeckMgrOpenChange(true)}
+            highlightDeck={needsDeckImport}
+            deckLabel={needsDeckImport ? "Import" : "Deck"}
+          />
+          <MobilePlaySheets
+            activeSheet={mobilePlaySheet}
+            onClose={() => setMobilePlaySheet(null)}
+            handCards={yourHandCards}
+            handCount={yourHandCount}
+            imagePref={imagePref}
+            playableCards={(safeView as any)?.playableCards}
+            costAdjustments={(safeView as any)?.costAdjustments}
+            appearanceSettings={appearanceSettings}
+            onPlayLand={(cardId) =>
+              safeView && playLandWithPromptSync({ gameId: safeView.id, cardId })
+            }
+            onCast={(cardId) => {
+              if (!safeView || !you) return;
+              const zones = safeView.zones?.[you];
+              const hand = zones?.hand || [];
+              const card = hand.find((c: any) => c?.id === cardId) as KnownCardRef | undefined;
+              if (!card) return;
+              const layout = (card as any).layout || '';
+              const cardFaces = (card as any).card_faces as CardFace[] | undefined;
+              const hasFaces = cardFaces && cardFaces.length >= 2;
+              const needsFaceChoice = hasFaces && (
+                layout === 'split' ||
+                layout === 'adventure' ||
+                layout === 'modal_dfc'
+              );
+              if (needsFaceChoice && cardFaces) {
+                openSplitCardChoice(cardId, card, 'hand');
+              } else {
+                requestCastSpellWithPromptSync({ gameId: safeView.id, cardId });
+              }
+            }}
+            onReorderHand={(order) =>
+              safeView && socket.emit("reorderHand", { gameId: safeView.id, order })
+            }
+            reasonCannotPlayLand={reasonCannotPlayLand}
+            reasonCannotCast={reasonCannotCast}
+            stack={(safeView.stack as any) || []}
+            battlefield={safeView.battlefield}
+            players={safeView.players}
+            you={you || undefined}
+            priority={safeView.priority}
+            onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
+            onResolveAllTriggers={() => safeView && socket.emit("resolveAllTriggers", { gameId: safeView.id })}
+            ignoredTriggerSources={ignoredTriggerSources}
+            onIgnoreTriggerSource={handleIgnoreTriggerSourceFromStack}
+            onStopIgnoringSource={handleStopIgnoringSource}
+            manaPool={manaPool}
+            phase={String(safeView.phase || '')}
+            step={String(safeView.step || '')}
+            turnPlayer={safeView.turnPlayer}
+            isYourTurn={safeView.turnPlayer != null && safeView.turnPlayer === you}
+            hasPriority={safeView.priority === you}
+            stackEmpty={!((safeView as any).stack?.length > 0)}
+            allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
+            phaseAdvanceBlockReason={phaseAdvanceBlockReason}
+            onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
+            onSkipToPhase={(targetPhase, targetStep) =>
+              socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })
+            }
+            onConcede={() => socket.emit("concede", { gameId: safeView.id })}
+            onLeaveGame={() => leaveGame(() => setJoinCollapsed(false))}
+          />
+        </>
       )}
 
       {/* Phase Navigator - Floating component for quick phase navigation */}
-      {!showUtilityRail && safeView && you && (
+      {!showUtilityRail && !showMobileChrome && safeView && you && (
         <PhaseNavigator
           currentPhase={safeView.phase}
           currentStep={safeView.step}
@@ -7004,12 +7191,18 @@ export function App() {
       <DiscardSelectionModal
         open={discardModalOpen}
         hand={useMemo(() => {
+          if (discardResolutionHand.length > 0) {
+            return discardResolutionHand;
+          }
           if (!safeView || !you) return [];
           const zones = safeView.zones?.[you];
           const hand = zones?.hand || [];
           return hand.filter((c: any) => c && c.name) as KnownCardRef[];
-        }, [safeView, you])}
+        }, [discardResolutionHand, safeView, you])}
         discardCount={discardCount}
+        minDiscardCount={discardMinCount}
+        maxDiscardCount={discardMaxCount}
+        anyNumberDiscard={discardAnyNumber}
         maxHandSize={discardMaxHandSize}
         reason={discardResolutionReason}
         title={discardResolutionTitle ?? undefined}
@@ -7030,6 +7223,10 @@ export function App() {
           }
           setDiscardModalOpen(false);
           setDiscardCount(0);
+          setDiscardMinCount(0);
+          setDiscardMaxCount(0);
+          setDiscardAnyNumber(false);
+          setDiscardResolutionHand([]);
           setDiscardResolutionStepId(null);
           setDiscardResolutionReason('cleanup');
           setDiscardResolutionTitle(null);

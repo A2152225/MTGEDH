@@ -275,14 +275,16 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
-    const gainForEach = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}gains?\\s+1\\s+life\\s+for\\s+each\\s+(.+)$`, 'i'));
+    const gainForEach = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}gains?\\s+(\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\\s+life\\s+for\\s+each\\s+(.+)$`, 'i'),
+    );
     if (gainForEach) {
-      const amountText = `1 for each ${String(gainForEach[2] || '').trim()}`;
+      const amountText = `${String(gainForEach[2] || '').trim()} life for each ${String(gainForEach[3] || '').trim()}`;
       const parsedAmount = parseQuantity(amountText);
       return withMeta({
         kind: 'gain_life',
         who: parsePlayerSelector(gainForEach[1]),
-        amount: parsedAmount.kind === 'reference_amount' ? parsedAmount : { kind: 'unknown', raw: amountText },
+        amount: parsedAmount.kind === 'unknown' ? { kind: 'reference_amount', raw: amountText } : parsedAmount,
         raw: rawClause,
       });
     }
@@ -394,6 +396,16 @@ export function tryParseLifeAndCombatClause(args: {
         kind: 'lose_life',
         who: parsePlayerSelector(loseHalfLife[1]),
         amount: { kind: 'reference_amount', raw: 'half their life rounded up' },
+        raw: rawClause,
+      });
+    }
+
+    const loseQuarterLife = clause.match(/^the loser of the flip loses a quarter of their life, rounded up$/i);
+    if (loseQuarterLife) {
+      return withMeta({
+        kind: 'lose_life',
+        who: { kind: 'raw', text: 'the loser of the flip' },
+        amount: { kind: 'reference_amount', raw: 'a quarter of their life, rounded up' },
         raw: rawClause,
       });
     }
@@ -562,7 +574,7 @@ export function tryParseLifeAndCombatClause(args: {
     }
 
     const equalDividedDamageGeneric = damageClause.match(
-      /^(.+?)\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+divided(?:\s+(evenly, rounded down),?\s+among|\s+as you choose among)\s+(.+)$/i
+      /^(.+?)\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+divided(?:\s+(?:evenly, rounded down),?\s+among|\s+as you choose among)\s+(.+)$/i
     );
     if (equalDividedDamageGeneric) {
       const whereSuffix = damageClause.match(/,\s*where\s+x\s+is\s+(.+)$/i);
@@ -783,12 +795,25 @@ export function tryParseLifeAndCombatClause(args: {
     }
 
     const untapTarget = clause.match(
-      /^untap\s+((?:(?:all|another\s+target|(?:(?:up\s+to\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))$/i
+      /^untap\s+((?:(?:all|another\s+target|(?:(?:up\s+to\s+)?(?:one|two|one or two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+)?(?:other\s+)?target|the chosen|that|those|this|enchanted|equipped)\s+.+|it|them))$/i
     );
     if (untapTarget) {
       return withMeta({
         kind: 'tap_or_untap',
         target: parseObjectSelector(untapTarget[1]),
+        mode: 'untap',
+        raw: rawClause,
+      });
+    }
+
+    const untapBroad = clause.match(/^untap\s+(.+)$/i);
+    if (
+      untapBroad &&
+      /\b(?:creatures?|lands?|artifacts?|permanents?|enchantments?)\b/i.test(String(untapBroad[1] || ''))
+    ) {
+      return withMeta({
+        kind: 'tap_or_untap',
+        target: parseObjectSelector(String(untapBroad[1] || '').trim()),
         mode: 'untap',
         raw: rawClause,
       });

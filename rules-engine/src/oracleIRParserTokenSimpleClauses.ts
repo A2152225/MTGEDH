@@ -63,6 +63,23 @@ function tokenIsAttacking(rawTapped: string | undefined, clauseText: string): bo
   return /\battacking\b/i.test(String(rawTapped || '')) || hasTappedAndAttackingClause(clauseText);
 }
 
+function tokenDelayedCleanupFromRaw(rawText: string): 'exile' | 'sacrifice' | undefined {
+  const normalized = normalizeOracleText(rawText);
+  if (/\bexile\s+(?:it|them|that token|those tokens|the token|the tokens)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\b/i.test(normalized)) {
+    return 'exile';
+  }
+  if (/\bsacrifice\s+(?:it|them|that token|those tokens|the token|the tokens)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\b/i.test(normalized)) {
+    return 'sacrifice';
+  }
+  return undefined;
+}
+
+function appendCreateTokenWithTail(token: string, clauseText: string): string {
+  const withTail = normalizeOracleText(clauseText).match(/\btokens?\s+(with\s+.+)$/i);
+  if (!withTail) return token;
+  return `${token}, ${String(withTail[1] || '').trim()}`.trim();
+}
+
 function buildSimpleCreateTokenLeadPattern(): RegExp {
   const playerSubjectPrefixNoCapture =
     "(?:(?:you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner))\\s+)?";
@@ -334,9 +351,10 @@ export function tryParseSimpleCreateTokenClause(args: {
     const amount = parseTokenQuantity(create[2]);
     const tappedAndAttacking = tokenIsAttacking(create[3], clause);
     const entersTapped = tokenEntersTapped(create[3], clause);
-    const token = String(create[4] || '').trim();
+    const token = appendCreateTokenWithTail(String(create[4] || '').trim(), clause);
     const withCounters = parseWithCountersFromClause(clause);
     const battlefieldAttachedTo = parseAttachmentTargetFromClause(clause);
+    const atNextEndStep = tokenDelayedCleanupFromRaw(rawClause);
     return withMeta({
       kind: 'create_token',
       who,
@@ -346,6 +364,27 @@ export function tryParseSimpleCreateTokenClause(args: {
       ...(tappedAndAttacking ? { attacking: 'defending_player' as const } : {}),
       withCounters,
       battlefieldAttachedTo,
+      ...(atNextEndStep ? { atNextEndStep } : {}),
+      raw: rawClause,
+    });
+  }
+
+  if (/^create the appropriate shockland token$/i.test(clause)) {
+    return withMeta({
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      token: 'appropriate Shockland',
+      raw: rawClause,
+    });
+  }
+
+  if (/^that device enters as a token that's a photocopy of the pictured creature$/i.test(clause)) {
+    return withMeta({
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      token: "photocopy of the pictured creature",
       raw: rawClause,
     });
   }
@@ -356,15 +395,18 @@ export function tryParseSimpleCreateTokenClause(args: {
     const entersTapped = tokenEntersTapped(createDefault[2], clause);
     const withCounters = parseWithCountersFromClause(clause);
     const battlefieldAttachedTo = parseAttachmentTargetFromClause(clause);
+    const token = appendCreateTokenWithTail(String(createDefault[3] || '').trim(), clause);
+    const atNextEndStep = tokenDelayedCleanupFromRaw(rawClause);
     return withMeta({
       kind: 'create_token',
       who: { kind: 'you' },
       amount: parseTokenQuantity(createDefault[1]),
-      token: String(createDefault[3] || '').trim(),
+      token,
       entersTapped: entersTapped || undefined,
       ...(tappedAndAttacking ? { attacking: 'defending_player' as const } : {}),
       withCounters,
       battlefieldAttachedTo,
+      ...(atNextEndStep ? { atNextEndStep } : {}),
       raw: rawClause,
     });
   }

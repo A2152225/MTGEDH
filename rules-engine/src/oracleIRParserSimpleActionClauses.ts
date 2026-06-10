@@ -9,7 +9,7 @@ import {
   tryParseLookTopClause,
   tryParsePlayerMillClause,
 } from './oracleIRParserQuantityHelpers';
-import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
+import { normalizeClauseForParse, normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
 const PLAYER_SUBJECT_PREFIX =
@@ -171,12 +171,21 @@ function normalizeDrawClauseForParse(rawClause: string): string {
   if (conditionalDrawBody) clause = String(conditionalDrawBody[1] || '').trim();
 
   const trailingCommaDraw = clause.match(/,\s*((?:you\s+may\s+have\s+)?(?:(?:you|its controller|that player|that opponent|target player|target opponent|each player|each opponent|any number of target opponents|any number of target players(?: other than that player)?|each of that player's opponents|defending player|the defending player|the attacking player)\s+)?(?:may\s+)?draws?\b[\s\S]+|you\s+and\s+.+?\s+each\s+draws?\b[\s\S]+)$/i);
-  if (trailingCommaDraw && !/^\s*(?:whenever|when|if)\b/i.test(String(trailingCommaDraw[1] || ''))) {
+  if (
+    trailingCommaDraw &&
+    !/^\s*(?:whenever|when|if)\b/i.test(String(trailingCommaDraw[1] || '')) &&
+    !/\bdeals?\s+x\s+damage\b/i.test(clause)
+  ) {
     clause = String(trailingCommaDraw[1] || '').trim();
   }
 
   const trailingAndDraw = clause.match(/\band\s+((?:you\s+may\s+have\s+)?(?:(?:you|its controller|that player|that opponent|target player|target opponent|each player|each opponent|any number of target opponents|any number of target players(?: other than that player)?|each of that player's opponents|defending player|the defending player|the attacking player)\s+)?(?:may\s+)?draws?\b[\s\S]+|you\s+and\s+.+?\s+each\s+draws?\b[\s\S]+)$/i);
-  if (trailingAndDraw) clause = String(trailingAndDraw[1] || '').trim();
+  if (
+    trailingAndDraw &&
+    !/\bgains?\s+x\s+life\s+and\s+draws?\s+x\s+cards,\s*where\s+x\s+is\b/i.test(clause)
+  ) {
+    clause = String(trailingAndDraw[1] || '').trim();
+  }
 
   clause = clause.replace(/^then\s+/i, '').replace(/^if you do,\s*/i, '').trim();
 
@@ -247,7 +256,7 @@ export function tryParseSimpleActionClause(args: {
 
   {
     const unlessThatPlayerPays = clause.match(
-      /^(.+?)\s+unless\s+(?:that\s+player|that\s+opponent|its\s+controller)\s+pays\s+(\{[^}]+\})\.?$/i,
+      /^(.+?)\s+unless\s+(?:that\s+player|that\s+opponent|its\s+controller|they)\s+pays?\s+(\{[^}]+\})\.?$/i,
     );
     if (unlessThatPlayerPays) {
       const innerClause = String(unlessThatPlayerPays[1] || '').trim();
@@ -263,6 +272,42 @@ export function tryParseSimpleActionClause(args: {
           mana: String(unlessThatPlayerPays[2] || '').trim(),
           steps: [innerStep],
           optional: /\byou may\b/i.test(innerClause) || undefined,
+          raw: rawClause,
+        });
+      }
+    }
+  }
+
+  {
+    const namedCardMode = clause.match(/^([A-Za-z][A-Za-z0-9' ,\-]+?)\s*\(([^)]+)\)\.?$/);
+    if (namedCardMode && !/^(when|whenever|if|choose|target|at the beginning)\b/i.test(clause)) {
+      const inner = String(namedCardMode[2] || '').trim();
+      const innerClause = normalizeClauseForParse(inner).clause;
+      const innerParsed = tryParseSimpleActionClause({
+        clause: innerClause,
+        rawClause: clause,
+        withMeta,
+      });
+      if (innerParsed && innerParsed.kind !== 'unknown') {
+        return innerParsed;
+      }
+      const damageTo = inner.match(/^(\d+|x)\s+damage\s+to\s+(.+?)\.?$/i);
+      if (damageTo) {
+        return withMeta({
+          kind: 'deal_damage',
+          amount: parseQuantity(String(damageTo[1] || '').trim()),
+          target: parseObjectSelector(String(damageTo[2] || '').trim()),
+          raw: rawClause,
+        });
+      }
+      const searchFor = inner.match(/^search(?:es)?\s+(?:your\s+library\s+)?for\s+(.+?)\.?$/i);
+      if (searchFor) {
+        return withMeta({
+          kind: 'search_library',
+          who: { kind: 'you' },
+          criteria: { kind: 'raw', text: String(searchFor[1] || '').trim() },
+          destination: 'hand',
+          revealFound: false,
           raw: rawClause,
         });
       }
@@ -788,6 +833,18 @@ export function tryParseSimpleActionClause(args: {
         manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
         raw: rawClause,
         });
+    }
+
+    const signedArtBoxMana = clause.match(/^add one mana of any color signed in this card's art box by someone who has illustrated a printed magic card\.?$/i);
+    if (signedArtBoxMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: { kind: 'you' },
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
+        raw: rawClause,
+      });
     }
 
     const addEachChosenColorMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(?:a|an|one)\\s+mana\\s+of\\s+each\\s+of\\s+the\\s+chosen\\s+colors\\s*$`, 'i'));
@@ -1399,6 +1456,8 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const drawClauseBase = normalizeOracleText(clause).trim();
+    if (!/^create(?:s)?\b/i.test(drawClauseBase)) {
     const drawClause = normalizeDrawClauseForParse(clause);
 
     const havePlayerDraw = drawClause.match(new RegExp(`^(?:(?:target opponent|that opponent|defending player|the defending player|that player)\\s+may\\s+have\\s+|you\\s+may\\s+have\\s+)(you|target player|target opponent|that player|that opponent)\\s+draws?\\s+(${DRAW_AMOUNT_WORD_PATTERN})\\s+cards?\\b`, 'i'));
@@ -1613,18 +1672,148 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
-    const drawIfCondition = drawClause.match(
-      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+a\\s+card\\s+if\\s+(.+)$`, 'i')
+    const bareDrawThenDiscard = drawClause.match(
+      /^draw\s+((?:a card|a|an|\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+cards?),\s*then\s+discards?\s+((?:a card|a|an|\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+cards?)\.?$/i,
     );
-    if (drawIfCondition) {
+    if (bareDrawThenDiscard) {
+      return withMeta({
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: parseQuantity(String(bareDrawThenDiscard[1] || '').trim().replace(/\s+cards?$/i, '')),
+        raw: rawClause,
+      });
+    }
+
+    const bareDrawCommaLose = drawClause.match(
+      /^draw\s+((?:a card|a|an|\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+cards?),\s*lose\s+((?:that much|that many|\d+|x|[a-z]+)\s+life),?\s*(?:and\s+.+)?$/i,
+    );
+    if (bareDrawCommaLose) {
+      return withMeta({
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: parseQuantity(String(bareDrawCommaLose[1] || '').trim().replace(/\s+cards?$/i, '')),
+        raw: rawClause,
+      });
+    }
+
+    const youDrawCommaLose = drawClause.match(
+      /^you\s+draw\s+((?:a card|a|an|\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+cards?),\s*lose\s+((?:that much|that many|\d+|x|[a-z]+)\s+life),?\s*(?:and\s+.+)?$/i,
+    );
+    if (youDrawCommaLose) {
+      return withMeta({
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: parseQuantity(String(youDrawCommaLose[1] || '').trim().replace(/\s+cards?$/i, '')),
+        raw: rawClause,
+      });
+    }
+
+    const drawThenDiscard = drawClause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}draws?\\s+((?:a card|a|an|\\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\\s+cards?),\\s*then\\s+discards?\\s+((?:a card|a|an|\\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\\s+cards?)\\.?$`,
+        'i',
+      ),
+    );
+    if (drawThenDiscard) {
+      const who = parsePlayerSelector(drawThenDiscard[1]);
+      return withMeta({
+        kind: 'draw',
+        who,
+        amount: parseQuantity(String(drawThenDiscard[2] || '').trim().replace(/\s+cards?$/i, '')),
+        raw: rawClause,
+      });
+    }
+
+    const bareDrawUntapThenDiscard = drawClause.match(
+      /^draw\s+((?:a card|a|an|\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+cards?),\s+untap\s+(.+?),\s*then\s+discards?\s+((?:a card|a|an|\d+|x|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+cards?)\.?$/i,
+    );
+    if (bareDrawUntapThenDiscard) {
+      return withMeta({
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: parseQuantity(String(bareDrawUntapThenDiscard[1] || '').trim().replace(/\s+cards?$/i, '')),
+        raw: rawClause,
+      });
+    }
+
+    const bareDrawAndAdditionalForEach = drawClause.match(
+      /^draw\s+a\s+card\s+and\s+an\s+additional\s+card\s+for\s+each\s+of\s+(.+)$/i,
+    );
+    if (bareDrawAndAdditionalForEach) {
+      const forEachTail = String(bareDrawAndAdditionalForEach[1] || '').trim();
+      return withMeta({
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'reference_amount', raw: `a card and an additional card for each of ${forEachTail}` },
+        raw: rawClause,
+      });
+    }
+
+    const youDrawAndCreatureBuff = drawClause.match(
+      /^you\s+draw\s+(x|\d+)\s+cards?\s+and\s+(?:the\s+)?(.+?)\s+get\s+(.+?)(?:,\s*where\s+x\s+is\s+.+)?\.?$/i,
+    );
+    if (youDrawAndCreatureBuff) {
+      return withMeta({
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: parseQuantity(String(youDrawAndCreatureBuff[1] || '').trim()),
+        raw: rawClause,
+      });
+    }
+
+    const bareDrawInsteadIf = drawClause.match(
+      /^draw\s+((?:a card|a|an|\d+|two|three|four|five|six|seven|eight|nine|ten|x|[a-z]+)\s+cards?)\s+instead\s+if\s+(.+)$/i,
+    );
+    if (bareDrawInsteadIf) {
+      const amountRaw = String(bareDrawInsteadIf[1] || '').trim().replace(/\s+cards?$/i, '');
       return withMeta({
         kind: 'conditional',
-        condition: { kind: 'if', raw: String(drawIfCondition[2] || '').trim() },
+        condition: { kind: 'if', raw: String(bareDrawInsteadIf[2] || '').trim() },
         steps: [{
           kind: 'draw',
-          who: parsePlayerSelector(drawIfCondition[1]),
-          amount: { kind: 'number', value: 1 },
-          raw: `${String(drawIfCondition[1] || '').trim()} draws a card`,
+          who: { kind: 'you' },
+          amount: parseQuantity(amountRaw || 'a card'),
+          raw: `draw ${String(bareDrawInsteadIf[1] || '').trim()}`,
+        } as OracleEffectStep],
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+
+    const bareDrawIfCondition = drawClause.match(
+      /^draw\s+((?:a card|a|an|\d+|two|three|four|five|six|seven|eight|nine|ten|x|[a-z]+)\s+cards?)\s+if\s+(.+)$/i,
+    );
+    if (bareDrawIfCondition) {
+      const amountRaw = String(bareDrawIfCondition[1] || '').trim().replace(/\s+cards?$/i, '');
+      return withMeta({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: String(bareDrawIfCondition[2] || '').trim() },
+        steps: [{
+          kind: 'draw',
+          who: { kind: 'you' },
+          amount: parseQuantity(amountRaw || 'a card'),
+          raw: `draw ${String(bareDrawIfCondition[1] || '').trim()}`,
+        } as OracleEffectStep],
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+
+    const drawIfCondition = drawClause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+((?:a card|a|an|\\d+|two|three|four|five|six|seven|eight|nine|ten|x|[a-z]+)\\s+cards?)\\s+if\\s+(.+)$`,
+        'i',
+      ),
+    );
+    if (drawIfCondition) {
+      const who = parsePlayerSelector(drawIfCondition[1]);
+      const amountRaw = String(drawIfCondition[2] || '').trim().replace(/\s+cards?$/i, '');
+      return withMeta({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: String(drawIfCondition[3] || '').trim() },
+        steps: [{
+          kind: 'draw',
+          who,
+          amount: parseQuantity(amountRaw || 'a card'),
+          raw: `${String(drawIfCondition[1] || '').trim()} draws ${String(drawIfCondition[2] || '').trim()}`,
         } as OracleEffectStep],
         raw: rawClause,
       } as OracleEffectStep);
@@ -1656,9 +1845,45 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
+    const drawWhereXBare = drawClause.match(/^draw\s+x\s+cards,\s*where\s+x\s+is\s+(.+)$/i);
+    if (drawWhereXBare) {
+      return buildQuantityStepFromClauseParts({
+        kind: 'draw',
+        who: { kind: 'you' },
+        quantityTail: `X cards, where X is ${String(drawWhereXBare[1] || '').trim()}`,
+        rawClause,
+        withMeta,
+        optional: /\bmay\b/i.test(clause) || undefined,
+      });
+    }
+
+    const drawWhereXSubject = drawClause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+x\\s+cards,\\s*where\\s+x\\s+is\\s+(.+)$`, 'i')
+    );
+    if (drawWhereXSubject) {
+      return buildQuantityStepFromClauseParts({
+        kind: 'draw',
+        who: parsePlayerSelector(drawWhereXSubject[1]),
+        quantityTail: `X cards, where X is ${String(drawWhereXSubject[2] || '').trim()}`,
+        rawClause,
+        withMeta,
+        optional: /\bmay\b/i.test(clause) || undefined,
+      });
+    }
+
     const drawTail = drawClause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+(.+)$`, 'i')
     );
+    if (drawTail && quantityTailSupportsDynamicQuantity(String(drawTail[2] || ''))) {
+      return buildQuantityStepFromClauseParts({
+        kind: 'draw',
+        who: parsePlayerSelector(drawTail[1]),
+        quantityTail: String(drawTail[2] || '').trim(),
+        rawClause,
+        withMeta,
+        optional: /\bmay\b/i.test(clause) || undefined,
+      });
+    }
     if (drawTail && isSimpleCardQuantityTail(String(drawTail[2] || ''))) {
       return buildQuantityStepFromClauseParts({
         kind: 'draw',
@@ -1686,6 +1911,16 @@ export function tryParseSimpleActionClause(args: {
     }
 
     const drawDefaultTail = drawClause.match(/^(?:may\s+)?draw\s+(.+)$/i);
+    if (drawDefaultTail && quantityTailSupportsDynamicQuantity(String(drawDefaultTail[1] || ''))) {
+      return buildQuantityStepFromClauseParts({
+        kind: 'draw',
+        who: { kind: 'you' },
+        quantityTail: String(drawDefaultTail[1] || '').trim(),
+        rawClause,
+        withMeta,
+        optional: /\bmay\b/i.test(clause) || undefined,
+      });
+    }
     if (drawDefaultTail && isSimpleCardQuantityTail(String(drawDefaultTail[1] || ''))) {
       return buildQuantityStepFromClauseParts({
         kind: 'draw',
@@ -1695,6 +1930,7 @@ export function tryParseSimpleActionClause(args: {
         withMeta,
         optional: /\bmay\b/i.test(clause) || undefined,
       });
+    }
     }
   }
 
@@ -3599,6 +3835,19 @@ export function tryParseSimpleActionClause(args: {
         });
     }
 
+    const discardAllFromHand = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+all\\s+cards\\s+from\\s+(?:your|their)\\s+hand\\b`, 'i')
+    );
+    if (discardAllFromHand) {
+      return withMeta({
+        kind: 'discard',
+        who: parsePlayerSelector(discardAllFromHand[1]),
+        amount: { kind: 'number', value: 9999 },
+        optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+
     const discardAllInHandDefault = clause.match(/^discard\s+all\s+(?:the\s+)?cards?\s+in\s+your\s+hand\b/i);
     if (discardAllInHandDefault) {
       return withMeta({
@@ -3621,6 +3870,19 @@ export function tryParseSimpleActionClause(args: {
         optional: /\\bmay\\b/i.test(clause) || undefined,
         raw: rawClause,
         });
+    }
+
+    const discardAnotherRandom = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+another\\s+card\\s+at\\s+random\\b`, 'i'),
+    );
+    if (discardAnotherRandom) {
+      return withMeta({
+        kind: 'discard',
+        who: parsePlayerSelector(discardAnotherRandom[1]),
+        amount: { kind: 'number', value: 1 },
+        optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+      });
     }
 
     const discardHalf = clause.match(
@@ -3662,10 +3924,33 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
+    const discardForEach = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+(?:a card|(?:a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\\s+cards?)\\s+for\\s+each\\s+(.+)$`,
+        'i',
+      ),
+    );
+    if (discardForEach) {
+      const who = parsePlayerSelector(discardForEach[1]);
+      const amountText = `a card for each ${String(discardForEach[2] || '').trim()}`;
+      return withMeta({
+        kind: 'discard',
+        who,
+        amount: parseQuantity(amountText),
+        optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+
     const discardTail = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:also\\s+)?(?:may\\s+)?discards?\\s+(.+)$`, 'i')
     );
-    if (discardTail && isSimpleCardQuantityTail(String(discardTail[2] || ''))) {
+    const discardTailText = String(discardTail?.[2] || '');
+    if (
+      discardTail &&
+      !/,\s*mills?\b/i.test(discardTailText) &&
+      (isSimpleCardQuantityTail(discardTailText) || /,\s*where\s+x\s+is\s+/i.test(discardTailText))
+    ) {
       return buildQuantityStepFromClauseParts({
         kind: 'discard',
         who: parsePlayerSelector(discardTail[1]),

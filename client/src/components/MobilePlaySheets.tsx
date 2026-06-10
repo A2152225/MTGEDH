@@ -1,0 +1,242 @@
+/**
+ * Bottom sheets opened from the mobile action dock (hand, stack, mana, more).
+ */
+
+import React from 'react';
+import type {
+  CardCostAdjustment,
+  CardRef,
+  KnownCardRef,
+  ManaPool,
+  PlayerID,
+  PlayerRef,
+  StackItem,
+  BattlefieldPermanent,
+} from '../../../shared/src';
+import type { AppearanceSettings } from '../utils/appearanceSettings';
+import { Sheet } from './Sheet';
+import { HandGallery } from './HandGallery';
+import { CentralStack } from './CentralStack';
+import { FloatingManaPool } from './FloatingManaPool';
+import { PhaseNavigator } from './PhaseNavigator';
+import { colors, fontSize, radii, spacing } from '../theme';
+
+export type MobilePlaySheet = 'hand' | 'stack' | 'mana' | 'more' | null;
+
+export interface MobilePlaySheetsProps {
+  activeSheet: MobilePlaySheet;
+  onClose: () => void;
+  // Hand
+  handCards: CardRef[] | KnownCardRef[];
+  handCount?: number;
+  imagePref: 'small' | 'normal' | 'art_crop';
+  playableCards?: string[];
+  costAdjustments?: Record<string, CardCostAdjustment>;
+  appearanceSettings?: AppearanceSettings;
+  onPlayLand?: (cardId: string) => void;
+  onCast?: (cardId: string) => void;
+  onReorderHand?: (order: string[]) => void;
+  reasonCannotPlayLand?: (card: { type_line?: string }) => string | null;
+  reasonCannotCast?: (card: { type_line?: string }) => string | null;
+  // Stack
+  stack: StackItem[];
+  battlefield?: BattlefieldPermanent[];
+  players?: PlayerRef[];
+  you?: PlayerID;
+  priority?: PlayerID | null;
+  onPassPriority?: () => void;
+  onResolveAllTriggers?: () => void;
+  ignoredTriggerSources?: Map<string, { sourceName: string; count: number; effect: string; imageUrl?: string }>;
+  onIgnoreTriggerSource?: (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => void;
+  onStopIgnoringSource?: (sourceKey: string) => void;
+  // Mana
+  manaPool?: ManaPool | null;
+  // More / phase
+  phase?: string;
+  step?: string;
+  turnPlayer?: PlayerID | null;
+  isYourTurn?: boolean;
+  hasPriority?: boolean;
+  stackEmpty?: boolean;
+  allPlayersReady?: boolean;
+  phaseAdvanceBlockReason?: string | null;
+  onNextStep?: () => void;
+  onSkipToPhase?: (targetPhase: string, targetStep?: string) => void;
+  onConcede?: () => void;
+  onLeaveGame?: () => void;
+}
+
+export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
+  const {
+    activeSheet,
+    onClose,
+    handCards,
+    handCount,
+    imagePref,
+    playableCards,
+    costAdjustments,
+    appearanceSettings,
+    onPlayLand,
+    onCast,
+    onReorderHand,
+    reasonCannotPlayLand,
+    reasonCannotCast,
+    stack,
+    battlefield,
+    players,
+    you,
+    priority,
+    onPassPriority,
+    onResolveAllTriggers,
+    ignoredTriggerSources,
+    onIgnoreTriggerSource,
+    onStopIgnoringSource,
+    manaPool,
+    phase,
+    step,
+    turnPlayer,
+    isYourTurn = false,
+    hasPriority = false,
+    stackEmpty = true,
+    allPlayersReady = true,
+    phaseAdvanceBlockReason,
+    onNextStep,
+    onSkipToPhase,
+    onConcede,
+    onLeaveGame,
+  } = props;
+
+  return (
+    <>
+      <Sheet
+        open={activeSheet === 'hand'}
+        onClose={onClose}
+        title="Your Hand"
+        desktopWidth={720}
+      >
+        <HandGallery
+          cards={handCards}
+          handCount={handCount}
+          imagePref={imagePref}
+          thumbWidth={96}
+          layout="wrap7"
+          enableReorder={!!onReorderHand}
+          onReorder={onReorderHand}
+          onPlayLand={onPlayLand}
+          onCast={onCast}
+          reasonCannotPlayLand={reasonCannotPlayLand}
+          reasonCannotCast={reasonCannotCast}
+          playableCards={playableCards}
+          costAdjustments={costAdjustments}
+          appearanceSettings={appearanceSettings}
+        />
+      </Sheet>
+
+      <Sheet
+        open={activeSheet === 'stack'}
+        onClose={onClose}
+        title={`Stack (${stack.length})`}
+        desktopWidth={520}
+        hideHeader={stack.length === 0}
+      >
+        {stack.length > 0 ? (
+          <div style={{ position: 'relative', minHeight: 120 }}>
+            <CentralStack
+              embedded
+              stack={stack}
+              battlefield={battlefield}
+              players={players}
+              you={you}
+              priorityPlayer={priority ?? undefined}
+              onPass={onPassPriority}
+              onResolveAll={onResolveAllTriggers}
+              ignoredSources={ignoredTriggerSources}
+              onIgnoreTriggerSource={onIgnoreTriggerSource}
+              onStopIgnoring={onStopIgnoringSource}
+            />
+          </div>
+        ) : (
+          <div style={{ color: colors.textSecondary, fontSize: fontSize.md }}>Stack is empty.</div>
+        )}
+      </Sheet>
+
+      <Sheet
+        open={activeSheet === 'mana'}
+        onClose={onClose}
+        title="Mana Pool"
+        desktopWidth={400}
+      >
+        {manaPool ? (
+          <FloatingManaPool manaPool={manaPool} playerId={you} />
+        ) : (
+          <div style={{ color: colors.textSecondary, fontSize: fontSize.md }}>No floating mana.</div>
+        )}
+      </Sheet>
+
+      <Sheet
+        open={activeSheet === 'more'}
+        onClose={onClose}
+        title="More"
+        desktopWidth={480}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
+          {onNextStep && onPassPriority && (
+            <PhaseNavigator
+              docked
+              currentPhase={phase}
+              currentStep={step}
+              turnPlayer={turnPlayer ?? undefined}
+              you={you}
+              isYourTurn={isYourTurn}
+              hasPriority={hasPriority}
+              stackEmpty={stackEmpty}
+              allPlayersReady={allPlayersReady}
+              phaseAdvanceBlockReason={phaseAdvanceBlockReason}
+              onNextStep={onNextStep}
+              onPassPriority={onPassPriority}
+              onSkipToPhase={onSkipToPhase}
+            />
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.sm }}>
+            {onConcede && (
+              <button
+                type="button"
+                onClick={onConcede}
+                style={{
+                  flex: '1 1 120px',
+                  padding: '10px 12px',
+                  borderRadius: radii.md,
+                  border: `1px solid ${colors.danger}`,
+                  background: 'rgba(220,38,38,0.15)',
+                  color: '#fca5a5',
+                  cursor: 'pointer',
+                  fontSize: fontSize.sm,
+                }}
+              >
+                Concede
+              </button>
+            )}
+            {onLeaveGame && (
+              <button
+                type="button"
+                onClick={onLeaveGame}
+                style={{
+                  flex: '1 1 120px',
+                  padding: '10px 12px',
+                  borderRadius: radii.md,
+                  border: `1px solid ${colors.border}`,
+                  background: colors.surfaceTransparent,
+                  color: colors.textPrimary,
+                  cursor: 'pointer',
+                  fontSize: fontSize.sm,
+                }}
+              >
+                Leave Game
+              </button>
+            )}
+          </div>
+        </div>
+      </Sheet>
+    </>
+  );
+};

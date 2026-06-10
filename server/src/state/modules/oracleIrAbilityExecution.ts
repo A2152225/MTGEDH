@@ -35,6 +35,10 @@ const ORACLE_IR_ACTIVATED_STEP_KINDS = new Set<string>([
   'sacrifice',
   'counter_spell',
   'proliferate',
+  'populate',
+  'explore',
+  'look_choose_from_top',
+  'look_select_top',
   'open_attraction',
   'roll_visit_attractions',
 ]);
@@ -111,7 +115,7 @@ export function tryApplyOracleIRToActivatedAbility(
     const irCtx = buildOracleIRExecutionContext(
       {
         controllerId: params.controller,
-        sourceId: params.stackItemId || params.sourcePermanentId,
+        sourceId: params.sourcePermanentId || params.stackItemId,
         sourceName: params.sourceName,
         sourceObjectType: 'ability',
         ...(typeof params.teamworkWasPaid === 'boolean' ? { teamworkWasPaid: params.teamworkWasPaid } : {}),

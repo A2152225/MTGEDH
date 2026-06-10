@@ -116,8 +116,32 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^until you exile a nonland permanent card$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: trimmed };
   }
+  if (/^x cards?,?$/i.test(trimmed)) {
+    return { kind: 'x' };
+  }
+  if (/^up to x cards?$/i.test(trimmed)) {
+    return { kind: 'x' };
+  }
+  if (/^your speed$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'your speed' };
+  }
+  if (/^your highest commander tax among your commanders$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^x for each of those creatures\.?\)?$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'x for each of those creatures' };
+  }
+  if (/^x cards plus an additional card for each time .+$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase().replace(/\)+$/g, '').trim() };
+  }
+  const cardsInsteadMatch = trimmed.match(
+    /^((?:a card|\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) cards?) instead$/i,
+  );
+  if (cardsInsteadMatch) {
+    return parseQuantity(String(cardsInsteadMatch[1] || '').trim().replace(/\s+cards?$/i, ''));
+  }
   if (/^two cards instead$/i.test(trimmed)) {
-    return { kind: 'reference_amount', raw: 'two cards instead' };
+    return { kind: 'number', value: 2 };
   }
   if (/^a card if /i.test(trimmed)) {
     return { kind: 'reference_amount', raw: trimmed };
@@ -187,6 +211,48 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   }
   if (/^a card before its other effects(?:[.)"]*)?$/i.test(trimmed)) {
     return { kind: 'number', value: 1 };
+  }
+  if (/^a card,?$/i.test(trimmed)) {
+    return { kind: 'number', value: 1 };
+  }
+  if (/^a card,?\s+then discard a card\.?$/i.test(trimmed)) {
+    return { kind: 'number', value: 1 };
+  }
+  if (/^a card,?\s+lose 1 life,?\s*$/i.test(trimmed)) {
+    return { kind: 'number', value: 1 };
+  }
+  if (/^a card and an additional card for each of .+$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  }
+  if (/^that many cards, create that many tapped treasure tokens$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'that many' };
+  }
+  if (/^one fewer card$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: 'one fewer card' };
+  }
+  if (/^five for each forest and\/or plant you control\.?$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase().replace(/\.$/, '') };
+  }
+  if (/^(?:a card|\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|[a-z]+)\s+cards?\s+for\s+each\s+/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase().replace(/\.$/, '') };
+  }
+  if (/^(\d+|x|one|two|three|four|five|six|seven|eight|nine|ten)\s+life\s+for\s+each\s+/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase().replace(/\.$/, '') };
+  }
+  if (/^a card\.?"?\s*(?:\(|$)/i.test(trimmed)) {
+    return { kind: 'number', value: 1 };
+  }
+  if (/^a card["']?\s*(?:and loses all other abilities|,?\s*" and)/i.test(trimmed)) {
+    return { kind: 'number', value: 1 };
+  }
+  if (/^another card at random(?: unless .+)?\.?$/i.test(trimmed)) {
+    return { kind: 'number', value: 1 };
+  }
+  if (/^all cards from (?:your|their) hand$/i.test(trimmed)) {
+    return { kind: 'number', value: 9999 };
+  }
+  if (/^all but the bottom (?:one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards? of (?:that player's|target player's|their) library$/i.test(trimmed)) {
+    return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   }
   if (/^a card(?:\.|\.)["')]*$/i.test(trimmed)) {
     return { kind: 'number', value: 1 };
@@ -628,7 +694,7 @@ export function normalizeClauseForParse(clause: string): {
 
   if (/^then\b/i.test(working)) {
     sequence = 'then';
-    working = working.replace(/^then\b\s*/i, '');
+    working = working.replace(/^then\b\s*,?\s*/i, '');
   }
 
   if (/^you\s+may\b/i.test(working)) {

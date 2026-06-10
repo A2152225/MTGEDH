@@ -1,6 +1,8 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import { ChoiceEventType, type ChoiceEvent, type ChoiceOption, type ChoiceResponse } from './choiceEventsTypes';
 import type { OracleClauseCondition, OracleEffectStep } from './oracleIR';
+import { sacrificeSelectorRequiresPlayerChoice } from './oracleIRExecutorBattlefieldStepHandlers';
+import { discardSelectorRequiresPlayerChoice } from './oracleIRExecutorPlayerStepHandlers';
 
 export type EffectProgramStepKind = 'condition' | 'command' | 'choice' | 'keyword' | 'note';
 
@@ -360,6 +362,20 @@ export function createChoiceEventFromEffectProgramChoiceRequest(
         opponentName: String(payload.opponentName || payload.opponentId || 'opponent'),
         cards: asCardRefs(payload.cards),
         fatesealCount: asNumber(payload.fatesealCount, 0),
+      };
+
+    case ChoiceEventType.DISCARD_SELECTION:
+      return {
+        ...base,
+        type: ChoiceEventType.DISCARD_SELECTION,
+        hand: asChoiceOptions(payload.hand) || [],
+        discardCount: asNumber(payload.discardCount, 1),
+        ...(payload.anyNumberDiscard === true ? { anyNumberDiscard: true } : {}),
+        ...(payload.minDiscardCount !== undefined ? { minDiscardCount: asNumber(payload.minDiscardCount, 0) } : {}),
+        ...(payload.maxDiscardCount !== undefined ? { maxDiscardCount: asNumber(payload.maxDiscardCount, 0) } : {}),
+        currentHandSize: asNumber(payload.currentHandSize, 0),
+        maxHandSize: asNumber(payload.maxHandSize, 0),
+        reason: payload.reason === 'cleanup' ? 'cleanup' : 'effect',
       };
 
     default:
@@ -941,7 +957,11 @@ function appendOracleStepToEffectProgram(args: {
       || kind === 'populate'
       || kind === 'scry'
       || kind === 'surveil'
-      || (kind === 'add_mana' && (step as any).requiresChosenMana === true);
+    || kind === 'sacrifice'
+    || kind === 'discard'
+    || kind === 'unless_pays_mana'
+    || kind === 'unless_pays_life'
+    || (kind === 'add_mana' && (step as any).requiresChosenMana === true);
   }
 
 function oracleStepOptionalRequiresChoice(step: OracleEffectStep): boolean {
@@ -1007,6 +1027,18 @@ function oracleStepNeedsChoice(
   }
 
   if ((kind === 'scry' || kind === 'surveil') && isSupportedTopLibraryChoiceStep(step)) {
+    return true;
+  }
+
+  if (kind === 'sacrifice' && sacrificeSelectorRequiresPlayerChoice(step)) {
+    return true;
+  }
+
+  if (kind === 'discard' && discardSelectorRequiresPlayerChoice(step)) {
+    return true;
+  }
+
+  if (kind === 'unless_pays_mana' || kind === 'unless_pays_life') {
     return true;
   }
 
@@ -1098,6 +1130,51 @@ function buildChoiceRequestPayloadForOracleStep(
     };
   }
 
+  if (kind === 'sacrifice') {
+    return {
+      ...basePayload,
+      targetTypes: ['permanent'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: String((step as any).raw || 'Choose a permanent to sacrifice'),
+    };
+  }
+
+  if (kind === 'discard') {
+    if ((step as any).amount?.kind === 'any_number') {
+      return {
+        ...basePayload,
+        anyNumberDiscard: true,
+        minDiscardCount: 0,
+        discardCount: 0,
+        reason: 'effect',
+      };
+    }
+    return {
+      ...basePayload,
+      discardCount: quantityToStaticNumber((step as any).amount) ?? 1,
+      reason: 'effect',
+    };
+  }
+
+  if (kind === 'unless_pays_mana') {
+    return {
+      ...basePayload,
+      manaCost: String((step as any).mana || ''),
+      payChoiceId: 'pay',
+      declineChoiceId: 'decline',
+    };
+  }
+
+  if (kind === 'unless_pays_life') {
+    return {
+      ...basePayload,
+      lifeAmount: Number((step as any).amount || 0),
+      payChoiceId: 'pay',
+      declineChoiceId: 'decline',
+    };
+  }
+
   if (kind === 'proliferate') {
     return {
       ...basePayload,
@@ -1120,7 +1197,11 @@ function buildChoiceRequestPayloadForOracleStep(
 
 function isSupportedTopLibraryChoiceStep(step: OracleEffectStep): boolean {
   const whoKind = String((step as any)?.who?.kind || '');
-  return whoKind === 'you' && quantityToStaticNumber((step as any).amount) !== undefined;
+  const supportedWho =
+    whoKind === 'you' ||
+    whoKind === 'target_player' ||
+    whoKind === 'target_opponent';
+  return supportedWho && quantityToStaticNumber((step as any).amount) !== undefined;
 }
 
 function isSupportedExploreChoiceStep(step: OracleEffectStep): boolean {
@@ -1375,6 +1456,13 @@ function mapOracleStepKindToChoiceType(kind: string): ChoiceEventType {
       return ChoiceEventType.SCRY;
     case 'surveil':
       return ChoiceEventType.SURVEIL;
+    case 'sacrifice':
+      return ChoiceEventType.TARGET_SELECTION;
+    case 'discard':
+      return ChoiceEventType.DISCARD_SELECTION;
+    case 'unless_pays_mana':
+    case 'unless_pays_life':
+      return ChoiceEventType.OPTION_CHOICE;
     case 'fateseal':
       return ChoiceEventType.FATESEAL;
     case 'vote':

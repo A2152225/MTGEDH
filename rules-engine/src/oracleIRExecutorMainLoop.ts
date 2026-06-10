@@ -520,6 +520,18 @@ function getLastDieRollResultForPlayer(state: GameState, playerId: PlayerID): nu
   return null;
 }
 
+const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
+  'discard',
+  'explore',
+  'look_choose_from_top',
+  'look_select_top',
+  'proliferate',
+  'populate',
+  'sacrifice',
+  'scry',
+  'surveil',
+]);
+
 export function applyOracleIRStepsToGameStateImpl(
   state: GameState,
   steps: readonly OracleEffectStep[],
@@ -576,6 +588,8 @@ export function applyOracleIRStepsToGameStateImpl(
 
   let nextState = state;
   const pendingOptionalSteps: OracleEffectStep[] = [];
+  let haltedForPlayerChoice = false;
+  let pendingContinuationSteps: OracleEffectStep[] | undefined;
   let automationGapSequence = 0;
 
   const setLastStepOutcome = (step: OracleEffectStep, kind: StepOutcomeKind, metadata?: { readonly count?: number }): void => {
@@ -649,6 +663,14 @@ export function applyOracleIRStepsToGameStateImpl(
     });
     localAutomationGaps.push(gap);
     automationGaps.push(gap);
+
+    if (
+      options.haltOnPlayerChoiceRequired === true &&
+      reasonCode === 'player_choice_required' &&
+      HALT_ON_PLAYER_CHOICE_STEP_KINDS.has(String(step.kind || ''))
+    ) {
+      haltedForPlayerChoice = true;
+    }
   };
 
   const applyHandledStepResult = (
@@ -710,7 +732,16 @@ export function applyOracleIRStepsToGameStateImpl(
       lastConditionalEvaluation = null;
     }
     const isOptional = Boolean((step as any).optional);
-    if (isOptional && !options.allowOptional) {
+    const optionalLookLibraryStep =
+      isOptional &&
+      currentCtx.interactivePlayerChoices === true &&
+      (step.kind === 'look_choose_from_top' || step.kind === 'look_select_top');
+    const optionalAnyNumberDiscardStep =
+      isOptional &&
+      currentCtx.interactivePlayerChoices === true &&
+      step.kind === 'discard' &&
+      (step as any).amount?.kind === 'any_number';
+    if (isOptional && !options.allowOptional && !optionalLookLibraryStep && !optionalAnyNumberDiscardStep) {
       if (options.declineOptionalSteps) {
         log.push(`Declined optional step: ${(step as any).raw ?? step.kind}`);
         setLastStepOutcome(step, 'choice_required');
@@ -2818,7 +2849,10 @@ export function applyOracleIRStepsToGameStateImpl(
             .replace(/\s+/g, ' ')
             .trim()
             .toLowerCase();
-          if (/^not \((?:you|that player|target player|target opponent|that opponent|an opponent) pay \{[^}]+\}\)$/i.test(normalizedConditionRaw)) {
+          if (/^not \((?:you|that player|target player|target opponent|that opponent|an opponent|its controller) pay(?:s)? (?:\{[^}]+\}(?:\{[^}]+\})*|\d+ life)\)$/i.test(normalizedConditionRaw)) {
+            const conditionRaw = String(step.condition.raw || '').trim();
+            const manaMatch = conditionRaw.match(/pay(?:s)? (\{[^}]+\}(?:\{[^}]+\})*)/i);
+            const lifeMatch = conditionRaw.match(/pay(?:s)? (\d+) life/i);
             const nestedChoiceStep = step.steps.length === 1 ? step.steps[0] : step;
             recordSkippedStep(
               nestedChoiceStep,
@@ -2826,6 +2860,12 @@ export function applyOracleIRStepsToGameStateImpl(
               'player_choice_required',
               {
                 classification: 'player_choice',
+                metadata: {
+                  unlessPayConditionRaw: step.condition.raw,
+                  ...(manaMatch ? { unlessPayManaCost: manaMatch[1] } : {}),
+                  ...(lifeMatch ? { unlessPayLifeAmount: Number(lifeMatch[1]) } : {}),
+                  unlessPayNestedStepKinds: step.steps.map(inner => inner.kind),
+                },
               }
             );
             break;
@@ -2992,6 +3032,11 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
     }
+
+    if (haltedForPlayerChoice) {
+      pendingContinuationSteps = steps.slice(stepIndex + 1) as OracleEffectStep[];
+      break;
+    }
   }
 
   nextState = appendOracleAutomationGapRecords(nextState, localAutomationGaps);
@@ -3003,6 +3048,7 @@ export function applyOracleIRStepsToGameStateImpl(
     skippedSteps,
     automationGaps,
     pendingOptionalSteps,
+    ...(pendingContinuationSteps ? { pendingContinuationSteps } : {}),
     lastStepOutcome,
   };
 }

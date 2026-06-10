@@ -92,7 +92,7 @@ import {
   parseTriggerEffectSteps,
   wouldOracleIRFallbackPrefilterMatch,
 } from './trigger-runtime-wiring.js';
-import { applyCopyPermanentTriggerStep } from './trigger-copy-permanent.js';
+import { applyCopyPermanentTriggerStep, queueOptionalSelfCopyFromControlledCreature } from './trigger-copy-permanent.js';
 export {
   applyPermanentBecomeCopyOfTargetPermanent,
   applyPermanentBecomeCopyOfCardData,
@@ -112,6 +112,7 @@ import { buildOpponentMayPayRecordedOutcome } from "./opponent-may-pay-utils.js"
 import { resolveGiftAwareOracleText } from "../../utils/gift.js";
 import { extractModalModesFromOracleText } from "../../utils/oraclePromptContext.js";
 import { tryApplyOracleIRToActivatedAbility } from "./oracleIrAbilityExecution.js";
+import { applyOracleIRStepsOnServer } from "./oracleIrServerZoneSync.js";
 import { castCommander } from "./commander.js";
 import { markEchoPaid, sacrificePermanent, stampPermanentControlEntryForEcho } from "./upkeep-triggers.js";
 import {
@@ -3812,6 +3813,82 @@ function applyOracleIRImpulseExileTopStep(
   return applied;
 }
 
+function createEquippedCreatureCopyTokenFromEquipment(
+  ctx: GameContext,
+  controller: PlayerID,
+  equipmentPermanentId: string,
+  triggerDescription: string,
+  grantsHasteFromStep = false,
+): number {
+  const state = (ctx as any).state;
+  if (!state) return 0;
+
+  const sourcePerm = (state.battlefield || []).find((p: any) => p?.id === equipmentPermanentId);
+  if (!sourcePerm) {
+    debug(2, `[executeTriggerEffect] Equipment source not found on battlefield - trigger fizzles`);
+    return 0;
+  }
+
+  const attachedTo = sourcePerm.attachedTo;
+  if (!attachedTo) {
+    debug(2, `[executeTriggerEffect] Equipment ${sourcePerm.card?.name || 'equipment'} is not attached to anything - trigger fizzles`);
+    return 0;
+  }
+
+  const equippedCreature = (state.battlefield || []).find((p: any) => p?.id === attachedTo);
+  if (!equippedCreature?.card) {
+    debug(2, `[executeTriggerEffect] No equipped creature found for copy token creation - trigger fizzles`);
+    return 0;
+  }
+
+  const desc = String(triggerDescription || '').toLowerCase();
+  const tokenId = uid('token');
+  const originalCard = equippedCreature.card;
+  const originalTypeLine = (originalCard.type_line || '').toLowerCase();
+
+  let tokenTypeLine = originalCard.type_line || 'Token';
+  tokenTypeLine = tokenTypeLine.replace(/\bLegendary\s+/i, '').replace(/\s+Legendary\b/i, '').trim();
+
+  const originalHasHaste = (originalCard.oracle_text || '').toLowerCase().includes('haste') ||
+    (Array.isArray(originalCard.keywords) &&
+      originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste'));
+  const triggerGrantsHaste = grantsHasteFromStep || /(?:gains|has|with)\s+haste/i.test(desc);
+  const hasHaste = originalHasHaste || triggerGrantsHaste;
+  const isCreature = originalTypeLine.includes('creature');
+
+  const tokenCopy = {
+    id: tokenId,
+    controller,
+    owner: controller,
+    tapped: false,
+    counters: { ...equippedCreature.counters },
+    basePower: equippedCreature.basePower,
+    baseToughness: equippedCreature.baseToughness,
+    summoningSickness: isCreature && !hasHaste,
+    isToken: true,
+    card: {
+      ...originalCard,
+      id: tokenId,
+      type_line: tokenTypeLine,
+      zone: 'battlefield',
+      oracle_text: triggerGrantsHaste && !originalHasHaste
+        ? (originalCard.oracle_text || '') + (originalCard.oracle_text ? '\n' : '') + 'Haste'
+        : originalCard.oracle_text,
+      keywords: triggerGrantsHaste && Array.isArray(originalCard.keywords) && !originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste')
+        ? [...originalCard.keywords, 'Haste']
+        : originalCard.keywords,
+    },
+  } as any;
+
+  state.battlefield = state.battlefield || [];
+  state.battlefield.push(tokenCopy);
+
+  debug(2, `[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} (not legendary${hasHaste ? ', with haste' : ''})`);
+  queueSelfETBTriggersForPermanent(ctx, tokenCopy, controller as any);
+  triggerETBEffectsForToken(ctx, tokenCopy, controller);
+  return 1;
+}
+
 function applyOracleIRFallbackForTriggeredEffect(
   ctx: GameContext,
   controller: PlayerID,
@@ -3877,6 +3954,45 @@ function applyOracleIRFallbackForTriggeredEffect(
             step as Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
             triggerItem,
           );
+        }
+      }
+      if (applied === 0) {
+        for (const step of steps) {
+          if (step.kind === 'explore' && sourcePermanentId) {
+            const targetText = String((step as { target?: { text?: string; raw?: string } }).target?.text
+              || (step as { target?: { text?: string; raw?: string } }).target?.raw
+              || '').trim();
+            if (/this creature/i.test(targetText) && queueExploreDecisionStep(ctx, controller, sourcePermanentId)) {
+              applied += 1;
+            }
+            continue;
+          }
+          if (step.kind === 'grant_temporary_ability' && (step as { optional?: boolean }).optional) {
+            const effectText = Array.isArray((step as { effectText?: readonly string[] }).effectText)
+              ? (step as { effectText: readonly string[] }).effectText.join(' ')
+              : '';
+            if (/becomes a copy of another creature you control/i.test(effectText) && sourcePermanentId) {
+              applied += queueOptionalSelfCopyFromControlledCreature(
+                ctx,
+                controller,
+                sourceName,
+                sourcePermanentId,
+              );
+            }
+            continue;
+          }
+          if (step.kind === 'create_token') {
+            const rawToken = String((step as { token?: string }).token || '').trim();
+            if (/copy of equipped (?:creature|permanent)/i.test(rawToken) && sourcePermanentId) {
+              applied += createEquippedCreatureCopyTokenFromEquipment(
+                ctx,
+                controller,
+                sourcePermanentId,
+                text,
+                Boolean((step as { grantsHaste?: string }).grantsHaste),
+              );
+            }
+          }
         }
       }
     } catch (err) {
@@ -6616,6 +6732,43 @@ function applyOracleIRFallbackForUncategorizedSpell(
             if (!perm?.id) continue;
             destroyPermanent(ctx, String(perm.id), true);
             applied++;
+          }
+          break;
+        }
+        case 'conditional':
+        case 'unless_pays_mana':
+        case 'unless_pays_life': {
+          try {
+            const executionCtx = irCtx || buildStackOracleIRContext(caster, {
+              xValue,
+              sourceId: sourcePermanentId || sourceId,
+            });
+            const execResult = applyOracleIRStepsOnServer(
+              ctx,
+              (ctx as any).state,
+              [step as OracleEffectStep],
+              {
+                ...executionCtx,
+                controllerId: caster,
+                sourceId: sourcePermanentId || sourceId,
+                sourceName: spellName,
+              },
+              { allowOptional: false },
+              { controller: caster },
+            );
+            applied += execResult.appliedSteps.length;
+            const queuedChoice = (execResult.automationGaps || []).some(
+              (gap) =>
+                gap.reasonCode === 'player_choice_required' &&
+                (gap.stepKind === 'unless_pays_mana' ||
+                  gap.stepKind === 'unless_pays_life' ||
+                  gap.stepKind === 'sacrifice')
+            );
+            if (queuedChoice) {
+              applied += 1;
+            }
+          } catch (err) {
+            debugWarn(1, `[oracleIR] unless-pay fallback failed for ${spellName}:`, err);
           }
           break;
         }
@@ -12641,13 +12794,15 @@ export function executeTriggerEffect(
     }
   }
 
-  const triggeredOracleIRApplied = applyOracleIRFallbackForTriggeredEffect(
-    ctx,
-    controller,
-    sourceName,
-    descriptionForOracleFallback,
-    triggerItem,
-  );
+  const triggeredOracleIRApplied = isKynaiosEffect
+    ? 0
+    : applyOracleIRFallbackForTriggeredEffect(
+        ctx,
+        controller,
+        sourceName,
+        descriptionForOracleFallback,
+        triggerItem,
+      );
   if (triggeredOracleIRApplied > 0) {
     tryResolveThassasOracleWin(ctx, controller, sourceName);
     return;
@@ -14275,88 +14430,12 @@ export function executeTriggerEffect(
   
   // Pattern: "create a token copy of equipped creature" or "create a token that's a copy of equipped creature"
   // Helm of the Host: "At the beginning of combat on your turn, create a token that's a copy of equipped creature, except it's not legendary"
-  if (desc.includes('token') && desc.includes('copy') && 
+  if (desc.includes('token') && desc.includes('copy') &&
       (desc.includes('equipped creature') || desc.includes('equipped permanent'))) {
     const sourceId = triggerItem.source || triggerItem.permanentId;
-    const sourcePerm = (state.battlefield || []).find((p: any) => p?.id === sourceId);
-    
-    if (!sourcePerm) {
-      debug(2, `[executeTriggerEffect] Equipment source not found on battlefield - trigger fizzles`);
+    if (createEquippedCreatureCopyTokenFromEquipment(ctx, controller, String(sourceId || ''), description) > 0) {
       return;
     }
-    
-    // Find what this equipment is attached to
-    const attachedTo = sourcePerm.attachedTo;
-    if (!attachedTo) {
-      debug(2, `[executeTriggerEffect] Equipment ${sourcePerm.card?.name || 'equipment'} is not attached to anything - trigger fizzles`);
-      return;
-    }
-    
-    const equippedCreature = (state.battlefield || []).find((p: any) => p?.id === attachedTo);
-    
-    if (!equippedCreature || !equippedCreature.card) {
-      debug(2, `[executeTriggerEffect] No equipped creature found for copy token creation - trigger fizzles`);
-      return;
-    }
-    
-    // Create a token copy
-    const tokenId = uid("token");
-    const originalCard = equippedCreature.card;
-    const originalTypeLine = (originalCard.type_line || '').toLowerCase();
-    
-    // Remove "Legendary" from the type line (handle all positions)
-    let tokenTypeLine = originalCard.type_line || 'Token';
-    tokenTypeLine = tokenTypeLine.replace(/\bLegendary\s+/i, '').replace(/\s+Legendary\b/i, '').trim();
-    
-    // Check if the trigger description says the token gains/has haste
-    // Helm of the Host: "That token gains haste" (from second sentence)
-    // Check both the original creature's haste AND whether the trigger grants it
-    const originalHasHaste = (originalCard.oracle_text || '').toLowerCase().includes('haste') ||
-                            (Array.isArray(originalCard.keywords) && 
-                             originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste'));
-    
-    // Check if trigger grants haste (look for "gains haste", "has haste", "with haste" in description)
-    const triggerGrantsHaste = /(?:gains|has|with)\s+haste/i.test(desc);
-    
-    const hasHaste = originalHasHaste || triggerGrantsHaste;
-    
-    const isCreature = originalTypeLine.includes('creature');
-    
-    const tokenCopy = {
-      id: tokenId,
-      controller,
-      owner: controller,
-      tapped: false,
-      counters: { ...equippedCreature.counters },
-      basePower: equippedCreature.basePower,
-      baseToughness: equippedCreature.baseToughness,
-      // Tokens that are copies with haste don't have summoning sickness
-      summoningSickness: isCreature && !hasHaste,
-      isToken: true,
-      card: {
-        ...originalCard,
-        id: tokenId,
-        type_line: tokenTypeLine,
-        zone: 'battlefield',
-        // Add haste to oracle text if granted by trigger and not already present
-        oracle_text: triggerGrantsHaste && !originalHasHaste
-          ? (originalCard.oracle_text || '') + (originalCard.oracle_text ? '\n' : '') + 'Haste'
-          : originalCard.oracle_text,
-        keywords: triggerGrantsHaste && Array.isArray(originalCard.keywords) && !originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste')
-          ? [...originalCard.keywords, 'Haste']
-          : originalCard.keywords,
-      },
-    } as any;
-    
-    state.battlefield = state.battlefield || [];
-    state.battlefield.push(tokenCopy);
-    
-    debug(2, `[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} (not legendary${hasHaste ? ', with haste' : ''})`);
-    
-    // Trigger ETB effects for the copy token (Cathars' Crusade, Soul Warden, etc.)
-    queueSelfETBTriggersForPermanent(ctx, tokenCopy, controller as any);
-    triggerETBEffectsForToken(ctx, tokenCopy, controller);
-    return;
   }
   
   const millOpponentsMatch = desc.match(/each opponent mills? (?:a card|(\d+) cards?)/i);

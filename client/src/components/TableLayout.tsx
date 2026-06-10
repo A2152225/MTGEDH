@@ -34,7 +34,11 @@ import { socket } from '../socket';
 import type { ParsedActivatedAbility } from '../utils/activatedAbilityParser';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayAreaGradientStyle, getBackgroundStyle, getPlayableCardHighlight } from '../utils/appearanceSettings';
+import { battlefieldGridContentHeightForRows } from '../utils/battlefieldGrid';
+import { useMobilePlayLayout } from '../hooks/useMobilePlayLayout';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+
+const BATTLEFIELD_EXPAND_STORAGE_KEY = 'mtgedh:battlefieldExpanded';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
@@ -325,6 +329,10 @@ export function TableLayout(props: {
   tableCloth?: { imageUrl?: string };
   worldSize?: number;
   onUpdatePermPos?: (id: string, x: number, y: number, z: number) => void;
+  /** When false, your hand is not rendered on the playmat (mobile external hand strip). */
+  embedYourHand?: boolean;
+  /** Extra bottom inset for fixed mobile chrome (hand strip + dock). */
+  playAreaBottomInset?: number;
 }) {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
@@ -362,6 +370,8 @@ export function TableLayout(props: {
     // Auto-pass ignore callbacks for battlefield
     onIgnoreForAutoPass,
     onUnignoreForAutoPass,
+    embedYourHand = true,
+    playAreaBottomInset = 0,
   } = props;
 
   // Snapshot debug
@@ -396,29 +406,32 @@ export function TableLayout(props: {
   }, [phase]);
   const stackEmpty = useMemo(() => !stackItems || stackItems.length === 0, [stackItems]);
   const totalFloatingMana = useMemo(() => getTotalFloatingMana(manaPool), [manaPool]);
+  const mobilePlayLayout = useMobilePlayLayout();
 
-  // Layout constants - sized for comfortable 7-card display in hand
-  // Extended play areas by ~15% for better card visibility
-  const CARD_ASPECT_RATIO = 0.72; // Standard MTG card width/height ratio (2.5" x 3.5")
-  const TILE_W = 135; // Card width in px (increased from 115 for better visibility)
+  // Layout constants — desktop defaults; compact sizing on touch when viewport < desktop breakpoint.
+  const CARD_ASPECT_RATIO = 0.72;
+  const TILE_W = mobilePlayLayout.battlefieldTileWidth;
   const tileH = Math.round(TILE_W / CARD_ASPECT_RATIO);
-  const ZONES_W = 175; // Zones panel width in px (slightly increased)
-  const GRID_GAP = 12; // Gap between cards in px (slightly increased)
-  
-  // Padding and sizing constants (in pixels) for extended play area layout
-  const HAND_EXTRA_PADDING = 80; // Extra horizontal padding to ensure 7 cards fit
-  const FIELD_HEIGHT_PADDING = 160; // Additional height for play field rows
-  const BOARD_SIDE_PADDING = 40; // Horizontal margin for board container
-  const BOARD_HEIGHT_PADDING = 320; // Additional height for hand area below field
-  // Height offset for play area container to account for header/join section above
-  const PLAY_AREA_TOP_OFFSET = 140;
-  
-  // Hand row: 7 cards wide + gaps + generous padding for shuffle button header
-  const FREE_W = 7 * TILE_W + 6 * GRID_GAP + HAND_EXTRA_PADDING;
-  const FREE_H = Math.round(3 * tileH + FIELD_HEIGHT_PADDING);
+  const ZONES_W = mobilePlayLayout.zonesPanelWidth;
+  const GRID_GAP = 12;
+  const HAND_EXTRA_PADDING = mobilePlayLayout.handExtraPadding;
+  const BOARD_SIDE_PADDING = mobilePlayLayout.isMobilePlay ? 24 : 40;
+  const BOARD_HEIGHT_PADDING = mobilePlayLayout.boardHeightPadding;
+  const BATTLEFIELD_TOOLBAR_HEIGHT = 34;
+  const PLAY_AREA_TOP_OFFSET = mobilePlayLayout.playAreaTopOffset;
+  const battlefieldViewportRows = mobilePlayLayout.battlefieldViewportRows;
+  const battlefieldGridCols = mobilePlayLayout.battlefieldGridCols;
+
+  const FREE_W = battlefieldGridCols * TILE_W + (battlefieldGridCols - 1) * GRID_GAP + HAND_EXTRA_PADDING;
+  const FREE_FIELD_VIEWPORT_H = battlefieldGridContentHeightForRows(battlefieldViewportRows, TILE_W);
+  const FREE_H = FREE_FIELD_VIEWPORT_H + BATTLEFIELD_TOOLBAR_HEIGHT;
   const BOARD_W = FREE_W + ZONES_W + BOARD_SIDE_PADDING;
   const BOARD_H = Math.round(FREE_H + tileH + BOARD_HEIGHT_PADDING);
-  const SEAT_GAP_X = 90, SEAT_GAP_Y = 90, CENTER_CLEAR_X = 160, CENTER_CLEAR_Y = 160, SIDE_PAD = 30;
+  const SEAT_GAP_X = mobilePlayLayout.seatGapX;
+  const SEAT_GAP_Y = mobilePlayLayout.seatGapY;
+  const CENTER_CLEAR_X = mobilePlayLayout.isMobilePlay ? 120 : 160;
+  const CENTER_CLEAR_Y = mobilePlayLayout.isMobilePlay ? 120 : 160;
+  const SIDE_PAD = mobilePlayLayout.isMobilePlay ? 20 : 30;
 
   const seatPositions = useMemo(() => buildPositions({
     total: ordered.length,
@@ -476,6 +489,23 @@ export function TableLayout(props: {
     startCamZ: number;
   } | null>(null);
   const [panKey, setPanKey] = useState(false);
+  const [yourBattlefieldExpanded, setYourBattlefieldExpanded] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(BATTLEFIELD_EXPAND_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const handleToggleYourBattlefieldExpanded = useCallback(() => {
+    setYourBattlefieldExpanded((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(BATTLEFIELD_EXPAND_STORAGE_KEY, String(next));
+      } catch { /* noop */ }
+      return next;
+    });
+  }, []);
   const [pendingTextSwapSource, setPendingTextSwapSource] = useState<string | null>(null);
   const [pendingXActivation, setPendingXActivation] = useState<{
     permanentId: string;
@@ -701,9 +731,7 @@ export function TableLayout(props: {
           const worldX = camRef.current.x + (sx - container.w / 2) / z;
           const worldY = camRef.current.y + (sy - container.h / 2) / z;
           const targetSX = container.w / 2;
-          // Position player field at 92% from top (was 72%) to account for mulligan bar
-          // This moves the view down an extra 20% of screen height
-          const targetSY = Math.round(container.h * 0.92);
+          const targetSY = Math.round(container.h * mobilePlayLayout.centerHandViewportFraction);
           const newCamX = worldX - (targetSX - container.w / 2) / z;
           const newCamY = worldY - (targetSY - container.h / 2) / z;
           setCam(c => ({ x: newCamX, y: newCamY, z: preserveZoom ? c.z : c.z }));
@@ -776,6 +804,18 @@ export function TableLayout(props: {
     prevYou.current = you;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [you, container.w, container.h]);
+
+  const prevOrientationRef = useRef(mobilePlayLayout.orientation);
+  useEffect(() => {
+    if (prevOrientationRef.current === mobilePlayLayout.orientation) return;
+    prevOrientationRef.current = mobilePlayLayout.orientation;
+    if (!container.w || !container.h) return;
+    const timer = setTimeout(() => {
+      centerOnYou(true);
+    }, 150);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobilePlayLayout.orientation, container.w, container.h]);
 
   useEffect(() => {
     if (!focusedPlayerId) return;
@@ -1100,8 +1140,10 @@ export function TableLayout(props: {
         }}
         style={{
           width: '100%',
-          height: `calc(100vh - ${PLAY_AREA_TOP_OFFSET}px)`,
-          minHeight: '500px',
+          height: playAreaBottomInset > 0
+            ? `calc(100vh - ${PLAY_AREA_TOP_OFFSET}px - ${playAreaBottomInset}px)`
+            : `calc(100vh - ${PLAY_AREA_TOP_OFFSET}px)`,
+          minHeight: playAreaBottomInset > 0 ? 280 : 500,
           overflow: 'hidden',
           ...tableContainerBg,
           border: '1px solid #222',
@@ -1609,7 +1651,10 @@ export function TableLayout(props: {
                           imagePref={imagePref || 'small'}
                           tileWidth={TILE_W}
                           widthPx={FREE_W}
-                          heightPx={FREE_H}
+                          viewportRows={battlefieldViewportRows}
+                          expanded={isYouThis ? yourBattlefieldExpanded : false}
+                          onToggleExpanded={isYouThis ? handleToggleYourBattlefieldExpanded : undefined}
+                          showExpandControl={!!isYouThis}
                           draggable={!!isYouThis}
                           onMove={(id, xx, yy, zz) =>
                             onUpdatePermPos?.(id, xx, yy, zz ?? 0)
@@ -1741,7 +1786,7 @@ export function TableLayout(props: {
                         )}
 
                         {/* YOUR hand (full details) */}
-                        {isYouThis && showYourHandBelow && (
+                        {isYouThis && showYourHandBelow && embedYourHand && (
                           <div
                             id={`hand-area-${pb.player.id}`}
                             style={{

@@ -1934,6 +1934,367 @@ describe('EffectProgram', () => {
     ]);
   });
 
+  it('feeds sacrifice choices into Oracle IR execution', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'sacrifice-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Village Rites',
+      steps: [
+        {
+          kind: 'sacrifice',
+          who: { kind: 'you' },
+          what: { kind: 'raw', text: 'a creature' },
+          raw: 'Sacrifice a creature.',
+        } as any,
+      ],
+    });
+
+    expect(program.steps.map(step => step.kind)).toEqual(['choice', 'command']);
+
+    const state = makeState({
+      battlefield: [
+        {
+          id: 'bear-1',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'bear-card', name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+        } as any,
+        {
+          id: 'elf-1',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'elf-card', name: 'Llanowar Elves', type_line: 'Creature — Elf Druid', power: '1', toughness: '1' },
+        } as any,
+      ],
+    });
+
+    const paused = runOracleEffectProgram(
+      createEffectProgramRuntime({ program, state }),
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Village Rites' }
+    );
+
+    expect(paused.status).toBe('waiting_for_choice');
+    expect(paused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.TARGET_SELECTION,
+      playerId: 'p1',
+      minTargets: 1,
+      maxTargets: 1,
+    });
+    expect((paused.pendingChoice?.choiceEvent as any).validTargets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'bear-1' }),
+        expect.objectContaining({ id: 'elf-1' }),
+      ])
+    );
+
+    const resumedRuntime = bindEffectProgramChoiceResponse(
+      paused.runtime,
+      {
+        eventId: paused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: ['bear-1'],
+        cancelled: false,
+        timestamp: 2,
+      } as ChoiceResponse,
+      paused.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(resumedRuntime, {
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Village Rites',
+    });
+
+    expect(completed.status).toBe('completed');
+    expect((completed.state.battlefield || []).map((perm: any) => perm.id)).toEqual(['elf-1']);
+    expect(completed.events).toEqual([
+      {
+        type: 'oracle_ir_execution',
+        stepId: 'sacrifice-program:clause-0:command',
+        appliedStepKinds: ['sacrifice'],
+        skippedStepKinds: [],
+        automationGapCount: 0,
+        pendingOptionalStepCount: 0,
+      },
+    ]);
+  });
+
+  it('feeds discard choices into Oracle IR execution', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'discard-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Mind Rot',
+      steps: [
+        {
+          kind: 'discard',
+          who: { kind: 'you' },
+          amount: { kind: 'number', value: 2 },
+          raw: 'Discard two cards.',
+        } as any,
+      ],
+    });
+
+    expect(program.steps.map(step => step.kind)).toEqual(['choice', 'command']);
+
+    const state = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [
+            { id: 'card-1', name: 'Lightning Bolt' },
+            { id: 'card-2', name: 'Counterspell' },
+            { id: 'card-3', name: 'Forest' },
+          ],
+          graveyard: [],
+        } as any,
+      ],
+    });
+
+    const paused = runOracleEffectProgram(
+      createEffectProgramRuntime({ program, state }),
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Mind Rot' }
+    );
+
+    expect(paused.status).toBe('waiting_for_choice');
+    expect(paused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.DISCARD_SELECTION,
+      playerId: 'p1',
+      discardCount: 2,
+    });
+    expect((paused.pendingChoice?.choiceEvent as any).hand).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'card-1' }),
+        expect.objectContaining({ id: 'card-2' }),
+        expect.objectContaining({ id: 'card-3' }),
+      ])
+    );
+
+    const resumedRuntime = bindEffectProgramChoiceResponse(
+      paused.runtime,
+      {
+        eventId: paused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: ['card-1', 'card-3'],
+        cancelled: false,
+        timestamp: 2,
+      } as ChoiceResponse,
+      paused.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(resumedRuntime, {
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Mind Rot',
+    });
+
+    expect(completed.status).toBe('completed');
+    expect((completed.state.players[0] as any).hand.map((card: any) => card.id)).toEqual(['card-2']);
+    expect((completed.state.players[0] as any).graveyard.map((card: any) => card.id)).toEqual(
+      expect.arrayContaining(['card-1', 'card-3'])
+    );
+    expect(completed.events).toEqual([
+      {
+        type: 'oracle_ir_execution',
+        stepId: 'discard-program:clause-0:command',
+        appliedStepKinds: ['discard'],
+        skippedStepKinds: [],
+        automationGapCount: 0,
+        pendingOptionalStepCount: 0,
+      },
+    ]);
+  });
+
+  it('feeds any-number discard choices into Oracle IR execution', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'any-number-discard-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Wildfire',
+      steps: [
+        {
+          kind: 'discard',
+          who: { kind: 'you' },
+          amount: { kind: 'any_number' },
+          target: { kind: 'raw', text: 'creature cards' },
+          optional: true,
+          raw: 'You may discard any number of creature cards.',
+        } as any,
+      ],
+    });
+
+    expect(program.steps.map(step => step.kind)).toEqual(['choice', 'choice', 'command']);
+
+    const state = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [
+            { id: 'bear-1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'bolt-1', name: 'Lightning Bolt', type_line: 'Instant' },
+            { id: 'elf-1', name: 'Llanowar Elves', type_line: 'Creature — Elf Druid' },
+          ],
+          graveyard: [],
+        } as any,
+      ],
+    });
+
+    const paused = runOracleEffectProgram(
+      createEffectProgramRuntime({ program, state }),
+      { controllerId: 'p1', sourceId: 'source-1', sourceName: 'Wildfire' }
+    );
+
+    expect(paused.status).toBe('waiting_for_choice');
+    expect(paused.pendingChoice?.choiceEvent.type).toBe(ChoiceEventType.OPTION_CHOICE);
+
+    const acceptedRuntime = bindEffectProgramChoiceResponse(
+      paused.runtime,
+      {
+        eventId: paused.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: ['yes'],
+        cancelled: false,
+        timestamp: 2,
+      } as ChoiceResponse,
+      paused.pendingChoice!.step.bindingKey
+    );
+    const discardPause = runOracleEffectProgram(acceptedRuntime, {
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Wildfire',
+    });
+
+    expect(discardPause.status).toBe('waiting_for_choice');
+    expect(discardPause.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.DISCARD_SELECTION,
+      playerId: 'p1',
+      anyNumberDiscard: true,
+      minDiscardCount: 0,
+      maxDiscardCount: 2,
+    });
+    expect((discardPause.pendingChoice?.choiceEvent as any).hand).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'bear-1' }),
+        expect.objectContaining({ id: 'elf-1' }),
+      ])
+    );
+
+    const resumedRuntime = bindEffectProgramChoiceResponse(
+      discardPause.runtime,
+      {
+        eventId: discardPause.pendingChoice!.choiceEvent.id,
+        playerId: 'p1',
+        selections: ['bear-1'],
+        cancelled: false,
+        timestamp: 3,
+      } as ChoiceResponse,
+      discardPause.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(resumedRuntime, {
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Wildfire',
+    });
+
+    expect(completed.status).toBe('completed');
+    expect((completed.state.players[0] as any).hand.map((card: any) => card.id)).toEqual(['bolt-1', 'elf-1']);
+    expect((completed.state.players[0] as any).graveyard.map((card: any) => card.id)).toEqual(['bear-1']);
+  });
+
+  it('feeds opponent scry choices into Oracle IR top-library execution', () => {
+    const program = buildEffectProgramFromOracleIR({
+      id: 'opponent-scry-program',
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Ingenious Mastery',
+      steps: [
+        {
+          kind: 'scry',
+          who: { kind: 'target_player' },
+          amount: { kind: 'number', value: 2 },
+          raw: 'they scry 2',
+        } as any,
+      ],
+    });
+
+    expect(program.steps.map(step => step.kind)).toEqual(['choice', 'command']);
+
+    const state = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          library: [{ id: 'p1-top', name: 'P1 Top' }],
+          hand: [],
+          graveyard: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          library: [
+            { id: 'opp-top-a', name: 'Opp Top A' },
+            { id: 'opp-top-b', name: 'Opp Top B' },
+            { id: 'opp-rest', name: 'Opp Rest' },
+          ],
+          hand: [],
+          graveyard: [],
+        } as any,
+      ],
+    });
+
+    const paused = runOracleEffectProgram(
+      createEffectProgramRuntime({ program, state }),
+      {
+        controllerId: 'p1',
+        sourceId: 'source-1',
+        sourceName: 'Ingenious Mastery',
+        selectorContext: { targetOpponentId: 'p2', targetPlayerId: 'p2' },
+      }
+    );
+
+    expect(paused.status).toBe('waiting_for_choice');
+    expect(paused.pendingChoice?.choiceEvent).toMatchObject({
+      type: ChoiceEventType.SCRY,
+      playerId: 'p2',
+      scryCount: 2,
+      cards: [
+        { id: 'opp-top-a', name: 'Opp Top A' },
+        { id: 'opp-top-b', name: 'Opp Top B' },
+      ],
+    });
+
+    const resumedRuntime = bindEffectProgramChoiceResponse(
+      paused.runtime,
+      {
+        eventId: paused.pendingChoice!.choiceEvent.id,
+        playerId: 'p2',
+        selections: { keepTopOrder: ['opp-top-b'], bottomOrder: ['opp-top-a'] },
+        cancelled: false,
+        timestamp: 2,
+      } as ChoiceResponse,
+      paused.pendingChoice!.step.bindingKey
+    );
+    const completed = runOracleEffectProgram(resumedRuntime, {
+      controllerId: 'p1',
+      sourceId: 'source-1',
+      sourceName: 'Ingenious Mastery',
+      selectorContext: { targetOpponentId: 'p2', targetPlayerId: 'p2' },
+    });
+
+    const opponent = completed.state.players.find(playerState => playerState.id === 'p2') as any;
+    expect(completed.status).toBe('completed');
+    expect(opponent.library.map((card: any) => card.id)).toEqual(['opp-top-b', 'opp-rest', 'opp-top-a']);
+  });
+
   it('feeds surveil choices into Oracle IR top-library execution', () => {
     const program = buildEffectProgramFromOracleIR({
       id: 'surveil-program',

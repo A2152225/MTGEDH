@@ -915,6 +915,157 @@ function parseSacrificeWhat(what: { readonly kind: string; readonly text?: strin
   return null;
 }
 
+export function extractSacrificeWhatText(step: Extract<OracleEffectStep, { kind: 'sacrifice' }>): string {
+  const direct = String((step.what as any)?.text || (step.what as any)?.raw || '').trim();
+  if (direct) return direct;
+  const rawMatch = String(step.raw || '').match(/(?:^then\s+)?sacrifice\s+(.+?)[.!?\s]*$/i);
+  return rawMatch ? String(rawMatch[1] || '').trim() : '';
+}
+
+export function sacrificeSelectorRequiresPlayerChoice(
+  step: Extract<OracleEffectStep, { kind: 'sacrifice' }>
+): boolean {
+  const parsed = parseSacrificeWhat({ kind: 'raw', text: extractSacrificeWhatText(step) });
+  if (!parsed) return false;
+  return parsed.mode !== 'self' && parsed.mode !== 'contextual' && parsed.mode !== 'created_with_source';
+}
+
+function inferSacrificeChoiceBounds(
+  sacrificeWhatText: string,
+  parsed: NonNullable<ReturnType<typeof parseSacrificeWhat>>,
+  candidateCount: number
+): { readonly minTargets: number; readonly maxTargets: number } {
+  const lower = sacrificeWhatText.toLowerCase();
+  if (parsed.mode === 'count') {
+    const count = Math.max(1, parsed.count | 0);
+    return { minTargets: count, maxTargets: count };
+  }
+  if (parsed.mode === 'all') {
+    return { minTargets: candidateCount, maxTargets: candidateCount };
+  }
+  if (/^any number of\b/.test(lower)) {
+    return { minTargets: 0, maxTargets: candidateCount };
+  }
+  if (/^one or more\b/.test(lower)) {
+    return { minTargets: 1, maxTargets: candidateCount };
+  }
+  const upToMatch = lower.match(/^up to (one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i);
+  if (upToMatch) {
+    const max = parseQuantity(String(upToMatch[1] || '1'));
+    const maxTargets = max.kind === 'number' ? Math.min(max.value, candidateCount) : candidateCount;
+    return { minTargets: 0, maxTargets };
+  }
+  const countMatch = lower.match(/^(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i);
+  if (countMatch) {
+    const parsedCount = parseQuantity(String(countMatch[1] || '1'));
+    if (parsedCount.kind === 'number') {
+      const count = Math.min(parsedCount.value, candidateCount);
+      return { minTargets: count, maxTargets: count };
+    }
+  }
+  return { minTargets: 1, maxTargets: 1 };
+}
+
+export function buildSacrificeTargetSelectionOptions(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'sacrifice' }>,
+  ctx: OracleIRExecutionContext
+): {
+  readonly minTargets: number;
+  readonly maxTargets: number;
+  readonly options: readonly { id: string; label: string; description?: string }[];
+} | null {
+  const sacrificeWhatText = extractSacrificeWhatText(step);
+  const parsed = parseSacrificeWhat({ kind: 'raw', text: sacrificeWhatText });
+  if (!parsed || parsed.mode === 'self' || parsed.mode === 'contextual' || parsed.mode === 'created_with_source') {
+    return null;
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) return null;
+
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const sourceId = String(ctx.sourceId || '').trim();
+  const candidates: BattlefieldPermanent[] = [];
+
+  const pushCandidateMatches = (
+    filter: {
+      readonly types: readonly string[];
+      readonly subtype?: string;
+      readonly tokenOnly?: boolean;
+      readonly excludeSource?: boolean;
+    }
+  ) => {
+    for (const playerId of players) {
+      for (const permanent of battlefield) {
+        if (String((permanent as any)?.controller || '').trim() !== playerId) continue;
+        if (filter.excludeSource && sourceId && String((permanent as any)?.id || '').trim() === sourceId) continue;
+        if (!filter.types.some(type => permanentMatchesType(permanent, type))) continue;
+        if (filter.tokenOnly && !(permanent as any)?.isToken) continue;
+        if (filter.subtype) {
+          const typeLineLower = getExecutorTypeLineLower(permanent);
+          const subtypePattern = filter.subtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          if (!new RegExp(`(^|[^a-z])${subtypePattern}(?:s)?($|[^a-z])`, 'i').test(typeLineLower)) continue;
+        }
+        candidates.push(permanent);
+      }
+    }
+  };
+
+  if (parsed.mode === 'choice_required') {
+    const stripped = sacrificeWhatText
+      .replace(/\s+of (?:their|his or her|that player(?:'s)?|that opponent(?:'s)?) choice.*$/i, '')
+      .replace(/^any number of\s+/i, '')
+      .replace(/^one or more\s+/i, '')
+      .replace(/^up to (?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+/i, '')
+      .replace(/^(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+/i, '')
+      .replace(/^an?\s+/i, '')
+      .trim();
+    const mixedTypes = stripped.split(/\s+(?:or|and\/or)\s+/i).map(part => parseSimplePermanentTypeFromText(part.trim())).filter(Boolean) as string[];
+    if (mixedTypes.length > 1) {
+      pushCandidateMatches({ types: mixedTypes });
+    } else {
+      const type = parseSimplePermanentTypeFromText(stripped) || 'permanent';
+      const tokenOnly = /\btokens?\b/i.test(stripped);
+      pushCandidateMatches({ types: [type], tokenOnly });
+    }
+  } else if (parsed.mode === 'all' || parsed.mode === 'count') {
+    const allowedTypes = Array.isArray(parsed.types) && parsed.types.length > 0 ? parsed.types : [parsed.type];
+    pushCandidateMatches({
+      types: allowedTypes,
+      subtype: parsed.subtype,
+      tokenOnly: parsed.tokenOnly,
+      excludeSource: parsed.excludeSource,
+    });
+  } else if (parsed.mode === 'attached_to_source' || parsed.mode === 'attached_to_named') {
+    const attachmentResolution = resolveAttachmentReferencePermanents(battlefield, parsed, players, ctx);
+    candidates.push(...attachmentResolution.permanents);
+  } else {
+    return null;
+  }
+
+  const uniqueCandidates = Array.from(
+    new Map(candidates.map(permanent => [String((permanent as any)?.id || '').trim(), permanent])).values()
+  ).filter(permanent => String((permanent as any)?.id || '').trim());
+
+  const bounds = inferSacrificeChoiceBounds(sacrificeWhatText, parsed, uniqueCandidates.length);
+  const maxTargets = Math.min(bounds.maxTargets, uniqueCandidates.length);
+
+  return {
+    minTargets: Math.min(bounds.minTargets, maxTargets),
+    maxTargets,
+    options: uniqueCandidates.map(permanent => {
+      const id = String((permanent as any)?.id || '').trim();
+      const name = String((permanent as any)?.card?.name || (permanent as any)?.name || id);
+      return {
+        id,
+        label: name,
+        description: String((permanent as any)?.card?.type_line || (permanent as any)?.type_line || 'Permanent'),
+      };
+    }),
+  };
+}
+
 function normalizeSelfReferenceText(value: string): string {
   return String(value || '')
     .replace(/\u2019/g, "'")
@@ -1258,11 +1409,11 @@ function buildContextualBattlefieldTargetIds(
   const seen = new Set<string>();
   for (const candidate of [
     String(ctx.selectorContext?.combatOpponentCreatureId || '').trim(),
+    ...chosenObjectIds,
     String(ctx.targetCreatureId || '').trim(),
     String(ctx.targetPermanentId || '').trim(),
     String(ctx.selectorContext?.targetCreatureId || '').trim(),
     String(ctx.selectorContext?.targetPermanentId || '').trim(),
-    ...chosenObjectIds,
   ]) {
     if (!candidate || seen.has(candidate)) continue;
     seen.add(candidate);
@@ -9208,12 +9359,29 @@ export function applySacrificeStep(
   }
 
   if (parsed?.mode === 'choice_required') {
-    return {
-      applied: false,
-      message: `Skipped sacrifice (requires player choice): ${step.raw}`,
-      reason: 'player_choice_required',
-      options: { classification: 'player_choice' },
-    };
+    const chosenIds = collectBoundBattlefieldIds(ctx);
+    if (chosenIds.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped sacrifice (requires player choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+
+    const selected = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      return chosenIds.includes(permanentId) && players.includes(String((perm as any)?.controller || '').trim());
+    });
+    if (selected.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+
+    toRemove.push(...selected);
   }
 
   if (parsed?.mode === 'contextual') {
@@ -9271,11 +9439,7 @@ export function applySacrificeStep(
   if (
     !namedSelfReference &&
     parsed &&
-    parsed.mode !== 'self' &&
-    parsed.mode !== 'contextual' &&
-    parsed.mode !== 'attached_to_source' &&
-    parsed.mode !== 'attached_to_named' &&
-    parsed.mode !== 'created_with_source'
+    (parsed.mode === 'count' || parsed.mode === 'all')
   ) {
     for (const playerId of players) {
       const excludeSource = Boolean((parsed as any).excludeSource);
@@ -9304,6 +9468,16 @@ export function applySacrificeStep(
       }
 
       if (candidates.length > parsed.count) {
+        const chosenIds = collectBoundBattlefieldIds(ctx);
+        if (chosenIds.length > 0) {
+          const selected = candidates.filter((perm: any) =>
+            chosenIds.includes(String((perm as any)?.id || '').trim())
+          );
+          if (selected.length >= parsed.count) {
+            toRemove.push(...selected.slice(0, parsed.count));
+            continue;
+          }
+        }
         needsChoice = true;
         break;
       }

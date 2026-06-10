@@ -11287,6 +11287,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       for (const perm of battlefield) {
         if (!perm || String(perm.controller) !== String(pid)) continue;
+        if (requiresTap && String((perm as any).id || '') === String(permanentId || '')) continue;
         if ((perm as any).tapped) continue;
         const c = perm.card;
         if (!c) continue;

@@ -448,6 +448,14 @@ describe('look-choose executor corridors', () => {
     expect(record.status).toBe('fully_applied');
   });
 
+  it('dry-runs Ingenious Mastery alternate-cost branches', () => {
+    const text =
+      "You may pay {2}{U} rather than pay this spell's mana cost.\nIf the {2}{U} cost was paid, you draw three cards, then an opponent creates two Treasure tokens and they scry 2. If that cost wasn't paid, you draw X cards.";
+    const steps = collectStepsFromIrText(text, 'Ingenious Mastery');
+    const record = dryRunOracleSteps(steps, 'Ingenious Mastery', [], { typeLine: 'Sorcery' });
+    expect(record.status).toBe('fully_applied');
+  });
+
   it('dry-runs Stargaze X cards from among them hand and graveyard split', () => {
     const text =
       'Look at twice X cards from the top of your library. Put X cards from among them into your hand and the rest into your graveyard. You lose X life.';

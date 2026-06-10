@@ -22,7 +22,11 @@ export type SpecialTargetStepResult =
   | {
       readonly applied: false;
       readonly message: string;
-      readonly reason: 'unsupported_target';
+      readonly reason: 'unsupported_target' | 'impossible_action';
+      readonly options?: {
+        readonly persist?: boolean;
+        readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
+      };
     };
 
 function normalizeClause(value: string): string {
@@ -1499,6 +1503,22 @@ function removeCounterFromPermanents(
     else delete counters[counterName];
     return { ...perm, counters };
   });
+  if (amount !== 'all' && typeof amount === 'number' && amount > 0 && removed < amount) {
+    return {
+      applied: false,
+      message: `Skipped remove counter (not enough counters): remove ${amount} ${counterName} counter(s)`,
+      reason: 'impossible_action',
+      options: {
+        persist: false,
+        metadata: {
+          counter: counterName,
+          availableCount: removed,
+          requiredCount: amount,
+        },
+      },
+    };
+  }
+
   return {
     applied: true,
     state: { ...(state as any), battlefield } as GameState,

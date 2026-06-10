@@ -13,6 +13,8 @@ interface Props {
   onIgnoreTriggerSource?: (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => void;
   ignoredSources?: Map<string, { sourceName: string; count: number; effect: string; imageUrl?: string }>;
   onStopIgnoring?: (sourceKey: string) => void;
+  /** When true, renders in normal flow (e.g. inside a bottom sheet) instead of floating. */
+  embedded?: boolean;
 }
 
 export function CentralStack({ 
@@ -26,6 +28,7 @@ export function CentralStack({
   onIgnoreTriggerSource,
   ignoredSources,
   onStopIgnoring,
+  embedded = false,
 }: Props) {
   // Position state for dragging
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
@@ -172,24 +175,27 @@ export function CentralStack({
 
   return (
     <div 
-      onMouseDown={handleMouseDown}
+      onMouseDown={embedded ? undefined : handleMouseDown}
       style={{
-        position:'absolute',
-        left:'50%',
-        top:'50%',
-        transform,
+        position: embedded ? 'relative' : 'absolute',
+        left: embedded ? undefined : '50%',
+        top: embedded ? undefined : '50%',
+        transform: embedded ? undefined : transform,
+        width: embedded ? '100%' : undefined,
         background:'linear-gradient(135deg, rgba(20,20,30,0.95), rgba(40,40,60,0.95))',
         border:'2px solid #6366f1',
         borderRadius:12,
         padding:16,
-        minWidth:280,
-        maxWidth:400,
+        minWidth: embedded ? undefined : 280,
+        maxWidth: embedded ? undefined : 400,
         pointerEvents:'auto',
-        zIndex:100,
-        boxShadow:'0 8px 32px rgba(99,102,241,0.4), 0 0 60px rgba(99,102,241,0.2)',
+        zIndex: embedded ? undefined : 100,
+        boxShadow: embedded
+          ? '0 4px 16px rgba(99,102,241,0.25)'
+          : '0 8px 32px rgba(99,102,241,0.4), 0 0 60px rgba(99,102,241,0.2)',
         backdropFilter:'blur(8px)',
-        cursor: isDragging ? 'grabbing' : 'default',
-        userSelect: isDragging ? 'none' : 'auto',
+        cursor: embedded ? 'default' : (isDragging ? 'grabbing' : 'default'),
+        userSelect: embedded ? 'auto' : (isDragging ? 'none' : 'auto'),
       }}>
       {/* Header - drag handle */}
       <div 

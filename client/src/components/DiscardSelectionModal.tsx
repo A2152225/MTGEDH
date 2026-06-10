@@ -9,7 +9,10 @@ import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 export interface DiscardSelectionModalProps {
   open: boolean;
   hand: KnownCardRef[];
-  discardCount: number; // How many cards must be discarded
+  discardCount: number; // How many cards must be discarded (exact-count mode)
+  minDiscardCount?: number;
+  maxDiscardCount?: number;
+  anyNumberDiscard?: boolean;
   maxHandSize: number;
   reason?: 'cleanup' | 'effect';
   title?: string;
@@ -22,6 +25,9 @@ export function DiscardSelectionModal({
   open,
   hand,
   discardCount,
+  minDiscardCount,
+  maxDiscardCount,
+  anyNumberDiscard = false,
   maxHandSize,
   reason = 'cleanup',
   title,
@@ -30,6 +36,11 @@ export function DiscardSelectionModal({
   onCancel,
 }: DiscardSelectionModalProps) {
   const [selected, setSelected] = useState<string[]>([]);
+
+  const requiredMin = anyNumberDiscard ? Math.max(0, Number(minDiscardCount ?? 0)) : discardCount;
+  const requiredMax = anyNumberDiscard
+    ? Math.max(requiredMin, Number(maxDiscardCount ?? hand.length))
+    : discardCount;
 
   // Reset selection when modal opens
   useEffect(() => {
@@ -45,20 +56,31 @@ export function DiscardSelectionModal({
       if (prev.includes(id)) {
         return prev.filter((x) => x !== id);
       }
-      // Don't allow selecting more than needed
-      if (prev.length >= discardCount) {
+      if (prev.length >= requiredMax) {
         return prev;
       }
       return [...prev, id];
     });
   };
 
-  const canConfirm = selected.length === discardCount;
+  const canConfirm = selected.length >= requiredMin && selected.length <= requiredMax;
 
   if (!open) return null;
 
   const headerText =
     title || (reason === 'cleanup' ? 'Cleanup Step - Discard to Hand Size' : 'Discard');
+
+  const selectionPrompt = anyNumberDiscard
+    ? requiredMin === requiredMax
+      ? `Select ${requiredMax} card${requiredMax !== 1 ? 's' : ''} to discard.`
+      : requiredMin <= 0
+        ? `Select up to ${requiredMax} card${requiredMax !== 1 ? 's' : ''} to discard.`
+        : `Select between ${requiredMin} and ${requiredMax} cards to discard.`
+    : `Select ${discardCount} card${discardCount !== 1 ? 's' : ''} to discard.`;
+
+  const selectionCounter = anyNumberDiscard
+    ? `Selected: ${selected.length}${requiredMax > 0 ? ` / up to ${requiredMax}` : ''}`
+    : `Selected: ${selected.length} / ${discardCount}`;
 
   return (
     <div
@@ -97,9 +119,9 @@ export function DiscardSelectionModal({
               </>
             ) : null
           )}
-          Select {discardCount} card{discardCount !== 1 ? 's' : ''} to discard.
+          {selectionPrompt}
           <br />
-          Selected: {selected.length} / {discardCount}
+          {selectionCounter}
         </p>
 
         <div

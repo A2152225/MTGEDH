@@ -125,6 +125,40 @@ function applyInvestigateWithAmount(
   };
 }
 
+export function buildPopulateTargetSelectionOptions(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'populate' }>,
+  ctx: OracleIRExecutionContext,
+): {
+  readonly playerId: PlayerID;
+  readonly options: readonly { id: string; label: string; description?: string; imageUrl?: string }[];
+  readonly minTargets: number;
+  readonly maxTargets: number;
+} | null {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) return null;
+
+  const playerId = players[0];
+  const tokens = getPopulateTargets(state.battlefield || [], playerId);
+  if (tokens.length <= 1) return null;
+
+  return {
+    playerId,
+    options: tokens.map((token) => {
+      const id = String((token as any)?.id || '').trim();
+      const name = String((token as any)?.card?.name || (token as any)?.name || id || 'Creature Token');
+      return {
+        id,
+        label: name,
+        description: 'Creature token',
+        imageUrl: (token as any)?.imageUrl || (token as any)?.card?.imageUrl || (token as any)?.card?.image_uris?.normal,
+      };
+    }).filter((option) => option.id),
+    minTargets: 1,
+    maxTargets: 1,
+  };
+}
+
 export function applyPopulateStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'populate' }>,
@@ -158,16 +192,28 @@ export function applyPopulateStep(
         break;
       }
 
-      if (eligibleTokens.length > 1) {
-        return createChoiceRequiredResult(`Skipped populate (requires choosing a creature token): ${step.raw}`, {
-          playerId,
-          eligibleTokenIds: eligibleTokens
-            .map((permanent) => String((permanent as any)?.id || '').trim())
-            .filter(Boolean),
-        });
+      const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+      const chosenTokenId = chosenIds[0];
+      const originalToken = chosenTokenId
+        ? eligibleTokens.find((token) => String((token as any)?.id || '').trim() === chosenTokenId)
+        : eligibleTokens.length === 1
+          ? eligibleTokens[0]
+          : undefined;
+
+      if (!originalToken) {
+        if (eligibleTokens.length > 1) {
+          return createChoiceRequiredResult(`Skipped populate (requires choosing a creature token): ${step.raw}`, {
+            playerId,
+            eligibleTokenIds: eligibleTokens
+              .map((permanent) => String((permanent as any)?.id || '').trim())
+              .filter(Boolean),
+          });
+        }
+        break;
       }
 
-      const originalToken = eligibleTokens[0];
       const result = executePopulate(nextState.battlefield || [], playerId, String(originalToken.id || '').trim());
       if (!result.newToken) {
         return {
@@ -544,6 +590,20 @@ export function applyProliferateStep(
       applied: true,
       state,
       log: [`Proliferate had no eligible permanents or players: ${step.raw}`],
+    };
+  }
+
+  const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+    ? ctx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (chosenIds.length > 0) {
+    const result = applyProliferateSelectedTargetIds(state, chosenIds);
+    return {
+      applied: true,
+      state: result.state,
+      log: [
+        `Proliferated ${result.appliedTargetIds.join(', ') || 'selected targets'} (${ctx.sourceName || 'Oracle IR'})`,
+      ],
     };
   }
 

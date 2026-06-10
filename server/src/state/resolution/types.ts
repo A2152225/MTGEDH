@@ -561,6 +561,9 @@ export interface DiscardSelectionStep extends BaseResolutionStep {
   readonly type: ResolutionStepType.DISCARD_SELECTION;
   readonly hand: readonly ChoiceOption[];
   readonly discardCount: number;
+  readonly minDiscardCount?: number;
+  readonly maxDiscardCount?: number;
+  readonly anyNumberDiscard?: boolean;
   readonly currentHandSize: number;
   readonly maxHandSize: number;
   readonly reason: 'cleanup' | 'effect' | 'activation_cost';

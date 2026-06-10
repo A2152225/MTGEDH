@@ -21,6 +21,45 @@ type LastActionOutcome = {
   readonly count?: number;
 } | null;
 
+function resolveUnlessPayInnerCondition(
+  inner: string,
+  ctx: OracleIRExecutionContext
+): boolean | null | undefined {
+  const manaPayMatch = inner.match(/^you pay (\{[^}]+\}(?:\{[^}]+\})*)$/);
+  if (manaPayMatch) {
+    const choice =
+      ctx.unlessPaysManaChoice ??
+      ctx.selectorContext?.unlessPaysManaChoice;
+    if (choice === 'pay') return true;
+    if (choice === 'decline') return false;
+    return null;
+  }
+
+  const lifePayMatch = inner.match(/^you pay (\d+) life$/);
+  if (lifePayMatch) {
+    const choice =
+      ctx.unlessPaysLifeChoice ??
+      ctx.selectorContext?.unlessPaysLifeChoice;
+    if (choice === 'pay') return true;
+    if (choice === 'decline') return false;
+    return null;
+  }
+
+  const opponentLifePayMatch = inner.match(
+    /^(?:target opponent|that player|that opponent|an opponent|its controller) pays? (\d+) life$/
+  );
+  if (opponentLifePayMatch) {
+    const choice =
+      ctx.unlessPaysLifeChoice ??
+      ctx.selectorContext?.unlessPaysLifeChoice;
+    if (choice === 'pay') return true;
+    if (choice === 'decline') return false;
+    return null;
+  }
+
+  return undefined;
+}
+
 function normalizeContextualReferenceText(value: unknown): string {
   return String(value || '')
     .replace(/\u2019/g, "'")
@@ -730,6 +769,12 @@ export function evaluateConditionalWrapperCondition(params: {
     const unlessNotMatch = normalizedRaw.match(/^not \((.+)\)$/i);
     if (unlessNotMatch) {
       const inner = String(unlessNotMatch[1] || '').trim().toLowerCase();
+      const unlessPayResolved = resolveUnlessPayInnerCondition(inner, ctx);
+      if (unlessPayResolved !== undefined) {
+        if (unlessPayResolved === null) return null;
+        return !unlessPayResolved;
+      }
+
       const manaSpentUnlessMatch = inner.match(/^\{([wubrgcs])\} was spent to cast it$/);
       const satisfied = manaSpentUnlessMatch
         ? (() => {
@@ -748,12 +793,9 @@ export function evaluateConditionalWrapperCondition(params: {
             /^you remove a \+1\/\+1 counter from it$/.test(inner) ||
             /^you gained life this turn$/.test(inner) ||
             /^an opponent was dealt damage this turn$/.test(inner) ||
-            /^you discard two cards$/.test(inner) ||
-            /^you pay 2 life$/.test(inner)
+            /^you discard two cards$/.test(inner)
           ? true
-          : /^you pay \{/.test(inner)
-            ? false
-            : null;
+          : null;
       if (satisfied === null) {
         const extendedNegated = evaluateExtendedConditionalClause({
           normalizedRaw,

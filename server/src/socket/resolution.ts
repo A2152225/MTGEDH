@@ -61,6 +61,7 @@ import {
   chooseAIManaColorForActivation,
   chooseAIXValueSelection,
   chooseAISpellPaymentSelections,
+  chooseAIWardManaPaymentResponse,
   chooseAITargetSelectionsForChoiceStep,
 } from "./ai.js";
 import type { PlayerID } from "../../../shared/src/types.js";
@@ -135,6 +136,7 @@ import { buildTapTriggeredStackItem, getTapTriggers, queueBecomesUntappedTrigger
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
+import { resumeOracleIRUnlessPayFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution } from '../state/modules/oracleIrServerZoneSync.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
@@ -1070,6 +1072,44 @@ function tryCounterByWard(game: any, gameId: string, triggeredBy: string, wardCo
     }
     clearResolutionStepsForEffect(gameId, normalized);
     return { countered: true, targetName };
+  }
+
+  const stackByCastEffect = (game.state?.stack || []).find(
+    (entry: any) => entry && String(entry.castEffectId || entry.effectId || '') === normalized
+  );
+  if (stackByCastEffect) {
+    const ctx = {
+      state: game.state,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      zones: game.state?.zones,
+      gameId,
+    } as unknown as GameContext;
+    const stackItemId = String(stackByCastEffect.id || '');
+    const result = counterStackItem(ctx, stackItemId, wardController);
+    return {
+      countered: result.success === true,
+      targetName,
+      reason: result.reason,
+    };
+  }
+
+  const mappedStackItemId = String((game.state as any)?.castEffectIdToStackItemId?.[normalized] || '').trim();
+  if (mappedStackItemId) {
+    const ctx = {
+      state: game.state,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      zones: game.state?.zones,
+      gameId,
+    } as unknown as GameContext;
+    const result = counterStackItem(ctx, mappedStackItemId, wardController);
+    if (result.success === true) {
+      delete (game.state as any).castEffectIdToStackItemId[normalized];
+    }
+    return {
+      countered: result.success === true,
+      targetName,
+      reason: result.reason,
+    };
   }
 
   return { countered: false, targetName, reason: 'Stack item not found' };
@@ -4373,6 +4413,18 @@ async function handleAIResolutionStep(
       case ResolutionStepType.MANA_PAYMENT_CHOICE: {
         const stepData = step as any;
 
+        if (stepData.wardPayment === true && String(stepData.wardPaymentType || '').trim().toLowerCase() === 'mana') {
+          const wardResponse = await chooseAIWardManaPaymentResponse(io, gameId, game, step.playerId as any, stepData);
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: wardResponse.selections,
+            cancelled: wardResponse.cancelled,
+            timestamp: Date.now(),
+          };
+          break;
+        }
+
         if (stepData.spellPaymentRequired === true || stepData.sacrificeUnlessPayChoice === true) {
           const selections = await chooseAISpellPaymentSelections(io, gameId, game, step.playerId as any, stepData);
           if (!selections) {
@@ -4858,12 +4910,19 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     // If we complete the step first, invalid input would permanently consume the step and desync hand state.
     if (step.type === ResolutionStepType.DISCARD_SELECTION) {
       const stepAny = step as any;
+      const anyNumberDiscard = stepAny.anyNumberDiscard === true;
       const discardCount = Number(stepAny.discardCount || 0);
+      const minDiscardCount = anyNumberDiscard
+        ? Math.max(0, Number(stepAny.minDiscardCount ?? 0))
+        : discardCount;
+      const maxDiscardCount = anyNumberDiscard
+        ? Math.max(minDiscardCount, Number(stepAny.maxDiscardCount ?? 0))
+        : discardCount;
       const reason = String(stepAny.reason || 'effect');
 
       if (cancelled) {
         // Cleanup discards and explicitly mandatory discards cannot be cancelled.
-        if (reason === 'cleanup' || (stepAny.mandatory === true && discardCount > 0)) {
+        if (reason === 'cleanup' || (stepAny.mandatory === true && (anyNumberDiscard ? minDiscardCount > 0 : discardCount > 0))) {
           socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });
           return;
         }
@@ -4881,20 +4940,36 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        if (!Number.isFinite(discardCount) || discardCount < 0) {
-          socket.emit("error", { code: "INVALID_STEP", message: "Invalid discard count" });
-          return;
+        if (anyNumberDiscard) {
+          if (!Number.isFinite(minDiscardCount) || !Number.isFinite(maxDiscardCount) || maxDiscardCount < minDiscardCount) {
+            socket.emit("error", { code: "INVALID_STEP", message: "Invalid discard range" });
+            return;
+          }
+          if (selectedIds.length < minDiscardCount || selectedIds.length > maxDiscardCount) {
+            socket.emit("error", {
+              code: "INVALID_SELECTION",
+              message: minDiscardCount === maxDiscardCount
+                ? `Must select exactly ${minDiscardCount} card${minDiscardCount === 1 ? '' : 's'} to discard`
+                : `Must select between ${minDiscardCount} and ${maxDiscardCount} cards to discard`,
+            });
+            return;
+          }
+        } else {
+          if (!Number.isFinite(discardCount) || discardCount < 0) {
+            socket.emit("error", { code: "INVALID_STEP", message: "Invalid discard count" });
+            return;
+          }
+
+          if (selectedIds.length !== discardCount) {
+            socket.emit("error", {
+              code: "INVALID_SELECTION",
+              message: `Must select exactly ${discardCount} card${discardCount === 1 ? '' : 's'} to discard`,
+            });
+            return;
+          }
         }
 
-        if (selectedIds.length !== discardCount) {
-          socket.emit("error", {
-            code: "INVALID_SELECTION",
-            message: `Must select exactly ${discardCount} card${discardCount === 1 ? '' : 's'} to discard`,
-          });
-          return;
-        }
-
-        if (discardCount > 0) {
+        if (selectedIds.length > 0) {
           const hand = Array.isArray(stepAny.hand) ? stepAny.hand : [];
           const handIds = new Set(hand.map((c: any) => c?.id).filter(Boolean));
           if (!selectedIds.every((id) => handIds.has(id))) {
@@ -8912,6 +8987,9 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
     case ResolutionStepType.DISCARD_SELECTION:
       if ('hand' in step) fields.hand = step.hand;
       if ('discardCount' in step) fields.discardCount = step.discardCount;
+      if ('minDiscardCount' in step) fields.minDiscardCount = (step as any).minDiscardCount;
+      if ('maxDiscardCount' in step) fields.maxDiscardCount = (step as any).maxDiscardCount;
+      if ('anyNumberDiscard' in step) fields.anyNumberDiscard = (step as any).anyNumberDiscard;
       if ('currentHandSize' in step) fields.currentHandSize = step.currentHandSize;
       if ('maxHandSize' in step) fields.maxHandSize = step.maxHandSize;
       if ('reason' in step) fields.reason = step.reason;
@@ -14247,6 +14325,19 @@ async function handleStepResponse(
     default:
       debug(2, `[Resolution] No specific handler for step type: ${step.type}`);
   }
+
+  if (!response.cancelled) {
+    try {
+      maybeApplyOracleIrChoiceStepFromResolution(game as any, step as any, response);
+    } catch (err) {
+      debugWarn(1, '[Resolution] oracleIrChoiceStep resume failed:', err);
+    }
+    try {
+      maybeResumeOracleIRStepsAfterResolution(game as any, step as any);
+    } catch (err) {
+      debugWarn(1, '[Resolution] oracleIrResumeSteps failed:', err);
+    }
+  }
 }
 
 function extractResolutionChoiceId(selections: any): string | null {
@@ -15453,25 +15544,44 @@ async function handleDiscardResponse(
   }
 
   const pid = response.playerId;
-  const selections = response.selections as string[];
-  
-  if (!Array.isArray(selections) || selections.length === 0) {
-    debugWarn(2, `[Resolution] Invalid discard selections for step ${step.id}`);
-    return;
-  }
+  const selections = Array.isArray(response.selections) ? (response.selections as string[]) : [];
   
   // Get discard step data for validation
   const discardStep = step as any;
   const hand = discardStep.hand || [];
+  const anyNumberDiscard = discardStep.anyNumberDiscard === true;
   const discardCount = discardStep.discardCount;
+  const minDiscardCount = anyNumberDiscard
+    ? Math.max(0, Number(discardStep.minDiscardCount ?? 0))
+    : Number(discardCount || 0);
+  const maxDiscardCount = anyNumberDiscard
+    ? Math.max(minDiscardCount, Number(discardStep.maxDiscardCount ?? hand.length ?? 0))
+    : Number(discardCount || 0);
   const destination: 'graveyard' | 'exile' = discardStep.destination === 'exile' ? 'exile' : 'graveyard';
   const dungeonRoomPayment = discardStep.dungeonRoomPayment && typeof discardStep.dungeonRoomPayment === 'object'
     ? { ...(discardStep.dungeonRoomPayment as Record<string, any>) }
     : undefined;
   
+  if (!anyNumberDiscard && (!Array.isArray(selections) || selections.length === 0)) {
+    debugWarn(2, `[Resolution] Invalid discard selections for step ${step.id}`);
+    return;
+  }
+
   // Validate selection count matches required discard count
-  if (discardCount && selections.length !== discardCount) {
+  if (anyNumberDiscard) {
+    if (selections.length < minDiscardCount || selections.length > maxDiscardCount) {
+      debugWarn(1, `[Resolution] Invalid discard range: expected ${minDiscardCount}-${maxDiscardCount}, got ${selections.length}`);
+      return;
+    }
+  } else if (discardCount && selections.length !== discardCount) {
     debugWarn(1, `[Resolution] Invalid discard count: expected ${discardCount}, got ${selections.length}`);
+    return;
+  }
+  
+  if (selections.length === 0) {
+    debug(2, `[Resolution] ${getPlayerName(game, pid)} discards no cards (${step.sourceName || 'Effect'})`);
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+    broadcastGame(io, game, gameId);
     return;
   }
   
@@ -19119,12 +19229,28 @@ async function handleTargetSelectionResponse(
   // ward costs like "Ward—Discard a card", "Ward—Pay 3 life", "Ward—Sacrifice a permanent".
   if (!(step as any)?.keywordBlight && step.type === ResolutionStepType.TARGET_SELECTION) {
     const sourceId = (step as any)?.sourceId as string | undefined;
-    if (!sourceId || !game.state?.stack) {
-      // Non-stack target-selection steps do not participate in Ward handling.
+    const spellCastCtxForWard = targetStepData.spellCastContext;
+    const pendingEffectId = String(spellCastCtxForWard?.effectId || '').trim();
+    const pendingCastForWard = pendingEffectId
+      ? (game.state as any)?.pendingSpellCasts?.[pendingEffectId]
+      : undefined;
+    const stackForWard = Array.isArray(game.state?.stack) ? game.state.stack : [];
+    const stackItem = sourceId
+      ? stackForWard.find((item: any) => item && item.id === sourceId)
+      : undefined;
+    const wardTriggeredBy = stackItem
+      ? String(sourceId || '')
+      : (pendingEffectId || String(sourceId || ''));
+    if (!wardTriggeredBy || (!stackItem && !pendingCastForWard)) {
+      // Non-stack target-selection steps without a pending cast do not participate in Ward handling.
     } else {
 
-      const stackItem = game.state.stack.find((item: any) => item && item.id === sourceId);
-      const casterId = String(stackItem?.controller || pid);
+      const casterId = String(
+        stackItem?.controller ||
+        pendingCastForWard?.playerId ||
+        spellCastCtxForWard?.playerId ||
+        pid
+      );
       if (!casterId) return;
 
       const battlefield = game.state?.battlefield || [];
@@ -19187,14 +19313,7 @@ async function handleTargetSelectionResponse(
           }));
 
         if (validTargets.length === 0) {
-          const ctx = {
-            state: game.state,
-            bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-            zones: game.state?.zones,
-            gameId,
-          } as unknown as GameContext;
-
-          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          tryCounterByWard(game, gameId, wardTriggeredBy, String(targetPerm.controller || 'system'));
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
             gameId,
@@ -19212,7 +19331,7 @@ async function handleTargetSelectionResponse(
           playerId: casterId as any,
           status: ResolutionStepStatus.PENDING,
           sourceId,
-          sourceName: stackItem?.card?.name || stackItem?.sourceName || 'Ward',
+          sourceName: stackItem?.card?.name || stackItem?.sourceName || pendingCastForWard?.cardName || 'Ward',
           description: `${targetPerm.card?.name || 'Ward'} — Blight ${blightN}: Choose a creature you control to put ${blightN} -1/-1 counter${blightN === 1 ? '' : 's'} on it (or cancel to be countered).`,
           mandatory: false,
           createdAt: Date.now(),
@@ -19228,7 +19347,7 @@ async function handleTargetSelectionResponse(
           keywordBlightController: casterId,
           keywordBlightN: blightN,
           keywordBlightSourceName: `${targetPerm.card?.name || 'Ward'} — Blight ${blightN}`,
-          keywordBlightTriggeredBy: sourceId,
+          keywordBlightTriggeredBy: wardTriggeredBy,
           keywordBlightWardController: String(targetPerm.controller || ''),
         } as any);
 
@@ -19255,7 +19374,7 @@ async function handleTargetSelectionResponse(
           wardPermanentId: String(targetPerm.id || ''),
           wardPermanentName: String(targetPerm.card?.name || 'Ward'),
           wardPermanentController: String(targetPerm.controller || ''),
-          wardTriggeredBy: sourceId,
+          wardTriggeredBy: wardTriggeredBy,
         } as any);
 
         continue;
@@ -19264,20 +19383,13 @@ async function handleTargetSelectionResponse(
       // ---- Non-mana ward costs (discard/pay life/sacrifice) ----
       // Conservative: only implement the most common one-action templates.
       // If the ward cost is present but unrecognized, treat it as unpayable (counter).
-      const makeCounterCtx = () =>
-        ({
-          state: game.state,
-          bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-          zones: game.state?.zones,
-          gameId,
-        }) as unknown as GameContext;
+      const wardControllerForCounter = String(targetPerm.controller || 'system');
 
       const lifeMatch = lowerWardCost.match(/\bpay\s+(\w+)\s+life\b/);
       if (lifeMatch) {
         const lifeAmount = parseCountToken(lifeMatch[1]);
         if (!lifeAmount || lifeAmount <= 0) {
-          const ctx = makeCounterCtx();
-          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          tryCounterByWard(game, gameId, wardTriggeredBy, wardControllerForCounter);
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
             gameId,
@@ -19293,8 +19405,7 @@ async function handleTargetSelectionResponse(
         game.state.life = game.state.life || {};
         const currentLife = game.state.life?.[casterId] ?? startingLife;
         if (currentLife < lifeAmount) {
-          const ctx = makeCounterCtx();
-          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          tryCounterByWard(game, gameId, wardTriggeredBy, wardControllerForCounter);
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
             gameId,
@@ -19329,7 +19440,7 @@ async function handleTargetSelectionResponse(
           wardPermanentId: String(targetPerm.id || ''),
           wardPermanentName: String(targetPerm.card?.name || 'Ward'),
           wardPermanentController: String(targetPerm.controller || ''),
-          wardTriggeredBy: sourceId,
+          wardTriggeredBy: wardTriggeredBy,
         } as any);
 
         continue;
@@ -19339,8 +19450,7 @@ async function handleTargetSelectionResponse(
       if (discardMatch) {
         const discardCount = parseCountToken(discardMatch[1]);
         if (!discardCount || discardCount <= 0) {
-          const ctx = makeCounterCtx();
-          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          tryCounterByWard(game, gameId, wardTriggeredBy, wardControllerForCounter);
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
             gameId,
@@ -19355,8 +19465,7 @@ async function handleTargetSelectionResponse(
         const zones = game.state?.zones?.[casterId];
         const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
         if (hand.length < discardCount) {
-          const ctx = makeCounterCtx();
-          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          tryCounterByWard(game, gameId, wardTriggeredBy, wardControllerForCounter);
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
             gameId,
@@ -19391,7 +19500,7 @@ async function handleTargetSelectionResponse(
           wardPermanentId: String(targetPerm.id || ''),
           wardPermanentName: String(targetPerm.card?.name || 'Ward'),
           wardPermanentController: String(targetPerm.controller || ''),
-          wardTriggeredBy: sourceId,
+          wardTriggeredBy: wardTriggeredBy,
         } as any);
 
         continue;
@@ -19402,8 +19511,7 @@ async function handleTargetSelectionResponse(
         const sacCount = parseCountToken(sacrificeMatch[1]);
         const sacKind = String(sacrificeMatch[2] || '').trim().toLowerCase();
         if (!sacCount || sacCount <= 0 || !sacKind) {
-          const ctx = makeCounterCtx();
-          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          tryCounterByWard(game, gameId, wardTriggeredBy, wardControllerForCounter);
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
             gameId,
@@ -19431,8 +19539,7 @@ async function handleTargetSelectionResponse(
           }));
 
         if (eligible.length < sacCount) {
-          const ctx = makeCounterCtx();
-          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+          tryCounterByWard(game, gameId, wardTriggeredBy, wardControllerForCounter);
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
             gameId,
@@ -19468,7 +19575,7 @@ async function handleTargetSelectionResponse(
           wardPermanentId: String(targetPerm.id || ''),
           wardPermanentName: String(targetPerm.card?.name || 'Ward'),
           wardPermanentController: String(targetPerm.controller || ''),
-          wardTriggeredBy: sourceId,
+          wardTriggeredBy: wardTriggeredBy,
         } as any);
 
         continue;
@@ -19476,8 +19583,7 @@ async function handleTargetSelectionResponse(
 
       // Unknown ward cost (non-mana and non-blight). Fail closed.
       {
-        const ctx = makeCounterCtx();
-        counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+        tryCounterByWard(game, gameId, wardTriggeredBy, wardControllerForCounter);
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -19494,7 +19600,7 @@ async function handleTargetSelectionResponse(
         try {
           appendEvent(gameId, (game as any).seq ?? 0, 'targetSelectionWardPrompt', {
             playerId: casterId,
-            sourceId,
+            sourceId: wardTriggeredBy,
             targets: Array.isArray((stackItem as any)?.targets)
               ? (stackItem as any).targets.map((targetId: any) => String(targetId))
               : selections.map((targetId: string) => String(targetId)),
@@ -24069,6 +24175,11 @@ async function handleLibrarySearchResponse(
       return;
     }
   }
+
+  if (String(searchStep.oracleIrChoiceStepJson || '').trim()) {
+    debug(2, `[Resolution] Library search delegated to oracle IR apply: ${sourceName}`);
+    return;
+  }
   
   // Get game context and utilities
   const { uid, parsePT, cardManaValue } = await import("../state/utils.js");
@@ -28289,6 +28400,38 @@ async function handleOptionChoiceResponse(
       message: `${sourceName}: ${getPlayerName(game, controllerId)} converted ${subjectLabel}.`,
       ts: Date.now(),
     });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (stepData?.oracleIrUnlessPayChoice === true) {
+    const choiceId = String(extractId(selectedOption) || '').trim().toLowerCase();
+    const shouldPay = !response.cancelled && choiceId === 'pay';
+    const unlessPayKind = String(stepData?.oracleIrUnlessPayKind || 'mana').trim() === 'life' ? 'life' : 'mana';
+    let steps: any[] = [];
+    try {
+      const parsed = JSON.parse(String(stepData?.oracleIrUnlessPayStepsJson || '[]'));
+      steps = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      steps = [];
+    }
+
+    if (steps.length > 0) {
+      try {
+        resumeOracleIRUnlessPayFromResolution(game as any, {
+          controller: String(stepData?.oracleIrControllerId || playerId || '').trim() as PlayerID,
+          sourceId: String(stepData?.oracleIrSourceId || step.sourceId || '').trim() || undefined,
+          sourceName: String(stepData?.oracleIrSourceName || step.sourceName || '').trim() || undefined,
+          steps,
+          unlessPayKind,
+          choice: shouldPay ? 'pay' : 'decline',
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] oracleIrUnlessPayChoice resume failed:', err);
+      }
+    }
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);

@@ -27,6 +27,29 @@ export type ExtendedConditionalParams = {
   readonly lastExcessDamageDealtThisWay?: number;
 };
 
+function evaluateAlternateCostPaidCondition(
+  normalizedRaw: string,
+  ctx: OracleIRExecutionContext
+): boolean | null {
+  if (
+    normalizedRaw === "that cost wasn't paid" ||
+    normalizedRaw === "that cost was not paid"
+  ) {
+    if (ctx.alternateCostPaid === true) return false;
+    if (ctx.alternateCostPaid === false) return true;
+    return null;
+  }
+
+  const paidMatch = normalizedRaw.match(/^the ((?:\{[^}]+\})+|\d+[wubrg]+) cost was paid$/i);
+  if (paidMatch) {
+    if (ctx.alternateCostPaid === true) return true;
+    if (ctx.alternateCostPaid === false) return false;
+    return null;
+  }
+
+  return null;
+}
+
 function parseSmallNumberWord(text: string): number | null {
   const raw = String(text || '').trim().toLowerCase();
   if (!raw) return null;
@@ -204,6 +227,7 @@ function getGraveyardCards(nextState: GameState, controllerId: PlayerID): any[] 
 
 function getDieRollResult(nextState: GameState, controllerId: PlayerID): number | null {
   const playerRoll = (nextState as any)?.lastDieRollByPlayer?.[controllerId];
+  if (typeof playerRoll === 'number' && Number.isFinite(playerRoll)) return playerRoll;
   if (playerRoll && Number.isFinite(Number(playerRoll.result))) return Number(playerRoll.result);
   const globalLast = (nextState as any)?.lastDieRoll;
   if (globalLast && String(globalLast?.playerId || '').trim() === controllerId && Number.isFinite(Number(globalLast?.result))) {
@@ -1368,9 +1392,6 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     });
   }
 
-  if (normalizedRaw === "you can't" || normalizedRaw === "that player can't") {
-    return false;
-  }
 
   if (normalizedRaw === 'a rat is attacking') {
     return (getProcessedBattlefield(nextState) as any[]).some(
@@ -1570,12 +1591,9 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     return countExiledCardsWithSource(nextState, sourceId) === 0;
   }
 
-  if (
-    normalizedRaw === 'the {3}{g} cost was paid' ||
-    normalizedRaw === 'the 3g cost was paid' ||
-    /^the \{3\}\{g\} cost was paid$/i.test(normalizedRaw)
-  ) {
-    return true;
+  {
+    const alternateCostPaid = evaluateAlternateCostPaidCondition(normalizedRaw, ctx);
+    if (alternateCostPaid !== null) return alternateCostPaid;
   }
 
   if (normalizedRaw === 'this spell was foretold' || normalizedRaw === 'it was foretold') {

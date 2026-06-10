@@ -20,14 +20,26 @@ export const BATTLEFIELD_STACK_OFFSET_X = 18;
 /** Vertical cascade per card in a stack. */
 export const BATTLEFIELD_STACK_OFFSET_Y = 8;
 export const BATTLEFIELD_MAX_STACK_CASCADE = 6;
+/** Default minimum rows for the main battlefield grid. */
+export const BATTLEFIELD_MIN_ROWS = 3;
+/** Rows visible before scrolling (compact playmat viewport). */
+export const BATTLEFIELD_SCROLL_VISIBLE_ROWS = 5;
+/** Hard cap on auto-grown rows to keep layouts performant. */
+export const BATTLEFIELD_MAX_ROWS = 12;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-export function createBattlefieldGrid(
-  widthPx: number,
-  heightPx: number,
+export function columnCountFromWidth(widthPx: number, tileWidth: number): number {
+  const columnGap = BATTLEFIELD_COLUMN_GAP;
+  const cellW = tileWidth + columnGap;
+  return Math.max(1, Math.floor((widthPx + columnGap) / cellW));
+}
+
+export function createBattlefieldGridFromDimensions(
+  cols: number,
+  rows: number,
   tileWidth: number,
 ): BattlefieldGridLayout {
   const columnGap = BATTLEFIELD_COLUMN_GAP;
@@ -35,9 +47,65 @@ export function createBattlefieldGrid(
   const tileH = Math.round(tileWidth / 0.72);
   const cellW = tileWidth + columnGap;
   const cellH = tileH + rowGap;
-  const cols = Math.max(1, Math.floor((widthPx + columnGap) / cellW));
-  const rows = Math.max(1, Math.floor((heightPx + rowGap) / cellH));
-  return { cols, rows, cellW, cellH, columnGap, rowGap, tileWidth, tileH };
+  return {
+    cols: Math.max(1, cols),
+    rows: Math.max(1, rows),
+    cellW,
+    cellH,
+    columnGap,
+    rowGap,
+    tileWidth,
+    tileH,
+  };
+}
+
+/** Pixel height of the grid canvas for a given row count. */
+export function battlefieldGridContentHeightForRows(rows: number, tileWidth: number): number {
+  return battlefieldGridContentHeight(createBattlefieldGridFromDimensions(1, rows, tileWidth));
+}
+
+export function battlefieldGridContentHeight(grid: BattlefieldGridLayout): number {
+  if (grid.rows <= 0) return grid.tileH;
+  return grid.rows * grid.cellH - grid.rowGap;
+}
+
+export function createBattlefieldGrid(
+  widthPx: number,
+  heightPx: number,
+  tileWidth: number,
+): BattlefieldGridLayout {
+  const cols = columnCountFromWidth(widthPx, tileWidth);
+  const probe = createBattlefieldGridFromDimensions(cols, 1, tileWidth);
+  const rows = Math.max(1, Math.floor((heightPx + probe.rowGap) / probe.cellH));
+  return createBattlefieldGridFromDimensions(cols, rows, tileWidth);
+}
+
+/**
+ * Rows required to place all entries without falling back to (0,0).
+ * Grows up to `maxRows` when auto-placement would overflow.
+ */
+export function computeRequiredGridRows(
+  entries: Array<{ preferred: { x: number; y: number } | null }>,
+  cols: number,
+  tileWidth: number,
+  minRows: number = BATTLEFIELD_MIN_ROWS,
+  maxRows: number = BATTLEFIELD_MAX_ROWS,
+): number {
+  const probe = createBattlefieldGridFromDimensions(cols, minRows, tileWidth);
+  let highestRow = minRows - 1;
+  for (const entry of entries) {
+    if (!entry.preferred) continue;
+    highestRow = Math.max(highestRow, Math.max(0, Math.round(entry.preferred.y / probe.cellH)));
+  }
+
+  let rows = Math.max(minRows, highestRow + 1);
+  while (rows <= maxRows) {
+    const grid = createBattlefieldGridFromDimensions(cols, rows, tileWidth);
+    const { overflow } = assignPermanentsToCellsInternal(entries, grid);
+    if (!overflow) return rows;
+    rows += 1;
+  }
+  return maxRows;
 }
 
 export function cellKey(col: number, row: number): string {
@@ -117,23 +185,51 @@ export type CellPlacement = {
   z?: number;
 };
 
-/**
- * Assign each permanent to a grid cell (origin). Multiple permanents may share a cell (stack).
- */
-export function assignPermanentsToCells(
+/** When the grid is full, stack overflow permanents in the bottom-right cell. */
+function assignPermanentsToCellsWithStackFallback(
   entries: Array<{ id: string; preferred: { x: number; y: number; z?: number } | null }>,
   grid: BattlefieldGridLayout,
 ): CellPlacement[] {
   const occupied = new Set<string>();
-  const cellMembers = new Map<string, string[]>();
   const placements: CellPlacement[] = [];
 
   const registerInCell = (id: string, col: number, row: number, x: number, y: number, z?: number) => {
     const key = cellKey(col, row);
     occupied.add(key);
-    const list = cellMembers.get(key) || [];
-    list.push(id);
-    cellMembers.set(key, list);
+    placements.push({ permanentId: id, cellX: x, cellY: y, col, row, z });
+  };
+
+  const fallbackCol = Math.max(0, grid.cols - 1);
+  const fallbackRow = Math.max(0, grid.rows - 1);
+  const fallbackOrigin = cellOrigin(fallbackCol, fallbackRow, grid);
+
+  for (const entry of entries) {
+    if (entry.preferred) {
+      const snapped = snapPixelToCell(entry.preferred.x, entry.preferred.y, grid);
+      registerInCell(entry.id, snapped.col, snapped.row, snapped.x, snapped.y, entry.preferred.z);
+      continue;
+    }
+    const empty = nextEmptyCell(occupied, grid);
+    if (empty) {
+      registerInCell(entry.id, empty.col, empty.row, empty.x, empty.y);
+      continue;
+    }
+    registerInCell(entry.id, fallbackCol, fallbackRow, fallbackOrigin.x, fallbackOrigin.y);
+  }
+
+  return placements;
+}
+
+function assignPermanentsToCellsInternal(
+  entries: Array<{ id: string; preferred: { x: number; y: number; z?: number } | null }>,
+  grid: BattlefieldGridLayout,
+): { placements: CellPlacement[]; overflow: boolean } {
+  const occupied = new Set<string>();
+  const placements: CellPlacement[] = [];
+
+  const registerInCell = (id: string, col: number, row: number, x: number, y: number, z?: number) => {
+    const key = cellKey(col, row);
+    occupied.add(key);
     placements.push({ permanentId: id, cellX: x, cellY: y, col, row, z });
   };
 
@@ -145,14 +241,48 @@ export function assignPermanentsToCells(
     }
     const empty = nextEmptyCell(occupied, grid);
     if (!empty) {
-      const fallback = snapPixelToCell(0, 0, grid);
-      registerInCell(entry.id, fallback.col, fallback.row, fallback.x, fallback.y);
-      continue;
+      return { placements, overflow: true };
     }
     registerInCell(entry.id, empty.col, empty.row, empty.x, empty.y);
   }
 
-  return placements;
+  return { placements, overflow: false };
+}
+
+/**
+ * Assign each permanent to a grid cell (origin). Multiple permanents may share a cell (stack).
+ * When `allowGrow` is true, expands row count up to `maxRows` instead of stacking at (0,0).
+ */
+export function assignPermanentsToCells(
+  entries: Array<{ id: string; preferred: { x: number; y: number; z?: number } | null }>,
+  grid: BattlefieldGridLayout,
+  options?: { allowGrow?: boolean; maxRows?: number },
+): CellPlacement[] {
+  const allowGrow = options?.allowGrow ?? true;
+  const maxRows = options?.maxRows ?? BATTLEFIELD_MAX_ROWS;
+  let workingGrid = grid;
+
+  for (;;) {
+    const { placements, overflow } = assignPermanentsToCellsInternal(entries, workingGrid);
+    if (!overflow) return placements;
+    if (!allowGrow || workingGrid.rows >= maxRows) {
+      return assignPermanentsToCellsWithStackFallback(entries, workingGrid);
+    }
+    workingGrid = createBattlefieldGridFromDimensions(
+      workingGrid.cols,
+      workingGrid.rows + 1,
+      workingGrid.tileWidth,
+    );
+  }
+}
+
+/** Count distinct occupied cells (stacks count as one slot). */
+export function countOccupiedCells(placements: CellPlacement[]): number {
+  const keys = new Set<string>();
+  for (const placement of placements) {
+    keys.add(cellKey(placement.col, placement.row));
+  }
+  return keys.size;
 }
 
 export function sortStackOrder(

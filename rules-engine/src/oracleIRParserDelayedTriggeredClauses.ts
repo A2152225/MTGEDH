@@ -69,6 +69,7 @@ export function tryParseDelayedTriggerClause(args: {
     if (trailing) {
       const effect = normalizeEffectText(String(trailing[1] || ''));
       if (!effect) return null;
+      if (/^create(?:s)?\b/i.test(effect)) return null;
       return withMeta({
         kind: 'schedule_delayed_trigger',
         timing: spec.timing,

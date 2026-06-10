@@ -62,6 +62,8 @@ interface Props {
   aiStrategy?: string;
   onToggleAIControl?: (enable: boolean, strategy?: string, difficulty?: number) => void;
   availableAIStrategies?: AIStrategy[];
+  /** Tighter single-row layout for mobile play. */
+  compact?: boolean;
 }
 
 // Maps phase values to display names and colors
@@ -100,7 +102,8 @@ export function GameStatusIndicator({
   smartUndoCounts,
   onRollDie, onFlipCoin,
   extraActions,
-  aiControlEnabled, aiStrategy, onToggleAIControl, availableAIStrategies
+  aiControlEnabled, aiStrategy, onToggleAIControl, availableAIStrategies,
+  compact = false,
 }: Props) {
   const [showDiceMenu, setShowDiceMenu] = useState(false);
   const [showAIMenu, setShowAIMenu] = useState(false);
@@ -171,20 +174,20 @@ export function GameStatusIndicator({
   const youHaveBlessing = you ? cityBlessing?.[you] : false;
   const anyoneHasBlessing = cityBlessing ? Object.values(cityBlessing).some(v => v) : false;
   const showAiControl = Boolean(onToggleAIControl && isYouPlayer && !gameOver);
-  const showBottomActionRow = Boolean(extraActions || onConcede || onLeaveGame || onUndo);
+  const showBottomActionRow = !compact && Boolean(extraActions || onConcede || onLeaveGame || onUndo);
 
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      gap: 10,
-      padding: '8px 16px',
+      gap: compact ? 6 : 10,
+      padding: compact ? '6px 10px' : '8px 16px',
       background: 'linear-gradient(90deg, rgba(15,15,25,0.95), rgba(25,25,40,0.95))',
       borderRadius: 10,
       border: '1px solid rgba(99,102,241,0.3)',
-      boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+      boxShadow: compact ? '0 2px 8px rgba(0,0,0,0.25)' : '0 4px 16px rgba(0,0,0,0.3)',
       color: '#e5e7eb',
-      fontSize: 13,
+      fontSize: compact ? 12 : 13,
       width: '100%',
     }}>
       <div style={{
@@ -452,7 +455,7 @@ export function GameStatusIndicator({
       )}
 
       {/* Randomness buttons - Dice & Coin Flip */}
-      {(onRollDie || onFlipCoin) && (
+      {!compact && (onRollDie || onFlipCoin) && (
         <>
           <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -556,7 +559,7 @@ export function GameStatusIndicator({
 
         </div>
 
-        {showAiControl && (
+        {!compact && showAiControl && (
           <div ref={aiMenuRef} style={{ position: 'relative' }}>
             <button
               onClick={() => {

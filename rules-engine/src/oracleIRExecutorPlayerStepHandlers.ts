@@ -1,5 +1,5 @@
 import type { GameState, PlayerID } from '../../shared/src';
-import type { OracleEffectStep } from './oracleIR';
+import type { OracleEffectStep, OracleObjectSelector } from './oracleIR';
 import { createCustomEmblem } from './emblemSupport';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions } from './oracleIRExecutionTypes';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
@@ -568,6 +568,234 @@ function cardMatchesLookChooseSelector(card: any, selectorText: string): boolean
   }
 
   return positiveTerms.some(term => cardMatchesLookChooseTerm(card, term));
+}
+
+function parseLookChooseSelectionLimits(
+  selectorText: string,
+  optional?: boolean
+): { readonly minSelections: number; readonly maxSelections: number } {
+  const normalized = normalizeLookChooseSelectorText(selectorText).toLowerCase();
+  const wordToNum = (word: string): number => {
+    const map: Record<string, number> = {
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      six: 6,
+      seven: 7,
+      eight: 8,
+      nine: 9,
+      ten: 10,
+    };
+    const lower = String(word || '').trim().toLowerCase();
+    if (map[lower]) return map[lower];
+    const parsed = Number.parseInt(lower, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  };
+
+  const upToMatch = normalized.match(/^up to (one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i);
+  if (upToMatch) {
+    const maxSelections = wordToNum(upToMatch[1]);
+    return { minSelections: optional ? 0 : 0, maxSelections };
+  }
+
+  return { minSelections: optional ? 0 : 1, maxSelections: 1 };
+}
+
+export function buildLookChooseLibrarySearchFilter(
+  selectorText: string
+): { readonly types?: readonly string[]; readonly subtypes?: readonly string[] } {
+  const terms = splitLookChooseSelectorTerms(normalizeLookChooseSelectorText(selectorText));
+  const types: string[] = [];
+  const subtypes: string[] = [];
+
+  for (const term of terms) {
+    if (/^non-?/i.test(term)) continue;
+    const parsedType = parseSimpleCardTypeFromText(term);
+    if (parsedType) {
+      if (!types.includes(parsedType)) types.push(parsedType);
+      continue;
+    }
+    if (term && !subtypes.includes(term)) subtypes.push(term);
+  }
+
+  return {
+    ...(types.length > 0 ? { types } : {}),
+    ...(subtypes.length > 0 ? { subtypes } : {}),
+  };
+}
+
+export function buildLookChooseFromTopSelectionOptions(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'look_choose_from_top' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
+): {
+  readonly playerId: PlayerID;
+  readonly lookedCount: number;
+  readonly availableCards: readonly any[];
+  readonly selectableCardIds: readonly string[];
+  readonly minSelections: number;
+  readonly maxSelections: number;
+  readonly destination: 'hand' | 'exile';
+  readonly filter: ReturnType<typeof buildLookChooseLibrarySearchFilter>;
+  readonly restOrder?: 'any';
+} | null {
+  const amount = resolveLookChooseAmount(state, step, ctx, runtime);
+  if (amount === null || amount <= 0) return null;
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) return null;
+
+  const playerId = players[0];
+  const player = state.players.find(entry => entry.id === playerId) as any;
+  if (!player) return null;
+
+  const library = Array.isArray(player.library) ? player.library : [];
+  const lookedCount = Math.max(0, Math.min(library.length, amount | 0));
+  if (lookedCount <= 0) return null;
+
+  const lookedCards = library.slice(0, lookedCount);
+  const selectableCardIds = lookedCards
+    .filter(card => cardMatchesLookChooseSelector(card, step.selectorText))
+    .map(card => String(card?.id || '').trim())
+    .filter(Boolean);
+  const limits = parseLookChooseSelectionLimits(step.selectorText, step.optional === true);
+
+  return {
+    playerId,
+    lookedCount,
+    availableCards: lookedCards,
+    selectableCardIds,
+    minSelections: limits.minSelections,
+    maxSelections: limits.maxSelections,
+    destination: step.destination,
+    filter: buildLookChooseLibrarySearchFilter(step.selectorText),
+    ...(step.restOrder === 'any' ? { restOrder: 'any' as const } : {}),
+  };
+}
+
+export function buildLookSelectTopSelectionOptions(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'look_select_top' }>,
+  ctx: OracleIRExecutionContext
+): {
+  readonly playerId: PlayerID;
+  readonly lookedCount: number;
+  readonly chooseCount: number;
+  readonly availableCards: readonly any[];
+  readonly destination: 'hand' | 'graveyard';
+  readonly restDestination: 'graveyard' | 'library';
+  readonly restToTop: boolean;
+} | null {
+  const amount = quantityToNumber(step.amount);
+  const choose = quantityToNumber(step.choose);
+  if (amount === null || choose === null || choose <= 0) return null;
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) return null;
+
+  const playerId = players[0];
+  const player = state.players.find(entry => entry.id === playerId) as any;
+  if (!player) return null;
+
+  const library = Array.isArray(player.library) ? player.library : [];
+  const lookedCount = Math.max(0, Math.min(library.length, amount | 0));
+  const chooseCount = Math.max(0, Math.min(lookedCount, choose | 0));
+  if (lookedCount <= 0 || chooseCount <= 0) return null;
+
+  return {
+    playerId,
+    lookedCount,
+    chooseCount,
+    availableCards: library.slice(0, lookedCount),
+    destination: step.destination,
+    restDestination: step.restDestination,
+    restToTop: Boolean(step.restToTop),
+  };
+}
+
+function lookChooseFromTopRequiresPlayerChoice(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'look_choose_from_top' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
+): boolean {
+  if (!ctx.interactivePlayerChoices) return false;
+  if (getNormalizedChosenIds(ctx).length > 0) return false;
+  const built = buildLookChooseFromTopSelectionOptions(state, step, ctx, runtime);
+  if (!built) return false;
+  if (step.optional === true) return true;
+  return built.selectableCardIds.length > 0;
+}
+
+function lookSelectTopRequiresPlayerChoice(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'look_select_top' }>,
+  ctx: OracleIRExecutionContext
+): boolean {
+  if (!ctx.interactivePlayerChoices) return false;
+  if (getNormalizedChosenIds(ctx).length > 0) return false;
+  const built = buildLookSelectTopSelectionOptions(state, step, ctx);
+  if (!built) return false;
+  return built.lookedCount > built.chooseCount;
+}
+
+function applyLookSelectTopForPlayerWithChoice(
+  state: GameState,
+  playerId: PlayerID,
+  amount: number,
+  choose: number,
+  destination: 'hand' | 'graveyard',
+  restDestination: 'graveyard' | 'library',
+  restToTop: boolean,
+  chosenObjectIds: readonly string[]
+): { state: GameState; log: string[]; chosen: any[]; rest: any[]; lookedAtCount: number } {
+  const player = state.players.find(entry => entry.id === playerId) as any;
+  if (!player) {
+    return { state, log: [`Player not found: ${playerId}`], chosen: [], rest: [], lookedAtCount: 0 };
+  }
+
+  const library = [...(Array.isArray(player.library) ? player.library : [])];
+  const hand = [...(Array.isArray(player.hand) ? player.hand : [])];
+  const graveyard = [...(Array.isArray(player.graveyard) ? player.graveyard : [])];
+  const actualLookCount = Math.max(0, Math.min(library.length, amount | 0));
+  const chooseActual = Math.max(0, Math.min(actualLookCount, choose | 0));
+  const looked = library.splice(0, actualLookCount);
+  const chosenIdSet = new Set(chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean));
+  const chosen = chosenIdSet.size > 0
+    ? looked.filter(card => chosenIdSet.has(String(card?.id || '').trim())).slice(0, chooseActual)
+    : looked.slice(0, chooseActual);
+  const chosenIds = new Set(chosen.map(card => String(card?.id || '').trim()).filter(Boolean));
+  const rest = looked.filter(card => !chosenIds.has(String(card?.id || '').trim()));
+
+  if (destination === 'hand') {
+    hand.push(...chosen);
+  } else {
+    graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, chosen));
+  }
+
+  if (restDestination === 'graveyard') {
+    graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, rest));
+  } else if (rest.length > 0) {
+    const reorderedRest = restToTop ? rest : [...rest].reverse();
+    library.unshift(...reorderedRest);
+  }
+
+  const updatedPlayers = state.players.map(entry =>
+    entry.id === playerId ? ({ ...(entry as any), library, hand, graveyard } as any) : entry
+  );
+
+  return {
+    state: { ...state, players: updatedPlayers as any },
+    log: [
+      `${playerId} looks at ${actualLookCount} card(s), puts ${chosen.length} into ${destination === 'hand' ? 'their hand' : 'their graveyard'}, and moves ${rest.length} to ${restDestination === 'graveyard' ? 'their graveyard' : restToTop ? 'the top of their library' : 'the bottom of their library'}`,
+    ],
+    chosen,
+    rest,
+    lookedAtCount: actualLookCount,
+  };
 }
 
 function chooseCollectEvidenceCardIds(
@@ -3413,18 +3641,39 @@ export function applyLookSelectTopStep(
     };
   }
 
+  if (lookSelectTopRequiresPlayerChoice(state, step, ctx)) {
+    return {
+      applied: false,
+      message: `Skipped look-select-top (requires player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const chosenObjectIds = getNormalizedChosenIds(ctx);
   let nextState = state;
   const log: string[] = [];
   for (const playerId of players) {
-    const result = lookSelectTopCardsForPlayer(
-      nextState,
-      playerId,
-      amount,
-      choose,
-      step.destination,
-      step.restDestination,
-      Boolean(step.restToTop)
-    );
+    const result = chosenObjectIds.length > 0
+      ? applyLookSelectTopForPlayerWithChoice(
+          nextState,
+          playerId,
+          amount,
+          choose,
+          step.destination,
+          step.restDestination,
+          Boolean(step.restToTop),
+          chosenObjectIds
+        )
+      : lookSelectTopCardsForPlayer(
+          nextState,
+          playerId,
+          amount,
+          choose,
+          step.destination,
+          step.restDestination,
+          Boolean(step.restToTop)
+        );
     nextState = result.state;
     log.push(...result.log);
   }
@@ -3605,6 +3854,16 @@ export function applyLookChooseFromTopStep(
     };
   }
 
+  if (lookChooseFromTopRequiresPlayerChoice(state, step, ctx, runtime)) {
+    return {
+      applied: false,
+      message: `Skipped look-choose-from-top (requires player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const chosenIds = new Set(getNormalizedChosenIds(ctx));
   let nextState = state;
   const log: string[] = [];
   const movedCards: any[] = [];
@@ -3623,11 +3882,26 @@ export function applyLookChooseFromTopStep(
     const hand = Array.isArray(player.hand) ? [...player.hand] : [];
     const exile = Array.isArray(player.exile) ? [...player.exile] : [];
     const lookedCount = Math.max(0, Math.min(library.length, amount | 0));
-    const lookedCards = library.splice(0, lookedCount);
-    const chosenIndex = lookedCards.findIndex(card => cardMatchesLookChooseSelector(card, step.selectorText));
-    const chosenCard = chosenIndex >= 0 ? lookedCards.splice(chosenIndex, 1)[0] : null;
+    let lookedCards = library.splice(0, lookedCount);
+    const chosenCards: any[] = [];
 
-    if (chosenCard) {
+    if (chosenIds.size > 0) {
+      for (const card of lookedCards) {
+        const cardId = String(card?.id || '').trim();
+        if (!cardId || !chosenIds.has(cardId)) continue;
+        if (!cardMatchesLookChooseSelector(card, step.selectorText)) continue;
+        chosenCards.push(card);
+      }
+      const chosenCardIds = new Set(chosenCards.map(card => String(card?.id || '').trim()).filter(Boolean));
+      lookedCards = lookedCards.filter(card => !chosenCardIds.has(String(card?.id || '').trim()));
+    } else {
+      const chosenIndex = lookedCards.findIndex(card => cardMatchesLookChooseSelector(card, step.selectorText));
+      if (chosenIndex >= 0) {
+        chosenCards.push(lookedCards.splice(chosenIndex, 1)[0]);
+      }
+    }
+
+    for (const chosenCard of chosenCards) {
       movedCards.push(chosenCard);
       if (step.destination === 'hand') {
         hand.push(chosenCard);
@@ -3648,8 +3922,8 @@ export function applyLookChooseFromTopStep(
     });
     nextState = { ...nextState, players: updatedPlayers as any };
 
-    const actionText = chosenCard
-      ? `${step.destination === 'hand' ? 'puts a matching card into their hand' : 'exiles a matching card'}`
+    const actionText = chosenCards.length > 0
+      ? `${step.destination === 'hand' ? `puts ${chosenCards.length} matching card(s) into their hand` : `exiles ${chosenCards.length} matching card(s)`}`
       : 'does not find a matching card';
     log.push(
       `${playerId} looks at ${lookedCount} card(s), ${actionText}, and puts ${bottomedRest.length} on the bottom of their library in ${step.restOrder === 'any' ? 'any' : 'a random'} order`
@@ -3809,6 +4083,114 @@ export function applyMillStep(
   };
 }
 
+export function discardSelectorRequiresPlayerChoice(
+  step: Extract<OracleEffectStep, { kind: 'discard' }>,
+): boolean {
+  if ((step.amount as any)?.kind === 'any_number') return true;
+  if (step.target) return true;
+
+  const amountRaw = String((step.amount as any)?.raw || '').trim().toLowerCase();
+  if (
+    (step.amount as any)?.kind === 'reference_amount' &&
+    /card with that name/.test(amountRaw)
+  ) {
+    return true;
+  }
+
+  const staticAmount = quantityToNumber(step.amount);
+  return staticAmount === null || staticAmount > 0;
+}
+
+function handCardMatchesDiscardTarget(card: any, target: OracleObjectSelector | undefined): boolean {
+  if (!target) return true;
+  const text = String((target as any)?.text || (target as any)?.raw || '').trim();
+  if (!text) return true;
+  const normalized = text
+    .replace(/^any number of\s+/i, '')
+    .replace(/\s+cards?$/i, '')
+    .trim();
+  if (!normalized) return true;
+  return cardMatchesLookChooseSelector(card, normalized);
+}
+
+export function buildDiscardSelectionOptions(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'discard' }>,
+  ctx: OracleIRExecutionContext,
+): {
+  readonly playerId: PlayerID;
+  readonly options: readonly { id: string; label: string; description?: string; imageUrl?: string }[];
+  readonly discardCount: number;
+  readonly minDiscardCount?: number;
+  readonly maxDiscardCount?: number;
+  readonly anyNumberDiscard?: boolean;
+  readonly currentHandSize: number;
+  readonly maxHandSize: number;
+} | null {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) return null;
+
+  const playerId = players[0];
+  const player = state.players.find((candidate) => candidate.id === playerId) as any;
+  const hand = Array.isArray(player?.hand) ? player.hand : [];
+  if (hand.length === 0) return null;
+
+  const eligibleHand = step.target
+    ? hand.filter((card: any) => handCardMatchesDiscardTarget(card, step.target))
+    : hand;
+
+  const options = eligibleHand
+    .map((card: any) => {
+      const id = String(card?.id || card?.card?.id || '').trim();
+      if (!id) return null;
+      const name = String(card?.name || card?.card?.name || 'Unknown').trim() || 'Unknown';
+      return {
+        id,
+        label: name,
+        description: name,
+        imageUrl: card?.imageUrl || card?.image_url || card?.image_uris?.normal || card?.card?.image_uris?.normal,
+      };
+    })
+    .filter((option): option is NonNullable<typeof option> => Boolean(option));
+
+  if ((step.amount as any)?.kind === 'any_number') {
+    if (options.length === 0) return null;
+    return {
+      playerId,
+      options,
+      discardCount: 0,
+      minDiscardCount: 0,
+      maxDiscardCount: options.length,
+      anyNumberDiscard: true,
+      currentHandSize: hand.length,
+      maxHandSize: 0,
+    };
+  }
+
+  if (options.length === 0) return null;
+
+  const amount = resolveStepAmountForPlayer(
+    state,
+    ctx.controllerId,
+    step.amount,
+    ctx,
+    playerId,
+    { whereX: step.whereX },
+  );
+  if (amount === null || amount <= 0) return null;
+
+  const discardCount = Math.min(Math.max(0, amount | 0), options.length);
+  if (options.length <= discardCount) return null;
+
+  return {
+    playerId,
+    options,
+    discardCount,
+    currentHandSize: options.length,
+    maxHandSize: Math.max(0, options.length - discardCount),
+  };
+}
+
 export function applyDiscardStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'discard' }>,
@@ -3826,6 +4208,18 @@ export function applyDiscardStep(
 
     const chosenIds = getNormalizedChosenIds(ctx);
     if (chosenIds.length === 0) {
+      if (ctx.interactivePlayerChoices) {
+        const built = buildDiscardSelectionOptions(state, step, ctx);
+        if (!built || built.options.length === 0) {
+          return {
+            applied: true,
+            state,
+            log: [`${players[0]} discards 0 card(s): ${step.raw}`],
+            lastDiscardedCardCount: 0,
+            lastDiscardedCards: [],
+          };
+        }
+      }
       return {
         applied: false,
         message: `Skipped discard (requires any-number card choice): ${step.raw}`,
@@ -3849,7 +4243,17 @@ export function applyDiscardStep(
       };
     }
 
-    const result = discardSpecificCardsForPlayer(state, players[0], chosenIds);
+    const validIds = new Set(
+      (Array.isArray((state.players.find(p => p.id === players[0]) as any)?.hand)
+        ? (state.players.find(p => p.id === players[0]) as any).hand
+        : [])
+        .filter((card: any) => handCardMatchesDiscardTarget(card, step.target))
+        .map((card: any) => String(card?.id || '').trim())
+        .filter(Boolean)
+    );
+    const filteredChosenIds = chosenIds.filter(id => validIds.has(id));
+
+    const result = discardSpecificCardsForPlayer(state, players[0], filteredChosenIds);
     if (!result.applied) {
       return {
         applied: false,
@@ -4024,6 +4428,42 @@ export function applyDiscardStep(
     };
   }
 
+  const chosenIds = getNormalizedChosenIds(ctx);
+  if (chosenIds.length === Math.max(0, amount | 0)) {
+    if (players.length !== 1) {
+      return {
+        applied: false,
+        message: `Skipped discard (requires deterministic player binding): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+
+    const result = discardSpecificCardsForPlayer(state, players[0], chosenIds);
+    if (!result.applied) {
+      return {
+        applied: false,
+        message: `Skipped discard (chosen card unavailable): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: {
+          persist: false,
+          metadata: {
+            missingCardIds: [...result.missingCardIds],
+          },
+        },
+      };
+    }
+
+    return {
+      applied: true,
+      state: result.state,
+      log: result.log,
+      lastDiscardedCardCount: result.discardedCount,
+      lastDiscardedCards: result.discardedCards,
+      lastMovedCards: result.discardedCards,
+    };
+  }
+
   const wouldNeedChoice = players.some(playerId => {
     const player = state.players.find(p => p.id === playerId) as any;
     const handLength = Array.isArray(player?.hand) ? player.hand.length : 0;
@@ -4159,6 +4599,57 @@ export function applyLookHandStep(
   };
 }
 
+export function buildExploreDecisionFromStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'explore' }>,
+  ctx: OracleIRExecutionContext,
+): {
+  readonly playerId: PlayerID;
+  readonly permanentId: string;
+  readonly permanentName: string;
+  readonly revealedCard: {
+    readonly id: string;
+    readonly name: string;
+    readonly type_line?: string;
+    readonly imageUrl?: string;
+    readonly cmc?: number;
+  };
+  readonly isLand: boolean;
+} | null {
+  const targetId = resolveSingleCreatureTargetId(state, step.target, ctx);
+  if (!targetId) return null;
+
+  const target = (state.battlefield || []).find(
+    (perm: any) => String(perm?.id || '').trim() === targetId
+  ) as any;
+  if (!target) return null;
+
+  const controllerId = String(target?.controller || ctx.controllerId || '').trim() as PlayerID;
+  const player = state.players.find((entry: any) => String(entry?.id || '').trim() === controllerId) as any;
+  if (!player) return null;
+
+  const library = Array.isArray(player.library) ? player.library : [];
+  if (library.length <= 0) return null;
+
+  const topCard = library[0];
+  const isLand = getCardTypeLineLower(topCard).includes('land');
+  if (isLand) return null;
+
+  return {
+    playerId: controllerId,
+    permanentId: targetId,
+    permanentName: String(target?.card?.name || target?.name || targetId || 'Creature'),
+    revealedCard: {
+      id: String(topCard?.id || topCard?.card?.id || 'revealed-card'),
+      name: String(topCard?.name || topCard?.card?.name || 'Unknown'),
+      type_line: String(topCard?.type_line || topCard?.card?.type_line || ''),
+      imageUrl: topCard?.imageUrl || topCard?.image_uris?.normal || topCard?.card?.image_uris?.normal,
+      cmc: Number(topCard?.cmc ?? topCard?.card?.cmc ?? 0) || 0,
+    },
+    isLand,
+  };
+}
+
 export function applyExploreStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'explore' }>,
@@ -4236,6 +4727,23 @@ export function applyExploreStep(
     };
   }
 
+  const exploreToGraveyard = ctx.selectorContext?.exploreToGraveyard;
+  if (typeof exploreToGraveyard !== 'boolean') {
+    return {
+      applied: false,
+      message: `Skipped explore (requires player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: {
+          permanentId: targetId,
+          revealedCardId: String(topCard?.id || topCard?.card?.id || ''),
+          isLand: false,
+        },
+      },
+    };
+  }
+
   const counters = { ...((target?.counters || {}) as Record<string, number>) };
   const currentCount = Number(counters['+1/+1'] ?? 0);
   counters['+1/+1'] = (Number.isFinite(currentCount) ? currentCount : 0) + 1;
@@ -4244,10 +4752,27 @@ export function applyExploreStep(
     counters,
   };
 
+  const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+  if (exploreToGraveyard) {
+    library.shift();
+    graveyard.push({ ...topCard, zone: 'graveyard', faceDown: false });
+  }
+
+  nextPlayers[playerIndex] = {
+    ...nextPlayers[playerIndex],
+    library,
+    graveyard,
+  };
+
   return {
     applied: true,
-    state: { ...(state as any), battlefield } as GameState,
-    log: [...log, `Added 1 +1/+1 counter to ${targetId}`],
+    state: { ...(state as any), players: nextPlayers as any, battlefield } as GameState,
+    log: [
+      ...log,
+      exploreToGraveyard
+        ? `Added 1 +1/+1 counter to ${targetId} and milled the revealed card`
+        : `Added 1 +1/+1 counter to ${targetId} and left the revealed card on top`,
+    ],
   };
 }
 
