@@ -2128,13 +2128,31 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
-    const addCounters = clause.match(new RegExp(`^(?:otherwise,?\\s*)?${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?put\\s+(${REFERENCEABLE_COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?\\s+on\\s+(.+)$`, 'i'));
+    const scaledEachCreatureCounters = clause.match(
+      /^put\s+(x)\s+(.+?)\s+counters?\s+on\s+(each\s+creature\s+you\s+control)\s*,\s*where\s+x\s+is\s+(.+)$/i,
+    );
+    if (scaledEachCreatureCounters) {
+      return withMeta({
+        kind: 'add_counter',
+        amount: parseCounterQuantity(String(scaledEachCreatureCounters[1] || 'x')),
+        counter: normalizeCounterName(String(scaledEachCreatureCounters[2] || '')),
+        target: parseObjectSelector(String(scaledEachCreatureCounters[3] || 'each creature you control')),
+        whereX: { kind: 'where', raw: String(scaledEachCreatureCounters[4] || '').trim() },
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const addCounters = clause.match(new RegExp(`^(?:otherwise,?\\s*)?${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?put\\s+(${REFERENCEABLE_COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?\\s+on\\s+(.+?)(?:,\\s*where\\s+x\\s+is\\s+(.+))?\\s*$`, 'i'));
     if (addCounters && !/\bonto\s+the\s+battlefield\b/i.test(clause)) {
+      const whereRaw = String(addCounters[5] || '').trim();
       return withMeta({
         kind: 'add_counter',
         amount: parseCounterQuantity(addCounters[2]),
         counter: normalizeCounterName(String(addCounters[3] || '')),
         target: parseObjectSelector(addCounters[4]),
+        ...(whereRaw ? { whereX: { kind: 'where', raw: whereRaw } } : {}),
         optional: /\bmay\b/i.test(clause) || undefined,
         raw: rawClause,
         });

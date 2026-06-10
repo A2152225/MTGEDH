@@ -43,7 +43,7 @@ type StoredCandidate = {
 
 const serviceDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(serviceDir, '../../..');
-const schemaVersion = '1';
+const schemaVersion = '2';
 const defaultDbFile = path.join(repoRoot, 'server', 'data', 'card-lookup.sqlite');
 
 let db: DB | null = null;

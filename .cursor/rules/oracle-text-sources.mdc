@@ -26,6 +26,28 @@ rg -i 'convoke' oracle-cards.json | head
 
 For type-line changes: prefer `type_line` from local sources; **Kindred** supersedes **Tribal** on newer oracle snapshots.
 
+## Local lookup API (`localCardLookup.ts`)
+
+Use these exports — **do not invent names** (e.g. `lookupCardByName` does not exist):
+
+| Use case | Export |
+|----------|--------|
+| One card, sync | `lookupLocalCardByNameSync(name)` |
+| Many cards, async | `lookupLocalCards(names)` |
+| Build / refresh index | `ensureLocalCardLookupIndexSync()` or `ensureLocalCardLookupIndex()` |
+
+Copy imports from existing callers when unsure: `server/src/socket/resolution.ts` (single), `server/src/services/deckImport.ts` (batch). Before writing a new `_tmp-probe-*.ts`, grep the module for `^export` or read those files.
+
+For a single card, prefer `rg '"name": "Card Name"' oracle-cards.json` first — often no script is needed.
+
+## Probe scripts
+
+When a script is required (see `terminal-hygiene.mdc`):
+
+1. Verify exports/imports against the source file or an existing caller.
+2. Run the script in the same turn; fix import errors before moving on.
+3. Delete `_tmp-probe-*.ts` after use unless the user asks to keep it.
+
 ## Related paths
 
 | Purpose | Location |

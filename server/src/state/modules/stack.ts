@@ -5709,6 +5709,51 @@ function parseDeterministicManaToPool(manaText: string): { W: number; U: number;
   return total > 0 ? out : null;
 }
 
+function normalizeAddCounterTargetText(targetTextRaw: string): string {
+  return String(targetTextRaw || '')
+    .replace(/\u2019/g, "'")
+    .replace(/,\s*where\s+x\s+is\s+.+$/i, '')
+    .trim()
+    .toLowerCase();
+}
+
+function resolveAddCounterTargetPermanentIds(
+  targetTextRaw: string,
+  caster: PlayerID,
+  state: any,
+  sourcePermanentId?: string,
+  sourceId?: string,
+  spellName?: string,
+): string[] {
+  const targetText = normalizeAddCounterTargetText(targetTextRaw);
+  const sourcePermId = String(sourcePermanentId || sourceId || '').trim();
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+
+  if (
+    targetText === 'each creature you control' ||
+    targetText.startsWith('each creature you control ')
+  ) {
+    return battlefield
+      .filter((perm: any) => {
+        if (!perm) return false;
+        if (String(perm?.controller || '').trim() !== String(caster || '').trim()) return false;
+        return String(perm?.card?.type_line || '').toLowerCase().includes('creature');
+      })
+      .map((perm: any) => String(perm?.id || '').trim())
+      .filter(Boolean);
+  }
+
+  const singleTargetId = resolveAddCounterTargetPermanentId(
+    targetText,
+    caster,
+    state,
+    sourcePermanentId,
+    sourceId,
+    spellName,
+  );
+  return singleTargetId ? [singleTargetId] : [];
+}
+
 function resolveAddCounterTargetPermanentId(
   targetTextRaw: string,
   caster: PlayerID,
@@ -5717,10 +5762,7 @@ function resolveAddCounterTargetPermanentId(
   sourceId?: string,
   spellName?: string,
 ): string {
-  const targetText = String(targetTextRaw || '')
-    .replace(/\u2019/g, "'")
-    .trim()
-    .toLowerCase();
+  const targetText = normalizeAddCounterTargetText(targetTextRaw);
   const sourcePermId = String(sourcePermanentId || sourceId || '').trim();
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
 
@@ -6066,28 +6108,36 @@ function applyOracleIRFallbackForUncategorizedSpell(
         }
         case 'add_counter': {
           const counterType = String((step as any).counter || '+1/+1').trim();
+          const rawTargetText = String((step as any).target?.text || (step as any).target?.raw || '').trim();
+          const inlineWhereMatch = rawTargetText.match(/,\s*where\s+x\s+is\s+(.+)$/i);
+          const whereX = (step as any).whereX || (
+            inlineWhereMatch
+              ? { kind: 'where', raw: String(inlineWhereMatch[1] || '').trim() }
+              : undefined
+          );
           const amount = resolveOracleQuantityToNumber((step as any).amount, xValue, {
             state: (ctx as any).state,
             controllerId: caster,
             sourceId: sourcePermanentId || sourceId,
-            whereX: (step as any).whereX,
+            whereX,
           });
           if (!counterType || !amount || amount <= 0) break;
 
-          const targetText = String((step as any).target?.text || (step as any).target?.raw || '').trim();
-          const targetPermanentId = resolveAddCounterTargetPermanentId(
-            targetText,
+          const targetPermanentIds = resolveAddCounterTargetPermanentIds(
+            rawTargetText,
             caster,
             (ctx as any).state,
             sourcePermanentId,
             sourceId,
             spellName,
           );
-          if (!targetPermanentId) break;
+          if (targetPermanentIds.length === 0) break;
 
-          updateCounters(ctx, targetPermanentId, { [counterType]: amount });
-          debug(2, `[oracleIR] ${spellName}: added ${amount} ${counterType} counter(s) to ${targetPermanentId}`);
-          applied++;
+          for (const targetPermanentId of targetPermanentIds) {
+            updateCounters(ctx, targetPermanentId, { [counterType]: amount });
+            debug(2, `[oracleIR] ${spellName}: added ${amount} ${counterType} counter(s) to ${targetPermanentId}`);
+            applied++;
+          }
           break;
         }
         case 'deal_damage': {
@@ -12926,6 +12976,43 @@ export function executeTriggerEffect(
     }
   }
 
+  // Pattern: "put X +1/+1 counters on each creature you control, where X is this creature's power" (Ouroboroid)
+  if ((desc.includes('+1/+1 counter') && desc.includes('each creature you control')) &&
+      (desc.includes('power') || desc.includes('where x'))) {
+    const sourcePermId = triggerItem?.source || triggerItem?.permanentId;
+    const battlefield = state.battlefield || [];
+    const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
+
+    if (sourcePerm) {
+      let sourcePower: number;
+      if (typeof sourcePerm.effectivePower === 'number') {
+        sourcePower = sourcePerm.effectivePower;
+      } else {
+        let basePower = sourcePerm.basePower || 0;
+        if (!basePower && sourcePerm.card?.power) {
+          basePower = parsePT(sourcePerm.card.power) ?? 0;
+        }
+        const plusCounters = sourcePerm.counters?.['+1/+1'] || 0;
+        const minusCounters = sourcePerm.counters?.['-1/-1'] || 0;
+        const counterDelta = plusCounters - minusCounters;
+        const allBonuses = calculateAllPTBonuses(sourcePerm, state);
+        sourcePower = Math.max(0, basePower + counterDelta + allBonuses.power);
+      }
+
+      for (const perm of battlefield) {
+        if (!perm) continue;
+        if (perm.controller !== controller) continue;
+        const typeLine = (perm.card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('creature')) continue;
+
+        perm.counters = perm.counters || {};
+        perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + sourcePower;
+        debug(2, `[executeTriggerEffect] Added ${sourcePower} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
+      }
+    }
+    return;
+  }
+
   // Pattern: "+1/+1 counter on each creature you control" (Cathar's Crusade)
   if (desc.includes('+1/+1 counter') && desc.includes('each creature you control')) {
     const battlefield = state.battlefield || [];
@@ -13022,58 +13109,6 @@ export function executeTriggerEffect(
       const newCounters = currentCounters * 2;
       sourcePerm.counters['+1/+1'] = newCounters;
       debug(2, `[executeTriggerEffect] Doubled +1/+1 counters on ${sourcePerm.card?.name || sourcePerm.id}: ${currentCounters} -> ${newCounters}`);
-    }
-    return;
-  }
-  
-  // Pattern: "put X +1/+1 counters on each creature you control" where X is based on source's power
-  // Matches: "put X +1/+1 counters on each creature you control, where X is ~'s power"
-  // Also matches: "put a number of +1/+1 counters equal to its power on each creature you control"
-  if ((desc.includes('+1/+1 counter') && desc.includes('each creature you control')) && 
-      (desc.includes('power') || desc.includes('equal to'))) {
-    const sourcePermId = triggerItem?.source || triggerItem?.permanentId;
-    const battlefield = state.battlefield || [];
-    const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
-    
-    if (sourcePerm) {
-      // Calculate source's power including counters and modifiers
-      // Use effectivePower if pre-calculated (most efficient)
-      let sourcePower: number;
-      if (typeof sourcePerm.effectivePower === 'number') {
-        sourcePower = sourcePerm.effectivePower;
-      } else {
-        // Fall back to manual calculation using comprehensive P/T bonus calculation
-        // This includes equipment, auras, anthems, lords, and special abilities like Omnath's mana pool bonus
-        let basePower = sourcePerm.basePower || 0;
-        if (!basePower && sourcePerm.card?.power) {
-          basePower = parsePT(sourcePerm.card.power) ?? 0;
-        }
-        
-        // Add +1/+1 counters
-        const plusCounters = sourcePerm.counters?.['+1/+1'] || 0;
-        const minusCounters = sourcePerm.counters?.['-1/-1'] || 0;
-        const counterDelta = plusCounters - minusCounters;
-        
-        // Calculate ALL other bonuses (equipment, auras, anthems, lords, Omnath's mana pool, etc.)
-        const allBonuses = calculateAllPTBonuses(sourcePerm, state);
-        
-        sourcePower = Math.max(0, basePower + counterDelta + allBonuses.power);
-      }
-      
-      debug(2, `[executeTriggerEffect] ${sourcePerm.card?.name || 'Unknown'} has power ${sourcePower}, adding counters to all creatures`);
-      
-      // Add counters to each creature controller controls
-      for (const perm of battlefield) {
-        if (!perm) continue;
-        if (perm.controller !== controller) continue;
-        const typeLine = (perm.card?.type_line || '').toLowerCase();
-        if (!typeLine.includes('creature')) continue;
-        
-        // Add X +1/+1 counters
-        perm.counters = perm.counters || {};
-        perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + sourcePower;
-        debug(2, `[executeTriggerEffect] Added ${sourcePower} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
-      }
     }
     return;
   }
