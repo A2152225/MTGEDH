@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAt": "2026-06-09T23:09:51.605Z",
+    "generatedAt": "2026-06-10T04:26:57.783Z",
     "oraclePath": "D:\\Git\\MTGEDH\\oracle-cards.json",
     "atomicPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
     "includeOracle": true,
@@ -13,7 +13,7 @@
     "scannedOracleCards": 29971,
     "scannedAtomicCards": 0,
     "skippedDuplicateOracleId": 0,
-    "cardsWithAnyGap": 180
+    "cardsWithAnyGap": 170
   },
   "topGaps": [
     {
@@ -360,24 +360,6 @@
     },
     {
       "rank": 20,
-      "key": "unknown-step|unknown|each player who controls the most creatures investigates",
-      "raw": "Each player who controls the most creatures investigates",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 1,
-      "exampleCards": [
-        "No Witnesses"
-      ],
-      "exampleClauses": [
-        "Each player who controls the most creatures investigates"
-      ],
-      "sources": {
-        "oracle-cards": 1,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 21,
       "key": "unknown-step|unknown|erase whatever text you use this way",
       "raw": "Erase whatever text you use this way",
       "gapType": "unknown-step",
@@ -395,7 +377,7 @@
       }
     },
     {
-      "rank": 22,
+      "rank": 21,
       "key": "unknown-step|unknown|give this creature and the tokens unique names",
       "raw": "Give this creature and the tokens unique names",
       "gapType": "unknown-step",
@@ -413,25 +395,7 @@
       }
     },
     {
-      "rank": 23,
-      "key": "unknown-fragment|deal_damage.target|he deals damage equal to that equipment's mana value divided as you choose among one, two, or three targets",
-      "raw": "He deals damage equal to that Equipment's mana value divided as you choose among one, two, or three targets",
-      "gapType": "unknown-fragment",
-      "fieldPath": "deal_damage.target",
-      "count": 1,
-      "exampleCards": [
-        "Captain America, First Avenger"
-      ],
-      "exampleClauses": [
-        "He deals damage equal to that Equipment's mana value divided as you choose among one, two, or three targets"
-      ],
-      "sources": {
-        "oracle-cards": 1,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 24,
+      "rank": 22,
       "key": "unknown-step|unknown|heist!",
       "raw": "Heist!",
       "gapType": "unknown-step",
@@ -449,7 +413,7 @@
       }
     },
     {
-      "rank": 25,
+      "rank": 23,
       "key": "unknown-step|unknown|iii - until end of turn, whenever you cast an instant or sorcery spell, copy it. you may choose new targets for the copy",
       "raw": "III - Until end of turn, whenever you cast an instant or sorcery spell, copy it. You may choose new targets for the copy",
       "gapType": "unknown-step",
@@ -467,7 +431,7 @@
       }
     },
     {
-      "rank": 26,
+      "rank": 24,
       "key": "unknown-step|unknown|instant and sorcery spells you cast with mana value 4 or greater cost {x} less to cast, where x is this permanent's power",
       "raw": "Instant and sorcery spells you cast with mana value 4 or greater cost {X} less to cast, where X is this permanent's power",
       "gapType": "unknown-step",
@@ -485,7 +449,7 @@
       }
     },
     {
-      "rank": 27,
+      "rank": 25,
       "key": "unknown-fragment|deal_damage.target|it deals damage equal to its power divided as you choose among any number of targets",
       "raw": "it deals damage equal to its power divided as you choose among any number of targets",
       "gapType": "unknown-fragment",
@@ -503,7 +467,7 @@
       }
     },
     {
-      "rank": 28,
+      "rank": 26,
       "key": "unknown-step|unknown|megasunburst (this enters the battlefield with two +1/+1 counters on it for each color of mana spent to cast it)",
       "raw": "Megasunburst (This enters the battlefield with two +1/+1 counters on it for each color of mana spent to cast it)",
       "gapType": "unknown-step",
@@ -521,7 +485,7 @@
       }
     },
     {
-      "rank": 29,
+      "rank": 27,
       "key": "unknown-step|unknown|multiblight 4",
       "raw": "multiblight 4",
       "gapType": "unknown-step",
@@ -539,7 +503,7 @@
       }
     },
     {
-      "rank": 30,
+      "rank": 28,
       "key": "unknown-step|unknown|okay, gavin didn't know, but we'll humor him.)",
       "raw": "Okay, Gavin didn't know, but we'll humor him.)",
       "gapType": "unknown-step",
@@ -557,7 +521,7 @@
       }
     },
     {
-      "rank": 31,
+      "rank": 29,
       "key": "unknown-fragment|conditional.steps[0].amount|one fewer card",
       "raw": "one fewer card",
       "gapType": "unknown-fragment",
@@ -575,7 +539,7 @@
       }
     },
     {
-      "rank": 32,
+      "rank": 30,
       "key": "unknown-step|unknown|poison modular 2 (this creature enters the battlefield with two +1/+1 counters on it",
       "raw": "Poison Modular 2 (This creature enters the battlefield with two +1/+1 counters on it",
       "gapType": "unknown-step",
@@ -593,7 +557,7 @@
       }
     },
     {
-      "rank": 33,
+      "rank": 31,
       "key": "unknown-step|unknown|power-up abilities of other creatures you control cost {3} less to activate",
       "raw": "Power-up abilities of other creatures you control cost {3} less to activate",
       "gapType": "unknown-step",
@@ -611,7 +575,7 @@
       }
     },
     {
-      "rank": 34,
+      "rank": 32,
       "key": "unknown-step|unknown|powers and toughnesses are reversed",
       "raw": "Powers and toughnesses are reversed",
       "gapType": "unknown-step",
@@ -629,7 +593,7 @@
       }
     },
     {
-      "rank": 35,
+      "rank": 33,
       "key": "unknown-step|unknown|removal cards are instants and sorceries that can damage, destroy, or exile opposing permanents",
       "raw": "Removal cards are instants and sorceries that can damage, destroy, or exile opposing permanents",
       "gapType": "unknown-step",
@@ -647,7 +611,7 @@
       }
     },
     {
-      "rank": 36,
+      "rank": 34,
       "key": "unknown-fragment|choose_mode.modes[2].steps[0]|sarkhan's triumph (search for a dragon.)",
       "raw": "Sarkhan's Triumph (Search for a dragon.)",
       "gapType": "unknown-fragment",
@@ -665,7 +629,7 @@
       }
     },
     {
-      "rank": 37,
+      "rank": 35,
       "key": "unknown-step|unknown|shut down!",
       "raw": "Shut Down!",
       "gapType": "unknown-step",
@@ -683,7 +647,7 @@
       }
     },
     {
-      "rank": 38,
+      "rank": 36,
       "key": "unknown-step|unknown|sorry, but i learned from yuriko.)",
       "raw": "Sorry, but I learned from Yuriko.)",
       "gapType": "unknown-step",
@@ -701,7 +665,7 @@
       }
     },
     {
-      "rank": 39,
+      "rank": 37,
       "key": "unknown-fragment|choose_mode.modes[0].steps[2]|sorry, color pie.)",
       "raw": "Sorry, color pie.)",
       "gapType": "unknown-fragment",
@@ -719,7 +683,7 @@
       }
     },
     {
-      "rank": 40,
+      "rank": 38,
       "key": "unknown-step|unknown|sorry, purple and orange enjoyers.)",
       "raw": "Sorry, purple and orange enjoyers.)",
       "gapType": "unknown-step",
@@ -737,7 +701,7 @@
       }
     },
     {
-      "rank": 41,
+      "rank": 39,
       "key": "unknown-step|unknown|target opponent discards two cards, mills a card, and loses 1 life",
       "raw": "Target opponent discards two cards, mills a card, and loses 1 life",
       "gapType": "unknown-step",
@@ -755,7 +719,7 @@
       }
     },
     {
-      "rank": 42,
+      "rank": 40,
       "key": "unknown-step|unknown|target opponent discards two cards, mills two cards, and loses 2 life",
       "raw": "Target opponent discards two cards, mills two cards, and loses 2 life",
       "gapType": "unknown-step",
@@ -773,7 +737,7 @@
       }
     },
     {
-      "rank": 43,
+      "rank": 41,
       "key": "unknown-fragment|choose_mode.modes[1].steps[0]|target player discards a card for each spell you've cast this turn",
       "raw": "Target player discards a card for each spell you've cast this turn",
       "gapType": "unknown-fragment",
@@ -791,7 +755,7 @@
       }
     },
     {
-      "rank": 44,
+      "rank": 42,
       "key": "unknown-step|unknown|target player discards a card for each swamp you control",
       "raw": "Target player discards a card for each Swamp you control",
       "gapType": "unknown-step",
@@ -809,7 +773,7 @@
       }
     },
     {
-      "rank": 45,
+      "rank": 43,
       "key": "unknown-step|unknown|target player discards x cards, where x is one plus the number of cards named this permanent in all graveyards",
       "raw": "Target player discards X cards, where X is one plus the number of cards named this permanent in all graveyards",
       "gapType": "unknown-step",
@@ -827,7 +791,7 @@
       }
     },
     {
-      "rank": 46,
+      "rank": 44,
       "key": "unknown-step|unknown|target player draws three cards, loses 3 life, and gets three poison counters",
       "raw": "Target player draws three cards, loses 3 life, and gets three poison counters",
       "gapType": "unknown-step",
@@ -845,7 +809,7 @@
       }
     },
     {
-      "rank": 47,
+      "rank": 45,
       "key": "unknown-step|unknown|target player draws x cards and gains x life",
       "raw": "Target player draws X cards and gains X life",
       "gapType": "unknown-step",
@@ -863,7 +827,7 @@
       }
     },
     {
-      "rank": 48,
+      "rank": 46,
       "key": "unknown-step|unknown|target player draws x cards and loses x life, where x is the number of artifacts you control",
       "raw": "Target player draws X cards and loses X life, where X is the number of artifacts you control",
       "gapType": "unknown-step",
@@ -881,7 +845,7 @@
       }
     },
     {
-      "rank": 49,
+      "rank": 47,
       "key": "unknown-step|unknown|target player draws x cards and loses x life, where x is the number of cards in their graveyard",
       "raw": "Target player draws X cards and loses X life, where X is the number of cards in their graveyard",
       "gapType": "unknown-step",
@@ -899,7 +863,7 @@
       }
     },
     {
-      "rank": 50,
+      "rank": 48,
       "key": "unknown-step|unknown|target player draws x cards plus an additional card for each time they've cast a commander from the command zone this game",
       "raw": "Target player draws X cards plus an additional card for each time they've cast a commander from the command zone this game",
       "gapType": "unknown-step",
@@ -917,7 +881,7 @@
       }
     },
     {
-      "rank": 51,
+      "rank": 49,
       "key": "unknown-step|unknown|target player gains 2 life for each creature on the battlefield",
       "raw": "Target player gains 2 life for each creature on the battlefield",
       "gapType": "unknown-step",
@@ -935,7 +899,7 @@
       }
     },
     {
-      "rank": 52,
+      "rank": 50,
       "key": "unknown-step|unknown|that creature gets an additional -3/-3 until end of turn if you controlled a faerie as you cast this spell",
       "raw": "That creature gets an additional -3/-3 until end of turn if you controlled a Faerie as you cast this spell",
       "gapType": "unknown-step",
@@ -953,7 +917,7 @@
       }
     },
     {
-      "rank": 53,
+      "rank": 51,
       "key": "unknown-step|unknown|that creature is 1/1 until end of turn and can't be anything other than 1/1 until end of turn",
       "raw": "That creature is 1/1 until end of turn and can't be anything other than 1/1 until end of turn",
       "gapType": "unknown-step",
@@ -971,7 +935,7 @@
       }
     },
     {
-      "rank": 54,
+      "rank": 52,
       "key": "unknown-step|unknown|that device enters as a token that's a photocopy of the pictured creature",
       "raw": "That device enters as a token that's a photocopy of the pictured creature",
       "gapType": "unknown-step",
@@ -989,7 +953,7 @@
       }
     },
     {
-      "rank": 55,
+      "rank": 53,
       "key": "unknown-step|unknown|that player",
       "raw": "That player",
       "gapType": "unknown-step",
@@ -1007,7 +971,7 @@
       }
     },
     {
-      "rank": 56,
+      "rank": 54,
       "key": "unknown-step|unknown|that would be ridiculous",
       "raw": "That would be ridiculous",
       "gapType": "unknown-step",
@@ -1025,7 +989,7 @@
       }
     },
     {
-      "rank": 57,
+      "rank": 55,
       "key": "unknown-fragment|create_token.amount|the",
       "raw": "the",
       "gapType": "unknown-fragment",
@@ -1043,7 +1007,7 @@
       }
     },
     {
-      "rank": 58,
+      "rank": 56,
       "key": "unknown-step|unknown|the chosen player's maximum commander size is one",
       "raw": "The chosen player's maximum Commander size is one",
       "gapType": "unknown-step",
@@ -1061,25 +1025,7 @@
       }
     },
     {
-      "rank": 59,
-      "key": "unknown-fragment|gain_life.who|the controller of each of those artifacts",
-      "raw": "The controller of each of those artifacts",
-      "gapType": "unknown-fragment",
-      "fieldPath": "gain_life.who",
-      "count": 1,
-      "exampleCards": [
-        "Seeds of Innocence"
-      ],
-      "exampleClauses": [
-        "The controller of each of those artifacts gains life equal to its mana value"
-      ],
-      "sources": {
-        "oracle-cards": 1,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 60,
+      "rank": 57,
       "key": "unknown-step|unknown|the copies become tokens.)",
       "raw": "The copies become tokens.)",
       "gapType": "unknown-step",
@@ -1097,7 +1043,7 @@
       }
     },
     {
-      "rank": 61,
+      "rank": 58,
       "key": "unknown-step|unknown|the effects are just backwards.)",
       "raw": "The effects are just backwards.)",
       "gapType": "unknown-step",
@@ -1115,7 +1061,7 @@
       }
     },
     {
-      "rank": 62,
+      "rank": 59,
       "key": "unknown-fragment|grant_graveyard_permission.who|the flashback cost is equal to its mana cost.\" (you",
       "raw": "The flashback cost is equal to its mana cost.\" (You",
       "gapType": "unknown-fragment",
@@ -1133,7 +1079,7 @@
       }
     },
     {
-      "rank": 63,
+      "rank": 60,
       "key": "unknown-step|unknown|the loser of the flip loses a quarter of their life, rounded up",
       "raw": "The loser of the flip loses a quarter of their life, rounded up",
       "gapType": "unknown-step",
@@ -1151,7 +1097,7 @@
       }
     },
     {
-      "rank": 64,
+      "rank": 61,
       "key": "unknown-step|unknown|the name this permanent can't be chosen",
       "raw": "The name this permanent can't be chosen",
       "gapType": "unknown-step",
@@ -1169,7 +1115,7 @@
       }
     },
     {
-      "rank": 65,
+      "rank": 62,
       "key": "unknown-step|unknown|the plane effects of the unknown event don't apply to this game for as long as it remains on the battlefield",
       "raw": "the plane effects of the Unknown event don't apply to this game for as long as it remains on the battlefield",
       "gapType": "unknown-step",
@@ -1187,7 +1133,7 @@
       }
     },
     {
-      "rank": 66,
+      "rank": 63,
       "key": "unknown-step|unknown|the rest all works like suspend.)",
       "raw": "The rest all works like suspend.)",
       "gapType": "unknown-step",
@@ -1205,7 +1151,7 @@
       }
     },
     {
-      "rank": 67,
+      "rank": 64,
       "key": "unknown-step|unknown|the stack is now first in, first out instead of last in, first out",
       "raw": "The stack is now first in, first out instead of last in, first out",
       "gapType": "unknown-step",
@@ -1223,7 +1169,7 @@
       }
     },
     {
-      "rank": 68,
+      "rank": 65,
       "key": "unknown-step|unknown|the top card of your library is a food token",
       "raw": "The top card of your library is a Food token",
       "gapType": "unknown-step",
@@ -1241,7 +1187,7 @@
       }
     },
     {
-      "rank": 69,
+      "rank": 66,
       "key": "unknown-step|unknown|their disguise cost is equal to their mana cost",
       "raw": "Their disguise cost is equal to their mana cost",
       "gapType": "unknown-step",
@@ -1259,7 +1205,7 @@
       }
     },
     {
-      "rank": 70,
+      "rank": 67,
       "key": "unknown-step|unknown|their spectacle cost is equal to their mana cost minus {2}",
       "raw": "Their spectacle cost is equal to their mana cost minus {2}",
       "gapType": "unknown-step",
@@ -1277,7 +1223,7 @@
       }
     },
     {
-      "rank": 71,
+      "rank": 68,
       "key": "unknown-step|unknown|then",
       "raw": "Then",
       "gapType": "unknown-step",
@@ -1295,25 +1241,7 @@
       }
     },
     {
-      "rank": 72,
-      "key": "unknown-step|unknown|then, double the amount of life you lose and cards you draw for the rest of the game from this ability",
-      "raw": "Then, double the amount of life you lose and cards you draw for the rest of the game from this ability",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 1,
-      "exampleCards": [
-        "The Keeper of Dark Pacts"
-      ],
-      "exampleClauses": [
-        "Then, double the amount of life you lose and cards you draw for the rest of the game from this ability"
-      ],
-      "sources": {
-        "oracle-cards": 1,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 73,
+      "rank": 69,
       "key": "unknown-step|unknown|then, each player who didn't get a nonland puts the card back or into their graveyard",
       "raw": "Then, each player who didn't get a nonland puts the card back or into their graveyard",
       "gapType": "unknown-step",
@@ -1331,25 +1259,7 @@
       }
     },
     {
-      "rank": 74,
-      "key": "unknown-step|unknown|then, if you have 1,000 or more life, you lose the game",
-      "raw": "Then, if you have 1,000 or more life, you lose the game",
-      "gapType": "unknown-step",
-      "fieldPath": "unknown",
-      "count": 1,
-      "exampleCards": [
-        "A Good Thing"
-      ],
-      "exampleClauses": [
-        "Then, if you have 1,000 or more life, you lose the game"
-      ],
-      "sources": {
-        "oracle-cards": 1,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 75,
+      "rank": 70,
       "key": "unknown-step|unknown|then, if you have more poison counters than that player, return this permanent to its owner's hand",
       "raw": "Then, if you have more poison counters than that player, return this permanent to its owner's hand",
       "gapType": "unknown-step",
@@ -1367,25 +1277,7 @@
       }
     },
     {
-      "rank": 76,
-      "key": "unknown-fragment|conditional.steps[1]|then, not counting that draw, if you drew more cards this turn than an opponent drew on their last turn, you may put a land card from your hand onto the battlefield",
-      "raw": "Then, not counting that draw, if you drew more cards this turn than an opponent drew on their last turn, you may put a land card from your hand onto the battlefield",
-      "gapType": "unknown-fragment",
-      "fieldPath": "conditional.steps[1]",
-      "count": 1,
-      "exampleCards": [
-        "Simic, Value Engine"
-      ],
-      "exampleClauses": [
-        "If more lands entered the battlefield under your control this turn than an opponent had enter during their last turn, draw a card. Then, not counting that draw, if you drew more cards this turn than an opponent drew on their last turn, you may put a land card from your hand onto the battlefield."
-      ],
-      "sources": {
-        "oracle-cards": 1,
-        "AtomicCards": 0
-      }
-    },
-    {
-      "rank": 77,
+      "rank": 71,
       "key": "unknown-step|unknown|then, reveal the chosen numbers",
       "raw": "Then, reveal the chosen numbers",
       "gapType": "unknown-step",
@@ -1403,7 +1295,7 @@
       }
     },
     {
-      "rank": 78,
+      "rank": 72,
       "key": "unknown-step|unknown|then, starting with you, each player assigns their creatures to the left or right of the volcano",
       "raw": "Then, starting with you, each player assigns their creatures to the left or right of the volcano",
       "gapType": "unknown-step",
@@ -1421,7 +1313,7 @@
       }
     },
     {
-      "rank": 79,
+      "rank": 73,
       "key": "unknown-step|unknown|then, that player guesses which creature it is",
       "raw": "Then, that player guesses which creature it is",
       "gapType": "unknown-step",
@@ -1439,7 +1331,7 @@
       }
     },
     {
-      "rank": 80,
+      "rank": 74,
       "key": "unknown-step|unknown|there is an additional combat phase after this one",
       "raw": "There is an additional combat phase after this one",
       "gapType": "unknown-step",
@@ -1457,7 +1349,7 @@
       }
     },
     {
-      "rank": 81,
+      "rank": 75,
       "key": "unknown-step|unknown|there's mana burn and combat damage uses the stack for the rest of the game",
       "raw": "there's mana burn and combat damage uses the stack for the rest of the game",
       "gapType": "unknown-step",
@@ -1475,7 +1367,7 @@
       }
     },
     {
-      "rank": 82,
+      "rank": 76,
       "key": "unknown-step|unknown|these are also +1/+1 counters",
       "raw": "These are also +1/+1 counters",
       "gapType": "unknown-step",
@@ -1493,7 +1385,7 @@
       }
     },
     {
-      "rank": 83,
+      "rank": 77,
       "key": "unknown-step|unknown|they're an ability word and a keyword action respectively",
       "raw": "they're an ability word and a keyword action respectively",
       "gapType": "unknown-step",
@@ -1511,7 +1403,7 @@
       }
     },
     {
-      "rank": 84,
+      "rank": 78,
       "key": "unknown-step|unknown|they're mulldrifters.)",
       "raw": "They're Mulldrifters.)",
       "gapType": "unknown-step",
@@ -1529,7 +1421,7 @@
       }
     },
     {
-      "rank": 85,
+      "rank": 79,
       "key": "unknown-step|unknown|they're zombies in addition to their other types",
       "raw": "They're Zombies in addition to their other types",
       "gapType": "unknown-step",
@@ -1547,7 +1439,7 @@
       }
     },
     {
-      "rank": 86,
+      "rank": 80,
       "key": "unknown-step|unknown|this can't be responded to.)",
       "raw": "This can't be responded to.)",
       "gapType": "unknown-step",
@@ -1565,7 +1457,7 @@
       }
     },
     {
-      "rank": 87,
+      "rank": 81,
       "key": "unknown-step|unknown|this card has the color identity of the college chosen this way",
       "raw": "This card has the color identity of the college chosen this way",
       "gapType": "unknown-step",
@@ -1583,7 +1475,7 @@
       }
     },
     {
-      "rank": 88,
+      "rank": 82,
       "key": "unknown-step|unknown|this card's mana cost is that faction's mana symbols",
       "raw": "This card's mana cost is that faction's mana symbols",
       "gapType": "unknown-step",
@@ -1601,7 +1493,7 @@
       }
     },
     {
-      "rank": 89,
+      "rank": 83,
       "key": "unknown-step|unknown|this contraption assembles a number of contraptions equal to the difference between those results",
       "raw": "This Contraption assembles a number of Contraptions equal to the difference between those results",
       "gapType": "unknown-step",
@@ -1619,7 +1511,7 @@
       }
     },
     {
-      "rank": 90,
+      "rank": 84,
       "key": "unknown-step|unknown|this counts as convoke.)",
       "raw": "This counts as convoke.)",
       "gapType": "unknown-step",
@@ -1637,7 +1529,7 @@
       }
     },
     {
-      "rank": 91,
+      "rank": 85,
       "key": "unknown-fragment|deal_damage.target|this creature deals damage equal to its power divided as you choose among any number of target creatures",
       "raw": "This creature deals damage equal to its power divided as you choose among any number of target creatures",
       "gapType": "unknown-fragment",
@@ -1655,7 +1547,7 @@
       }
     },
     {
-      "rank": 92,
+      "rank": 86,
       "key": "unknown-step|unknown|this damage can't be prevented, redirected, cause damage to be dealt to a player (sorry, stuffy doll), or be compared to damage dealt by sources on the east coast",
       "raw": "This damage can't be prevented, redirected, cause damage to be dealt to a player (sorry, Stuffy Doll), or be compared to damage dealt by sources on the east coast",
       "gapType": "unknown-step",
@@ -1673,7 +1565,7 @@
       }
     },
     {
-      "rank": 93,
+      "rank": 87,
       "key": "unknown-step|unknown|this doesn't work if it enteres tapped and attacking.)",
       "raw": "This doesn't work if it enteres tapped and attacking.)",
       "gapType": "unknown-step",
@@ -1691,7 +1583,7 @@
       }
     },
     {
-      "rank": 94,
+      "rank": 88,
       "key": "unknown-step|unknown|this effect doesn't remove auras",
       "raw": "This effect doesn't remove Auras",
       "gapType": "unknown-step",
@@ -1709,7 +1601,7 @@
       }
     },
     {
-      "rank": 95,
+      "rank": 89,
       "key": "unknown-step|unknown|this effect doesn't remove auras and equipment you control that are already attached to it",
       "raw": "This effect doesn't remove Auras and Equipment you control that are already attached to it",
       "gapType": "unknown-step",
@@ -1727,7 +1619,7 @@
       }
     },
     {
-      "rank": 96,
+      "rank": 90,
       "key": "unknown-step|unknown|this is different from sieges!)",
       "raw": "This is different from sieges!)",
       "gapType": "unknown-step",
@@ -1745,7 +1637,7 @@
       }
     },
     {
-      "rank": 97,
+      "rank": 91,
       "key": "unknown-step|unknown|this is different than suspecting.)",
       "raw": "This is different than suspecting.)",
       "gapType": "unknown-step",
@@ -1763,7 +1655,7 @@
       }
     },
     {
-      "rank": 98,
+      "rank": 92,
       "key": "unknown-step|unknown|this match is now worth 6 base points instead of 3",
       "raw": "this match is now worth 6 base points instead of 3",
       "gapType": "unknown-step",
@@ -1781,7 +1673,7 @@
       }
     },
     {
-      "rank": 99,
+      "rank": 93,
       "key": "unknown-step|unknown|this means you, mark.)",
       "raw": "This means you, Mark.)",
       "gapType": "unknown-step",
@@ -1799,7 +1691,7 @@
       }
     },
     {
-      "rank": 100,
+      "rank": 94,
       "key": "unknown-step|unknown|this permanent",
       "raw": "this permanent",
       "gapType": "unknown-step",
@@ -1810,6 +1702,114 @@
       ],
       "exampleClauses": [
         "this permanent"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 95,
+      "key": "unknown-step|unknown|this turn, you may play basic lands from outside the game",
+      "raw": "This turn, you may play basic lands from outside the game",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Sovereign's Realm"
+      ],
+      "exampleClauses": [
+        "This turn, you may play basic lands from outside the game"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 96,
+      "key": "unknown-step|unknown|thrusters [6] → flying",
+      "raw": "Thrusters [6] → Flying",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Vuzzle Spaceship"
+      ],
+      "exampleClauses": [
+        "Thrusters [6] → Flying"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 97,
+      "key": "unknown-fragment|choose_mode.modes[2].steps[0]|time of need (search for a legend.)",
+      "raw": "Time of Need (Search for a legend.)",
+      "gapType": "unknown-fragment",
+      "fieldPath": "choose_mode.modes[2].steps[0]",
+      "count": 1,
+      "exampleCards": [
+        "Kamigawa Charm"
+      ],
+      "exampleClauses": [
+        "Dosan's Oldest Chant (Gain 6 life, draw a card.) • Kodama's Reach (Search for two basic lands, put one onto the battlefield tapped and one to hand.) • Time of Need (Search for a legend.)"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 98,
+      "key": "unknown-step|unknown|timing rules for the spell still apply.)",
+      "raw": "Timing rules for the spell still apply.)",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Mavinda, Students' Advocate"
+      ],
+      "exampleClauses": [
+        "Timing rules for the spell still apply.)"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 99,
+      "key": "unknown-step|unknown|to behold an elemental, choose an elemental you control or reveal an elemental card from your hand.)",
+      "raw": "To behold an Elemental, choose an Elemental you control or reveal an Elemental card from your hand.)",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Kindle the Inner Flame"
+      ],
+      "exampleClauses": [
+        "To behold an Elemental, choose an Elemental you control or reveal an Elemental card from your hand.)"
+      ],
+      "sources": {
+        "oracle-cards": 1,
+        "AtomicCards": 0
+      }
+    },
+    {
+      "rank": 100,
+      "key": "unknown-step|unknown|to manifest a card, put the top card of your library onto the battlefield face down as a 2/2 creature",
+      "raw": "To manifest a card, put the top card of your library onto the battlefield face down as a 2/2 creature",
+      "gapType": "unknown-step",
+      "fieldPath": "unknown",
+      "count": 1,
+      "exampleCards": [
+        "Guardian of the Forgotten"
+      ],
+      "exampleClauses": [
+        "To manifest a card, put the top card of your library onto the battlefield face down as a 2/2 creature"
       ],
       "sources": {
         "oracle-cards": 1,

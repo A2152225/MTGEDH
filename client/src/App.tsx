@@ -859,7 +859,17 @@ export function App() {
     title?: string;
     description?: string;
   } | null>(null);
-  
+
+  const resolutionPlayerNames = React.useMemo(() => {
+    const names: Record<string, string> = {};
+    if (safeView?.players) {
+      for (const p of safeView.players) {
+        names[p.id] = p.name || p.id;
+      }
+    }
+    return names;
+  }, [safeView?.players]);
+
   // Fight Target Modal state - for Brash Taunter, etc.
   const [fightTargetModalOpen, setFightTargetModalOpen] = useState(false);
   const [fightTargetModalData, setFightTargetModalData] = useState<{
@@ -6374,6 +6384,7 @@ export function App() {
         targetCount={tapUntapTargetModalData?.targetCount || 1}
         availablePermanents={safeView?.battlefield || []}
         playerId={you || ""}
+        playerNames={resolutionPlayerNames}
         onConfirm={(selectedPermanentIds, action) => {
           if (tapUntapTargetModalData && safeView) {
             socket.emit('submitResolutionResponse', {
@@ -6418,6 +6429,7 @@ export function App() {
         targetCount={1}
         availablePermanents={safeView?.battlefield || []}
         playerId={you || ""}
+        playerNames={resolutionPlayerNames}
         enforceActionAvailability={false}
         onConfirm={(selectedPermanentIds) => {
           if (fightTargetModalData && safeView && selectedPermanentIds.length > 0) {
