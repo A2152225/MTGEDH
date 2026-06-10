@@ -23,6 +23,7 @@ import {
   getExtraManaProduction, 
   getDevotionManaAmount, 
   getCreatureCountManaAmount,
+  buildDynamicManaColorSelectionFields,
   detectManaModifiers
 } from "../state/modules/mana-abilities";
 import { canPayManaCost, canPayManaCostWithAvailableSources, getAvailableMana } from "../state/modules/mana-check.js";
@@ -4508,7 +4509,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const card = (permanent as any).card;
     const cardName = card?.name || "Unknown";
     const typeLine = (card?.type_line || "").toLowerCase();
-    const isCreature = /\bcreature\b/.test(typeLine);
+    const isCreature = isCreatureNow(permanent);
     const isLand = typeLine.includes("land");
     
     // ========================================================================
@@ -4719,6 +4720,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             singleColor: true,
             dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
             manaMultiplier: effectiveMultiplier,
+            ...buildDynamicManaColorSelectionFields(game.state, pid, permanent, creatureCountMana, effectiveMultiplier),
           } as any);
           
           io.to(gameId).emit("chat", {
@@ -7524,13 +7526,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Handle Station abilities (Spacecraft cards)
+    // Handle Station abilities (Spacecraft and Planet cards)
     // Station N (Rule 702.184a): "Tap another untapped creature you control: Put a number of 
     // charge counters on this permanent equal to the tapped creature's power."
-    const isSpacecraft = typeLine.includes("spacecraft");
+    const isStationPermanent = typeLine.includes("spacecraft") || typeLine.includes("planet");
     const hasExplicitStationAbilityId = /-station-(\d+)$/i.test(abilityId) || abilityId === 'station';
     const stationAbilityText = hasExplicitStationAbilityId ? oracleText : scopedAbilityFullText;
-    const isStationAbility = hasExplicitStationAbilityId || (isSpacecraft && /\bstation\b/i.test(stationAbilityText));
+    const isStationAbility = hasExplicitStationAbilityId || (isStationPermanent && /\bstation\b/i.test(stationAbilityText));
     if (isStationAbility) {
       // Parse station threshold from oracle text
       const stationThreshold = parseStationThreshold(stationAbilityText);
@@ -8101,6 +8103,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           message: `${cardName} is already tapped`,
         });
         return;
+      }
+
+      // Rule 302.6 / 702.10: creatures with summoning sickness cannot use tap mana abilities
+      // unless they have haste (Cryptolith Rite / Elven Chorus / Enduring Vitality grant native_any).
+      if (isCreatureNow(permanent) && !typeLine.includes("land")) {
+        const hasHaste = creatureHasHaste(permanent, battlefield, pid);
+        if ((permanent as any).summoningSickness && !hasHaste) {
+          socket.emit("error", {
+            code: "SUMMONING_SICKNESS",
+            message: `${cardName} has summoning sickness and cannot use tap abilities this turn`,
+          });
+          return;
+        }
       }
       
       // Check for Metalcraft requirement (Mox Opal)
@@ -12670,6 +12685,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             allowedColors: ['W', 'U', 'B', 'R', 'G'],
             dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
             manaMultiplier: effectiveMultiplier,
+            ...buildDynamicManaColorSelectionFields(game.state, pid, permanent, creatureCountMana, effectiveMultiplier),
             // Activation-cost evidence (for deterministic replay) and deferred costs
             lifeToPayForCost: pendingLifePaymentForCost || undefined,
             tappedPermanentsForCost: tappedPermanentsForCost,

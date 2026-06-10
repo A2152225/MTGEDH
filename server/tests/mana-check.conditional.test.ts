@@ -968,4 +968,254 @@ describe('Conditional Mana Sources', () => {
       expect(mana.green).toBeGreaterThanOrEqual(1);
     });
   });
+
+  describe('Devotion and creature-count mana sources', () => {
+    it('counts Nykthos devotion mana toward available green mana', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'nykthos_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Nykthos, Shrine to Nyx',
+              type_line: 'Legendary Land',
+              oracle_text: '{T}: Add {C}.\n{2}, {T}: Choose a color. Add an amount of mana of that color equal to your devotion to that color.',
+            },
+          },
+          ...Array.from({ length: 4 }, (_, index) => ({
+            id: `elf_${index}`,
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: `Elf ${index}`,
+              type_line: 'Creature — Elf',
+              mana_cost: '{G}',
+            },
+          })),
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+        },
+      };
+
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{G}{G}{G}'))).toBe(true);
+    });
+
+    it('does not let Nykthos pay the {2} cost for its own devotion ability', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'nykthos_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Nykthos, Shrine to Nyx',
+              type_line: 'Legendary Land',
+              oracle_text: '{T}: Add {C}.\n{2}, {T}: Choose a color. Add an amount of mana of that color equal to your devotion to that color.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      expect(
+        canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{2}'), Infinity, {
+          excludedPermanentIds: ['nykthos_1'],
+        }),
+      ).toBe(false);
+    });
+
+    it('counts Three Tree City creature-type mana toward available mana', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'three_tree_city_1',
+            controller: 'player1',
+            tapped: false,
+            chosenCreatureType: 'Elf',
+            card: {
+              name: 'Three Tree City',
+              type_line: 'Land',
+              oracle_text: 'As Three Tree City enters, choose a creature type.\n{T}: Add {C}.\n{2}, {T}: Choose a color. Add an amount of mana of that color equal to the number of creatures you control of the chosen type.',
+            },
+          },
+          ...Array.from({ length: 3 }, (_, index) => ({
+            id: `elf_${index}`,
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: `Elf ${index}`,
+              type_line: 'Creature — Elf',
+              mana_cost: '{G}',
+            },
+          })),
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+        },
+      };
+
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{G}{G}{G}'))).toBe(true);
+    });
+  });
+
+  describe('Station threshold mana sources', () => {
+    const evendoOracle =
+      'Evendo, Waking Haven enters tapped.\n{T}: Add {G}.\nStation\n12+ | {G}, {T}: Add {G} for each creature you control.';
+    const uthrosOracle =
+      'Uthros, Titanic Godcore enters tapped.\n{T}: Add {U}.\nStation\n12+ | {U}, {T}: Add {U} for each artifact you control.';
+
+    it('counts Evendo 12+ creature mana with activation cost toward affordability', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'evendo_1',
+            controller: 'player1',
+            tapped: false,
+            counters: { charge: 13 },
+            card: {
+              name: 'Evendo, Waking Haven',
+              type_line: 'Land',
+              oracle_text: evendoOracle,
+            },
+          },
+          ...Array.from({ length: 3 }, (_, index) => ({
+            id: `creature_${index}`,
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: `Creature ${index}`,
+              type_line: 'Creature — Elf',
+            },
+          })),
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 0 },
+        },
+      };
+
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{G}{G}{G}'))).toBe(true);
+    });
+
+    it('does not count Evendo 12+ mana below the charge threshold', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'evendo_1',
+            controller: 'player1',
+            tapped: false,
+            counters: { charge: 11 },
+            card: {
+              name: 'Evendo, Waking Haven',
+              type_line: 'Land',
+              oracle_text: evendoOracle,
+            },
+          },
+          ...Array.from({ length: 3 }, (_, index) => ({
+            id: `creature_${index}`,
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: `Creature ${index}`,
+              type_line: 'Creature — Elf',
+            },
+          })),
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 0 },
+        },
+      };
+
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{G}{G}{G}'))).toBe(false);
+    });
+
+    it('counts Uthros 12+ artifact mana when threshold is met', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'uthros_1',
+            controller: 'player1',
+            tapped: false,
+            counters: { charge: 12 },
+            card: {
+              name: 'Uthros, Titanic Godcore',
+              type_line: 'Land',
+              oracle_text: uthrosOracle,
+            },
+          },
+          {
+            id: 'sol_ring_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Sol Ring',
+              type_line: 'Artifact',
+              oracle_text: '{T}: Add {C}{C}.',
+            },
+          },
+          {
+            id: 'signet_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Azorius Signet',
+              type_line: 'Artifact',
+              oracle_text: '{1}, {T}: Add {W}{U}.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{U}{U}'))).toBe(true);
+    });
+
+    it('does not count Uthros 12+ artifact mana below the charge threshold', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'uthros_1',
+            controller: 'player1',
+            tapped: false,
+            counters: { charge: 11 },
+            card: {
+              name: 'Uthros, Titanic Godcore',
+              type_line: 'Land',
+              oracle_text: uthrosOracle,
+            },
+          },
+          {
+            id: 'sol_ring_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Sol Ring',
+              type_line: 'Artifact',
+              oracle_text: '{T}: Add {C}{C}.',
+            },
+          },
+          {
+            id: 'signet_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Azorius Signet',
+              type_line: 'Artifact',
+              oracle_text: '{1}, {T}: Add {W}{U}.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{U}{U}'))).toBe(false);
+    });
+  });
 });

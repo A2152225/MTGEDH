@@ -23,6 +23,9 @@ export interface AnyColorManaModalProps {
   cardName: string;
   amount: number;
   allowedColors?: string[]; // Array of allowed color codes (e.g., ['W', 'U'])
+  amountByColor?: Partial<Record<'W' | 'U' | 'B' | 'R' | 'G', number>>;
+  dynamicAmountSource?: 'devotion' | 'creature_type_count';
+  chosenCreatureType?: string;
   cardImageUrl?: string;
   onConfirm: (chosenColor: 'white' | 'blue' | 'black' | 'red' | 'green') => void;
   onCancel: () => void;
@@ -84,6 +87,9 @@ export function AnyColorManaModal({
   cardName,
   amount,
   allowedColors,
+  amountByColor,
+  dynamicAmountSource,
+  chosenCreatureType,
   cardImageUrl,
   onConfirm,
   onCancel,
@@ -98,7 +104,26 @@ export function AnyColorManaModal({
 
   if (!open) return null;
 
-  const manaText = amount > 1 ? `${amount} mana` : 'mana';
+  const colorCodeToSymbol: Record<'white' | 'blue' | 'black' | 'red' | 'green', 'W' | 'U' | 'B' | 'R' | 'G'> = {
+    white: 'W',
+    blue: 'U',
+    black: 'B',
+    red: 'R',
+    green: 'G',
+  };
+
+  const subtitle = (() => {
+    if (dynamicAmountSource === 'devotion') {
+      return 'Choose a color. You will add mana equal to your devotion to that color.';
+    }
+    if (dynamicAmountSource === 'creature_type_count' && chosenCreatureType) {
+      const count = Math.max(0, Number(amount || 0));
+      const typeLabel = chosenCreatureType;
+      return `Choose a color to add ${count} mana (${count} ${typeLabel}${count === 1 ? '' : 's'} you control).`;
+    }
+    const manaText = amount > 1 ? `${amount} mana` : 'mana';
+    return `Tap ${cardName} for ${manaText} of any color`;
+  })();
   
   // Map color codes to color names for filtering
   const colorCodeToName: Record<string, 'white' | 'blue' | 'black' | 'red' | 'green'> = {
@@ -151,8 +176,8 @@ export function AnyColorManaModal({
           <h2 style={{ margin: '0 0 8px 0', color: '#fff', fontSize: '20px' }}>
             Choose Mana Color
           </h2>
-          <p style={{ margin: 0, color: '#aaa', fontSize: '14px' }}>
-            Tap {cardName} for {manaText} of any color
+          <p style={{ margin: 0, color: '#aaa', fontSize: '14px', lineHeight: 1.5 }}>
+            {subtitle}
           </p>
         </div>
 
@@ -183,6 +208,11 @@ export function AnyColorManaModal({
         >
           {colorsToShow.map((color) => {
             const data = COLOR_DATA[color];
+            const colorCode = colorCodeToSymbol[color];
+            const previewAmount = amountByColor && colorCode != null
+              ? Math.max(0, Number(amountByColor[colorCode] ?? 0))
+              : (dynamicAmountSource === 'creature_type_count' ? Math.max(0, Number(amount || 0)) : undefined);
+            const amountLabel = previewAmount != null ? `+${previewAmount}` : null;
             
             return (
               <button
@@ -192,12 +222,16 @@ export function AnyColorManaModal({
                   background: data.bg,
                   border: `3px solid ${data.border}`,
                   borderRadius: '8px',
-                  padding: '20px 8px',
+                  padding: '16px 8px',
                   color: data.text,
                   fontSize: '24px',
                   fontWeight: 'bold',
                   cursor: 'pointer',
                   transition: 'all 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 4,
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = data.hoverBg;
@@ -210,7 +244,12 @@ export function AnyColorManaModal({
                   e.currentTarget.style.transform = 'scale(1)';
                 }}
               >
-                {data.symbol}
+                <span>{data.symbol}</span>
+                {amountLabel && (
+                  <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.95 }}>
+                    {amountLabel}
+                  </span>
+                )}
               </button>
             );
           })}

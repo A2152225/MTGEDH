@@ -66,7 +66,8 @@ import { queueLifeLossTriggers } from "../state/modules/triggers/life-loss.js";
 import { queueLifePaymentTriggers } from "../state/modules/triggers/pay-life.js";
 import { queueBecomesUntappedTriggers } from "../state/modules/triggers/tap-untap.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
-import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
+import { buildOracleIRExecutionContext } from '../../../rules-engine/src/oracleIRExecutor.js';
+import { applyOracleIRStepsOnServer } from '../state/modules/oracleIrServerZoneSync.js';
 import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from '../state/modules/triggers/ability-activated.js';
 
@@ -1869,16 +1870,17 @@ async function processOracleIRInteractions(
         effectText, fullAbilityText,
         async () => {
           try {
-            const result = applyOracleIRStepsToGameState(
+            const irCtx = buildOracleIRExecutionContext(ctx, {
+              sourceObjectType: isActivatedAbility ? 'ability' : 'spell',
+            });
+            applyOracleIRStepsOnServer(
+              game as any,
               game.state as any,
               [step],
-              ctx,
-              { allowOptional: true }
+              irCtx,
+              { allowOptional: true },
+              { controller: resolvedController as PlayerID },
             );
-            // Merge executor output back into the live game state.
-            // Object.assign replaces top-level fields (zones, life, battlefield,
-            // etc.) while preserving any server-side extra properties.
-            Object.assign(game.state as any, result.state);
           } catch (err) {
             debug(1, `[OracleIR] Error applying optional step for ${cardName}:`, err);
           }

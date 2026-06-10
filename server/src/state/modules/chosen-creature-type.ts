@@ -15,7 +15,11 @@ export function parseChosenTypeCreatureEtbTrigger(oracleText: string): {
   nontokenOnly: boolean;
   mandatory: boolean;
 } | null {
-  const match = String(oracleText || '').match(
+  const oracle = String(oracleText || '');
+  // Kindred Discovery-style "enters or attacks" is handled by chosen_type_creature_etb_or_attack.
+  if (/\benters or attacks\b/i.test(oracle)) return null;
+
+  const match = oracle.match(
     /whenever\s+(another\s+|a\s+)?(nontoken\s+)?creatures?\s+you\s+control\s+of\s+the\s+chosen\s+type\s+enters?(?:\s+the\s+battlefield)?,?\s*([^.]+)/i,
   );
   if (!match) return null;

@@ -1,4 +1,5 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
+import { getLibrarySearchTypeLine } from "../../../../shared/src/cardFactory.js";
 import { buildZoneObjectWithRetainedCounters, mergeRetainedCountersForBattlefieldEntry } from "../../../../shared/src/zoneRetainedCounters.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, addTokenCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue, calculateVariablePT } from "../utils.js";
@@ -3417,6 +3418,23 @@ function resolveOracleWhoToPlayerIds(
   return [...resolvePlayers(state, who, ctx)];
 }
 
+/**
+ * Mapping of irregular plural creature types to their singular forms.
+ * Type lines use singular forms (e.g., "Creature - Elf") but oracle text often uses
+ * plural forms (e.g., "number of Elves you control").
+ */
+const IRREGULAR_PLURALS: Record<string, string> = {
+  'elves': 'elf',
+  'wolves': 'wolf',
+  'dwarves': 'dwarf',
+  'halves': 'half',
+  'leaves': 'leaf',
+  'knives': 'knife',
+  'lives': 'life',
+  'selves': 'self',
+  'calves': 'calf',
+};
+
 function parseTapUntapBulkLimit(targetText: string): number | null {
   const match = String(targetText || '').match(/\bup to\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i);
   if (!match) return null;
@@ -3434,10 +3452,41 @@ function parseTapUntapTypeFilter(targetText: string): string[] {
   return types;
 }
 
+function singularizeCreatureTypeName(typeName: string): string {
+  const lower = String(typeName || '').trim().toLowerCase();
+  if (!lower) return lower;
+  if (IRREGULAR_PLURALS[lower]) return IRREGULAR_PLURALS[lower];
+  if (lower.endsWith('s') && lower.length > 1) return lower.slice(0, -1);
+  return lower;
+}
+
+function parseTapUntapCreatureSubtypeFilter(targetText: string): string | null {
+  const lower = String(targetText || '').toLowerCase().trim();
+  const match = lower.match(
+    /^(?:all|each|up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?([\w\s]+?)\s+you control$/
+  );
+  if (!match) return null;
+  const rawType = match[1].trim();
+  const standardTypes = new Set([
+    'land', 'lands', 'creature', 'creatures', 'artifact', 'artifacts',
+    'enchantment', 'enchantments', 'permanent', 'permanents',
+    'other creature', 'other creatures',
+  ]);
+  if (standardTypes.has(rawType) || rawType.startsWith('other ')) return null;
+  return singularizeCreatureTypeName(rawType);
+}
+
 function permanentMatchesTapUntapTypeFilter(typeLine: string, types: string[]): boolean {
   if (types.length === 0) return true;
   const lower = String(typeLine || '').toLowerCase();
   return types.some(type => lower.includes(type));
+}
+
+function permanentMatchesTapUntapFilter(perm: any, targetText: string, types: string[]): boolean {
+  const creatureSubtype = parseTapUntapCreatureSubtypeFilter(targetText);
+  if (creatureSubtype) return permanentHasCreatureTypeNow(perm, creatureSubtype);
+  if (types.length === 0) return false;
+  return permanentMatchesTapUntapTypeFilter(String(perm?.card?.type_line || ''), types);
 }
 
 function applyOracleIRTapOrUntapStep(
@@ -3470,7 +3519,7 @@ function applyOracleIRTapOrUntapStep(
     const battlefield = Array.isArray(stateAny?.battlefield) ? stateAny.battlefield : [];
     const candidates = battlefield.filter((perm: any) => {
       if (controllerScoped && String(perm?.controller || '') !== String(caster)) return false;
-      if (!permanentMatchesTapUntapTypeFilter(String(perm?.card?.type_line || ''), types)) return false;
+      if (!permanentMatchesTapUntapFilter(perm, targetText, types)) return false;
       if (explicitMode === 'untap') return Boolean(perm?.tapped);
       return !Boolean(perm?.tapped);
     });
@@ -6730,23 +6779,6 @@ function queueResolvedSpellCopyChoice(
 }
 
 /**
- * Mapping of irregular plural creature types to their singular forms.
- * Used when counting creatures of a specific type (e.g., Myrel counting Soldiers).
- * Type lines use singular forms (e.g., "Creature - Elf") but oracle text often uses
- * plural forms (e.g., "number of Elves you control").
- */
-const IRREGULAR_PLURALS: Record<string, string> = {
-  'elves': 'elf',
-  'wolves': 'wolf',
-  'dwarves': 'dwarf',
-  'halves': 'half',
-  'leaves': 'leaf',
-  'knives': 'knife',
-  'lives': 'life',
-  'selves': 'self',
-  'calves': 'calf',
-};
-
 /**
  * Convert number words to numeric values.
  * Handles common patterns in MTG oracle text.
@@ -8103,22 +8135,25 @@ function enqueueLibrarySearchStep(
   
   const availableCards = allCards.filter((card: any) => {
     let matches = true;
+    const typeLine = getLibrarySearchTypeLine(card).toLowerCase();
     
     // Check types
     if (filter.types && filter.types.length > 0) {
-      const typeLine = (card.type_line || '').toLowerCase();
       matches = filter.types.some((type: string) => typeLine.includes(type.toLowerCase()));
     }
 
     if (matches && filter.allTypes && filter.allTypes.length > 0) {
-      const typeLine = (card.type_line || '').toLowerCase();
       matches = filter.allTypes.every((requiredType: string) => typeLine.includes(String(requiredType || '').toLowerCase()));
     }
     
     // Check subtypes
     if (matches && filter.subtypes && filter.subtypes.length > 0) {
-      const typeLine = (card.type_line || '').toLowerCase();
       matches = filter.subtypes.some((subtype: string) => typeLine.includes(subtype.toLowerCase()));
+    }
+
+    // Check supertypes (e.g. basic for "basic land card")
+    if (matches && filter.supertypes && filter.supertypes.length > 0) {
+      matches = filter.supertypes.every((supertype: string) => typeLine.includes(String(supertype).toLowerCase()));
     }
     
     // Check max power (e.g., "power 2 or less" - Imperial Recruiter)
@@ -9520,6 +9555,33 @@ export function triggerETBEffectsForToken(
         pendingExternalEtbTriggers.push(stackItem);
         debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s chosen-type ETB trigger for token: ${trigger.description}`);
       }
+
+      if (trigger.triggerType === 'chosen_type_creature_etb_or_attack' && isCreature) {
+        if (!shouldQueueChosenTypeCreatureEtbTrigger(trigger, perm, token, controller, isToken, isCreature)) {
+          continue;
+        }
+
+        const triggerController = perm.controller || controller;
+        const triggerId = uid('trigger');
+        const stackItem = {
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          permanentId: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
+          interveningIfSubjectPermanentId: token.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(token),
+        } as any;
+        pendingExternalEtbTriggers.push(stackItem);
+        debug(2, `[triggerETBEffectsForToken] ⚡ ${trigger.cardName}'s chosen-type enters-or-attacks trigger for token: ${trigger.description}`);
+      }
       
       // another_permanent_etb triggers
       if (trigger.triggerType === 'another_permanent_etb') {
@@ -10031,6 +10093,33 @@ export function triggerETBEffectsForPermanent(
         } as any;
         pendingExternalEtbTriggers.push(stackItem);
         debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s chosen-type ETB trigger: ${trigger.description}`);
+      }
+
+      if (trigger.triggerType === 'chosen_type_creature_etb_or_attack' && isCreature) {
+        if (!shouldQueueChosenTypeCreatureEtbTrigger(trigger, perm, permanent, controller, isToken, isCreature)) {
+          continue;
+        }
+
+        const triggerController = perm.controller || controller;
+        const triggerId = uid('trigger');
+        const stackItem = {
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: triggerController,
+          source: perm.id,
+          permanentId: perm.id,
+          sourceName: trigger.cardName,
+          description: trigger.description,
+          triggerType: trigger.triggerType,
+          mandatory: trigger.mandatory,
+          effect: trigger.effect || trigger.description,
+          card: perm.card,
+          sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
+          interveningIfSubjectPermanentId: permanent.id,
+          interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
+        } as any;
+        pendingExternalEtbTriggers.push(stackItem);
+        debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s chosen-type enters-or-attacks trigger: ${trigger.description}`);
       }
       
       // another_permanent_etb triggers
@@ -12521,6 +12610,33 @@ export function executeTriggerEffect(
     desc = delayedDrawAtNextUpkeep.remainingText.replace(/[’]/g, "'").toLowerCase();
     descriptionForOracleFallback = delayedDrawAtNextUpkeep.remainingText;
     if (!desc || remainingTextIsOnlyLibraryLook(delayedDrawAtNextUpkeep.remainingText)) {
+      return;
+    }
+  }
+
+  const untapAllCreatureTypeMatch = desc.match(/untap all (\w+(?:\s+\w+)*) you control/i);
+  if (untapAllCreatureTypeMatch) {
+    const rawType = untapAllCreatureTypeMatch[1].toLowerCase().trim();
+    const standardBulkTypes = new Set([
+      'land', 'lands', 'creature', 'creatures', 'artifact', 'artifacts',
+      'enchantment', 'enchantments', 'permanent', 'permanents',
+      'other creature', 'other creatures',
+    ]);
+    if (!standardBulkTypes.has(rawType) && !rawType.startsWith('other ')) {
+      const creatureType = singularizeCreatureTypeName(rawType);
+      const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+      let untappedCount = 0;
+      for (const perm of battlefield) {
+        if (!perm || perm.controller !== controller || !perm.tapped) continue;
+        if (!permanentHasCreatureTypeNow(perm, creatureType)) continue;
+        perm.tapped = false;
+        queueBecomesUntappedTriggers(ctx, perm);
+        untappedCount++;
+      }
+      if (untappedCount > 0 && typeof (ctx as any).bumpSeq === 'function') {
+        (ctx as any).bumpSeq();
+      }
+      debug(2, `[executeTriggerEffect] ${sourceName}: untapped ${untappedCount} ${rawType} for ${controller}`);
       return;
     }
   }

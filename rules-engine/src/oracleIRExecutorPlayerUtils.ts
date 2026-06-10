@@ -6,6 +6,42 @@ import { stripPlayableFromGraveyardTags } from './playableFromGraveyard';
 import { parseManaSymbols } from './types/numbers';
 import { addMana, addRestrictedMana, createEmptyManaPool, ManaRestrictionType, ManaType } from './types/mana';
 
+type PlayerZoneName = 'library' | 'hand' | 'graveyard' | 'exile';
+
+function getAttachedServerLibraries(state: GameState): Map<PlayerID, any[]> | undefined {
+  const libs = (state as any).__serverLibraries;
+  return libs && typeof libs.get === 'function' ? libs : undefined;
+}
+
+function readPlayerZoneCards(
+  state: GameState,
+  playerId: PlayerID,
+  player: any,
+  zone: PlayerZoneName,
+): any[] {
+  const fromPlayer = Array.isArray(player?.[zone]) ? [...player[zone]] : [];
+  if (zone !== 'library' || fromPlayer.length > 0) return fromPlayer;
+  const serverLibs = getAttachedServerLibraries(state);
+  const external = serverLibs?.get(playerId);
+  return Array.isArray(external) ? [...external] : fromPlayer;
+}
+
+function writePlayerZoneCards(
+  state: GameState,
+  playerId: PlayerID,
+  player: any,
+  zone: PlayerZoneName,
+  cards: any[],
+): any[] {
+  const next = [...cards];
+  player[zone] = next;
+  if (zone === 'library') {
+    const serverLibs = getAttachedServerLibraries(state);
+    if (serverLibs?.set) serverLibs.set(playerId, [...next]);
+  }
+  return next;
+}
+
 export function getCurrentTurnNumber(state: GameState): number {
   return Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
 }
@@ -952,8 +988,8 @@ export function drawCardsForPlayer(state: GameState, playerId: PlayerID, count: 
   const player = state.players.find(p => p.id === playerId);
   if (!player) return { state, log: [`Player not found: ${playerId}`] };
 
-  const library = [...((player as any).library || [])];
-  const hand = [...((player as any).hand || [])];
+  const library = readPlayerZoneCards(state, playerId, player, 'library');
+  const hand = readPlayerZoneCards(state, playerId, player, 'hand');
 
   let drawn = 0;
   for (let i = 0; i < Math.max(0, count | 0); i++) {
@@ -966,7 +1002,9 @@ export function drawCardsForPlayer(state: GameState, playerId: PlayerID, count: 
     drawn++;
   }
 
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, library, hand } : p));
+  writePlayerZoneCards(state, playerId, player, 'library', library);
+  writePlayerZoneCards(state, playerId, player, 'hand', hand);
+  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...player } : p));
   return {
     state: { ...state, players: updatedPlayers as any },
     log: drawn > 0 ? [`${playerId} draws ${drawn} card(s)`] : log,
@@ -982,8 +1020,8 @@ export function exileTopCardsForPlayer(
   const player = state.players.find(p => p.id === playerId);
   if (!player) return { state, log: [`Player not found: ${playerId}`], exiled: [] };
 
-  const library = [...((player as any).library || [])];
-  const exile = [...((player as any).exile || [])];
+  const library = readPlayerZoneCards(state, playerId, player, 'library');
+  const exile = readPlayerZoneCards(state, playerId, player, 'exile');
 
   const exiled: any[] = [];
   for (let i = 0; i < Math.max(0, count | 0); i++) {
@@ -996,7 +1034,9 @@ export function exileTopCardsForPlayer(
     exiled.push(card);
   }
 
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? ({ ...p, library, exile } as any) : p));
+  writePlayerZoneCards(state, playerId, player, 'library', library);
+  writePlayerZoneCards(state, playerId, player, 'exile', exile);
+  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...player } : p));
   return {
     state: { ...state, players: updatedPlayers as any },
     log: exiled.length > 0 ? [`${playerId} exiles ${exiled.length} card(s) from the top of their library`] : log,
@@ -1416,8 +1456,8 @@ export function millCardsForPlayer(
   const player = state.players.find(p => p.id === playerId);
   if (!player) return { state, log: [`Player not found: ${playerId}`], milledCards: [] };
 
-  const library = [...((player as any).library || [])];
-  const graveyard = [...((player as any).graveyard || [])];
+  const library = readPlayerZoneCards(state, playerId, player, 'library');
+  const graveyard = readPlayerZoneCards(state, playerId, player, 'graveyard');
 
   const n = Math.max(0, count | 0);
   if (n === 0) return { state, log, milledCards: [] };
@@ -1426,7 +1466,9 @@ export function millCardsForPlayer(
   const milled = library.splice(0, actual);
   graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, milled));
 
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, library, graveyard } : p));
+  writePlayerZoneCards(state, playerId, player, 'library', library);
+  writePlayerZoneCards(state, playerId, player, 'graveyard', graveyard);
+  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...player } : p));
   log.push(`${playerId} mills ${actual} card(s)`);
   return { state: { ...state, players: updatedPlayers as any }, log, milledCards: milled };
 }

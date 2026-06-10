@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildSuggestedPaymentItems } from '../src/utils/manaSourceBuilder';
+import { buildAvailableManaSourcesForPlayer, buildSuggestedPaymentItems } from '../src/utils/manaSourceBuilder';
 
 describe('buildSuggestedPaymentItems', () => {
   it('uses floating pool mana before tapping lands when explicit pool items are enabled', () => {
@@ -90,5 +90,41 @@ describe('buildSuggestedPaymentItems', () => {
     const templeGardenUses = items.filter((item) => item.permanentId === 'perm_tg');
     expect(templeGardenUses).toHaveLength(1);
     expect(items.some((item) => item.permanentId === 'perm_wg')).toBe(true);
+  });
+
+  it('excludes an activating permanent from payment sources when requested', () => {
+    const sources = buildAvailableManaSourcesForPlayer(
+      'p1',
+      [
+        {
+          id: 'nykthos_1',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          card: {
+            id: 'nykthos_card',
+            name: 'Nykthos, Shrine to Nyx',
+            type_line: 'Legendary Land',
+            oracle_text: '{T}: Add {C}.\n{2}, {T}: Choose a color. Add an amount of mana of that color equal to your devotion to that color.',
+          },
+        },
+        {
+          id: 'forest_1',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          card: {
+            id: 'forest_card',
+            name: 'Forest',
+            type_line: 'Basic Land — Forest',
+            oracle_text: '{T}: Add {G}.',
+          },
+        },
+      ] as any,
+      { excludePermanentIds: ['nykthos_1'] },
+    );
+
+    expect(sources.some((source) => String(source.sourcePermanentId || source.id).startsWith('nykthos_1'))).toBe(false);
+    expect(sources.some((source) => String(source.sourcePermanentId || source.id).startsWith('forest_1'))).toBe(true);
   });
 });

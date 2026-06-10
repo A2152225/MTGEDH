@@ -46,6 +46,15 @@ describe('Kindred Discovery chosen-type ETB and attack triggers', () => {
     expect(trigger?.effect).toBe('draw a card');
   });
 
+  it('does not register duplicate ETB-only or generic creature_etb triggers', () => {
+    const permanent = { id: 'kindred_1', controller: 'p1', chosenCreatureType: 'Merfolk', card };
+    const triggers = detectETBTriggers(card, permanent);
+
+    expect(triggers.filter((entry) => entry.triggerType === 'chosen_type_creature_etb_or_attack')).toHaveLength(1);
+    expect(triggers.filter((entry) => entry.triggerType === 'chosen_type_creature_etb')).toHaveLength(0);
+    expect(triggers.filter((entry) => entry.triggerType === 'creature_etb')).toHaveLength(0);
+  });
+
   it('detects chosen-type enters-or-attacks trigger on attack analysis', () => {
     const permanent = { id: 'kindred_1', controller: 'p1', chosenCreatureType: 'Merfolk', card };
     const triggers = detectAttackTriggers(card, permanent);

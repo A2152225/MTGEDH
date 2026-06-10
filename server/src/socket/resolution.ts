@@ -1667,7 +1667,8 @@ function applySelectedManaPaymentForResolutionCost(
   game: any,
   playerId: string,
   manaCost: string,
-  payment: ResolutionPaymentItem[] | undefined
+  payment: ResolutionPaymentItem[] | undefined,
+  options?: { forbiddenPermanentIds?: string[] },
 ): ResolutionSelectedManaPaymentResult {
   const parsedCost = parseManaCost(String(manaCost || ''));
   const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
@@ -1682,6 +1683,11 @@ function applySelectedManaPaymentForResolutionCost(
   const tappedPermanents: string[] = [];
   const sacrificedPermanents: string[] = [];
   const activationSimulationPool = snapshotResolutionManaPool(manaPool);
+  const forbiddenPermanentIds = new Set(
+    (Array.isArray(options?.forbiddenPermanentIds) ? options?.forbiddenPermanentIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  );
 
   if (payment && payment.length > 0) {
     for (const { permanentId, mana, count, abilityId, producedColors } of payment) {
@@ -1697,6 +1703,14 @@ function applySelectedManaPaymentForResolutionCost(
         return { ok: false, code: 'INVALID_PAYMENT', message: 'A mana source can only be used once.' };
       }
       usedPermanentIds.add(permanentId);
+
+      if (forbiddenPermanentIds.has(String(permanentId || ''))) {
+        return {
+          ok: false,
+          code: 'INVALID_PAYMENT',
+          message: `${(battlefield.find((entry: any) => entry?.id === permanentId)?.card?.name) || 'This permanent'} cannot pay for its own activated ability.`,
+        };
+      }
 
       const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
       if (!permanent) {
@@ -11062,10 +11076,20 @@ async function handleStepResponse(
         }
 
         if (String(stepData.dynamicAmountSource || '') === 'devotion') {
-          const { calculateDevotion } = await import('../state/modules/mana-abilities.js');
-          const controllerId = String(stepData.playerId || pid);
-          const multiplier = Math.max(1, Number(stepData.manaMultiplier || 1));
-          amount = calculateDevotion(game.state, controllerId, chosenCode as 'W' | 'U' | 'B' | 'R' | 'G') * multiplier;
+          const amountByColor = stepData.amountByColor;
+          const presetAmount = amountByColor && typeof amountByColor === 'object'
+            ? Number((amountByColor as Record<string, number>)[chosenCode] ?? NaN)
+            : NaN;
+          if (Number.isFinite(presetAmount)) {
+            amount = Math.max(0, presetAmount);
+          } else {
+            const { calculateDevotion } = await import('../state/modules/mana-abilities.js');
+            const controllerId = String(stepData.playerId || pid);
+            const multiplier = Math.max(1, Number(stepData.manaMultiplier || 1));
+            amount = calculateDevotion(game.state, controllerId, chosenCode as 'W' | 'U' | 'B' | 'R' | 'G') * multiplier;
+          }
+        } else if (String(stepData.dynamicAmountSource || '') === 'creature_type_count') {
+          amount = Math.max(0, Number(stepData.creatureTypeCount ?? stepData.amount ?? 0));
         }
 
         const manaRestriction = String(stepData.manaRestriction || '').trim();
@@ -11465,7 +11489,12 @@ async function handleStepResponse(
 
         const payment = extractResolutionPaymentItems(response.selections as any);
         const manaCost = String(stepData.manaCost || '').trim();
-        const applied = applySelectedManaPaymentForResolutionCost(game, pid, manaCost, payment);
+        const activatingPermanentId = String(stepData.permanentId || step.sourceId || '').trim();
+        const applied = applySelectedManaPaymentForResolutionCost(game, pid, manaCost, payment, {
+          forbiddenPermanentIds: stepData.requiresTap === true && activatingPermanentId
+            ? [activatingPermanentId]
+            : [],
+        });
         if (!applied.ok) {
           const appliedError = applied as { ok: false; code: string; message: string };
           emitToPlayer(io, pid as any, 'error', {

@@ -7,6 +7,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { KnownCardRef } from '../../../shared/src';
+import { getLibrarySearchTypeLine } from '../../../shared/src/cardFactory';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
 export interface LibrarySearchModalProps {
@@ -76,12 +77,11 @@ function getConfirmLabel(
 function matchesFilter(card: KnownCardRef, filter: LibrarySearchModalProps['filter']): boolean {
   if (!filter) return true;
   
-  const typeLine = (card.type_line || '').toLowerCase();
-  const oracleText = (card.oracle_text || '').toLowerCase();
+  const typeLine = getLibrarySearchTypeLine(card).toLowerCase();
   
   // Supertype filter (e.g., 'legendary', 'basic', 'snow')
   if (filter.supertypes && filter.supertypes.length > 0) {
-    const matchesSupertype = filter.supertypes.some(st => typeLine.includes(st.toLowerCase()));
+    const matchesSupertype = filter.supertypes.every(st => typeLine.includes(st.toLowerCase()));
     if (!matchesSupertype) return false;
   }
   
@@ -240,7 +240,10 @@ export function LibrarySearchModal({
   
   // Filter and search cards (apply text search on top of filter)
   const filteredCards = useMemo(() => {
-    let result = displayCards;
+    const baseCards = filter && nonSelectableCards.length === 0 && revealedCards.length === 0
+      ? validTargetCards
+      : displayCards;
+    let result = baseCards;
     
     // Apply text search
     if (searchQuery.trim()) {
@@ -254,7 +257,7 @@ export function LibrarySearchModal({
     
     // Sort by name
     return result;
-  }, [displayCards, searchQuery]);
+  }, [displayCards, filter, nonSelectableCards.length, revealedCards.length, searchQuery, validTargetCards]);
 
   const selectedManaValueTotal = useMemo(() => {
     let total = 0;

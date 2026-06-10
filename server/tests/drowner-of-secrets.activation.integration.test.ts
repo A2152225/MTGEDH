@@ -326,4 +326,96 @@ describe('Drowner of Secrets activation (integration)', () => {
     const helper = (game.state as any).battlefield.find((perm: any) => perm.id === 'helper');
     expect(Boolean(helper?.tapped)).toBe(true);
   });
+
+  it('mills twice as many cards when Bruvac the Grandiloquent is on the battlefield', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'drowner',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Drowner of Secrets',
+          type_line: 'Creature — Merfolk Wizard',
+          oracle_text: 'Tap an untapped Merfolk you control: Target player mills a card.',
+          image_uris: { small: 'https://example.com/drowner.jpg' },
+        },
+      },
+      {
+        id: 'bruvac',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Bruvac the Grandiloquent',
+          type_line: 'Legendary Creature — Human Advisor',
+          oracle_text: 'If an opponent would mill one or more cards, they mill twice that many cards instead.',
+          image_uris: { small: 'https://example.com/bruvac.jpg' },
+        },
+      },
+      {
+        id: 'helper',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Merfolk Helper',
+          type_line: 'Creature — Merfolk Wizard',
+          oracle_text: '',
+          image_uris: { small: 'https://example.com/helper.jpg' },
+        },
+      },
+    ];
+
+    game.importDeckResolved(p2 as any, [
+      { id: 'milled_1', name: 'Top Card', type_line: 'Artifact', oracle_text: '' },
+      { id: 'milled_2', name: 'Second Card', type_line: 'Creature', oracle_text: '' },
+    ] as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'drowner', abilityId: 'drowner-ability-0' });
+
+    const tapStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: tapStep.id,
+      selections: { targetIds: ['helper'], action: 'tap' },
+    });
+
+    const playerStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: playerStep.id,
+      selections: [p2],
+    });
+
+    game.resolveTopOfStack();
+
+    expect((game.state as any).zones[p2].libraryCount).toBe(0);
+    expect((game.state as any).zones[p2].graveyard).toHaveLength(2);
+    expect((game.state as any).zones[p2].graveyard.map((card: any) => card.id)).toEqual(['milled_1', 'milled_2']);
+  });
 });

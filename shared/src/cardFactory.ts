@@ -202,3 +202,23 @@ export function hasPlaneswalkerLoyalty(card: ScryfallCardInput): boolean {
 export function isDoubleFacedCard(card: ScryfallCardInput): boolean {
   return Array.isArray(card.card_faces) && card.card_faces.length > 0;
 }
+
+/**
+ * Type line used when matching library search filters.
+ * Cards in the library are represented by their front face, not a combined DFC summary.
+ */
+export function getLibrarySearchTypeLine(card: {
+  type_line?: string;
+  card_faces?: Array<{ type_line?: string }>;
+}): string {
+  const faces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+  const frontType = String(faces[0]?.type_line || '').trim();
+  if (frontType) return frontType;
+
+  const combined = String(card?.type_line || '');
+  const splitIdx = combined.indexOf('//');
+  if (splitIdx >= 0) {
+    return combined.slice(0, splitIdx).trim();
+  }
+  return combined;
+}

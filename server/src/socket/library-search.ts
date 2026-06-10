@@ -1,3 +1,4 @@
+import { getLibrarySearchTypeLine } from "../../../shared/src/cardFactory.js";
 import { calculateVariablePT } from "../state/utils.js";
 
 function matchesTypeFilter(typeLine: string, types: string[]): boolean {
@@ -53,25 +54,22 @@ export function filterLibraryCardsForSearch(library: any[], filter: any, gameSta
 
   for (const card of Array.isArray(library) ? library : []) {
     let matches = true;
+    const typeLine = getLibrarySearchTypeLine(card).toLowerCase();
 
     if (searchCriteria.types && searchCriteria.types.length > 0) {
-      const typeLine = String(card?.type_line || '').toLowerCase();
       matches = matchesTypeFilter(typeLine, searchCriteria.types);
     }
 
     if (matches && searchCriteria.allTypes && searchCriteria.allTypes.length > 0) {
-      const typeLine = String(card?.type_line || '').toLowerCase();
       matches = searchCriteria.allTypes.every((requiredType: string) => typeLine.includes(String(requiredType || '').toLowerCase()));
     }
 
     if (matches && searchCriteria.subtypes && searchCriteria.subtypes.length > 0) {
-      const typeLine = String(card?.type_line || '').toLowerCase();
       matches = searchCriteria.subtypes.some((subtype: string) => typeLine.includes(String(subtype).toLowerCase()));
     }
 
     if (matches && searchCriteria.supertypes && searchCriteria.supertypes.length > 0) {
-      const typeLine = String(card?.type_line || '').toLowerCase();
-      matches = searchCriteria.supertypes.some((supertype: string) => typeLine.includes(String(supertype).toLowerCase()));
+      matches = searchCriteria.supertypes.every((supertype: string) => typeLine.includes(String(supertype).toLowerCase()));
     }
 
     if (matches && searchCriteria.colors && searchCriteria.colors.length > 0) {

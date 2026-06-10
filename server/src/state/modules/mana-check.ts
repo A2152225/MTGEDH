@@ -8,7 +8,14 @@
 import type { PlayerID } from "../../../../shared/src";
 import { parseNumberFromText, parseSacrificeCost, type SacrificeType } from "../../../../shared/src/textUtils";
 import { creatureHasHaste } from "../../socket/game-actions.js";
-import { getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "./mana-abilities.js";
+import {
+  getMoxAmberAvailableColors,
+  isMoxAmberConditionalManaSource,
+  getDevotionByColor,
+  getDevotionManaAmount,
+  getCreatureCountManaAmount,
+} from "./mana-abilities.js";
+import { getActiveStationAbilities, parseStationAbilities } from "../../utils/stationParser.js";
 import { debug } from "../../utils/debug.js";
 
 /**
@@ -924,7 +931,342 @@ function buildExactHandCandidates(state: any, playerId: PlayerID): ExactHandCand
 
 type ExactManaPaymentOptions = {
   excludedHandCardIds?: string[];
+  /** Permanents that cannot be tapped to pay (e.g. activating a {T} ability on the same permanent). */
+  excludedPermanentIds?: string[];
 };
+
+const DEVOTION_COLOR_CODES = ['W', 'U', 'B', 'R', 'G'] as const;
+
+function parseTapAbilityActivationCost(costText: string): ParsedManaCost | undefined {
+  const normalizedCost = String(costText || '').replace(/^\d+\+\s*\|\s*/i, '').trim();
+  const manaSymbols = normalizedCost.match(/\{[^}]+\}/gi) || [];
+  const nonTapSymbols = manaSymbols.filter((symbol) => !/^\{t\}$/i.test(symbol) && !/^\{q\}$/i.test(symbol));
+  if (nonTapSymbols.length === 0) return undefined;
+  return parseManaCost(nonTapSymbols.join(''));
+}
+
+function permanentWithScopedOracleText(permanent: any, scopedOracleText: string): any {
+  return {
+    ...permanent,
+    card: {
+      ...(permanent?.card || {}),
+      oracle_text: scopedOracleText,
+    },
+  };
+}
+
+function isStationManaPermanent(permanent: any): boolean {
+  const card = permanent?.card;
+  if (!card) return false;
+
+  const oracleText = String(card.oracle_text || '');
+  const typeLine = String(card.type_line || '').toLowerCase();
+  const keywords = Array.isArray(card.keywords) ? card.keywords : [];
+
+  return keywords.some((keyword: unknown) => String(keyword || '').toLowerCase() === 'station')
+    || /station\s*\(/i.test(oracleText)
+    || /\n\s*\d+\+\s*\|/i.test(oracleText)
+    || typeLine.includes('planet')
+    || typeLine.includes('spacecraft');
+}
+
+function getPermanentChargeCounters(permanent: any): number {
+  return Math.max(0, Number(permanent?.counters?.charge || 0));
+}
+
+function getActiveStationManaAbilityTexts(permanent: any): string[] {
+  const oracleText = stripReminderTextFromOracle(permanent?.card?.oracle_text || '');
+  const chargeCounters = getPermanentChargeCounters(permanent);
+  return getActiveStationAbilities(chargeCounters, parseStationAbilities(oracleText));
+}
+
+function addExactManaProductionToPool(
+  produced: Record<SimpleManaKey, number>,
+  pool: Record<string, number>,
+): void {
+  for (const key of SIMPLE_MANA_KEYS) {
+    const amount = Number(produced[key] || 0);
+    if (amount > 0) {
+      pool[key] = (pool[key] || 0) + amount;
+    }
+  }
+}
+
+function addChoiceColorInflationToPool(
+  colors: readonly string[],
+  pool: Record<string, number>,
+): void {
+  const letters = colors
+    .map((color) => String(color || '').toUpperCase())
+    .filter((color) => DEVOTION_COLOR_CODES.includes(color as typeof DEVOTION_COLOR_CODES[number]))
+    .sort();
+
+  if (letters.length < 2) return;
+
+  const markerKey = `choiceColors_${letters.join('')}`;
+  (pool as any)[markerKey] = Number((pool as any)[markerKey] || 0) + 1;
+}
+
+function buildDevotionColorProductionOptions(
+  state: any,
+  playerId: PlayerID,
+  activationCost?: ParsedManaCost,
+): ExactManaSourceOption[] {
+  const devotionByColor = getDevotionByColor(state, playerId);
+  const options: ExactManaSourceOption[] = [];
+
+  for (const color of DEVOTION_COLOR_CODES) {
+    const amount = devotionByColor[color];
+    if (amount <= 0) continue;
+    const colorKey = manaSymbolToColorKey(color);
+    if (!colorKey) continue;
+    options.push({
+      ...(activationCost ? { activationCost } : {}),
+      produced: createSingleColorProduction(colorKey, amount),
+    });
+  }
+
+  return options;
+}
+
+function buildCreatureTypeCountProductionOptions(
+  state: any,
+  playerId: PlayerID,
+  permanent: any,
+  activationCost?: ParsedManaCost,
+): ExactManaSourceOption[] {
+  const creatureCountMana = getCreatureCountManaAmount(state, permanent, playerId);
+  const amount = Math.max(0, Number(creatureCountMana?.amount || 0));
+  if (amount <= 0) return [];
+
+  const options: ExactManaSourceOption[] = [];
+  for (const color of DEVOTION_COLOR_CODES) {
+    const colorKey = manaSymbolToColorKey(color);
+    if (!colorKey) continue;
+    options.push({
+      ...(activationCost ? { activationCost } : {}),
+      produced: createSingleColorProduction(colorKey, amount),
+    });
+  }
+
+  return options;
+}
+
+function buildManaOptionsFromActivatedAbilityText(
+  state: any,
+  playerId: PlayerID,
+  permanent: any,
+  abilityText: string,
+): ExactManaSourceOption[] {
+  const normalizedAbilityText = String(abilityText || '').trim();
+  const colonIndex = normalizedAbilityText.indexOf(':');
+  if (colonIndex <= 0) return [];
+
+  const costText = normalizedAbilityText.slice(0, colonIndex).trim();
+  const effectText = normalizedAbilityText.slice(colonIndex + 1).trim();
+  if (!/\{t\}/i.test(costText) || !/\badd\b/i.test(effectText)) return [];
+
+  const activationCost = parseTapAbilityActivationCost(costText);
+  const lowerEffect = effectText.toLowerCase();
+  const options: ExactManaSourceOption[] = [];
+
+  if (/devotion to that color|equal to your devotion/i.test(lowerEffect)) {
+    return buildDevotionColorProductionOptions(state, playerId, activationCost);
+  }
+
+  if (/creatures you control of the chosen type|number of creatures you control of the chosen type/i.test(lowerEffect)) {
+    return buildCreatureTypeCountProductionOptions(state, playerId, permanent, activationCost);
+  }
+
+  const scopedPermanent = permanentWithScopedOracleText(permanent, normalizedAbilityText);
+  const countMana = getCreatureCountManaAmount(state, scopedPermanent, playerId);
+  if (countMana?.requiresColorChoice) {
+    if (countMana.dynamicAmountSource === 'devotion') {
+      return buildDevotionColorProductionOptions(state, playerId, activationCost);
+    }
+    if (countMana.dynamicAmountSource === 'creature_type_count') {
+      return buildCreatureTypeCountProductionOptions(state, playerId, permanent, activationCost);
+    }
+    if (countMana.color === 'any_combination' && countMana.amount > 0) {
+      for (const color of DEVOTION_COLOR_CODES) {
+        const colorKey = manaSymbolToColorKey(color);
+        if (!colorKey) continue;
+        options.push({
+          ...(activationCost ? { activationCost } : {}),
+          produced: createSingleColorProduction(colorKey, countMana.amount),
+        });
+      }
+      return options;
+    }
+    if (countMana.color === 'any_one_color' && countMana.amount > 0) {
+      for (const color of DEVOTION_COLOR_CODES) {
+        const colorKey = manaSymbolToColorKey(color);
+        if (!colorKey) continue;
+        options.push({
+          ...(activationCost ? { activationCost } : {}),
+          produced: createSingleColorProduction(colorKey, countMana.amount),
+        });
+      }
+      return options;
+    }
+  }
+
+  if (countMana && countMana.amount > 0 && !countMana.requiresColorChoice) {
+    const colorKey = manaSymbolToColorKey(countMana.color);
+    if (colorKey) {
+      options.push({
+        ...(activationCost ? { activationCost } : {}),
+        produced: createSingleColorProduction(colorKey, countMana.amount),
+      });
+    }
+    return options;
+  }
+
+  const devotionMana = getDevotionManaAmount(state, scopedPermanent, playerId);
+  if (devotionMana && devotionMana.amount > 0) {
+    const colorKey = manaSymbolToColorKey(devotionMana.color);
+    if (colorKey) {
+      options.push({
+        ...(activationCost ? { activationCost } : {}),
+        produced: createSingleColorProduction(colorKey, devotionMana.amount),
+      });
+    }
+  }
+
+  return options;
+}
+
+function buildDynamicManaSourceOptions(
+  state: any,
+  playerId: PlayerID,
+  permanent: any,
+): ExactManaSourceOption[] {
+  if (isStationManaPermanent(permanent)) {
+    const options: ExactManaSourceOption[] = [];
+    for (const abilityText of getActiveStationManaAbilityTexts(permanent)) {
+      options.push(...buildManaOptionsFromActivatedAbilityText(state, playerId, permanent, abilityText));
+    }
+    return options;
+  }
+
+  const oracleText = stripReminderTextFromOracle(permanent?.card?.oracle_text || '');
+  const lines = oracleText.split(/\r?\n/).map((line: string) => line.trim()).filter(Boolean);
+  const options: ExactManaSourceOption[] = [];
+
+  for (const line of lines) {
+    options.push(...buildManaOptionsFromActivatedAbilityText(state, playerId, permanent, line));
+  }
+
+  const devotionMana = getDevotionManaAmount(state, permanent, playerId);
+  if (devotionMana && devotionMana.amount > 0) {
+    const colorKey = manaSymbolToColorKey(devotionMana.color);
+    if (colorKey) {
+      options.push({ produced: createSingleColorProduction(colorKey, devotionMana.amount) });
+    }
+  }
+
+  const creatureCountMana = getCreatureCountManaAmount(state, permanent, playerId);
+  if (creatureCountMana && creatureCountMana.amount > 0 && !creatureCountMana.requiresColorChoice) {
+    const colorKey = manaSymbolToColorKey(creatureCountMana.color);
+    if (colorKey) {
+      options.push({ produced: createSingleColorProduction(colorKey, creatureCountMana.amount) });
+    }
+  }
+
+  return options;
+}
+
+function applyDynamicManaProductionToPool(
+  state: any,
+  playerId: PlayerID,
+  permanent: any,
+  pool: Record<string, number>,
+): void {
+  const applyOptionsToPool = (options: ExactManaSourceOption[]) => {
+    const producedByColor = new Map<string, number>();
+
+    for (const option of options) {
+      for (const key of SIMPLE_MANA_KEYS) {
+        const amount = Number(option.produced?.[key] || 0);
+        if (amount <= 0 || key === 'colorless') continue;
+        const colorCode = {
+          white: 'W',
+          blue: 'U',
+          black: 'B',
+          red: 'R',
+          green: 'G',
+        }[key];
+        if (!colorCode) continue;
+        producedByColor.set(colorCode, Math.max(Number(producedByColor.get(colorCode) || 0), amount));
+      }
+      addExactManaProductionToPool(option.produced, pool);
+    }
+
+    const choiceColors = Array.from(producedByColor.entries())
+      .filter(([, amount]) => amount > 0)
+      .map(([color]) => color);
+    if (choiceColors.length >= 2) {
+      addChoiceColorInflationToPool(choiceColors, pool);
+    }
+  };
+
+  if (isStationManaPermanent(permanent)) {
+    const options: ExactManaSourceOption[] = [];
+    for (const abilityText of getActiveStationManaAbilityTexts(permanent)) {
+      options.push(...buildManaOptionsFromActivatedAbilityText(state, playerId, permanent, abilityText));
+    }
+    applyOptionsToPool(options);
+    return;
+  }
+
+  const creatureCountMana = getCreatureCountManaAmount(state, permanent, playerId);
+
+  if (creatureCountMana?.requiresColorChoice) {
+    if (creatureCountMana.dynamicAmountSource === 'devotion') {
+      const devotionByColor = getDevotionByColor(state, playerId);
+      const colorsWithDevotion = DEVOTION_COLOR_CODES.filter((color) => devotionByColor[color] > 0);
+      if (colorsWithDevotion.length === 0) return;
+
+      if (colorsWithDevotion.length === 1) {
+        const color = colorsWithDevotion[0];
+        const colorKey = manaSymbolToColorKey(color);
+        if (colorKey) pool[colorKey] = (pool[colorKey] || 0) + devotionByColor[color];
+        return;
+      }
+
+      for (const color of colorsWithDevotion) {
+        const colorKey = manaSymbolToColorKey(color);
+        if (colorKey) pool[colorKey] = (pool[colorKey] || 0) + devotionByColor[color];
+      }
+      addChoiceColorInflationToPool(colorsWithDevotion, pool);
+      return;
+    }
+
+    if (creatureCountMana.dynamicAmountSource === 'creature_type_count') {
+      const amount = Math.max(0, Number(creatureCountMana.amount || 0));
+      if (amount <= 0) return;
+
+      for (const color of DEVOTION_COLOR_CODES) {
+        const colorKey = manaSymbolToColorKey(color);
+        if (colorKey) pool[colorKey] = (pool[colorKey] || 0) + amount;
+      }
+      addChoiceColorInflationToPool([...DEVOTION_COLOR_CODES], pool);
+      return;
+    }
+  }
+
+  if (creatureCountMana && creatureCountMana.amount > 0 && !creatureCountMana.requiresColorChoice) {
+    const colorKey = manaSymbolToColorKey(creatureCountMana.color);
+    if (colorKey) pool[colorKey] = (pool[colorKey] || 0) + creatureCountMana.amount;
+    return;
+  }
+
+  const devotionMana = getDevotionManaAmount(state, permanent, playerId);
+  if (devotionMana && devotionMana.amount > 0) {
+    const colorKey = manaSymbolToColorKey(devotionMana.color);
+    if (colorKey) pool[colorKey] = (pool[colorKey] || 0) + devotionMana.amount;
+  }
+}
 
 function candidateMatchesSacrificeRequirement(
   candidate: ExactSacrificeCandidate,
@@ -1235,6 +1577,27 @@ function buildProducedManaOptions(
     return [produced];
   }
 
+  const lowerManaText = manaText.toLowerCase();
+  if (/devotion to that color|equal to your devotion/i.test(lowerManaText)) {
+    return buildDevotionColorProductionOptions(state, playerId).map((option) => option.produced);
+  }
+
+  if (/creatures you control of the chosen type|number of creatures you control of the chosen type/i.test(lowerManaText)) {
+    return buildCreatureTypeCountProductionOptions(state, playerId, permanent).map((option) => option.produced);
+  }
+
+  const devotionMana = getDevotionManaAmount(state, permanent, playerId);
+  if (devotionMana && devotionMana.amount > 0) {
+    const colorKey = manaSymbolToColorKey(devotionMana.color);
+    if (colorKey) return [createSingleColorProduction(colorKey, devotionMana.amount)];
+  }
+
+  const creatureCountMana = getCreatureCountManaAmount(state, permanent, playerId);
+  if (creatureCountMana && creatureCountMana.amount > 0 && !creatureCountMana.requiresColorChoice) {
+    const colorKey = manaSymbolToColorKey(creatureCountMana.color);
+    if (colorKey) return [createSingleColorProduction(colorKey, creatureCountMana.amount)];
+  }
+
   return [];
 }
 
@@ -1280,52 +1643,59 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
       continue;
     }
 
-    const manaAbilityWithCostPattern = /\{([0-9]+|[wubrgc])\}(?:,\s*)?\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
-    const manaAbilityNoCostPattern = /\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
-    const nonTapManaAbilityPattern = /([^:.\n]+):\s*add\s+([^.\n]+)/gi;
-    const costMatches = [...oracleText.matchAll(manaAbilityWithCostPattern)];
-    const noCostMatches = filterOutCostedTapMatches([...oracleText.matchAll(manaAbilityNoCostPattern)], costMatches);
-    const nonTapCostMatches = [...oracleText.matchAll(nonTapManaAbilityPattern)].filter((match) => {
-      const costText = String(match[1] || '').trim();
-      return Boolean(costText) && !/\{[^}]*\bt\b[^}]*\}/i.test(costText);
-    });
     const options: ExactManaSourceOption[] = [];
 
-    for (const match of costMatches) {
-      const activationCost = parseManaCost(`{${match[1]}}`);
-      const producedOptions = buildProducedManaOptions(state, playerId, permanent, String(match[2] || ''));
-      for (const produced of producedOptions) {
-        options.push({ activationCost, produced });
-      }
-    }
+    if (isStationManaPermanent(permanent)) {
+      options.push(...buildDynamicManaSourceOptions(state, playerId, permanent));
+    } else {
+      const manaAbilityWithCostPattern = /\{([0-9]+|[wubrgc])\}(?:,\s*)?\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
+      const manaAbilityNoCostPattern = /\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
+      const nonTapManaAbilityPattern = /([^:.\n]+):\s*add\s+([^.\n]+)/gi;
+      const costMatches = [...oracleText.matchAll(manaAbilityWithCostPattern)];
+      const noCostMatches = filterOutCostedTapMatches([...oracleText.matchAll(manaAbilityNoCostPattern)], costMatches);
+      const nonTapCostMatches = [...oracleText.matchAll(nonTapManaAbilityPattern)].filter((match) => {
+        const costText = String(match[1] || '').trim();
+        return Boolean(costText) && !/\{[^}]*\bt\b[^}]*\}/i.test(costText);
+      });
 
-    for (const match of noCostMatches) {
-      const producedOptions = buildProducedManaOptions(state, playerId, permanent, String(match[1] || ''));
-      for (const produced of producedOptions) {
-        options.push({ produced });
-      }
-    }
-
-    for (const match of nonTapCostMatches) {
-      const costText = String(match[1] || '').trim();
-      const producedText = String(match[2] || '');
-      const supportedCost = buildSupportedNonTapManaSourceCost(costText);
-      if (!supportedCost) continue;
-
-      const inferredSupportedCost = { ...supportedCost };
-      if (!inferredSupportedCost.sacrificeCost && /^sacrifice\b/i.test(costText) && costTextReferencesSourcePermanent(costText, permanent)) {
-        inferredSupportedCost.sacrificeCost = {
-          type: 'self',
-          count: 1,
-        };
+      for (const match of costMatches) {
+        const activationCost = parseManaCost(`{${match[1]}}`);
+        const producedOptions = buildProducedManaOptions(state, playerId, permanent, String(match[2] || ''));
+        for (const produced of producedOptions) {
+          options.push({ activationCost, produced });
+        }
       }
 
-      const repeatable = shouldRepeatNonTapManaSource(inferredSupportedCost, costText, permanent);
-
-      const producedOptions = buildProducedManaOptions(state, playerId, permanent, producedText);
-      for (const produced of producedOptions) {
-        options.push({ ...inferredSupportedCost, repeatable, produced });
+      for (const match of noCostMatches) {
+        const producedOptions = buildProducedManaOptions(state, playerId, permanent, String(match[1] || ''));
+        for (const produced of producedOptions) {
+          options.push({ produced });
+        }
       }
+
+      for (const match of nonTapCostMatches) {
+        const costText = String(match[1] || '').trim();
+        const producedText = String(match[2] || '');
+        const supportedCost = buildSupportedNonTapManaSourceCost(costText);
+        if (!supportedCost) continue;
+
+        const inferredSupportedCost = { ...supportedCost };
+        if (!inferredSupportedCost.sacrificeCost && /^sacrifice\b/i.test(costText) && costTextReferencesSourcePermanent(costText, permanent)) {
+          inferredSupportedCost.sacrificeCost = {
+            type: 'self',
+            count: 1,
+          };
+        }
+
+        const repeatable = shouldRepeatNonTapManaSource(inferredSupportedCost, costText, permanent);
+
+        const producedOptions = buildProducedManaOptions(state, playerId, permanent, producedText);
+        for (const produced of producedOptions) {
+          options.push({ ...inferredSupportedCost, repeatable, produced });
+        }
+      }
+
+      options.push(...buildDynamicManaSourceOptions(state, playerId, permanent));
     }
 
     if (options.length > 0) {
@@ -1745,6 +2115,11 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
       continue; // Skip oracle text check for basic lands
     }
     
+    if (isStationManaPermanent(permanent)) {
+      applyDynamicManaProductionToPool(state, playerId, permanent, pool);
+      continue;
+    }
+
     // Check for mana abilities in oracle text
     // Pattern: "{T}: Add {C}", "{T}: Add {C}{C}", "{T}: Add {B} or {R}", etc.
     // Also handles costs: "{1}, {T}: Add {W}{U}" (signets)
@@ -2106,6 +2481,8 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         }
       }
     }
+
+    applyDynamicManaProductionToPool(state, playerId, permanent, pool);
   }
   
   return pool;
@@ -2131,7 +2508,14 @@ export function canPayManaCostWithAvailableSources(
     return true;
   }
 
-  const sources = buildExactManaSources(state, playerId);
+  const excludedPermanentIds = new Set(
+    (Array.isArray(options?.excludedPermanentIds) ? options?.excludedPermanentIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  );
+  const sources = buildExactManaSources(state, playerId).filter(
+    (source) => !excludedPermanentIds.has(String(source.permanentId || source.id || '')),
+  );
   const battlefieldCandidates = buildExactSacrificeCandidates(state, playerId);
   const excludedHandCardIds = new Set(
     (Array.isArray(options?.excludedHandCardIds) ? options?.excludedHandCardIds : [])

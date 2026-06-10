@@ -6,7 +6,7 @@ import { getKeywordInfo, KEYWORD_GLOSSARY } from '../utils/keywordGlossary';
 import { CardContextMenu } from './CardContextMenu';
 import { ActivatedAbilityButtons } from './ActivatedAbilityButtons';
 import { AbilitySelectionModal } from './AbilitySelectionModal';
-import { parseActivatedAbilities, canActivateTapAbility, getConditionalManaAbilityStatus, getThresholdActivationStatus, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
+import { parseActivatedAbilities, canActivateTapAbility, getConditionalManaAbilityStatus, getThresholdActivationStatus, parseStationThreshold, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 import { hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
@@ -1140,6 +1140,66 @@ export function FreeField(props: {
                 )}
               </div>
             ) : null}
+
+            {/* Charge counters — prominent badge for Station planets/spacecraft */}
+            {(() => {
+              const cardTypeLine = String(raw?.card?.type_line || '').toLowerCase();
+              const oracleText = String(raw?.card?.oracle_text || '');
+              const hasStation =
+                cardTypeLine.includes('spacecraft') ||
+                cardTypeLine.includes('planet') ||
+                /\bstation\b/i.test(oracleText);
+              const chargeCount = Number(counters['charge'] ?? 0);
+              const stationThreshold = hasStation ? parseStationThreshold(oracleText) : undefined;
+              const showBadge = chargeCount > 0 || (hasStation && typeof stationThreshold === 'number');
+              if (!showBadge) return null;
+
+              const reachedThreshold =
+                typeof stationThreshold === 'number' && chargeCount >= stationThreshold;
+              const counterLabel =
+                typeof stationThreshold === 'number'
+                  ? `${chargeCount}/${stationThreshold}`
+                  : String(chargeCount);
+
+              return (
+                <div
+                  title={`${chargeCount} charge counter${chargeCount === 1 ? '' : 's'}${
+                    typeof stationThreshold === 'number' ? ` (Station ${stationThreshold}+)` : ''
+                  }`}
+                  style={{
+                    position: 'absolute',
+                    top: Math.round(4 * scale),
+                    left: Math.round(4 * scale),
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: Math.round(3 * scale),
+                    padding: `${Math.round(3 * scale)}px ${Math.round(7 * scale)}px`,
+                    borderRadius: Math.round(6 * scale),
+                    background: reachedThreshold
+                      ? 'linear-gradient(135deg, rgba(34,197,94,0.95), rgba(22,163,74,0.95))'
+                      : 'linear-gradient(135deg, rgba(37,99,235,0.95), rgba(29,78,216,0.95))',
+                    border: reachedThreshold
+                      ? '1px solid rgba(134,239,172,0.8)'
+                      : '1px solid rgba(147,197,253,0.8)',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+                    zIndex: 18,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <span style={{ fontSize: Math.round(11 * scale) }}>⚡</span>
+                  <span
+                    style={{
+                      fontSize: Math.round(11 * scale),
+                      fontWeight: 700,
+                      color: '#fff',
+                      lineHeight: 1,
+                    }}
+                  >
+                    {counterLabel}
+                  </span>
+                </div>
+              );
+            })()}
 
             {/* Temporary Effects Badge - shows when card has temporary effects applied */}
             {hasTemporaryEffects && (

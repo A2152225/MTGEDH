@@ -499,13 +499,20 @@ function buildInlineManaSourcesForPermanent(
 export function buildAvailableManaSourcesForPlayer(
   playerId: string,
   battlefield: BattlefieldPermanent[],
+  options?: { excludePermanentIds?: string[] },
 ): ManaPaymentSource[] {
   const globalBattlefield = Array.isArray(battlefield) ? battlefield : [];
   const playerBattlefield = globalBattlefield.filter((perm) => perm.controller === playerId);
+  const excludedPermanentIds = new Set(
+    (Array.isArray(options?.excludePermanentIds) ? options.excludePermanentIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  );
   const sources: ManaPaymentSource[] = [];
 
   for (const perm of playerBattlefield) {
     if (!perm || perm.tapped) continue;
+    if (excludedPermanentIds.has(String(perm.id || ''))) continue;
     sources.push(...buildInlineManaSourcesForPermanent(perm, playerId, globalBattlefield, playerBattlefield));
   }
 

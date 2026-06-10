@@ -91,7 +91,7 @@ export interface ActivationContext {
   stackEmpty: boolean;
 }
 
-function parseStationThreshold(oracleText: string): number | undefined {
+export function parseStationThreshold(oracleText: string): number | undefined {
   const inlineMatch = oracleText.match(/station\s*(\d+)/i);
   if (inlineMatch) {
     return parseInt(inlineMatch[1], 10);
@@ -1225,7 +1225,7 @@ export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: r
   // ======== STATION ABILITIES (Spacecraft) ========
   // Station N (Rule 702.184a): Tap another untapped creature you control: Put charge counters
   // equal to that creature's power on this permanent
-  if (typeLine.includes('spacecraft') || lowerOracle.includes('station')) {
+  if (typeLine.includes('spacecraft') || typeLine.includes('planet') || lowerOracle.includes('station')) {
     const stationThreshold = parseStationThreshold(oracleText);
     if (typeof stationThreshold === 'number' && Number.isFinite(stationThreshold)) {
       abilities.push({

@@ -1,11 +1,9 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
-import {
-  applyOracleIRStepsToGameState,
-  buildOracleIRExecutionContext,
-} from '../../../../rules-engine/src/oracleIRExecutor.js';
+import { buildOracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutor.js';
 import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser.js';
 import type { GameContext } from '../context.js';
+import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 
 const ORACLE_IR_ACTIVATED_STEP_KINDS = new Set<string>([
@@ -132,12 +130,14 @@ export function tryApplyOracleIRToActivatedAbility(
       },
     );
 
-    const result = applyOracleIRStepsToGameState(state, supportedSteps, irCtx, {
+    const result = applyOracleIRStepsOnServer(ctx, state, supportedSteps, irCtx, {
       allowOptional: params.allowOptional ?? true,
       selectedModeIds: params.selectedModeIds,
+    }, {
+      controller: params.controller,
+      targetPlayerId: targetBinding.targetPlayerId,
+      applyMillReplacements: true,
     });
-
-    Object.assign(state, result.state);
 
     const applied = result.appliedSteps.length;
     const pendingOptional = (result.pendingOptionalSteps || []).length > 0;

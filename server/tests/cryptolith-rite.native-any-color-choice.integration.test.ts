@@ -141,4 +141,58 @@ describe('Cryptolith Rite granted native_any mana choice (integration)', () => {
     expect(Number((game.state as any).manaPool[p1].green || 0)).toBe(1);
     expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(0);
   });
+
+  it('rejects granted native_any when the creature has summoning sickness', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'bear_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: true,
+        grantedAbilities: ['tap_for_any_color'],
+        card: {
+          id: 'bear_card',
+          name: 'Grizzly Bears',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId,
+      permanentId: 'bear_1',
+      abilityId: 'native_any',
+    });
+
+    const errorEvent = emitted.find((entry) => entry.event === 'error');
+    expect(errorEvent?.payload?.code).toBe('SUMMONING_SICKNESS');
+
+    const permanent = ((game.state as any).battlefield || []).find((entry: any) => entry?.id === 'bear_1');
+    expect(Boolean(permanent?.tapped)).toBe(false);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue?.steps?.length || 0).toBe(0);
+  });
 });

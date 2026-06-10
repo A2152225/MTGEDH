@@ -255,6 +255,8 @@ export function App() {
     targets?: string[];  // Targets selected via requestCastSpell flow
     effectId?: string;   // Effect ID for MTG-compliant flow
     paymentStepId?: string;
+    activatingPermanentId?: string;
+    excludeActivatingPermanentFromPayment?: boolean;
     xValue?: number;
     costAdjustment?: PaymentCostAdjustment;
     convokeOptions?: {
@@ -797,6 +799,9 @@ export function App() {
     cardName: string;
     amount: number;
     allowedColors?: string[]; // Array of allowed color codes (e.g., ['W', 'U'])
+    amountByColor?: Partial<Record<'W' | 'U' | 'B' | 'R' | 'G', number>>;
+    dynamicAmountSource?: 'devotion' | 'creature_type_count';
+    chosenCreatureType?: string;
     cardImageUrl?: string;
   } | null>(null);
   
@@ -2631,6 +2636,13 @@ export function App() {
             cardName: String(step.cardName || step.sourceName || 'Mana'),
             amount: Number(step.amount || 1),
             allowedColors: Array.isArray(step.allowedColors) ? step.allowedColors : undefined,
+            amountByColor: step.amountByColor && typeof step.amountByColor === 'object'
+              ? step.amountByColor
+              : undefined,
+            dynamicAmountSource: step.dynamicAmountSource === 'devotion' || step.dynamicAmountSource === 'creature_type_count'
+              ? step.dynamicAmountSource
+              : undefined,
+            chosenCreatureType: typeof step.chosenCreatureType === 'string' ? step.chosenCreatureType : undefined,
             cardImageUrl: step.sourceImage,
           });
           setAnyColorManaModalOpen(true);
@@ -2687,6 +2699,8 @@ export function App() {
           manaCost: String((step as any).manaCost || ''),
           oracleText: String((step as any).abilityText || step.description || ''),
           paymentStepId: String(step.id),
+          activatingPermanentId: String((step as any).permanentId || step.sourceId || ''),
+          excludeActivatingPermanentFromPayment: (step as any).requiresTap === true,
           title: `Pay for ${String((step as any).cardName || step.sourceName || 'Ability')}`,
           confirmLabel: String((step as any).confirmLabel || 'Pay and Continue'),
           manualFloatingManaSelection: true,
@@ -3993,21 +4007,34 @@ export function App() {
   };
 
   // Get available mana sources (untapped lands and mana-producing artifacts/creatures)
-  const getAvailableManaSourcesForPlayer = (playerId: string) => {
+  const getAvailableManaSourcesForPlayer = (
+    playerId: string,
+    options?: { excludePermanentIds?: string[] },
+  ) => {
     if (!safeView) return [];
     const battlefield = (safeView.battlefield || []) as BattlefieldPermanent[];
+    const buildSources = () => buildAvailableManaSourcesForPlayer(playerId, battlefield, options);
 
     if (checkMetalcraft(playerId)) {
-      return buildAvailableManaSourcesForPlayer(playerId, battlefield);
+      return buildSources();
     }
 
-    return buildAvailableManaSourcesForPlayer(playerId, battlefield).filter((source) => {
+    return buildSources().filter((source) => {
       const sourcePermanent = battlefield.find((perm) => String(perm.id || '') === String(source.sourcePermanentId || source.id || ''));
       const oracleText = String((sourcePermanent?.card as any)?.oracle_text || '').toLowerCase();
       if (!oracleText.includes('metalcraft')) return true;
       return false;
     });
   };
+
+  const castSpellPaymentSources = useMemo(() => {
+    if (!you) return [];
+    const excludePermanentIds = spellToCast?.excludeActivatingPermanentFromPayment === true
+      && spellToCast.activatingPermanentId
+      ? [spellToCast.activatingPermanentId]
+      : undefined;
+    return getAvailableManaSourcesForPlayer(you, excludePermanentIds ? { excludePermanentIds } : undefined);
+  }, [spellToCast, you, safeView?.battlefield]);
 
   // Handle cast spell confirmation from modal - works for both hand and commander spells
   const handleCastSpellConfirm = (payment: PaymentItem[], alternateCostId?: string, xValue?: number, convokeTappedCreatures?: string[]) => {
@@ -6608,7 +6635,7 @@ export function App() {
         oracleText={spellToCast?.oracleText}
         forcedAlternateCostId={spellToCast?.forcedAlternateCostId}
         extraAlternateCosts={spellToCast?.extraAlternateCosts || battlefieldAlternateCosts}
-        availableSources={you ? getAvailableManaSourcesForPlayer(you) : []}
+        availableSources={castSpellPaymentSources}
         battlefieldPermanents={you ? ((safeView?.battlefield || []).filter((perm: any) => perm.controller === you) as BattlefieldPermanent[]) : []}
         otherCardsInHand={useMemo(() => {
           if (!safeView || !you || !spellToCast) return [];
@@ -7223,7 +7250,10 @@ export function App() {
         permanentId={anyColorManaModalData?.permanentId || ''}
         cardName={anyColorManaModalData?.cardName || ''}
         amount={anyColorManaModalData?.amount || 1}
-        allowedColors={anyColorManaModalData?.allowedColors} // Pass allowed colors to filter modal
+        allowedColors={anyColorManaModalData?.allowedColors}
+        amountByColor={anyColorManaModalData?.amountByColor}
+        dynamicAmountSource={anyColorManaModalData?.dynamicAmountSource}
+        chosenCreatureType={anyColorManaModalData?.chosenCreatureType}
         cardImageUrl={anyColorManaModalData?.cardImageUrl}
         onConfirm={(chosenColor) => {
           if (safeView?.id && anyColorManaModalData) {

@@ -10189,7 +10189,19 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     }
   }
 
-  if (creatureETBMatch && !hasOpponentCreatureRestriction && !triggers.some(t => t.triggerType === 'creature_etb')) {
+  const hasEntersOrAttacksTrigger =
+    /\benters or attacks\b/i.test(oracleText) ||
+    triggers.some((t) =>
+      t.triggerType === 'chosen_type_creature_etb_or_attack' ||
+      t.triggerType === 'self_enters_or_attacks'
+    );
+
+  if (
+    creatureETBMatch &&
+    !hasOpponentCreatureRestriction &&
+    !hasEntersOrAttacksTrigger &&
+    !triggers.some(t => t.triggerType === 'creature_etb')
+  ) {
     const requiredTypePhrase = creatureETBMatch[1].trim();
     const isNontokenOnly = /\b(?:nontoken|non-token)\b/i.test(requiredTypePhrase);
     const isTokenOnly = !isNontokenOnly && /\btoken\b/i.test(requiredTypePhrase);
