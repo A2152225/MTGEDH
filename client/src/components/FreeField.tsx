@@ -203,8 +203,10 @@ export function FreeField(props: {
   const tileH = Math.round(tileWidth / 0.72);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ permanent: BattlefieldPermanent; x: number; y: number } | null>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number; z?: number } | null>(null);
   const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [isPointerDragging, setIsPointerDragging] = useState(false);
   /** Stable grid slots for permanents without server-persisted positions (survives re-renders/reorders). */
   const autoPositionCache = useRef(new Map<string, { x: number; y: number }>());
 
@@ -600,11 +602,77 @@ export function FreeField(props: {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [draggable, hoverId, moveCardByArrow]);
 
+  const releaseFieldPointerCapture = useCallback((pointerId: number) => {
+    const field = fieldRef.current;
+    if (field?.hasPointerCapture(pointerId)) {
+      field.releasePointerCapture(pointerId);
+    }
+  }, []);
+
+  const finishDrag = useCallback((
+    e?: { clientX: number; clientY: number; altKey?: boolean },
+    commit = true,
+  ) => {
+    const active = drag.current;
+    if (!active) {
+      setDragPreview(null);
+      setIsPointerDragging(false);
+      return;
+    }
+
+    if (commit && e && onMove) {
+      const dx = e.clientX - active.startX;
+      const dy = e.clientY - active.startY;
+      const nx = Math.round(active.baseX + dx);
+      const ny = Math.round(active.baseY + dy);
+      const snapped = snapPixelToCell(
+        clamp(nx, 0, Math.max(0, widthPx - tileWidth)),
+        clamp(ny, 0, Math.max(0, heightPx - tileH)),
+        gridLayout,
+      );
+      const bumpZ = e.altKey ? ((active.z ?? 0) + 1) : active.z;
+      autoPositionCache.current.set(active.id, { x: snapped.x, y: snapped.y });
+      onMove(active.id, snapped.x, snapped.y, bumpZ);
+    }
+
+    drag.current = null;
+    setDragPreview(null);
+    setIsPointerDragging(false);
+  }, [gridLayout, heightPx, onMove, tileH, tileWidth, widthPx]);
+
+  const cancelDrag = useCallback(() => {
+    finishDrag(undefined, false);
+  }, [finishDrag]);
+
+  useEffect(() => {
+    if (!isPointerDragging) return;
+
+    const onBlur = () => cancelDrag();
+    const onGlobalPointerUp = (event: PointerEvent) => {
+      if (!drag.current) return;
+      releaseFieldPointerCapture(event.pointerId);
+      finishDrag(event, true);
+    };
+    const onGlobalPointerCancel = (event: PointerEvent) => {
+      releaseFieldPointerCapture(event.pointerId);
+      cancelDrag();
+    };
+
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('pointerup', onGlobalPointerUp);
+    window.addEventListener('pointercancel', onGlobalPointerCancel);
+    return () => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('pointerup', onGlobalPointerUp);
+      window.removeEventListener('pointercancel', onGlobalPointerCancel);
+    };
+  }, [cancelDrag, finishDrag, isPointerDragging, releaseFieldPointerCapture]);
+
   const onPointerDown = (id: string, e: React.PointerEvent) => {
-    if (!draggable) return;
+    if (!draggable || e.button !== 0) return;
     const item = items.find(x => x.id === id);
     if (!item) return;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    fieldRef.current?.setPointerCapture(e.pointerId);
     drag.current = {
       id,
       startX: e.clientX,
@@ -613,15 +681,21 @@ export function FreeField(props: {
       baseY: item.cellY ?? item.pos?.y ?? 0,
       z: item.pos?.z
     };
+    setIsPointerDragging(true);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
     if (!drag.current) return;
+    if (e.pointerType === 'mouse' && (e.buttons & 1) === 0) {
+      releaseFieldPointerCapture(e.pointerId);
+      cancelDrag();
+      return;
+    }
     e.preventDefault();
     const dx = e.clientX - drag.current.startX;
     const dy = e.clientY - drag.current.startY;
-    let nx = Math.round(drag.current.baseX + dx);
-    let ny = Math.round(drag.current.baseY + dy);
+    const nx = Math.round(drag.current.baseX + dx);
+    const ny = Math.round(drag.current.baseY + dy);
     const snapped = snapPixelToCell(
       clamp(nx, 0, Math.max(0, widthPx - tileWidth)),
       clamp(ny, 0, Math.max(0, heightPx - tileH)),
@@ -630,25 +704,15 @@ export function FreeField(props: {
     setDragPreview({ id: drag.current.id, x: snapped.x, y: snapped.y });
   };
 
-  const onPointerUp = (id: string, e: React.PointerEvent) => {
+  const onPointerUp = (e: React.PointerEvent) => {
     if (!drag.current) return;
-    if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    }
-    const dx = e.clientX - drag.current.startX;
-    const dy = e.clientY - drag.current.startY;
-    let nx = Math.round(drag.current.baseX + dx);
-    let ny = Math.round(drag.current.baseY + dy);
-    const snapped = snapPixelToCell(
-      clamp(nx, 0, Math.max(0, widthPx - tileWidth)),
-      clamp(ny, 0, Math.max(0, heightPx - tileH)),
-      gridLayout,
-    );
-    const bumpZ = e.altKey ? ((drag.current.z ?? 0) + 1) : drag.current.z;
-    autoPositionCache.current.set(drag.current.id, { x: snapped.x, y: snapped.y });
-    onMove && onMove(drag.current.id, snapped.x, snapped.y, bumpZ);
-    drag.current = null;
-    setDragPreview(null);
+    releaseFieldPointerCapture(e.pointerId);
+    finishDrag(e, true);
+  };
+
+  const onPointerCancel = (e: React.PointerEvent) => {
+    releaseFieldPointerCapture(e.pointerId);
+    cancelDrag();
   };
 
   const renderItems = useMemo(() => {
@@ -666,6 +730,7 @@ export function FreeField(props: {
 
   return (
     <div
+      ref={fieldRef}
       style={{
         position: 'relative',
         width: widthPx,
@@ -673,9 +738,13 @@ export function FreeField(props: {
         border: '1px dashed rgba(255,255,255,0.15)',
         borderRadius: 8,
         background: 'rgba(0,0,0,0.25)',
-        overflow: 'visible' // Allow attack indicators to overflow
+        overflow: 'visible', // Allow attack indicators to overflow
+        touchAction: draggable ? 'none' : undefined,
       }}
       tabIndex={draggable ? 0 : undefined}
+      onPointerMove={draggable ? onPointerMove : undefined}
+      onPointerUp={draggable ? onPointerUp : undefined}
+      onPointerCancel={draggable ? onPointerCancel : undefined}
       onMouseLeave={() => setHoverId(null)}
     >
       {draggable && hoverId && (
@@ -796,8 +865,6 @@ export function FreeField(props: {
           <div
             key={id}
             onPointerDown={(e) => onPointerDown(id, e)}
-            onPointerMove={onPointerMove}
-            onPointerUp={(e) => onPointerUp(id, e)}
             onMouseEnter={(e) => { setHoverId(id); showCardPreview(e.currentTarget as HTMLElement, raw.card as any, { prefer: 'above', anchorPadding: 0 }); }}
             onMouseLeave={(e) => { setHoverId(prev => prev === id ? null : prev); hideCardPreview(e.currentTarget as HTMLElement); }}
             onClick={() => onCardClick && onCardClick(id)}
@@ -809,6 +876,7 @@ export function FreeField(props: {
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              if (drag.current) cancelDrag();
               setContextMenu({ permanent: raw, x: e.clientX, y: e.clientY });
             }}
             style={{
