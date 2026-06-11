@@ -33,6 +33,10 @@ import { scheduleExiledCardReturnToBattlefield } from './executeSpellEffect.js';
 import { parseSimplePermanentTypeFromText } from '../../../../rules-engine/src/oracleIRExecutorBattlefieldParser.js';
 import { hasExecutorClass } from '../../../../rules-engine/src/oracleIRExecutorPermanentUtils.js';
 import { getNextEndStepFireTurnNumber } from './triggerDelayedEffectUtils.js';
+import {
+  isEachPlayerMayPutLandFromHandStep,
+  queueEachPlayerMayPutLandOrDrawBatch,
+} from './triggerLandPlayPromptUtils.js';
 
 /**
  * The live server stores libraries in ctx.libraries and zone summaries in state.zones,
@@ -385,6 +389,45 @@ function normalizeTopLibraryPromptCard(card: any): Record<string, unknown> {
     mana_cost: card?.mana_cost || card?.card?.mana_cost,
     cmc: card?.cmc ?? card?.card?.cmc,
   };
+}
+
+function isOpponentDrawIfDidntPutLandConditional(step: OracleEffectStep): boolean {
+  if (step.kind !== 'conditional') return false;
+  const raw = String(step.condition?.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
+  return raw === "each opponent who didn't";
+}
+
+function queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult(
+  ctx: GameContext,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    triggerItem?: any;
+  },
+): void {
+  const landStep = [...(result.skippedSteps || []), ...(result.pendingOptionalSteps || [])]
+    .find((step) => isEachPlayerMayPutLandFromHandStep(step));
+  if (!landStep) return;
+
+  const queued = queueEachPlayerMayPutLandOrDrawBatch(ctx, {
+    sourceController: params.controller,
+    sourceName: String(params.sourceName || 'Ability').trim() || 'Ability',
+    sourceId: params.sourceId,
+    batchId: String(params.triggerItem?.id || `land_play_ir_${Date.now()}`),
+    triggerItem: params.triggerItem,
+  });
+  if (!queued) return;
+
+  if (Array.isArray(result.pendingContinuationSteps) && result.pendingContinuationSteps.length > 0) {
+    const filtered = result.pendingContinuationSteps.filter(
+      (step) => !isOpponentDrawIfDidntPutLandConditional(step),
+    );
+    if (filtered.length !== result.pendingContinuationSteps.length) {
+      (result as { pendingContinuationSteps?: OracleEffectStep[] }).pendingContinuationSteps = filtered;
+    }
+  }
 }
 
 function attachOracleIrResumeMetadata(
@@ -2396,6 +2439,7 @@ export function applyOracleIRStepsOnServer(
     controller?: PlayerID;
     targetPlayerId?: PlayerID;
     applyMillReplacements?: boolean;
+    triggerItem?: any;
   },
 ): OracleIRExecutionResult {
   hydrateOracleIRPlayerZonesFromContext(ctx, state);
@@ -2467,6 +2511,12 @@ export function applyOracleIRStepsOnServer(
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
+  });
+  queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult(ctx, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    triggerItem: (params as any)?.triggerItem,
   });
   queueProliferateChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,

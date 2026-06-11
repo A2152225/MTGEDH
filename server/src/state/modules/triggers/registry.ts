@@ -6,6 +6,7 @@
  */
 
 import type { GameContext, RegisteredTrigger, TriggerTiming } from "./types.js";
+import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 
 /**
@@ -29,7 +30,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Upkeep triggers (text is already lowercased, no need for /i flag)
   const upkeepMatch = oracleText.match(/at the beginning of (?:your )?upkeep,?\s*([^.]+)/);
   if (upkeepMatch) {
-    const effect = upkeepMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, upkeepMatch);
     triggers.push({
       id: `${permanentId}_upkeep`,
       permanentId,
@@ -44,7 +45,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Postcombat main phase triggers.
   const postcombatMatch = oracleText.match(/at the beginning of (?:(?:each of )?your )?(?:post-?combat|second) main phases?,?\s*([^.]+(?:\.\s*if you do,?\s*[^.]+)?)/i);
   if (postcombatMatch) {
-    const effect = postcombatMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, postcombatMatch);
     triggers.push({
       id: `${permanentId}_postcombat_main`,
       permanentId,
@@ -59,7 +60,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // End step triggers
   const endStepMatch = oracleText.match(/at the beginning of (?:your |each )?end step,?\s*([^.]+)/);
   if (endStepMatch) {
-    const effect = endStepMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, endStepMatch);
     triggers.push({
       id: `${permanentId}_end_step`,
       permanentId,
@@ -75,7 +76,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Note: New Bloomburrow template uses "enters" instead of "enters the battlefield"
   const etbSelfMatch = oracleText.match(/when (?:~|this creature|this permanent|this enchantment) enters(?: the battlefield)?,?\s*([^.]+)/);
   if (etbSelfMatch) {
-    const effect = etbSelfMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, etbSelfMatch);
     triggers.push({
       id: `${permanentId}_etb_self`,
       permanentId,
@@ -94,7 +95,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Handles: "a creature", "another creature", "one or more creatures", "other creatures"
   const etbCreatureMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?creatures? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
   if (etbCreatureMatch) {
-    const effect = etbCreatureMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, etbCreatureMatch);
     triggers.push({
       id: `${permanentId}_etb_creature`,
       permanentId,
@@ -111,7 +112,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Handles plural forms and "another"/"other" variants
   const etbArtifactMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?artifacts? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
   if (etbArtifactMatch) {
-    const effect = etbArtifactMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, etbArtifactMatch);
     triggers.push({
       id: `${permanentId}_etb_artifact`,
       permanentId,
@@ -128,7 +129,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Handles plural forms and "another"/"other" variants
   const etbEnchantmentMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?enchantments? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
   if (etbEnchantmentMatch) {
-    const effect = etbEnchantmentMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, etbEnchantmentMatch);
     triggers.push({
       id: `${permanentId}_etb_enchantment`,
       permanentId,
@@ -145,7 +146,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Handles plural forms and "another"/"other" variants
   const etbPermanentMatch = oracleText.match(/whenever (?:a|an(?:other)?|one or more(?: other)?|other) (?:nontoken )?permanents? (?:you control )?enters?(?: the battlefield)?(?: under your control)?,?\s*([^.]+)/);
   if (etbPermanentMatch) {
-    const effect = etbPermanentMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, etbPermanentMatch);
     triggers.push({
       id: `${permanentId}_etb_permanent`,
       permanentId,
@@ -161,7 +162,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Attack triggers
   const attackMatch = oracleText.match(/whenever (?:~|this creature) attacks,?\s*([^.]+)/);
   if (attackMatch) {
-    const effect = attackMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, attackMatch);
     triggers.push({
       id: `${permanentId}_attack`,
       permanentId,
@@ -176,7 +177,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Combat damage triggers
   const combatDamageMatch = oracleText.match(/whenever (?:~|this creature) deals combat damage to (?:a player|an opponent),?\s*([^.]+)/);
   if (combatDamageMatch) {
-    const effect = combatDamageMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, combatDamageMatch);
     triggers.push({
       id: `${permanentId}_combat_damage`,
       permanentId,
@@ -191,7 +192,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Death triggers
   const deathMatch = oracleText.match(/when (?:~|this creature) dies,?\s*([^.]+)/);
   if (deathMatch) {
-    const effect = deathMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, deathMatch);
     triggers.push({
       id: `${permanentId}_dies`,
       permanentId,
@@ -207,7 +208,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Whenever a creature you control dies
   const creatureDiesMatch = oracleText.match(/whenever (?:a|another) creature you control dies,?\s*([^.]+)/);
   if (creatureDiesMatch) {
-    const effect = creatureDiesMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, creatureDiesMatch);
     triggers.push({
       id: `${permanentId}_creature_dies`,
       permanentId,
@@ -223,7 +224,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Tap triggers
   const tapMatch = oracleText.match(/whenever (?:~|this creature) becomes tapped,?\s*([^.]+)/);
   if (tapMatch) {
-    const effect = tapMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, tapMatch);
     triggers.push({
       id: `${permanentId}_tap`,
       permanentId,
@@ -238,7 +239,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Draw triggers
   const drawMatch = oracleText.match(/whenever (?:you|a player|an opponent) draws? (?:a card|cards),?\s*([^.]+)/);
   if (drawMatch) {
-    const effect = drawMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, drawMatch);
     triggers.push({
       id: `${permanentId}_draw`,
       permanentId,
@@ -254,7 +255,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   const castMatch = oracleText.match(/whenever you cast (?:a |an )?(\w+)?\s*spell,?\s*([^.]+)/);
   if (castMatch) {
     const spellType = castMatch[1] || 'any';
-    const effect = castMatch[2].trim();
+    const effect = timingTriggerEffect(oracleText, castMatch, 2);
     triggers.push({
       id: `${permanentId}_cast`,
       permanentId,

@@ -16,6 +16,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { appendEvent } from "../../../db/index.js";
 import { debugWarn } from "../../../utils/debug.js";
 import { recordCardLeftGraveyardThisTurn } from "../turn-tracking.js";
@@ -291,7 +292,7 @@ export function detectGainedLifeTriggersFromOracle(card: any, permanent: any): A
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effect = String(match[1] || '').trim();
+      const effect = timingTriggerEffect(oracleText, match);
       if (!effect || triggers.some((trigger) => trigger.triggerType === triggerType && trigger.effect === effect)) {
         continue;
       }

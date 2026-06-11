@@ -5105,6 +5105,21 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     } as OracleEffectStep];
   }
 
+  const playerMayPutLandEarly = raw.match(
+    /^each\s+player\s+may\s+put\s+a\s+land\s+card\s+from\s+their\s+hand\s+onto\s+the\s+battlefield$/i,
+  );
+  if (playerMayPutLandEarly) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector('a land card from their hand'),
+      to: 'battlefield',
+      toRaw: 'the battlefield',
+      optional: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
   if (/^each\b/i.test(raw)) {
     if (/\binvestigates?$/i.test(raw)) {
       return [step];

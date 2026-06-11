@@ -3,7 +3,8 @@ import type { GameContext } from '../context.js';
 import { uid, parsePT } from '../utils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { permanentsShareCardType, selectionRequiresSharedCardType } from '../../rules-engine/targeting.js';
-import { movePermanentToHand, movePermanentToGraveyard } from './zones.js';
+import { movePermanentToHand } from './zones.js';
+import { movePermanentToGraveyard } from './counters_tokens.js';
 import { addExtraTurn } from './turn.js';
 import { syncPreparedPermanentAfterControlChange, resyncPreparedExileCopiesWithControllers } from './prepared.js';
 import {

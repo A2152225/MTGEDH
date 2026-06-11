@@ -1,4 +1,5 @@
 import type { GameContext } from '../../context.js';
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 
 import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
@@ -43,14 +44,7 @@ function parseSacrificeFilter(raw: string): Pick<SacrificeTrigger, 'sacrificeFil
 }
 
 function extendSacrificeEffectText(oracleText: string, match: RegExpExecArray): string {
-  let effect = String(match[2] || '').trim().replace(/\s+/g, ' ');
-  const tailStart = (match.index ?? 0) + match[0].length;
-  const tail = String(oracleText || '').slice(tailStart);
-  const followUp = tail.match(/^\.\s*if you do,?\s*[^.]+/i);
-  if (followUp) {
-    effect += followUp[0].replace(/^\.\s*/, '. ').replace(/\s+/g, ' ').trim();
-  }
-  return effect;
+  return timingTriggerEffect(oracleText, match, 2);
 }
 
 export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTrigger[] {
@@ -88,7 +82,7 @@ export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTri
   }
 
   for (const match of oracleText.matchAll(/whenever (?:a |an )?creature is sacrificed,?\s*([^.]+)/gi)) {
-    addTrigger('creature_sacrificed', 'creature', String(match[1] || ''), String(match[0] || ''));
+    addTrigger('creature_sacrificed', 'creature', timingTriggerEffect(oracleText, match), String(match[0] || ''));
   }
 
   for (const match of oracleText.matchAll(
@@ -102,14 +96,14 @@ export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTri
         : subject.includes('creature')
           ? 'creature'
           : 'permanent';
-    addTrigger('permanent_sacrificed', filter, String(match[1] || ''), String(match[0] || ''));
+    addTrigger('permanent_sacrificed', filter, timingTriggerEffect(oracleText, match), String(match[0] || ''));
   }
 
   const playersSacrificeCreaturesMatch = oracleText.match(
     /whenever one or more players sacrifice one or more creatures,?\s*([^.]+)/i,
   );
   if (playersSacrificeCreaturesMatch) {
-    const effectText = String(playersSacrificeCreaturesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playersSacrificeCreaturesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -128,14 +122,14 @@ export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTri
     addTrigger(
       subject === 'an opponent' ? 'opponent_sacrifices' : 'player_sacrifices',
       String(match[2] || ''),
-      String(match[3] || ''),
+      timingTriggerEffect(oracleText, match, 3),
       String(match[0] || ''),
     );
   }
 
   const sacrificeClueMatch = oracleText.match(/when you sacrifice (?:a |an )?Clue,?\s*([^.]+)/i);
   if (sacrificeClueMatch) {
-    const effectText = String(sacrificeClueMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, sacrificeClueMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -168,7 +162,7 @@ export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTri
     /whenever a noncreature artifact is sacrificed or destroyed,?\s*([^.]+)/i,
   );
   if (noncreatureArtifactSacrificedOrDestroyedMatch) {
-    const effectText = String(noncreatureArtifactSacrificedOrDestroyedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, noncreatureArtifactSacrificedOrDestroyedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -186,7 +180,7 @@ export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTri
     /when you sacrifice one or more zombies this way,?\s*([^.]+)/i,
   );
   if (sacrificeZombiesThisWayMatch) {
-    const effectText = String(sacrificeZombiesThisWayMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, sacrificeZombiesThisWayMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -204,7 +198,7 @@ export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTri
     /when you sacrifice one or more artifacts this way,?\s*([^.]+)/i,
   );
   if (sacrificeArtifactsThisWayMatch) {
-    const effectText = String(sacrificeArtifactsThisWayMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, sacrificeArtifactsThisWayMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -222,7 +216,7 @@ export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTri
     /when you sacrifice this (?:enchantment|aura|artifact|creature|permanent),?\s*([^.]+)/i,
   );
   if (selfSacrificeMatch) {
-    const effectText = String(selfSacrificeMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfSacrificeMatch);
     triggers.push({
       permanentId,
       cardName,

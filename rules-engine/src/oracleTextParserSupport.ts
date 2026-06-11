@@ -1,4 +1,4 @@
-const ORACLE_KEYWORDS = [
+export const ORACLE_KEYWORDS = [
   'absorb', 'affinity', 'afflict', 'afterlife', 'aftermath', 'amplify', 'annihilator',
   'aggressive',
   'ascend',

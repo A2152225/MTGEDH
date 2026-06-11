@@ -1,5 +1,6 @@
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import type { OracleIRExecutionResult } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
+import { debugWarn } from '../../utils/debug.js';
 import { isSupportedCopyPermanentTriggerPattern } from './trigger-copy-permanent.js';
 import {
   ORACLE_IR_FALLBACK_STEP_KINDS,
@@ -99,37 +100,68 @@ export function hasUnqueuedPlayerChoiceGap(
   );
 }
 
+export type OracleIrAllOrNothingScope = 'spell' | 'trigger' | 'activated' | 'fallback';
+
+function summarizeOracleIrStep(step: OracleEffectStep): string {
+  const kind = String(step.kind || 'unknown');
+  const raw = String(step.raw || '').trim();
+  if (!raw) return kind;
+  const snippet = raw.length > 100 ? `${raw.slice(0, 97)}...` : raw;
+  return `${kind} — "${snippet}"`;
+}
+
+function appendUnqueuedPlayerChoiceReasons(
+  reasons: string[],
+  result: OracleIRExecutionResult,
+  queueBridged: boolean,
+): void {
+  if (!hasUnqueuedPlayerChoiceGap(result, queueBridged)) return;
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'player_choice_required') continue;
+    const stepHint = gap.stepKind
+      ? `${gap.stepKind}${gap.raw ? ` — "${String(gap.raw).slice(0, 80)}"` : ''}`
+      : 'unknown step';
+    reasons.push(
+      `unqueued_player_choice: ${gap.message || gap.reasonCode} (${stepHint})`,
+    );
+  }
+}
+
 /**
- * Returns true when every mandatory parsed step was applied, queued for continuation,
- * or bridged to the resolution queue. Prevents silent partial multi-step effects.
+ * Human-readable reasons when mandatory step coverage is incomplete.
+ * Used for all-or-nothing logging and gap triage.
  */
-export function isOracleIrMandatoryExecutionComplete(
+export function describeOracleIrMandatoryExecutionIncomplete(
   parsedSteps: readonly OracleEffectStep[],
   result: OracleIRExecutionResult,
   options?: {
     resolutionQueueStepsBefore?: number;
     resolutionQueueStepsAfter?: number;
   },
-): boolean {
+): readonly string[] {
+  const reasons: string[] = [];
   const queueBefore = Number(options?.resolutionQueueStepsBefore ?? 0);
   const queueAfter = Number(options?.resolutionQueueStepsAfter ?? 0);
   const queueBridged = queueAfter > queueBefore;
 
   const mandatoryParsed = parsedSteps.filter((step) => !isOptionalOracleEffectStep(step));
   if (mandatoryParsed.length === 0) {
-    return (
+    const hasEffect =
       (result.appliedSteps || []).length > 0
       || (result.pendingOptionalSteps || []).length > 0
       || (result.pendingContinuationSteps || []).length > 0
-      || queueBridged
-    );
+      || queueBridged;
+    if (!hasEffect) {
+      reasons.push('no_mandatory_steps_and_no_effect_applied_or_queued');
+    }
+    return reasons;
   }
 
   const skippedMandatory = (result.skippedSteps || []).filter(
     (step) => !isOptionalOracleEffectStep(step),
   );
-  if (skippedMandatory.length > 0) {
-    return false;
+  for (const step of skippedMandatory) {
+    reasons.push(`skipped_mandatory_step: ${summarizeOracleIrStep(step)}`);
   }
 
   const appliedFingerprints = new Set(
@@ -144,27 +176,87 @@ export function isOracleIrMandatoryExecutionComplete(
     if (appliedFingerprints.has(fingerprint)) continue;
     if (continuationFingerprints.has(fingerprint)) continue;
     if (queueBridged) continue;
-    return false;
+    reasons.push(`unapplied_mandatory_step: ${summarizeOracleIrStep(step)}`);
   }
 
-  return true;
+  return reasons;
 }
 
-export function isOracleIrActivatedAbilityHandled(
+/** Mandatory steps present in `allSteps` but absent from `includedSteps` (e.g. fallback wiring). */
+export function describeMissingMandatoryOracleIrSteps(
+  allSteps: readonly OracleEffectStep[],
+  includedSteps: readonly OracleEffectStep[],
+): readonly string[] {
+  const mandatoryAll = allSteps.filter((step) => !isOptionalOracleEffectStep(step));
+  const mandatoryIncluded = includedSteps.filter((step) => !isOptionalOracleEffectStep(step));
+  const includedFingerprints = new Set(
+    mandatoryIncluded.map((step) => oracleEffectStepFingerprint(step)),
+  );
+  return mandatoryAll
+    .filter((step) => !includedFingerprints.has(oracleEffectStepFingerprint(step)))
+    .map((step) => `unwired_mandatory_step: ${summarizeOracleIrStep(step)}`);
+}
+
+export function describeOracleIrExecutionHandledIncomplete(
+  result: OracleIRExecutionResult,
+  resolutionQueueStepsBefore: number,
+  resolutionQueueStepsAfter: number,
+  parsedSteps?: readonly OracleEffectStep[],
+): readonly string[] {
+  const reasons: string[] = [];
+  const queueBridged = resolutionQueueStepsAfter > resolutionQueueStepsBefore;
+  const pendingContinuation = (result.pendingContinuationSteps || []).length;
+
+  if (pendingContinuation > 0 && !queueBridged) {
+    const kinds = (result.pendingContinuationSteps || [])
+      .map((step) => String(step.kind || 'unknown'))
+      .join(', ');
+    reasons.push(
+      `pending_continuation_without_queue_bridge: ${pendingContinuation} step(s) [${kinds}]`,
+    );
+  }
+
+  appendUnqueuedPlayerChoiceReasons(reasons, result, queueBridged);
+
+  const applied = result.appliedSteps.length;
+  const pendingOptional = (result.pendingOptionalSteps || []).length;
+  const hasEffect =
+    applied > 0
+    || pendingOptional > 0
+    || pendingContinuation > 0
+    || queueBridged
+    || (result.automationGaps || []).some((gap) => gap.classification === 'player_choice');
+
+  if (!hasEffect) {
+    reasons.push('no_effect_applied_or_queued');
+  }
+
+  if (parsedSteps && parsedSteps.length > 0) {
+    for (const reason of describeOracleIrMandatoryExecutionIncomplete(parsedSteps, result, {
+      resolutionQueueStepsBefore,
+      resolutionQueueStepsAfter,
+    })) {
+      reasons.push(reason);
+    }
+  }
+
+  return reasons;
+}
+
+export function describeOracleIrActivatedAbilityIncomplete(
   parsedSteps: readonly OracleEffectStep[],
   result: OracleIRExecutionResult,
   options?: {
     resolutionQueueStepsBefore?: number;
     resolutionQueueStepsAfter?: number;
   },
-): boolean {
+): readonly string[] {
+  const reasons: string[] = [];
   const queueBefore = Number(options?.resolutionQueueStepsBefore ?? 0);
   const queueAfter = Number(options?.resolutionQueueStepsAfter ?? 0);
   const queueBridged = queueAfter > queueBefore;
 
-  if (hasUnqueuedPlayerChoiceGap(result, queueBridged)) {
-    return false;
-  }
+  appendUnqueuedPlayerChoiceReasons(reasons, result, queueBridged);
 
   const applied = (result.appliedSteps || []).length;
   const pendingOptional = (result.pendingOptionalSteps || []).length;
@@ -176,8 +268,65 @@ export function isOracleIrActivatedAbilityHandled(
     && pendingContinuation === 0
     && !queueBridged
   ) {
-    return false;
+    reasons.push('no_steps_applied_or_queued');
   }
 
-  return isOracleIrMandatoryExecutionComplete(parsedSteps, result, options);
+  for (const reason of describeOracleIrMandatoryExecutionIncomplete(parsedSteps, result, options)) {
+    reasons.push(reason);
+  }
+
+  return reasons;
+}
+
+export function formatOracleIrAllOrNothingFailure(
+  scope: OracleIrAllOrNothingScope,
+  label: string,
+  reasons: readonly string[],
+  stats?: { applied?: number; parsed?: number; mandatory?: number },
+): string {
+  let headline = `[oracleIR] All-or-nothing ${scope} failed for ${label}`;
+  if (stats?.applied !== undefined && stats?.parsed !== undefined) {
+    headline += `: applied ${stats.applied}/${stats.parsed} step(s)`;
+    if (stats.mandatory !== undefined) {
+      headline += ` (${stats.mandatory} mandatory)`;
+    }
+  }
+  const reasonLines = (reasons.length > 0 ? reasons : ['unknown'])
+    .map((reason) => `  reason: ${reason}`);
+  return [headline, ...reasonLines].join('\n');
+}
+
+export function logOracleIrAllOrNothingFailure(
+  scope: OracleIrAllOrNothingScope,
+  label: string,
+  reasons: readonly string[],
+  stats?: { applied?: number; parsed?: number; mandatory?: number },
+): void {
+  debugWarn(1, formatOracleIrAllOrNothingFailure(scope, label, reasons, stats));
+}
+
+/**
+ * Returns true when every mandatory parsed step was applied, queued for continuation,
+ * or bridged to the resolution queue. Prevents silent partial multi-step effects.
+ */
+export function isOracleIrMandatoryExecutionComplete(
+  parsedSteps: readonly OracleEffectStep[],
+  result: OracleIRExecutionResult,
+  options?: {
+    resolutionQueueStepsBefore?: number;
+    resolutionQueueStepsAfter?: number;
+  },
+): boolean {
+  return describeOracleIrMandatoryExecutionIncomplete(parsedSteps, result, options).length === 0;
+}
+
+export function isOracleIrActivatedAbilityHandled(
+  parsedSteps: readonly OracleEffectStep[],
+  result: OracleIRExecutionResult,
+  options?: {
+    resolutionQueueStepsBefore?: number;
+    resolutionQueueStepsAfter?: number;
+  },
+): boolean {
+  return describeOracleIrActivatedAbilityIncomplete(parsedSteps, result, options).length === 0;
 }

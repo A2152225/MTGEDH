@@ -6,6 +6,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { isInterveningIfSatisfied } from "./intervening-if.js";
 
 export interface CardDrawTrigger {
@@ -35,7 +36,7 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
   // Pattern: "Whenever an opponent draws a card"
   const opponentDrawsMatch = oracleText.match(/whenever an opponent draws (?:a card|cards?),?\s*([^.]+)/i);
   if (opponentDrawsMatch) {
-    const effect = opponentDrawsMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, opponentDrawsMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -49,7 +50,7 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
   // Pattern: "Whenever a player draws a card" (except first each turn sometimes)
   const playerDrawsMatch = oracleText.match(/whenever a player draws (?:a card|cards?),?\s*([^.]+)/i);
   if (playerDrawsMatch) {
-    const effect = playerDrawsMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, playerDrawsMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -62,7 +63,7 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
   
   const enchantedOpponentDrawsMatch = oracleText.match(/whenever enchanted opponent draws (?:a card|cards?),?\s*([^.]+)/i);
   if (enchantedOpponentDrawsMatch && !triggers.some((t) => (t as any).triggerType === 'enchanted_opponent_draws')) {
-    const effect = String(enchantedOpponentDrawsMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, enchantedOpponentDrawsMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -75,7 +76,7 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
 
   const enchantedPlayerDrawsMatch = oracleText.match(/whenever enchanted player draws (?:a card|cards?),?\s*([^.]+)/i);
   if (enchantedPlayerDrawsMatch && !triggers.some((t) => (t as any).triggerType === 'enchanted_player_draws')) {
-    const effect = String(enchantedPlayerDrawsMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, enchantedPlayerDrawsMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -90,7 +91,7 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
     /when the chosen player draws a card with the chosen name,?\s*([^.]+)/i,
   );
   if (chosenPlayerDrawsChosenNameMatch && !triggers.some((t) => (t as any).triggerType === 'chosen_player_draws_chosen_name')) {
-    const effect = String(chosenPlayerDrawsChosenNameMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, chosenPlayerDrawsChosenNameMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -105,7 +106,7 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
     /whenever an opponent draws their first card each turn,?\s*([^.]+)/i,
   );
   if (opponentFirstCardEachTurnMatch && !triggers.some((t) => (t as any).triggerType === 'opponent_draws_first_card_each_turn')) {
-    const effect = String(opponentFirstCardEachTurnMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, opponentFirstCardEachTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -127,7 +128,7 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effect = String(match[1] || '').trim();
+      const effect = timingTriggerEffect(oracleText, match);
       if (!effect || triggers.some((trigger) => trigger.effect === effect)) continue;
       triggers.push({
         permanentId,
@@ -143,7 +144,7 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
   // Pattern: "Whenever you draw a card"
   const youDrawMatch = oracleText.match(/whenever you draw (?:a card|cards?),?\s*([^.]+)/i);
   if (youDrawMatch) {
-    const effect = youDrawMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, youDrawMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -156,7 +157,7 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
 
   const revealCreatureThisWayMatch = oracleText.match(/when you reveal a creature card this way,?\s*([^.]+)/i);
   if (revealCreatureThisWayMatch && !triggers.some((t) => t.triggerType === 'reveal_creature_this_way')) {
-    const effect = String(revealCreatureThisWayMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, revealCreatureThisWayMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -174,7 +175,7 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
   for (const revealThisWayPattern of revealThisWayPatterns) {
     let revealMatch: RegExpExecArray | null;
     while ((revealMatch = revealThisWayPattern.exec(oracleText)) !== null) {
-      const effect = String(revealMatch[2] || '').trim();
+      const effect = timingTriggerEffect(oracleText, revealMatch, 2);
       if (!effect || triggers.some((trigger) => trigger.effect === effect)) continue;
       triggers.push({
         permanentId,

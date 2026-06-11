@@ -55,6 +55,7 @@ import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
 import { parseChosenTypeCreatureEtbTrigger } from "./chosen-creature-type.js";
 import { detectCastTrigger } from "../../../../rules-engine/src/cards/castTriggers.js";
+import { timingTriggerEffect } from './triggers/timing-effect-extraction.js';
 
 function buildCardNameRegexAlternatives(cardName: string): string[] {
   const names = new Set<string>();
@@ -335,14 +336,15 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Upkeep triggers (text is already lowercased, no need for /i flag)
   const upkeepMatch = oracleText.match(/at the beginning of (?:your )?upkeep,?\s*([^.]+)/);
   if (upkeepMatch) {
+    const effect = timingTriggerEffect(oracleText, upkeepMatch);
     triggers.push({
       id: `${permanentId}_upkeep`,
       permanentId,
       controllerId,
       cardName,
       timing: 'upkeep',
-      effect: upkeepMatch[1].trim(),
-      mandatory: !upkeepMatch[1].includes('you may'),
+      effect,
+      mandatory: !effect.includes('you may'),
     });
   }
   
@@ -356,8 +358,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       controllerId,
       cardName,
       timing: 'precombat_main',
-      effect: precombatMatch[1].trim(),
-      mandatory: !precombatMatch[1].includes('you may'),
+      effect: timingTriggerEffect(oracleText, precombatMatch),
+      mandatory: !timingTriggerEffect(oracleText, precombatMatch).includes('you may'),
     });
   }
 
@@ -374,22 +376,23 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       controllerId,
       cardName,
       timing: 'postcombat_main',
-      effect: postcombatMatch[1].trim(),
-      mandatory: !postcombatMatch[1].includes('you may'),
+      effect: timingTriggerEffect(oracleText, postcombatMatch),
+      mandatory: !timingTriggerEffect(oracleText, postcombatMatch).includes('you may'),
     });
   }
   
   // End step triggers
   const endStepMatch = oracleText.match(/at the beginning of (?:your |each )?end step,?\s*([^.]+)/);
   if (endStepMatch) {
+    const effect = timingTriggerEffect(oracleText, endStepMatch);
     triggers.push({
       id: `${permanentId}_end_step`,
       permanentId,
       controllerId,
       cardName,
       timing: 'end_step',
-      effect: endStepMatch[1].trim(),
-      mandatory: !endStepMatch[1].includes('you may'),
+      effect,
+      mandatory: !effect.includes('you may'),
     });
   }
   
@@ -398,6 +401,7 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
   // Matches: "When ~ enters the battlefield", "When this creature enters", etc.
   const etbSelfMatch = oracleText.match(/when (?:~|this creature|this permanent|this enchantment) enters(?: the battlefield)?,?\s*([^.]+)/);
   if (etbSelfMatch) {
+    const effect = timingTriggerEffect(oracleText, etbSelfMatch);
     triggers.push({
       id: `${permanentId}_etb_self`,
       permanentId,
@@ -405,8 +409,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'etb',
       condition: 'self',
-      effect: etbSelfMatch[1].trim(),
-      mandatory: !etbSelfMatch[1].includes('you may'),
+      effect,
+      mandatory: !effect.includes('you may'),
     });
   }
   
@@ -423,8 +427,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'etb',
       condition: 'creature',
-      effect: etbCreatureMatch[1].trim(),
-      mandatory: !etbCreatureMatch[1].includes('you may'),
+      effect: timingTriggerEffect(oracleText, etbCreatureMatch),
+      mandatory: !timingTriggerEffect(oracleText, etbCreatureMatch).includes('you may'),
     });
   }
   
@@ -437,8 +441,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       controllerId,
       cardName,
       timing: 'declare_attackers',
-      effect: attackMatch[1].trim(),
-      mandatory: !attackMatch[1].includes('you may'),
+      effect: timingTriggerEffect(oracleText, attackMatch),
+      mandatory: !timingTriggerEffect(oracleText, attackMatch).includes('you may'),
     });
   }
   
@@ -451,8 +455,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       controllerId,
       cardName,
       timing: 'combat_damage',
-      effect: combatDamageMatch[1].trim(),
-      mandatory: !combatDamageMatch[1].includes('you may'),
+      effect: timingTriggerEffect(oracleText, combatDamageMatch),
+      mandatory: !timingTriggerEffect(oracleText, combatDamageMatch).includes('you may'),
     });
   }
   
@@ -466,8 +470,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'dies',
       condition: 'self',
-      effect: deathMatch[1].trim(),
-      mandatory: !deathMatch[1].includes('you may'),
+      effect: timingTriggerEffect(oracleText, deathMatch),
+      mandatory: !timingTriggerEffect(oracleText, deathMatch).includes('you may'),
     });
   }
   
@@ -481,8 +485,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'dies',
       condition: 'controlled_creature',
-      effect: creatureDiesMatch[1].trim(),
-      mandatory: !creatureDiesMatch[1].includes('you may'),
+      effect: timingTriggerEffect(oracleText, creatureDiesMatch),
+      mandatory: !timingTriggerEffect(oracleText, creatureDiesMatch).includes('you may'),
     });
   }
   
@@ -495,8 +499,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       controllerId,
       cardName,
       timing: 'tap',
-      effect: tapMatch[1].trim(),
-      mandatory: !tapMatch[1].includes('you may'),
+      effect: timingTriggerEffect(oracleText, tapMatch),
+      mandatory: !timingTriggerEffect(oracleText, tapMatch).includes('you may'),
     });
   }
   
@@ -509,8 +513,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       controllerId,
       cardName,
       timing: 'draw',
-      effect: drawMatch[1].trim(),
-      mandatory: !drawMatch[1].includes('you may'),
+      effect: timingTriggerEffect(oracleText, drawMatch),
+      mandatory: !timingTriggerEffect(oracleText, drawMatch).includes('you may'),
     });
   }
   
@@ -524,8 +528,8 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       cardName,
       timing: 'cast',
       condition: castMatch[1] || 'any',
-      effect: castMatch[2].trim(),
-      mandatory: !castMatch[2].includes('you may'),
+      effect: timingTriggerEffect(oracleText, castMatch, 2),
+      mandatory: !timingTriggerEffect(oracleText, castMatch, 2).includes('you may'),
     });
   }
   
@@ -779,7 +783,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     selfCombatDamageAnyMatch &&
     !triggers.some((t) => t.triggerType === 'self_deals_combat_damage_any')
   ) {
-    const effectText = String(selfCombatDamageAnyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfCombatDamageAnyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -798,8 +802,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
       permanentId,
       cardName,
       triggerType: 'deals_combat_damage',
-      description: combatDamagePlayerMatch[1].trim(),
-      effect: combatDamagePlayerMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, combatDamagePlayerMatch),
+      effect: timingTriggerEffect(oracleText, combatDamagePlayerMatch),
       mandatory: true,
     });
   }
@@ -813,7 +817,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     opponentsDealtCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'opponents_dealt_combat_damage')
   ) {
-    const effectText = String(opponentsDealtCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentsDealtCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -830,8 +834,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
       permanentId,
       cardName,
       triggerType: 'creatures_deal_combat_damage_batched',
-      description: batchedCombatDamageMatch[1].trim(),
-      effect: batchedCombatDamageMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, batchedCombatDamageMatch),
+      effect: timingTriggerEffect(oracleText, batchedCombatDamageMatch),
       mandatory: true,
       batched: true,  // This trigger should only fire once per combat damage step if any creatures dealt damage
     });
@@ -844,7 +848,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     typedCreatureCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'typed_creature_combat_damage_to_player')
   ) {
-    const effectText = String(typedCreatureCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedCreatureCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -862,7 +866,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     creatureCombatDamageToYouMatch &&
     !triggers.some((t) => t.triggerType === 'creature_combat_damage_to_you')
   ) {
-    const effectText = String(creatureCombatDamageToYouMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureCombatDamageToYouMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -880,7 +884,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     ringBearerCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'ring_bearer_combat_damage')
   ) {
-    const effectText = String(ringBearerCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, ringBearerCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -899,7 +903,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     !lowerOracle.includes('creature you control deals combat damage') &&
     !triggers.some((t) => t.triggerType === 'any_creature_combat_damage_to_player')
   ) {
-    const effectText = String(anyCreatureCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyCreatureCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -917,7 +921,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     controlledCreatureCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'controlled_creature_deals_combat_damage')
   ) {
-    const effectText = String(controlledCreatureCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledCreatureCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -935,7 +939,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     controlledCreatureCombatDamageAnyMatch &&
     !triggers.some((t) => t.triggerType === 'controlled_creature_deals_combat_damage_any')
   ) {
-    const effectText = String(controlledCreatureCombatDamageAnyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledCreatureCombatDamageAnyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -953,7 +957,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     controlledCreatureCombatDamageToPlaneswalkerMatch &&
     !triggers.some((t) => t.triggerType === 'controlled_creature_combat_damage_to_planeswalker')
   ) {
-    const effectText = String(controlledCreatureCombatDamageToPlaneswalkerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledCreatureCombatDamageToPlaneswalkerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -971,7 +975,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     controlledCreatureCombatDamageToThatPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'controlled_creature_combat_damage_to_that_player')
   ) {
-    const effectText = String(controlledCreatureCombatDamageToThatPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledCreatureCombatDamageToThatPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -989,7 +993,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     counterCreatureCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'counter_creature_combat_damage_to_player')
   ) {
-    const effectText = String(counterCreatureCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, counterCreatureCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1007,7 +1011,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     anyCounterCreatureCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'any_counter_creature_combat_damage_to_player')
   ) {
-    const effectText = String(anyCounterCreatureCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyCounterCreatureCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1025,7 +1029,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     thisOrAnotherTypedCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_typed_combat_damage_to_player')
   ) {
-    const effectText = String(thisOrAnotherTypedCombatDamageToPlayerMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherTypedCombatDamageToPlayerMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -1044,7 +1048,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     !lowerOracle.includes('you control') &&
     !triggers.some((t) => t.triggerType === 'typed_creature_combat_damage_to_player')
   ) {
-    const effectText = String(typedCreatureCombatDamageToPlayerNoControlMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedCreatureCombatDamageToPlayerNoControlMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -1063,7 +1067,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     !lowerOracle.includes('creature you control deals combat damage') &&
     !triggers.some((t) => t.triggerType === 'typed_creature_combat_damage_to_player')
   ) {
-    const effectText = String(typedCreatureCombatDamageToPlayerMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedCreatureCombatDamageToPlayerMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -1081,7 +1085,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     vehicleCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'vehicle_combat_damage_to_player')
   ) {
-    const effectText = String(vehicleCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, vehicleCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1099,7 +1103,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     combatDamageToYourOpponentMatch &&
     !triggers.some((t) => t.triggerType === 'combat_damage_to_your_opponent')
   ) {
-    const effectText = String(combatDamageToYourOpponentMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, combatDamageToYourOpponentMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1117,7 +1121,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     combatDamageToEnchantedPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'combat_damage_to_enchanted_player')
   ) {
-    const effectText = String(combatDamageToEnchantedPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, combatDamageToEnchantedPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1135,7 +1139,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     thatCreatureCombatDamageToPlayerThisTurnMatch &&
     !triggers.some((t) => t.triggerType === 'that_creature_combat_damage_to_player_or_planeswalker_this_turn')
   ) {
-    const effectText = String(thatCreatureCombatDamageToPlayerThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thatCreatureCombatDamageToPlayerThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1153,7 +1157,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     thatCreatureCombatDamageToPlayerOnlyThisTurnMatch &&
     !triggers.some((t) => t.triggerType === 'that_creature_combat_damage_to_player_this_turn')
   ) {
-    const effectText = String(thatCreatureCombatDamageToPlayerOnlyThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thatCreatureCombatDamageToPlayerOnlyThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1171,7 +1175,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     thatCreatureCombatDamageThisTurnMatch &&
     !triggers.some((t) => t.triggerType === 'that_creature_combat_damage_this_turn')
   ) {
-    const effectText = String(thatCreatureCombatDamageThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thatCreatureCombatDamageThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1189,7 +1193,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     deathtouchCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'deathtouch_creature_combat_damage_to_player')
   ) {
-    const effectText = String(deathtouchCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, deathtouchCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1210,7 +1214,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
   ) {
     const typedSubject = String(assassinCombatDamageToPlayerMatch[1] || '').trim().toLowerCase();
     if (!['creature', 'vehicle', 'permanent'].includes(typedSubject)) {
-      const effectText = String(assassinCombatDamageToPlayerMatch[2] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, assassinCombatDamageToPlayerMatch, 2);
       triggers.push({
         permanentId,
         cardName,
@@ -1229,7 +1233,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     thatCreatureCombatDamageThisCombatMatch &&
     !triggers.some((t) => t.triggerType === 'that_creature_combat_damage_to_player_this_combat')
   ) {
-    const effectText = String(thatCreatureCombatDamageThisCombatMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thatCreatureCombatDamageThisCombatMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1244,7 +1248,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     /whenever a creature with skulk deals combat damage to one of your opponents,?\s*([^.]+)/i,
   );
   if (skulkCombatDamageMatch && !triggers.some((t) => t.triggerType === 'skulk_creature_combat_damage_to_opponent')) {
-    const effectText = String(skulkCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, skulkCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1262,7 +1266,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     faceDownCreaturesCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'face_down_creatures_combat_damage_to_player')
   ) {
-    const effectText = String(faceDownCreaturesCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, faceDownCreaturesCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1280,7 +1284,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     creaturesPlayerControlsCombatDamageToYouMatch &&
     !triggers.some((t) => t.triggerType === 'creatures_player_controls_combat_damage_to_you')
   ) {
-    const effectText = String(creaturesPlayerControlsCombatDamageToYouMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creaturesPlayerControlsCombatDamageToYouMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1298,7 +1302,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     otherNontokenCreaturesCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'other_nontoken_creatures_combat_damage_to_player')
   ) {
-    const effectText = String(otherNontokenCreaturesCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, otherNontokenCreaturesCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1316,7 +1320,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     typedCreaturesCombatDamageToOpponentsMatch &&
     !triggers.some((t) => t.triggerType === 'typed_creatures_combat_damage_to_opponents')
   ) {
-    const effectText = String(typedCreaturesCombatDamageToOpponentsMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedCreaturesCombatDamageToOpponentsMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -1337,7 +1341,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     namedOrEquippedCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_equipped_combat_damage_to_player')
   ) {
-    const effectText = String(namedOrEquippedCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrEquippedCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1358,7 +1362,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     namedSelfCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'named_self_combat_damage_to_player')
   ) {
-    const effectText = String(namedSelfCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedSelfCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1379,7 +1383,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     namedOrInstantSorceryDealsDamageMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_instant_sorcery_deals_damage_to_player')
   ) {
-    const effectText = String(namedOrInstantSorceryDealsDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrInstantSorceryDealsDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1397,7 +1401,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     nonHumanCreaturesCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'non_human_creatures_combat_damage_to_player')
   ) {
-    const effectText = String(nonHumanCreaturesCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nonHumanCreaturesCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1416,7 +1420,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     creatureTokensCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'creature_tokens_combat_damage_to_player')
   ) {
-    const effectText = String(creatureTokensCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureTokensCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1438,7 +1442,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     namedSelfCombatDamagePlayerOrBattleMatch &&
     !triggers.some((t) => t.triggerType === 'named_self_combat_damage_to_player_or_battle')
   ) {
-    const effectText = String(namedSelfCombatDamagePlayerOrBattleMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedSelfCombatDamagePlayerOrBattleMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1456,7 +1460,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     deathtouchDealsDamageToPlayerOrPlaneswalkerMatch &&
     !triggers.some((t) => t.triggerType === 'deathtouch_creature_deals_damage_to_player_or_planeswalker')
   ) {
-    const effectText = String(deathtouchDealsDamageToPlayerOrPlaneswalkerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, deathtouchDealsDamageToPlayerOrPlaneswalkerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1474,7 +1478,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     deathtouchDealsDamageToPlaneswalkerMatch &&
     !triggers.some((t) => t.triggerType === 'deathtouch_creature_deals_damage_to_planeswalker')
   ) {
-    const effectText = String(deathtouchDealsDamageToPlaneswalkerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, deathtouchDealsDamageToPlaneswalkerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1492,7 +1496,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     creatureDealsDamageFirstTimeEachTurnMatch &&
     !triggers.some((t) => t.triggerType === 'creature_deals_damage_first_time_each_turn')
   ) {
-    const effectText = String(creatureDealsDamageFirstTimeEachTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureDealsDamageFirstTimeEachTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1512,7 +1516,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
   ) {
     const typedSubject = String(typedCreatureCombatDamageToCreatureMatch[1] || '').trim().toLowerCase();
     if (!['creature', 'vehicle', 'permanent'].includes(typedSubject)) {
-      const effectText = String(typedCreatureCombatDamageToCreatureMatch[2] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, typedCreatureCombatDamageToCreatureMatch, 2);
       triggers.push({
         permanentId,
         cardName,
@@ -1528,7 +1532,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     /whenever a red source you control deals damage to one or more permanents and\/or players,?\s*([^.]+)/i,
   );
   if (redSourceDealsDamageMatch && !triggers.some((t) => t.triggerType === 'red_source_deals_damage')) {
-    const effectText = String(redSourceDealsDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, redSourceDealsDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1549,7 +1553,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     selfCombatDamageToDefendingPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'self_combat_damage_to_defending_player')
   ) {
-    const effectText = String(selfCombatDamageToDefendingPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfCombatDamageToDefendingPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1564,7 +1568,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     new RegExp(`when (?:~|this creature|(?:${combatNameVariants.join('|')})) deals damage,?\\s*([^.]+)`, 'i'),
   );
   if (whenSelfDealsDamageMatch && !triggers.some((t) => t.triggerType === 'when_self_deals_damage')) {
-    const effectText = String(whenSelfDealsDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, whenSelfDealsDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1582,7 +1586,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     basePowerCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'base_power_creatures_combat_damage_to_player')
   ) {
-    const effectText = String(basePowerCombatDamageToPlayerMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, basePowerCombatDamageToPlayerMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -1600,7 +1604,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     legendaryEquipmentCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'legendary_equipment_combat_damage_to_player')
   ) {
-    const effectText = String(legendaryEquipmentCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, legendaryEquipmentCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1618,7 +1622,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     ninjasBossesCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'ninjas_bosses_combat_damage_to_heroes')
   ) {
-    const effectText = String(ninjasBossesCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, ninjasBossesCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1636,7 +1640,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     selfCombatDamageToBlockingMatch &&
     !triggers.some((t) => t.triggerType === 'self_combat_damage_to_blocking_creatures')
   ) {
-    const effectText = String(selfCombatDamageToBlockingMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfCombatDamageToBlockingMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1654,7 +1658,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     toxicCreatureCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'toxic_creature_combat_damage_to_player')
   ) {
-    const effectText = String(toxicCreatureCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, toxicCreatureCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1672,7 +1676,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     enteredThisTurnCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'entered_this_turn_combat_damage_to_player')
   ) {
-    const effectText = String(enteredThisTurnCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enteredThisTurnCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1690,7 +1694,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     opponentControlsCombatDamageToYouMatch &&
     !triggers.some((t) => t.triggerType === 'opponent_controls_combat_damage_to_you')
   ) {
-    const effectText = String(opponentControlsCombatDamageToYouMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentControlsCombatDamageToYouMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1708,7 +1712,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     assassinCombatDamageToOpponentMatch &&
     !triggers.some((t) => t.triggerType === 'assassin_combat_damage_to_opponent')
   ) {
-    const effectText = String(assassinCombatDamageToOpponentMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, assassinCombatDamageToOpponentMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1726,7 +1730,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     selfOrEnchantedCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'self_or_enchanted_combat_damage_to_player')
   ) {
-    const effectText = String(selfOrEnchantedCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfOrEnchantedCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1744,7 +1748,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     attackingCreatureDealsDamageToYouMatch &&
     !triggers.some((t) => t.triggerType === 'attacking_creature_deals_combat_damage_to_you')
   ) {
-    const effectText = String(attackingCreatureDealsDamageToYouMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attackingCreatureDealsDamageToYouMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1762,7 +1766,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     instantSorceryTargetsSingleCreatureDealsDamageMatch &&
     !triggers.some((t) => t.triggerType === 'instant_sorcery_targets_single_creature_deals_damage')
   ) {
-    const effectText = String(instantSorceryTargetsSingleCreatureDealsDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, instantSorceryTargetsSingleCreatureDealsDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1780,7 +1784,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     itDealsCombatDamageToPlayerThisTurnMatch &&
     !triggers.some((t) => t.triggerType === 'it_deals_combat_damage_to_player_this_turn')
   ) {
-    const effectText = String(itDealsCombatDamageToPlayerThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, itDealsCombatDamageToPlayerThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1798,7 +1802,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     seaCreatureCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'sea_creature_combat_damage_to_player')
   ) {
-    const effectText = String(seaCreatureCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, seaCreatureCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1816,7 +1820,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     instantSorcerySpellDealsDamageMatch &&
     !triggers.some((t) => t.triggerType === 'instant_sorcery_spell_deals_damage')
   ) {
-    const effectText = String(instantSorcerySpellDealsDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, instantSorcerySpellDealsDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1834,7 +1838,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     sliverCombatDamageToCreatureMatch &&
     !triggers.some((t) => t.triggerType === 'sliver_combat_damage_to_creature')
   ) {
-    const effectText = String(sliverCombatDamageToCreatureMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, sliverCombatDamageToCreatureMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1852,7 +1856,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     opponentCreaturesCombatDamageToOpponentsMatch &&
     !triggers.some((t) => t.triggerType === 'opponent_creatures_combat_damage_to_opponents')
   ) {
-    const effectText = String(opponentCreaturesCombatDamageToOpponentsMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentCreaturesCombatDamageToOpponentsMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1867,7 +1871,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     /whenever a source you control deals noncombat damage to a creature,?\s*([^.]+)/i,
   );
   if (noncombatDamageToCreatureMatch && !triggers.some((t) => t.triggerType === 'noncombat_damage_to_creature')) {
-    const effectText = String(noncombatDamageToCreatureMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, noncombatDamageToCreatureMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1885,7 +1889,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     powerAboveBaseCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'power_above_base_combat_damage_to_player')
   ) {
-    const effectText = String(powerAboveBaseCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, powerAboveBaseCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1903,7 +1907,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     trampleCreaturesCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'trample_creatures_combat_damage_to_player')
   ) {
-    const effectText = String(trampleCreaturesCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, trampleCreaturesCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1921,7 +1925,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     chosenNameCombatDamageThisTurnMatch &&
     !triggers.some((t) => t.triggerType === 'chosen_name_combat_damage_to_player_this_turn')
   ) {
-    const effectText = String(chosenNameCombatDamageThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, chosenNameCombatDamageThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1941,7 +1945,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     namedOrEnchantedCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_enchanted_combat_damage_to_player')
   ) {
-    const effectText = String(namedOrEnchantedCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrEnchantedCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1959,7 +1963,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     sourceDamageToOpponentMatch &&
     !triggers.some((t) => t.triggerType === 'source_damage_to_opponent')
   ) {
-    const effectText = String(sourceDamageToOpponentMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, sourceDamageToOpponentMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1977,7 +1981,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     sourceDamageToAnotherPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'source_damage_to_another_player')
   ) {
-    const effectText = String(sourceDamageToAnotherPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, sourceDamageToAnotherPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1995,7 +1999,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     sourceDamageToYouMatch &&
     !triggers.some((t) => t.triggerType === 'source_damage_to_you')
   ) {
-    const effectText = String(sourceDamageToYouMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, sourceDamageToYouMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2013,7 +2017,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     lowPowerCreatureCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'low_power_creature_combat_damage_to_player')
   ) {
-    const effectText = String(lowPowerCreatureCombatDamageToPlayerMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, lowPowerCreatureCombatDamageToPlayerMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -2031,7 +2035,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     creaturesWithCountersCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'creatures_with_counters_combat_damage_to_player')
   ) {
-    const effectText = String(creaturesWithCountersCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creaturesWithCountersCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2050,7 +2054,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     commanderYouControlCombatDamageToOpponentMatch &&
     !triggers.some((t) => t.triggerType === 'commander_you_control_combat_damage_to_opponent')
   ) {
-    const effectText = String(commanderYouControlCombatDamageToOpponentMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, commanderYouControlCombatDamageToOpponentMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2068,7 +2072,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     commanderCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'commander_combat_damage_to_player')
   ) {
-    const effectText = String(commanderCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, commanderCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2086,7 +2090,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     opponentDealtCombatDamageByYourCreaturesMatch &&
     !triggers.some((t) => t.triggerType === 'opponent_dealt_combat_damage_by_your_creatures')
   ) {
-    const effectText = String(opponentDealtCombatDamageByYourCreaturesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentDealtCombatDamageByYourCreaturesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2104,7 +2108,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     chosenNameCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'chosen_name_combat_damage_to_player')
   ) {
-    const effectText = String(chosenNameCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, chosenNameCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2122,7 +2126,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     faceUpCreatureCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'face_up_creature_combat_damage_to_player')
   ) {
-    const effectText = String(faceUpCreatureCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, faceUpCreatureCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2140,7 +2144,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     sourceOtherThanSelfDamageToOpponentMatch &&
     !triggers.some((t) => t.triggerType === 'source_other_than_self_damage_to_opponent')
   ) {
-    const effectText = String(sourceOtherThanSelfDamageToOpponentMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, sourceOtherThanSelfDamageToOpponentMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2155,7 +2159,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     /whenever a noncreature source you control deals damage,?\s*([^.]+)/i,
   );
   if (noncreatureSourceDealsDamageMatch && !triggers.some((t) => t.triggerType === 'noncreature_source_deals_damage')) {
-    const effectText = String(noncreatureSourceDealsDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, noncreatureSourceDealsDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2173,7 +2177,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     flyingCreaturesCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'flying_creatures_combat_damage_to_player')
   ) {
-    const effectText = String(flyingCreaturesCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, flyingCreaturesCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2191,7 +2195,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     controlledCreatureCombatDamageToCreatureMatch &&
     !triggers.some((t) => t.triggerType === 'controlled_creature_combat_damage_to_creature')
   ) {
-    const effectText = String(controlledCreatureCombatDamageToCreatureMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledCreatureCombatDamageToCreatureMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2209,7 +2213,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     selfOrEquippedCombatDamageToPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'self_or_equipped_combat_damage_to_player')
   ) {
-    const effectText = String(selfOrEquippedCombatDamageToPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfOrEquippedCombatDamageToPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2227,7 +2231,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     typedCreaturesCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'typed_creatures_combat_damage_to_player')
   ) {
-    const effectText = String(typedCreaturesCombatDamageMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedCreaturesCombatDamageMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -2246,7 +2250,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     batchedCombatDamageToPlayersMatch &&
     !triggers.some((t) => t.triggerType === 'batched_combat_damage_to_players')
   ) {
-    const effectText = String(batchedCombatDamageToPlayersMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, batchedCombatDamageToPlayersMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2265,8 +2269,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
       permanentId,
       cardName,
       triggerType: 'you_are_dealt_combat_damage',
-      description: youAreDealtCombatDamageMatch[1].trim(),
-      effect: youAreDealtCombatDamageMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, youAreDealtCombatDamageMatch),
+      effect: timingTriggerEffect(oracleText, youAreDealtCombatDamageMatch),
       mandatory: true,
     });
   }
@@ -2277,8 +2281,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
       permanentId,
       cardName,
       triggerType: 'you_are_dealt_damage',
-      description: youAreDealtDamageMatch[1].trim(),
-      effect: youAreDealtDamageMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, youAreDealtDamageMatch),
+      effect: timingTriggerEffect(oracleText, youAreDealtDamageMatch),
       mandatory: true,
     });
   }
@@ -2290,8 +2294,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
       permanentId,
       cardName,
       triggerType: 'creatures_deal_combat_damage_to_you_batched',
-      description: creaturesDealCombatDamageToYouMatch[1].trim(),
-      effect: creaturesDealCombatDamageToYouMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, creaturesDealCombatDamageToYouMatch),
+      effect: timingTriggerEffect(oracleText, creaturesDealCombatDamageToYouMatch),
       mandatory: true,
       batched: true,
     });
@@ -2304,7 +2308,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     enchantedCreatureYouControlCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'enchanted_creature_controlled_combat_damage')
   ) {
-    const effectText = String(enchantedCreatureYouControlCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedCreatureYouControlCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2319,7 +2323,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     new RegExp(`whenever ${combatDamageSubject}\\s+deals combat damage to a creature,?\\s*([^.]+)`, 'i'),
   );
   if (combatDamageToCreatureMatch && !triggers.some((t) => t.triggerType === 'deals_combat_damage_to_creature')) {
-    const effectText = String(combatDamageToCreatureMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, combatDamageToCreatureMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2334,7 +2338,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     /whenever equipped creature deals combat damage(?! to),?\s*([^.]+)/i,
   );
   if (equippedAnyCombatDamageMatch && !triggers.some((t) => t.triggerType === 'equipment_combat_damage')) {
-    const effectText = String(equippedAnyCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, equippedAnyCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2349,7 +2353,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     /whenever enchanted creature deals combat damage to defending player,?\s*([^.]+)/i,
   );
   if (enchantedDefendingPlayerDamageMatch && !triggers.some((t) => t.triggerType === 'aura_combat_damage')) {
-    const effectText = String(enchantedDefendingPlayerDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedDefendingPlayerDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2364,7 +2368,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     /when(?:ever)?\s+enchanted creature deals (?:combat )?damage to (?:a player|an opponent),?\s*([^.]+)/i,
   );
   if (enchantedCreatureCombatDamageMatch && !triggers.some((t) => t.triggerType === 'deals_combat_damage' || t.triggerType === 'aura_combat_damage')) {
-    const effectText = String(enchantedCreatureCombatDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedCreatureCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2379,7 +2383,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     /whenever target creature deals (?:combat )?damage,?\s*([^.]+)/i,
   );
   if (targetCreatureDealsDamageMatch && !triggers.some((t) => t.triggerType === 'target_creature_deals_damage')) {
-    const effectText = String(targetCreatureDealsDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, targetCreatureDealsDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2394,7 +2398,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     /whenever one or more ([\w]+(?: or [\w]+)*) you control deal damage to a player,?\s*([^.]+)/i,
   );
   if (typedDealDamageToPlayerMatch && !triggers.some((t) => t.triggerType === 'typed_deal_damage_to_player')) {
-    const effectText = String(typedDealDamageToPlayerMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedDealDamageToPlayerMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -2413,7 +2417,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     !lowerOracle.includes('you control') &&
     !triggers.some((t) => t.triggerType === 'typed_deal_damage')
   ) {
-    const effectText = String(typedDealDamageNoControlMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedDealDamageNoControlMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -2428,7 +2432,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     /whenever one or more ([\w]+(?: or [\w]+)*) you control deal damage to your opponents,?\s*([^.]+)/i,
   );
   if (typedDealDamageToOpponentsMatch && !triggers.some((t) => t.triggerType === 'typed_deal_damage_to_opponents')) {
-    const effectText = String(typedDealDamageToOpponentsMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedDealDamageToOpponentsMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -2443,7 +2447,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     /whenever an? ([\w]+) you control deals damage to a creature,?\s*([^.]+)/i,
   );
   if (typedDealDamageToCreatureMatch && !triggers.some((t) => t.triggerType === 'typed_deal_damage_to_creature')) {
-    const effectText = String(typedDealDamageToCreatureMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedDealDamageToCreatureMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -2462,7 +2466,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = String(match[1] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, match);
       if (!effectText || triggers.some((t) => t.triggerType === 'spell_you_control_deals_damage' && t.effect === effectText)) {
         continue;
       }
@@ -2481,7 +2485,7 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
     new RegExp(`whenever\\s+${combatDamageSubject}\\s+deals damage,?\\s*([^.]+)`, 'i'),
   );
   if (dealsDamageMatch && !triggers.some((t) => t.triggerType === 'deals_damage')) {
-    const effectText = String(dealsDamageMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, dealsDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2501,8 +2505,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
       permanentId,
       cardName,
       triggerType: 'deals_damage',
-      description: damagePlayerMatch[1].trim(),
-      effect: damagePlayerMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, damagePlayerMatch),
+      effect: timingTriggerEffect(oracleText, damagePlayerMatch),
       mandatory: true,
     });
   }
@@ -2554,7 +2558,7 @@ export function detectDealtDamageTriggers(card: any, permanent: any): TriggeredA
 
   const damagePreventedMatch = oracleText.match(/when damage is prevented this way,?\s*([^.]+)/i);
   if (damagePreventedMatch && !triggers.some((t) => t.triggerType === 'damage_prevented')) {
-    const effectText = String(damagePreventedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, damagePreventedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2700,7 +2704,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     namedOrNontokenDiesOrCombatDamageMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_nontoken_dies_or_combat_damage_to_player')
   ) {
-    const effectText = String(namedOrNontokenDiesOrCombatDamageMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrNontokenDiesOrCombatDamageMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -2732,7 +2736,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   );
   const attacksOrDiesMatch = oracleText.match(attacksOrDiesPattern);
   if (attacksOrDiesMatch && !triggers.some((t) => t.triggerType === 'attacks_or_dies')) {
-    const effectText = String(attacksOrDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attacksOrDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2745,7 +2749,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
 
   const thatCreatureDiesMatch = oracleText.match(/when (?:that|target|the) creature dies(?: this turn)?,?\s*([^.]+)/i);
   if (thatCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'that_creature_dies')) {
-    const effectText = String(thatCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thatCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2760,7 +2764,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /when this aura is put into (?:a |your )?graveyard from the battlefield,?\s*([^.]+)/i,
   );
   if (auraPutIntoGraveyardMatch && !triggers.some((t) => t.triggerType === 'aura_ltb')) {
-    const effectText = String(auraPutIntoGraveyardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, auraPutIntoGraveyardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2777,7 +2781,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   );
   const entersOrDiesMatch = oracleText.match(entersOrDiesPattern);
   if (entersOrDiesMatch && !triggers.some((t) => t.triggerType === 'enters_or_dies')) {
-    const effectText = String(entersOrDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, entersOrDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2798,8 +2802,8 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       permanentId,
       cardName,
       triggerType: 'dies',
-      description: diesMatch[1].trim(),
-      effect: diesMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, diesMatch),
+      effect: timingTriggerEffect(oracleText, diesMatch),
       mandatory: true,
     });
   }
@@ -2810,7 +2814,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   );
   const namedOrAnotherDiesMatch = oracleText.match(namedOrAnotherDiesPattern);
   if (namedOrAnotherDiesMatch && !triggers.some((t) => t.triggerType === 'named_or_another_creature_dies')) {
-    const effectText = String(namedOrAnotherDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrAnotherDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2827,7 +2831,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   );
   const putIntoGraveyardMatch = oracleText.match(putIntoGraveyardPattern);
   if (putIntoGraveyardMatch && !triggers.some((trigger) => trigger.triggerType === 'dies')) {
-    const effectText = String(putIntoGraveyardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, putIntoGraveyardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2840,7 +2844,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
 
   const pronounGraveyardThisTurnMatch = oracleText.match(/when(?:ever)? it'?s put into (?:a )?graveyard this turn,?\s*([^.]+)/i);
   if (pronounGraveyardThisTurnMatch && !triggers.some((trigger) => trigger.triggerType === 'put_into_graveyard_this_turn')) {
-    const effectText = String(pronounGraveyardThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, pronounGraveyardThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2860,7 +2864,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   for (const pattern of attachmentDiesPatterns) {
     const match = oracleText.match(pattern);
     if (!match) continue;
-    const effectText = String(match[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, match);
     if (!effectText || triggers.some((trigger) => trigger.effect === effectText && trigger.triggerType === 'attachment_dies')) {
       continue;
     }
@@ -2880,7 +2884,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   );
   const dealtDamageDiesMatch = oracleText.match(dealtDamageDiesPattern);
   if (dealtDamageDiesMatch && !triggers.some((trigger) => trigger.triggerType === 'dealt_damage_dies')) {
-    const effectText = String(dealtDamageDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, dealtDamageDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2898,7 +2902,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     enchantedPlayerNontokenCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'enchanted_player_nontoken_creature_dies')
   ) {
-    const effectText = String(enchantedPlayerNontokenCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedPlayerNontokenCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2917,7 +2921,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     !String(genericCounterCreatureDiesMatch[0] || '').toLowerCase().includes('+1/+1 counter') &&
     !triggers.some((t) => t.triggerType === 'counter_creature_dies')
   ) {
-    const effectText = String(genericCounterCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, genericCounterCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2932,7 +2936,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a creature you control with a \+1\/\+1 counter on it dies,?\s*([^.]+)/i,
   );
   if (counterCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'counter_creature_dies')) {
-    const effectText = String(counterCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, counterCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2951,7 +2955,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     thisOrAnotherCreatureDiesAnyMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_creature_dies_any')
   ) {
-    const effectText = String(thisOrAnotherCreatureDiesAnyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherCreatureDiesAnyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2969,7 +2973,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     thisOrAnotherCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_creature_dies')
   ) {
-    const effectText = String(thisOrAnotherCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -2987,7 +2991,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     thisOrAnotherTypedCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_typed_creature_dies')
   ) {
-    const effectText = String(thisOrAnotherTypedCreatureDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherTypedCreatureDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -3005,7 +3009,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     thisOrAnotherPowerCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_power_creature_dies')
   ) {
-    const effectText = String(thisOrAnotherPowerCreatureDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherPowerCreatureDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -3023,7 +3027,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     thisOrAnotherNontokenCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_nontoken_creature_dies')
   ) {
-    const effectText = String(thisOrAnotherNontokenCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherNontokenCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3041,7 +3045,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     enchantedOrModifiedCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'enchanted_or_modified_creature_dies')
   ) {
-    const effectText = String(enchantedOrModifiedCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedOrModifiedCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3061,7 +3065,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     namedOrAnotherKeywordCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_another_keyword_creature_dies')
   ) {
-    const effectText = String(namedOrAnotherKeywordCreatureDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrAnotherKeywordCreatureDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -3079,7 +3083,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     oneOrMoreOtherCreaturesOrArtifactsDieMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_other_creatures_or_artifacts_die')
   ) {
-    const effectText = String(oneOrMoreOtherCreaturesOrArtifactsDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreOtherCreaturesOrArtifactsDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3097,7 +3101,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     thisOrAnotherArtifactCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_artifact_creature_dies')
   ) {
-    const effectText = String(thisOrAnotherArtifactCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherArtifactCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3118,7 +3122,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     namedEntersOrPlaneswalkerDiesMatch &&
     !triggers.some((t) => t.triggerType === 'named_enters_or_planeswalker_dies')
   ) {
-    const effectText = String(namedEntersOrPlaneswalkerDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedEntersOrPlaneswalkerDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3136,7 +3140,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     planeswalkerYouControlDiesMatch &&
     !triggers.some((t) => t.triggerType === 'planeswalker_you_control_dies')
   ) {
-    const effectText = String(planeswalkerYouControlDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, planeswalkerYouControlDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3157,7 +3161,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     namedOrNontokenTypedCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_nontoken_typed_creature_dies')
   ) {
-    const effectText = String(namedOrNontokenTypedCreatureDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrNontokenTypedCreatureDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -3175,7 +3179,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     bountyCounterCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'bounty_counter_creature_dies')
   ) {
-    const effectText = String(bountyCounterCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, bountyCounterCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3193,7 +3197,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     creatureOrPlaneswalkerDiesMatch &&
     !triggers.some((t) => t.triggerType === 'creature_or_planeswalker_dies')
   ) {
-    const effectText = String(creatureOrPlaneswalkerDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureOrPlaneswalkerDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3211,7 +3215,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherCreatureOrPlaneswalkerDiesMatch &&
     !triggers.some((t) => t.triggerType === 'another_creature_or_planeswalker_dies')
   ) {
-    const effectText = String(anotherCreatureOrPlaneswalkerDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherCreatureOrPlaneswalkerDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3229,7 +3233,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     thisOrAnotherCreatureOrArtifactDiesMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_creature_or_artifact_dies')
   ) {
-    const effectText = String(thisOrAnotherCreatureOrArtifactDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherCreatureOrArtifactDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3247,7 +3251,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     nonTypeCreatureYouControlDiesMatch &&
     !triggers.some((t) => t.triggerType === 'non_type_creature_you_control_dies')
   ) {
-    const effectText = String(nonTypeCreatureYouControlDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nonTypeCreatureYouControlDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -3265,7 +3269,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherCreatureWithDeathtouchDiesMatch &&
     !triggers.some((t) => t.triggerType === 'another_creature_with_deathtouch_dies')
   ) {
-    const effectText = String(anotherCreatureWithDeathtouchDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherCreatureWithDeathtouchDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3283,7 +3287,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherNontokenMultiTypedDiesMatch &&
     !triggers.some((t) => t.triggerType === 'another_nontoken_multi_typed_dies')
   ) {
-    const effectText = String(anotherNontokenMultiTypedDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherNontokenMultiTypedDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -3301,7 +3305,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     creaturePowerOrToughnessOrLessDiesMatch &&
     !triggers.some((t) => t.triggerType === 'creature_power_or_toughness_or_less_dies')
   ) {
-    const effectText = String(creaturePowerOrToughnessOrLessDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creaturePowerOrToughnessOrLessDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -3319,7 +3323,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     opponentGreatestPowerCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'opponent_greatest_power_creature_dies')
   ) {
-    const effectText = String(opponentGreatestPowerCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentGreatestPowerCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3334,7 +3338,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a creature of the chosen type dies,?\s*([^.]+)/i,
   );
   if (chosenTypeCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'chosen_type_creature_dies')) {
-    const effectText = String(chosenTypeCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, chosenTypeCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3352,7 +3356,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     notedTypeOpponentCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'noted_type_opponent_creature_dies')
   ) {
-    const effectText = String(notedTypeOpponentCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, notedTypeOpponentCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3370,7 +3374,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     oneOrMoreAttackingCreaturesDieMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_attacking_creatures_die')
   ) {
-    const effectText = String(oneOrMoreAttackingCreaturesDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreAttackingCreaturesDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3391,7 +3395,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherLegendaryPermanentGyFromBfMatch &&
     !triggers.some((t) => t.triggerType === 'another_legendary_permanent_graveyard_from_battlefield')
   ) {
-    const effectText = String(anotherLegendaryPermanentGyFromBfMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherLegendaryPermanentGyFromBfMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3410,7 +3414,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     !lowerOracle.includes('nontoken') &&
     !triggers.some((t) => t.triggerType === 'typed_creature_graveyard_from_battlefield')
   ) {
-    const effectText = String(typedCreatureGyFromBfMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedCreatureGyFromBfMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -3428,7 +3432,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherCreatureWithFlyingDiesMatch &&
     !triggers.some((t) => t.triggerType === 'another_creature_with_flying_dies')
   ) {
-    const effectText = String(anotherCreatureWithFlyingDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherCreatureWithFlyingDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3446,7 +3450,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     opponentCreatureWithCounterDiesMatch &&
     !triggers.some((t) => t.triggerType === 'opponent_creature_with_counter_dies')
   ) {
-    const effectText = String(opponentCreatureWithCounterDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentCreatureWithCounterDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3461,7 +3465,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a nonblack card is put into a player's graveyard from anywhere,?\s*([^.]+)/i,
   );
   if (nonblackCardPlayerGyMatch && !triggers.some((t) => t.triggerType === 'nonblack_card_player_graveyard_from_anywhere')) {
-    const effectText = String(nonblackCardPlayerGyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nonblackCardPlayerGyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3479,7 +3483,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     thisOrAnotherNontokenTypedDiesMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_nontoken_typed_dies')
   ) {
-    const effectText = String(thisOrAnotherNontokenTypedDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherNontokenTypedDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -3497,7 +3501,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     thisOrAnotherNontokenArtifactGyMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_nontoken_artifact_graveyard')
   ) {
-    const effectText = String(thisOrAnotherNontokenArtifactGyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherNontokenArtifactGyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3515,7 +3519,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     nontokenArtifactGyOrExileMatch &&
     !triggers.some((t) => t.triggerType === 'nontoken_artifact_graveyard_or_exile_from_battlefield')
   ) {
-    const effectText = String(nontokenArtifactGyOrExileMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nontokenArtifactGyOrExileMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3528,7 +3532,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
 
   const creatureWithShadowDiesMatch = oracleText.match(/whenever a creature with shadow dies,?\s*([^.]+)/i);
   if (creatureWithShadowDiesMatch && !triggers.some((t) => t.triggerType === 'creature_with_shadow_dies')) {
-    const effectText = String(creatureWithShadowDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureWithShadowDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3543,7 +3547,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever an aura you control is put into your graveyard from the battlefield,?\s*([^.]+)/i,
   );
   if (auraYouControlGyMatch && !triggers.some((t) => t.triggerType === 'aura_you_control_graveyard_from_battlefield')) {
-    const effectText = String(auraYouControlGyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, auraYouControlGyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3558,7 +3562,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever an attacking ([\w]+) or ([\w]+) is put into your graveyard from the battlefield,?\s*([^.]+)/i,
   );
   if (attackingMultiTypedGyMatch && !triggers.some((t) => t.triggerType === 'attacking_multi_typed_graveyard_from_battlefield')) {
-    const effectText = String(attackingMultiTypedGyMatch[3] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attackingMultiTypedGyMatch, 3);
     triggers.push({
       permanentId,
       cardName,
@@ -3573,7 +3577,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever one or more permanent cards are put into your graveyard from anywhere while [^,]+,?\s*([^.]+)/i,
   );
   if (permanentCardsYourGyWhileMatch && !triggers.some((t) => t.triggerType === 'permanent_cards_your_graveyard_while_condition')) {
-    const effectText = String(permanentCardsYourGyWhileMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, permanentCardsYourGyWhileMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3588,7 +3592,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever another creature you own dies,?\s*([^.]+)/i,
   );
   if (anotherCreatureYouOwnDiesMatch && !triggers.some((t) => t.triggerType === 'another_creature_you_own_dies')) {
-    const effectText = String(anotherCreatureYouOwnDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherCreatureYouOwnDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3601,7 +3605,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
 
   const rollThirdDieMatch = oracleText.match(/whenever you roll your third die each turn,?\s*([^.]+)/i);
   if (rollThirdDieMatch && !triggers.some((t) => t.triggerType === 'roll_third_die_each_turn')) {
-    const effectText = String(rollThirdDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, rollThirdDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3616,7 +3620,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever an opponent draws their first card each turn,?\s*([^.]+)/i,
   );
   if (opponentDrawsFirstCardMatch && !triggers.some((t) => t.triggerType === 'opponent_draws_first_card_each_turn')) {
-    const effectText = String(opponentDrawsFirstCardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentDrawsFirstCardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3632,7 +3636,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     zombieOrMutantDiesMatch &&
     !triggers.some((t) => t.triggerType === 'multi_typed_creature_dies')
   ) {
-    const effectText = String(zombieOrMutantDiesMatch[3] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, zombieOrMutantDiesMatch, 3);
     triggers.push({
       permanentId,
       cardName,
@@ -3645,7 +3649,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
 
   const foodGyFromBfMatch = oracleText.match(/whenever a food is put into a graveyard from the battlefield,?\s*([^.]+)/i);
   if (foodGyFromBfMatch && !triggers.some((t) => t.triggerType === 'food_graveyard_from_battlefield')) {
-    const effectText = String(foodGyFromBfMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, foodGyFromBfMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3658,7 +3662,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
 
   const creatureTokenDiesMatch = oracleText.match(/whenever a creature token dies,?\s*([^.]+)/i);
   if (creatureTokenDiesMatch && !triggers.some((t) => t.triggerType === 'creature_token_dies')) {
-    const effectText = String(creatureTokenDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureTokenDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3676,7 +3680,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     permanentOwnedByAnotherPlayerGyMatch &&
     !triggers.some((t) => t.triggerType === 'permanent_owned_by_another_player_graveyard_from_battlefield')
   ) {
-    const effectText = String(permanentOwnedByAnotherPlayerGyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, permanentOwnedByAnotherPlayerGyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3694,7 +3698,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     creatureWithCountersDiesMatch &&
     !triggers.some((t) => t.triggerType === 'creature_with_counters_dies')
   ) {
-    const effectText = String(creatureWithCountersDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureWithCountersDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3712,7 +3716,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     equippedCreatureYouControlDiesMatch &&
     !triggers.some((t) => t.triggerType === 'equipped_creature_you_control_dies')
   ) {
-    const effectText = String(equippedCreatureYouControlDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, equippedCreatureYouControlDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3727,7 +3731,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a creature the heroes control dies,?\s*([^.]+)/i,
   );
   if (heroesControlCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'heroes_control_creature_dies')) {
-    const effectText = String(heroesControlCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, heroesControlCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3742,7 +3746,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a creature the bosses control dies,?\s*([^.]+)/i,
   );
   if (bossesControlCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'bosses_control_creature_dies')) {
-    const effectText = String(bossesControlCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, bossesControlCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3760,7 +3764,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherCardGyFromAnywhereMatch &&
     !triggers.some((t) => t.triggerType === 'another_card_graveyard_from_anywhere')
   ) {
-    const effectText = String(anotherCardGyFromAnywhereMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherCardGyFromAnywhereMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3778,7 +3782,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherGoblinGyFromBfMatch &&
     !triggers.some((t) => t.triggerType === 'another_goblin_graveyard_from_battlefield')
   ) {
-    const effectText = String(anotherGoblinGyFromBfMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherGoblinGyFromBfMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3794,7 +3798,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     oneOfEnchantedCreaturesDiesMatch &&
     !triggers.some((t) => t.triggerType === 'one_of_enchanted_creatures_dies')
   ) {
-    const effectText = String(oneOfEnchantedCreaturesDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOfEnchantedCreaturesDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3809,7 +3813,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a Bird is put into your graveyard from the battlefield,?\s*([^.]+)/i,
   );
   if (birdYourGyFromBfMatch && !triggers.some((t) => t.triggerType === 'bird_your_graveyard_from_battlefield')) {
-    const effectText = String(birdYourGyFromBfMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, birdYourGyFromBfMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3824,7 +3828,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /when the chosen permanent is put into a graveyard from the battlefield,?\s*([^.]+)/i,
   );
   if (chosenPermanentGyFromBfMatch && !triggers.some((t) => t.triggerType === 'chosen_permanent_graveyard_from_battlefield')) {
-    const effectText = String(chosenPermanentGyFromBfMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, chosenPermanentGyFromBfMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3839,7 +3843,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a creature you control but don't own dies,?\s*([^.]+)/i,
   );
   if (creatureDontOwnDiesMatch && !triggers.some((t) => t.triggerType === 'creature_you_control_dont_own_dies')) {
-    const effectText = String(creatureDontOwnDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureDontOwnDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3854,7 +3858,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever this enchantment or another nonland permanent you control is put into a graveyard from the battlefield,?\s*([^.]+)/i,
   );
   if (enchantmentOrNonlandGyMatch && !triggers.some((t) => t.triggerType === 'enchantment_or_nonland_graveyard_from_battlefield')) {
-    const effectText = String(enchantmentOrNonlandGyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantmentOrNonlandGyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3869,7 +3873,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever an Aura or Equipment you control is put into a graveyard from the battlefield,?\s*([^.]+)/i,
   );
   if (auraOrEquipmentGyMatch && !triggers.some((t) => t.triggerType === 'aura_or_equipment_graveyard_from_battlefield')) {
-    const effectText = String(auraOrEquipmentGyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, auraOrEquipmentGyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3887,7 +3891,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     spiderDealtDamageCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'spider_dealt_damage_creature_dies')
   ) {
-    const effectText = String(spiderDealtDamageCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, spiderDealtDamageCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3902,7 +3906,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a Spirit card or a card with disturb is put into your graveyard from anywhere,?\s*([^.]+)/i,
   );
   if (spiritOrDisturbGyMatch && !triggers.some((t) => t.triggerType === 'spirit_or_disturb_your_graveyard_from_anywhere')) {
-    const effectText = String(spiritOrDisturbGyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, spiritOrDisturbGyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3920,7 +3924,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     creatureCardYourGyFromAnywhereMatch &&
     !triggers.some((t) => t.triggerType === 'creature_card_your_graveyard_from_anywhere')
   ) {
-    const effectText = String(creatureCardYourGyFromAnywhereMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureCardYourGyFromAnywhereMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3935,7 +3939,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a black card is put into an opponent's graveyard from anywhere,?\s*([^.]+)/i,
   );
   if (blackCardOpponentGyMatch && !triggers.some((t) => t.triggerType === 'black_card_opponent_graveyard_from_anywhere')) {
-    const effectText = String(blackCardOpponentGyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, blackCardOpponentGyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -3955,7 +3959,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     namedOrAnotherTypedDiesMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_another_typed_creature_dies')
   ) {
-    const effectText = String(namedOrAnotherTypedDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrAnotherTypedDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -3974,7 +3978,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     !lowerOracle.includes('you control') &&
     !triggers.some((t) => t.triggerType === 'this_or_another_typed_creature_dies_any')
   ) {
-    const effectText = String(thisOrAnotherTypedDiesNoControlMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherTypedDiesNoControlMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -3989,7 +3993,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever (?:a |an )?nontoken ([\w]+) you control dies,?\s*([^.]+)/i,
   );
   if (nontokenTypedDiesMatch && !triggers.some((t) => t.triggerType === 'nontoken_typed_creature_dies')) {
-    const effectText = String(nontokenTypedDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nontokenTypedDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -4004,7 +4008,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever another nontoken ([\w]+) you control dies,?\s*([^.]+)/i,
   );
   if (anotherNontokenTypedDiesMatch && !triggers.some((t) => t.triggerType === 'another_nontoken_typed_creature_dies')) {
-    const effectText = String(anotherNontokenTypedDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherNontokenTypedDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -4025,7 +4029,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     namedEntersOrAnotherNontokenTypedDiesMatch &&
     !triggers.some((t) => t.triggerType === 'named_enters_or_another_nontoken_typed_dies')
   ) {
-    const effectText = String(namedEntersOrAnotherNontokenTypedDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedEntersOrAnotherNontokenTypedDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -4040,7 +4044,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a creature with flying dies,?\s*([^.]+)/i,
   );
   if (flyingCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'flying_creature_dies')) {
-    const effectText = String(flyingCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, flyingCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4055,7 +4059,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever one or more other ([\w]+(?: or [\w]+)*) you control die,?\s*([^.]+)/i,
   );
   if (oneOrMoreOtherTypedDieMatch && !triggers.some((t) => t.triggerType === 'one_or_more_other_typed_die')) {
-    const effectText = String(oneOrMoreOtherTypedDieMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreOtherTypedDieMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -4070,7 +4074,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a nontoken, non-([\w]+) creature you control dies,?\s*([^.]+)/i,
   );
   if (nontokenNonTypeCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'nontoken_non_type_creature_dies')) {
-    const effectText = String(nontokenNonTypeCreatureDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nontokenNonTypeCreatureDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -4085,7 +4089,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a creature you control without flying dies,?\s*([^.]+)/i,
   );
   if (creatureWithoutFlyingDiesMatch && !triggers.some((t) => t.triggerType === 'creature_without_flying_dies')) {
-    const effectText = String(creatureWithoutFlyingDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureWithoutFlyingDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4100,7 +4104,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a face-down creature you control dies,?\s*([^.]+)/i,
   );
   if (faceDownCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'face_down_creature_dies')) {
-    const effectText = String(faceDownCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, faceDownCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4118,7 +4122,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     targetCreatureOtherThanSelfDiesThisTurnMatch &&
     !triggers.some((t) => t.triggerType === 'target_creature_other_than_self_dies_this_turn')
   ) {
-    const effectText = String(targetCreatureOtherThanSelfDiesThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, targetCreatureOtherThanSelfDiesThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4136,7 +4140,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     creatureOpponentGraveyardFromBattlefieldMatch &&
     !triggers.some((t) => t.triggerType === 'creature_opponent_graveyard_from_battlefield')
   ) {
-    const effectText = String(creatureOpponentGraveyardFromBattlefieldMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureOpponentGraveyardFromBattlefieldMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4154,7 +4158,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     nontokenTypedGraveyardFromBattlefieldMatch &&
     !triggers.some((t) => t.triggerType === 'nontoken_typed_graveyard_from_battlefield')
   ) {
-    const effectText = String(nontokenTypedGraveyardFromBattlefieldMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nontokenTypedGraveyardFromBattlefieldMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -4172,7 +4176,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     typedPermanentCardYourGyNotBattlefieldMatch &&
     !triggers.some((t) => t.triggerType === 'typed_permanent_card_your_graveyard_not_battlefield')
   ) {
-    const effectText = String(typedPermanentCardYourGyNotBattlefieldMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedPermanentCardYourGyNotBattlefieldMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -4190,7 +4194,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherCreatureOrArtifactDiesMatch &&
     !triggers.some((t) => t.triggerType === 'another_creature_or_artifact_dies')
   ) {
-    const effectText = String(anotherCreatureOrArtifactDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherCreatureOrArtifactDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4205,7 +4209,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever another [Cc]ommander dies,?\s*([^.]+)/i,
   );
   if (anotherCommanderDiesMatch && !triggers.some((t) => t.triggerType === 'another_commander_dies')) {
-    const effectText = String(anotherCommanderDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherCommanderDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4222,7 +4226,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   );
   const fromAnywhereGraveyardMatch = oracleText.match(fromAnywhereGraveyardPattern);
   if (fromAnywhereGraveyardMatch && !triggers.some((t) => t.triggerType === 'put_into_graveyard_from_anywhere')) {
-    const effectText = String(fromAnywhereGraveyardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, fromAnywhereGraveyardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4239,8 +4243,8 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       permanentId,
       cardName,
       triggerType: 'creature_dies',
-      description: controlledDiesMatch[1].trim(),
-      effect: controlledDiesMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, controlledDiesMatch),
+      effect: timingTriggerEffect(oracleText, controlledDiesMatch),
       mandatory: true,
     });
   }
@@ -4249,7 +4253,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever an attacking creature(?: you control)? dies,?\s*([^.]+)/i,
   );
   if (attackingCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'attacking_creature_dies')) {
-    const effectText = String(attackingCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attackingCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4267,7 +4271,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherControlledEntersOrDiesMatch &&
     !triggers.some((t) => t.triggerType === 'another_controlled_enters_or_dies')
   ) {
-    const effectText = String(anotherControlledEntersOrDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherControlledEntersOrDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4287,7 +4291,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     entersOrAnotherCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'enters_or_another_creature_dies')
   ) {
-    const effectText = String(entersOrAnotherCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, entersOrAnotherCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4309,8 +4313,8 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       permanentId,
       cardName,
       triggerType: 'any_creature_dies',
-      description: anyDiesMatch[1].trim(),
-      effect: anyDiesMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, anyDiesMatch),
+      effect: timingTriggerEffect(oracleText, anyDiesMatch),
       mandatory: true,
     });
   }
@@ -4326,7 +4330,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherControlledArtifactOrCreatureGraveyardMatch &&
     !triggers.some((t) => t.triggerType === 'another_controlled_artifact_or_creature_graveyard')
   ) {
-    const effectText = String(anotherControlledArtifactOrCreatureGraveyardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherControlledArtifactOrCreatureGraveyardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4344,7 +4348,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     !lowerOracle.includes('enchantment you control is put') &&
     !triggers.some((t) => t.triggerType === 'any_enchantment_graveyard')
   ) {
-    const effectText = String(anyEnchantmentGraveyardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyEnchantmentGraveyardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4361,7 +4365,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherArtifactOrCreatureGraveyardMatch &&
     !triggers.some((t) => t.triggerType === 'another_artifact_or_creature_graveyard')
   ) {
-    const effectText = String(anotherArtifactOrCreatureGraveyardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherArtifactOrCreatureGraveyardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4372,7 +4376,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     });
   }
   if (putIntoGraveyardFromBattlefieldMatch && !triggers.some((t) => t.triggerType === 'put_into_graveyard_from_battlefield')) {
-    const effectText = String(putIntoGraveyardFromBattlefieldMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, putIntoGraveyardFromBattlefieldMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4387,7 +4391,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /when a legendary creature an opponent controls dies,?\s*([^.]+)/i,
   );
   if (legendaryOpponentDiesMatch && !triggers.some((t) => t.triggerType === 'legendary_opponent_creature_dies')) {
-    const effectText = String(legendaryOpponentDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, legendaryOpponentDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4420,7 +4424,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
   );
   const graveyardZoneDiesMatch = oracleText.match(graveyardZoneDiesPattern);
   if (graveyardZoneDiesMatch && !triggers.some((t) => t.triggerType === 'graveyard_zone_creature_dies')) {
-    const effectText = String(graveyardZoneDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, graveyardZoneDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4438,7 +4442,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     opponentArtifactGraveyardMatch &&
     !triggers.some((t) => t.triggerType === 'opponent_artifact_graveyard')
   ) {
-    const effectText = String(opponentArtifactGraveyardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentArtifactGraveyardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4455,8 +4459,8 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       permanentId,
       cardName,
       triggerType: 'opponent_creature_dies',
-      description: opponentDiesMatch[1].trim(),
-      effect: opponentDiesMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, opponentDiesMatch),
+      effect: timingTriggerEffect(oracleText, opponentDiesMatch),
       mandatory: true,
     });
   }
@@ -4466,7 +4470,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     oneOrMoreOtherCreaturesDieMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_other_creatures_die')
   ) {
-    const effectText = String(oneOrMoreOtherCreaturesDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreOtherCreaturesDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4484,7 +4488,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     oneOrMoreAttackingLegendaryCreaturesDieMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_attacking_legendary_creatures_die')
   ) {
-    const effectText = String(oneOrMoreAttackingLegendaryCreaturesDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreAttackingLegendaryCreaturesDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4502,7 +4506,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     oneOrMoreArtifactCreaturesDieMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_artifact_creatures_die')
   ) {
-    const effectText = String(oneOrMoreArtifactCreaturesDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreArtifactCreaturesDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4520,7 +4524,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherMultiTypedCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'another_multi_typed_creature_dies')
   ) {
-    const effectText = String(anotherMultiTypedCreatureDiesMatch[3] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherMultiTypedCreatureDiesMatch, 3);
     triggers.push({
       permanentId,
       cardName,
@@ -4538,7 +4542,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     thisOrATypedCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_a_typed_creature_dies')
   ) {
-    const effectText = String(thisOrATypedCreatureDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrATypedCreatureDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -4551,7 +4555,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
 
   const itDiesThisTurnMatch = oracleText.match(/when it dies this turn,?\s*([^.]+)/i);
   if (itDiesThisTurnMatch && !triggers.some((t) => t.triggerType === 'it_dies_this_turn')) {
-    const effectText = String(itDiesThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, itDiesThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4569,7 +4573,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     permanentYouDontControlDiesThisTurnMatch &&
     !triggers.some((t) => t.triggerType === 'permanent_you_dont_control_dies_this_turn')
   ) {
-    const effectText = String(permanentYouDontControlDiesThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, permanentYouDontControlDiesThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4587,7 +4591,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     nontokenCounterCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'nontoken_counter_creature_dies')
   ) {
-    const effectText = String(nontokenCounterCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nontokenCounterCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4606,7 +4610,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     !lowerOracle.includes('one or more other creatures you control die') &&
     !triggers.some((t) => t.triggerType === 'one_or_more_controlled_creatures_die')
   ) {
-    const effectText = String(oneOrMoreControlledCreaturesDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreControlledCreaturesDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4624,7 +4628,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     oneOrMoreOtherControlledCreaturesDieMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_other_controlled_creatures_die')
   ) {
-    const effectText = String(oneOrMoreOtherControlledCreaturesDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreOtherControlledCreaturesDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4642,7 +4646,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     oneOrMoreNontokenControlledDieMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_nontoken_creatures_you_control_die')
   ) {
-    const effectText = String(oneOrMoreNontokenControlledDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreNontokenControlledDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4660,7 +4664,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     cardPutIntoOpponentGyFromAnywhereMatch &&
     !triggers.some((t) => t.triggerType === 'card_put_into_opponent_graveyard_from_anywhere')
   ) {
-    const effectText = String(cardPutIntoOpponentGyFromAnywhereMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, cardPutIntoOpponentGyFromAnywhereMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4677,7 +4681,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     !lowerOracle.includes('nontoken creatures you control die') &&
     !triggers.some((t) => t.triggerType === 'one_or_more_nontoken_creatures_die')
   ) {
-    const effectText = String(oneOrMoreNontokenCreaturesDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreNontokenCreaturesDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4695,7 +4699,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     !lowerOracle.includes('one or more nontoken creatures die') &&
     !triggers.some((t) => t.triggerType === 'one_or_more_creatures_die')
   ) {
-    const effectText = String(oneOrMoreCreaturesDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreCreaturesDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4708,7 +4712,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
 
   const hauntsCreatureDiesMatch = oracleText.match(/when(?:ever)? the creature this card haunts dies,?\s*([^.]+)/i);
   if (hauntsCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'haunts_creature_dies')) {
-    const effectText = String(hauntsCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, hauntsCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4723,7 +4727,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /whenever a creature you control with toughness (\d+) or greater dies,?\s*([^.]+)/i,
   );
   if (toughnessCreatureDiesMatch && !triggers.some((t) => t.triggerType === 'toughness_creature_dies')) {
-    const effectText = String(toughnessCreatureDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, toughnessCreatureDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -4741,7 +4745,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     creatureCardsYourGyFromAnywhereMatch &&
     !triggers.some((t) => t.triggerType === 'creature_cards_your_graveyard_from_anywhere')
   ) {
-    const effectText = String(creatureCardsYourGyFromAnywhereMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureCardsYourGyFromAnywhereMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4759,7 +4763,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     landCardYourGyFromAnywhereMatch &&
     !triggers.some((t) => t.triggerType === 'land_card_your_graveyard_from_anywhere')
   ) {
-    const effectText = String(landCardYourGyFromAnywhereMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, landCardYourGyFromAnywhereMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4778,7 +4782,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     !lowerOracle.includes('put into your graveyard') &&
     !triggers.some((t) => t.triggerType === 'land_card_graveyard_from_anywhere')
   ) {
-    const effectText = String(landCardGyFromAnywhereMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, landCardGyFromAnywhereMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4796,7 +4800,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     landCardsPutIntoGyFromAnywhereMatch &&
     !triggers.some((t) => t.triggerType === 'land_cards_put_into_graveyard_from_anywhere')
   ) {
-    const effectText = String(landCardsPutIntoGyFromAnywhereMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, landCardsPutIntoGyFromAnywhereMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4811,7 +4815,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     /when(?:ever)? a creature(?: you control)? dealt damage this way dies this turn,?\s*([^.]+)/i,
   );
   if (dealtDamageThisWayDiesMatch && !triggers.some((t) => t.triggerType === 'dealt_damage_this_way_dies')) {
-    const effectText = String(dealtDamageThisWayDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, dealtDamageThisWayDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4829,7 +4833,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     minusCounterCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'minus_counter_creature_dies')
   ) {
-    const effectText = String(minusCounterCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, minusCounterCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4847,7 +4851,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     impostorCounterCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'impostor_counter_creature_dies')
   ) {
-    const effectText = String(impostorCounterCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, impostorCounterCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4865,7 +4869,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     attackingOrBlockingCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'attacking_or_blocking_creature_dies')
   ) {
-    const effectText = String(attackingOrBlockingCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attackingOrBlockingCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4883,7 +4887,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     opponentsCreaturesDieMatch &&
     !triggers.some((t) => t.triggerType === 'opponents_creatures_die')
   ) {
-    const effectText = String(opponentsCreaturesDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentsCreaturesDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4901,7 +4905,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     itDiesUnderYourControlThisTurnMatch &&
     !triggers.some((t) => t.triggerType === 'it_dies_under_your_control_this_turn')
   ) {
-    const effectText = String(itDiesUnderYourControlThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, itDiesUnderYourControlThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4919,7 +4923,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     whenYouDoPayCreateMatch &&
     !triggers.some((t) => t.triggerType === 'when_you_do_pay_create')
   ) {
-    const effectText = String(whenYouDoPayCreateMatch[0] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, whenYouDoPayCreateMatch, 0);
     triggers.push({
       permanentId,
       cardName,
@@ -4937,7 +4941,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     opponentMinusCounterCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'opponent_minus_counter_creature_dies')
   ) {
-    const effectText = String(opponentMinusCounterCreatureDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentMinusCounterCreatureDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -4955,7 +4959,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     anotherTypedCreatureDiesMatch &&
     !triggers.some((t) => t.triggerType === 'another_typed_creature_dies')
   ) {
-    const effectText = String(anotherTypedCreatureDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherTypedCreatureDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -4974,7 +4978,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     !lowerOracle.includes('creature you control dies') &&
     !triggers.some((t) => t.triggerType === 'typed_creature_dies')
   ) {
-    const effectText = String(typedCreatureDiesMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedCreatureDiesMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -4992,7 +4996,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     enchantedArtifactGraveyardMatch &&
     !triggers.some((t) => t.triggerType === 'enchanted_artifact_graveyard')
   ) {
-    const effectText = String(enchantedArtifactGraveyardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedArtifactGraveyardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5010,7 +5014,7 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
     cardPutIntoGyFromAnywhereMatch &&
     !triggers.some((t) => t.triggerType === 'card_put_into_graveyard_from_anywhere')
   ) {
-    const effectText = String(cardPutIntoGyFromAnywhereMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, cardPutIntoGyFromAnywhereMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5065,7 +5069,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
   );
   const selfLeavesMatch = oracleText.match(selfLeavesPattern);
   if (selfLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'ltb')) {
-    const effectText = String(selfLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5084,7 +5088,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
   );
   const selfEntersOrLeavesLtbMatch = oracleText.match(selfEntersOrLeavesLtbPattern);
   if (selfEntersOrLeavesLtbMatch && !triggers.some((trigger) => trigger.triggerType === 'self_enters_or_leaves')) {
-    const effectText = String(selfEntersOrLeavesLtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfEntersOrLeavesLtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5099,7 +5103,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever (?:a |an )?permanent enters or leaves(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (entersOrLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'enters_or_leaves')) {
-    const effectText = String(entersOrLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, entersOrLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5119,7 +5123,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     !lowerOracle.includes('another permanent leaves') &&
     !triggers.some((trigger) => trigger.triggerType === 'any_permanent_ltb')
   ) {
-    const effectText = String(anyPermanentLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyPermanentLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5134,7 +5138,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     /when this creature phases out or leaves the battlefield,?\s*([^.]+)/i,
   );
   if (phasesOutOrLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'phases_out_or_leaves')) {
-    const effectText = String(phasesOutOrLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, phasesOutOrLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5152,7 +5156,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     anotherCreatureYouControlLeavesMatch &&
     !triggers.some((trigger) => trigger.triggerType === 'another_creature_you_control_leaves')
   ) {
-    const effectText = String(anotherCreatureYouControlLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherCreatureYouControlLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5170,7 +5174,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     targetedCreatureLeavesThisTurnMatch &&
     !triggers.some((trigger) => trigger.triggerType === 'targeted_creature_leaves_this_turn')
   ) {
-    const effectText = String(targetedCreatureLeavesThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, targetedCreatureLeavesThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5183,7 +5187,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const headLeavesMatch = oracleText.match(/when a Head leaves the battlefield,?\s*([^.]+)/i);
   if (headLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'head_leaves_battlefield')) {
-    const effectText = String(headLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, headLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5201,7 +5205,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     ),
   );
   if (namedUntappedOrLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'named_untapped_or_leaves')) {
-    const effectText = String(namedUntappedOrLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedUntappedOrLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5214,7 +5218,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const commanderLeavesMatch = oracleText.match(/when your commander leaves the battlefield,?\s*([^.]+)/i);
   if (commanderLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'commander_leaves')) {
-    const effectText = String(commanderLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, commanderLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5227,7 +5231,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const tokenLeavesMatch = oracleText.match(/whenever a token you control leaves the battlefield,?\s*([^.]+)/i);
   if (tokenLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'token_ltb')) {
-    const effectText = String(tokenLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, tokenLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5242,7 +5246,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever a creature token(?: you control)? leaves the battlefield,?\s*([^.]+)/i,
   );
   if (creatureTokenLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'creature_token_ltb')) {
-    const effectText = String(creatureTokenLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureTokenLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5264,7 +5268,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     thatTokenLeavesMatch &&
     !triggers.some((trigger) => trigger.triggerType === 'that_token_leaves')
   ) {
-    const effectText = String(thatTokenLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thatTokenLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5285,7 +5289,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     mysteryPutOntoBattlefieldLeavesMatch &&
     !triggers.some((trigger) => trigger.triggerType === 'mystery_put_creature_leaves')
   ) {
-    const effectText = String(mysteryPutOntoBattlefieldLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, mysteryPutOntoBattlefieldLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5298,7 +5302,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const namedOrAnotherCreatureLeavesMatch = oracleText.match(namedOrAnotherCreatureLeavesPattern);
   if (namedOrAnotherCreatureLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'named_or_another_creature_ltb')) {
-    const effectText = String(namedOrAnotherCreatureLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrAnotherCreatureLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5313,7 +5317,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever a modified creature you control leaves the battlefield,?\s*([^.]+)/i,
   );
   if (modifiedCreatureLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'modified_creature_ltb')) {
-    const effectText = String(modifiedCreatureLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, modifiedCreatureLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5328,7 +5332,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever (?:a|another) (?:nontoken )?permanent you control leaves(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (controlledLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'controlled_ltb')) {
-    const effectText = String(controlledLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5343,7 +5347,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever a creature you control with a \+1\/\+1 counter on it leaves the battlefield,?\s*([^.]+)/i,
   );
   if (counterCreatureLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'counter_creature_ltb')) {
-    const effectText = String(counterCreatureLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, counterCreatureLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5356,7 +5360,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const gainControlMatch = oracleText.match(/whenever you gain control of (?:a |an )?([^,]+),?\s*([^.]+)/i);
   if (gainControlMatch && !triggers.some((trigger) => trigger.triggerType === 'gain_control')) {
-    const effectText = String(gainControlMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, gainControlMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -5369,7 +5373,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const loseControlGenericMatch = oracleText.match(/whenever you lose control of (?:a |an )?([^,]+),?\s*([^.]+)/i);
   if (loseControlGenericMatch && !triggers.some((trigger) => trigger.triggerType === 'lose_control_generic')) {
-    const effectText = String(loseControlGenericMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, loseControlGenericMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -5382,7 +5386,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const loseControlThatMatch = oracleText.match(/when(?:ever)? you lose control of that ([^,]+),?\s*([^.]+)/i);
   if (loseControlThatMatch && !triggers.some((trigger) => trigger.triggerType === 'lose_control_that')) {
-    const effectText = String(loseControlThatMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, loseControlThatMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -5395,7 +5399,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const loseControlMatch = oracleText.match(/when you lose control of this (artifact|enchantment|permanent),?\s*([^.]+)/i);
   if (loseControlMatch && !triggers.some((trigger) => trigger.triggerType === 'lose_control')) {
-    const effectText = String(loseControlMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, loseControlMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -5414,7 +5418,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     !lowerOracle.includes('permanent you control leaves') &&
     !triggers.some((trigger) => trigger.triggerType === 'another_permanent_ltb')
   ) {
-    const effectText = String(anotherPermanentLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherPermanentLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5433,7 +5437,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     !lowerOracle.includes('permanent you control leaves') &&
     !triggers.some((trigger) => trigger.triggerType === 'creature_ltb')
   ) {
-    const effectText = String(creatureLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5448,7 +5452,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
     /when(?:ever)? (?:the chosen|that) creature leaves(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (chosenCreatureLeavesMatch && !triggers.some((trigger) => trigger.triggerType === 'chosen_creature_ltb')) {
-    const effectText = String(chosenCreatureLeavesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, chosenCreatureLeavesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5467,7 +5471,7 @@ export function detectLTBTriggers(card: any, permanent?: any): TriggeredAbility[
   for (const pattern of attachmentLeavesPatterns) {
     const match = oracleText.match(pattern);
     if (!match) continue;
-    const effectText = String(match[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, match);
     if (!effectText || triggers.some((trigger) => trigger.triggerType === 'attachment_ltb' && trigger.effect === effectText)) {
       continue;
     }
@@ -5494,7 +5498,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     /when you next activate an exhaust ability(?: that isn't a mana ability)?(?: this turn)?,?\s*([^.]+)/i,
   );
   if (exhaustNextMatch) {
-    const effectText = String(exhaustNextMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, exhaustNextMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5512,7 +5516,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     ),
   );
   if (namedExploitMatch && !triggers.some((t) => t.triggerType === 'named_exploit')) {
-    const effectText = String(namedExploitMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedExploitMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5525,7 +5529,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const exploitMatch = oracleText.match(/when this creature exploits a creature,?\s*([^.]+)/i);
   if (exploitMatch) {
-    const effectText = String(exploitMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, exploitMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5543,7 +5547,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     opponentArtifactAbilityMatch &&
     !triggers.some((t) => t.triggerType === 'opponent_artifact_ability_activated')
   ) {
-    const effectText = String(opponentArtifactAbilityMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentArtifactAbilityMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5558,7 +5562,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     /whenever an opponent activates an ability(?: of [^.]+?)?(?:,?\s*(?:if )?(?:it|that) isn'?t a mana ability),?\s*([^.]+)/i,
   );
   if (opponentAbilityMatch && !triggers.some((t) => t.triggerType === 'opponent_artifact_ability_activated')) {
-    const effectText = String(opponentAbilityMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentAbilityMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5571,7 +5575,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const winCoinFlipMatch = oracleText.match(/whenever you win a coin flip,?\s*([^.]+)/i);
   if (winCoinFlipMatch && !triggers.some((t) => t.triggerType === 'win_coin_flip')) {
-    const effectText = String(winCoinFlipMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, winCoinFlipMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5584,7 +5588,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const dieRollThresholdMatch = oracleText.match(/whenever you roll a (\d+) or higher on a die,?\s*([^.]+)/i);
   if (dieRollThresholdMatch && !triggers.some((t) => t.triggerType === 'die_roll_threshold')) {
-    const effectText = String(dieRollThresholdMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, dieRollThresholdMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -5597,7 +5601,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const beginningOfGameMatch = oracleText.match(/at the beginning of the game,?\s*([^.]+)/i);
   if (beginningOfGameMatch && !triggers.some((t) => t.triggerType === 'beginning_of_game')) {
-    const effectText = String(beginningOfGameMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, beginningOfGameMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5610,7 +5614,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const planarDieMatch = oracleText.match(/whenever you roll the planar die,?\s*([^.]+)/i);
   if (planarDieMatch && !triggers.some((t) => t.triggerType === 'planar_die_roll')) {
-    const effectText = String(planarDieMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, planarDieMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5623,7 +5627,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const exhaustActivatedMatch = oracleText.match(/whenever you activate an exhaust ability,?\s*([^.]+)/i);
   if (exhaustActivatedMatch && !triggers.some((t) => t.triggerType === 'exhaust_ability_activated')) {
-    const effectText = String(exhaustActivatedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, exhaustActivatedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5638,7 +5642,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     /whenever you activate an ability that isn't a mana ability,?\s*([^.]+)/i,
   );
   if (nonManaAbilityActivatedMatch && !triggers.some((t) => t.triggerType === 'non_mana_ability_activated')) {
-    const effectText = String(nonManaAbilityActivatedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nonManaAbilityActivatedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5651,7 +5655,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const namedEncounterMatch = oracleText.match(/when you encounter ([^,]+),?\s*([^.]+)/i);
   if (namedEncounterMatch && !triggers.some((t) => t.triggerType === 'named_encounter')) {
-    const effectText = String(namedEncounterMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedEncounterMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -5667,7 +5671,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     dieRollSingleResultMatch &&
     !triggers.some((t) => t.triggerType === 'die_roll_single_result')
   ) {
-    const effectText = String(dieRollSingleResultMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, dieRollSingleResultMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -5682,7 +5686,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     /whenever a (\d+) is rolled on a six-sided die,?\s*([^.]+)/i,
   );
   if (sixSidedDieRollMatch && !triggers.some((t) => t.triggerType === 'six_sided_die_roll')) {
-    const effectText = String(sixSidedDieRollMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, sixSidedDieRollMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -5700,7 +5704,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     noCreaturesOnBattlefieldMatch &&
     !triggers.some((t) => t.triggerType === 'no_creatures_on_battlefield')
   ) {
-    const effectText = String(noCreaturesOnBattlefieldMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, noCreaturesOnBattlefieldMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5713,7 +5717,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const dieRollResultMatch = oracleText.match(/whenever you roll a (\d+) or (\d+),?\s*([^.]+)/i);
   if (dieRollResultMatch) {
-    const effectText = String(dieRollResultMatch[3] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, dieRollResultMatch, 3);
     triggers.push({
       permanentId,
       cardName,
@@ -5726,7 +5730,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const foretellMatch = oracleText.match(/whenever you foretell a card,?\s*([^.]+)/i);
   if (foretellMatch) {
-    const effectText = String(foretellMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, foretellMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5739,7 +5743,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const boastMatch = oracleText.match(/whenever you activate a boast ability,?\s*([^.]+)/i);
   if (boastMatch) {
-    const effectText = String(boastMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, boastMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5752,7 +5756,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const crankMatch = oracleText.match(/whenever you crank(?: this contraption)?,?\s*([^.]+)/i);
   if (crankMatch && !triggers.some((t) => t.triggerType === 'crank_contraption')) {
-    const effectText = String(crankMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, crankMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5765,7 +5769,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const crewedMatch = oracleText.match(/whenever this vehicle becomes crewed(?: for the first time each turn)?,?\s*([^.]+)/i);
   if (crewedMatch) {
-    const effectText = String(crewedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, crewedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5778,7 +5782,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const saddledMatch = oracleText.match(/whenever this creature becomes saddled(?: for the first time each turn)?,?\s*([^.]+)/i);
   if (saddledMatch && !triggers.some((t) => t.triggerType === 'creature_saddled')) {
-    const effectText = String(saddledMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, saddledMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5791,7 +5795,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const dieRollMatch = oracleText.match(/whenever you roll a die,?\s*([^.]+)/i);
   if (dieRollMatch) {
-    const effectText = String(dieRollMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, dieRollMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5804,7 +5808,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const rollDiceMatch = oracleText.match(/whenever you roll one or more (?:dice|die),?\s*([^.]+)/i);
   if (rollDiceMatch && !triggers.some((t) => t.triggerType === 'roll_one_or_more_dice')) {
-    const effectText = String(rollDiceMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, rollDiceMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5817,7 +5821,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const exertCreatureMatch = oracleText.match(/whenever you exert a creature,?\s*([^.]+)/i);
   if (exertCreatureMatch && !triggers.some((t) => t.triggerType === 'exert_creature')) {
-    const effectText = String(exertCreatureMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, exertCreatureMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5830,7 +5834,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const payCostMatch = oracleText.match(/when you pay this cost one or more times,?\s*([^.]+)/i);
   if (payCostMatch && !triggers.some((t) => t.triggerType === 'pay_cost_one_or_more_times')) {
-    const effectText = String(payCostMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, payCostMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5843,7 +5847,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const ringTemptsMatch = oracleText.match(/whenever the ring tempts you,?\s*([^.]+)/i);
   if (ringTemptsMatch && !triggers.some((t) => t.triggerType === 'ring_tempts_you')) {
-    const effectText = String(ringTemptsMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, ringTemptsMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5856,7 +5860,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const encounterPhenomenonMatch = oracleText.match(/when(?:ever) you encounter this phenomenon,?\s*([^.]+)/i);
   if (encounterPhenomenonMatch && !triggers.some((t) => t.triggerType === 'encounter_phenomenon')) {
-    const effectText = String(encounterPhenomenonMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, encounterPhenomenonMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5869,7 +5873,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const exploresMatch = oracleText.match(/whenever a creature you control explores,?\s*([^.]+)/i);
   if (exploresMatch && !triggers.some((t) => t.triggerType === 'creature_explores')) {
-    const effectText = String(exploresMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, exploresMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5882,7 +5886,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const expendMatch = oracleText.match(/whenever you expend(?: \d+)?,?\s*([^.]+)/i);
   if (expendMatch && !triggers.some((t) => t.triggerType === 'expend')) {
-    const effectText = String(expendMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, expendMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5897,7 +5901,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     /whenever a spell or ability causes (?:its controller|you|a player) to shuffle (?:their|your) library,?\s*([^.]+)/i,
   );
   if (shuffleLibraryMatch) {
-    const effectText = String(shuffleLibraryMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, shuffleLibraryMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5910,7 +5914,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const rateArtMatch = oracleText.match(/when they rate the art,?\s*([^.]+)/i);
   if (rateArtMatch) {
-    const effectText = String(rateArtMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, rateArtMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5923,7 +5927,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const dayNightMatch = oracleText.match(/whenever day becomes night or night becomes day,?\s*([^.]+)/i);
   if (dayNightMatch && !triggers.some((t) => t.triggerType === 'day_night')) {
-    const effectText = String(dayNightMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, dayNightMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5936,7 +5940,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const chaosEnsuesMatch = oracleText.match(/whenever chaos ensues,?\s*([^.]+)/i);
   if (chaosEnsuesMatch && !triggers.some((t) => t.triggerType === 'chaos_ensues')) {
-    const effectText = String(chaosEnsuesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, chaosEnsuesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5951,7 +5955,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     /whenever an ability of equipped creature is activated,?\s*(?:if it isn't a mana ability,?\s*)?([^.]+)/i,
   );
   if (equippedAbilityActivatedMatch && !triggers.some((t) => t.triggerType === 'equipped_ability_activated')) {
-    const effectText = String(equippedAbilityActivatedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, equippedAbilityActivatedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5964,7 +5968,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const becomeMonarchMatch = oracleText.match(/whenever you become the monarch,?\s*([^.]+)/i);
   if (becomeMonarchMatch && !triggers.some((t) => t.triggerType === 'become_monarch')) {
-    const effectText = String(becomeMonarchMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, becomeMonarchMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5977,7 +5981,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const emptyHandMatch = oracleText.match(/whenever you have no cards in hand,?\s*([^.]+)/i);
   if (emptyHandMatch && !triggers.some((t) => t.triggerType === 'empty_hand')) {
-    const effectText = String(emptyHandMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, emptyHandMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -5990,7 +5994,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const schemeInMotionMatch = oracleText.match(/when you set this scheme in motion,?\s*([^.]+)/i);
   if (schemeInMotionMatch && !triggers.some((t) => t.triggerType === 'scheme_in_motion')) {
-    const effectText = String(schemeInMotionMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, schemeInMotionMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6003,7 +6007,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const youPayManaMatch = oracleText.match(/whenever you pay (\{[^}]+\}(?:\{[^}]+\})*),?\s*([^.]+)/i);
   if (youPayManaMatch && !triggers.some((t) => t.triggerType === 'you_pay_mana')) {
-    const effectText = String(youPayManaMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, youPayManaMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -6018,7 +6022,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     /whenever (?:~|this creature) saddles a mount or crews a vehicle during your main phase,?\s*([^.]+)/i,
   );
   if (saddleOrCrewMatch && !triggers.some((t) => t.triggerType === 'saddle_or_crew')) {
-    const effectText = String(saddleOrCrewMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, saddleOrCrewMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6031,7 +6035,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const crewVehicleMatch = oracleText.match(/when(?:ever)? (?:~|this creature) crews a vehicle,?\s*([^.]+)/i);
   if (crewVehicleMatch && !triggers.some((t) => t.triggerType === 'crew_vehicle')) {
-    const effectText = String(crewVehicleMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, crewVehicleMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6044,7 +6048,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const finishVotingMatch = oracleText.match(/whenever players finish voting,?\s*([^.]+)/i);
   if (finishVotingMatch && !triggers.some((t) => t.triggerType === 'finish_voting')) {
-    const effectText = String(finishVotingMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, finishVotingMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6080,7 +6084,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const clashMatch = oracleText.match(/whenever you clash,?\s*([^.]+)/i);
   if (clashMatch && !triggers.some((t) => t.triggerType === 'clash')) {
-    const effectText = String(clashMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, clashMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6093,7 +6097,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
 
   const discoverMatch = oracleText.match(/whenever you discover,?\s*([^.]+)/i);
   if (discoverMatch && !triggers.some((t) => t.triggerType === 'discover')) {
-    const effectText = String(discoverMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, discoverMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6108,7 +6112,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     /whenever this equipment becomes unattached from a permanent,?\s*([^.]+)/i,
   );
   if (equipmentUnattachedMatch && !triggers.some((t) => t.triggerType === 'equipment_unattached')) {
-    const effectText = String(equipmentUnattachedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, equipmentUnattachedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6136,7 +6140,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any): Trig
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = String(match[1] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, match);
       if (!effectText || triggers.some((t) => t.triggerType === triggerType && t.effect === effectText)) continue;
       triggers.push({
         permanentId,
@@ -6163,7 +6167,7 @@ export function detectMonstrousTriggers(card: any, permanent?: any): TriggeredAb
     new RegExp(`when(?:ever)? (?:~|this creature|(?:${monstrousNameVariants.join('|')})) becomes monstrous,?\\s*([^.]+)`, 'i'),
   );
   if (monstrousMatch && !triggers.some((t) => t.triggerType === 'became_monstrous')) {
-    const effectText = String(monstrousMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, monstrousMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6185,7 +6189,7 @@ export function detectRoomTriggers(card: any, permanent?: any): TriggeredAbility
 
   const unlockDoorMatch = oracleText.match(/when you unlock this door,?\s*([^.]+)/i);
   if (unlockDoorMatch) {
-    const effectText = String(unlockDoorMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, unlockDoorMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6442,7 +6446,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     attacksWithGreaterPowerMatch &&
     !triggers.some((trigger) => trigger.triggerType === 'attacks_with_greater_power_creature')
   ) {
-    const effectText = String(attacksWithGreaterPowerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attacksWithGreaterPowerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6461,7 +6465,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   );
   const battalionMatch = oracleText.match(battalionPattern);
   if (battalionMatch && !triggers.some((trigger) => trigger.triggerType === 'battalion')) {
-    const effectText = String(battalionMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, battalionMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6476,7 +6480,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   // Generic "whenever ~ attacks"
   const attacksMatch = findGenericAttackTriggerLine();
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks' || t.triggerType === 'battalion')) {
-    const effectText = attacksMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, attacksMatch);
     
     // Check if this is an optional mana payment trigger (e.g., Casal)
     // Pattern: "you may pay {X}. If you do, ..."
@@ -6489,7 +6493,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
         cardName,
         triggerType: 'attacks',
         description: effectText,
-        effect: mayPayMatch[2].trim(), // The effect after "If you do,"
+        effect: timingTriggerEffect(oracleText, mayPayMatch, 2), // The effect after "If you do,"
         manaCost: mayPayMatch[1], // The mana cost to pay
         mandatory: false, // Optional because of "may"
       });
@@ -6510,7 +6514,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever you attack,?\s*you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*when you do,?\s*([^.]+)/i,
   );
   if (attackPayWhenYouDoMatch && !triggers.some((t) => t.triggerType === 'when_you_do')) {
-    const effectText = String(attackPayWhenYouDoMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attackPayWhenYouDoMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -6527,7 +6531,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /you may exert this creature as it attacks\.\s*when you do,?\s*([^.]+)/i,
   );
   if (exertWhenYouDoMatch && !triggers.some((t) => t.triggerType === 'when_you_do' || t.triggerType === 'exert')) {
-    const effectText = String(exertWhenYouDoMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, exertWhenYouDoMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6542,7 +6546,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   const whenYouDoPattern = /when you do,?\s*([^.]+)/gi;
   let whenYouDoMatch: RegExpExecArray | null;
   while ((whenYouDoMatch = whenYouDoPattern.exec(oracleText)) !== null) {
-    const effectText = String(whenYouDoMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, whenYouDoMatch);
     if (!effectText) continue;
     if (triggers.some((t) => String(t.effect || '').trim().toLowerCase() === effectText.toLowerCase())) continue;
     triggers.push({
@@ -6559,7 +6563,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   const whenTheyDoPattern = /when they do,?\s*([^.]+)/gi;
   let whenTheyDoMatch: RegExpExecArray | null;
   while ((whenTheyDoMatch = whenTheyDoPattern.exec(oracleText)) !== null) {
-    const effectText = String(whenTheyDoMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, whenTheyDoMatch);
     if (!effectText) continue;
     if (triggers.some((t) => String(t.effect || '').trim().toLowerCase() === effectText.toLowerCase())) continue;
     triggers.push({
@@ -6575,7 +6579,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const commanderAttacksMatch = oracleText.match(/whenever your commander attacks,?\s*([^.]+)/i);
   if (commanderAttacksMatch && !triggers.some((t) => t.triggerType === 'commander_attacks')) {
-    const effectText = String(commanderAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, commanderAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6589,7 +6593,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const bossesAttackMatch = oracleText.match(/whenever the bosses attack,?\s*([^.]+)/i);
   if (bossesAttackMatch && !triggers.some((t) => t.triggerType === 'bosses_attack')) {
-    const effectText = String(bossesAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, bossesAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6603,7 +6607,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const ringBearerAttacksMatch = oracleText.match(/whenever your ring-bearer attacks,?\s*([^.]+)/i);
   if (ringBearerAttacksMatch && !triggers.some((t) => t.triggerType === 'ring_bearer_attacks')) {
-    const effectText = String(ringBearerAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, ringBearerAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6617,7 +6621,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const youAttackMatch = oracleText.match(/whenever you attack,?\s*([^.]+)/i);
   if (youAttackMatch && !triggers.some((t) => t.triggerType === 'you_attack')) {
-    const effectText = String(youAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, youAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6636,7 +6640,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const vehicleAttacksOrBlocksMatch = oracleText.match(/whenever this vehicle attacks or blocks,?\s*([^.]+)/i);
   if (vehicleAttacksOrBlocksMatch && !triggers.some((t) => t.triggerType === 'attacks_or_blocks')) {
-    const effectText = String(vehicleAttacksOrBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, vehicleAttacksOrBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6652,7 +6656,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     new RegExp(`whenever\\s+(?:~|this creature|this vehicle|(?:${attackNameVariants.join('|')}))\\s+attacks\\s+or\\s+dies,?\\s*([^.]+)`, 'i'),
   );
   if (attacksOrDiesAttackMatch && !triggers.some((t) => t.triggerType === 'attacks_or_dies')) {
-    const effectText = String(attacksOrDiesAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attacksOrDiesAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6671,7 +6675,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     oneOrMoreModifiedCreaturesAttackMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_modified_creatures_attack')
   ) {
-    const effectText = String(oneOrMoreModifiedCreaturesAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreModifiedCreaturesAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6687,7 +6691,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature you control with trample attacks,?\s*([^.]+)/i,
   );
   if (trampleCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'trample_creature_attacks')) {
-    const effectText = String(trampleCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, trampleCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6703,7 +6707,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever two or more creatures you control attack in a band,?\s*([^.]+)/i,
   );
   if (attackInBandMatch && !triggers.some((t) => t.triggerType === 'attack_in_band')) {
-    const effectText = String(attackInBandMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attackInBandMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6722,7 +6726,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     youAttackWithExactlyTwoCreaturesMatch &&
     !triggers.some((t) => t.triggerType === 'you_attack_with_exactly_two_creatures')
   ) {
-    const effectText = String(youAttackWithExactlyTwoCreaturesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, youAttackWithExactlyTwoCreaturesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6741,7 +6745,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     teamExactlyTwoCreaturesAttackMatch &&
     !triggers.some((t) => t.triggerType === 'team_exactly_two_creatures_attack')
   ) {
-    const effectText = String(teamExactlyTwoCreaturesAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, teamExactlyTwoCreaturesAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6763,7 +6767,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     vehicleCrewedByNameAttacksMatch &&
     !triggers.some((t) => t.triggerType === 'vehicle_crewed_by_name_attacks')
   ) {
-    const effectText = String(vehicleCrewedByNameAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, vehicleCrewedByNameAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6777,7 +6781,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const oneLandAttacksAnotherMatch = oracleText.match(/when one land attacks another,?\s*([^.]+)/i);
   if (oneLandAttacksAnotherMatch && !triggers.some((t) => t.triggerType === 'one_land_attacks_another')) {
-    const effectText = String(oneLandAttacksAnotherMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneLandAttacksAnotherMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6791,7 +6795,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const revelerAttacksMatch = oracleText.match(/whenever a Reveler attacks,?\s*([^.]+)/i);
   if (revelerAttacksMatch && !triggers.some((t) => t.triggerType === 'reveler_attacks')) {
-    const effectText = String(revelerAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, revelerAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6807,7 +6811,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever all non-Wall creatures you control attack,?\s*([^.]+)/i,
   );
   if (allNonWallAttackMatch && !triggers.some((t) => t.triggerType === 'all_non_wall_creatures_attack')) {
-    const effectText = String(allNonWallAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, allNonWallAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6823,7 +6827,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever this creature and at least one other ([\w]+) attack,?\s*([^.]+)/i,
   );
   if (thisAndTypedAttackMatch && !triggers.some((t) => t.triggerType === 'this_and_typed_creature_attack')) {
-    const effectText = String(thisAndTypedAttackMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisAndTypedAttackMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -6842,7 +6846,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     nontokenCreatureAttacksMatch &&
     !triggers.some((t) => t.triggerType === 'nontoken_creature_attacks')
   ) {
-    const effectText = String(nontokenCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nontokenCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6856,7 +6860,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const itAttacksMatch = oracleText.match(/whenever it attacks,?\s*([^.]+)/i);
   if (itAttacksMatch && !triggers.some((t) => t.triggerType === 'it_attacks')) {
-    const effectText = String(itAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, itAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6875,7 +6879,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     opponentsTwoOrMoreAttackMatch &&
     !triggers.some((t) => t.triggerType === 'opponents_two_or_more_creatures_attack')
   ) {
-    const effectText = String(opponentsTwoOrMoreAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentsTwoOrMoreAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6896,7 +6900,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   ) {
     const typedSubject = String(anotherTypedCreatureAttacksMatch[1] || '').trim().toLowerCase();
     if (!['creature', 'vehicle', 'permanent'].includes(typedSubject)) {
-      const effectText = String(anotherTypedCreatureAttacksMatch[2] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, anotherTypedCreatureAttacksMatch, 2);
       triggers.push({
         permanentId,
         cardName,
@@ -6911,7 +6915,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const modifiedCreatureAttacksMatch = oracleText.match(/whenever a modified creature you control attacks,?\s*([^.]+)/i);
   if (modifiedCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'modified_creature_attacks')) {
-    const effectText = String(modifiedCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, modifiedCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6927,7 +6931,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature you control with a \+1\/\+1 counter on it attacks,?\s*([^.]+)/i,
   );
   if (counterCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'counter_creature_attacks')) {
-    const effectText = String(counterCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, counterCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6943,7 +6947,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature you control with power \d+ or less attacks,?\s*([^.]+)/i,
   );
   if (lowPowerCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'low_power_creature_attacks')) {
-    const effectText = String(lowPowerCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, lowPowerCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6959,7 +6963,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a ([\w]+(?: or [\w]+)*) you control attacks alone,?\s*([^.]+)/i,
   );
   if (typedAttacksAloneMatch && !triggers.some((t) => t.triggerType === 'typed_attacks_alone')) {
-    const effectText = String(typedAttacksAloneMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedAttacksAloneMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -6975,7 +6979,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature you control attacks alone,?\s*([^.]+)/i,
   );
   if (creatureAttacksAloneMatch && !triggers.some((t) => t.triggerType === 'creature_attacks_alone')) {
-    const effectText = String(creatureAttacksAloneMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureAttacksAloneMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -6991,7 +6995,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever enchanted player is attacked,?\s*([^.]+)/i,
   );
   if (enchantedPlayerAttackedMatch && !triggers.some((t) => t.triggerType === 'enchanted_player_attacked')) {
-    const effectText = String(enchantedPlayerAttackedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedPlayerAttackedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7007,7 +7011,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a player attacks enchanted player with one or more creatures,?\s*([^.]+)/i,
   );
   if (curseAttackMatch && !triggers.some((t) => t.triggerType === 'curse_attack')) {
-    const effectText = String(curseAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, curseAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7020,7 +7024,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   }
   const selfEntersOrAttacksMatch = oracleText.match(selfEntersOrAttacksPattern);
   if (selfEntersOrAttacksMatch && !triggers.some((t) => t.triggerType === 'self_enters_or_attacks')) {
-    const effectText = String(selfEntersOrAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfEntersOrAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7034,7 +7038,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const opponentCreatureAttacksMatch = oracleText.match(/whenever a creature an opponent controls attacks,?\s*([^.]+)/i);
   if (opponentCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'opponent_creature_attacks')) {
-    const effectText = String(opponentCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7050,7 +7054,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     new RegExp(`when(?:ever)? (?:~|this creature|(?:${attackNameVariants.join('|')})) attacks or blocks,?\\s*([^.]+)`, 'i'),
   );
   if (attacksOrBlocksMatch && !triggers.some((t) => t.triggerType === 'attacks_or_blocks')) {
-    const effectText = String(attacksOrBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attacksOrBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7064,7 +7068,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const anyCreatureAttacksOrBlocksMatch = oracleText.match(/whenever a creature attacks or blocks,?\s*([^.]+)/i);
   if (anyCreatureAttacksOrBlocksMatch && !triggers.some((t) => t.triggerType === 'any_creature_attacks_or_blocks')) {
-    const effectText = String(anyCreatureAttacksOrBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyCreatureAttacksOrBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7081,7 +7085,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     anyCreatureAttacksMatch &&
     !triggers.some((t) => t.triggerType === 'any_creature_attacks' || t.triggerType === 'creature_attacks' || t.triggerType === 'creature_attacks_this_turn')
   ) {
-    const effectText = String(anyCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7095,7 +7099,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const creatureAttacksThisTurnMatch = oracleText.match(/whenever a creature attacks this turn,?\s*([^.]+)/i);
   if (creatureAttacksThisTurnMatch && !triggers.some((t) => t.triggerType === 'creature_attacks_this_turn')) {
-    const effectText = String(creatureAttacksThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureAttacksThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7109,7 +7113,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const anotherCreatureAttacksMatch = oracleText.match(/whenever another creature you control attacks,?\s*([^.]+)/i);
   if (anotherCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'another_creature_attacks')) {
-    const effectText = String(anotherCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7124,7 +7128,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever an equipped creature you control attacks,?\s*([^.]+)/i,
   );
   if (equippedCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'equipped_creature_attacks')) {
-    const effectText = String(equippedCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, equippedCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7155,7 +7159,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     !/\bcreature\b/i.test(String(typedSubtypeAttacksMatch[1] || '')) &&
     !triggers.some((t) => t.triggerType === 'typed_subtype_attacks')
   ) {
-    const effectText = String(typedSubtypeAttacksMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedSubtypeAttacksMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -7179,7 +7183,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     !lowerOracle.includes('modified creature you control attacks') &&
     !triggers.some((t) => t.triggerType === 'typed_creature_attacks')
   ) {
-    const effectText = String(typedCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7194,7 +7198,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature you control with deathtouch attacks,?\s*([^.]+)/i,
   );
   if (deathtouchCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'deathtouch_creature_attacks')) {
-    const effectText = String(deathtouchCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, deathtouchCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7210,7 +7214,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature you control with the chosen name attacks,?\s*([^.]+)/i,
   );
   if (chosenNameCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'chosen_name_creature_attacks')) {
-    const effectText = String(chosenNameCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, chosenNameCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7232,7 +7236,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     namedAndOtherCreatureAttackMatch &&
     !triggers.some((t) => t.triggerType === 'named_and_other_creature_attack')
   ) {
-    const effectText = String(namedAndOtherCreatureAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedAndOtherCreatureAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7248,7 +7252,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     new RegExp(`whenever (?:${attackNameVariants.join('|')}) enter or attack,?\\s*([^.]+)`, 'i'),
   );
   if (namedEnterOrAttackMatch && !triggers.some((t) => t.triggerType === 'named_enter_or_attack')) {
-    const effectText = String(namedEnterOrAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedEnterOrAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7267,8 +7271,8 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
       permanentId,
       cardName,
       triggerType: 'creature_attacks',
-      description: creatureAttacksMatch[1].trim(),
-      effect: creatureAttacksMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, creatureAttacksMatch),
+      effect: timingTriggerEffect(oracleText, creatureAttacksMatch),
       mandatory: true,
     });
   }
@@ -7277,7 +7281,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature you control of the chosen type enters or attacks,?\s*([^.]+)/i
   );
   if (chosenTypeAttackMatch && !triggers.some((t) => t.triggerType === 'chosen_type_creature_etb_or_attack')) {
-    const effectText = String(chosenTypeAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, chosenTypeAttackMatch);
     if (effectText) {
       triggers.push({
         permanentId,
@@ -7293,7 +7297,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const thatCreatureAttacksMatch = oracleText.match(/whenever that creature attacks,?\s*([^.]+)/i);
   if (thatCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'that_creature_attacks')) {
-    const effectText = String(thatCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thatCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7312,7 +7316,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     selfOrEnchantedAttacksMatch &&
     !triggers.some((t) => t.triggerType === 'self_or_enchanted_attacks')
   ) {
-    const effectText = String(selfOrEnchantedAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfOrEnchantedAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7329,7 +7333,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     whenVehicleAttacksMatch &&
     !triggers.some((t) => t.triggerType === 'when_vehicle_attacks')
   ) {
-    const effectText = String(whenVehicleAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, whenVehicleAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7343,7 +7347,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const thisTokenAttacksMatch = oracleText.match(/when(?:ever)? this token attacks,?\s*([^.]+)/i);
   if (thisTokenAttacksMatch && !triggers.some((t) => t.triggerType === 'this_token_attacks')) {
-    const effectText = String(thisTokenAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisTokenAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7362,7 +7366,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     flyingOrHasteAttacksMatch &&
     !triggers.some((t) => t.triggerType === 'flying_or_haste_attacks')
   ) {
-    const effectText = String(flyingOrHasteAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, flyingOrHasteAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7381,7 +7385,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     powerEqualsToughnessAttacksMatch &&
     !triggers.some((t) => t.triggerType === 'power_equals_toughness_attacks')
   ) {
-    const effectText = String(powerEqualsToughnessAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, powerEqualsToughnessAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7395,7 +7399,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const vehicleAttacksMatch = oracleText.match(/whenever a vehicle you control attacks,?\s*([^.]+)/i);
   if (vehicleAttacksMatch && !triggers.some((t) => t.triggerType === 'vehicle_attacks')) {
-    const effectText = String(vehicleAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, vehicleAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7414,7 +7418,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     opponentAttacksWithCreaturesMatch &&
     !triggers.some((t) => t.triggerType === 'opponent_attacks_with_creatures' || t.triggerType === 'opponent_attacks_with_one_or_more_creatures')
   ) {
-    const effectText = String(opponentAttacksWithCreaturesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentAttacksWithCreaturesMatch);
     const triggerType = /one or more creatures/i.test(String(opponentAttacksWithCreaturesMatch[0] || ''))
       ? 'opponent_attacks_with_one_or_more_creatures'
       : 'opponent_attacks_with_creatures';
@@ -7436,7 +7440,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     targetAttacksUnblockedMatch &&
     !triggers.some((t) => t.triggerType === 'target_creature_attacks_unblocked')
   ) {
-    const effectText = String(targetAttacksUnblockedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, targetAttacksUnblockedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7455,7 +7459,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     oneOrMoreTypedAttackMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_typed_attack')
   ) {
-    const effectText = String(oneOrMoreTypedAttackMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreTypedAttackMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -7474,7 +7478,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     creatureAttacksYouOrPlaneswalkerMatch &&
     !triggers.some((t) => t.triggerType === 'creature_attacks_you_or_planeswalker')
   ) {
-    const effectText = String(creatureAttacksYouOrPlaneswalkerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, creatureAttacksYouOrPlaneswalkerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7490,7 +7494,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever another creature you control with toxic attacks,?\s*([^.]+)/i,
   );
   if (toxicCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'toxic_creature_attacks')) {
-    const effectText = String(toxicCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, toxicCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7506,7 +7510,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever two or more creatures attack,?\s*([^.]+)/i,
   );
   if (twoOrMoreCreaturesAttackMatch && !triggers.some((t) => t.triggerType === 'two_or_more_creatures_attack')) {
-    const effectText = String(twoOrMoreCreaturesAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, twoOrMoreCreaturesAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7525,7 +7529,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     oneOrMoreNontokenTypedAttackMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_nontoken_typed_attack')
   ) {
-    const effectText = String(oneOrMoreNontokenTypedAttackMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreNontokenTypedAttackMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -7544,7 +7548,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     oneOrMoreArtifactCreaturesAttackMatch &&
     !triggers.some((t) => t.triggerType === 'one_or_more_artifact_creatures_attack')
   ) {
-    const effectText = String(oneOrMoreArtifactCreaturesAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreArtifactCreaturesAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7566,7 +7570,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     equippedCreatureOtherThanSelfAttacksOrDiesMatch &&
     !triggers.some((t) => t.triggerType === 'equipped_creature_other_than_self_attacks_or_dies')
   ) {
-    const effectText = String(equippedCreatureOtherThanSelfAttacksOrDiesMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, equippedCreatureOtherThanSelfAttacksOrDiesMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7585,7 +7589,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     nonToyCreaturesAttackPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'non_toy_creatures_attack_player')
   ) {
-    const effectText = String(nonToyCreaturesAttackPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nonToyCreaturesAttackPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7604,7 +7608,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     enchantedOrEquippedAttacksMatch &&
     !triggers.some((t) => t.triggerType === 'enchanted_or_equipped_creature_attacks')
   ) {
-    const effectText = String(enchantedOrEquippedAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedOrEquippedAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7626,7 +7630,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     namedAndHumanAttackMatch &&
     !triggers.some((t) => t.triggerType === 'named_and_human_attack')
   ) {
-    const effectText = String(namedAndHumanAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedAndHumanAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7645,7 +7649,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     attackEnchantedOpponentSacrificeMatch &&
     !triggers.some((t) => t.triggerType === 'attack_enchanted_opponent_sacrifice')
   ) {
-    const effectText = String(attackEnchantedOpponentSacrificeMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attackEnchantedOpponentSacrificeMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7664,7 +7668,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     twoOrMoreAttackPlayerMatch &&
     !triggers.some((t) => t.triggerType === 'two_or_more_creatures_attack_player')
   ) {
-    const effectText = String(twoOrMoreAttackPlayerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, twoOrMoreAttackPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7680,7 +7684,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a player attacks(?! one of your opponents| you),?\s*([^.]+)/i,
   );
   if (playerAttacksMatch && !triggers.some((t) => t.triggerType === 'player_attacks')) {
-    const effectText = String(playerAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7696,7 +7700,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a ([\w]+) attacks this turn,?\s*([^.]+)/i,
   );
   if (typedAttacksThisTurnMatch && !triggers.some((t) => t.triggerType === 'typed_attacks_this_turn')) {
-    const effectText = String(typedAttacksThisTurnMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedAttacksThisTurnMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -7710,7 +7714,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const playerAttacksYouMatch = oracleText.match(/whenever a player attacks you,?\s*([^.]+)/i);
   if (playerAttacksYouMatch && !triggers.some((t) => t.triggerType === 'player_attacks_you')) {
-    const effectText = String(playerAttacksYouMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerAttacksYouMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7729,7 +7733,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     playerAttacksYourOpponentMatch &&
     !triggers.some((t) => t.triggerType === 'player_attacks_your_opponent')
   ) {
-    const effectText = String(playerAttacksYourOpponentMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerAttacksYourOpponentMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7743,7 +7747,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const opponentAttacksYouMatch = oracleText.match(/whenever an opponent attacks you,?\s*([^.]+)/i);
   if (opponentAttacksYouMatch && !triggers.some((t) => t.triggerType === 'opponent_attacks_you')) {
-    const effectText = String(opponentAttacksYouMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentAttacksYouMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7759,7 +7763,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever one or more creatures(?: you control)? attack(?! you),?\s*([^.]+)/i,
   );
   if (oneOrMoreAttackMatch && !triggers.some((t) => t.triggerType === 'one_or_more_creatures_attack')) {
-    const effectText = String(oneOrMoreAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7773,7 +7777,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const oneOrMoreAttackYouMatch = oracleText.match(/whenever one or more creatures attack you,?\s*([^.]+)/i);
   if (oneOrMoreAttackYouMatch && !triggers.some((t) => t.triggerType === 'one_or_more_creatures_attack_you')) {
-    const effectText = String(oneOrMoreAttackYouMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, oneOrMoreAttackYouMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7789,7 +7793,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature without flying attacks you(?: or a planeswalker you control)?,?\s*([^.]+)/i,
   );
   if (noFlyingAttacksYouMatch && !triggers.some((t) => t.triggerType === 'creature_without_flying_attacks_you')) {
-    const effectText = String(noFlyingAttacksYouMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, noFlyingAttacksYouMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7805,7 +7809,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature with power (\d+) or greater attacks you,?\s*([^.]+)/i,
   );
   if (powerAttacksYouMatch && !triggers.some((t) => t.triggerType === 'power_creature_attacks_you')) {
-    const effectText = String(powerAttacksYouMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, powerAttacksYouMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -7819,7 +7823,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const youAttackWithTwoMatch = oracleText.match(/whenever you attack with two or more creatures,?\s*([^.]+)/i);
   if (youAttackWithTwoMatch && !triggers.some((t) => t.triggerType === 'you_attack_with_two_or_more')) {
-    const effectText = String(youAttackWithTwoMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, youAttackWithTwoMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7835,7 +7839,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature you don't control attacks(?: a player| an opponent)?,?\s*([^.]+)/i,
   );
   if (uncontrolledAttacksMatch && !triggers.some((t) => t.triggerType === 'uncontrolled_creature_attacks')) {
-    const effectText = String(uncontrolledAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, uncontrolledAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7849,7 +7853,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const attacksBattleMatch = oracleText.match(/whenever a creature attacks a battle,?\s*([^.]+)/i);
   if (attacksBattleMatch && !triggers.some((t) => t.triggerType === 'creature_attacks_battle')) {
-    const effectText = String(attacksBattleMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attacksBattleMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7863,7 +7867,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const attacksPlaneswalkerMatch = oracleText.match(/whenever a creature attacks a planeswalker,?\s*([^.]+)/i);
   if (attacksPlaneswalkerMatch && !triggers.some((t) => t.triggerType === 'creature_attacks_planeswalker')) {
-    const effectText = String(attacksPlaneswalkerMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attacksPlaneswalkerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7883,7 +7887,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     !lowerOracle.includes('you control') &&
     !triggers.some((t) => t.triggerType === 'multi_typed_creature_attacks_any')
   ) {
-    const effectText = String(multiTypedCreatureAttacksAnyMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, multiTypedCreatureAttacksAnyMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -7899,7 +7903,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature you control with reach attacks,?\s*([^.]+)/i,
   );
   if (reachCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'reach_creature_attacks')) {
-    const effectText = String(reachCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, reachCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7918,7 +7922,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     magnetCounterCreatureAttacksMatch &&
     !triggers.some((t) => t.triggerType === 'magnet_counter_creature_attacks')
   ) {
-    const effectText = String(magnetCounterCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, magnetCounterCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7941,7 +7945,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   ) {
     const fullMatch = oracleText.match(/whenever an opponent attacks,?\s*([^.]+)/i);
     if (fullMatch) {
-      const effectText = String(fullMatch[1] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, fullMatch);
       triggers.push({
         permanentId,
         cardName,
@@ -7961,7 +7965,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     multiTypedYouControlAttacksMatch &&
     !triggers.some((t) => t.triggerType === 'multi_typed_you_control_attacks')
   ) {
-    const effectText = String(multiTypedYouControlAttacksMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, multiTypedYouControlAttacksMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -7980,7 +7984,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     youAttackWithThreeOrMoreMatch &&
     !triggers.some((t) => t.triggerType === 'you_attack_with_three_or_more_creatures')
   ) {
-    const effectText = String(youAttackWithThreeOrMoreMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, youAttackWithThreeOrMoreMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -7999,7 +8003,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     legendaryAttacksUnblockedMatch &&
     !triggers.some((t) => t.triggerType === 'legendary_creature_attacks_unblocked')
   ) {
-    const effectText = String(legendaryAttacksUnblockedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, legendaryAttacksUnblockedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8013,7 +8017,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const spacecraftAttacksMatch = oracleText.match(/whenever this (?:Spacecraft|spacecraft) attacks,?\s*([^.]+)/i);
   if (spacecraftAttacksMatch && !triggers.some((t) => t.triggerType === 'spacecraft_attacks')) {
-    const effectText = String(spacecraftAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, spacecraftAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8032,7 +8036,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     thisAndOtherCreatureTokenAttackMatch &&
     !triggers.some((t) => t.triggerType === 'this_and_other_creature_token_attack')
   ) {
-    const effectText = String(thisAndOtherCreatureTokenAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisAndOtherCreatureTokenAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8051,7 +8055,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     enchantedCreatureAttacksOpponentsMatch &&
     !triggers.some((t) => t.triggerType === 'enchanted_creature_attacks_opponents')
   ) {
-    const effectText = String(enchantedCreatureAttacksOpponentsMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedCreatureAttacksOpponentsMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8070,7 +8074,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     thisOrCommanderAttacksAloneMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_commander_attacks_alone')
   ) {
-    const effectText = String(thisOrCommanderAttacksAloneMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrCommanderAttacksAloneMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8086,7 +8090,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature you control with haste attacks,?\s*([^.]+)/i,
   );
   if (hasteCreatureAttacksMatch && !triggers.some((t) => t.triggerType === 'haste_creature_attacks')) {
-    const effectText = String(hasteCreatureAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, hasteCreatureAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8102,7 +8106,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever three or more creatures you control with flying attack,?\s*([^.]+)/i,
   );
   if (threeOrMoreFlyingAttackMatch && !triggers.some((t) => t.triggerType === 'three_or_more_flying_creatures_attack')) {
-    const effectText = String(threeOrMoreFlyingAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, threeOrMoreFlyingAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8118,7 +8122,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
     /whenever a creature(?: you control)? with flying attacks,?\s*([^.]+)/i,
   );
   if (flyingAttacksMatch && !triggers.some((t) => t.triggerType === 'flying_creature_attacks')) {
-    const effectText = String(flyingAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, flyingAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8133,7 +8137,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   const playerAttacksWithPattern = /whenever (?:a|another) player attacks with (?:\w+|\d+) or more creatures,?\s*([^.]+)/gi;
   let playerAttacksWithMatch: RegExpExecArray | null;
   while ((playerAttacksWithMatch = playerAttacksWithPattern.exec(oracleText)) !== null) {
-    const effectText = String(playerAttacksWithMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerAttacksWithMatch);
     if (!effectText) continue;
     if (triggers.some((t) => String(t.effect || '').trim().toLowerCase() === effectText.toLowerCase())) continue;
     triggers.push({
@@ -8184,7 +8188,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
 
   const anyCreatureBlocksMatch = oracleText.match(/whenever a creature blocks,?\s*([^.]+)/i);
   if (anyCreatureBlocksMatch && !triggers.some((t) => (t as any).triggerType === 'any_creature_blocks')) {
-    const effectText = String(anyCreatureBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyCreatureBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8203,7 +8207,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     opponentCreatureBlocksMatch &&
     !triggers.some((t) => (t as any).triggerType === 'opponent_creature_blocks')
   ) {
-    const effectText = String(opponentCreatureBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentCreatureBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8220,7 +8224,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     equippedCreatureBlocksMatch &&
     !triggers.some((t) => (t as any).triggerType === 'equipped_creature_blocks_creature')
   ) {
-    const effectText = String(equippedCreatureBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, equippedCreatureBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8239,7 +8243,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     enchantedCreatureBecomesBlockedMatch &&
     !triggers.some((t) => (t as any).triggerType === 'enchanted_creature_becomes_blocked')
   ) {
-    const effectText = String(enchantedCreatureBecomesBlockedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedCreatureBecomesBlockedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8253,7 +8257,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
 
   const enchantedCreatureBlocksMatch = oracleText.match(/when(?:ever)? enchanted creature blocks,?\s*([^.]+)/i);
   if (enchantedCreatureBlocksMatch && !triggers.some((t) => (t as any).triggerType === 'enchanted_creature_blocks')) {
-    const effectText = String(enchantedCreatureBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedCreatureBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8272,7 +8276,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     controlledBecomeBlockedMatch &&
     !triggers.some((t) => (t as any).triggerType === 'controlled_creatures_become_blocked')
   ) {
-    const effectText = String(controlledBecomeBlockedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledBecomeBlockedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8291,7 +8295,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     menaceBecomeBlockedMatch &&
     !triggers.some((t) => (t as any).triggerType === 'menace_creature_becomes_blocked')
   ) {
-    const effectText = String(menaceBecomeBlockedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, menaceBecomeBlockedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8310,7 +8314,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     ringBearerBlockedMatch &&
     !triggers.some((t) => (t as any).triggerType === 'ring_bearer_becomes_blocked')
   ) {
-    const effectText = String(ringBearerBlockedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, ringBearerBlockedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8330,7 +8334,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     !/\bcreature\b/i.test(String(typedBecomeBlockedMatch[1] || '')) &&
     !triggers.some((t) => (t as any).triggerType === 'typed_becomes_blocked')
   ) {
-    const effectText = String(typedBecomeBlockedMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedBecomeBlockedMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -8349,7 +8353,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     typedAnotherBecomeBlockedMatch &&
     !triggers.some((t) => (t as any).triggerType === 'typed_another_becomes_blocked')
   ) {
-    const effectText = String(typedAnotherBecomeBlockedMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedAnotherBecomeBlockedMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -8368,7 +8372,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     controlledCreatureBecomeBlockedMatch &&
     !triggers.some((t) => (t as any).triggerType === 'controlled_creature_becomes_blocked')
   ) {
-    const effectText = String(controlledCreatureBecomeBlockedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledCreatureBecomeBlockedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8387,7 +8391,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     controlledCreatureAttacksOrBlocksMatch &&
     !triggers.some((t) => (t as any).triggerType === 'controlled_creature_attacks_or_blocks')
   ) {
-    const effectText = String(controlledCreatureAttacksOrBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledCreatureAttacksOrBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8406,7 +8410,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     controlledCreatureBlocksMatch &&
     !triggers.some((t) => (t as any).triggerType === 'controlled_creature_blocks')
   ) {
-    const effectText = String(controlledCreatureBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledCreatureBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8425,7 +8429,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     enchantedAttacksOrBlocksMatch &&
     !triggers.some((t) => (t as any).triggerType === 'enchanted_creature_attacks_or_blocks')
   ) {
-    const effectText = String(enchantedAttacksOrBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedAttacksOrBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8442,7 +8446,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     new RegExp(`when(?:ever)? (?:~|this creature|this vehicle|(?:${blockNameVariantsEarly.join('|')})) attacks or blocks,?\\s*([^.]+)`, 'i'),
   );
   if (attacksOrBlocksMatch && !triggers.some((t) => (t as any).triggerType === 'attacks_or_blocks')) {
-    const effectText = String(attacksOrBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, attacksOrBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8474,7 +8478,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     /whenever a creature you control enchanted by a Chef Role attacks or blocks,?\s*([^.]+)/i,
   );
   if (chefRoleAttacksOrBlocksMatch && !triggers.some((t) => t.triggerType === 'chef_role_attacks_or_blocks')) {
-    const effectText = String(chefRoleAttacksOrBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, chefRoleAttacksOrBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8493,7 +8497,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     equippedBlocksOrBecomesBlockedMatch &&
     !triggers.some((t) => t.triggerType === 'equipped_blocks_or_becomes_blocked')
   ) {
-    const effectText = String(equippedBlocksOrBecomesBlockedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, equippedBlocksOrBecomesBlockedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8512,7 +8516,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     equippedBlocksOrBlockedByVampireMatch &&
     !triggers.some((t) => t.triggerType === 'equipped_blocks_or_blocked_by_vampire')
   ) {
-    const effectText = String(equippedBlocksOrBlockedByVampireMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, equippedBlocksOrBlockedByVampireMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8528,7 +8532,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     /whenever a creature you control with defender blocks,?\s*([^.]+)/i,
   );
   if (defenderBlocksMatch && !triggers.some((t) => t.triggerType === 'defender_creature_blocks')) {
-    const effectText = String(defenderBlocksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, defenderBlocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8563,7 +8567,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
   const blocksMatch = findGenericBlockTriggerLine();
 
   if (blocksMatch && !triggers.some(t => t.permanentId === permanentId)) {
-    const effectText = blocksMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, blocksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8576,7 +8580,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
 
   const anyCreatureAttacksOrBlocksBlockMatch = oracleText.match(/whenever a creature attacks or blocks,?\s*([^.]+)/i);
   if (anyCreatureAttacksOrBlocksBlockMatch && !triggers.some((t) => (t as any).triggerType === 'any_creature_attacks_or_blocks')) {
-    const effectText = String(anyCreatureAttacksOrBlocksBlockMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyCreatureAttacksOrBlocksBlockMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8593,7 +8597,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     /whenever a ([\w]+) you control becomes blocked,?\s*([^.]+)/i,
   );
   if (typedBecomesBlockedMatch && !triggers.some((t) => (t as any).triggerType === 'typed_becomes_blocked')) {
-    const effectText = String(typedBecomesBlockedMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedBecomesBlockedMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -8612,7 +8616,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
     selfOrEquippedBecomesBlockedMatch &&
     !triggers.some((t) => (t as any).triggerType === 'self_or_equipped_becomes_blocked')
   ) {
-    const effectText = String(selfOrEquippedBecomesBlockedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfOrEquippedBecomesBlockedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8637,7 +8641,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
   for (const pattern of becomesBlockedPatterns) {
     const match = oracleText.match(pattern);
     if (!match) continue;
-    const effectText = String(match[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, match);
     if (!effectText || triggers.some((trigger) => trigger.effect === effectText)) continue;
     triggers.push({
       permanentId,
@@ -8671,7 +8675,7 @@ export function detectSpellCounteredTriggers(card: any, permanent: any): Trigger
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = String(match[1] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, match);
       if (!effectText || triggers.some((trigger) => trigger.effect === effectText)) continue;
       triggers.push({
         permanentId,
@@ -8706,7 +8710,7 @@ export function detectMutateTriggers(card: any, permanent: any): TriggeredAbilit
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = String(match[1] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, match);
       if (!effectText || triggers.some((trigger) => trigger.effect === effectText)) continue;
       triggers.push({
         permanentId,
@@ -8739,7 +8743,7 @@ export function detectEquippedTriggers(card: any, permanent: any): TriggeredAbil
   for (const pattern of equippedPatterns) {
     const match = oracleText.match(pattern);
     if (!match) continue;
-    const effectText = String(match[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, match);
     if (!effectText || triggers.some((t) => t.effect === effectText)) continue;
     triggers.push({
       permanentId,
@@ -8772,7 +8776,7 @@ export function detectReturnedToHandTriggers(card: any, permanent: any): Trigger
   for (const pattern of returnedPatterns) {
     const match = oracleText.match(pattern);
     if (!match) continue;
-    const effectText = String(match[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, match);
     if (!effectText || triggers.some((t) => t.effect === effectText)) continue;
     triggers.push({
       permanentId,
@@ -8843,7 +8847,7 @@ export function detectDiscardTriggers(card: any, permanent: any): TriggeredAbili
     ),
   );
   if (forcedDiscardNamedCardMatch && !triggers.some((t) => t.triggerType === 'forced_discard_named_card')) {
-    const effectText = String(forcedDiscardNamedCardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, forcedDiscardNamedCardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -8858,7 +8862,7 @@ export function detectDiscardTriggers(card: any, permanent: any): TriggeredAbili
     new RegExp(`when you discard (?:${buildCardNameRegexAlternatives(cardName).join('|')}),?\\s*([^.]+)`, 'i'),
   );
   if (discardNamedCardMatch && !triggers.some((t) => t.triggerType === 'discard_named_card')) {
-    const effectText = String(discardNamedCardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, discardNamedCardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9060,7 +9064,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /when a creature is put onto the battlefield this way,?\s*([^.]+)/i,
   );
   if (putOntoBattlefieldThisWayMatch && !triggers.some((t) => t.triggerType === 'put_onto_battlefield_this_way')) {
-    const effectText = String(putOntoBattlefieldThisWayMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, putOntoBattlefieldThisWayMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9077,7 +9081,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   );
   const selfEntersOrLeavesEtbMatch = oracleText.match(selfEntersOrLeavesPattern);
   if (selfEntersOrLeavesEtbMatch && !triggers.some((t) => t.triggerType === 'self_enters_or_leaves')) {
-    const effectText = String(selfEntersOrLeavesEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfEntersOrLeavesEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9092,7 +9096,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever (?:a |an )?permanent enters or leaves(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (entersOrLeavesEtbMatch && !triggers.some((t) => t.triggerType === 'enters_or_leaves')) {
-    const effectText = String(entersOrLeavesEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, entersOrLeavesEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9112,7 +9116,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     namedAndOrOtherTypedEtbMatch &&
     !triggers.some((t) => t.triggerType === 'named_and_or_other_typed_etb')
   ) {
-    const effectText = String(namedAndOrOtherTypedEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedAndOrOtherTypedEtbMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -9133,7 +9137,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     namedOrAnotherTypedEtbMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_another_typed_etb')
   ) {
-    const effectText = String(namedOrAnotherTypedEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrAnotherTypedEtbMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -9156,7 +9160,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     !lowerOracle.includes('nontoken creature you control with power') &&
     !triggers.some((t) => t.triggerType === 'named_or_creature_power_or_less_etb')
   ) {
-    const effectText = String(namedOrCreaturePowerOrLessEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrCreaturePowerOrLessEtbMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -9178,7 +9182,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     namedOrNontokenCreaturePowerOrLessEtbMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_nontoken_creature_power_or_less_etb')
   ) {
-    const effectText = String(namedOrNontokenCreaturePowerOrLessEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrNontokenCreaturePowerOrLessEtbMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -9194,7 +9198,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever a ([\w]+(?:, [\w]+)+, or [\w]+) you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (multiTypedCreatureEtbMatch && !triggers.some((t) => t.triggerType === 'multi_typed_creature_etb')) {
-    const effectText = String(multiTypedCreatureEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, multiTypedCreatureEtbMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -9208,7 +9212,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const thisAttractionEtbMatch = oracleText.match(/when this attraction enters,?\s*([^.]+)/i);
   if (thisAttractionEtbMatch && !triggers.some((t) => t.triggerType === 'this_attraction_etb')) {
-    const effectText = String(thisAttractionEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisAttractionEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9229,7 +9233,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     namedOrAnotherSameNamedPermanentEtbMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_another_same_named_permanent_etb')
   ) {
-    const effectText = String(namedOrAnotherSameNamedPermanentEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrAnotherSameNamedPermanentEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9248,7 +9252,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     thisOrAnotherNonTypeEtbMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_non_type_creature_etb')
   ) {
-    const effectText = String(thisOrAnotherNonTypeEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherNonTypeEtbMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -9267,7 +9271,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     toughnessGreaterThanPowerEtbMatch &&
     !triggers.some((t) => t.triggerType === 'toughness_greater_than_power_creature_etb')
   ) {
-    const effectText = String(toughnessGreaterThanPowerEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, toughnessGreaterThanPowerEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9289,7 +9293,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     namedOrNontokenHistoricEtbMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_nontoken_historic_permanent_etb')
   ) {
-    const effectText = String(namedOrNontokenHistoricEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrNontokenHistoricEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9308,7 +9312,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     entersFromGraveyardMatch &&
     !triggers.some((t) => t.triggerType === 'creature_enters_from_graveyard')
   ) {
-    const effectText = String(entersFromGraveyardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, entersFromGraveyardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9330,7 +9334,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     permanentEntersFromGraveyardMatch &&
     !triggers.some((t) => t.triggerType === 'permanent_enters_from_graveyard')
   ) {
-    const effectText = String(permanentEntersFromGraveyardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, permanentEntersFromGraveyardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9348,7 +9352,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     artifactCreatureEnchantmentEntersMatch &&
     !triggers.some((t) => t.triggerType === 'artifact_creature_or_enchantment_enters')
   ) {
-    const effectText = String(artifactCreatureEnchantmentEntersMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, artifactCreatureEnchantmentEntersMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9375,7 +9379,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const thisPermanentEtbMatch = oracleText.match(/when(?:ever)? this permanent enters(?: the battlefield)?,?\s*([^.]+)/i);
   if (thisPermanentEtbMatch && !triggers.some((t) => t.triggerType === 'this_permanent_etb')) {
-    const effectText = String(thisPermanentEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisPermanentEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9388,7 +9392,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const entersThisWayMatch = oracleText.match(/when it enters this way,?\s*([^.]+)/i);
   if (entersThisWayMatch && !triggers.some((t) => t.triggerType === 'enters_this_way')) {
-    const effectText = String(entersThisWayMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, entersThisWayMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9409,7 +9413,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     namedOrCreaturePowerOrGreaterEtbMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_creature_power_or_greater_etb')
   ) {
-    const effectText = String(namedOrCreaturePowerOrGreaterEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrCreaturePowerOrGreaterEtbMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -9425,7 +9429,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever this creature or another ([\w]+) your team controls enters?(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (teamTypedEtbMatch && !triggers.some((t) => t.triggerType === 'team_typed_creature_etb')) {
-    const effectText = String(teamTypedEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, teamTypedEtbMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -9447,7 +9451,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     namedAndOrNontokenCreaturesEnterMatch &&
     !triggers.some((t) => t.triggerType === 'named_and_or_nontoken_creatures_enter')
   ) {
-    const effectText = String(namedAndOrNontokenCreaturesEnterMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedAndOrNontokenCreaturesEnterMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9469,7 +9473,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     namedOrAnotherNontokenTypedEtbMatch &&
     !triggers.some((t) => t.triggerType === 'named_or_another_nontoken_typed_etb')
   ) {
-    const effectText = String(namedOrAnotherNontokenTypedEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrAnotherNontokenTypedEtbMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -9490,7 +9494,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     !triggers.some((t) => t.triggerType === 'this_or_another_typed_etb_any')
   ) {
     const tribalType = String(thisOrAnotherTypedEtbAnyMatch[1] || '').trim().toLowerCase();
-    const effectText = String(thisOrAnotherTypedEtbAnyMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherTypedEtbAnyMatch, 2);
     if (effectText && !['creature', 'artifact', 'enchantment', 'permanent'].includes(tribalType)) {
       triggers.push({
         permanentId,
@@ -9510,7 +9514,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     thisOrAnotherNontokenTypedEtbMatch &&
     !triggers.some((t) => t.triggerType === 'this_or_another_nontoken_typed_etb')
   ) {
-    const effectText = String(thisOrAnotherNontokenTypedEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherNontokenTypedEtbMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -9530,7 +9534,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     !lowerOracle.includes('you control') &&
     !triggers.some((t) => t.triggerType === 'this_or_another_artifact_etb_any')
   ) {
-    const effectText = String(thisOrAnotherArtifactEtbAnyMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherArtifactEtbAnyMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9543,7 +9547,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const thisBossEtbMatch = oracleText.match(/when this boss enters,?\s*([^.]+)/i);
   if (thisBossEtbMatch && !triggers.some((t) => t.triggerType === 'this_boss_etb')) {
-    const effectText = String(thisBossEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisBossEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9564,7 +9568,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     multiTypedControlledEtbMatch &&
     !triggers.some((t) => t.triggerType === 'multi_typed_controlled_etb')
   ) {
-    const effectText = String(multiTypedControlledEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, multiTypedControlledEtbMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -9583,7 +9587,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     counterSpellPlayedMatch &&
     !triggers.some((t) => t.triggerType === 'counter_spell_played')
   ) {
-    const effectText = String(counterSpellPlayedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, counterSpellPlayedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9596,7 +9600,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const thisEquipmentEtbMatch = oracleText.match(/when(?:ever)? this equipment enters(?: the battlefield)?,?\s*([^.]+)/i);
   if (thisEquipmentEtbMatch && !triggers.some((t) => t.triggerType === 'this_equipment_etb')) {
-    const effectText = String(thisEquipmentEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisEquipmentEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9615,7 +9619,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     !triggers.some((t) => t.triggerType === 'this_or_another_typed_etb')
   ) {
     const tribalType = String(thisOrAnotherTypedEtbMatch[1] || '').trim().toLowerCase();
-    const effectText = String(thisOrAnotherTypedEtbMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherTypedEtbMatch, 2);
     if (
       effectText &&
       !['creature', 'artifact', 'enchantment', 'ally', 'permanent'].includes(tribalType)
@@ -9636,7 +9640,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever this creature or another ally you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (thisOrAnotherAllyEtbMatch && !triggers.some((t) => t.triggerType === 'this_or_another_ally_etb')) {
-    const effectText = String(thisOrAnotherAllyEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherAllyEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9655,7 +9659,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     thisCreatureOrAnotherArtifactEtbMatch &&
     !triggers.some((t) => t.triggerType === 'this_creature_or_another_artifact_etb')
   ) {
-    const effectText = String(thisCreatureOrAnotherArtifactEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisCreatureOrAnotherArtifactEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9674,7 +9678,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     thisEnchantmentOrAnotherNontokenEtbMatch &&
     !triggers.some((t) => t.triggerType === 'this_enchantment_or_another_nontoken_etb')
   ) {
-    const effectText = String(thisEnchantmentOrAnotherNontokenEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisEnchantmentOrAnotherNontokenEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9690,7 +9694,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever this artifact or another artifact you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (thisOrAnotherArtifactEtbMatch && !triggers.some((t) => t.triggerType === 'this_or_another_artifact_etb')) {
-    const effectText = String(thisOrAnotherArtifactEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherArtifactEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9706,7 +9710,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever this enchantment or another enchantment you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (thisOrAnotherEnchantmentEtbMatch && !triggers.some((t) => t.triggerType === 'this_or_another_enchantment_etb')) {
-    const effectText = String(thisOrAnotherEnchantmentEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherEnchantmentEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9725,7 +9729,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     thisCreatureOrAnotherEnchantmentEtbMatch &&
     !triggers.some((t) => t.triggerType === 'this_creature_or_another_enchantment_etb')
   ) {
-    const effectText = String(thisCreatureOrAnotherEnchantmentEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisCreatureOrAnotherEnchantmentEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9741,7 +9745,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /when there are (?:\w+|\d+) or more (\w+) counters on (?:this \w+),?\s*([^.]+)/i,
   );
   if (counterThresholdMatch && !triggers.some((t) => t.triggerType === 'counter_threshold')) {
-    const effectText = String(counterThresholdMatch[3] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, counterThresholdMatch, 3);
     triggers.push({
       permanentId,
       cardName,
@@ -9756,7 +9760,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever this creature or another creature you control enters?(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (thisOrAnotherCreatureEtbMatch && !triggers.some((t) => t.triggerType === 'this_or_another_creature_etb')) {
-    const effectText = String(thisOrAnotherCreatureEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thisOrAnotherCreatureEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9774,7 +9778,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   );
   const namedOrAnotherCreatureEtbMatch = oracleText.match(namedOrAnotherCreatureEtbPattern);
   if (namedOrAnotherCreatureEtbMatch && !triggers.some((t) => t.triggerType === 'named_or_another_creature_etb')) {
-    const effectText = String(namedOrAnotherCreatureEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrAnotherCreatureEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9792,7 +9796,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   );
   const namedOrAnotherEnchantmentEtbMatch = oracleText.match(namedOrAnotherEnchantmentEtbPattern);
   if (namedOrAnotherEnchantmentEtbMatch && !triggers.some((t) => t.triggerType === 'named_or_another_enchantment_etb')) {
-    const effectText = String(namedOrAnotherEnchantmentEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrAnotherEnchantmentEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9810,7 +9814,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   );
   const etbMatch = oracleText.match(etbPattern);
   if (etbMatch && !triggers.some(t => t.triggerType === 'etb' || t.triggerType === 'self_enters_or_attacks' || t.triggerType === 'etb_sacrifice_unless_pay')) {
-    let effectText = etbMatch[1].trim();
+    let effectText = timingTriggerEffect(oracleText, etbMatch);
     const fullMatchText = String(etbMatch[0] || '');
     const isSelfEntersOrAttacks = /\bor\s+attacks\b/i.test(fullMatchText);
     const matchIndex = typeof etbMatch.index === 'number' ? etbMatch.index : oracleText.indexOf(fullMatchText);
@@ -9917,7 +9921,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   );
   const regenerateMatch = oracleText.match(/when it regenerates this way,?\s*([^.]+)/i);
   if (regenerateMatch && !triggers.some((trigger) => trigger.triggerType === 'regenerated')) {
-    const effectText = String(regenerateMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, regenerateMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9930,7 +9934,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const commanderEtbMatch = oracleText.match(/when(?:ever)? your commander enters?(?: the battlefield)?,?\s*([^.]+)/i);
   if (commanderEtbMatch && !triggers.some((trigger) => trigger.triggerType === 'commander_etb')) {
-    const effectText = String(commanderEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, commanderEtbMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9943,7 +9947,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const phasesInMatch = oracleText.match(/when(?:ever)? (?:~|this creature) phases in,?\s*([^.]+)/i);
   if (phasesInMatch && !triggers.some((trigger) => trigger.triggerType === 'phases_in')) {
-    const effectText = String(phasesInMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, phasesInMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9961,7 +9965,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     anotherPermanentFaceUpMatch &&
     !triggers.some((trigger) => trigger.triggerType === 'another_permanent_face_up')
   ) {
-    const effectText = String(anotherPermanentFaceUpMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherPermanentFaceUpMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9979,7 +9983,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     enchantmentOrPermanentFaceUpMatch &&
     !triggers.some((trigger) => trigger.triggerType === 'enchantment_or_permanent_turned_face_up')
   ) {
-    const effectText = String(enchantmentOrPermanentFaceUpMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantmentOrPermanentFaceUpMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -9997,7 +10001,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     faceDownControlledFaceUpMatch &&
     !triggers.some((trigger) => trigger.triggerType === 'face_down_controlled_turned_face_up')
   ) {
-    const effectText = String(faceDownControlledFaceUpMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, faceDownControlledFaceUpMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10018,7 +10022,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     namedOrAnotherPermanentFaceUpMatch &&
     !triggers.some((trigger) => trigger.triggerType === 'named_or_another_permanent_face_up')
   ) {
-    const effectText = String(namedOrAnotherPermanentFaceUpMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrAnotherPermanentFaceUpMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10036,7 +10040,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     selfOrAnotherPermanentFaceUpMatch &&
     !triggers.some((trigger) => trigger.triggerType === 'self_or_another_permanent_face_up')
   ) {
-    const effectText = String(selfOrAnotherPermanentFaceUpMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfOrAnotherPermanentFaceUpMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10051,7 +10055,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever (?:this creature or another creature you control|a permanent you control) is turned face up,?\s*([^.]+)/i,
   );
   if (controlledFaceUpMatch && !triggers.some((trigger) => trigger.triggerType === 'controlled_permanent_face_up')) {
-    const effectText = String(controlledFaceUpMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledFaceUpMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10064,7 +10068,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const anyPermanentFaceUpMatch = oracleText.match(/whenever a permanent is turned face up,?\s*([^.]+)/i);
   if (anyPermanentFaceUpMatch && !triggers.some((trigger) => trigger.triggerType === 'any_permanent_face_up')) {
-    const effectText = String(anyPermanentFaceUpMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyPermanentFaceUpMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10077,7 +10081,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const enchantedFaceUpMatch = oracleText.match(/when(?:ever)? enchanted creature is turned face up,?\s*([^.]+)/i);
   if (enchantedFaceUpMatch && !triggers.some((trigger) => trigger.triggerType === 'face_up')) {
-    const effectText = String(enchantedFaceUpMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedFaceUpMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10090,7 +10094,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const faceUpMatch = oracleText.match(faceUpPattern);
   if (faceUpMatch && !triggers.some((trigger) => trigger.triggerType === 'face_up')) {
-    const effectText = String(faceUpMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, faceUpMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10103,7 +10107,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   const etbOrAttackMatch = oracleText.match(etbOrAttackPattern);
   if (etbOrAttackMatch) {
-    const effectText = String(etbOrAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, etbOrAttackMatch);
     const hasMatchingEtbEffect = triggers.some((trigger) =>
       (trigger.triggerType === 'etb' || trigger.triggerType === 'self_enters_or_attacks') &&
       String(trigger.effect || trigger.description || '').trim().toLowerCase() === effectText.toLowerCase()
@@ -10142,7 +10146,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /when that permanent enters(?: the battlefield)?,?\s*([^.]+)/i
   );
   if (thatPermanentEtbMatch && !triggers.some((t) => t.triggerType === 'another_permanent_etb' || t.triggerType === 'delayed_etb')) {
-    const effectText = String(thatPermanentEtbMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thatPermanentEtbMatch);
     if (effectText) {
       triggers.push({
         permanentId,
@@ -10176,7 +10180,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   }
 
   if (chosenTypeEtbOrAttackMatch && !triggers.some((t) => t.triggerType === 'chosen_type_creature_etb_or_attack')) {
-    const effectText = String(chosenTypeEtbOrAttackMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, chosenTypeEtbOrAttackMatch);
     if (effectText) {
       triggers.push({
         permanentId,
@@ -10200,8 +10204,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'creature_etb',
-      description: creatureETBMatch[2].trim(),
-      effect: creatureETBMatch[2].trim(),
+      description: timingTriggerEffect(oracleText, creatureETBMatch, 2),
+      effect: timingTriggerEffect(oracleText, creatureETBMatch, 2),
       mandatory: true,
       nontokenOnly: isNontokenOnly,
       controlledOnly: hasControlRestriction,  // Flag for creatures that must be yours (e.g., Aura Shards)
@@ -10221,8 +10225,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'equipment_etb',
-      description: equipmentETBMatch[1].trim(),
-      effect: equipmentETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, equipmentETBMatch),
+      effect: timingTriggerEffect(oracleText, equipmentETBMatch),
       mandatory: !lowerOracle.includes('you may'),
     });
   }
@@ -10235,8 +10239,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'artifact_etb',
-      description: artifactETBMatch[1].trim(),
-      effect: artifactETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, artifactETBMatch),
+      effect: timingTriggerEffect(oracleText, artifactETBMatch),
       mandatory: !lowerOracle.includes('you may'),
     });
   }
@@ -10249,8 +10253,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'enchantment_etb',
-      description: enchantmentETBMatch[1].trim(),
-      effect: enchantmentETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, enchantmentETBMatch),
+      effect: timingTriggerEffect(oracleText, enchantmentETBMatch),
       mandatory: !lowerOracle.includes('you may'),
     });
   }
@@ -10262,8 +10266,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'equipment_cast',
-      description: equipmentCastMatch[1].trim(),
-      effect: equipmentCastMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, equipmentCastMatch),
+      effect: timingTriggerEffect(oracleText, equipmentCastMatch),
       mandatory: !lowerOracle.includes('you may'),
     });
   }
@@ -10276,8 +10280,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'legendary_creature_etb' as any,
-      description: legendaryCreatureETBMatch[1].trim(),
-      effect: legendaryCreatureETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, legendaryCreatureETBMatch),
+      effect: timingTriggerEffect(oracleText, legendaryCreatureETBMatch),
       mandatory: !lowerOracle.includes('you may'),
       requiresChoice: lowerOracle.includes('you may'),
     });
@@ -10299,8 +10303,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'creature_etb', // Use creature_etb so it only fires on creatures
-      description: anotherCreatureAnyETBMatch[1].trim(),
-      effect: anotherCreatureAnyETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, anotherCreatureAnyETBMatch),
+      effect: timingTriggerEffect(oracleText, anotherCreatureAnyETBMatch),
       mandatory: true,
       // Store color restriction for filtering (e.g., "white or black" for Auriok Champion)
       colorRestriction: colorRestriction && colorRestriction !== 'another' && colorRestriction !== 'one or more' ? colorRestriction : undefined,
@@ -10321,8 +10325,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         permanentId,
         cardName,
         triggerType: 'another_permanent_etb', // Triggers only on permanents you control
-        description: anotherPermanentControlledETBMatch[1].trim(),
-        effect: anotherPermanentControlledETBMatch[1].trim(),
+        description: timingTriggerEffect(oracleText, anotherPermanentControlledETBMatch),
+        effect: timingTriggerEffect(oracleText, anotherPermanentControlledETBMatch),
         mandatory: true,
       } as any);
     }
@@ -10341,8 +10345,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'permanent_etb',
-      description: anotherPermanentAnyETBMatch[1].trim(),
-      effect: anotherPermanentAnyETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, anotherPermanentAnyETBMatch),
+      effect: timingTriggerEffect(oracleText, anotherPermanentAnyETBMatch),
       mandatory: true,
     } as any);
   }
@@ -10366,8 +10370,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'another_permanent_etb', // This is controlled creature, so another_permanent_etb is appropriate
-      description: anotherCreatureControlledETBMatch[1].trim(),
-      effect: anotherCreatureControlledETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, anotherCreatureControlledETBMatch),
+      effect: timingTriggerEffect(oracleText, anotherCreatureControlledETBMatch),
       mandatory: true,
       colorRestriction: colorRestriction && colorRestriction !== 'another' && colorRestriction !== 'one or more' ? colorRestriction : undefined,
       creatureOnly: true, // Flag to indicate this only triggers on creatures
@@ -10378,7 +10382,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever (?:~|this creature) or another creature you control with flying enters(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (flyingControlledETBMatch && !triggers.some((t) => t.triggerType === 'flying_controlled_etb')) {
-    const effectText = String(flyingControlledETBMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, flyingControlledETBMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10393,7 +10397,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     /whenever a land (?:an opponent controls enters|enters(?: the battlefield)?(?: under)? an opponent'?s control),?\s*([^.]+)/i,
   );
   if (opponentLandETBMatch && !triggers.some((t) => t.triggerType === 'opponent_land_etb')) {
-    const effectText = String(opponentLandETBMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentLandETBMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10416,8 +10420,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'opponent_creature_etb', // New type for opponent creature ETB
-      description: opponentCreatureETBMatch[1].trim(),
-      effect: opponentCreatureETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, opponentCreatureETBMatch),
+      effect: timingTriggerEffect(oracleText, opponentCreatureETBMatch),
       mandatory: !opponentCreatureETBMatch[1].toLowerCase().includes('you may'),
     } as any);
   }
@@ -10607,7 +10611,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
     /whenever you untap one or more permanents during your untap step,?\s*([^.]+)/i,
   );
   if (untapStepMatch && !triggers.some((t) => t.triggerOn === 'untap_step')) {
-    const effectText = String(untapStepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, untapStepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10625,7 +10629,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
     controlledPermanentUntapMatch &&
     !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'controlled_permanent')
   ) {
-    const effectText = String(controlledPermanentUntapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, controlledPermanentUntapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10638,7 +10642,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
 
   const permanentUntapMatch = oracleText.match(/whenever a permanent becomes untapped,?\s*([^.]+)/i);
   if (permanentUntapMatch && !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'permanent')) {
-    const effectText = String(permanentUntapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, permanentUntapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10653,7 +10657,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
     /when this creature becomes untapped(?: or you lose control of this creature)?,?\s*([^.]+)/i,
   );
   if (selfBecomesUntappedMatch && !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'self')) {
-    const effectText = String(selfBecomesUntappedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfBecomesUntappedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10666,7 +10670,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
 
   const equippedUntapMatch = oracleText.match(/whenever equipped creature becomes untapped,?\s*([^.]+)/i);
   if (equippedUntapMatch && !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'equipped_creature')) {
-    const effectText = String(equippedUntapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, equippedUntapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10691,7 +10695,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
   );
   const selfUntapMatch = oracleText.match(selfUntapPattern);
   if (selfUntapMatch && !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'self')) {
-    const effectText = String(selfUntapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, selfUntapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10712,7 +10716,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
     namedOrMvCreatureUntapMatch &&
     !triggers.some((t) => t.triggerOn === 'untap' && t.untapType === 'named_or_mv_creature')
   ) {
-    const effectText = String(namedOrMvCreatureUntapMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, namedOrMvCreatureUntapMatch, 2);
     triggers.push({
       permanentId,
       cardName,
@@ -10770,7 +10774,7 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
   // Also supports "Whenever this creature or equipped creature attacks, ..."
   const equipAttackMatch = oracleText.match(/whenever (?:this creature or )?equipped creature attacks,?\s*([^\n]+)/i);
   if (equipAttackMatch) {
-    const effectText = equipAttackMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, equipAttackMatch);
     const lowerEffect = effectText.toLowerCase();
     triggers.push({
       permanentId,
@@ -10791,7 +10795,7 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
   // Also supports granted quoted text on attached auras: "Whenever this creature attacks, ..."
   const auraAttackMatch = oracleText.match(/whenever (?:enchanted creature|this creature) attacks,?\s*([^.]+)/i);
   if (auraAttackMatch) {
-    const effectText = auraAttackMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, auraAttackMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10807,7 +10811,7 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
   
   const equipAnyCombatDamageMatch = oracleText.match(/whenever equipped creature deals combat damage(?! to),?\s*([^.]+)/i);
   if (equipAnyCombatDamageMatch) {
-    const effectText = equipAnyCombatDamageMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, equipAnyCombatDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10822,7 +10826,7 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
   // Pattern: "Whenever equipped creature deals combat damage to a player, ..."
   const equipDamageMatch = oracleText.match(/whenever equipped creature deals combat damage to (?:a player|an opponent),?\s*([^.]+)/i);
   if (equipDamageMatch) {
-    const effectText = equipDamageMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, equipDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10842,7 +10846,7 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
     /whenever enchanted creature deals combat damage to defending player,?\s*([^.]+)/i,
   );
   if (enchantedDefendingPlayerMatch) {
-    const effectText = enchantedDefendingPlayerMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedDefendingPlayerMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -10858,7 +10862,7 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
   // Also matches "Whenever enchanted creature deals damage to a player, ..." (Spirit Loop)
   const auraDamageMatch = oracleText.match(/whenever enchanted creature deals (?:combat )?damage to (?:a player|an opponent),?\s*([^.]+)/i);
   if (auraDamageMatch) {
-    const effectText = auraDamageMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, auraDamageMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -11334,8 +11338,8 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
       permanentId,
       cardName,
       controllerId,
-      description: beginCombatMatch[1].trim(),
-      effect: beginCombatMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, beginCombatMatch),
+      effect: timingTriggerEffect(oracleText, beginCombatMatch),
       mandatory: true,
     });
   }
@@ -11349,15 +11353,15 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
       permanentId,
       cardName,
       controllerId,
-      description: eachCombatMatch[1].trim(),
-      effect: eachCombatMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, eachCombatMatch),
+      effect: timingTriggerEffect(oracleText, eachCombatMatch),
       mandatory: true,
     });
   }
 
   const thatCombatMatch = oracleText.match(/at the beginning of that combat,?\s*([^.]+)/i);
   if (thatCombatMatch && !triggers.some((t) => (t as any).triggerType === 'that_combat')) {
-    const effectText = String(thatCombatMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thatCombatMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -11373,7 +11377,7 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
     /at the beginning of combat on each opponent's turn,?\s*([^.]+)/i,
   );
   if (opponentCombatMatch && !triggers.some((t) => (t as any).triggerType === 'opponent_turn_combat')) {
-    const effectText = String(opponentCombatMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentCombatMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -11389,7 +11393,7 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
     /at the beginning of combat on enchanted opponent's turn,?\s*([^.]+)/i,
   );
   if (enchantedOpponentCombatMatch && !triggers.some((t) => (t as any).triggerType === 'enchanted_opponent_turn_combat')) {
-    const effectText = String(enchantedOpponentCombatMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedOpponentCombatMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -11405,7 +11409,7 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
     /at the beginning of combat on each player's turn,?\s*([^.]+)/i,
   );
   if (eachPlayerCombatMatch && !triggers.some((t) => (t as any).triggerType === 'each_player_turn_combat')) {
-    const effectText = String(eachPlayerCombatMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, eachPlayerCombatMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -11419,7 +11423,7 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
 
   const combatThisTurnMatch = oracleText.match(/at the beginning of combat this turn,?\s*([^.]+)/i);
   if (combatThisTurnMatch && !triggers.some((t) => (t as any).triggerType === 'combat_this_turn')) {
-    const effectText = String(combatThisTurnMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, combatThisTurnMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -11433,7 +11437,7 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
 
   const combatStepMatch = oracleText.match(/at the beginning of your combat step,?\s*([^.]+)/i);
   if (combatStepMatch && !triggers.some((t) => (t as any).triggerType === 'your_combat_step')) {
-    const effectText = String(combatStepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, combatStepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -11449,7 +11453,7 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
     /at the beginning of the next combat(?: phase)?(?: this turn)?,?\s*([^.]+)/i,
   );
   if (nextCombatMatch && !triggers.some((t) => (t as any).triggerType === 'next_combat_phase')) {
-    const effectText = String(nextCombatMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nextCombatMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -12131,8 +12135,8 @@ export function detectEndOfCombatTriggers(card: any, permanent: any): EndOfComba
       permanentId,
       cardName,
       controllerId,
-      description: endCombatMatch[1].trim(),
-      effect: endCombatMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, endCombatMatch),
+      effect: timingTriggerEffect(oracleText, endCombatMatch),
       mandatory: true,
     });
   }
@@ -12545,7 +12549,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     playerCastsCommanderOrAttacksMatch &&
     !triggers.some((t) => String(t.description || '').toLowerCase().includes('casts their commander or attacks'))
   ) {
-    const effectText = String(playerCastsCommanderOrAttacksMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerCastsCommanderOrAttacksMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -12560,7 +12564,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const anyPlayerCrimeMatch = oracleText.match(/whenever a player commits a crime,?\s*([^.]+)/i);
   if (anyPlayerCrimeMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('commits a crime'))) {
-    const effectText = String(anyPlayerCrimeMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyPlayerCrimeMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -12575,7 +12579,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const commitCrimeMatch = oracleText.match(/whenever you commit a crime,?\s*([^.]+)/i);
   if (commitCrimeMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('commit a crime'))) {
-    const effectText = String(commitCrimeMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, commitCrimeMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -12595,7 +12599,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     nonSliverCreatureSpellCastMatch &&
     !triggers.some((t) => String(t.description || '').toLowerCase().includes('non-sliver creature spell'))
   ) {
-    const effectText = String(nonSliverCreatureSpellCastMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nonSliverCreatureSpellCastMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -12610,7 +12614,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const youCopySpellMatch = oracleText.match(/whenever you copy a spell,?\s*([^.]+)/i);
   if (youCopySpellMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('copy a spell'))) {
-    const effectText = String(youCopySpellMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, youCopySpellMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -12624,7 +12628,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const cycleACardMatch = oracleText.match(/whenever you cycle a card,?\s*([^.]+)/i);
   if (cycleACardMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('cycle a card'))) {
-    const effectText = String(cycleACardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, cycleACardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -12638,7 +12642,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const cycleAnotherCardMatch = oracleText.match(/whenever you cycle another card,?\s*([^.]+)/i);
   if (cycleAnotherCardMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('cycle another card'))) {
-    const effectText = String(cycleAnotherCardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, cycleAnotherCardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -12652,7 +12656,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const cycleThisCardMatch = oracleText.match(/when(?:ever)? you cycle this card,?\s*([^.]+)/i);
   if (cycleThisCardMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('cycle this card'))) {
-    const effectText = String(cycleThisCardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, cycleThisCardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -12666,7 +12670,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const youPlayACardMatch = oracleText.match(/whenever you play a card(?:,?\s*if\s+[^,]+)?,?\s*([^.]+)/i);
   if (youPlayACardMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('you play a card'))) {
-    const effectText = String(youPlayACardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, youPlayACardMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -12680,7 +12684,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const youPlayACardThisWayMatch = oracleText.match(/when you play a card this way,?\s*([^.]+)/i);
   if (youPlayACardThisWayMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('play a card this way'))) {
-    const effectText = String(youPlayACardThisWayMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, youPlayACardThisWayMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -12832,7 +12836,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           permanentId,
           cardName,
           controllerId,
-          description: match[0].trim(),
+          description: timingTriggerEffect(oracleText, match, 0),
           effect: effectText,
           spellCondition: 'any',
           mandatory: !effectText.toLowerCase().includes('you may'),
@@ -12855,7 +12859,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
       ) {
         continue;
       }
-      const normalizedEffect = normalizeSpellCastEffectText(oracleText, match[0], match[2].trim(), match.index);
+      const normalizedEffect = normalizeSpellCastEffectText(oracleText, match[0], timingTriggerEffect(oracleText, match, 2), match.index);
       const effectText = normalizedEffect.effectText;
 
       if (
@@ -13128,7 +13132,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   );
   if (anotherSpellWithKeywordMatch) {
     const keyword = String(anotherSpellWithKeywordMatch[1] || '').trim().toLowerCase();
-    const effectText = String(anotherSpellWithKeywordMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anotherSpellWithKeywordMatch, 2);
     if (
       effectText &&
       !triggers.some((t) => t.effect === effectText && t.spellCondition === 'any' && t.tribalType === keyword)
@@ -13150,13 +13154,14 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   if (lowerOracle.includes('magecraft') || 
       (lowerOracle.includes('whenever you cast or copy') && lowerOracle.includes('instant or sorcery'))) {
     const effectMatch = oracleText.match(/(?:magecraft\s*[—-]\s*)?whenever you cast or copy an instant or sorcery spell,?\s*([^.]+)/i);
-    if (effectMatch && !triggers.some(t => t.effect === effectMatch[1].trim())) {
+    if (effectMatch && !triggers.some((t) => t.effect === timingTriggerEffect(oracleText, effectMatch))) {
+      const magecraftEffect = timingTriggerEffect(oracleText, effectMatch);
       triggers.push({
         permanentId,
         cardName,
         controllerId,
-        description: `Magecraft — Whenever you cast or copy an instant or sorcery spell, ${effectMatch[1].trim()}`,
-        effect: effectMatch[1].trim(),
+        description: `Magecraft — Whenever you cast or copy an instant or sorcery spell, ${magecraftEffect}`,
+        effect: magecraftEffect,
         spellCondition: 'instant_sorcery',
         mandatory: true,
       });
@@ -13270,7 +13275,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     while ((match = pattern.exec(oracleText)) !== null) {
       const rawType = String(match[1] || 'spell').trim().toLowerCase();
       const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
-      const effectText = match[0].trim();
+      const effectText = timingTriggerEffect(oracleText, match, 0);
       if (!triggers.some((trigger) => trigger.effect === effectText)) {
         triggers.push({
           permanentId,
@@ -13298,7 +13303,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: manaCostMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, manaCostMatch, 0),
         effect: effectText,
         spellCondition,
         tribalType,
@@ -13318,7 +13323,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: castFromHandMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, castFromHandMatch, 0),
         effect: effectText,
         spellCondition: 'any',
         sourceZoneRequirement: 'hand',
@@ -13342,7 +13347,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           permanentId,
           cardName,
           controllerId,
-          description: match[0].trim(),
+          description: timingTriggerEffect(oracleText, match, 0),
           effect: effectText,
           spellCondition: 'any',
           sourceZoneRequirement: isFromExile ? 'exile' : undefined,
@@ -13360,7 +13365,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: playtestCastMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, playtestCastMatch, 0),
         effect: effectText,
         spellCondition: 'tribal_type',
         tribalType: 'playtest',
@@ -13404,7 +13409,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           permanentId,
           cardName,
           controllerId,
-          description: match[0].trim(),
+          description: timingTriggerEffect(oracleText, match, 0),
           effect: effectText,
           spellCondition: 'instant_sorcery',
           copiesSpell,
@@ -13424,7 +13429,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: spellOfThatTypeMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, spellOfThatTypeMatch, 0),
         effect: effectText,
         spellCondition: 'any',
         mandatory: !effectText.toLowerCase().includes('you may'),
@@ -13449,7 +13454,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           permanentId,
           cardName,
           controllerId,
-          description: match[0].trim(),
+          description: timingTriggerEffect(oracleText, match, 0),
           effect: effectText,
           spellCondition,
           tribalType,
@@ -13496,7 +13501,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           permanentId,
           cardName,
           controllerId,
-          description: match[0].trim(),
+          description: timingTriggerEffect(oracleText, match, 0),
           effect: effectText,
           spellCondition,
           tribalType,
@@ -13523,7 +13528,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: firstTribalMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, firstTribalMatch, 0),
         effect: effectText,
         spellCondition,
         tribalType,
@@ -13547,7 +13552,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: castDuringTurnsMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, castDuringTurnsMatch, 0),
         effect: effectText,
         spellCondition,
         tribalType,
@@ -13566,7 +13571,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: castOrCycleMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, castOrCycleMatch, 0),
         effect: effectText,
         spellCondition: 'any',
         mandatory: !effectText.toLowerCase().includes('you may'),
@@ -13582,7 +13587,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: castItThisTurnMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, castItThisTurnMatch, 0),
         effect: effectText,
         spellCondition: 'any',
         mandatory: !effectText.toLowerCase().includes('you may'),
@@ -13598,7 +13603,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: castEnchantedCardMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, castEnchantedCardMatch, 0),
         effect: effectText,
         spellCondition: 'any',
         mandatory: !effectText.toLowerCase().includes('you may'),
@@ -13617,7 +13622,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: castFromExileAmongMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, castFromExileAmongMatch, 0),
         effect: effectText,
         spellCondition: 'any',
         sourceZoneRequirement: 'exile',
@@ -13634,7 +13639,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: castSpellFromThatMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, castSpellFromThatMatch, 0),
         effect: effectText,
         spellCondition: 'any',
         mandatory: !effectText.toLowerCase().includes('you may'),
@@ -13656,7 +13661,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
           permanentId,
           cardName,
           controllerId,
-          description: match[0].trim(),
+          description: timingTriggerEffect(oracleText, match, 0),
           effect: effectText,
           spellCondition: 'any',
           mandatory: !effectText.toLowerCase().includes('you may'),
@@ -13677,7 +13682,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         permanentId,
         cardName,
         controllerId,
-        description: namedCardCastMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, namedCardCastMatch, 0),
         effect: effectText,
         spellCondition: 'any',
         tribalType: cardName.toLowerCase(),
@@ -13879,7 +13884,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   );
   if (tribalMultiTapMatch) {
     const tribalType = tribalMultiTapMatch[1].toLowerCase();
-    const effectText = tribalMultiTapMatch[2].trim();
+    const effectText = timingTriggerEffect(oracleText, tribalMultiTapMatch, 2);
     const isOptional = effectText.toLowerCase().includes('you may');
     triggers.push({
       permanentId,
@@ -13914,7 +13919,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever a creature an opponent controls becomes tapped,?\s*([^.]+)/i,
   );
   if (opponentCreatureTapMatch) {
-    const effectText = String(opponentCreatureTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentCreatureTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -13930,7 +13935,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   const tribalTapMatch = oracleText.match(/whenever (?:a |an )?(\w+) you control becomes tapped,?\s*([^.]+)/i);
   if (tribalTapMatch) {
     const tribalType = tribalTapMatch[1].toLowerCase();
-    const effectText = tribalTapMatch[2].trim();
+    const effectText = timingTriggerEffect(oracleText, tribalTapMatch, 2);
     const isOptional = effectText.toLowerCase().includes('you may');
     
     // Check for life gain
@@ -13964,7 +13969,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   );
   const selfTapMatch = oracleText.match(selfTapPattern);
   if (selfTapMatch) {
-    const effectText = selfTapMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, selfTapMatch);
     const isOptional = effectText.toLowerCase().includes('you may');
     
     // Check for token creation
@@ -14001,7 +14006,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   
   const thatLandTapMatch = oracleText.match(/whenever that land becomes tapped,?\s*([^.]+)/i);
   if (thatLandTapMatch && !triggers.some((t) => t.affectedType === 'that_land')) {
-    const effectText = String(thatLandTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, thatLandTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14018,7 +14023,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever an opponent taps an artifact for mana,?\s*([^.]+)/i,
   );
   if (opponentArtifactTapForManaMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_artifact_tap_for_mana')) {
-    const effectText = String(opponentArtifactTapForManaMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentArtifactTapForManaMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14035,7 +14040,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever an opponent taps a mountain for mana,?\s*([^.]+)/i,
   );
   if (opponentMountainTapForManaMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_mountain_tap_for_mana')) {
-    const effectText = String(opponentMountainTapForManaMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentMountainTapForManaMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14052,7 +14057,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever an opponent taps a land for mana,?\s*([^.]+)/i,
   );
   if (opponentTapsLandForManaMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_taps_land_for_mana')) {
-    const effectText = String(opponentTapsLandForManaMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentTapsLandForManaMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14069,7 +14074,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever a player taps a basic land for mana,?\s*([^.]+)/i,
   );
   if (playerBasicLandTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_basic_land_tap')) {
-    const effectText = String(playerBasicLandTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerBasicLandTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14086,7 +14091,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever an island an opponent controls becomes tapped,?\s*([^.]+)/i,
   );
   if (opponentIslandBecomesTappedMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_island_becomes_tapped')) {
-    const effectText = String(opponentIslandBecomesTappedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentIslandBecomesTappedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14106,7 +14111,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     artifactBecomesTappedOrActivatedMatch &&
     !triggers.some((t) => (t as any).affectedType === 'artifact_becomes_tapped_or_activated')
   ) {
-    const effectText = String(artifactBecomesTappedOrActivatedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, artifactBecomesTappedOrActivatedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14121,7 +14126,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const itNextBecomesTappedMatch = oracleText.match(/whenever it next becomes tapped this turn,?\s*([^.]+)/i);
   if (itNextBecomesTappedMatch && !triggers.some((t) => (t as any).affectedType === 'it_next_becomes_tapped')) {
-    const effectText = String(itNextBecomesTappedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, itNextBecomesTappedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14138,7 +14143,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever a mountain an opponent controls becomes tapped,?\s*([^.]+)/i,
   );
   if (opponentMountainBecomesTappedMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_mountain_becomes_tapped')) {
-    const effectText = String(opponentMountainBecomesTappedMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentMountainBecomesTappedMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14155,7 +14160,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever a player taps a (?:Mountain|Forest|Plains)(?:, (?:a )?(?:Mountain|Forest|Plains))*(?:, or (?:a )?(?:Mountain|Forest|Plains))? for mana,?\s*([^.]+)/i,
   );
   if (playerLandTypesTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_land_types_tap')) {
-    const effectText = String(playerLandTypesTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerLandTypesTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14172,7 +14177,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever a player taps a nonbasic land for mana,?\s*([^.]+)/i,
   );
   if (playerNonbasicLandTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_nonbasic_land_tap')) {
-    const effectText = String(playerNonbasicLandTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerNonbasicLandTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14189,7 +14194,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever a player taps a permanent for mana,?\s*([^.]+)/i,
   );
   if (playerPermanentTapForManaMatch && !triggers.some((t) => (t as any).affectedType === 'player_permanent_tap_for_mana')) {
-    const effectText = String(playerPermanentTapForManaMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerPermanentTapForManaMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14206,7 +14211,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever a land of the chosen type an opponent controls becomes tapped,?\s*([^.]+)/i,
   );
   if (opponentChosenLandTypeTapMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_chosen_land_type_tap')) {
-    const effectText = String(opponentChosenLandTypeTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentChosenLandTypeTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14226,7 +14231,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     artifactTappedOrAbilityMatch &&
     !triggers.some((t) => (t as any).affectedType === 'opponent_artifact_tapped_or_ability')
   ) {
-    const effectText = String(artifactTappedOrAbilityMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, artifactTappedOrAbilityMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14243,7 +14248,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever a forest an opponent controls becomes tapped,?\s*([^.]+)/i,
   );
   if (opponentForestTapMatch && !triggers.some((t) => (t as any).affectedType === 'opponent_forest_tap')) {
-    const effectText = String(opponentForestTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentForestTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14258,7 +14263,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const playerSwampTapMatch = oracleText.match(/whenever a player taps a swamp for mana,?\s*([^.]+)/i);
   if (playerSwampTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_swamp_tap')) {
-    const effectText = String(playerSwampTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerSwampTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14273,7 +14278,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const playerIslandTapMatch = oracleText.match(/whenever a player taps an island for mana,?\s*([^.]+)/i);
   if (playerIslandTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_island_tap')) {
-    const effectText = String(playerIslandTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerIslandTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14288,7 +14293,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const playerSnowLandTapMatch = oracleText.match(/whenever a player taps a snow land for mana,?\s*([^.]+)/i);
   if (playerSnowLandTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_snow_land_tap')) {
-    const effectText = String(playerSnowLandTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerSnowLandTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14303,7 +14308,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const playerLandTapMatch = oracleText.match(/whenever a player taps a land for mana,?\s*([^.]+)/i);
   if (playerLandTapMatch && !triggers.some((t) => (t as any).affectedType === 'player_land_tap')) {
-    const effectText = String(playerLandTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerLandTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14318,7 +14323,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const enchantedLandManaTapMatch = oracleText.match(/whenever enchanted land is tapped for mana,?\s*([^.]+)/i);
   if (enchantedLandManaTapMatch && !triggers.some((t) => (t as any).affectedType === 'enchanted_land_mana')) {
-    const effectText = String(enchantedLandManaTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedLandManaTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14333,7 +14338,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const enchantedLandTapMatch = oracleText.match(/when(?:ever)? enchanted land becomes tapped,?\s*([^.]+)/i);
   if (enchantedLandTapMatch && !triggers.some((t) => t.affectedType === 'enchanted_land')) {
-    const effectText = String(enchantedLandTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedLandTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14352,7 +14357,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     !lowerOracle.includes('creature you control becomes tapped') &&
     !triggers.some((t) => t.affectedType === 'any_creature')
   ) {
-    const effectText = String(anyCreatureTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyCreatureTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14367,7 +14372,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const forestManaTapMatch = oracleText.match(/whenever a forest is tapped for mana,?\s*([^.]+)/i);
   if (forestManaTapMatch && !triggers.some((t) => (t as any).affectedType === 'forest_mana')) {
-    const effectText = String(forestManaTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, forestManaTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14382,7 +14387,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const enchantedForestManaTapMatch = oracleText.match(/whenever enchanted forest is tapped for mana,?\s*([^.]+)/i);
   if (enchantedForestManaTapMatch && !triggers.some((t) => (t as any).affectedType === 'enchanted_forest_mana')) {
-    const effectText = String(enchantedForestManaTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedForestManaTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14399,7 +14404,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever a land with the same name as the exiled card is tapped for mana,?\s*([^.]+)/i,
   );
   if (exiledNameLandTappedForManaMatch && !triggers.some((t) => (t as any).affectedType === 'exiled_name_land_tapped_for_mana')) {
-    const effectText = String(exiledNameLandTappedForManaMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, exiledNameLandTappedForManaMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14416,7 +14421,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever (?:a|an) basic land is tapped for mana(?: of the chosen color)?,?\s*([^.]+)/i,
   );
   if (basicLandTappedForManaMatch && !triggers.some((t) => (t as any).affectedType === 'basic_land_tapped_for_mana')) {
-    const effectText = String(basicLandTappedForManaMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, basicLandTappedForManaMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14433,7 +14438,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     /whenever (?:a|an) (?:basic )?land(?:'s)? ability causes you to add(?: one or more)? mana(?: of the chosen color)?,?\s*([^.]+)/i,
   );
   if (landManaAbilityTapMatch && !triggers.some((t) => (t as any).affectedType === 'land_mana_ability')) {
-    const effectText = String(landManaAbilityTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, landManaAbilityTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14448,7 +14453,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const fortifiedLandTapMatch = oracleText.match(/whenever fortified land becomes tapped,?\s*([^.]+)/i);
   if (fortifiedLandTapMatch && !triggers.some((t) => t.affectedType === 'fortified_land')) {
-    const effectText = String(fortifiedLandTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, fortifiedLandTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14463,7 +14468,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const anyPermanentTapMatch = oracleText.match(/whenever a permanent becomes tapped,?\s*([^.]+)/i);
   if (anyPermanentTapMatch && !triggers.some((t) => (t as any).affectedType === 'any_permanent_becomes_tapped')) {
-    const effectText = String(anyPermanentTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, anyPermanentTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14478,7 +14483,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const enchantedPermanentTapMatch = oracleText.match(/when(?:ever)? enchanted permanent becomes tapped,?\s*([^.]+)/i);
   if (enchantedPermanentTapMatch && !triggers.some((t) => t.affectedType === 'enchanted_permanent')) {
-    const effectText = String(enchantedPermanentTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedPermanentTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14493,7 +14498,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const enchantedArtifactTapMatch = oracleText.match(/when(?:ever)? enchanted artifact becomes tapped,?\s*([^.]+)/i);
   if (enchantedArtifactTapMatch && !triggers.some((t) => t.affectedType === 'enchanted_artifact')) {
-    const effectText = String(enchantedArtifactTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedArtifactTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14508,7 +14513,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const enchantedTapMatch = oracleText.match(/whenever enchanted creature becomes tapped,?\s*([^.]+)/i);
   if (enchantedTapMatch && !triggers.some((t) => t.affectedType === 'enchanted_creature')) {
-    const effectText = String(enchantedTapMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedTapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -14526,7 +14531,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
       !triggers.some(t => t.affectedType === 'creature')) {
     const effectMatch = oracleText.match(/whenever a creature you control becomes tapped,?\s*([^.]+)/i);
     if (effectMatch) {
-      const effectText = effectMatch[1].trim();
+      const effectText = timingTriggerEffect(oracleText, effectMatch);
       triggers.push({
         permanentId,
         cardName,
@@ -14544,7 +14549,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   const tapForManaMatch = oracleText.match(/whenever you tap (?:a |an )?(\w+) for mana,?\s*([^.]+)/i);
   if (tapForManaMatch) {
     const tribalType = tapForManaMatch[1].toLowerCase();
-    const effectText = tapForManaMatch[2].trim();
+    const effectText = timingTriggerEffect(oracleText, tapForManaMatch, 2);
     
     triggers.push({
       permanentId,

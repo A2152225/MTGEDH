@@ -5,7 +5,10 @@ import {
   buildOracleIRExecutionContext,
   type OracleIRExecutionResult,
 } from '../../../../rules-engine/src/oracleIRExecutor.js';
-import { hasUnqueuedPlayerChoiceGap, isOracleIrMandatoryExecutionComplete } from './oracleIrStepWiring.js';
+import {
+  describeOracleIrExecutionHandledIncomplete,
+  logOracleIrAllOrNothingFailure,
+} from './oracleIrStepWiring.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import {
@@ -139,37 +142,12 @@ export function isOracleIrExecutionHandled(
   resolutionQueueStepsAfter: number,
   parsedSteps?: readonly OracleEffectStep[],
 ): boolean {
-  const queueBridged = resolutionQueueStepsAfter > resolutionQueueStepsBefore;
-  const pendingContinuation = (result.pendingContinuationSteps || []).length;
-  if (pendingContinuation > 0 && !queueBridged) {
-    return false;
-  }
-
-  if (hasUnqueuedPlayerChoiceGap(result, queueBridged)) {
-    return false;
-  }
-
-  const applied = result.appliedSteps.length;
-  const pendingOptional = (result.pendingOptionalSteps || []).length;
-  const hasEffect =
-    applied > 0
-    || pendingOptional > 0
-    || pendingContinuation > 0
-    || queueBridged
-    || result.automationGaps.some((gap) => gap.classification === 'player_choice_required');
-
-  if (!hasEffect) {
-    return false;
-  }
-
-  if (parsedSteps && parsedSteps.length > 0) {
-    return isOracleIrMandatoryExecutionComplete(parsedSteps, result, {
-      resolutionQueueStepsBefore,
-      resolutionQueueStepsAfter,
-    });
-  }
-
-  return true;
+  return describeOracleIrExecutionHandledIncomplete(
+    result,
+    resolutionQueueStepsBefore,
+    resolutionQueueStepsAfter,
+    parsedSteps,
+  ).length === 0;
 }
 
 function probeOracleIrSpellShadow(
@@ -372,6 +350,13 @@ export function tryResolveSpellViaOracleIR(
           ((result.pendingOptionalSteps?.length ?? 0) > 0
             ? `, ${result.pendingOptionalSteps!.length} optional pending`
             : ''),
+      );
+    } else {
+      logOracleIrAllOrNothingFailure(
+        'spell',
+        params.spellName,
+        describeOracleIrExecutionHandledIncomplete(result, queueBefore, queueAfter, steps),
+        { applied, parsed: steps.length },
       );
     }
 

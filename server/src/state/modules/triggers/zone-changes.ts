@@ -13,6 +13,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 import {
   KNOWN_DEATH_TRIGGERS,
   KNOWN_ETB_TRIGGERS,
@@ -177,8 +178,8 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       permanentId,
       cardName,
       triggerType: 'dies',
-      description: diesMatch[1].trim(),
-      effect: diesMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, diesMatch),
+      effect: timingTriggerEffect(oracleText, diesMatch),
       mandatory: true,
     });
   }
@@ -193,8 +194,8 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       permanentId,
       cardName,
       triggerType: 'creature_dies',
-      description: controlledDiesMatch[1].trim(),
-      effect: controlledDiesMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, controlledDiesMatch),
+      effect: timingTriggerEffect(oracleText, controlledDiesMatch),
       mandatory: true,
       nontokenOnly: !!nontokenMatch,
     });
@@ -212,8 +213,8 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       permanentId,
       cardName,
       triggerType: 'any_creature_dies',
-      description: anyDiesMatch[1].trim(),
-      effect: anyDiesMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, anyDiesMatch),
+      effect: timingTriggerEffect(oracleText, anyDiesMatch),
       mandatory: true,
     });
   }
@@ -227,8 +228,8 @@ export function detectDeathTriggers(card: any, permanent: any): TriggeredAbility
       permanentId,
       cardName,
       triggerType: 'opponent_creature_dies',
-      description: opponentDiesMatch[1].trim(),
-      effect: opponentDiesMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, opponentDiesMatch),
+      effect: timingTriggerEffect(oracleText, opponentDiesMatch),
       mandatory: true,
       nontokenOnly: !!opponentNontokenMatch,
     });
@@ -365,7 +366,7 @@ export function getDeathTriggers(
         dyingCreatureController === permanentController) {
       const effectMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature you control dies,?\s*([^.]+)/i);
       if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
-        const effect = effectMatch[1].trim();
+        const effect = timingTriggerEffect(oracleText, effectMatch);
         results.push({
           source: {
             permanentId: permanent.id,
@@ -385,7 +386,7 @@ export function getDeathTriggers(
         !oracleText.includes("whenever a creature an opponent controls dies")) {
       const effectMatch = oracleText.match(/whenever a creature dies,?\s*([^.]+)/i);
       if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
-        const effect = effectMatch[1].trim();
+        const effect = timingTriggerEffect(oracleText, effectMatch);
         results.push({
           source: {
             permanentId: permanent.id,
@@ -404,7 +405,7 @@ export function getDeathTriggers(
         dyingCreatureController !== permanentController) {
       const effectMatch = oracleText.match(/whenever (?:a|another) (?:nontoken )?creature (?:you don't control|an opponent controls) dies,?\s*([^.]+)/i);
       if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
-        const effect = effectMatch[1].trim();
+        const effect = timingTriggerEffect(oracleText, effectMatch);
         const returnsUnderControl = effect.toLowerCase().includes('return') && 
                                     effect.toLowerCase().includes('under your control');
         results.push({
@@ -513,7 +514,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   const etbPattern = new RegExp(`when\\s+(?:~|this creature|this permanent|${cardNameEscaped})\\s+enters(?: the battlefield)?,?\\s*([^.]+)`, 'i');
   const etbMatch = oracleText.match(etbPattern);
   if (etbMatch) {
-    const effectText = etbMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, etbMatch);
     
     // Check for "sacrifice ~ unless you pay" pattern
     const sacrificeUnlessPayMatch = effectText.match(/sacrifice\s+(?:~|it|this\s+\w+)\s+unless\s+you\s+pay\s+(\{[^}]+\})/i);
@@ -580,8 +581,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'creature_etb',
-      description: creatureETBMatch[1].trim(),
-      effect: creatureETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, creatureETBMatch),
+      effect: timingTriggerEffect(oracleText, creatureETBMatch),
       mandatory: true,
       nontokenOnly: isNontokenOnly,
     });
@@ -594,8 +595,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'equipment_etb',
-      description: equipmentETBMatch[1].trim(),
-      effect: equipmentETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, equipmentETBMatch),
+      effect: timingTriggerEffect(oracleText, equipmentETBMatch),
       mandatory: !lowerOracle.includes('you may'),
     });
   }
@@ -607,8 +608,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'artifact_etb',
-      description: artifactETBMatch[1].trim(),
-      effect: artifactETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, artifactETBMatch),
+      effect: timingTriggerEffect(oracleText, artifactETBMatch),
       mandatory: !lowerOracle.includes('you may'),
     });
   }
@@ -620,8 +621,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'enchantment_etb',
-      description: enchantmentETBMatch[1].trim(),
-      effect: enchantmentETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, enchantmentETBMatch),
+      effect: timingTriggerEffect(oracleText, enchantmentETBMatch),
       mandatory: !lowerOracle.includes('you may'),
     });
   }
@@ -633,8 +634,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'equipment_cast',
-      description: equipmentCastMatch[1].trim(),
-      effect: equipmentCastMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, equipmentCastMatch),
+      effect: timingTriggerEffect(oracleText, equipmentCastMatch),
       mandatory: !lowerOracle.includes('you may'),
     });
   }
@@ -649,8 +650,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'creature_etb',
-      description: anotherCreatureAnyETBMatch[1].trim(),
-      effect: anotherCreatureAnyETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, anotherCreatureAnyETBMatch),
+      effect: timingTriggerEffect(oracleText, anotherCreatureAnyETBMatch),
       mandatory: true,
       colorRestriction: colorRestriction && colorRestriction !== 'another' && colorRestriction !== 'one or more' ? colorRestriction : undefined,
     } as any);
@@ -666,8 +667,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         permanentId,
         cardName,
         triggerType: 'another_permanent_etb',
-        description: anotherPermanentControlledETBMatch[1].trim(),
-        effect: anotherPermanentControlledETBMatch[1].trim(),
+        description: timingTriggerEffect(oracleText, anotherPermanentControlledETBMatch),
+        effect: timingTriggerEffect(oracleText, anotherPermanentControlledETBMatch),
         mandatory: true,
       } as any);
     }
@@ -681,8 +682,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'permanent_etb',
-      description: anotherPermanentAnyETBMatch[1].trim(),
-      effect: anotherPermanentAnyETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, anotherPermanentAnyETBMatch),
+      effect: timingTriggerEffect(oracleText, anotherPermanentAnyETBMatch),
       mandatory: true,
     } as any);
   }
@@ -699,8 +700,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'another_permanent_etb',
-      description: anotherCreatureControlledETBMatch[1].trim(),
-      effect: anotherCreatureControlledETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, anotherCreatureControlledETBMatch),
+      effect: timingTriggerEffect(oracleText, anotherCreatureControlledETBMatch),
       mandatory: true,
       colorRestriction: colorRestriction && colorRestriction !== 'another' && colorRestriction !== 'one or more' ? colorRestriction : undefined,
       creatureOnly: true,
@@ -716,8 +717,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
       permanentId,
       cardName,
       triggerType: 'opponent_creature_etb',
-      description: opponentCreatureETBMatch[1].trim(),
-      effect: opponentCreatureETBMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, opponentCreatureETBMatch),
+      effect: timingTriggerEffect(oracleText, opponentCreatureETBMatch),
       mandatory: !opponentCreatureETBMatch[1].toLowerCase().includes('you may'),
     } as any);
   }

@@ -12,6 +12,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 import {
   KNOWN_COMBAT_DAMAGE_TRIGGERS,
   KNOWN_ATTACK_TRIGGERS,
@@ -411,8 +412,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
       permanentId,
       cardName,
       triggerType: 'deals_combat_damage',
-      description: combatDamagePlayerMatch[1].trim(),
-      effect: combatDamagePlayerMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, combatDamagePlayerMatch),
+      effect: timingTriggerEffect(oracleText, combatDamagePlayerMatch),
       mandatory: true,
     });
   }
@@ -424,8 +425,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
       permanentId,
       cardName,
       triggerType: 'creatures_deal_combat_damage_batched',
-      description: batchedCombatDamageMatch[1].trim(),
-      effect: batchedCombatDamageMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, batchedCombatDamageMatch),
+      effect: timingTriggerEffect(oracleText, batchedCombatDamageMatch),
       mandatory: true,
       batched: true,
     });
@@ -438,8 +439,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
       permanentId,
       cardName,
       triggerType: 'you_are_dealt_combat_damage',
-      description: youAreDealtCombatDamageMatch[1].trim(),
-      effect: youAreDealtCombatDamageMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, youAreDealtCombatDamageMatch),
+      effect: timingTriggerEffect(oracleText, youAreDealtCombatDamageMatch),
       mandatory: true,
     });
   }
@@ -450,8 +451,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
       permanentId,
       cardName,
       triggerType: 'you_are_dealt_damage',
-      description: youAreDealtDamageMatch[1].trim(),
-      effect: youAreDealtDamageMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, youAreDealtDamageMatch),
+      effect: timingTriggerEffect(oracleText, youAreDealtDamageMatch),
       mandatory: true,
     });
   }
@@ -463,8 +464,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
       permanentId,
       cardName,
       triggerType: 'creatures_deal_combat_damage_to_you_batched',
-      description: creaturesDealCombatDamageToYouMatch[1].trim(),
-      effect: creaturesDealCombatDamageToYouMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, creaturesDealCombatDamageToYouMatch),
+      effect: timingTriggerEffect(oracleText, creaturesDealCombatDamageToYouMatch),
       mandatory: true,
       batched: true,
     });
@@ -478,8 +479,8 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
       permanentId,
       cardName,
       triggerType: 'deals_damage',
-      description: damagePlayerMatch[1].trim(),
-      effect: damagePlayerMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, damagePlayerMatch),
+      effect: timingTriggerEffect(oracleText, damagePlayerMatch),
       mandatory: true,
     });
   }
@@ -678,7 +679,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   // "you may pay {1}{G}. If you do, ..." can be recognized.
   const attacksMatch = findGenericAttackTriggerLine(oracleText, cardName);
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
-    const effectText = attacksMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, attacksMatch);
     
     // Check for optional mana or energy payment trigger
     const mayPayMatch = effectText.match(optionalPaymentPattern);
@@ -691,7 +692,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
         cardName,
         triggerType: 'attacks',
         description: effectText,
-        effect: mayPayMatch[2].trim(),
+        effect: timingTriggerEffect(oracleText, mayPayMatch, 2),
         ...(energyCost > 0 ? { energyCost } : { manaCost: paymentCost }),
         mandatory: false,
       });
@@ -793,8 +794,8 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
       permanentId,
       cardName,
       triggerType: 'creature_attacks',
-      description: creatureAttacksMatch[1].trim(),
-      effect: creatureAttacksMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, creatureAttacksMatch),
+      effect: timingTriggerEffect(oracleText, creatureAttacksMatch),
       mandatory: true,
     });
   }
@@ -999,7 +1000,7 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
 
   const equipAttackMatch = oracleText.match(/whenever (?:this creature or )?equipped creature attacks,?\s*([^\n]+)/i);
   if (equipAttackMatch) {
-    const effectText = equipAttackMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, equipAttackMatch);
     const lowerEffect = effectText.toLowerCase();
     triggers.push({
       permanentId,
@@ -1024,7 +1025,7 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
         cardName,
         controllerId,
         attachedToId,
-        effect: effectMatch[1].trim(),
+        effect: timingTriggerEffect(oracleText, effectMatch),
         mandatory: true,
         searchesLibrary: lowerOracle.includes('search'),
         searchType: lowerOracle.includes('basic land') ? 'basic land' : undefined,
@@ -1041,7 +1042,7 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
         cardName,
         controllerId,
         attachedToId,
-        effect: effectMatch[1].trim(),
+        effect: timingTriggerEffect(oracleText, effectMatch),
         mandatory: true,
       });
     }
@@ -1098,7 +1099,7 @@ export function getAttachmentCombatDamageTriggers(
           cardName,
           controllerId: permanent.controller,
           attachedToId: attacker.id,
-          effect: effectMatch[1].trim(),
+          effect: timingTriggerEffect(oracleText, effectMatch),
           mandatory: true,
           searchesLibrary: oracleText.includes('search'),
         });
@@ -1138,7 +1139,7 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
   // "At the beginning of combat on your turn" pattern
   const beginCombatMatch = oracleText.match(/at the beginning of combat on your turn,?\s*([^.]+)/i);
   if (beginCombatMatch) {
-    const effectText = beginCombatMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, beginCombatMatch);
     const requiresChoice = /\bchoose\b/i.test(effectText) || /\byou may\b/i.test(effectText);
     const createsToken = /\bcreate\b.*\btoken\b/i.test(effectText);
     
@@ -1158,7 +1159,7 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
     /at the beginning of the next combat(?: phase)?(?: this turn)?,?\s*([^.]+)/i,
   );
   if (nextCombatPhaseMatch && !triggers.some((t) => (t as any).triggerType === 'next_combat_phase')) {
-    const effectText = String(nextCombatPhaseMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nextCombatPhaseMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -1173,7 +1174,7 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
   // "At the beginning of each combat" - triggers on all players' combats
   const eachCombatMatch = oracleText.match(/at the beginning of each combat,?\s*([^.]+)/i);
   if (eachCombatMatch && !triggers.some(t => t.description.includes(eachCombatMatch[1].trim()))) {
-    const effectText = eachCombatMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, eachCombatMatch);
     const requiresChoice = /\bchoose\b/i.test(effectText) || /\byou may\b/i.test(effectText);
     const createsToken = /\bcreate\b.*\btoken\b/i.test(effectText);
     
@@ -1346,8 +1347,8 @@ export function detectEndOfCombatTriggers(card: any, permanent: any): EndOfComba
       permanentId,
       cardName,
       controllerId,
-      description: endCombatMatch[1].trim(),
-      effect: endCombatMatch[1].trim(),
+      description: timingTriggerEffect(oracleText, endCombatMatch),
+      effect: timingTriggerEffect(oracleText, endCombatMatch),
       mandatory: true,
     });
   }
@@ -1547,7 +1548,7 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
   const blocksMatch = findGenericBlockTriggerLine(oracleText, cardName);
   
   if (blocksMatch && !triggers.some(t => t.permanentId === permanentId)) {
-    const effectText = blocksMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, blocksMatch);
     triggers.push({
       permanentId,
       cardName,

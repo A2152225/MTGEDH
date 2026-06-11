@@ -1,4 +1,5 @@
 import type { GameContext } from '../../context.js';
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 
 import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
@@ -30,7 +31,7 @@ export function detectTokenCreatedTriggers(card: any, permanent: any): TokenCrea
 
   const createOrSacrificeMatches = oracleText.matchAll(/whenever\s+you\s+create\s+or\s+sacrifice\s+(a|one or more)\s+tokens?,?\s*([^.]+)/gi);
   for (const match of createOrSacrificeMatches) {
-    const effect = String(match[2] || '').trim();
+    const effect = timingTriggerEffect(oracleText, match, 2);
     if (!effect) continue;
     triggers.push({
       permanentId,
@@ -48,7 +49,7 @@ export function detectTokenCreatedTriggers(card: any, permanent: any): TokenCrea
     /whenever\s+you\s+create\s+a\s+token\s+or\s+put\s+a\s+(?:counter\s+or\s+a\s+sticker|sticker\s+or\s+a\s+counter)\s+on\s+another\s+permanent,?\s*([^.]+)/gi,
   );
   for (const match of youCreateOrStickerMatches) {
-    const effect = String(match[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, match);
     if (!effect) continue;
     triggers.push({
       permanentId,
@@ -64,7 +65,7 @@ export function detectTokenCreatedTriggers(card: any, permanent: any): TokenCrea
 
   const youCreateMatches = oracleText.matchAll(/whenever\s+you\s+create\s+(one or more\s+)?tokens?,?\s*([^.]+)/gi);
   for (const match of youCreateMatches) {
-    const effect = String(match[2] || '').trim();
+    const effect = timingTriggerEffect(oracleText, match, 2);
     if (!effect) continue;
     triggers.push({
       permanentId,
@@ -80,7 +81,7 @@ export function detectTokenCreatedTriggers(card: any, permanent: any): TokenCrea
 
   const opponentCreateMatches = oracleText.matchAll(/whenever\s+an\s+opponent\s+creates\s+(one or more\s+)?tokens?,?\s*([^.]+)/gi);
   for (const match of opponentCreateMatches) {
-    const effect = String(match[2] || '').trim();
+    const effect = timingTriggerEffect(oracleText, match, 2);
     if (!effect) continue;
     triggers.push({
       permanentId,
@@ -96,7 +97,7 @@ export function detectTokenCreatedTriggers(card: any, permanent: any): TokenCrea
 
   const underControlMatches = oracleText.matchAll(/whenever\s+one\s+or\s+more\s+tokens?\s+(?:are|is)\s+created\s+under\s+your\s+control,?\s*([^.]+)/gi);
   for (const match of underControlMatches) {
-    const effect = String(match[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, match);
     if (!effect) continue;
     triggers.push({
       permanentId,

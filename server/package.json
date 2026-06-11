@@ -15,6 +15,7 @@
     "start": "node --enable-source-maps --import tsx/esm src/index.ts",
     "targeting:coverage": "node --enable-source-maps --import tsx/esm scripts/targeting-coverage.ts",
     "trigger:coverage": "node --enable-source-maps --import tsx/esm scripts/trigger-coverage-audit.ts",
+    "trigger:effect-length-audit": "node --enable-source-maps --import tsx/esm scripts/trigger-effect-length-audit.ts",
     "executor:coverage": "node --enable-source-maps --import tsx/esm scripts/executor-coverage-audit.ts",
     "executor:keyword-audit": "node --enable-source-maps --import tsx/esm scripts/semantic-keyword-audit.ts",
     "card-lookup:rebuild": "node --enable-source-maps --import tsx/esm scripts/rebuild-card-lookup.ts",

@@ -1,4 +1,5 @@
 import type { GameContext } from '../../context.js';
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 
 import { isInterveningIfSatisfied } from './intervening-if.js';
 
@@ -56,7 +57,7 @@ export function detectMillTriggers(card: any, permanent: any): MillTrigger[] {
 
   const nonlandMilledMatch = oracleText.match(/whenever one or more nonland cards are milled,?\s*([^.]+)/i);
   if (nonlandMilledMatch) {
-    const effect = String(nonlandMilledMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, nonlandMilledMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -76,7 +77,7 @@ export function detectMillTriggers(card: any, permanent: any): MillTrigger[] {
   for (const match of matches) {
     const subject = String(match[1] || '').trim().toLowerCase();
     const parsedCondition = parseMillCondition(String(match[2] || ''));
-    const effect = String(match[3] || '').trim();
+    const effect = timingTriggerEffect(oracleText, match, 3);
     if (!parsedCondition || !effect) {
       continue;
     }

@@ -1,4 +1,5 @@
 import type { GameContext } from '../../context.js';
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 
 import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
@@ -28,7 +29,7 @@ export function detectLifeLossTriggers(card: any, permanent: any): LifeLossTrigg
     /whenever you gain or lose life(?: during your turn)?,?\s*([^.]+)/i,
   );
   if (gainOrLoseLifeMatch) {
-    const effect = String(gainOrLoseLifeMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, gainOrLoseLifeMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -46,7 +47,7 @@ export function detectLifeLossTriggers(card: any, permanent: any): LifeLossTrigg
     /whenever one or more opponents lose life,?\s*([^.]+)/i,
   );
   if (opponentsLoseLifeMatch) {
-    const effect = String(opponentsLoseLifeMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, opponentsLoseLifeMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -63,7 +64,7 @@ export function detectLifeLossTriggers(card: any, permanent: any): LifeLossTrigg
   const matches = oracleText.matchAll(/whenever (an opponent|a player|you) lose(?:s)? life(?:[^,]*?),?\s*([^.]+)/gi);
   for (const match of matches) {
     const subject = String(match[1] || '').trim().toLowerCase();
-    const effect = String(match[2] || '').trim();
+    const effect = timingTriggerEffect(oracleText, match, 2);
     if (!effect) continue;
 
     const triggerType = subject === 'an opponent'

@@ -13,6 +13,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 
 export interface LandfallTrigger {
   permanentId?: string;
@@ -99,7 +100,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     /landfall\s*[—-]\s*whenever a land (?:you control enters|enters(?: the battlefield)?(?: under your control)?),?\s*([^]*?)(?:\n\n|$)/i
   );
   if (landfallMatch) {
-    const effectText = landfallMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, landfallMatch);
     
     // Check if this is a modal trigger (has "choose one" or "choose two" etc.)
     const modalMatch = effectText.match(/choose\s+(one|two|three|four|any number)\s*[—-]\s*((?:•[^•]+)+)/i);
@@ -143,7 +144,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     /whenever a land you control enters from anywhere other than your hand(?:\s+or\s+you cast\b[^,]*)?,?\s*([^.]+)/i,
   );
   if (landEntersNotHandMatch) {
-    const effectText = landEntersNotHandMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, landEntersNotHandMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -189,7 +190,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     !genericLandfallMatch &&
     !triggers.some((t) => (t as any).triggerType === 'when_land_you_control_enters')
   ) {
-    const effectText = String(whenLandYouControlEntersMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, whenLandYouControlEntersMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -206,7 +207,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   );
   if (typedLandEnterMatch && !triggers.some((t) => (t as any).triggerType === 'typed_land_enter')) {
     const landType = String(typedLandEnterMatch[1] || '').trim().toLowerCase();
-    const effectText = String(typedLandEnterMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, typedLandEnterMatch, 2);
     if (effectText && landType !== 'land') {
       triggers.push({
         permanentId,
@@ -224,7 +225,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     /whenever a land enchanted player controls enters(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (enchantedPlayerLandEnterMatch && !triggers.some((t) => (t as any).triggerType === 'enchanted_player_land_enter')) {
-    const effectText = String(enchantedPlayerLandEnterMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedPlayerLandEnterMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -243,7 +244,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     exiledNameOpponentLandEnterMatch &&
     !triggers.some((t) => (t as any).triggerType === 'exiled_name_opponent_land_enter')
   ) {
-    const effectText = String(exiledNameOpponentLandEnterMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, exiledNameOpponentLandEnterMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -259,7 +260,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     /whenever a land an opponent controls enters(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (opponentLandEnterMatch && !triggers.some((t) => (t as any).triggerType === 'opponent_land_enter')) {
-    const effectText = String(opponentLandEnterMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentLandEnterMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -280,7 +281,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = String(match[1] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, match);
       if (!effectText || triggers.some((t) => (t as any).triggerType === triggerType && t.effect === effectText)) {
         continue;
       }
@@ -297,7 +298,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   }
 
   if (genericLandfallMatch && !landfallMatch && !landEntersNotHandMatch) {
-    const effectText = genericLandfallMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, genericLandfallMatch);
     
     // Check if this is a modal trigger
     const modalMatch = effectText.match(/choose\s+(one|two|three|four|any number)\s*[—-]\s*((?:•[^•]+)+)/i);

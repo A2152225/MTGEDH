@@ -156,9 +156,7 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
 
   const libraryCountBefore = libraryCountForPlayer(ctx, controller);
   const battlefieldCountBefore = battlefieldCount(state);
-  const triggeredOracleIRApplied = isKynaiosEffect
-    ? 0
-    : applyOracleIRFallbackForTriggeredEffect(
+  const triggeredOracleIRApplied = applyOracleIRFallbackForTriggeredEffect(
       ctx,
       controller,
       sourceName,

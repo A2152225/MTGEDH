@@ -15,6 +15,12 @@ import {
   tryApplyOracleIRToActivatedAbility,
 } from '../src/state/modules/oracleIrAbilityExecution.js';
 import { isOracleIrExecutionHandled } from '../src/state/modules/oracleIrSpellExecution.js';
+import {
+  describeOracleIrExecutionHandledIncomplete,
+  describeMissingMandatoryOracleIrSteps,
+  describeOracleIrMandatoryExecutionIncomplete,
+  formatOracleIrAllOrNothingFailure,
+} from '../src/state/modules/oracleIrStepWiring.js';
 
 const WHIP_EFFECT =
   'Return target creature card from your graveyard to the battlefield. It gains haste. Exile it at the beginning of the next end step. If it would leave the battlefield, exile it instead of putting it anywhere else.';
@@ -97,6 +103,59 @@ describe('oracle IR step wiring guardrails', () => {
     expect(isOracleIrMandatoryExecutionComplete(parsedSteps, partialResult)).toBe(false);
     expect(isOracleIrActivatedAbilityHandled(parsedSteps, partialResult)).toBe(false);
     expect(isOracleIrExecutionHandled(partialResult, 0, 0, parsedSteps)).toBe(false);
+
+    const reasons = describeOracleIrMandatoryExecutionIncomplete(parsedSteps, partialResult);
+    expect(reasons.some((reason) => reason.startsWith('unapplied_mandatory_step:'))).toBe(true);
+    expect(reasons.some((reason) => reason.includes('grant_temporary_ability'))).toBe(true);
+
+    const executionReasons = describeOracleIrExecutionHandledIncomplete(partialResult, 0, 0, parsedSteps);
+    expect(executionReasons.some((reason) => reason.includes('grant_temporary_ability'))).toBe(true);
+
+    const formatted = formatOracleIrAllOrNothingFailure('spell', 'Test Spell', executionReasons, {
+      applied: 1,
+      parsed: 2,
+    });
+    expect(formatted).toContain('All-or-nothing spell failed for Test Spell');
+    expect(formatted).toContain('reason:');
+    expect(formatted).toContain('grant_temporary_ability');
+  });
+
+  it('describes missing mandatory steps for partial fallback wiring', () => {
+    const allSteps: OracleEffectStep[] = [
+      { kind: 'draw', amount: 1, raw: 'Draw a card.' },
+      { kind: 'player_choice', raw: 'Each player may put a land card from their hand onto the battlefield.' } as OracleEffectStep,
+    ];
+    const fallbackSteps: OracleEffectStep[] = [allSteps[0]];
+
+    const reasons = describeMissingMandatoryOracleIrSteps(allSteps, fallbackSteps);
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]).toContain('player_choice');
+  });
+
+  it('reports skipped mandatory steps and unqueued player choice gaps', () => {
+    const parsedSteps: OracleEffectStep[] = [
+      { kind: 'draw', amount: 1, raw: 'Draw a card.' },
+      { kind: 'mill', amount: 3, raw: 'Mill three cards.' },
+    ];
+    const result = {
+      state: {},
+      log: [],
+      appliedSteps: [parsedSteps[0]],
+      skippedSteps: [parsedSteps[1]],
+      automationGaps: [{
+        reasonCode: 'player_choice_required',
+        message: 'Needs land selection',
+        stepKind: 'player_choice',
+        raw: 'Each player may put a land...',
+      }],
+      pendingOptionalSteps: [],
+      pendingContinuationSteps: [{ kind: 'mill', amount: 3, raw: 'Mill three cards.' }],
+    } as any;
+
+    const reasons = describeOracleIrExecutionHandledIncomplete(result, 0, 0, parsedSteps);
+    expect(reasons.some((reason) => reason.startsWith('skipped_mandatory_step:'))).toBe(true);
+    expect(reasons.some((reason) => reason.startsWith('unqueued_player_choice:'))).toBe(true);
+    expect(reasons.some((reason) => reason.startsWith('pending_continuation_without_queue_bridge:'))).toBe(true);
   });
 
   it('accepts complete mandatory execution when all parsed steps applied', () => {

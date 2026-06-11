@@ -549,7 +549,10 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
   if (normalizedRaw === "you can't choose an opponent this way") {
     return lastActionOutcome?.kind === 'impossible' ? true : lastActionOutcome?.kind === 'applied' ? false : false;
   }
-  if (normalizedRaw === 'each opponent who didn\'t' || normalizedRaw === 'each opponent who didn\'t') {
+  if (normalizedRaw === 'each opponent who didn\'t' || normalizedRaw === "each opponent who didn't") {
+    if (ctx.interactivePlayerChoices === true) {
+      return null;
+    }
     return true;
   }
   if (normalizedRaw === 'each opponent who can\'t') {

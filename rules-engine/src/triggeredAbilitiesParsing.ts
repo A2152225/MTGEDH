@@ -1,6 +1,7 @@
 import { parseTriggeredAbility } from './oracleTextParser';
 import { parseKeywordTriggeredAbility } from './oracleTextParserKeywordTriggers';
 import { detectTriggeredAbilityEvent } from './triggeredAbilitiesEventDetection';
+import { normalizeGameplayEffectText } from './oracleReminderText.js';
 import { TriggerEvent, TriggerKeyword, type TriggeredAbility } from './triggeredAbilitiesTypes';
 
 function escapeRegex(value: string): string {
@@ -245,27 +246,6 @@ function splitCompoundTriggerConditions(condition: string): string[] {
   return expanded;
 }
 
-function stripTrailingActivatedAbilityFromEffect(effectText: string): string {
-  return String(effectText || '')
-    .replace(
-      /(?:\.\s*(?:\([^)]*\)\s*)?|\n+\s*)\{[^}]+\}(?:\{[^}]+\})*(?:,\s*|\s*:)\s*[\s\S]*$/i,
-      '.',
-    )
-    .replace(/\.\s*$/g, '')
-    .trim();
-}
-
-function stripKeywordActivationRemindersFromEffect(effectText: string): string {
-  return stripTrailingActivatedAbilityFromEffect(
-    String(effectText || '')
-      .replace(/\s+equip(?:\{[^}]*\}|\d+\})?(?:\s*\([^)]*\))?\s*$/i, '')
-      .replace(/\s+reconfigure(?:\{[^}]*\})?(?:\s*\([^)]*\))?\s*$/i, '')
-      .replace(/(?:^|[.\n]\s*)attach this permanent to target[^\n.]*/gi, (match) => (match.startsWith('.') ? '.' : ''))
-      .replace(/\s+/g, ' ')
-      .trim(),
-  );
-}
-
 function normalizeTriggeredEffectTextCase(effectText: string): string {
   let inQuotes = false;
   let normalized = '';
@@ -329,7 +309,7 @@ export function parseTriggeredAbilitiesFromText(
         ? TriggerKeyword.WHENEVER
         : TriggerKeyword.WHEN;
 
-    let effect = stripKeywordActivationRemindersFromEffect(String(parsedAbility.effect || '').trim());
+    let effect = normalizeGameplayEffectText(String(parsedAbility.effect || '').trim());
     const normalizedEffect = effect.toLowerCase();
     const normalizedTriggerCondition = triggerCondition.toLowerCase();
 
@@ -406,7 +386,9 @@ export function parseTriggeredAbilitiesFromText(
         ? { triggerFilter: preservedKeywordTriggerFilter || eventInfo.filter }
         : {}),
       ...(interveningIf ? { interveningIfClause: interveningIf, hasInterveningIf: true } : {}),
-      effect: String(parsedKeyword.effect || '').trim(),
+      effect: normalizeTriggeredEffectTextCase(
+        normalizeGameplayEffectText(String(parsedKeyword.effect || '').trim()),
+      ),
       optional: Boolean(parsedKeyword.isOptional),
     });
     index += 1;

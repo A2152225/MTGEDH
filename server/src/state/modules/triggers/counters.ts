@@ -1,4 +1,5 @@
 import type { GameContext } from '../../context.js';
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 
 import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
@@ -475,7 +476,7 @@ export function detectCounterRemovedTriggers(card: any, permanent: any): Counter
   for (const match of controlledMatches) {
     const counterFilter = normalizeCounterFilter(String(match[1] || ''));
     const targetFilter = String(match[2] || 'permanent').trim().toLowerCase() as CounterRemovedTrigger['targetFilter'];
-    const effect = String(match[3] || '').trim().replace(/\s+/g, ' ');
+    const effect = timingTriggerEffect(oracleText, match, 3).replace(/\s+/g, ' ');
     if (!effect) continue;
 
     triggers.push({

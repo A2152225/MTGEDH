@@ -11,6 +11,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { appendEvent } from "../../../db/index.js";
 import { KNOWN_UNTAP_TRIGGERS } from "./card-data-tables.js";
 import { escapeCardNameForRegex } from "./types.js";
@@ -461,7 +462,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   const tribalTapMatch = oracleText.match(/whenever (?:a |an )?(\w+) you control becomes tapped,?\s*([^.]+)/i);
   if (tribalTapMatch) {
     const tribalType = tribalTapMatch[1].toLowerCase();
-    const effectText = tribalTapMatch[2].trim();
+    const effectText = timingTriggerEffect(oracleText, tribalTapMatch, 2);
     const isOptional = effectText.toLowerCase().includes('you may');
     
     const lifeGainMatch = effectText.match(/gain (\d+) life/i);
@@ -483,7 +484,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   // "Whenever ~ becomes tapped" pattern (self-referential like Emmara)
   const selfTapMatch = oracleText.match(/whenever (?:~|this creature) becomes tapped,?\s*([^.]+)/i);
   if (selfTapMatch) {
-    const effectText = selfTapMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, selfTapMatch);
     const isOptional = effectText.toLowerCase().includes('you may');
     
     // Check for token creation
@@ -523,7 +524,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
       !triggers.some(t => t.affectedType === 'creature')) {
     const effectMatch = oracleText.match(/whenever a creature you control becomes tapped,?\s*([^.]+)/i);
     if (effectMatch) {
-      const effectText = effectMatch[1].trim();
+      const effectText = timingTriggerEffect(oracleText, effectMatch);
       triggers.push({
         permanentId,
         cardName,
@@ -541,7 +542,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   const tapForManaMatch = oracleText.match(/whenever you tap (?:a |an )?(\w+) for mana,?\s*([^.]+)/i);
   if (tapForManaMatch) {
     const tribalType = tapForManaMatch[1].toLowerCase();
-    const effectText = tapForManaMatch[2].trim();
+    const effectText = timingTriggerEffect(oracleText, tapForManaMatch, 2);
     
     triggers.push({
       permanentId,
@@ -558,7 +559,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const permanentUntapMatch = oracleText.match(/whenever a permanent becomes untapped,?\s*([^.]+)/i);
   if (permanentUntapMatch) {
-    const effectText = permanentUntapMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, permanentUntapMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -573,7 +574,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
 
   const selfUntapMatch = oracleText.match(/whenever (?:~|this permanent|this creature|this artifact) becomes untapped,?\s*([^.]+)/i);
   if (selfUntapMatch) {
-    const effectText = selfUntapMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, selfUntapMatch);
     triggers.push({
       permanentId,
       cardName,

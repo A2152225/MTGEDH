@@ -121,6 +121,21 @@ describe('Oracle IR current audit batch support', () => {
     }
   });
 
+  it('parses end-step each-player land play as move_zone optional steps', () => {
+    const oracle =
+      "At the beginning of your end step, draw a card. Each player may put a land card from their hand onto the battlefield, then each opponent who didn't draws a card.";
+    const ir = parseOracleTextToIR(oracle, 'Kynaios and Tiro of Meletis');
+    const steps = ir.abilities?.flatMap((ability) => ability.steps || []) || [];
+    expect(collectUnknowns(steps)).toEqual([]);
+    expect(steps.some((step) => step.kind === 'draw')).toBe(true);
+    expect(steps.some((step) =>
+      step.kind === 'move_zone'
+      && (step as { optional?: boolean }).optional === true
+      && /each player may put a land/i.test(String(step.raw || '')),
+    )).toBe(true);
+    expect(steps.some((step) => step.kind === 'conditional')).toBe(true);
+  });
+
   it('covers after9 choice and follow-up residuals without unknowns', () => {
     const samples = [
       [

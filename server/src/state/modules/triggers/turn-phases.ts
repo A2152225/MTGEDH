@@ -16,6 +16,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import { isInterveningIfSatisfied } from "./intervening-if.js";
 import { KNOWN_END_STEP_TRIGGERS } from "./card-data-tables.js";
 
@@ -118,7 +119,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
     /at the beginning of enchanted opponent's end step,?\s*([^.]+)/i,
   );
   if (enchantedOpponentEndStepMatch) {
-    const effect = String(enchantedOpponentEndStepMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, enchantedOpponentEndStepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -136,7 +137,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
     /at the beginning of enchanted player's end step,?\s*([^.]+)/i,
   );
   if (enchantedPlayerEndStepMatch) {
-    const effect = String(enchantedPlayerEndStepMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, enchantedPlayerEndStepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -154,7 +155,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
     /at the beginning of the monarch's end step,?\s*([^.]+)/i,
   );
   if (monarchEndStepMatch) {
-    const effect = String(monarchEndStepMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, monarchEndStepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -172,7 +173,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
     /at the beginning of your opponents['']? end step,?\s*([^.]+)/i,
   );
   if (yourOpponentsEndStepMatch) {
-    const effect = String(yourOpponentsEndStepMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, yourOpponentsEndStepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -190,7 +191,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
   // Pattern for "each opponent's end step" (Keeper of the Accord style)
   const opponentEndStepMatch = oracleText.match(/at the beginning of each opponent['']?s end step,?\s*([^.]+)/i);
   if (opponentEndStepMatch) {
-    const effect = opponentEndStepMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, opponentEndStepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -212,7 +213,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
     /\[?at the beginning of that turn's end step,?\s*([^\].]+)/i,
   );
   if (thatTurnEndStepMatch) {
-    const effect = String(thatTurnEndStepMatch[1] || '').trim().replace(/\]$/, '');
+    const effect = timingTriggerEffect(oracleText, thatTurnEndStepMatch).replace(/\]$/, '');
     triggers.push({
       permanentId,
       cardName,
@@ -230,7 +231,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
     /at the beginning of (?:(?:the )?next|your next|each(?: player's)?|your|the) end step,?\s*(?:if\s+[^,]+,\s*)?([^.]+\.?)/i,
   );
   if (endStepMatch) {
-    const effect = endStepMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, endStepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -260,7 +261,7 @@ export function detectPrecombatMainTriggers(card: any, permanent: any): EndStepT
     /at the beginning of the next main phase this turn,?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
   );
   if (nextMainThisTurnMatch) {
-    const effect = String(nextMainThisTurnMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, nextMainThisTurnMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -280,7 +281,7 @@ export function detectPrecombatMainTriggers(card: any, permanent: any): EndStepT
     /at the beginning of your next(?: first)? main phase,?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
   );
   if (nextMainMatch) {
-    const effect = String(nextMainMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, nextMainMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -300,7 +301,7 @@ export function detectPrecombatMainTriggers(card: any, permanent: any): EndStepT
     /at the beginning of the horde's first main phase,?\s*([^.]+)/i,
   );
   if (hordeFirstMainMatch) {
-    const effect = String(hordeFirstMainMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, hordeFirstMainMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -320,7 +321,7 @@ export function detectPrecombatMainTriggers(card: any, permanent: any): EndStepT
     /at the beginning of each of your main phases,?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
   );
   if (eachYourMainPhasesMatch) {
-    const effect = String(eachYourMainPhasesMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, eachYourMainPhasesMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -340,7 +341,7 @@ export function detectPrecombatMainTriggers(card: any, permanent: any): EndStepT
     /at the beginning of each player's first main phase,?\s*([^.]+)/i,
   );
   if (eachPlayerFirstMainMatch) {
-    const effect = String(eachPlayerFirstMainMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, eachPlayerFirstMainMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -360,7 +361,7 @@ export function detectPrecombatMainTriggers(card: any, permanent: any): EndStepT
     /(?:at the beginning of|the beginning of) (?:your )?first main phase,?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
   );
   if (firstMainMatch) {
-    const effect = String(firstMainMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, firstMainMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -392,7 +393,7 @@ export function detectPostcombatMainTriggers(card: any, permanent: any): EndStep
     /at the beginning of each of enchanted player's postcombat main phases?,?\s*([^.]+)/i,
   );
   if (enchantedPlayerPostcombatMatch) {
-    const effect = enchantedPlayerPostcombatMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, enchantedPlayerPostcombatMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -410,7 +411,7 @@ export function detectPostcombatMainTriggers(card: any, permanent: any): EndStep
     /at the beginning of each postcombat main phase,?\s*([^.]+)/i,
   );
   if (eachPostcombatMainMatch) {
-    const effect = eachPostcombatMainMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, eachPostcombatMainMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -428,7 +429,7 @@ export function detectPostcombatMainTriggers(card: any, permanent: any): EndStep
     /at the beginning of (?:(?:each of )?your )?(?:post-?combat|second) main phases?,?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
   );
   if (postcombatMatch && !enchantedPlayerPostcombatMatch && !eachPostcombatMainMatch) {
-    const effect = postcombatMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, postcombatMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -630,7 +631,7 @@ export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigg
   
   const eachOfYourDrawMatch = oracleText.match(/at the beginning of each of your draw steps,?\s*([^.]+)/i);
   if (eachOfYourDrawMatch) {
-    const effect = eachOfYourDrawMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, eachOfYourDrawMatch);
     triggers.push({
       permanentId,
       cardName: card?.name || 'Unknown',
@@ -644,7 +645,7 @@ export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigg
   // "At the beginning of your draw step" - actual triggers
   const yourDrawMatch = oracleText.match(/at the beginning of your draw step,?\s*([^.]+)/i);
   if (yourDrawMatch) {
-    const effect = yourDrawMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, yourDrawMatch);
     triggers.push({
       permanentId,
       cardName: card?.name || "Unknown",
@@ -658,7 +659,7 @@ export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigg
   // "At the beginning of each player's draw step" - actual triggers
   const eachDrawMatch = oracleText.match(/at the beginning of each player's draw step,?\s*([^.]+)/i);
   if (eachDrawMatch) {
-    const effect = eachDrawMatch[1].trim();
+    const effect = timingTriggerEffect(oracleText, eachDrawMatch);
     const isReplacementDraw = /\bdraw(?:s)? (?:\w+ )?additional cards?\b/i.test(effect);
     if (hasExplicitDrawStepTrigger || !isKnownReplacementCard || isReplacementDraw) {
       triggers.push({

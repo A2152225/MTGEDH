@@ -1,4 +1,5 @@
 import type { GameContext } from '../../context.js';
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 
 import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
@@ -203,7 +204,7 @@ export function detectExiledFromBattlefieldTriggers(card: any, permanent: any): 
   const matches = oracleText.matchAll(/whenever a (creature|permanent) is exiled from the battlefield,?\s*([^.]+)/gi);
   for (const match of matches) {
     const targetFilter = String(match[1] || '').trim().toLowerCase() === 'creature' ? 'creature' : 'permanent';
-    const effect = String(match[2] || '').trim().replace(/\s+/g, ' ');
+    const effect = timingTriggerEffect(oracleText, match, 2).replace(/\s+/g, ' ');
     if (!effect) continue;
 
     triggers.push({
@@ -398,7 +399,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever one or more creature cards are put into your graveyard from anywhere,?\s*([^.]+)/i,
   );
   if (yourGraveyardCreatureCardsFromAnywhereMatch) {
-    const effect = String(yourGraveyardCreatureCardsFromAnywhereMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, yourGraveyardCreatureCardsFromAnywhereMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -420,7 +421,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever a land card is put into your graveyard from your library,?\s*([^.]+)/i,
   );
   if (landCardYourGraveyardFromLibraryMatch) {
-    const effect = String(landCardYourGraveyardFromLibraryMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, landCardYourGraveyardFromLibraryMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -442,7 +443,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever a land card is put into your graveyard from anywhere,?\s*([^.]+)/i,
   );
   if (landCardYourGraveyardFromAnywhereMatch) {
-    const effect = String(landCardYourGraveyardFromAnywhereMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, landCardYourGraveyardFromAnywhereMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -464,7 +465,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever a land card is put into a graveyard from anywhere,?\s*([^.]+)/i,
   );
   if (landCardGraveyardFromAnywhereMatch && !/put into your graveyard/i.test(oracleText)) {
-    const effect = String(landCardGraveyardFromAnywhereMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, landCardGraveyardFromAnywhereMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -486,7 +487,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever one or more creature cards are put into graveyards from anywhere,?\s*([^.]+)/i,
   );
   if (graveyardsFromAnywhereMatch) {
-    const effect = String(graveyardsFromAnywhereMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, graveyardsFromAnywhereMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -508,7 +509,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever a creature card is put into an opponent's graveyard from their library,?\s*([^.]+)/i,
   );
   if (creatureCardOpponentGraveyardLibraryMatch) {
-    const effect = String(creatureCardOpponentGraveyardLibraryMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, creatureCardOpponentGraveyardLibraryMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -530,7 +531,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever a creature card is put into an opponent's graveyard from anywhere,?\s*([^.]+)/i,
   );
   if (creatureCardOpponentGraveyardAnywhereMatch) {
-    const effect = String(creatureCardOpponentGraveyardAnywhereMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, creatureCardOpponentGraveyardAnywhereMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -552,7 +553,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever a permanent is put into an opponent's graveyard,?\s*([^.]+)/i,
   );
   if (permanentOpponentGraveyardMatch) {
-    const effect = String(permanentOpponentGraveyardMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, permanentOpponentGraveyardMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -574,7 +575,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever enchanted land is put into (?:a )?graveyard,?\s*([^.]+)/i,
   );
   if (enchantedLandGraveyardMatch) {
-    const effect = String(enchantedLandGraveyardMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, enchantedLandGraveyardMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -596,7 +597,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever a non-black creature is put into any graveyard from play,?\s*([^.]+)/i,
   );
   if (nonBlackCreatureAnyGraveyardFromPlayMatch) {
-    const effect = String(nonBlackCreatureAnyGraveyardFromPlayMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, nonBlackCreatureAnyGraveyardFromPlayMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -618,7 +619,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever a (non-?black )?creature is put into (?:a |any )?graveyard from play,?\s*([^.]+)/i,
   );
   if (fromPlayMatch) {
-    const effect = String(fromPlayMatch[2] || '').trim();
+    const effect = timingTriggerEffect(oracleText, fromPlayMatch, 2);
     if (effect) {
       triggers.push({
         permanentId,
@@ -640,7 +641,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever a creature with power (\d+) or less is put into your graveyard from the battlefield,?\s*([^.]+)/i,
   );
   if (powerFromBattlefieldMatch) {
-    const effect = String(powerFromBattlefieldMatch[2] || '').trim();
+    const effect = timingTriggerEffect(oracleText, powerFromBattlefieldMatch, 2);
     if (effect) {
       triggers.push({
         permanentId,
@@ -662,7 +663,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever a land card is put into (?:a )?graveyard from your library,?\s*([^.]+)/i,
   );
   if (fromLibraryMatch) {
-    const effect = String(fromLibraryMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, fromLibraryMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -686,7 +687,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
   for (const match of matches) {
     const subject = String(match[1] || '').toLowerCase();
     const clauseText = String(match[0] || '').toLowerCase();
-    let effect = String(match[3] || '').trim().replace(/\s+/g, ' ');
+    let effect = timingTriggerEffect(oracleText, match, 3).replace(/\s+/g, ' ');
     if (/^or\b/i.test(effect) && effect.includes(',')) {
       effect = effect.slice(effect.lastIndexOf(',') + 1).trim();
     }
@@ -719,7 +720,7 @@ export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIn
     /whenever one or more (?:creatures and\/or )?cards? (?:is|are) put into exile from graveyards?,?\s*([^.]+)/i,
   );
   if (exileFromGraveyardMatch) {
-    const effect = String(exileFromGraveyardMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, exileFromGraveyardMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -896,7 +897,7 @@ export function detectLeftGraveyardTriggers(card: any, permanent: any): LeftGrav
 
   const landCardLeavesGyMatch = oracleText.match(/whenever a land card leaves your graveyard,?\s*([^.]+)/i);
   if (landCardLeavesGyMatch && !triggers.some((t) => t.oracleClause?.includes('land card leaves your graveyard'))) {
-    const effect = String(landCardLeavesGyMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, landCardLeavesGyMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -915,7 +916,7 @@ export function detectLeftGraveyardTriggers(card: any, permanent: any): LeftGrav
 
   const nonlandCardLeavesGyMatch = oracleText.match(/whenever a nonland card leaves your graveyard,?\s*([^.]+)/i);
   if (nonlandCardLeavesGyMatch && !triggers.some((t) => t.oracleClause?.includes('nonland card leaves your graveyard'))) {
-    const effect = String(nonlandCardLeavesGyMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, nonlandCardLeavesGyMatch);
     if (effect) {
       triggers.push({
         permanentId,
@@ -936,7 +937,7 @@ export function detectLeftGraveyardTriggers(card: any, permanent: any): LeftGrav
     /whenever one or more artifact and\/or creature cards leave your graveyard(?: during your turn)?,?\s*([^.]+)/i,
   );
   if (artifactOrCreatureLeaveMatch) {
-    const effect = String(artifactOrCreatureLeaveMatch[1] || '').trim();
+    const effect = timingTriggerEffect(oracleText, artifactOrCreatureLeaveMatch);
     if (effect) {
       triggers.push({
         permanentId,

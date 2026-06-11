@@ -1,0 +1,40 @@
+---
+description: Oracle IR migration — generic parse/execute only; full effect text; no card-specific handlers
+alwaysApply: true
+---
+
+# Oracle IR: generic effects, full text, no bespoke handlers
+
+## Target architecture
+
+Card behavior must flow through:
+
+```
+oracle text → parseOracleTextToIR / collectOracleEffectSteps
+           → applyOracleIRStepsOnServer (or Effect Program for multi-choice chains)
+           → resolution queue from step kinds → resume
+```
+
+Do **not** add new card-name checks, `KNOWN_*_TRIGGERS` table entries, or `ResolutionStepType.FOO_CARD` handlers unless wiring a **generic** step kind that already parses from oracle text.
+
+## Forbidden (without explicit user approval)
+
+- `if (sourceName.includes('Card Name'))` or `cardName === '...'` effect routing
+- New rows in `card-data-tables.ts` / `KNOWN_ETB_TRIGGERS` / `KNOWN_END_STEP_TRIGGERS` to fix a single card
+- Returning `handled: true` from legacy regex when IR only applied **part** of a multi-step effect
+- Scanning full-card `oracle_text` when executing an isolated trigger **effect clause** (use the clause text passed to `executeTriggerEffect`)
+
+## Required
+
+- **Full effect clauses** — never truncate triggered-ability effects at the first `.` when the ability continues (`Then`, `Each player`, `If you do`, second sentence on same ability). Use `extractTriggerEffectAfterPrefix` from `rules-engine/src/triggerEffectTextExtraction.ts`.
+- **All-or-nothing** — multi-step IR must complete mandatory steps or return `handled: false` (see `oracleIrStepWiring.ts`).
+- **Tests** — behavior tests assert outcomes (choices queued, zones changed), not “legacy handler ran”. Prefer `npm run test:oracle-ir-migration` for production-default IR.
+
+## When a bespoke bridge already exists
+
+Prefer **extending IR** (parser step + executor + server queue bridge) and **deleting** the bespoke path. Temporary shims (e.g. `isKynaiosEffect`) are migration debt — do not copy the pattern.
+
+## Related
+
+- `docs/oracle-ir-server-migration-plan.md` — end-state architecture
+- `server/tests/vitest.setup.ts` — full suite defaults `ORACLE_IR_*_PRIMARY=0`; migration suite reflects production

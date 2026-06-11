@@ -12,7 +12,12 @@ import {
   wouldOracleIRFallbackPrefilterMatch,
 } from './trigger-runtime-wiring.js';
 import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync.js';
-import { isOptionalOracleEffectStep } from './oracleIrStepWiring.js';
+import {
+  describeMissingMandatoryOracleIrSteps,
+  describeOracleIrExecutionHandledIncomplete,
+  isOptionalOracleEffectStep,
+  logOracleIrAllOrNothingFailure,
+} from './oracleIrStepWiring.js';
 import { isOracleIrExecutionHandled } from './oracleIrSpellExecution.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
@@ -116,10 +121,15 @@ export function applyOracleIRUncategorizedSpellFallback(
     const mandatoryAll = mandatoryStepsFrom(allSteps);
     const mandatoryIncluded = mandatoryStepsFrom(fallbackSteps);
     if (mandatoryAll.length > 0 && mandatoryIncluded.length < mandatoryAll.length) {
-      debugWarn(
-        1,
-        `[oracleIR] Fallback refusing partial apply for ${spellName}: ` +
-          `${mandatoryIncluded.length}/${mandatoryAll.length} mandatory step(s) wired`,
+      logOracleIrAllOrNothingFailure(
+        'fallback',
+        spellName,
+        describeMissingMandatoryOracleIrSteps(allSteps, fallbackSteps),
+        {
+          applied: mandatoryIncluded.length,
+          parsed: allSteps.length,
+          mandatory: mandatoryAll.length,
+        },
       );
       return 0;
     }

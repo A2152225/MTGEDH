@@ -7,20 +7,26 @@ import { ResolutionQueueManager } from '../resolution/index.js';
 import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import {
+  describeOracleIrActivatedAbilityIncomplete,
   getUnwiredOracleEffectStepKinds,
   isActivatedAbilityEffectFullyWired,
   isOracleIrActivatedAbilityHandled,
+  logOracleIrAllOrNothingFailure,
 } from './oracleIrStepWiring.js';
 
 export {
   ORACLE_IR_ACTIVATED_ONLY_STEP_KINDS,
   ORACLE_IR_ACTIVATED_STEP_KINDS,
   areAllOracleEffectStepsRuntimeWired,
+  describeOracleIrActivatedAbilityIncomplete,
+  describeOracleIrMandatoryExecutionIncomplete,
+  describeMissingMandatoryOracleIrSteps,
   getUnwiredOracleEffectStepKinds,
   isActivatedAbilityEffectFullyWired,
   isOracleEffectStepRuntimeWired,
   isOracleIrActivatedAbilityHandled,
   isOracleIrMandatoryExecutionComplete,
+  logOracleIrAllOrNothingFailure,
 } from './oracleIrStepWiring.js';
 
 function extractActivatedEffectText(oracleText: string): string {
@@ -149,13 +155,17 @@ export function tryApplyOracleIRToActivatedAbility(
       resolutionQueueStepsAfter: queueAfter,
     });
 
-    if (!handled && applied > 0) {
-      debugWarn(
-        1,
-        `[oracleIR] Refusing partial activated-ability IR for ${params.sourceName}: ` +
-          `applied ${applied}/${steps.length} step(s); legacy path will run`,
+    if (!handled) {
+      logOracleIrAllOrNothingFailure(
+        'activated',
+        params.sourceName,
+        describeOracleIrActivatedAbilityIncomplete(steps, result, {
+          resolutionQueueStepsBefore: queueBefore,
+          resolutionQueueStepsAfter: queueAfter,
+        }),
+        { applied, parsed: steps.length },
       );
-    } else if (handled) {
+    } else {
       debug(
         2,
         `[oracleIR] Applied ${applied} activated-ability step(s) for ${params.sourceName}` +

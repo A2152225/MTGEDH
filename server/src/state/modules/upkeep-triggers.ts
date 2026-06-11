@@ -13,6 +13,7 @@
  */
 
 import type { GameContext } from "../context.js";
+import { timingTriggerEffect } from './triggers/timing-effect-extraction.js';
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { queueCounterRemovedTriggers } from "./triggers/counters.js";
@@ -430,7 +431,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     /at the beginning of the next turn's upkeep,?\s*([^.]+)/i,
   );
   if (nextTurnUpkeepMatch && !triggers.some((t) => t.triggerType === 'next_turn_upkeep')) {
-    const effectText = String(nextTurnUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, nextTurnUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -450,7 +451,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     embeddedNextTurnUpkeepMatch &&
     !triggers.some((t) => t.triggerType === 'next_turn_upkeep')
   ) {
-    const effectText = String(embeddedNextTurnUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, embeddedNextTurnUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -467,7 +468,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     /when you planeswalk here and at the beginning (?:of )?your upkeep,?\s*([^.]+)/i,
   );
   if (planeswalkAndUpkeepMatch && !triggers.some((t) => t.triggerType === 'planeswalk_and_upkeep')) {
-    const effectText = String(planeswalkAndUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, planeswalkAndUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -518,7 +519,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     /at the beginning of the upkeep of enchanted (?:creature|land|enchantment|permanent|artifact)'s controller,?\s*([^.]+)/i,
   );
   if (enchantedControllerUpkeepMatch && !triggers.some((trigger) => trigger.triggerType === 'enchanted_controller_upkeep')) {
-    const effectText = String(enchantedControllerUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedControllerUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -576,7 +577,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     enchantedPlayerFirstUpkeepMatch &&
     !triggers.some((t) => t.triggerType === 'enchanted_player_first_upkeep')
   ) {
-    const effectText = String(enchantedPlayerFirstUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedPlayerFirstUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -591,7 +592,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
 
   const enchantedPlayerUpkeepMatch = oracleText.match(/at the beginning of enchanted player's upkeep,?\s*([^.]+)/i);
   if (enchantedPlayerUpkeepMatch && !triggers.some((t) => t.triggerType === 'enchanted_player_upkeep')) {
-    const effectText = String(enchantedPlayerUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, enchantedPlayerUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -606,7 +607,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
 
   const firstUpkeepMatch = oracleText.match(/at the beginning of the first upkeep,?\s*([^.]+)/i);
   if (firstUpkeepMatch && !triggers.some((t) => t.triggerType === 'first_upkeep')) {
-    const effectText = String(firstUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, firstUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -621,7 +622,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
 
   const yourFirstUpkeepMatch = oracleText.match(/at the beginning of your first upkeep,?\s*([^.]+)/i);
   if (yourFirstUpkeepMatch && !triggers.some((t) => t.triggerType === 'your_first_upkeep')) {
-    const effectText = String(yourFirstUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, yourFirstUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -636,7 +637,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
 
   const chosenPlayerUpkeepMatch = oracleText.match(/at the beginning of the chosen player's upkeep,?\s*([^.]+)/i);
   if (chosenPlayerUpkeepMatch && !triggers.some((t) => t.triggerType === 'chosen_player_upkeep')) {
-    const effectText = String(chosenPlayerUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, chosenPlayerUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -652,7 +653,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   // "At the beginning of each player's upkeep"
   const eachPlayerUpkeepMatch = oracleText.match(/at the beginning of each player's upkeep,?\s*([^.]+)/i);
   if (eachPlayerUpkeepMatch) {
-    const effectText = eachPlayerUpkeepMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, eachPlayerUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -668,7 +669,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   // "At the beginning of each upkeep"
   const eachUpkeepMatch = oracleText.match(/at the beginning of each upkeep,?\s*([^.]+)/i);
   if (eachUpkeepMatch) {
-    const effectText = eachUpkeepMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, eachUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -685,7 +686,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     /at the beginning of the upkeep of each participant in this game[^,]*,?\s*([^.]+)/i,
   );
   if (eachParticipantUpkeepMatch && !triggers.some((t) => t.triggerType === 'each_participant_upkeep')) {
-    const effectText = String(eachParticipantUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, eachParticipantUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -702,7 +703,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     /at the beginning of each other player's upkeep,?\s*([^.]+)/i,
   );
   if (eachOtherPlayerUpkeepMatch && !triggers.some((t) => t.triggerType === 'each_other_player_upkeep')) {
-    const effectText = String(eachOtherPlayerUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, eachOtherPlayerUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -720,7 +721,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     /at the beginning of the upkeep of the exiled card's owner,?\s*([^.]+)/i,
   );
   if (exiledCardOwnerUpkeepMatch && !triggers.some((t) => t.triggerType === 'exiled_card_owner_upkeep')) {
-    const effectText = String(exiledCardOwnerUpkeepMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, exiledCardOwnerUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -737,7 +738,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     /at the beginning of each of that player's upkeeps,?\s*([^.]+)/i,
   );
   if (eachOfThatPlayerUpkeepsMatch && !triggers.some((t) => t.triggerType === 'each_of_that_player_upkeep')) {
-    const effectText = String(eachOfThatPlayerUpkeepsMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, eachOfThatPlayerUpkeepsMatch);
     triggers.push({
       permanentId,
       cardName,
@@ -753,7 +754,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   // "At the beginning of each opponent's upkeep"
   const opponentUpkeepMatch = oracleText.match(/at the beginning of each opponent's upkeep,?\s*([^.]+)/i);
   if (opponentUpkeepMatch) {
-    const effectText = opponentUpkeepMatch[1].trim();
+    const effectText = timingTriggerEffect(oracleText, opponentUpkeepMatch);
     triggers.push({
       permanentId,
       cardName,

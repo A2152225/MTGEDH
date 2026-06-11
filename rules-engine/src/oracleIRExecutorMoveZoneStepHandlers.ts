@@ -1770,6 +1770,27 @@ export function applyMoveZoneStep(
     };
   }
 
+  const eachPlayerLandPlayRaw = String(step.raw || '').replace(/\u2019/g, "'").trim();
+  if (
+    step.optional === true
+    && step.to === 'battlefield'
+    && /^each player may put a land card from their hand onto the battlefield$/i.test(eachPlayerLandPlayRaw)
+  ) {
+    if (ctx.interactivePlayerChoices === true) {
+      return {
+        applied: false,
+        message: `Each-player optional land play requires player choice: ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+    return {
+      applied: true,
+      state,
+      log: [`Skipped non-interactive each-player land play: ${step.raw}`],
+    };
+  }
+
   const diceBranchWhat = String((step.what as any)?.text || '').trim();
   const diceBranchRaw = String(step.raw || '').trim();
   if (

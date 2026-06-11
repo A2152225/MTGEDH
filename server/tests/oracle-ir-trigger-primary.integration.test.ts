@@ -6,6 +6,8 @@ import {
   isOracleIrTriggerPrimaryEnabled,
   tryResolveTriggerViaOracleIR,
 } from '../src/state/modules/oracleIrTriggerExecution.js';
+import { isTriggerEffectFullyIrWired } from '../src/state/modules/oracleIrTriggerLegacyRouting.js';
+import { collectOracleEffectSteps } from '../src/state/modules/trigger-runtime-wiring.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 describe('oracle IR trigger execution', () => {
@@ -183,5 +185,76 @@ describe('oracle IR trigger execution', () => {
 
     expect(outcome.handled).toBe(true);
     expect(outcome.applied).toBeGreaterThan(0);
+  });
+
+  it('primary mode queues each-player land choices for end-step resource effects', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_trigger_kynaios_end_step';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [{ id: 'plains_1', name: 'Plains', type_line: 'Basic Land — Plains' }],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        libraryCount: 1,
+      },
+      [p2]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        libraryCount: 0,
+      },
+    };
+
+    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
+    player.hand = [{ id: 'plains_1', name: 'Plains', type_line: 'Basic Land — Plains' }];
+    player.library = [{ id: 'lib-1', name: 'Island', zone: 'library' }];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const effectText =
+      "draw a card. Each player may put a land card from their hand onto the battlefield, then each opponent who didn't draws a card.";
+
+    const collectedSteps = collectOracleEffectSteps(effectText, 'Kynaios and Tiro of Meletis');
+    expect(collectedSteps.some((step) => step.kind === 'move_zone' && (step as any).optional === true)).toBe(true);
+    expect(collectedSteps[0]?.kind).toBe('draw');
+    expect(isTriggerEffectFullyIrWired(effectText, 'Kynaios and Tiro of Meletis')).toBe(true);
+
+    const outcome = tryResolveTriggerViaOracleIR(ctx, {
+      controller: p1,
+      sourceName: 'Kynaios and Tiro of Meletis',
+      effectText,
+      triggerItem: {
+        id: 'kynaios_trigger_1',
+        source: 'kynaios_1',
+        permanentId: 'kynaios_1',
+        gameId,
+      },
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBeGreaterThan(0);
+    expect(outcome.applied).toBeGreaterThanOrEqual(1);
+
+    expect(outcome.handled).toBe(true);
+
+    const landChoiceSteps = queue.steps.filter(
+      (step) => step.type === ResolutionStepType.KYNAIOS_CHOICE,
+    );
+    expect(landChoiceSteps.length).toBeGreaterThanOrEqual(2);
+
+    ResolutionQueueManager.removeQueue(gameId);
   });
 });

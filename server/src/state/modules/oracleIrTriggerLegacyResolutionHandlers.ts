@@ -2,7 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debug, debugError, debugWarn } from '../../utils/debug.js';
-import { queueLandPlayFromHandPrompt } from './triggerLandPlayPromptUtils.js';
+import { queueLandPlayFromHandPrompt, queueEachPlayerMayPutLandOrDrawBatch } from './triggerLandPlayPromptUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { filterHandCreatureCardsOfChosenType } from './chosen-creature-type.js';
 import { drawCards as drawCardsFromZone } from './zones.js';
@@ -32,10 +32,7 @@ export function applyRetiredTriggerLegacyKynaiosLandDrawChoice(
     return false;
   }
 
-  const turnOrder = params.players.map((p: any) => p.id);
-  const activePlayerId = params.state.activePlayer || params.controller;
   const gameId = (params.ctx as any).gameId || (params.ctx as any).id || params.triggerItem?.gameId;
-
   if (!gameId || gameId === 'unknown') {
     debugError(1, `[executeTriggerEffect] Kynaios: CRITICAL - Cannot process without gameId (ctx.gameId=${(params.ctx as any).gameId}, ctx.id=${(params.ctx as any).id}, triggerItem.gameId=${params.triggerItem?.gameId}). Trigger will not function correctly.`);
     return true;
@@ -44,108 +41,14 @@ export function applyRetiredTriggerLegacyKynaiosLandDrawChoice(
   debug(1, `[executeTriggerEffect] Kynaios: Creating resolution steps for ${params.players.length} players, gameId=${gameId}`);
 
   const kynaiosBatchId = String(params.triggerItem?.id || `kynaios_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
-
-  const stepConfigs = params.players.map((p: any) => {
-    const playerId = p.id;
-    const isController = playerId === params.controller;
-    const options = isController
-      ? ['play_land', 'decline'] as const
-      : ['play_land', 'draw_card'] as const;
-
-    const playerZones = params.state.zones?.[playerId];
-    const hand = playerZones?.hand || [];
-    const landsInHand = hand.filter((card: any) =>
-      card && (card.type_line || '').toLowerCase().includes('land'),
-    );
-
-    return {
-      type: ResolutionStepType.KYNAIOS_CHOICE,
-      playerId,
-      description: `${params.sourceName}: You may put a land card from your hand onto the battlefield${isController ? '' : ', or draw a card'}`,
-      mandatory: false,
-      sourceId: params.triggerItem?.permanentId || params.triggerItem?.sourceId,
-      sourceName: params.sourceName,
-      sourceImage: params.triggerItem?.card?.image_uris?.small,
-      kynaiosBatchId,
-      isController,
-      sourceController: params.controller,
-      canPlayLand: landsInHand.length > 0,
-      landPlayOrFallbackIsController: isController,
-      landPlayOrFallbackSourceController: params.controller,
-      landPlayOrFallbackCanPlayLand: landsInHand.length > 0,
-      landsInHand: landsInHand.map((card: any) => ({
-        id: card.id,
-        name: card.name,
-        imageUrl: card.image_uris?.small || card.image_uris?.normal,
-      })),
-      landPlayOrFallbackLandsInHand: landsInHand.map((card: any) => ({
-        id: card.id,
-        name: card.name,
-        imageUrl: card.image_uris?.small || card.image_uris?.normal,
-      })),
-      options,
-      landPlayOrFallbackOptions: options,
-    };
+  queueEachPlayerMayPutLandOrDrawBatch(params.ctx, {
+    sourceController: params.controller,
+    sourceName: params.sourceName,
+    sourceId: params.triggerItem?.permanentId || params.triggerItem?.sourceId,
+    sourceImage: params.triggerItem?.card?.image_uris?.small,
+    batchId: kynaiosBatchId,
+    triggerItem: params.triggerItem,
   });
-
-  if ((params.ctx as any).isReplaying) {
-    debug(2, `[executeTriggerEffect] Kynaios: skipping resolution steps during replay`);
-    return true;
-  }
-
-  debug(1, `[executeTriggerEffect] Kynaios: Adding ${stepConfigs.length} resolution steps via ResolutionQueueManager`);
-
-  ResolutionQueueManager.addStepsWithAPNAP(
-    gameId,
-    stepConfigs,
-    turnOrder,
-    activePlayerId,
-  );
-
-  try {
-    const queue = ResolutionQueueManager.getQueue(gameId);
-    const persistedSteps = queue.steps
-      .filter((step: any) => step?.type === ResolutionStepType.KYNAIOS_CHOICE && String((step as any).kynaiosBatchId || '') === kynaiosBatchId)
-      .map((step: any) => ({
-        id: String(step.id),
-        type: String(step.type),
-        playerId: String(step.playerId),
-        description: String(step.description || ''),
-        mandatory: step.mandatory !== false,
-        sourceId: step.sourceId ? String(step.sourceId) : undefined,
-        sourceName: step.sourceName ? String(step.sourceName) : undefined,
-        sourceImage: step.sourceImage,
-        kynaiosBatchId: String((step as any).kynaiosBatchId || kynaiosBatchId),
-        isController: (step as any).isController === true,
-        sourceController: (step as any).sourceController ? String((step as any).sourceController) : undefined,
-        canPlayLand: (step as any).canPlayLand !== false,
-        landsInHand: Array.isArray((step as any).landsInHand) ? (step as any).landsInHand.map((card: any) => ({
-          id: String(card?.id || ''),
-          name: String(card?.name || ''),
-          imageUrl: card?.imageUrl,
-        })) : [],
-        options: Array.isArray((step as any).options) ? (step as any).options.map((option: any) => String(option)) : [],
-        landPlayOrFallbackIsController: (step as any).landPlayOrFallbackIsController === true,
-        landPlayOrFallbackSourceController: (step as any).landPlayOrFallbackSourceController ? String((step as any).landPlayOrFallbackSourceController) : undefined,
-        landPlayOrFallbackCanPlayLand: (step as any).landPlayOrFallbackCanPlayLand !== false,
-        landPlayOrFallbackLandsInHand: Array.isArray((step as any).landPlayOrFallbackLandsInHand) ? (step as any).landPlayOrFallbackLandsInHand.map((card: any) => ({
-          id: String(card?.id || ''),
-          name: String(card?.name || ''),
-          imageUrl: card?.imageUrl,
-        })) : [],
-        landPlayOrFallbackOptions: Array.isArray((step as any).landPlayOrFallbackOptions) ? (step as any).landPlayOrFallbackOptions.map((option: any) => String(option)) : [],
-      }));
-
-    appendEvent(gameId, Number((params.ctx as any).seq?.value ?? 0), 'kynaiosChoiceInitiated', {
-      batchId: kynaiosBatchId,
-      sourceName: params.sourceName,
-      sourceController: params.controller,
-      controllerDrawCount: 1,
-      steps: persistedSteps,
-    });
-  } catch (err) {
-    debugWarn(1, '[executeTriggerEffect] Failed to persist kynaiosChoiceInitiated event:', err);
-  }
 
   drawCardsFromZone(params.ctx, params.controller, 1);
   debug(1, `[executeTriggerEffect] ${params.sourceName}: ${params.controller} draws 1, created ${params.players.length} resolution steps for land/draw choices (gameId: ${gameId})`);

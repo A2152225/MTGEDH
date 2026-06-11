@@ -1,4 +1,5 @@
 import type { GameContext } from '../../context.js';
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 
 import { isInterveningIfSatisfied } from './intervening-if.js';
 
@@ -76,7 +77,7 @@ export function detectDiscardTriggers(card: any, permanent: any): DiscardTrigger
   for (const match of matches) {
     const subject = String(match[1] || '').trim().toLowerCase();
     const parsedCondition = parseDiscardCondition(String(match[2] || ''));
-    const effect = String(match[3] || '').trim();
+    const effect = timingTriggerEffect(oracleText, match, 3);
     if (!parsedCondition || !effect) {
       continue;
     }

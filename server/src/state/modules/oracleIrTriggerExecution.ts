@@ -13,6 +13,10 @@ import {
   buildShadowProbeContext,
   hydrateOracleIRPlayerZonesFromContext,
 } from './oracleIrServerZoneSync.js';
+import {
+  describeOracleIrExecutionHandledIncomplete,
+  logOracleIrAllOrNothingFailure,
+} from './oracleIrStepWiring.js';
 import { isOracleIrExecutionHandled } from './oracleIrSpellExecution.js';
 import {
   buildTriggerExecutionOptionsFromSteps,
@@ -38,6 +42,76 @@ function triggerCopyStepsNeedServerTargetQueue(steps: readonly OracleEffectStep[
         step as Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
       ),
   );
+}
+
+function describeOracleIrTriggerPrimaryIncomplete(
+  effectText: string,
+  sourceName: string,
+  steps: readonly OracleEffectStep[],
+  result: OracleIRExecutionResult,
+  queueBefore: number,
+  queueAfter: number,
+  options: {
+    triggerType?: string;
+    canApplyPreselectedChooseMode: boolean;
+  },
+): readonly string[] {
+  const reasons = [
+    ...describeOracleIrExecutionHandledIncomplete(result, queueBefore, queueAfter, steps),
+  ];
+  const applied = result.appliedSteps.length;
+  const pendingOptional = (result.pendingOptionalSteps || []).length;
+  const pendingContinuation = (result.pendingContinuationSteps || []).length;
+  const queueBridged = queueAfter > queueBefore;
+
+  if (
+    !queueBridged
+    && applied === 0
+    && triggerCopyStepsNeedServerTargetQueue(steps)
+  ) {
+    reasons.push('copy_permanent_needs_server_target_queue');
+  }
+
+  if (
+    !queueBridged
+    && applied > 0
+    && String(options.triggerType || '').toLowerCase() === 'annihilator'
+    && steps.some((step) => step.kind === 'sacrifice')
+  ) {
+    reasons.push('annihilator_sacrifice_requires_resolution_queue_bridge');
+  }
+
+  if (
+    !queueBridged
+    && pendingOptional > 0
+    && applied > 0
+  ) {
+    reasons.push(
+      `pending_optional_without_queue_bridge: ${pendingOptional} optional step(s) remain`,
+    );
+  }
+
+  if (
+    !queueBridged
+    && pendingContinuation > 0
+    && !reasons.some((reason) => reason.startsWith('pending_continuation_without_queue_bridge'))
+  ) {
+    const kinds = (result.pendingContinuationSteps || [])
+      .map((step) => String(step.kind || 'unknown'))
+      .join(', ');
+    reasons.push(
+      `pending_continuation_without_queue_bridge: ${pendingContinuation} step(s) [${kinds}]`,
+    );
+  }
+
+  if (
+    !isTriggerEffectOwnedByOracleIrPrimary(effectText, sourceName)
+    && !options.canApplyPreselectedChooseMode
+  ) {
+    reasons.push('effect_not_primary_owned_by_oracle_ir');
+  }
+
+  return reasons;
 }
 
 export interface TryResolveTriggerViaOracleIRParams {
@@ -341,18 +415,20 @@ export function tryResolveTriggerViaOracleIR(
         controller: params.controller,
         targetPlayerId: binding.targetPlayerId,
         applyMillReplacements: true,
+        triggerItem: params.triggerItem,
       },
     );
 
     const queueAfter = gameId !== 'unknown'
       ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
       : queueBefore;
+    const queueBridged = queueAfter > queueBefore;
     let handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter, steps);
     const applied = result.appliedSteps.length;
 
     if (
       handled
-      && queueAfter <= queueBefore
+      && !queueBridged
       && applied === 0
       && triggerCopyStepsNeedServerTargetQueue(steps)
     ) {
@@ -361,7 +437,7 @@ export function tryResolveTriggerViaOracleIR(
 
     if (
       handled
-      && queueAfter <= queueBefore
+      && !queueBridged
       && applied > 0
       && String(params.triggerItem?.triggerType || '').toLowerCase() === 'annihilator'
       && steps.some((step) => step.kind === 'sacrifice')
@@ -371,7 +447,7 @@ export function tryResolveTriggerViaOracleIR(
 
     if (
       handled
-      && queueAfter <= queueBefore
+      && !queueBridged
       && (result.pendingContinuationSteps || []).length > 0
     ) {
       handled = false;
@@ -379,7 +455,7 @@ export function tryResolveTriggerViaOracleIR(
 
     if (
       handled
-      && queueAfter <= queueBefore
+      && !queueBridged
       && (result.pendingOptionalSteps || []).length > 0
       && applied > 0
     ) {
@@ -388,7 +464,7 @@ export function tryResolveTriggerViaOracleIR(
 
     if (
       handled
-      && queueAfter <= queueBefore
+      && !queueBridged
       && (result.automationGaps || []).some((gap) => gap.reasonCode === 'player_choice_required')
     ) {
       handled = false;
@@ -407,10 +483,23 @@ export function tryResolveTriggerViaOracleIR(
         2,
         `[oracleIR] Primary trigger resolution for ${params.sourceName}: ${applied} step(s) applied`,
       );
-    } else if (applied > 0) {
-      debugWarn(
-        1,
-        `[oracleIR] Partial trigger IR apply for ${params.sourceName}: ${applied}/${steps.length} step(s); falling back to legacy`,
+    } else {
+      logOracleIrAllOrNothingFailure(
+        'trigger',
+        params.sourceName,
+        describeOracleIrTriggerPrimaryIncomplete(
+          effectText,
+          params.sourceName,
+          steps,
+          result,
+          queueBefore,
+          queueAfter,
+          {
+            triggerType: params.triggerItem?.triggerType,
+            canApplyPreselectedChooseMode,
+          },
+        ),
+        { applied, parsed: steps.length },
       );
     }
 

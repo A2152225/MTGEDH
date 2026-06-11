@@ -1,4 +1,5 @@
 import type { GameContext } from "../../context.js";
+import { timingTriggerEffect } from './timing-effect-extraction.js';
 import type { SpellCastTrigger, SpellCastUntapEffect } from "./types.js";
 
 export type { SpellCastTrigger, SpellCastUntapEffect } from "./types.js";
@@ -197,7 +198,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
       const spellType = match[1].toLowerCase();
-      const effectText = match[2].trim();
+      const effectText = timingTriggerEffect(oracleText, match, 2);
       
       let spellCondition: SpellCastTrigger['spellCondition'] = 'any';
       let tribalType: string | undefined;
@@ -299,7 +300,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         cardName,
         controllerId,
         description: `Magecraft — Whenever you cast or copy an instant or sorcery spell, ${effectMatch[1].trim()}`,
-        effect: effectMatch[1].trim(),
+        effect: timingTriggerEffect(oracleText, effectMatch),
         spellCondition: 'instant_sorcery',
         mandatory: true,
       });
@@ -532,14 +533,14 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
 
   const playerCyclesACardMatch = oracleText.match(/whenever a player cycles a card,?\s*([^.]+)/i);
   if (playerCyclesACardMatch) {
-    const effectText = String(playerCyclesACardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerCyclesACardMatch);
     if (effectText) {
       pushUniqueOpponentCastTrigger(triggers, {
         triggerType: 'any_player_casts_any',
         spellCondition: 'any',
         casterScope: 'any_player',
         benefitIfNotPaid: effectText,
-        description: playerCyclesACardMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, playerCyclesACardMatch, 0),
       });
     }
   }
@@ -574,7 +575,7 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
         spellCondition: 'any',
         casterScope: 'opponent',
         benefitIfNotPaid: effectText,
-        description: match[0].trim(),
+        description: timingTriggerEffect(oracleText, match, 0),
       });
     }
   }
@@ -594,7 +595,7 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
         spellCondition: 'any',
         casterScope: 'any_player',
         benefitIfNotPaid: effectText,
-        description: match[0].trim(),
+        description: timingTriggerEffect(oracleText, match, 0),
       });
     }
   }
@@ -607,14 +608,14 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = String(match[1] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, match);
       if (!effectText) continue;
       pushUniqueOpponentCastTrigger(triggers, {
         triggerType: 'opponent_casts_any',
         spellCondition: 'any',
         casterScope: 'opponent',
         benefitIfNotPaid: effectText,
-        description: match[0].trim(),
+        description: timingTriggerEffect(oracleText, match, 0),
       });
     }
   }
@@ -627,14 +628,14 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = String(match[1] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, match);
       if (!effectText) continue;
       pushUniqueOpponentCastTrigger(triggers, {
         triggerType: 'any_player_casts_any',
         spellCondition: 'first_any',
         casterScope: 'any_player',
         benefitIfNotPaid: effectText,
-        description: match[0].trim(),
+        description: timingTriggerEffect(oracleText, match, 0),
       });
     }
   }
@@ -644,14 +645,14 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
   let opponentDuringTurnMatch: RegExpExecArray | null;
   opponentCastDuringYourTurnPattern.lastIndex = 0;
   while ((opponentDuringTurnMatch = opponentCastDuringYourTurnPattern.exec(oracleText)) !== null) {
-    const effectText = String(opponentDuringTurnMatch[2] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, opponentDuringTurnMatch, 2);
     if (!effectText) continue;
     pushUniqueOpponentCastTrigger(triggers, {
       triggerType: 'opponent_casts_any',
       spellCondition: 'any',
       casterScope: 'opponent',
       benefitIfNotPaid: effectText,
-      description: opponentDuringTurnMatch[0].trim(),
+      description: timingTriggerEffect(oracleText, opponentDuringTurnMatch, 0),
     });
   }
 
@@ -721,7 +722,7 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
         casterScope,
         paymentCost,
         benefitIfNotPaid: 'trigger effect',
-        description: match[0].trim(),
+        description: timingTriggerEffect(oracleText, match, 0),
       });
     }
   }
@@ -736,7 +737,7 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = String(match[1] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, match);
       if (!effectText) continue;
       const casterScope: OpponentCastCasterScope = /a player casts/i.test(match[0]) ? 'any_player' : 'opponent';
       pushUniqueOpponentCastTrigger(triggers, {
@@ -744,7 +745,7 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
         spellCondition: 'noncreature',
         casterScope,
         benefitIfNotPaid: effectText,
-        description: match[0].trim(),
+        description: timingTriggerEffect(oracleText, match, 0),
       });
     }
   }
@@ -769,14 +770,14 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
 
   const playerCastsCardMatch = oracleText.match(/whenever a player casts a card(?:,\s*if\s+[^,]+)?,?\s*([^.]+)/i);
   if (playerCastsCardMatch) {
-    const effectText = String(playerCastsCardMatch[1] || '').trim();
+    const effectText = timingTriggerEffect(oracleText, playerCastsCardMatch);
     if (effectText) {
       pushUniqueOpponentCastTrigger(triggers, {
         triggerType: 'any_player_casts_any',
         spellCondition: 'any',
         casterScope: 'any_player',
         benefitIfNotPaid: effectText,
-        description: playerCastsCardMatch[0].trim(),
+        description: timingTriggerEffect(oracleText, playerCastsCardMatch, 0),
       });
     }
   }
@@ -786,7 +787,7 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
       const rawType = String(match[1] || '').trim();
-      const effectText = String(match[2] || '').trim();
+      const effectText = timingTriggerEffect(oracleText, match, 2);
       if (!effectText) continue;
       const parsed = parseOpponentCastSpellType(rawType);
       const triggerType: OpponentCastTriggerType = casterScope === 'any_player'
@@ -803,7 +804,7 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any): Dete
         casterScope,
         paymentCost: unlessPayment?.[1] || '',
         benefitIfNotPaid: effectText,
-        description: match[0].trim(),
+        description: timingTriggerEffect(oracleText, match, 0),
       });
     }
   }

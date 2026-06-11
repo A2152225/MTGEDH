@@ -602,6 +602,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'explore',
   'look_choose_from_top',
   'look_select_top',
+  'move_zone',
   'player_choice',
   'proliferate',
   'populate',
