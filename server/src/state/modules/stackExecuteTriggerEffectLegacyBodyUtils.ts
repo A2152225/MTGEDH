@@ -45,7 +45,6 @@ import {
   applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken,
 } from './oracleIrTriggerLegacyTokenHandlers.js';
 import {
-  applyRetiredTriggerLegacyCounterThenDraw,
   applyRetiredTriggerLegacyOptionalDiscardThenDraw,
   applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit,
   applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife,
@@ -421,18 +420,6 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     state,
     players,
     battlefield,
-  })) {
-    return { handled: true };
-  }
-
-  if (applyRetiredTriggerLegacyCounterThenDraw({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
   })) {
     return { handled: true };
   }

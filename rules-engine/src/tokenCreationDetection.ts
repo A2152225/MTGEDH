@@ -76,7 +76,7 @@ export function parseTokenCreationFromText(
     'knight', 'wizard', 'rogue', 'cleric', 'horror', 'insect', 'spider', 'snake', 'merfolk',
     'phyrexian', 'germ', 'wurm', 'gnome', 'fish', 'pegasus', 'pest', 'dryad', 'forest',
     'mite', 'dinosaur', 'assassin', 'otter', 'pilot', 'lander', 'rabbit', 'myr', 'slug',
-    'kobold', 'samurai', 'monk', 'citizen', 'construct', 'plant', 'serpent', 'golem',
+    'kobold', 'samurai', 'monk', 'citizen', 'construct', 'plant', 'serpent', 'golem', 'goat',
   ];
   const subtypeSource = lowerText
     .replace(/^.*?\bcreates?\s+(?:twice\s+x|x|a\s+number\s+of|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+/, '')
@@ -89,6 +89,13 @@ export function parseTokenCreationFromText(
   for (const type of knownCreatureTypes) {
     if (subtypeSource.includes(type)) {
       subtypes.push(type.charAt(0).toUpperCase() + type.slice(1));
+    }
+  }
+
+  if (subtypes.length === 0 && subtypeSource) {
+    const leftover = subtypeSource.split(/\s+/).filter(Boolean);
+    if (leftover.length === 1 && /^[a-z]+$/i.test(leftover[0])) {
+      subtypes.push(leftover[0].charAt(0).toUpperCase() + leftover[0].slice(1));
     }
   }
 

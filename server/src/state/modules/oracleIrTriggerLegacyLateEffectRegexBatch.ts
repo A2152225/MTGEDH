@@ -3,7 +3,6 @@ import type { GameContext } from '../context.js';
 import { applyRetiredTriggerLegacyCounterInlineBatch } from './oracleIrTriggerLegacyCounterHandlers.js';
 import { applyRetiredTriggerLegacyPTModificationBatch } from './oracleIrTriggerLegacyPTModificationHandlers.js';
 import { applyRetiredTriggerLegacyTapUntapInlineBatch } from './oracleIrTriggerLegacyTapUntapHandlers.js';
-import { applyRetiredTriggerLegacyTargetLifeAndDamageBatch } from './oracleIrTriggerLegacyTargetDamageHandlers.js';
 import { applyRetiredTriggerLegacyGraveyardZoneChangeBatch } from './oracleIrTriggerLegacyGraveyardZoneHandlers.js';
 import { applyRetiredTriggerLegacyManaAndCombatBatch } from './oracleIrTriggerLegacyManaAndCombatHandlers.js';
 import {
@@ -100,20 +99,6 @@ export function applyRetiredTriggerLegacyLateEffectRegexBatch(
     desc,
     triggerItem,
     state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyTargetLifeAndDamageBatch({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-    opponents,
-    players,
-    battlefield,
   })) {
     return true;
   }

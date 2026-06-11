@@ -345,14 +345,20 @@ export function resolveSingleCreatureTargetId(
   );
 
   if (targetText.includes('target creature you control')) {
-    return controlledCreatures.length === 1 ? controlledCreatures[0].id : undefined;
+    return pickFromControllerPool(controlledCreatures);
   }
 
-  if (targetText.includes('target creature your opponents control') || targetText.includes('target creature an opponent controls')) {
-    return opponentsControlledCreatures.length === 1 ? opponentsControlledCreatures[0].id : undefined;
+  if (
+    targetText.includes('target creature your opponents control') ||
+    targetText.includes('target creature an opponent controls') ||
+    (targetText.includes('target') && targetText.includes('creature') && targetText.includes('opponent') && targetText.includes('controls'))
+  ) {
+    return pickFromControllerPool(opponentsControlledCreatures);
   }
 
   if (targetText === 'target creature' || targetText === 'creature' || targetText.includes('target creature')) {
+    const preferredTarget = pickFromControllerPool(creatures);
+    if (preferredTarget) return preferredTarget;
     return creatures.length === 1 ? creatures[0].id : undefined;
   }
 

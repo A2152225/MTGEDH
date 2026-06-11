@@ -75,6 +75,15 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(isTriggerEffectOwnedByOracleIrPrimary('Untap target creature.', 'Test Vitalize')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Put a +1/+1 counter on target creature.', 'Test Incubate')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Put a +1/+1 counter on each creature you control.', 'Test Collective Growth')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Put an indestructible counter on this creature.', 'Mondrak')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Untap all lands you control.', 'Bear Umbra')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Put a +1/+1 counter on each other creature you control.', 'Test Growth')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Put a +1/+1 counter on each creature you control with power 4 or greater.', 'Test Devotion')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Put a +1/+1 counter on each creature you control of the chosen type.', 'Kindred Discovery')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary("Create a token that's a copy of equipped creature, except it's not legendary.", 'Helm of the Host')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Double the number of +1/+1 counters on it.', 'Aragorn')).toBe(true);
+    expect(shouldSkipLegacyTriggerRegexHandlers('Double the number of +1/+1 counters on it.', 'Aragorn')).toBe(true);
+    expect(shouldSkipLegacyTriggerRegexHandlers('Untap all lands you control.', 'Bear Umbra')).toBe(true);
     expect(shouldSkipLegacyTriggerRegexHandlers('Deal 1 damage to each creature you control.', 'Test Self Sweep')).toBe(true);
     expect(shouldSkipLegacyTriggerRegexHandlers('Put a +1/+1 counter on each creature you control.', 'Test Collective Growth')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Deal 3 damage to target creature an opponent controls.', 'Test Scoped Burn')).toBe(true);
@@ -105,6 +114,13 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('destroy')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('exile')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('move_zone')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('grant_temporary_ability')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('grant_leave_battlefield_replacement')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('schedule_delayed_battlefield_action')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary(
+      'Return a creature card at random from your graveyard to the battlefield. It gains flying, trample, and haste. Exile that card at the beginning of your next end step. If it would leave the battlefield, exile it instead of putting it anywhere else.',
+      'Kheru Lich Lord',
+    )).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('counter_spell')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('tap_or_untap')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('add_counter')).toBe(true);

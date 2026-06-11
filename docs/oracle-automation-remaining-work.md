@@ -2,14 +2,15 @@
 
 Living document. Update this file as gaps close and audits are re-run.
 
-**Last updated: 2026-06-09** (batch12 ir_gap pass — **0** `ir_gap` / **0** partial / **0** impossible; trigger corridor **14,290** fully applied / **0** parse→execute gaps)
+**Last updated: 2026-06-11** (Layer 1–2 metrics unchanged; Layer 3 batch **173** partial-IR guardrails — see migration plan handoff)
 
 > **Server integration / superseding handwritten resolution:** see **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** for the Layer 3 migration plan (IR-first spells/triggers, Effect Program wiring, choice UI batches, shim retirement). This file covers Layer 1–2 (parser/executor gaps).
 
 ## Quick start for a new session
 
-1. Read this file for current metrics and priority order.
-2. Re-run audits if code changed since the timestamp above:
+1. **Server integration (Layer 3):** read **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** § *Current status / session handoff* first — batch **172** exert corridor is green; next work is `grant_temporary_ability` wiring + continued regex retirement.
+2. Read this file for Layer 1–2 metrics and parser/executor priority order.
+3. Re-run audits if code changed since the timestamp above:
    ```powershell
    cd server
    npm run executor:coverage
@@ -20,8 +21,8 @@ Living document. Update this file as gaps close and audits are re-run.
    $env:EXECUTOR_COVERAGE_SCOPE="full_card"; npm run executor:coverage
    npx tsx scripts/_tmp-full-card-gap-clusters.ts
    ```
-3. JSON reports land in `server/scripts/out/` (**gitignored** — regenerate locally; do not expect them in git). Use named scripts under `server/scripts/` — never inline `tsx -e` (see `.cursor/rules/terminal-hygiene.mdc`).
-4. Trigger parse coverage (separate from executor): `npm run trigger:coverage`
+4. JSON reports land in `server/scripts/out/` (**gitignored** — regenerate locally; do not expect them in git). Use named scripts under `server/scripts/` — never inline `tsx -e` (see `.cursor/rules/terminal-hygiene.mdc`).
+5. Trigger parse coverage (separate from executor): `npm run trigger:coverage`
 
 ---
 
@@ -123,6 +124,8 @@ Work in this order unless a specific card/report redirects effort.
 - [x] Batch 44: time-counter/colorless/nonartifact hand exile, hand-or-GY artifact/creature exile, charge-counter MV hand→BF, that-many library-top exile, outside-game hand, hand→library bottom, one-or-more GY creatures exile, owned nonland bounce, Loaming Shaman shuffle, each-opponent bounce (Enigma `up` IR), Oblivion Sower lands-from-exile, Reincarnation owner GY, Mark of Eviction compound bounce, linked exile (Steamboat/Mechtitan/Bat), discarded-card return, gate/shares-type among-them, cloak, Winter 4-type GY exile, Zethi kicked instants, Kefka random GY, Thicket reveal+shuffle postprocess, Cass aura reattach, Search the City named-card hand, Tinybones stash
 
 **Next focus:** Full-card gap reduction (keyword/reminder pruning, shock lands, attach/reconfigure). Static parser backlog top clusters (`oracle-ir-gap-backlog.md`). Trigger-order / replacement UI hooks.
+
+**Server integration (Layer 3):** Phase 4 regex retirement in progress — see **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** § *Current status / session handoff*. Latest: batch **172** (exert corridor 23/23, copy-token regex fix). Next: `grant_temporary_ability` wiring, counter-scaled `modify_pt`, continued trigger regex gutting.
 
 ### Parse→execute singleton pass [done] (2026-06-09)
 

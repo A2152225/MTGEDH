@@ -1,30 +1,12 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import {
-  applyRetiredTriggerLegacyCreatureControllerLosesLife,
-  applyRetiredTriggerLegacyDealsDamageToEachOpponent,
-  applyRetiredTriggerLegacyDoublePlusOneCountersOnSelf,
-  applyRetiredTriggerLegacyEachOpponentLosesLife,
-  applyRetiredTriggerLegacyEachOpponentDiscards,
   applyRetiredTriggerLegacyEachPlayerCounterPlacement,
-  applyRetiredTriggerLegacyEachPlayerDraws,
   applyRetiredTriggerLegacyElspethCounterFromAmong,
   applyRetiredTriggerLegacyEnergyEffects,
-  applyRetiredTriggerLegacyIndestructibleCounterOnSelf,
   applyRetiredTriggerLegacyLootStyleTopLibrary,
-  applyRetiredTriggerLegacyMayGainLife,
-  applyRetiredTriggerLegacyPlusOneCounterEachCreatureYouControl,
-  applyRetiredTriggerLegacyPlusOneCounterEachOtherType,
-  applyRetiredTriggerLegacyPlusOneCounterOnSelf,
-  applyRetiredTriggerLegacyPowerBasedCountersEachCreatureYouControl,
-  applyRetiredTriggerLegacyScry,
-  applyRetiredTriggerLegacySingleDraw,
-  applyRetiredTriggerLegacySingleGainLife,
-  applyRetiredTriggerLegacyTargetPlayerDraws,
-  applyRetiredTriggerLegacyTargetPlayerLoseYouGainLife,
   applyRetiredTriggerLegacyTokenCounters,
   applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget,
-  applyRetiredTriggerLegacyUntapTapLands,
 } from './oracleIrTriggerLegacyRegexHandlers.js';
 import {
   applyRetiredTriggerLegacyBelbePortalPutFromHand,
@@ -32,27 +14,14 @@ import {
   applyRetiredTriggerLegacyPutCreatureFromHandOntoBattlefield,
 } from './oracleIrTriggerLegacyResolutionHandlers.js';
 import {
-  applyRetiredTriggerLegacyGenericSearchLibrary,
   applyRetiredTriggerLegacyProteanHulkSearch,
 } from './oracleIrTriggerLegacySearchHandlers.js';
-import {
-  applyRetiredTriggerLegacyCreateCreatureToken,
-  applyRetiredTriggerLegacyEquippedCreatureCopyToken,
-  applyRetiredTriggerLegacyPredefinedArtifactTokens,
-  applyRetiredTriggerLegacyTargetPlayerCreatesToken,
-} from './oracleIrTriggerLegacyTokenHandlers.js';
-import {
-  applyRetiredTriggerLegacyEachOpponentMills,
-  applyRetiredTriggerLegacyTargetPlayerMills,
-  applyRetiredTriggerLegacyThatPermanentControllerMills,
-} from './oracleIrTriggerLegacyMillHandlers.js';
 import {
   applyRetiredTriggerLegacySelfCantBeBlocked,
   applyRetiredTriggerLegacySelfCantBeBlockedByLowPower,
   applyRetiredTriggerLegacySelfPreventCombatDamage,
   applyRetiredTriggerLegacyTargetCreatureCantBeBlocked,
 } from './oracleIrTriggerLegacyCombatEvasionHandlers.js';
-import { applyRetiredTriggerLegacyChosenTypeCounterEachCreature } from './oracleIrTriggerLegacyCounterHandlers.js';
 import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacySingleEffectBatchParams {
@@ -92,62 +61,6 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     return false;
   }
 
-  if (applyRetiredTriggerLegacySingleGainLife({ desc, controller, state, sourceName })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyMayGainLife({ desc, controller, state, sourceName })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyEachOpponentLosesLife({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    triggerCard,
-    state,
-    opponents,
-    battlefield,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyDealsDamageToEachOpponent({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-    opponents,
-    battlefield,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyTargetPlayerLoseYouGainLife({
-    desc,
-    controller,
-    triggerItem,
-    opponents,
-    state,
-    sourceName,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyCreatureControllerLosesLife({
-    desc,
-    controller,
-    triggerItem,
-    state,
-    sourceName,
-  })) {
-    return true;
-  }
-
   if (applyRetiredTriggerLegacyEnergyEffects({
     desc,
     controller,
@@ -181,61 +94,6 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     return true;
   }
 
-  if (applyRetiredTriggerLegacyChosenTypeCounterEachCreature({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyPowerBasedCountersEachCreatureYouControl({
-    desc,
-    controller,
-    triggerItem,
-    state,
-    sourceName,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyPlusOneCounterEachCreatureYouControl({ desc, controller, state, sourceName })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyPlusOneCounterEachOtherType({
-    desc,
-    controller,
-    triggerItem,
-    state,
-    sourceName,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyPlusOneCounterOnSelf({ desc, triggerItem, state, sourceName })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyIndestructibleCounterOnSelf({
-    desc,
-    sourceName,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyDoublePlusOneCountersOnSelf({ desc, triggerItem, state, sourceName })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacySingleDraw({ ctx, controller, desc, isKynaiosEffect, sourceName })) {
-    return true;
-  }
-
   if (applyRetiredTriggerLegacyKynaiosLandDrawChoice({
     ctx,
     controller,
@@ -262,20 +120,6 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     return true;
   }
 
-  if (applyRetiredTriggerLegacyTargetPlayerDraws({ ctx, controller, desc, triggerItem, sourceName })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyUntapTapLands({
-    sourceName,
-    desc,
-    controller,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
   if (applyRetiredTriggerLegacyLootStyleTopLibrary({
     ctx,
     controller,
@@ -287,17 +131,6 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
   }
 
   if (applyRetiredTriggerLegacyProteanHulkSearch({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyGenericSearchLibrary({
     ctx,
     controller,
     sourceName,
@@ -330,89 +163,6 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     state,
     players,
     battlefield,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyTargetPlayerCreatesToken({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyPredefinedArtifactTokens({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyCreateCreatureToken({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyEquippedCreatureCopyToken({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyEachOpponentMills({
-    ctx,
-    controller,
-    desc,
-    opponents,
-    state,
-    sourceName,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyThatPermanentControllerMills({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    opponents,
-    state,
-    triggerItem,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyTargetPlayerMills({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    opponents,
-    state,
-    triggerItem,
   })) {
     return true;
   }
@@ -454,18 +204,6 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     triggerItem,
     state,
   })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyScry({ desc, controller, state, sourceName })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyEachPlayerDraws({ ctx, sourceName, desc, players })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyEachOpponentDiscards({ desc, state, opponents, sourceName })) {
     return true;
   }
 

@@ -2,6 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { tryApplyTriggerEffectPrefaceHandlers } from './stackExecuteTriggerEffectPrefaceUtils.js';
+import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
 import { tryApplyTriggerEffectLegacyBodyHandlers } from './stackExecuteTriggerEffectLegacyBodyUtils.js';
 import { tryApplyTriggerEffectLegacyTailHandlers } from './stackExecuteTriggerEffectTailUtils.js';
 import { tryResolveTriggerViaOracleIR } from './oracleIrTriggerExecution.js';
@@ -19,23 +20,24 @@ export function executeTriggerEffect(
   description: string,
   triggerItem: any
 ): void {
+  const normalizedDescription = normalizeTriggerEffectDescriptionForExecution(String(description || ''));
   const state = (ctx as any).state;
   if (!state) return;
   const triggerCard = (triggerItem as any)?.card || {};
   const battlefield = state.battlefield || [];
 
-  if (tryApplyTriggerEffectPrefaceHandlers(ctx, controller, sourceName, description, triggerItem, state, battlefield)) {
+  if (tryApplyTriggerEffectPrefaceHandlers(ctx, controller, sourceName, normalizedDescription, triggerItem, state, battlefield)) {
     return;
   }
 
-  const normalizedDesc = String(description || '').replace(/[\u2019]/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
+  const normalizedDesc = String(normalizedDescription || '').replace(/[\u2019]/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
   if (isCreateCreatureTokenTriggerText(normalizedDesc)) {
     if (applyRetiredTriggerLegacyCreateCreatureToken({
       ctx,
       controller,
       sourceName,
       desc: normalizedDesc,
-      description,
+      description: normalizedDescription,
       triggerItem,
       state,
     })) {
@@ -47,7 +49,7 @@ export function executeTriggerEffect(
     ctx,
     controller,
     sourceName,
-    description,
+    description: normalizedDescription,
     triggerItem,
     state,
     triggerCard,
@@ -59,7 +61,7 @@ export function executeTriggerEffect(
   const triggerIrOutcome = tryResolveTriggerViaOracleIR(ctx, {
     controller,
     sourceName,
-    effectText: String(description || '').trim(),
+    effectText: String(normalizedDescription || '').trim(),
     triggerItem,
   });
   if (triggerIrOutcome.handled) {
@@ -70,7 +72,7 @@ export function executeTriggerEffect(
     ctx,
     controller,
     sourceName,
-    description,
+    normalizedDescription,
     triggerItem,
     state,
     triggerCard,
@@ -83,7 +85,7 @@ export function executeTriggerEffect(
     ctx,
     controller,
     sourceName,
-    description,
+    normalizedDescription,
     triggerItem,
     triggerCard,
     state,
@@ -92,5 +94,5 @@ export function executeTriggerEffect(
     return;
   }
 
-  debug(2, `[executeTriggerEffect] Unhandled trigger effect: "${description}" from ${sourceName}`);
+  debug(2, `[executeTriggerEffect] Unhandled trigger effect: "${normalizedDescription}" from ${sourceName}`);
 }

@@ -8,7 +8,6 @@ import {
 import { applyInstantSorceryNibelheimAflameEffect } from './stackResolveSpellSpecialCaseUtils.js';
 import {
   logLegacySpellRegexPrimaryMiss,
-  applyLegacySpellRegexLifeGainHandler,
   applyLegacySpellRegexDrawHandlers,
 } from './stackResolveSpellLegacyRegexDrawUtils.js';
 import { applyInstantSorceryControlChangeAndMassZoneEffects } from './stackResolveSpellControlChangeUtils.js';
@@ -113,13 +112,6 @@ export function tryApplyInstantSorceryLegacyBodyHandlers(
   });
 
   logLegacySpellRegexPrimaryMiss(oracleIrSpellHandled, spellName, oracleText);
-
-  applyLegacySpellRegexLifeGainHandler(ctx, {
-    controller,
-    effectiveCard,
-    oracleTextLower,
-    spellXValue,
-  });
 
   applyInstantSorceryControlChangeAndMassZoneEffects(ctx, {
     controller,

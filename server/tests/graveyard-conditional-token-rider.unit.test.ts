@@ -12,7 +12,10 @@ import {
   applyInstantSorceryGraveyardConditionalTokenRider,
 } from '../src/state/modules/stackResolveSpellPostCategorizeRidersUtils.js';
 import { applyRetiredTriggerLegacyCreateCreatureToken } from '../src/state/modules/oracleIrTriggerLegacyTokenHandlers.js';
+import { applyOracleIRUncategorizedSpellFallback } from '../src/state/modules/oracleIrUncategorizedSpellFallback.js';
+import { collectOracleEffectSteps } from '../src/state/modules/trigger-runtime-wiring.js';
 import * as uncategorizedUtils from '../src/state/modules/stackResolveSpellUncategorizedUtils.js';
+import * as triggerUtils from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 
 async function resetGame(gameId: string) {
   ResolutionQueueManager.removeQueue(gameId);
@@ -192,7 +195,90 @@ describe('graveyard conditional token rider', () => {
     uncategorizedSpy.mockRestore();
   });
 
-  it('legacy trigger create handler creates a Goat token from ETB text', () => {
+  it('IR uncategorized fallback creates Goat token from ETB trigger text', () => {
+    const playerId = 'p1';
+    const description = 'create a 0/1 white Goat creature token';
+    const steps = collectOracleEffectSteps(description, 'Woe Strider');
+    expect(steps.some((step) => step.kind === 'create_token')).toBe(true);
+
+    const ctx: any = {
+      gameId: 'goat_probe',
+      state: {
+        players: [{ id: playerId, name: 'P1' }],
+        battlefield: [],
+        zones: { [playerId]: { library: [], libraryCount: 0, graveyard: [], hand: [] } },
+      },
+      bumpSeq: () => {},
+    };
+
+    const applied = applyOracleIRUncategorizedSpellFallback(
+      ctx,
+      description,
+      playerId,
+      'Woe Strider',
+      undefined,
+      'woe_1',
+      undefined,
+      false,
+      { controllerId: playerId, sourceName: 'Woe Strider', sourceId: 'woe_1' },
+      'ability',
+    );
+    expect(applied).toBeGreaterThan(0);
+    const goatToken = (ctx.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.name || '').toLowerCase() === 'goat',
+    );
+    expect(goatToken).toBeDefined();
+    expect(goatToken?.basePower).toBe(0);
+    expect(goatToken?.baseToughness).toBe(1);
+  });
+
+  it('executeTriggerEffect creates Goat token for Woe Strider ETB clause', () => {
+    const playerId = 'p1';
+    const oracleText =
+      'When this creature enters, create a 0/1 white Goat creature token.\nSacrifice another creature: Scry 1.\nEscape—{3}{B}{B}, Exile four other cards from your graveyard. (You may cast this card from your graveyard for its escape cost.)\nThis creature escapes with two +1/+1 counters on it.';
+    const ctx: any = {
+      gameId: 'goat_execute_probe',
+      state: {
+        players: [{ id: playerId, name: 'P1' }],
+        battlefield: [{
+          id: 'woe_1',
+          controller: playerId,
+          card: {
+            name: 'Woe Strider',
+            type_line: 'Creature — Horror',
+            oracle_text: oracleText,
+          },
+        }],
+        zones: { [playerId]: { library: [], libraryCount: 0, graveyard: [], hand: [] } },
+      },
+      bumpSeq: () => {},
+    };
+
+    triggerUtils.executeTriggerEffect(
+      ctx,
+      playerId,
+      'Woe Strider',
+      'create a 0/1 white Goat creature token',
+      {
+        type: 'triggered_ability',
+        controller: playerId,
+        source: 'woe_1',
+        permanentId: 'woe_1',
+        sourceName: 'Woe Strider',
+        description: 'create a 0/1 white Goat creature token',
+        effect: 'create a 0/1 white Goat creature token',
+        triggerType: 'etb',
+        card: ctx.state.battlefield[0].card,
+      },
+    );
+
+    const goatToken = (ctx.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.name || '').toLowerCase() === 'goat',
+    );
+    expect(goatToken).toBeDefined();
+  });
+
+  it('retired trigger create handler defers to IR uncategorized fallback', () => {
     const playerId = 'p1';
     const description = 'create a 0/1 white Goat creature token';
     const ctx: any = { state: { battlefield: [] }, bumpSeq: () => {} };
@@ -207,8 +293,8 @@ describe('graveyard conditional token rider', () => {
       state: ctx.state,
     });
 
-    expect(handled).toBe(true);
-    expect(ctx.state.battlefield.some((perm: any) => String(perm?.card?.name || '').toLowerCase() === 'goat')).toBe(true);
+    expect(handled).toBe(false);
+    expect(ctx.state.battlefield).toHaveLength(0);
   });
 
   it('integration-style escape Woe Strider queues ETB and creates a Goat token', async () => {

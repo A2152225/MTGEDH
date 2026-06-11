@@ -85,329 +85,102 @@ function parseDrawCountFromDesc(desc: string): number | undefined {
 
 /**
  * Legacy combined draw / gain-life / lose-life regex handlers retired under IR primary.
+ * Only compound patterns not expressible as single IR steps remain.
  */
 export function applyRetiredTriggerLegacyDrawAndLifeCombinedEffects(
   params: TriggerLegacyDrawLifeParams,
 ): boolean {
   const {
-    ctx,
     controller,
     sourceName,
     desc,
     triggerItem,
-    isKynaiosEffect,
+    state,
   } = params;
 
   if (skipRetiredTriggerLegacyHandler(desc, sourceName)) {
     return false;
   }
 
-  let handled = false;
-
-  const isRiteOfHarmonyWindowDraw = /whenever a creature or enchantment you control enters this turn,\s*draw a card/i.test(desc);
-  const drawCount = !isKynaiosEffect && !isRiteOfHarmonyWindowDraw ? parseDrawCountFromDesc(desc) : undefined;
-  if (drawCount !== undefined) {
-    drawCardsFromZone(ctx, controller, drawCount);
-    debug(2, `[executeTriggerEffect] ${controller} draws ${drawCount} card(s) from ${sourceName}`);
-    handled = true;
-  }
-
-  const youLoseLifeMatch = desc.match(/you lose (\d+) life/i);
-  if (youLoseLifeMatch) {
-    const amount = parseInt(youLoseLifeMatch[1], 10);
-    modifyTriggerEffectLife(params.state, controller, -amount);
-    debug(2, `[executeTriggerEffect] ${controller} loses ${amount} life from ${sourceName}`);
-    handled = true;
-  }
-
-  const youGainLifeMatch = desc.match(/you gain (\d+) life/i);
-  if (youGainLifeMatch && !matchesDealEachOpponentAndGainLifePattern(desc)) {
-    const amount = parseInt(youGainLifeMatch[1], 10);
-    modifyTriggerEffectLife(params.state, controller, amount);
-    debug(2, `[executeTriggerEffect] ${controller} gains ${amount} life from ${sourceName}`);
-    handled = true;
-  }
-
   const youGainThatMuchLifeMatch = desc.match(/you gain that much life/i);
   if (youGainThatMuchLifeMatch) {
     const amount = Number((triggerItem as any)?.effectData?.lifeLost || (triggerItem as any)?.effectData?.amount || 0);
     if (Number.isFinite(amount) && amount > 0) {
-      modifyTriggerEffectLife(params.state, controller, amount);
+      modifyTriggerEffectLife(state, controller, amount);
       debug(2, `[executeTriggerEffect] ${controller} gains ${amount} life from ${sourceName}`);
-      handled = true;
+      return true;
     }
   }
 
-  return handled;
+  return false;
 }
 
 export function applyRetiredTriggerLegacySingleGainLife(
-  params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const gainLifeMatch = params.desc.match(/you gain (\d+) life/i);
-  if (!gainLifeMatch) return false;
-
-  const amount = parseInt(gainLifeMatch[1], 10);
-  modifyTriggerEffectLife(params.state, params.controller, amount);
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacySingleDraw(
-  params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'controller' | 'desc' | 'isKynaiosEffect' | 'sourceName'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'controller' | 'desc' | 'isKynaiosEffect' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const drawMatch = params.desc.match(/draw (?:a card|(\d+) cards?)/i);
-  if (!drawMatch || params.isKynaiosEffect) return false;
-
-  const count = drawMatch[1] ? parseInt(drawMatch[1], 10) : 1;
-  drawCardsFromZone(params.ctx, params.controller, count);
-  debug(2, `[executeTriggerEffect] ${params.controller} draws ${count} card(s)`);
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyScry(
-  params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const scryMatch = params.desc.match(/scry (\d+)/i);
-  if (!scryMatch) return false;
-
-  const scryCount = parseInt(scryMatch[1], 10);
-  debug(2, `[executeTriggerEffect] ${params.controller} scries ${scryCount}`);
-  params.state.pendingScry = params.state.pendingScry || {};
-  params.state.pendingScry[params.controller] = scryCount;
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyEachOpponentLosesLife(
-  params: TriggerLegacyOpponentEffectParams,
+  _params: TriggerLegacyOpponentEffectParams,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  const opponentsLoseMatch = params.desc.match(/each opponent loses (\d+) life/i);
-  const shouldDeferOptionalPaymentLifeDrain =
-    /\byou may pay\b/i.test(params.desc) &&
-    /\bif you do\b/i.test(params.desc) &&
-    /\bextort\b/i.test(String(params.triggerCard?.oracle_text || params.sourceName || ''));
-  if (!opponentsLoseMatch || shouldDeferOptionalPaymentLifeDrain) {
-    return false;
-  }
-
-  const amount = parseInt(opponentsLoseMatch[1], 10);
-  for (const opp of params.opponents) {
-    modifyTriggerEffectLife(params.state, opp.id, -amount);
-  }
-
-  const alsoGainMatch = params.desc.match(/you gain (\d+) life/i);
-  if (alsoGainMatch) {
-    const gainAmount = parseInt(alsoGainMatch[1], 10);
-    modifyTriggerEffectLife(params.state, params.controller, gainAmount);
-  }
-
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyDealsDamageToEachOpponent(
-  params: TriggerLegacyOpponentEffectParams,
+  _params: TriggerLegacyOpponentEffectParams,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  const dealsToEachOpponentMatch = params.desc.match(/deals? (\d+) damage to each opponent/i);
-  if (!dealsToEachOpponentMatch) {
-    return false;
-  }
-
-  const damage = parseInt(dealsToEachOpponentMatch[1], 10);
-  const sourcePermanentId = String((params.triggerItem as any)?.source || (params.triggerItem as any)?.permanentId || '');
-
-  for (const opp of params.opponents) {
-    const actualDamage = applyTriggerOpponentDamageFromPermanent(
-      params.ctx,
-      params.controller,
-      params.state,
-      params.battlefield,
-      String(opp.id),
-      damage,
-      sourcePermanentId || undefined,
-    );
-    if (actualDamage > 0) {
-      debug(2, `[executeTriggerEffect] ${params.sourceName} deals ${actualDamage} damage to ${opp.id}`);
-    }
-
-    try {
-      if (sourcePermanentId && actualDamage > 0) {
-        queueDealsDamageToPlayerTriggersFromPermanent(
-          params.ctx,
-          sourcePermanentId,
-          String(opp.id),
-          actualDamage,
-        );
-      }
-    } catch {
-      // Defensive: do not block resolution on trigger queue failure.
-    }
-  }
-
-  const alsoGainMatch = params.desc.match(/you gain (\d+) life/i);
-  if (alsoGainMatch) {
-    const gainAmount = parseInt(alsoGainMatch[1], 10);
-    modifyTriggerEffectLife(params.state, params.controller, gainAmount);
-  }
-
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyEachOpponentDiscards(
-  params: Pick<TriggerLegacyOpponentEffectParams, 'desc' | 'state' | 'opponents' | 'sourceName'>,
+  _params: Pick<TriggerLegacyOpponentEffectParams, 'desc' | 'state' | 'opponents' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const discardOpponentsMatch = params.desc.match(/each opponent discards? (?:a card|(\d+) cards?)/i);
-  if (!discardOpponentsMatch) {
-    return false;
-  }
-
-  const discardCount = discardOpponentsMatch[1] ? parseInt(discardOpponentsMatch[1], 10) : 1;
-  debug(2, `[executeTriggerEffect] Each opponent discards ${discardCount} card(s)`);
-
-  params.state.pendingDiscard = params.state.pendingDiscard || {};
-  for (const opp of params.opponents) {
-    params.state.pendingDiscard[opp.id] = (params.state.pendingDiscard[opp.id] || 0) + discardCount;
-  }
-
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyTargetPlayerLoseYouGainLife(
-  params: Pick<TriggerLegacyOpponentEffectParams, 'desc' | 'controller' | 'triggerItem' | 'opponents' | 'state' | 'sourceName'>,
+  _params: Pick<TriggerLegacyOpponentEffectParams, 'desc' | 'controller' | 'triggerItem' | 'opponents' | 'state' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const targetLosesYouGainMatch = params.desc.match(/target player loses (\d+) life.*you gain (\d+) life/i);
-  if (!targetLosesYouGainMatch) {
-    return false;
-  }
-
-  const loseAmount = parseInt(targetLosesYouGainMatch[1], 10);
-  const gainAmount = parseInt(targetLosesYouGainMatch[2], 10);
-  const targets = params.triggerItem?.targets || [];
-  const targetPlayer = targets[0]?.id || targets[0] || params.opponents[0]?.id;
-
-  if (targetPlayer) {
-    modifyTriggerEffectLife(params.state, String(targetPlayer), -loseAmount);
-  }
-  modifyTriggerEffectLife(params.state, params.controller, gainAmount);
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyEachPlayerDraws(
-  params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'sourceName' | 'desc'> & {
+  _params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'sourceName' | 'desc'> & {
     readonly players: readonly any[];
   },
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  const eachDrawMatch = params.desc.match(/each player draws? (?:a card|(\d+) cards?)/i);
-  if (!eachDrawMatch) {
-    return false;
-  }
-
-  const count = eachDrawMatch[1] ? parseInt(eachDrawMatch[1], 10) : 1;
-  for (const player of params.players) {
-    if (!player?.hasLost) {
-      const drawn = drawCardsFromZone(params.ctx, player.id as PlayerID, count);
-      debug(2, `[executeTriggerEffect] ${params.sourceName}: ${player.id} drew ${drawn.length} card(s)`);
-    }
-  }
-
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyDealEachOpponentAndGainLife(
-  params: Pick<TriggerLegacyOpponentEffectParams, 'desc' | 'opponents' | 'controller' | 'state' | 'ctx' | 'battlefield' | 'triggerItem' | 'sourceName'>,
+  _params: Pick<TriggerLegacyOpponentEffectParams, 'desc' | 'opponents' | 'controller' | 'state' | 'ctx' | 'battlefield' | 'triggerItem' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const match = params.desc.match(/deals? (\d+) damage to each opponent.*you gain (\d+) life/i);
-  if (!match) {
-    return false;
-  }
-
-  const damageAmount = parseInt(match[1], 10);
-  const gainAmount = parseInt(match[2], 10);
-  const sourcePermanentId = String((params.triggerItem as any)?.source || (params.triggerItem as any)?.permanentId || '');
-  for (const opp of params.opponents) {
-    applyTriggerOpponentDamageFromPermanent(
-      params.ctx,
-      params.controller,
-      params.state,
-      params.battlefield,
-      String(opp.id),
-      damageAmount,
-      sourcePermanentId || undefined,
-    );
-  }
-  modifyTriggerEffectLife(params.state, params.controller, gainAmount);
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyMayGainLife(
-  params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const mayGainLifeMatch = params.desc.match(/you may gain (\d+) life/i);
-  if (!mayGainLifeMatch) {
-    return false;
-  }
-
-  const amount = parseInt(mayGainLifeMatch[1], 10);
-  modifyTriggerEffectLife(params.state, params.controller, amount);
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyCreatureControllerLosesLife(
-  params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'triggerItem' | 'state' | 'sourceName'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'triggerItem' | 'state' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const creatureControllerLosesMatch = params.desc.match(/creature's controller loses (\d+) life/i);
-  if (!creatureControllerLosesMatch) {
-    return false;
-  }
-
-  const amount = parseInt(creatureControllerLosesMatch[1], 10);
-  const triggeringController = (params.triggerItem as any).triggeringController;
-  if (triggeringController && triggeringController !== params.controller) {
-    modifyTriggerEffectLife(params.state, triggeringController, -amount);
-  }
-  return true;
+  return false;
 }
 
 /**
@@ -445,81 +218,17 @@ export function applyRetiredTriggerLegacyEnergyEffects(
 }
 
 export function applyRetiredTriggerLegacyEachOpponentDraws(
-  params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'desc' | 'sourceName'> & {
+  _params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'desc' | 'sourceName'> & {
     readonly opponents: readonly any[];
   },
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const eachOpponentDrawsMatch = params.desc.match(/each opponent draws? (\d+|a|an|one|two) cards?/i);
-  if (!eachOpponentDrawsMatch) {
-    return false;
-  }
-
-  const count = DRAW_WORD_TO_NUMBER[eachOpponentDrawsMatch[1].toLowerCase()]
-    || parseInt(eachOpponentDrawsMatch[1], 10)
-    || 1;
-
-  for (const opp of params.opponents) {
-    drawCardsFromZone(params.ctx, opp.id as PlayerID, count);
-  }
-  debug(2, `[executeTriggerEffect] Each opponent draws ${count} card(s)`);
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyCounterAndDealsOpponentDamage(
-  params: Pick<TriggerLegacyOpponentEffectParams, 'ctx' | 'controller' | 'sourceName' | 'desc' | 'triggerItem' | 'state' | 'opponents' | 'battlefield'>,
+  _params: Pick<TriggerLegacyOpponentEffectParams, 'ctx' | 'controller' | 'sourceName' | 'desc' | 'triggerItem' | 'state' | 'opponents' | 'battlefield'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  const match = params.desc.match(/put a \+1\/\+1 counter on (?:~|vivi ornitier|this creature|this permanent|it).*and (?:it|~)?\s*deals? (\d+) damage to each opponent/i);
-  if (!match) {
-    return false;
-  }
-
-  const damage = parseInt(match[1], 10);
-  const sourcePermId = params.triggerItem?.source || params.triggerItem?.permanentId;
-  const battlefield = params.state.battlefield || [];
-  const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
-
-  if (sourcePerm) {
-    sourcePerm.counters = sourcePerm.counters || {};
-    sourcePerm.counters['+1/+1'] = (sourcePerm.counters['+1/+1'] || 0) + 1;
-    debug(2, `[executeTriggerEffect] Added +1/+1 counter to ${sourcePerm.card?.name || sourcePerm.id}`);
-  }
-
-  for (const opp of params.opponents) {
-    const actualDamage = applyTriggerOpponentDamageFromPermanent(
-      params.ctx,
-      params.controller,
-      params.state,
-      params.battlefield,
-      String(opp.id),
-      damage,
-      sourcePermId,
-    );
-    if (actualDamage > 0) {
-      debug(2, `[executeTriggerEffect] ${params.sourceName} deals ${actualDamage} damage to opponent ${opp.id}`);
-    }
-    try {
-      if (sourcePermId && actualDamage > 0) {
-        queueDealsDamageToPlayerTriggersFromPermanent(
-          params.ctx,
-          sourcePermId,
-          String(opp.id),
-          actualDamage,
-        );
-      }
-    } catch {
-      // Defensive
-    }
-  }
-
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyPutThatManyCountersOnSelf(
@@ -570,86 +279,15 @@ export function applyRetiredTriggerLegacyTokenCounters(
 }
 
 export function applyRetiredTriggerLegacyTargetPlayerDraws(
-  params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'controller' | 'desc' | 'triggerItem' | 'sourceName'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'controller' | 'desc' | 'triggerItem' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const targetDrawMatch = params.desc.match(/(?:target|that) player draws? (\d+|a|an|one|two|three) cards?/i);
-  if (!targetDrawMatch) {
-    return false;
-  }
-
-  const count = DRAW_WORD_TO_NUMBER[targetDrawMatch[1].toLowerCase()]
-    || parseInt(targetDrawMatch[1], 10)
-    || 1;
-  const targets = params.triggerItem?.targets || [];
-  const targetPlayer = targets[0]?.id || targets[0] || params.controller;
-
-  drawCardsFromZone(params.ctx, targetPlayer as PlayerID, count);
-  debug(2, `[executeTriggerEffect] ${targetPlayer} draws ${count} card(s)`);
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyUntapTapLands(
-  params: Pick<TriggerLegacyDrawLifeParams, 'sourceName' | 'desc' | 'controller' | 'triggerItem' | 'state'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'sourceName' | 'desc' | 'controller' | 'triggerItem' | 'state'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  const descLower = params.desc.toLowerCase();
-  const untapAllControlledLands = descLower.includes('untap all lands you control');
-  const tapAllDamagedPlayerLands =
-    descLower.includes('tap all lands that player controls') ||
-    descLower.includes('tap all lands defending player controls');
-
-  if (!untapAllControlledLands && !tapAllDamagedPlayerLands) {
-    return false;
-  }
-
-  const battlefield = Array.isArray(params.state.battlefield) ? params.state.battlefield : [];
-  let untappedCount = 0;
-  let tappedCount = 0;
-
-  if (untapAllControlledLands) {
-    for (const permanent of battlefield) {
-      if (!permanent || permanent.controller !== params.controller || !permanent.tapped) continue;
-      const typeLine = String(permanent.card?.type_line || '').toLowerCase();
-      if (!typeLine.includes('land')) continue;
-      permanent.tapped = false;
-      untappedCount++;
-    }
-  }
-
-  if (tapAllDamagedPlayerLands) {
-    const damagedPlayerId = String(
-      params.triggerItem?.effectData?.damagedPlayerId ||
-      params.triggerItem?.damagedPlayerId ||
-      params.triggerItem?.defendingPlayer ||
-      params.triggerItem?.targetPlayer ||
-      '',
-    ).trim();
-
-    if (damagedPlayerId) {
-      for (const permanent of battlefield) {
-        if (!permanent || permanent.controller !== damagedPlayerId || permanent.tapped) continue;
-        const typeLine = String(permanent.card?.type_line || '').toLowerCase();
-        if (!typeLine.includes('land')) continue;
-        permanent.tapped = true;
-        tappedCount++;
-      }
-    }
-  }
-
-  if (tapAllDamagedPlayerLands) {
-    debug(2, `[executeTriggerEffect] ${params.sourceName}: untapped ${untappedCount} land(s) for ${params.controller} and tapped ${tappedCount} land(s) for the damaged player`);
-  } else {
-    debug(2, `[executeTriggerEffect] ${params.sourceName}: untapped ${untappedCount} land(s) for ${params.controller}`);
-  }
-
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyElspethCounterFromAmong(
@@ -811,199 +449,39 @@ export function applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget(
 }
 
 export function applyRetiredTriggerLegacyPowerBasedCountersEachCreatureYouControl(
-  params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'triggerItem' | 'state' | 'sourceName'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'triggerItem' | 'state' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  if (!(params.desc.includes('+1/+1 counter') && params.desc.includes('each creature you control'))) {
-    return false;
-  }
-  if (!(params.desc.includes('power') || params.desc.includes('where x'))) {
-    return false;
-  }
-
-  const sourcePermId = params.triggerItem?.source || params.triggerItem?.permanentId;
-  const battlefield = params.state.battlefield || [];
-  const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
-
-  if (sourcePerm) {
-    let sourcePower: number;
-    if (typeof sourcePerm.effectivePower === 'number') {
-      sourcePower = sourcePerm.effectivePower;
-    } else {
-      let basePower = sourcePerm.basePower || 0;
-      if (!basePower && sourcePerm.card?.power) {
-        basePower = parsePT(sourcePerm.card.power) ?? 0;
-      }
-      const plusCounters = sourcePerm.counters?.['+1/+1'] || 0;
-      const minusCounters = sourcePerm.counters?.['-1/-1'] || 0;
-      const counterDelta = plusCounters - minusCounters;
-      const allBonuses = calculateAllPTBonuses(sourcePerm, params.state);
-      sourcePower = Math.max(0, basePower + counterDelta + allBonuses.power);
-    }
-
-    for (const perm of battlefield) {
-      if (!perm) continue;
-      if (perm.controller !== params.controller) continue;
-      const typeLine = (perm.card?.type_line || '').toLowerCase();
-      if (!typeLine.includes('creature')) continue;
-
-      perm.counters = perm.counters || {};
-      perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + sourcePower;
-      debug(2, `[executeTriggerEffect] Added ${sourcePower} +1/+1 counter(s) to ${perm.card?.name || perm.id}`);
-    }
-  }
-
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyPlusOneCounterEachCreatureYouControl(
-  params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  if (!(params.desc.includes('+1/+1 counter') && params.desc.includes('each creature you control'))) {
-    return false;
-  }
-  if (params.desc.includes('power') || params.desc.includes('where x')) {
-    return false;
-  }
-
-  const battlefield = params.state.battlefield || [];
-  for (const perm of battlefield) {
-    if (!perm) continue;
-    if (perm.controller !== params.controller) continue;
-    const typeLine = (perm.card?.type_line || '').toLowerCase();
-    if (!typeLine.includes('creature')) continue;
-
-    perm.counters = perm.counters || {};
-    perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
-    debug(2, `[executeTriggerEffect] Added +1/+1 counter to ${perm.card?.name || perm.id}`);
-  }
-
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyPlusOneCounterEachOtherType(
-  params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'triggerItem' | 'state' | 'sourceName'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'triggerItem' | 'state' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const match = params.desc.match(/\+1\/\+1 counter on each other (\w+) you control/i);
-  if (!match) {
-    return false;
-  }
-
-  const creatureType = match[1].toLowerCase();
-  const battlefield = params.state.battlefield || [];
-  const sourcePermId = params.triggerItem?.source || params.triggerItem?.permanentId;
-
-  for (const perm of battlefield) {
-    if (!perm) continue;
-    if (perm.controller !== params.controller) continue;
-    if (perm.id === sourcePermId) continue;
-
-    const typeLine = (perm.card?.type_line || '').toLowerCase();
-    if (!typeLine.includes('creature')) continue;
-    if (!typeLine.includes(creatureType)) continue;
-
-    perm.counters = perm.counters || {};
-    perm.counters['+1/+1'] = (perm.counters['+1/+1'] || 0) + 1;
-    debug(2, `[executeTriggerEffect] Added +1/+1 counter to ${perm.card?.name || perm.id} (${creatureType})`);
-  }
-
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyPlusOneCounterOnSelf(
-  params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'triggerItem' | 'state' | 'sourceName'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'triggerItem' | 'state' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  const match = params.desc.match(/\+1\/\+1 counter on (?:~|this creature|it)/i);
-  if (!match) {
-    return false;
-  }
-
-  const sourcePermId = params.triggerItem?.source || params.triggerItem?.permanentId;
-  const battlefield = params.state.battlefield || [];
-  const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
-
-  if (sourcePerm) {
-    sourcePerm.counters = sourcePerm.counters || {};
-    sourcePerm.counters['+1/+1'] = (sourcePerm.counters['+1/+1'] || 0) + 1;
-    debug(2, `[executeTriggerEffect] Added +1/+1 counter to ${sourcePerm.card?.name || sourcePerm.id}`);
-  }
-
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyIndestructibleCounterOnSelf(
-  params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'sourceName' | 'triggerItem' | 'state'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'sourceName' | 'triggerItem' | 'state'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  if (!/put an? indestructible counter on/i.test(params.desc)) {
-    return false;
-  }
-
-  const sourcePermId = params.triggerItem?.source || params.triggerItem?.permanentId;
-  const battlefield = params.state.battlefield || [];
-  const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
-  const normalizedDesc = String(params.desc || '').toLowerCase();
-  const normalizedSourceName = String(params.sourceName || sourcePerm?.card?.name || '').toLowerCase();
-  const targetsSelf =
-    normalizedDesc.includes('on this creature') ||
-    normalizedDesc.includes('on this permanent') ||
-    normalizedDesc.includes('on it') ||
-    normalizedDesc.includes('on ~') ||
-    (normalizedSourceName.length > 0 && normalizedDesc.includes(`on ${normalizedSourceName}`));
-
-  if (!sourcePerm || !targetsSelf) {
-    return false;
-  }
-
-  sourcePerm.counters = sourcePerm.counters || {};
-  sourcePerm.counters.indestructible = (sourcePerm.counters.indestructible || 0) + 1;
-  debug(2, `[executeTriggerEffect] Added indestructible counter to ${sourcePerm.card?.name || sourcePerm.id}`);
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyDoublePlusOneCountersOnSelf(
-  params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'triggerItem' | 'state' | 'sourceName'>,
+  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'triggerItem' | 'state' | 'sourceName'>,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
-    return false;
-  }
-
-  if (!(params.desc.includes('double') && params.desc.includes('+1/+1 counter')
-    && (params.desc.includes('this creature') || params.desc.includes('on it') || params.desc.includes('on ~')))) {
-    return false;
-  }
-
-  const sourcePermId = params.triggerItem?.source || params.triggerItem?.permanentId;
-  const battlefield = params.state.battlefield || [];
-  const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
-
-  if (sourcePerm) {
-    sourcePerm.counters = sourcePerm.counters || {};
-    const currentCounters = sourcePerm.counters['+1/+1'] || 0;
-    const newCounters = currentCounters * 2;
-    sourcePerm.counters['+1/+1'] = newCounters;
-    debug(2, `[executeTriggerEffect] Doubled +1/+1 counters on ${sourcePerm.card?.name || sourcePerm.id}: ${currentCounters} -> ${newCounters}`);
-  }
-
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyLootStyleTopLibrary(

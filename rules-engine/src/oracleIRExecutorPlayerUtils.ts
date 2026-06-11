@@ -785,6 +785,8 @@ export function resolvePlayers(
     case 'target_opponent': {
       const bound = normalizeId(ctx.selectorContext?.targetOpponentId);
       if (bound && opponentIdSet.has(bound)) return [bound];
+      const boundPlayer = normalizeId(ctx.selectorContext?.targetPlayerId);
+      if (boundPlayer && opponentIdSet.has(boundPlayer)) return [boundPlayer];
       return opponents.length === 1 ? [opponents[0]] : [];
     }
     case 'enchanted_player': {

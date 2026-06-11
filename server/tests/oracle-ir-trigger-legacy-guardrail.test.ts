@@ -761,7 +761,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken')).toBe(true);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken')).toBe(true);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken')).toBe(true);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyCounterThenDraw')).toBe(true);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyCounterThenDraw')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyOptionalDiscardThenDraw')).toBe(true);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit')).toBe(true);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyRevealUntilEquipment')).toBe(true);
@@ -837,9 +837,9 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes("from './triggerLifeDamageUtils.js'")).toBe(true);
     expect(tokenHandlersSource.includes("from './triggerMyriadTokenUtils.js'")).toBe(true);
     expect(tokenHandlersSource.includes("from './counters_tokens.js'")).toBe(true);
-    expect(counterHandlersSource.includes("from './triggerChosenTypeCounterUtils.js'")).toBe(true);
+    expect(counterHandlersSource.includes("from './triggerChosenTypeCounterUtils.js'")).toBe(false);
     expect(manaAndCombatHandlersSource.includes("from './turn.js'")).toBe(true);
-    expect(millHandlersSource.includes("from './triggerMillFromEffectUtils.js'")).toBe(true);
+    expect(millHandlersSource.includes("from './triggerMillFromEffectUtils.js'")).toBe(false);
     expect(stackSource.includes('function applyMyriadTokenCopies')).toBe(false);
     expect(stackSource.includes('function resolveChosenTypeCounterEachCreature')).toBe(false);
     expect(lateEffectRegexBatchSource.includes('readonly createCopyTokensOfCard')).toBe(false);
@@ -1204,11 +1204,10 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('conditionalWipeMatch')).toBe(false);
     expect(stackSource.includes('parseSpellLegacyTokenCreation(')).toBe(false);
     expect(stackSource.includes('copy target instant or sorcery spell you control')).toBe(false);
-    expect(stackResolveSpellLegacyRegexDrawUtilsSource.includes('export function applyLegacySpellRegexLifeGainHandler')).toBe(true);
     expect(stackResolveSpellLegacyRegexDrawUtilsSource.includes('export function applyLegacySpellRegexDrawHandlers')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyLegacySpellRegexLifeGainHandler(ctx')).toBe(true);
+    expect(stackResolveSpellLegacyRegexDrawUtilsSource.includes('export function applyLegacySpellRegexLifeGainHandler')).toBe(false);
     expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyLegacySpellRegexDrawHandlers(ctx')).toBe(true);
-    expect(stackSource.includes('applyLegacySpellRegexLifeGainHandler(ctx')).toBe(false);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyLegacySpellRegexLifeGainHandler(ctx')).toBe(false);
     expect(stackSource.includes('applyLegacySpellRegexDrawHandlers(ctx')).toBe(false);
     expect(stackSource.includes('lifeGainMatch')).toBe(false);
     expect(stackSource.includes('shuffleHandAndGraveyardWheelMatch')).toBe(false);

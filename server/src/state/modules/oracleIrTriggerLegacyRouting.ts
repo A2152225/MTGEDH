@@ -25,12 +25,10 @@ export function isTriggerStepKindRetiredUnderOracleIrPrimary(kind: string | unde
  * Returns true when Oracle IR trigger primary mode owns this effect text * (parsed steps are fully runtime-wired). Used to skip duplicate legacy regex
  * handlers and the secondary uncategorized fallback shim in executeTriggerEffect.
  */
-export function isTriggerEffectOwnedByOracleIrPrimary(
+export function isTriggerEffectFullyIrWired(
   effectText: string,
   sourceName: string,
 ): boolean {
-  if (!isOracleIrTriggerPrimaryEnabled()) return false;
-
   const text = String(effectText || '').trim();
   if (!text) return false;
 
@@ -39,6 +37,14 @@ export function isTriggerEffectOwnedByOracleIrPrimary(
   if (steps.some((step) => step.kind === 'unknown')) return false;
 
   return steps.every((step) => isTriggerStepRuntimeWired(step as OracleEffectStep));
+}
+
+export function isTriggerEffectOwnedByOracleIrPrimary(
+  effectText: string,
+  sourceName: string,
+): boolean {
+  if (!isOracleIrTriggerPrimaryEnabled()) return false;
+  return isTriggerEffectFullyIrWired(effectText, sourceName);
 }
 
 export function shouldSkipTriggerUncategorizedFallback(

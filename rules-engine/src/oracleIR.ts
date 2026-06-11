@@ -1409,6 +1409,14 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'blight';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'populate';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;

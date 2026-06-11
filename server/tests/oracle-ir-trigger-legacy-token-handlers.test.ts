@@ -21,7 +21,7 @@ describe('oracleIrTriggerLegacyTokenHandlers', () => {
     vi.restoreAllMocks();
   });
 
-  it('creates predefined Food tokens', () => {
+  it('retired predefined artifact token handler defers to IR uncategorized fallback', () => {
     const state = { battlefield: [] };
 
     expect(applyRetiredTriggerLegacyPredefinedArtifactTokens({
@@ -32,15 +32,13 @@ describe('oracleIrTriggerLegacyTokenHandlers', () => {
       description: 'Create a Food token.',
       triggerItem: {},
       state,
-    })).toBe(true);
+    })).toBe(false);
 
-    expect(state.battlefield).toHaveLength(1);
-    expect(state.battlefield[0].card.name).toBe('Food');
+    expect(state.battlefield).toHaveLength(0);
   });
 
-  it('creates generic creature tokens', () => {
+  it('retired generic creature token handler defers to IR uncategorized fallback', () => {
     const state = { battlefield: [] };
-    const triggerETBEffectsForToken = vi.spyOn(triggerEtbEntryEffects, 'triggerETBEffectsForToken').mockImplementation(() => {});
 
     expect(applyRetiredTriggerLegacyCreateCreatureToken({
       ctx: {} as any,
@@ -50,11 +48,9 @@ describe('oracleIrTriggerLegacyTokenHandlers', () => {
       description: 'Create a 1/1 white Soldier creature token with vigilance.',
       triggerItem: {},
       state,
-    })).toBe(true);
+    })).toBe(false);
 
-    expect(state.battlefield).toHaveLength(1);
-    expect(state.battlefield[0].card.power).toBe('1');
-    expect(triggerETBEffectsForToken).toHaveBeenCalledTimes(1);
+    expect(state.battlefield).toHaveLength(0);
   });
 
   it('creates attacking tokens on attack trigger', () => {
@@ -121,7 +117,7 @@ describe('oracleIrTriggerLegacyTokenHandlers', () => {
     expect(triggerETBEffectsForToken).toHaveBeenCalledTimes(1);
   });
 
-  it('creates equipped creature copy token', () => {
+  it('retired equipped creature copy token defers to IR uncategorized fallback', () => {
     const state = {
       battlefield: [
         {
@@ -143,8 +139,6 @@ describe('oracleIrTriggerLegacyTokenHandlers', () => {
         },
       ],
     };
-    const triggerETBEffectsForToken = vi.spyOn(triggerEtbEntryEffects, 'triggerETBEffectsForToken').mockImplementation(() => {});
-    const queueSelfETBTriggersForPermanent = vi.spyOn(triggerEtbEntryEffects, 'queueSelfETBTriggersForPermanent').mockImplementation(() => {});
 
     expect(applyRetiredTriggerLegacyEquippedCreatureCopyToken({
       ctx: { state } as any,
@@ -154,13 +148,9 @@ describe('oracleIrTriggerLegacyTokenHandlers', () => {
       description: "Create a token that's a copy of equipped creature, except it's not legendary.",
       triggerItem: { source: 'helm' },
       state,
-    })).toBe(true);
+    })).toBe(false);
 
-    expect(state.battlefield).toHaveLength(3);
-    expect(state.battlefield[2].isToken).toBe(true);
-    expect(state.battlefield[2].card.type_line).not.toMatch(/Legendary/i);
-    expect(queueSelfETBTriggersForPermanent).toHaveBeenCalledTimes(1);
-    expect(triggerETBEffectsForToken).toHaveBeenCalledTimes(1);
+    expect(state.battlefield).toHaveLength(2);
   });
 
   it('creates attack count-based tokens from structured trigger data', () => {
@@ -246,7 +236,7 @@ describe('oracleIrTriggerLegacyTokenHandlers', () => {
 });
 
 describe('oracleIrTriggerLegacyMillHandlers', () => {
-  it('mills each opponent via legacy handler', () => {
+  it('retired each-opponent mill defers to IR uncategorized fallback', () => {
     const state: any = { pendingMill: {}, zones: {} };
     const lib = [{ id: 'c1', name: 'Island' }];
     const ctx = {
@@ -259,9 +249,9 @@ describe('oracleIrTriggerLegacyMillHandlers', () => {
       desc: 'Each opponent mills a card.',
       opponents: [{ id: 'p2' }],
       state,
-    })).toBe(true);
+    })).toBe(false);
 
-    expect(state.pendingMill.p2).toBe(1);
-    expect(lib).toHaveLength(0);
+    expect(state.pendingMill.p2).toBeUndefined();
+    expect(lib).toHaveLength(1);
   });
 });

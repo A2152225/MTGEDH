@@ -1882,7 +1882,7 @@ describe('oracle IR legacy forced integration', () => {
     expect(p2After?.life ?? (g.state as any).life?.[p2]).toBe(39);
   });
 
-  it('applies create-token triggers through legacy regex when trigger legacy is forced', () => {
+  it('creates a Treasure token via IR uncategorized fallback when trigger legacy is forced', () => {
     process.env.ORACLE_IR_TRIGGER_LEGACY = '1';
 
     const gameId = 'oracle_ir_legacy_forced_trigger_create_token';
@@ -2156,7 +2156,7 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(false);
   });
 
-  it('applies creature-token triggers through legacy regex when trigger legacy is forced', () => {
+  it('creates a creature token via IR uncategorized fallback when trigger legacy is forced', () => {
     process.env.ORACLE_IR_TRIGGER_LEGACY = '1';
 
     const gameId = 'oracle_ir_legacy_forced_trigger_create_creature_token';
@@ -2941,6 +2941,136 @@ describe('oracle IR legacy forced integration', () => {
     expect(exile2.some((card: any) => card?.id === 'a1_card')).toBe(true);
   });
 
+  it('resolves immediate flicker spells through legacy categorize when spell legacy is forced', () => {
+    process.env.ORACLE_IR_SPELL_LEGACY = '1';
+
+    const oracleText = "Exile target creature you control, then return it to the battlefield under its owner's control.";
+    expect(categorizeSpell('Test Momentary Blink', oracleText)?.op).toBe('FLICKER_TARGET');
+
+    const gameId = 'oracle_ir_legacy_forced_spell_flicker_immediate';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    ensureZonesForPlayer(g, p1);
+
+    const ctx = g as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    g.importDeckResolved(p1, [{
+      id: 'flicker_immediate_legacy',
+      name: 'Test Momentary Blink',
+      type_line: 'Instant',
+      oracle_text: oracleText,
+      mana_cost: '{1}{W}',
+    }] as any);
+    g.drawCards(p1, 1);
+    setupPlayerLibrary(g, p1, ['lib-1']);
+    ensureZonesForPlayer(g, p1);
+    (g.state as any).battlefield = [
+      {
+        id: 'c1',
+        controller: p1,
+        owner: p1,
+        tapped: true,
+        isToken: false,
+        card: {
+          id: 'c1_card',
+          name: 'Target Creature',
+          type_line: 'Creature — Human',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+
+    g.applyEvent!({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: 'flicker_immediate_legacy',
+      targets: ['c1'],
+    });
+
+    expect((g.state as any).stack?.length || 0).toBe(1);
+    g.resolveTopOfStack();
+
+    const battlefield = (g.state as any).battlefield || [];
+    expect(battlefield).toHaveLength(1);
+    expect(String(battlefield[0]?.id || '')).not.toBe('c1');
+    expect(String(battlefield[0]?.card?.id || '')).toBe('c1_card');
+  });
+
+  it('resolves delayed flicker spells through legacy categorize when spell legacy is forced', () => {
+    process.env.ORACLE_IR_SPELL_LEGACY = '1';
+
+    const oracleText = "Exile target creature. Return it to the battlefield under its owner's control at the beginning of the next end step.";
+    expect(categorizeSpell('Test Flickerwisp', oracleText)?.op).toBe('FLICKER_TARGET');
+
+    const gameId = 'oracle_ir_legacy_forced_spell_flicker_delayed';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    ensureZonesForPlayer(g, p1);
+    ensureZonesForPlayer(g, p2);
+
+    (g.state as any).battlefield = [
+      {
+        id: 'c1',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        isToken: false,
+        card: {
+          id: 'c1_card',
+          name: 'Target Creature',
+          type_line: 'Creature — Human',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const ctx = g as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    g.importDeckResolved(p1, [{
+      id: 'flicker_delayed_legacy',
+      name: 'Test Flickerwisp',
+      type_line: 'Instant',
+      oracle_text: oracleText,
+      mana_cost: '{2}{W}',
+    }] as any);
+    g.drawCards(p1, 1);
+    setupPlayerLibrary(g, p1, ['lib-1']);
+    ensureZonesForPlayer(g, p1);
+
+    (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+
+    g.applyEvent!({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: 'flicker_delayed_legacy',
+      targets: ['c1'],
+    });
+
+    expect((g.state as any).stack?.length || 0).toBe(1);
+    g.resolveTopOfStack();
+
+    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(false);
+    const exile2 = (g.state as any).zones?.[p2]?.exile || [];
+    expect(exile2.some((card: any) => card?.id === 'c1_card')).toBe(true);
+    expect(((g.state as any).pendingFlickerReturns || []) as any[]).toHaveLength(1);
+  });
+
   it('resolves bounce-target-creature spells through legacy categorize when spell legacy is forced', () => {
     process.env.ORACLE_IR_SPELL_LEGACY = '1';
 
@@ -3230,6 +3360,68 @@ describe('oracle IR legacy forced integration', () => {
     expect((g.state as any).stack?.length || 0).toBe(0);
     const gy2 = (g.state as any).zones?.[p2]?.graveyard || [];
     expect(gy2.some((card: any) => card?.id === 'bolt_card')).toBe(true);
+  });
+
+  it('resolves counter-target-ability through legacy categorize when spell legacy is forced', () => {
+    process.env.ORACLE_IR_SPELL_LEGACY = '1';
+
+    const oracleText = 'Counter target activated ability.';
+    expect(categorizeSpell('Test Stifle', oracleText)?.op).toBe('COUNTER_TARGET_ABILITY');
+
+    const gameId = 'oracle_ir_legacy_forced_spell_counter_ability';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const stackAbilityId = 'stack_ability_legacy_spell';
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    ensureZonesForPlayer(g, p1);
+    ensureZonesForPlayer(g, p2);
+
+    g.applyEvent!({
+      type: 'pushStack',
+      item: {
+        id: stackAbilityId,
+        type: 'activated_ability',
+        controller: p2,
+        description: '{T}: Draw a card.',
+        isManaAbility: false,
+      },
+    });
+
+    const ctx = g as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    g.importDeckResolved(p1, [{
+      id: 'counter_ability_legacy',
+      name: 'Test Stifle',
+      type_line: 'Instant',
+      oracle_text: oracleText,
+      mana_cost: '{U}',
+    }] as any);
+    g.drawCards(p1, 1);
+    setupPlayerLibrary(g, p1, ['lib-1']);
+    ensureZonesForPlayer(g, p1);
+
+    (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+
+    g.applyEvent!({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: 'counter_ability_legacy',
+      targets: [stackAbilityId],
+    });
+
+    expect((g.state as any).stack?.length || 0).toBe(2);
+    g.resolveTopOfStack();
+
+    expect((g.state as any).stack?.length || 0).toBe(0);
+    const gy2 = (g.state as any).zones?.[p2]?.graveyard || [];
+    expect(gy2.length).toBe(0);
   });
 
   it('routes counter-target-spell triggers through IR uncategorized fallback when trigger legacy is forced', () => {
@@ -4298,5 +4490,71 @@ describe('oracle IR legacy forced integration', () => {
 
     expect((game.state as any).battlefield.some((perm: any) => perm?.controller === p2)).toBe(false);
     expect((game.state as any).battlefield.some((perm: any) => perm?.controller === p1)).toBe(true);
+  });
+
+  it('queues each-opponent blight through legacy categorize when spell legacy is forced', () => {
+    process.env.ORACLE_IR_SPELL_LEGACY = '1';
+
+    const oracleText = 'Each opponent blights 1.';
+    expect(categorizeSpell('Test Each Opp Blight', oracleText)?.op).toBe('BLIGHT_EACH_OPPONENT');
+
+    const gameId = 'oracle_ir_legacy_forced_spell_blight_each_opponent';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    ensureZonesForPlayer(g, p1);
+    ensureZonesForPlayer(g, p2);
+
+    const ctx = g as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    castAndResolve(g, p1, {
+      id: 'blight_each_opponent_legacy',
+      name: 'Test Each Opp Blight',
+      type_line: 'Sorcery',
+      oracle_text: oracleText,
+      mana_cost: '{1}{B}',
+    }, [], (game) => {
+      game.createToken!(p2, 'Opp Creature', 1, 2, 2);
+    });
+
+    const blightSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p2)
+      .filter((step) => step.type === ResolutionStepType.TARGET_SELECTION && (step as any)?.keywordBlight === true);
+    expect(blightSteps).toHaveLength(1);
+    expect((blightSteps[0] as any)?.keywordBlightN).toBe(1);
+  });
+
+  it('queues each-opponent blight via IR uncategorized fallback when trigger legacy is forced', () => {
+    process.env.ORACLE_IR_TRIGGER_LEGACY = '1';
+
+    const gameId = 'oracle_ir_legacy_forced_trigger_blight_each_opponent';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+    game.createToken!(p2, 'Opp Creature', 1, 2, 2);
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    executeTriggerEffect(
+      ctx,
+      p1,
+      'Test Each Opp Blight',
+      'Each opponent blights 1.',
+      { id: 'trigger-legacy-blight-each-opponent', source: 'blight-1' },
+    );
+
+    const blightSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p2)
+      .filter((step) => step.type === ResolutionStepType.TARGET_SELECTION && (step as any)?.keywordBlight === true);
+    expect(blightSteps).toHaveLength(1);
+    expect((blightSteps[0] as any)?.keywordBlightN).toBe(1);
   });
 });

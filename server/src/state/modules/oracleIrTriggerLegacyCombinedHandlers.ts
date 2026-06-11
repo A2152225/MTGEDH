@@ -1,7 +1,6 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
-import { drawCards as drawCardsFromZone } from './zones.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
 import { debug } from '../../utils/debug.js';
 import { queueLandPlayFromHandPrompt } from './triggerLandPlayPromptUtils.js';
@@ -9,8 +8,6 @@ import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import { modifyTriggerEffectLife } from './triggerLifeDamageUtils.js';
 import { queueLifeLossTriggers } from './triggers/life-loss.js';
 import {
-  applyRetiredTriggerLegacyCounterAndDealsOpponentDamage,
-  applyRetiredTriggerLegacyDealEachOpponentAndGainLife,
   applyRetiredTriggerLegacyDrawAndLifeCombinedEffects,
   applyRetiredTriggerLegacyPutThatManyCountersOnSelf,
 } from './oracleIrTriggerLegacyRegexHandlers.js';
@@ -42,36 +39,9 @@ export interface TriggerLegacyCombinedParams {
 }
 
 export function applyRetiredTriggerLegacyCounterThenDraw(
-  params: TriggerLegacyCombinedParams,
+  _params: TriggerLegacyCombinedParams,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  const counterThenDrawMatch = params.desc.match(
-    /put (a|an|one|two|three|four|five|\d+) \+1\/\+1 counters? on (?:up to (?:one|two|three|four|five|\d+) )?target creatures?, then draw (?:a|1) card/i,
-  );
-  if (!counterThenDrawMatch || !(params.triggerItem?.targets?.length > 0)) {
-    return false;
-  }
-
-  const targets = params.triggerItem.targets || [];
-  const battlefield = params.state.battlefield || [];
-  const counterCount = parseNumberWord(counterThenDrawMatch[1], 1);
-
-  for (const targetRef of targets) {
-    const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
-    const targetCreature = battlefield.find((p: any) => p.id === targetId);
-    if (!targetCreature) continue;
-
-    targetCreature.counters = targetCreature.counters || {};
-    targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + counterCount;
-    debug(2, `[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${targetCreature.card?.name || targetId}`);
-  }
-
-  drawCardsFromZone(params.ctx, params.controller, 1);
-  debug(2, `[executeTriggerEffect] ${params.controller} draws 1 card from ${params.sourceName}`);
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyOptionalDiscardThenDraw(
@@ -189,31 +159,6 @@ export function applyRetiredTriggerLegacyCombinedEffectsRegexBatch(
     state: params.state,
     isKynaiosEffect: params.isKynaiosEffect,
   }) || handled;
-
-  if (applyRetiredTriggerLegacyCounterAndDealsOpponentDamage({
-    ctx: params.ctx,
-    controller: params.controller,
-    sourceName: params.sourceName,
-    desc: params.desc,
-    triggerItem: params.triggerItem,
-    state: params.state,
-    opponents: params.opponents,
-    battlefield: params.battlefield,
-  })) {
-    handled = true;
-  }
-
-  if (applyRetiredTriggerLegacyDealEachOpponentAndGainLife({
-    ctx: params.ctx,
-    desc: params.desc,
-    opponents: params.opponents,
-    controller: params.controller,
-    state: params.state,
-    battlefield: params.battlefield,
-    triggerItem: params.triggerItem,
-  })) {
-    handled = true;
-  }
 
   if (applyRetiredTriggerLegacyPutThatManyCountersOnSelf({
     desc: params.desc,

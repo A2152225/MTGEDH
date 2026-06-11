@@ -3,11 +3,14 @@ import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js'
 import type { OracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
 import type { GameContext } from '../context.js';
 import { applyOracleIRUncategorizedSpellFallback } from './oracleIrUncategorizedSpellFallback.js';
-import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
+import { shouldSkipTriggerUncategorizedFallback } from './oracleIrTriggerLegacyRouting.js';
 import {
   collectOracleEffectSteps,
   wouldOracleIRFallbackPrefilterMatch,
 } from './trigger-runtime-wiring.js';
+import {
+  buildTriggerExecutionOptionsFromSteps,
+} from './oracleIrTriggerExecutionHelpers.js';
 import { debugWarn } from '../../utils/debug.js';
 import { queueExploreDecisionStep } from './triggerExploreUtils.js';
 
@@ -148,7 +151,7 @@ export function applyOracleIRTriggerUncategorizedFallback(
 
   if (applied > 0) return applied;
 
-  if (isTriggerEffectOwnedByOracleIrPrimary(text, sourceName)) {
+  if (shouldSkipTriggerUncategorizedFallback(text, sourceName)) {
     return 0;
   }
 
@@ -163,5 +166,8 @@ export function applyOracleIRTriggerUncategorizedFallback(
     false,
     irCtx,
     'ability',
+    triggerItem,
+    undefined,
+    buildTriggerExecutionOptionsFromSteps(collectOracleEffectSteps(text, sourceName), triggerItem),
   );
 }

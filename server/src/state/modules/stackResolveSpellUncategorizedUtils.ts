@@ -2,7 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { buildOracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutor.js';
 import { applyOracleIRUncategorizedSpellFallback } from './oracleIrUncategorizedSpellFallback.js';
-import { isCategorizeOpcodeRetiredUnderOracleIrPrimary } from './oracleIrSpellLegacyRouting.js';
+import { isCategorizeOpcodeRetiredUnderOracleIrPrimary, shouldSkipSpellUncategorizedFallback } from './oracleIrSpellLegacyRouting.js';
 import { wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
 import type { categorizeSpell } from '../../rules-engine/targeting.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
@@ -99,6 +99,11 @@ export function tryApplyInstantSorceryUncategorizedSpellFallback(
   },
 ): number {
   if (options.oracleIrSpellHandled || options.skipLegacySpellCategorization) {
+    return 0;
+  }
+
+  const spellName = String(options.effectiveCard?.name || 'spell');
+  if (shouldSkipSpellUncategorizedFallback(options.oracleText, spellName)) {
     return 0;
   }
 

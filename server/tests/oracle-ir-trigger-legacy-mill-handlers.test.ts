@@ -1,16 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import {
   applyRetiredTriggerLegacyThatPermanentControllerMills,
   applyRetiredTriggerLegacyTargetPlayerMills,
 } from '../src/state/modules/oracleIrTriggerLegacyMillHandlers.js';
-import * as triggerMillFromEffectUtils from '../src/state/modules/triggerMillFromEffectUtils.js';
 
 describe('oracleIrTriggerLegacyMillHandlers (targeted)', () => {
-  it("mills that permanent's controller via trigger mill helper", () => {
-    const millPlayerCardsFromTrigger = vi.spyOn(triggerMillFromEffectUtils, 'millPlayerCardsFromTrigger').mockImplementation(() => {});
-
+  it('retired that-permanent-controller mill defers to IR uncategorized fallback', () => {
     expect(applyRetiredTriggerLegacyThatPermanentControllerMills({
       ctx: {} as any,
       controller: 'p1' as PlayerID,
@@ -22,15 +19,10 @@ describe('oracleIrTriggerLegacyMillHandlers (targeted)', () => {
         source: 'perm-1',
         effectData: { untappedPermanentController: 'p2' },
       },
-    })).toBe(true);
-
-    expect(millPlayerCardsFromTrigger).toHaveBeenCalledWith({}, 'p1', 'p2', 2, 'Source');
-    millPlayerCardsFromTrigger.mockRestore();
+    })).toBe(false);
   });
 
-  it('mills target player via trigger mill helper', () => {
-    const millPlayerCardsFromTrigger = vi.spyOn(triggerMillFromEffectUtils, 'millPlayerCardsFromTrigger').mockImplementation(() => {});
-
+  it('retired target-player mill defers to IR uncategorized fallback', () => {
     expect(applyRetiredTriggerLegacyTargetPlayerMills({
       ctx: {} as any,
       controller: 'p1' as PlayerID,
@@ -42,9 +34,6 @@ describe('oracleIrTriggerLegacyMillHandlers (targeted)', () => {
         source: 'perm-1',
         targets: ['p2'],
       },
-    })).toBe(true);
-
-    expect(millPlayerCardsFromTrigger).toHaveBeenCalledWith({}, 'p1', 'p2', 3, 'Source');
-    millPlayerCardsFromTrigger.mockRestore();
+    })).toBe(false);
   });
 });

@@ -211,6 +211,16 @@ describe('Token Creation', () => {
       expect(result!.characteristics.abilities).toContain('Flying');
     });
 
+    it('should parse uncommon creature subtypes like Goat', () => {
+      const result = parseTokenCreationFromText('create a 0/1 white Goat creature token');
+
+      expect(result).not.toBeNull();
+      expect(result!.characteristics.name).toBe('Goat');
+      expect(result!.characteristics.subtypes).toContain('Goat');
+      expect(result!.characteristics.power).toBe(0);
+      expect(result!.characteristics.toughness).toBe(1);
+    });
+
     it('should return null for non-token text', () => {
       const result = parseTokenCreationFromText('draw a card');
       expect(result).toBeNull();

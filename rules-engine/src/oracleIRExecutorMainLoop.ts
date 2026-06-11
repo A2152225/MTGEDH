@@ -82,6 +82,7 @@ import { applyGrantFutureSpellEffectStep } from './oracleIRExecutorFutureSpellSt
 import { getStateGrantedCounterImmunityForSpell } from './futureSpellEffects';
 import { applyGoadStep } from './oracleIRExecutorGoadStepHandlers';
 import {
+  applyBlightStep,
   applyInvestigateStep,
   applyPopulateStep,
   applyProliferateStep,
@@ -376,6 +377,68 @@ type RecurseExecutor = (
   options: OracleIRExecutionOptions
 ) => OracleIRExecutionResult;
 
+type CounterStackTargetKind = 'spell' | 'ability' | 'spell_or_ability';
+
+function isStackAbilityStackType(type: string): boolean {
+  const normalized = String(type || '').trim();
+  return normalized === 'ability' || normalized === 'activated_ability' || normalized === 'triggered_ability';
+}
+
+function isStackManaAbilityItem(stackItem: any): boolean {
+  return Boolean((stackItem as any)?.isManaAbility);
+}
+
+function counterSpellStepTargetText(step: Extract<OracleEffectStep, { kind: 'counter_spell' }>): string {
+  const target = (step as any).target;
+  if (target && typeof target === 'object' && typeof (target as any).text === 'string') {
+    return String((target as any).text || '');
+  }
+  return String(step.raw || '');
+}
+
+function inferCounterStackTargetKind(step: Extract<OracleEffectStep, { kind: 'counter_spell' }>): CounterStackTargetKind {
+  const combined = `${counterSpellStepTargetText(step)} ${String(step.raw || '')}`.toLowerCase();
+  const mentionsSpell = /\b(?:target spell|that spell|spells?\b)/.test(combined);
+  const mentionsAbility = /\b(?:target ability|that ability|(?:activated|triggered)\s+abilit(?:y|ies)|abilities?\b)/.test(combined);
+
+  if (mentionsSpell && mentionsAbility) {
+    return 'spell_or_ability';
+  }
+  if (mentionsAbility && !mentionsSpell) {
+    return 'ability';
+  }
+  return 'spell';
+}
+
+function stackItemMatchesCounterTargetKind(
+  state: GameState,
+  stackItem: any,
+  ctx: OracleIRExecutionContext,
+  targetKind: CounterStackTargetKind,
+): boolean {
+  const type = String((stackItem as any)?.type || '').trim();
+  if (isStackAbilityStackType(type)) {
+    if (targetKind === 'spell') return false;
+    return !isStackManaAbilityItem(stackItem);
+  }
+  if (type !== 'spell') return false;
+  if (targetKind === 'ability') return false;
+  return spellCanBeCountered(state, stackItem, ctx);
+}
+
+function filterCounterStackCandidates(
+  state: GameState,
+  stackItems: readonly any[],
+  ctx: OracleIRExecutionContext,
+  targetKind: CounterStackTargetKind,
+): any[] {
+  return stackItems.filter((item) => {
+    const itemId = String((item as any)?.id || '').trim();
+    if (!itemId || itemId === String(ctx.sourceId || '').trim()) return false;
+    return stackItemMatchesCounterTargetKind(state, item, ctx, targetKind);
+  });
+}
+
 function applyCounterSpellStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'counter_spell' }>,
@@ -394,98 +457,106 @@ function applyCounterSpellStep(
     } {
   const stackItems = Array.isArray((state as any).stack) ? [ ...((state as any).stack as any[]) ] : [];
   const directTargetId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
-  const candidateSpells = stackItems.filter(item => {
-    const itemId = String((item as any)?.id || '').trim();
-    return (
-      String((item as any)?.type || '').trim() === 'spell' &&
-      itemId &&
-      itemId !== String(ctx.sourceId || '').trim() &&
-      spellCanBeCountered(state, item, ctx)
-    );
-  });
+  const targetKind = inferCounterStackTargetKind(step);
+  const targetLabel = targetKind === 'ability' ? 'ability' : targetKind === 'spell_or_ability' ? 'spell or ability' : 'spell';
+  const candidates = filterCounterStackCandidates(state, stackItems, ctx, targetKind);
 
-  let targetSpell = directTargetId
-    ? candidateSpells.find(item => String((item as any)?.id || '').trim() === directTargetId)
+  let targetStackItem = directTargetId
+    ? candidates.find(item => String((item as any)?.id || '').trim() === directTargetId)
     : undefined;
 
-  if (!targetSpell && directTargetId) {
-    if (candidateSpells.length === 1) {
-      targetSpell = candidateSpells[0];
-    } else if (candidateSpells.length > 0) {
-      targetSpell = candidateSpells.find(item => String((item as any)?.id || '').trim() === directTargetId) || candidateSpells[0];
+  if (!targetStackItem && directTargetId) {
+    if (candidates.length === 1) {
+      targetStackItem = candidates[0];
+    } else if (candidates.length > 0) {
+      targetStackItem = candidates.find(item => String((item as any)?.id || '').trim() === directTargetId) || candidates[0];
     }
   }
 
-  if (!targetSpell && directTargetId && candidateSpells.length === 0) {
-    const stackSpell = stackItems.find(
-      item =>
-        String((item as any)?.type || '').trim() === 'spell' &&
-        String((item as any)?.id || '').trim() === directTargetId
-    );
-    if (stackSpell) {
-      targetSpell = stackSpell;
-    } else {
-      return {
-        applied: true,
-        state,
-        log: [`Countered spell ${directTargetId} (target resolved from context): ${step.raw}`],
-        lastMovedCards: [],
-      };
+  if (!targetStackItem && directTargetId && candidates.length === 0) {
+    const directStackItem = stackItems.find(item => String((item as any)?.id || '').trim() === directTargetId);
+    if (directStackItem && stackItemMatchesCounterTargetKind(state, directStackItem, ctx, targetKind)) {
+      targetStackItem = directStackItem;
     }
   }
 
-  if (!targetSpell) {
-    if (candidateSpells.length === 1) {
-      targetSpell = candidateSpells[0];
-    } else if (candidateSpells.length === 0) {
+  if (!targetStackItem) {
+    if (candidates.length === 1) {
+      targetStackItem = candidates[0];
+    } else if (candidates.length === 0) {
       return {
         applied: false,
-        message: `Skipped counter spell (no legal spell target on stack): ${step.raw}`,
+        message: `Skipped counter ${targetLabel} (no legal ${targetLabel} target on stack): ${step.raw}`,
         reason: 'failed_to_apply',
         options: {
           classification: 'invalid_input',
-          metadata: { stackSpellCount: 0 },
+          metadata: { stackSpellCount: 0, stackTargetCount: 0 },
           persist: false,
         },
       };
     } else {
+      const candidateIds = candidates.map(item => String((item as any)?.id || '').trim()).filter(Boolean);
       return {
         applied: false,
-        message: `Skipped counter spell (requires stack target choice): ${step.raw}`,
+        message: `Skipped counter ${targetLabel} (requires stack target choice): ${step.raw}`,
         reason: 'player_choice_required',
         options: {
           classification: 'player_choice',
           metadata: {
-            stackSpellCount: candidateSpells.length,
-            candidateSpellIds: candidateSpells.map(item => String((item as any)?.id || '').trim()).filter(Boolean),
+            stackSpellCount: candidates.filter(item => String((item as any)?.type || '').trim() === 'spell').length,
+            stackTargetCount: candidates.length,
+            candidateSpellIds: candidateIds,
+            candidateStackTargetIds: candidateIds,
           },
         },
       };
     }
   }
 
-  const targetSpellId = String((targetSpell as any)?.id || '').trim();
+  const targetStackItemId = String((targetStackItem as any)?.id || '').trim();
+  const targetType = String((targetStackItem as any)?.type || '').trim();
+  const isAbilityTarget = isStackAbilityStackType(targetType);
+  const updatedStack = stackItems.filter(item => String((item as any)?.id || '').trim() !== targetStackItemId);
+
+  if (isAbilityTarget) {
+    const abilityDesc = String(
+      (targetStackItem as any)?.description ||
+        (targetStackItem as any)?.ability?.text ||
+        (targetStackItem as any)?.name ||
+        targetStackItemId,
+    ).trim() || targetStackItemId;
+
+    return {
+      applied: true,
+      state: {
+        ...state,
+        stack: updatedStack,
+      },
+      log: [`Countered ability ${abilityDesc}`],
+      lastMovedCards: [],
+    };
+  }
+
   const ownerId = String(
-    (targetSpell as any)?.owner ||
-      (targetSpell as any)?.ownerId ||
-      (targetSpell as any)?.controller ||
-      (targetSpell as any)?.controllerId ||
+    (targetStackItem as any)?.owner ||
+      (targetStackItem as any)?.ownerId ||
+      (targetStackItem as any)?.controller ||
+      (targetStackItem as any)?.controllerId ||
       ''
   ).trim();
-  if (!targetSpellId || !ownerId) {
+  if (!targetStackItemId || !ownerId) {
     return {
       applied: false,
       message: `Skipped counter spell (missing stack spell owner metadata): ${step.raw}`,
       reason: 'failed_to_apply',
       options: {
         classification: 'invalid_input',
-        metadata: { targetSpellId },
+        metadata: { targetSpellId: targetStackItemId },
       },
     };
   }
 
-  const movedCard = (targetSpell as any)?.card || targetSpell;
-  const updatedStack = stackItems.filter(item => String((item as any)?.id || '').trim() !== targetSpellId);
+  const movedCard = (targetStackItem as any)?.card || targetStackItem;
   const updatedPlayers = (state.players || []).map((player: any) => {
     if (String(player?.id || '').trim() !== ownerId) return player;
     const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
@@ -494,7 +565,7 @@ function applyCounterSpellStep(
       graveyard: [...graveyard, ...stampCardsPutIntoGraveyardThisTurn(state, [movedCard])],
     };
   });
-  const targetName = String((targetSpell as any)?.card?.name || (targetSpell as any)?.name || targetSpellId).trim() || targetSpellId;
+  const targetName = String((targetStackItem as any)?.card?.name || (targetStackItem as any)?.name || targetStackItemId).trim() || targetStackItemId;
 
   return {
     applied: true,
@@ -523,6 +594,7 @@ function getLastDieRollResultForPlayer(state: GameState, playerId: PlayerID): nu
 
 const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'add_mana',
+  'blight',
   'change_target',
   'choose_pile',
   'connive',
@@ -1854,6 +1926,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'investigate': {
         const result = applyInvestigateStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'blight': {
+        const result = applyBlightStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

@@ -1784,6 +1784,68 @@ describe('oracle IR spell categorize parity (primary mode)', () => {
     expect(gy2.some((card: any) => card?.id === 'bolt_card')).toBe(true);
   });
 
+  it('resolves COUNTER_TARGET_ABILITY via IR primary', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const oracleText = 'Counter target activated ability.';
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Stifle', oracleText)?.op).toBe('COUNTER_TARGET_ABILITY');
+
+    const gameId = 'oracle_ir_parity_counter_ability';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const stackAbilityId = 'stack_ability_parity';
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    ensureZonesForPlayer(g, p1);
+    ensureZonesForPlayer(g, p2);
+
+    g.applyEvent!({
+      type: 'pushStack',
+      item: {
+        id: stackAbilityId,
+        type: 'activated_ability',
+        controller: p2,
+        description: '{T}: Draw a card.',
+        isManaAbility: false,
+      },
+    });
+
+    const ctx = g as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    g.importDeckResolved(p1, [{
+      id: 'counter_ability_parity_1',
+      name: 'Test Stifle',
+      type_line: 'Instant',
+      oracle_text: oracleText,
+      mana_cost: '{U}',
+    }] as any);
+    g.drawCards(p1, 1);
+    setupPlayerLibrary(g, p1, ['lib-1']);
+    ensureZonesForPlayer(g, p1);
+
+    (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+
+    g.applyEvent!({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: 'counter_ability_parity_1',
+      targets: [stackAbilityId],
+    });
+
+    expect((g.state as any).stack?.length || 0).toBe(2);
+    g.resolveTopOfStack();
+
+    expect((g.state as any).stack?.length || 0).toBe(0);
+    const gy2 = (g.state as any).zones?.[p2]?.graveyard || [];
+    expect(gy2.length).toBe(0);
+  });
+
   it('resolves TAP_TARGET via IR primary', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '1';
 
@@ -2427,6 +2489,126 @@ describe('oracle IR spell categorize parity (primary mode)', () => {
     expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p1)).toBe(true);
   });
 
+  it('resolves FLICKER_TARGET immediate blink via IR primary', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const oracleText = "Exile target creature you control, then return it to the battlefield under its owner's control.";
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Momentary Blink', oracleText)?.op).toBe('FLICKER_TARGET');
+
+    const gameId = 'oracle_ir_parity_flicker_immediate';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    ensureZonesForPlayer(g, p1);
+
+    const ctx = g as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    castAndResolve(
+      g,
+      p1,
+      {
+        id: 'flicker_immediate_parity',
+        name: 'Test Momentary Blink',
+        type_line: 'Instant',
+        oracle_text: oracleText,
+        mana_cost: '{1}{W}',
+      },
+      ['c1'],
+      (game) => {
+        setupPlayerLibrary(game, p1, ['lib-1']);
+        (game.state as any).battlefield = [
+          {
+            id: 'c1',
+            controller: p1,
+            owner: p1,
+            tapped: true,
+            isToken: false,
+            card: {
+              id: 'c1_card',
+              name: 'Target Creature',
+              type_line: 'Creature — Human',
+              oracle_text: '',
+            },
+          },
+        ];
+      },
+    );
+
+    const battlefield = (g.state as any).battlefield || [];
+    expect(battlefield).toHaveLength(1);
+    expect(String(battlefield[0]?.id || '')).not.toBe('c1');
+    expect(String(battlefield[0]?.card?.id || '')).toBe('c1_card');
+    expect(String(battlefield[0]?.controller || '')).toBe(p1);
+    expect(Boolean(battlefield[0]?.tapped)).toBe(false);
+  });
+
+  it('resolves FLICKER_TARGET delayed flicker via IR primary', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const oracleText = "Exile target creature. Return it to the battlefield under its owner's control at the beginning of the next end step.";
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Flickerwisp', oracleText)?.op).toBe('FLICKER_TARGET');
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Flickerwisp', oracleText)?.returnDelay).toBe('end_of_turn');
+
+    const gameId = 'oracle_ir_parity_flicker_delayed';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    ensureZonesForPlayer(g, p1);
+    ensureZonesForPlayer(g, p2);
+
+    (g.state as any).battlefield = [
+      {
+        id: 'c1',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        isToken: false,
+        card: {
+          id: 'c1_card',
+          name: 'Target Creature',
+          type_line: 'Creature — Human',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const ctx = g as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    castAndResolve(
+      g,
+      p1,
+      {
+        id: 'flicker_delayed_parity',
+        name: 'Test Flickerwisp',
+        type_line: 'Instant',
+        oracle_text: oracleText,
+        mana_cost: '{2}{W}',
+      },
+      ['c1'],
+      (game) => setupPlayerLibrary(game, p1, ['lib-1']),
+    );
+
+    expect((g.state as any).battlefield.some((perm: any) => perm?.id === 'c1')).toBe(false);
+    const exile2 = (g.state as any).zones?.[p2]?.exile || [];
+    expect(exile2.some((card: any) => card?.id === 'c1_card')).toBe(true);
+    const pending = ((g.state as any).pendingFlickerReturns || []) as any[];
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      kind: 'return_from_exile_to_battlefield',
+      ownerId: p2,
+      cardId: 'c1_card',
+      returnAt: 'next_end_step',
+    });
+  });
+
   it('resolves EXILE_ALL_TARGET_PLAYER via IR primary without legacy categorize execution', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '1';
 
@@ -2461,5 +2643,115 @@ describe('oracle IR spell categorize parity (primary mode)', () => {
 
     expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p2)).toBe(false);
     expect((g.state as any).battlefield.some((perm: any) => perm?.controller === p1)).toBe(true);
+  });
+
+  it('queues BLIGHT_EACH_OPPONENT via IR primary without legacy categorize execution', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const oracleText = 'Each opponent blights 1. (They each put a -1/-1 counter on a creature they control.)';
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Each Opp Blight', oracleText)?.op).toBe('BLIGHT_EACH_OPPONENT');
+
+    const gameId = 'oracle_ir_parity_blight_each_opponent';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    ensureZonesForPlayer(g, p1);
+    ensureZonesForPlayer(g, p2);
+
+    const ctx = g as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    castAndResolve(g, p1, {
+      id: 'blight_each_opponent_parity',
+      name: 'Test Each Opp Blight',
+      type_line: 'Sorcery',
+      oracle_text: oracleText,
+      mana_cost: '{1}{B}',
+    }, [], (game) => {
+      game.createToken!(p2, 'Opp Creature', 1, 2, 2);
+    });
+
+    const blightSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p2)
+      .filter((step) => step.type === ResolutionStepType.TARGET_SELECTION && (step as any)?.keywordBlight === true);
+    expect(blightSteps).toHaveLength(1);
+    expect((blightSteps[0] as any)?.keywordBlightN).toBe(1);
+    expect((blightSteps[0] as any)?.keywordBlightController).toBe(p2);
+  });
+
+  it('queues BLIGHT_SELF via IR primary without legacy categorize execution', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const oracleText = 'Blight 2.';
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Self Blight', oracleText)?.op).toBe('BLIGHT_SELF');
+
+    const gameId = 'oracle_ir_parity_blight_self';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    ensureZonesForPlayer(g, p1);
+
+    const ctx = g as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    castAndResolve(g, p1, {
+      id: 'blight_self_parity',
+      name: 'Test Self Blight',
+      type_line: 'Sorcery',
+      oracle_text: oracleText,
+      mana_cost: '{B}',
+    }, [], (game) => {
+      game.createToken!(p1, 'Self Creature', 1, 2, 2);
+    });
+
+    const blightSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p1)
+      .filter((step) => step.type === ResolutionStepType.TARGET_SELECTION && (step as any)?.keywordBlight === true);
+    expect(blightSteps).toHaveLength(1);
+    expect((blightSteps[0] as any)?.keywordBlightN).toBe(2);
+    expect((blightSteps[0] as any)?.keywordBlightController).toBe(p1);
+  });
+
+  it('queues BLIGHT_TARGET_OPPONENT via IR primary without legacy categorize execution', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const oracleText = 'Target opponent blights 2.';
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Target Opp Blight', oracleText)?.op).toBe('BLIGHT_TARGET_OPPONENT');
+
+    const gameId = 'oracle_ir_parity_blight_target_opponent';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'P2' });
+    g.applyEvent!({ type: 'join', playerId: p3, name: 'P3' });
+    ensureZonesForPlayer(g, p1);
+    ensureZonesForPlayer(g, p2);
+    ensureZonesForPlayer(g, p3);
+
+    const ctx = g as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    castAndResolve(g, p1, {
+      id: 'blight_target_opponent_parity',
+      name: 'Test Target Opp Blight',
+      type_line: 'Sorcery',
+      oracle_text: oracleText,
+      mana_cost: '{1}{B}',
+    }, [p2], (game) => {
+      game.createToken!(p2, 'Opp Creature', 1, 2, 2);
+    });
+
+    const blightSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p2)
+      .filter((step) => step.type === ResolutionStepType.TARGET_SELECTION && (step as any)?.keywordBlight === true);
+    expect(blightSteps).toHaveLength(1);
+    expect((blightSteps[0] as any)?.keywordBlightN).toBe(2);
   });
 });

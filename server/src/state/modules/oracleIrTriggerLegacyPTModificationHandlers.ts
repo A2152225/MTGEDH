@@ -31,6 +31,13 @@ function pushTemporaryPTMod(
   });
 }
 
+function normalizeTemporaryAbilityKey(ability: string): string {
+  return String(ability || '')
+    .toLowerCase()
+    .replace(/\s+this turn/g, '')
+    .trim();
+}
+
 function pushTemporaryAbilities(
   permanent: any,
   gainedAbilities: readonly string[],
@@ -41,6 +48,24 @@ function pushTemporaryAbilities(
   permanent.temporaryAbilities = permanent.temporaryAbilities || [];
   for (const ability of gainedAbilities) {
     if (!ability) continue;
+    const key = normalizeTemporaryAbilityKey(ability);
+    const existingIndex = permanent.temporaryAbilities.findIndex((entry: any) =>
+      normalizeTemporaryAbilityKey(String(entry?.ability || '')) === key
+      && String(entry?.source || '') === String(sourceName)
+      && entry?.expiresAt === 'end_of_turn'
+    );
+    if (existingIndex >= 0) {
+      const existing = permanent.temporaryAbilities[existingIndex];
+      if (/\bthis turn\b/i.test(ability) && !/\bthis turn\b/i.test(String(existing?.ability || ''))) {
+        permanent.temporaryAbilities[existingIndex] = {
+          ability,
+          source: sourceName,
+          expiresAt: 'end_of_turn',
+          turnApplied: turnNumber,
+        };
+      }
+      continue;
+    }
     permanent.temporaryAbilities.push({
       ability,
       source: sourceName,
@@ -145,7 +170,6 @@ export function applyRetiredTriggerLegacyPTModificationBatch(params: {
       }
       return sum;
     }, 0);
-
     for (const targetRef of targets) {
       const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
       const targetCreature = battlefield.find((p: any) => p.id === targetId);

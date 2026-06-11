@@ -35,7 +35,7 @@ function setupPlayerLibrary(g: any, pid: PlayerID, libraryIds: string[]) {
 }
 
 describe('oracleIrTriggerLegacyCombinedHandlers', () => {
-  it('applies counter-then-draw on targeted creatures', () => {
+  it('retired counter-then-draw defers to IR uncategorized fallback', () => {
     const game = createInitialGameState('legacy_combined_counter_draw');
     const p1 = 'p1' as PlayerID;
     game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
@@ -56,9 +56,9 @@ describe('oracleIrTriggerLegacyCombinedHandlers', () => {
       description: 'Put a +1/+1 counter on target creature, then draw a card.',
       triggerItem: { targets: ['creature-1'] },
       state,
-    })).toBe(true);
+    })).toBe(false);
 
-    expect(state.battlefield[0].counters['+1/+1']).toBe(1);
+    expect(state.battlefield[0].counters['+1/+1']).toBeUndefined();
   });
 
   it('queues optional discard-then-draw choice', () => {

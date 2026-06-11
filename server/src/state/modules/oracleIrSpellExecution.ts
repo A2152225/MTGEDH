@@ -5,6 +5,7 @@ import {
   buildOracleIRExecutionContext,
   type OracleIRExecutionResult,
 } from '../../../../rules-engine/src/oracleIRExecutor.js';
+import { hasUnqueuedPlayerChoiceGap, isOracleIrMandatoryExecutionComplete } from './oracleIrStepWiring.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import {
@@ -58,9 +59,10 @@ function collectSpellSteps(oracleText: string, sourceName: string): OracleEffect
   return collectOracleEffectSteps(oracleText, sourceName);
 }
 
-function inferTargetBinding(state: any, targetIds: readonly string[]): {
+function inferTargetBinding(state: any, targetIds: readonly string[], controller?: PlayerID): {
   targetPermanentId?: string;
   targetPlayerId?: PlayerID;
+  targetOpponentId?: PlayerID;
   targetSpellId?: string;
   chosenObjectIds?: readonly string[];
 } {
@@ -68,6 +70,7 @@ function inferTargetBinding(state: any, targetIds: readonly string[]): {
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const players = Array.isArray(state?.players) ? state.players : [];
   const stack = Array.isArray(state?.stack) ? state.stack : [];
+  const controllerId = String(controller || '').trim();
 
   for (const targetId of targetIds) {
     const id = String(targetId || '').trim();
@@ -76,7 +79,12 @@ function inferTargetBinding(state: any, targetIds: readonly string[]): {
       return { targetPermanentId: id, chosenObjectIds: targetIds };
     }
     if (players.some((player: any) => String(player?.id || '') === id)) {
-      return { targetPlayerId: id as PlayerID, chosenObjectIds: targetIds };
+      const isOpponent = Boolean(controllerId) && id !== controllerId;
+      return {
+        targetPlayerId: id as PlayerID,
+        ...(isOpponent ? { targetOpponentId: id as PlayerID } : {}),
+        chosenObjectIds: targetIds,
+      };
     }
     if (stack.some((stackItem: any) => String(stackItem?.id || '') === id)) {
       return { targetSpellId: id, chosenObjectIds: targetIds };
@@ -104,6 +112,7 @@ function buildSpellIrContext(
       selectorContext: {
         ...(targetBinding.chosenObjectIds ? { chosenObjectIds: targetBinding.chosenObjectIds } : {}),
         ...(targetBinding.targetPlayerId ? { targetPlayerId: targetBinding.targetPlayerId } : {}),
+        ...(targetBinding.targetOpponentId ? { targetOpponentId: targetBinding.targetOpponentId } : {}),
         ...(targetBinding.targetSpellId ? { targetSpellId: targetBinding.targetSpellId } : {}),
         ...(params.chosenColor ? { chosenColor: params.chosenColor } : {}),
         ...(params.chosenCreatureType ? { chosenCreatureType: params.chosenCreatureType } : {}),
@@ -128,6 +137,7 @@ export function isOracleIrExecutionHandled(
   result: OracleIRExecutionResult,
   resolutionQueueStepsBefore: number,
   resolutionQueueStepsAfter: number,
+  parsedSteps?: readonly OracleEffectStep[],
 ): boolean {
   const queueBridged = resolutionQueueStepsAfter > resolutionQueueStepsBefore;
   const pendingContinuation = (result.pendingContinuationSteps || []).length;
@@ -135,12 +145,31 @@ export function isOracleIrExecutionHandled(
     return false;
   }
 
-  if (result.appliedSteps.length > 0) return true;
-  if ((result.pendingOptionalSteps || []).length > 0) return true;
-  if ((result.pendingContinuationSteps || []).length > 0) return true;
-  if (queueBridged) return true;
-  if (result.automationGaps.some((gap) => gap.classification === 'player_choice_required')) return true;
-  return false;
+  if (hasUnqueuedPlayerChoiceGap(result, queueBridged)) {
+    return false;
+  }
+
+  const applied = result.appliedSteps.length;
+  const pendingOptional = (result.pendingOptionalSteps || []).length;
+  const hasEffect =
+    applied > 0
+    || pendingOptional > 0
+    || pendingContinuation > 0
+    || queueBridged
+    || result.automationGaps.some((gap) => gap.classification === 'player_choice_required');
+
+  if (!hasEffect) {
+    return false;
+  }
+
+  if (parsedSteps && parsedSteps.length > 0) {
+    return isOracleIrMandatoryExecutionComplete(parsedSteps, result, {
+      resolutionQueueStepsBefore,
+      resolutionQueueStepsAfter,
+    });
+  }
+
+  return true;
 }
 
 function probeOracleIrSpellShadow(
@@ -156,7 +185,7 @@ function probeOracleIrSpellShadow(
     const shadowCtx = buildShadowProbeContext(ctx);
     const state = structuredClone((shadowCtx as any).state);
     hydrateOracleIRPlayerZonesFromContext(shadowCtx, state);
-    const targetBinding = inferTargetBinding(state, params.targets || []);
+    const targetBinding = inferTargetBinding(state, params.targets || [], params.controller);
     const irCtx = buildSpellIrContext(params, targetBinding);
     const adjustedSteps = applyMillReplacementEffectsToSteps(
       shadowCtx,
@@ -241,7 +270,7 @@ export function tryResolveSpellViaOracleIR(
   const normalizedSelectedModeIds = normalizeOracleIrSelectedModeIds(steps, params.selectedModeIds);
   const primary = isOracleIrSpellPrimaryEnabled();
   const state = (ctx as any).state;
-  const targetBinding = inferTargetBinding(state, params.targets || []);
+  const targetBinding = inferTargetBinding(state, params.targets || [], params.controller);
   const irCtx = buildSpellIrContext(params, targetBinding);
   const executionOptions = {
     allowOptional: true,
@@ -328,7 +357,7 @@ export function tryResolveSpellViaOracleIR(
     const queueAfter = gameId !== 'unknown'
       ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
       : queueBefore;
-    const handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter);
+    const handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter, steps);
     const applied = result.appliedSteps.length;
 
     applyOracleIrSpellStructuralSupplements(ctx, params);

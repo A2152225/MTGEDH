@@ -5234,6 +5234,49 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses Lorwyn Eclipsed blight keyword lines into blight steps', () => {
+    expect(parseOracleTextToIR('Blight 2.', 'Simple Blight').abilities[0]?.steps).toEqual([
+      {
+        kind: 'blight',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+        raw: 'Blight 2',
+      },
+    ]);
+    expect(parseOracleTextToIR('Each opponent blights 1.', 'High Perfect Morcant').abilities[0]?.steps).toEqual([
+      {
+        kind: 'blight',
+        who: { kind: 'each_opponent' },
+        amount: { kind: 'number', value: 1 },
+        raw: 'Each opponent blights 1',
+      },
+    ]);
+    expect(parseOracleTextToIR('Each player blights 1.', 'Group Blight').abilities[0]?.steps).toEqual([
+      {
+        kind: 'blight',
+        who: { kind: 'each_player' },
+        amount: { kind: 'number', value: 1 },
+        raw: 'Each player blights 1',
+      },
+    ]);
+    expect(parseOracleTextToIR('Target opponent blights 2.', 'Blight Ray').abilities[0]?.steps).toEqual([
+      {
+        kind: 'blight',
+        who: { kind: 'target_opponent' },
+        amount: { kind: 'number', value: 2 },
+        raw: 'Target opponent blights 2',
+      },
+    ]);
+    expect(parseOracleTextToIR('Target player blights 1.', 'Pointed Blight').abilities[0]?.steps).toEqual([
+      {
+        kind: 'blight',
+        who: { kind: 'target_player' },
+        amount: { kind: 'number', value: 1 },
+        raw: 'Target player blights 1',
+      },
+    ]);
+  });
+
   it('parses Populate keyword lines into populate steps', () => {
     const ir = parseOracleTextToIR('Populate', 'Eyes in the Skies');
 

@@ -318,7 +318,8 @@ export function resolveTargetPrefixedPermanents(
     const bound = boundMatches(selector);
     if (bound.length > 0) return bound.slice(0, 1);
     const matched = battlefield.filter((perm) => permanentMatchesSelector(perm, selector, ctx));
-    if (matched.length > 0) return matched.slice(0, 1);
+    if (matched.length > 1) return [];
+    if (matched.length === 1) return matched;
     return [];
   }
 

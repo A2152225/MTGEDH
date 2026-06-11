@@ -89,6 +89,7 @@ describe('trigger scry and surveil oracle IR fallback', () => {
     );
 
     const ctx = game as any;
+    ctx.gameId = gameId;
     ResolutionQueueManager.removeQueue(gameId);
 
     executeTriggerEffect(

@@ -5,7 +5,6 @@ import { createInitialGameState } from '../src/state/gameState.js';
 import { skipRetiredSpellLegacyHandler } from '../src/state/modules/oracleIrSpellLegacyRouting.js';
 import {
   applyLegacySpellRegexDrawHandlers,
-  applyLegacySpellRegexLifeGainHandler,
 } from '../src/state/modules/stackResolveSpellLegacyRegexDrawUtils.js';
 import { applyInstantSorceryLibraryTopCardPromptHandlers } from '../src/state/modules/stackResolveSpellLibraryTopPromptUtils.js';
 import { applyInstantSorcerySpecialAndRemovalRiders } from '../src/state/modules/stackResolveSpellLateRidersUtils.js';
@@ -24,7 +23,7 @@ describe('retired spell legacy handler defense-in-depth', () => {
     }
   });
 
-  it('legacy draw/gain regex handlers no-op when IR primary owns spell text', () => {
+  it('legacy compound draw regex handlers no-op when IR primary owns simple draw text', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '1';
 
     const game = createInitialGameState('spell_handler_retirement');
@@ -34,7 +33,6 @@ describe('retired spell legacy handler defense-in-depth', () => {
     const player = (game.state as any).players.find((entry: any) => entry.id === p1);
     player.library = [{ id: 'lib-1', name: 'Island', zone: 'library' }, { id: 'lib-2', name: 'Forest', zone: 'library' }];
     player.hand = [];
-    const lifeBefore = player.life ?? 40;
 
     const ctx = game as any;
     ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
@@ -47,14 +45,6 @@ describe('retired spell legacy handler defense-in-depth', () => {
       oracleTextLower: 'draw two cards.',
     });
     expect(player.hand.length).toBe(0);
-
-    applyLegacySpellRegexLifeGainHandler(ctx, {
-      controller: p1,
-      effectiveCard: { name: 'Healing Salve' },
-      oracleTextLower: 'you gain 5 life.',
-      spellXValue: undefined,
-    });
-    expect(player.life ?? 40).toBe(lifeBefore);
   });
 
   it('skipRetiredSpellLegacyHandler defers duplicate prevention to orchestrators', () => {
@@ -190,7 +180,7 @@ describe('retired spell legacy handler defense-in-depth', () => {
     expect(player.life ?? 40).toBe(lifeBefore);
   });
 
-  it('legacy draw regex handler still applies when primary mode is off', () => {
+  it('legacy compound draw regex handler still applies when primary mode is off', () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '0';
     delete process.env.ORACLE_IR_SPELL_LEGACY;
 
@@ -220,36 +210,14 @@ describe('retired spell legacy handler defense-in-depth', () => {
 
     applyLegacySpellRegexDrawHandlers(ctx, {
       controller: p1,
-      effectiveCard: { name: 'Divination' },
-      oracleTextLower: 'you draw two cards.',
+      effectiveCard: { name: 'Chart a Course' },
+      oracleTextLower: 'draw two cards, then discard a card.',
     });
 
     const handCount = (game.state as any).zones?.[p1]?.hand?.length ?? player.hand.length;
     const libraryCount = ctx.libraries.get(p1)?.length ?? player.library.length;
     expect(handCount).toBe(2);
     expect(libraryCount).toBe(0);
-  });
-
-  it('legacy gain-life regex handler still applies when primary mode is off', () => {
-    process.env.ORACLE_IR_SPELL_PRIMARY = '0';
-    delete process.env.ORACLE_IR_SPELL_LEGACY;
-
-    const game = createInitialGameState('spell_handler_legacy_gain_life');
-    const p1 = 'p1' as PlayerID;
-    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-
-    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
-    const lifeBefore = player?.life ?? 40;
-
-    const ctx = game as any;
-
-    applyLegacySpellRegexLifeGainHandler(ctx, {
-      controller: p1,
-      effectiveCard: { name: 'Healing Salve' },
-      oracleTextLower: 'you gain 3 life.',
-      spellXValue: undefined,
-    });
-
-    expect((game.state as any).life?.[p1]).toBe(lifeBefore + 3);
+    expect((game.state as any).pendingDiscard?.[p1]?.count).toBe(1);
   });
 });

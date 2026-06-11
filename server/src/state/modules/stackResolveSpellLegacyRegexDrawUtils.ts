@@ -22,45 +22,6 @@ export function logLegacySpellRegexPrimaryMiss(
   }
 }
 
-export function applyLegacySpellRegexLifeGainHandler(
-  ctx: GameContext,
-  options: {
-    controller: PlayerID;
-    effectiveCard: any;
-    oracleTextLower: string;
-    spellXValue: unknown;
-  },
-): void {
-  const spellName = String(options.effectiveCard?.name || 'spell');
-  const oracleText = String(options.oracleTextLower || '');
-  if (skipRetiredSpellLegacyHandler(oracleText, spellName)) {
-    return;
-  }
-
-  const state = (ctx as any).state;
-  const controller = options.controller;
-  const effectiveCard = options.effectiveCard;
-  const oracleTextLower = options.oracleTextLower;
-  const spellXValue = options.spellXValue;
-
-  const lifeGainMatch = oracleTextLower.match(/you gain (\d+|x) life/i);
-  if (lifeGainMatch) {
-    let lifeAmount = 0;
-    if (lifeGainMatch[1] === 'x' && typeof spellXValue === 'number') {
-      lifeAmount = spellXValue;
-    } else if (/^\d+$/.test(lifeGainMatch[1])) {
-      lifeAmount = parseInt(lifeGainMatch[1], 10);
-    }
-
-    if (lifeAmount > 0) {
-      const currentLife = state.life?.[controller] ?? 40;
-      state.life = state.life || {};
-      state.life[controller] = currentLife + lifeAmount;
-      debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} gained ${lifeAmount} life (${currentLife} -> ${state.life[controller]})`);
-    }
-  }
-}
-
 export function applyLegacySpellRegexDrawHandlers(
   ctx: GameContext,
   options: {
@@ -97,67 +58,6 @@ export function applyLegacySpellRegexDrawHandlers(
         debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${player.name || playerId} shuffled hand+graveyard and drew ${drawn.length} card(s)`);
       } catch (err) {
         debugWarn(1, `[resolveTopOfStack] Failed to resolve ${effectiveCard.name} for ${playerId}:`, err);
-      }
-    }
-  }
-
-  const eachPlayerDrawsMatch = shuffleHandAndGraveyardWheelMatch
-    ? null
-    : oracleTextLower.match(/each player draws?\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
-  if (eachPlayerDrawsMatch) {
-    const drawCountStr = eachPlayerDrawsMatch[1].toLowerCase();
-    const wordToNumber: Record<string, number> = {
-      a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
-      six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-    };
-    const drawCount = wordToNumber[drawCountStr] || parseInt(drawCountStr, 10) || 1;
-
-    const players = (state as any).players || [];
-    for (const player of players) {
-      if (player && player.id) {
-        try {
-          const drawn = drawCardsFromZone(ctx, player.id as PlayerID, drawCount);
-          debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
-        } catch (err) {
-          debugWarn(1, `[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
-        }
-      }
-    }
-  }
-
-  const youDrawMatch = shuffleHandAndGraveyardWheelMatch
-    ? null
-    : oracleTextLower.match(/you draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
-  const eachOtherDrawMatch = shuffleHandAndGraveyardWheelMatch
-    ? null
-    : oracleTextLower.match(/each other player draws?\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i);
-
-  if (youDrawMatch && !eachPlayerDrawsMatch) {
-    const wordToNumber: Record<string, number> = {
-      a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
-      six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-    };
-    const controllerDrawCount = wordToNumber[youDrawMatch[1].toLowerCase()] || parseInt(youDrawMatch[1], 10) || 1;
-
-    try {
-      const drawn = drawCardsFromZone(ctx, controller, controllerDrawCount);
-      debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Controller ${controller} drew ${drawn.length} card(s)`);
-    } catch (err) {
-      debugWarn(1, `[resolveTopOfStack] Failed to draw cards for controller ${controller}:`, err);
-    }
-
-    if (eachOtherDrawMatch) {
-      const otherDrawCount = wordToNumber[eachOtherDrawMatch[1].toLowerCase()] || parseInt(eachOtherDrawMatch[1], 10) || 1;
-      const players = (state as any).players || [];
-      for (const player of players) {
-        if (player && player.id && player.id !== controller) {
-          try {
-            const drawn = drawCardsFromZone(ctx, player.id as PlayerID, otherDrawCount);
-            debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${player.name || player.id} drew ${drawn.length} card(s)`);
-          } catch (err) {
-            debugWarn(1, `[resolveTopOfStack] Failed to draw cards for ${player.id}:`, err);
-          }
-        }
       }
     }
   }
@@ -254,32 +154,6 @@ export function applyLegacySpellRegexDrawHandlers(
       debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} created ${treasureCount} Treasure token(s)`);
     } catch (err) {
       debugWarn(1, `[resolveTopOfStack] Failed to process draw/treasure for ${controller}:`, err);
-    }
-  }
-
-  if (!shuffleHandAndGraveyardWheelMatch && !eachPlayerDrawsMatch && !youDrawMatch && !drawThenDiscardMatch && !drawAndTreasureMatch) {
-    const simpleDrawMatch = oracleTextLower.match(/^draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?\.?$/i)
-      || oracleTextLower.match(/^draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?\s*$/i);
-
-    const altDrawMatch = !simpleDrawMatch && oracleTextLower.startsWith('draw ')
-      ? oracleTextLower.match(/^draw\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+cards?/i)
-      : null;
-
-    const matchToUse = simpleDrawMatch || altDrawMatch;
-
-    if (matchToUse) {
-      const wordToNumber: Record<string, number> = {
-        a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
-        six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-      };
-      const drawCount = wordToNumber[matchToUse[1].toLowerCase()] || parseInt(matchToUse[1], 10) || 1;
-
-      try {
-        const drawn = drawCardsFromZone(ctx, controller, drawCount);
-        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s) (simple draw spell)`);
-      } catch (err) {
-        debugWarn(1, `[resolveTopOfStack] Failed to draw cards for ${controller}:`, err);
-      }
     }
   }
 }

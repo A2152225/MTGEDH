@@ -9,7 +9,6 @@ import {
   applyRetiredTriggerLegacyEachOpponentDiscards,
   applyRetiredTriggerLegacyEachOpponentDraws,
   applyRetiredTriggerLegacyEachOpponentLosesLife,
-  applyRetiredTriggerLegacyEachPlayerDraws,
   applyRetiredTriggerLegacyEnergyEffects,
   applyRetiredTriggerLegacyMayGainLife,
   applyRetiredTriggerLegacyPlusOneCounterEachCreatureYouControl,
@@ -45,11 +44,10 @@ function setupPlayerLibrary(g: any, pid: PlayerID, libraryIds: string[]) {
 }
 
 describe('oracleIrTriggerLegacyRegexHandlers', () => {
-  it('applies combined draw and gain-life patterns', () => {
+  it('applies you-gain-that-much-life combined pattern', () => {
     const game = createInitialGameState('legacy_regex_handlers');
     const p1 = 'p1' as PlayerID;
     game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-    setupPlayerLibrary(game, p1, ['lib-1']);
 
     const modifyLife = vi.spyOn(triggerLifeDamageUtils, 'modifyTriggerEffectLife').mockImplementation(() => {});
 
@@ -57,8 +55,8 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
       ctx: game as any,
       controller: p1,
       sourceName: 'Test Source',
-      desc: 'draw a card. you gain 2 life.',
-      triggerItem: {},
+      desc: 'Each opponent loses 2 life. You gain that much life.',
+      triggerItem: { effectData: { lifeLost: 2 } },
       state: game.state,
       isKynaiosEffect: false,
     });
@@ -68,7 +66,7 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
     modifyLife.mockRestore();
   });
 
-  it('applies single draw pattern', () => {
+  it('retired single draw pattern defers to IR uncategorized fallback', () => {
     const game = createInitialGameState('legacy_regex_single_draw');
     const p1 = 'p1' as PlayerID;
     game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
@@ -80,10 +78,10 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
       desc: 'draw a card.',
       isKynaiosEffect: false,
       sourceName: 'Test Source',
-    })).toBe(true);
+    })).toBe(false);
   });
 
-  it('queues each-opponent discard via legacy regex handler', () => {
+  it('retired each-opponent discard defers to IR uncategorized fallback', () => {
     const game = createInitialGameState('legacy_regex_discard');
     const state = game.state as any;
     state.pendingDiscard = {};
@@ -92,15 +90,14 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
       desc: 'each opponent discards a card.',
       state,
       opponents: [{ id: 'p2' }, { id: 'p3' }],
-    })).toBe(true);
+    })).toBe(false);
 
-    expect(state.pendingDiscard.p2).toBe(1);
-    expect(state.pendingDiscard.p3).toBe(1);
+    expect(state.pendingDiscard.p2).toBeUndefined();
+    expect(state.pendingDiscard.p3).toBeUndefined();
   });
 
-  it('applies each-opponent life loss via legacy regex handler', () => {
+  it('retired each-opponent life loss defers to IR uncategorized fallback', () => {
     const state = { life: {} };
-    const modifyLife = vi.spyOn(triggerLifeDamageUtils, 'modifyTriggerEffectLife').mockImplementation(() => {});
 
     expect(applyRetiredTriggerLegacyEachOpponentLosesLife({
       ctx: {} as any,
@@ -111,35 +108,22 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
       state,
       opponents: [{ id: 'p2' }],
       battlefield: [],
-    })).toBe(true);
-
-    expect(modifyLife).toHaveBeenCalledWith(state, 'p2', -2);
-    expect(modifyLife).toHaveBeenCalledWith(state, 'p1', 1);
-    modifyLife.mockRestore();
+    })).toBe(false);
   });
 
-  it('applies target player lose/gain life via legacy regex handler', () => {
-    const state = { life: {} };
-    const modifyLife = vi.spyOn(triggerLifeDamageUtils, 'modifyTriggerEffectLife').mockImplementation(() => {});
-
+  it('retired target player lose/gain life defers to IR uncategorized fallback', () => {
     expect(applyRetiredTriggerLegacyTargetPlayerLoseYouGainLife({
       desc: 'target player loses 1 life. you gain 1 life.',
       controller: 'p1' as PlayerID,
       triggerItem: { targets: ['p2'] },
       opponents: [{ id: 'p2' }],
-      state,
-    })).toBe(true);
-
-    expect(modifyLife).toHaveBeenCalledWith(state, 'p2', -1);
-    expect(modifyLife).toHaveBeenCalledWith(state, 'p1', 1);
-    modifyLife.mockRestore();
+      state: { life: {} },
+    })).toBe(false);
   });
 
-  it('applies deal-each-opponent-damage-and-gain-life via legacy regex handler', () => {
+  it('retired deal-each-opponent-damage-and-gain-life defers to IR uncategorized fallback', () => {
     const state = { life: {}, battlefield: [] };
     const ctx = { state } as any;
-    const modifyLife = vi.spyOn(triggerLifeDamageUtils, 'modifyTriggerEffectLife').mockImplementation(() => {});
-    const applyOpponentDamage = vi.spyOn(triggerLifeDamageUtils, 'applyTriggerOpponentDamageFromPermanent').mockReturnValue(2);
 
     expect(applyRetiredTriggerLegacyDealEachOpponentAndGainLife({
       ctx,
@@ -149,41 +133,24 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
       state,
       battlefield: [],
       triggerItem: {},
-    })).toBe(true);
-
-    expect(applyOpponentDamage).toHaveBeenCalledWith(ctx, 'p1', state, [], 'p2', 2, undefined);
-    expect(modifyLife).toHaveBeenCalledWith(state, 'p1', 2);
-    modifyLife.mockRestore();
-    applyOpponentDamage.mockRestore();
+    })).toBe(false);
   });
 
-  it('applies may-gain-life via legacy regex handler', () => {
-    const state = { life: {} };
-    const modifyLife = vi.spyOn(triggerLifeDamageUtils, 'modifyTriggerEffectLife').mockImplementation(() => {});
-
+  it('retired may-gain-life defers to IR uncategorized fallback', () => {
     expect(applyRetiredTriggerLegacyMayGainLife({
       desc: 'You may gain 3 life.',
       controller: 'p1' as PlayerID,
-      state,
-    })).toBe(true);
-
-    expect(modifyLife).toHaveBeenCalledWith(state, 'p1', 3);
-    modifyLife.mockRestore();
+      state: { life: {} },
+    })).toBe(false);
   });
 
-  it('applies creature-controller-lose-life via legacy regex handler', () => {
-    const state = { life: {} };
-    const modifyLife = vi.spyOn(triggerLifeDamageUtils, 'modifyTriggerEffectLife').mockImplementation(() => {});
-
+  it('retired creature-controller-lose-life defers to IR uncategorized fallback', () => {
     expect(applyRetiredTriggerLegacyCreatureControllerLosesLife({
       desc: "That creature's controller loses 2 life.",
       controller: 'p1' as PlayerID,
       triggerItem: { triggeringController: 'p2' },
-      state,
-    })).toBe(true);
-
-    expect(modifyLife).toHaveBeenCalledWith(state, 'p2', -2);
-    modifyLife.mockRestore();
+      state: { life: {} },
+    })).toBe(false);
   });
 
   it('applies energy gain via legacy regex handler', () => {
@@ -201,7 +168,7 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
     expect((game.state as any).energy?.[p1]).toBe(2);
   });
 
-  it('applies each-opponent draw via legacy regex handler', () => {
+  it('retired each-opponent draw defers to IR uncategorized fallback', () => {
     const game = createInitialGameState('legacy_regex_opp_draw');
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
@@ -213,7 +180,7 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
       ctx: game as any,
       desc: 'Each opponent draws a card.',
       opponents: [{ id: p2 }],
-    })).toBe(true);
+    })).toBe(false);
   });
 
   it('applies put-that-many-counters-on-self via legacy regex handler', () => {
@@ -249,7 +216,7 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
     expect((game.state as any).tokenCounters?.[p1] ?? (game.state as any).tokens?.[p1]).toBeDefined();
   });
 
-  it('applies target-player draw via legacy regex handler', () => {
+  it('retired target-player draw defers to IR uncategorized fallback', () => {
     const game = createInitialGameState('legacy_regex_target_draw');
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
@@ -262,10 +229,10 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
       controller: p1,
       desc: 'Target player draws a card.',
       triggerItem: { targets: [p2] },
-    })).toBe(true);
+    })).toBe(false);
   });
 
-  it('untaps controlled lands via legacy regex handler', () => {
+  it('retired untap-all-lands defers to IR uncategorized fallback', () => {
     const state = {
       battlefield: [
         { id: 'land-1', controller: 'p1', tapped: true, card: { type_line: 'Basic Land — Island' } },
@@ -279,9 +246,9 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
       controller: 'p1' as PlayerID,
       triggerItem: {},
       state,
-    })).toBe(true);
+    })).toBe(false);
 
-    expect(state.battlefield[0].tapped).toBe(false);
+    expect(state.battlefield[0].tapped).toBe(true);
     expect(state.battlefield[1].tapped).toBe(true);
   });
 
@@ -303,7 +270,7 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
     expect(state.battlefield[0].counters['+1/+1']).toBe(2);
   });
 
-  it('applies +1/+1 counter on each creature you control via legacy regex handler', () => {
+  it('retired +1/+1 counter on each creature you control defers to IR uncategorized fallback', () => {
     const state = {
       battlefield: [
         { id: 'c1', controller: 'p1', card: { name: 'A', type_line: 'Creature' }, counters: {} },
@@ -315,13 +282,12 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
       desc: 'Put a +1/+1 counter on each creature you control.',
       controller: 'p1' as PlayerID,
       state,
-    })).toBe(true);
+    })).toBe(false);
 
-    expect(state.battlefield[0].counters['+1/+1']).toBe(1);
-    expect(state.battlefield[1].counters['+1/+1']).toBeUndefined();
+    expect(state.battlefield[0].counters['+1/+1']).toBeUndefined();
   });
 
-  it('applies +1/+1 counter on self via legacy regex handler', () => {
+  it('retired +1/+1 counter on self defers to IR uncategorized fallback', () => {
     const state = {
       battlefield: [{ id: 'self-1', card: { name: 'Lieutenant' }, counters: {} }],
     };
@@ -330,8 +296,8 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
       desc: "Put a +1/+1 counter on this creature.",
       triggerItem: { source: 'self-1' },
       state,
-    })).toBe(true);
+    })).toBe(false);
 
-    expect(state.battlefield[0].counters['+1/+1']).toBe(1);
+    expect(state.battlefield[0].counters['+1/+1']).toBeUndefined();
   });
 });

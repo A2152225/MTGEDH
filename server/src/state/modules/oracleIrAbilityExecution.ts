@@ -3,45 +3,25 @@ import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js'
 import { buildOracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutor.js';
 import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser.js';
 import type { GameContext } from '../context.js';
+import { ResolutionQueueManager } from '../resolution/index.js';
 import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync.js';
 import { debug, debugWarn } from '../../utils/debug.js';
+import {
+  getUnwiredOracleEffectStepKinds,
+  isActivatedAbilityEffectFullyWired,
+  isOracleIrActivatedAbilityHandled,
+} from './oracleIrStepWiring.js';
 
-const ORACLE_IR_ACTIVATED_STEP_KINDS = new Set<string>([
-  'move_zone',
-  'roll_die',
-  'die_roll_results',
-  'copy_spell',
-  'draw',
-  'scry',
-  'surveil',
-  'gain_life',
-  'lose_life',
-  'deal_damage',
-  'destroy',
-  'exile_top',
-  'impulse_exile_top',
-  'add_counter',
-  'create_token',
-  'tap_or_untap',
-  'add_mana',
-  'mill',
-  'discard',
-  'choose_mode',
-  'conditional',
-  'connive',
-  'player_choice',
-  'fight',
-  'search_library',
-  'sacrifice',
-  'counter_spell',
-  'proliferate',
-  'populate',
-  'explore',
-  'look_choose_from_top',
-  'look_select_top',
-  'open_attraction',
-  'roll_visit_attractions',
-]);
+export {
+  ORACLE_IR_ACTIVATED_ONLY_STEP_KINDS,
+  ORACLE_IR_ACTIVATED_STEP_KINDS,
+  areAllOracleEffectStepsRuntimeWired,
+  getUnwiredOracleEffectStepKinds,
+  isActivatedAbilityEffectFullyWired,
+  isOracleEffectStepRuntimeWired,
+  isOracleIrActivatedAbilityHandled,
+  isOracleIrMandatoryExecutionComplete,
+} from './oracleIrStepWiring.js';
 
 function extractActivatedEffectText(oracleText: string): string {
   const raw = String(oracleText || '').trim();
@@ -52,7 +32,7 @@ function extractActivatedEffectText(oracleText: string): string {
   return colonSplit ? String(colonSplit[1] || '').trim() : raw;
 }
 
-function collectAbilitySteps(oracleText: string, sourceName: string): OracleEffectStep[] {
+export function collectActivatedAbilitySteps(oracleText: string, sourceName: string): OracleEffectStep[] {
   const effectText = extractActivatedEffectText(oracleText);
   if (!effectText) return [];
   const ir = parseOracleTextToIR(effectText, sourceName);
@@ -98,15 +78,25 @@ export function tryApplyOracleIRToActivatedAbility(
   },
 ): { handled: boolean; applied: number; pendingOptional: boolean } {
   try {
-    const steps = collectAbilitySteps(params.oracleText, params.sourceName);
+    const steps = collectActivatedAbilitySteps(params.oracleText, params.sourceName);
     if (steps.length === 0) {
       return { handled: false, applied: 0, pendingOptional: false };
     }
 
-    const supportedSteps = steps.filter(
-      (step) => step && step.kind !== 'unknown' && ORACLE_IR_ACTIVATED_STEP_KINDS.has(String(step.kind)),
-    );
-    if (supportedSteps.length === 0) {
+    if (steps.some((step) => step.kind === 'unknown')) {
+      debug(
+        2,
+        `[oracleIR] Activated ability not fully wired for ${params.sourceName}: contains unknown step(s)`,
+      );
+      return { handled: false, applied: 0, pendingOptional: false };
+    }
+
+    if (!isActivatedAbilityEffectFullyWired(steps)) {
+      const unwired = getUnwiredOracleEffectStepKinds(steps);
+      debug(
+        2,
+        `[oracleIR] Activated ability not fully wired for ${params.sourceName}: ${unwired.join(', ')}`,
+      );
       return { handled: false, applied: 0, pendingOptional: false };
     }
 
@@ -134,7 +124,12 @@ export function tryApplyOracleIRToActivatedAbility(
       },
     );
 
-    const result = applyOracleIRStepsOnServer(ctx, state, supportedSteps, irCtx, {
+    const gameId = String((ctx as any).gameId || 'unknown');
+    const queueBefore = gameId !== 'unknown'
+      ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
+      : 0;
+
+    const result = applyOracleIRStepsOnServer(ctx, state, steps, irCtx, {
       allowOptional: params.allowOptional ?? true,
       selectedModeIds: params.selectedModeIds,
     }, {
@@ -143,14 +138,24 @@ export function tryApplyOracleIRToActivatedAbility(
       applyMillReplacements: true,
     });
 
-    const applied = result.appliedSteps.length;
-    const pendingOptional = (result.pendingOptionalSteps || []).length > 0;
-    const hasUnqueuedPlayerChoiceGap = (result.automationGaps || []).some(
-      (gap) => gap.reasonCode === 'player_choice_required',
-    );
-    const handled = (applied > 0 || pendingOptional) && !hasUnqueuedPlayerChoiceGap;
+    const queueAfter = gameId !== 'unknown'
+      ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
+      : queueBefore;
 
-    if (handled) {
+    const applied = result.appliedSteps.length;
+    const pendingOptional = (result.pendingOptionalSteps || []).length;
+    const handled = isOracleIrActivatedAbilityHandled(steps, result, {
+      resolutionQueueStepsBefore: queueBefore,
+      resolutionQueueStepsAfter: queueAfter,
+    });
+
+    if (!handled && applied > 0) {
+      debugWarn(
+        1,
+        `[oracleIR] Refusing partial activated-ability IR for ${params.sourceName}: ` +
+          `applied ${applied}/${steps.length} step(s); legacy path will run`,
+      );
+    } else if (handled) {
       debug(
         2,
         `[oracleIR] Applied ${applied} activated-ability step(s) for ${params.sourceName}` +

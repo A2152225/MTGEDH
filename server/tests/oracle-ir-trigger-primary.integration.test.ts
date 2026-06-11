@@ -155,4 +155,33 @@ describe('oracle IR trigger execution', () => {
     expect(targetSteps).toHaveLength(1);
     expect((targetSteps[0] as any)?.action).toBe('self_become_copy_of_creature');
   });
+
+  it('handles fully wired multi-step trigger effects under primary mode', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_trigger_multi_step_primary';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+
+    (game.state as any).battlefield = [{
+      id: 'self-1',
+      controller: p1,
+      card: { name: 'Clockwork Droid', type_line: 'Creature — Construct' },
+    }];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+
+    const outcome = tryResolveTriggerViaOracleIR(ctx, {
+      controller: p1,
+      sourceName: 'Clockwork Droid',
+      effectText: "It can't be blocked this turn and you scry 1.",
+      triggerItem: { source: 'self-1', permanentId: 'self-1' },
+    });
+
+    expect(outcome.handled).toBe(true);
+    expect(outcome.applied).toBeGreaterThan(0);
+  });
 });

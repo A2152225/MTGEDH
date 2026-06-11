@@ -736,6 +736,21 @@ function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; 
     return extracted;
   }
 
+  // Single-line oracle: keep the full post-cost effect (multi-sentence riders), not just
+  // the first sentence. The legacy fallback regex below stops at the first period.
+  const inlineActivated = String(text || '').trim();
+  const inlineMatch = inlineActivated.match(/^((?:\{[^}]+\}|[^:])+):\s*([\s\S]+)$/);
+  if (inlineMatch) {
+    const effect = String(inlineMatch[2] || '')
+      .replace(/\s*\(?Activate only as a sorcery\)?\.?\s*$/i, '')
+      .replace(/\s*\(?Activate only any time you could cast a sorcery\)?\.?\s*$/i, '')
+      .trim();
+    pushAbility(inlineMatch[1], effect);
+    if (extracted.length > 0) {
+      return extracted;
+    }
+  }
+
   const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
   let match;
   while ((match = abilityPattern.exec(text)) !== null) {

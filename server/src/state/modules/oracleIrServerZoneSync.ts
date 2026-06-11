@@ -8,7 +8,7 @@ import {
   type OracleIRExecutionResult,
 } from '../../../../rules-engine/src/oracleIRExecutor.js';
 import { resolveSingleCreatureTargetId } from '../../../../rules-engine/src/oracleIRExecutorCreatureStepUtils.js';
-import { resolveOracleQuantity } from '../../../../rules-engine/src/oracleIRExecutorResolveQuantity.js';
+import { resolveOracleQuantity, resolveOracleQuantityForPlayer } from '../../../../rules-engine/src/oracleIRExecutorResolveQuantity.js';
 import { resolvePlayers } from '../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
 import { buildSacrificeTargetSelectionOptions } from '../../../../rules-engine/src/oracleIRExecutorBattlefieldStepHandlers.js';
 import {
@@ -18,7 +18,7 @@ import {
   buildLookSelectTopSelectionOptions,
   buildSearchLibrarySelectionOptions,
 } from '../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
-import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
+import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions, collectBlightTargetSelectionConfigs } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { applyMillReplacements } from './game-state-effects.js';
@@ -29,6 +29,10 @@ import {
   copyPermanentTriggerStepNeedsTargetSelectionQueue,
 } from './trigger-copy-permanent.js';
 import { syncPreparedPermanentAfterControlChange, resyncPreparedExileCopiesWithControllers } from './prepared.js';
+import { scheduleExiledCardReturnToBattlefield } from './executeSpellEffect.js';
+import { parseSimplePermanentTypeFromText } from '../../../../rules-engine/src/oracleIRExecutorBattlefieldParser.js';
+import { hasExecutorClass } from '../../../../rules-engine/src/oracleIRExecutorPermanentUtils.js';
+import { getNextEndStepFireTurnNumber } from './triggerDelayedEffectUtils.js';
 
 /**
  * The live server stores libraries in ctx.libraries and zone summaries in state.zones,
@@ -101,6 +105,96 @@ export function snapshotGraveyardCardIds(state: any): Map<string, Set<string>> {
     out.set(playerId, new Set(graveyard.map((card: any) => String(card?.id || '')).filter(Boolean)));
   }
   return out;
+}
+
+function snapshotExileCardIds(state: any): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const zones = state.zones || {};
+  for (const player of state.players || []) {
+    const playerId = String(player?.id || '').trim();
+    if (!playerId) continue;
+    const exile = Array.isArray(zones[playerId]?.exile)
+      ? zones[playerId].exile
+      : Array.isArray(player?.exile)
+        ? player.exile
+        : [];
+    out.set(playerId, new Set(exile.map((card: any) => String(card?.id || '')).filter(Boolean)));
+  }
+  return out;
+}
+
+function isScheduleDelayedBattlefieldReturnStep(
+  step: OracleEffectStep,
+): step is Extract<OracleEffectStep, { kind: 'schedule_delayed_trigger' }> {
+  if (step.kind !== 'schedule_delayed_trigger') return false;
+  const effect = String(step.effect || '').toLowerCase();
+  return /\breturn\b/.test(effect) && /\bbattlefield\b/.test(effect);
+}
+
+function mapDelayedTriggerTimingToFlickerReturnAt(
+  timing: string | undefined,
+): 'next_end_step' | 'owners_next_end_step' | 'end_of_combat' {
+  const normalized = String(timing || '').trim();
+  if (normalized === 'your_next_end_step') return 'owners_next_end_step';
+  if (normalized === 'end_of_combat') return 'end_of_combat';
+  return 'next_end_step';
+}
+
+function findLastNewlyExiledCard(
+  state: any,
+  exileBefore: Map<string, Set<string>>,
+): { ownerId: PlayerID; cardId: string } | null {
+  const zones = state.zones || {};
+  let last: { ownerId: PlayerID; cardId: string } | null = null;
+
+  for (const player of state.players || []) {
+    const playerId = String(player?.id || '').trim();
+    if (!playerId) continue;
+
+    const beforeIds = exileBefore.get(playerId) || new Set<string>();
+    const exile = Array.isArray(zones[playerId]?.exile)
+      ? zones[playerId].exile
+      : Array.isArray(player?.exile)
+        ? player.exile
+        : [];
+
+    for (const card of exile) {
+      const cardId = String(card?.id || '').trim();
+      if (cardId && !beforeIds.has(cardId)) {
+        last = { ownerId: playerId as PlayerID, cardId };
+      }
+    }
+  }
+
+  return last;
+}
+
+function bridgeScheduleDelayedFlickerReturnsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  exileBefore: Map<string, Set<string>>,
+  params: {
+    sourceName?: string;
+  },
+): void {
+  const delayedReturnSteps = (result.appliedSteps || []).filter(isScheduleDelayedBattlefieldReturnStep);
+  if (delayedReturnSteps.length === 0) return;
+
+  const hadExileStep = (result.appliedSteps || []).some((step) => {
+    if (step.kind === 'exile') return true;
+    return step.kind === 'move_zone' && String((step as any).to || '') === 'exile';
+  });
+  if (!hadExileStep) return;
+
+  const exiled = findLastNewlyExiledCard(state, exileBefore);
+  if (!exiled) return;
+
+  const sourceName = String(params.sourceName || 'Flicker effect').trim() || 'Flicker effect';
+  for (const step of delayedReturnSteps) {
+    const returnAt = mapDelayedTriggerTimingToFlickerReturnAt(step.timing);
+    scheduleExiledCardReturnToBattlefield(ctx, exiled.ownerId, exiled.cardId, returnAt, sourceName);
+  }
 }
 
 export function syncOracleIRPlayerZonesToContext(
@@ -348,13 +442,13 @@ function queueTopLibraryChoicePromptsFromOracleIRResult(
 
     const playerIds = [...resolvePlayers(state, (step as any).who, params.irCtx)];
     for (const playerId of playerIds) {
-      const count = resolveOracleQuantity(
+      const count = resolveOracleQuantityForPlayer(
         state,
         params.controller,
         (step as any).amount as OracleQuantity,
         params.irCtx,
         playerId,
-        { whereX: (step as any).whereX }
+        { whereX: (step as any).whereX },
       );
       if (count === null || count <= 0) continue;
 
@@ -669,6 +763,85 @@ function queueExploreChoicePromptsFromOracleIRResult(
       oracleIrSourceId: sourceId,
       oracleIrSourceName: sourceName,
     } as any, result, params) as any);
+  }
+}
+
+function queueBlightChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  }
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (String(gap.stepKind || '') !== 'blight') continue;
+
+    const step = findSkippedOracleStep(result, gap);
+    if (!step || step.kind !== 'blight') continue;
+
+    const configs = collectBlightTargetSelectionConfigs(state, step, params.irCtx);
+    if (configs.length === 0) continue;
+
+    const stepConfigs = configs.map((config) => {
+      const queueKey = `blight:${String((step as any).raw || '')}:${config.playerId}`;
+      if (queuedKeys.has(queueKey)) return null;
+      queuedKeys.add(queueKey);
+
+      return attachOracleIrResumeMetadata({
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: config.playerId,
+        description: `${sourceName}: Blight ${config.count} — choose a creature you control to put ${config.count} -1/-1 counter${config.count === 1 ? '' : 's'} on it.`,
+        mandatory: (step as any).optional !== true,
+        sourceId,
+        sourceName,
+        validTargets: [...config.validTargets],
+        targetTypes: ['creature'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'creature you control',
+        keywordBlight: true,
+        keywordBlightStage: 'select_target',
+        keywordBlightController: config.playerId,
+        keywordBlightN: config.count,
+        keywordBlightSourceName: `${sourceName}: Blight ${config.count}`,
+      } as any, result, params) as any;
+    }).filter(Boolean) as any[];
+
+    if (stepConfigs.length === 0) continue;
+
+    if (stepConfigs.length === 1) {
+      ResolutionQueueManager.addStep(gameId, stepConfigs[0]);
+      continue;
+    }
+
+    const players = (state as any).players || [];
+    const turnOrder: PlayerID[] = players
+      .map((player: any) => player?.id)
+      .filter((id: unknown) => typeof id === 'string') as PlayerID[];
+    const activePlayerId: PlayerID =
+      (state as any).turnPlayer ||
+      (state as any).activePlayerId ||
+      players[(state as any).activePlayerIndex || 0]?.id ||
+      params.controller;
+
+    ResolutionQueueManager.addStepsWithAPNAP(
+      gameId,
+      stepConfigs,
+      turnOrder,
+      activePlayerId,
+    );
   }
 }
 
@@ -1624,6 +1797,111 @@ function findSkippedOracleStep(
   ) as OracleEffectStep | undefined;
 }
 
+function inferTapUntapTargetFilter(
+  targetText: string,
+  controller: PlayerID,
+): {
+  types: string[];
+  controller: 'you' | 'opponent' | 'any';
+  targetCount: number;
+} {
+  const lower = String(targetText || '').trim().toLowerCase();
+  const upToMatch = lower.match(/^up to (one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(.+)$/i);
+  const targetCount = upToMatch
+    ? Math.max(1, Number.parseInt(String(upToMatch[1] || '1'), 10) || ({
+      one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+    } as Record<string, number>)[String(upToMatch[1] || '').toLowerCase()] || 1)
+    : 1;
+  const typePhrase = upToMatch ? String(upToMatch[2] || '').trim() : lower;
+  const requiredType = parseSimplePermanentTypeFromText(typePhrase) || 'creature';
+  const types = requiredType === 'nonland_permanent'
+    ? ['nonland_permanent']
+    : [requiredType];
+  let controllerFilter: 'you' | 'opponent' | 'any' = 'any';
+  if (/\byou control\b/i.test(typePhrase)) controllerFilter = 'you';
+  if (/\b(?:an opponent|opponents?)\s+controls?\b/i.test(typePhrase)) controllerFilter = 'opponent';
+  if (/\btarget player controls\b/i.test(typePhrase)) controllerFilter = 'opponent';
+  void controller;
+  return { types, controller: controllerFilter, targetCount };
+}
+
+function queueTapOrUntapChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (String(gap.stepKind || '') !== 'tap_or_untap') continue;
+    if (
+      gap.reasonCode !== 'no_deterministic_target'
+      && gap.reasonCode !== 'player_choice_required'
+    ) {
+      continue;
+    }
+
+    const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'tap_or_untap' }> | undefined;
+    if (!step || step.kind !== 'tap_or_untap') continue;
+
+    const targetText = String((step.target as any)?.text || (step.target as any)?.raw || '').trim();
+    if (!targetText) continue;
+
+    const queueKey = `tap_or_untap:${targetText}:${String(step.raw || '')}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    const { types, controller: controllerFilter, targetCount } = inferTapUntapTargetFilter(
+      targetText,
+      params.controller,
+    );
+    const action = step.mode === 'untap' ? 'untap' : 'tap';
+    const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+    const candidates = battlefield.filter((perm: any) => {
+      const permanentId = String(perm?.id || '').trim();
+      if (!permanentId) return false;
+      const permController = String(perm?.controller || '').trim();
+      if (controllerFilter === 'you' && permController !== String(params.controller)) return false;
+      if (controllerFilter === 'opponent' && permController === String(params.controller)) return false;
+      const requiredType = types[0] || 'creature';
+      if (requiredType === 'nonland_permanent') {
+        return hasExecutorClass(perm, 'creature') || hasExecutorClass(perm, 'artifact') || hasExecutorClass(perm, 'enchantment') || hasExecutorClass(perm, 'planeswalker') || hasExecutorClass(perm, 'battle');
+      }
+      return hasExecutorClass(perm, requiredType as any);
+    });
+    if (candidates.length === 0) continue;
+
+    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      type: ResolutionStepType.TAP_UNTAP_TARGET,
+      playerId: params.controller,
+      description: `${sourceName}: ${String(step.raw || targetText).trim()}`,
+      mandatory: true,
+      sourceId,
+      sourceName,
+      action,
+      targetFilter: {
+        types,
+        controller: controllerFilter,
+        tapStatus: 'any',
+        excludeSource: false,
+      },
+      targetCount,
+      title: sourceName,
+    } as any, result, params) as any);
+  }
+}
+
 function queueCopyPermanentChoicePromptsFromOracleIRResult(
   ctx: GameContext,
   _state: any,
@@ -2122,6 +2400,7 @@ export function applyOracleIRStepsOnServer(
 ): OracleIRExecutionResult {
   hydrateOracleIRPlayerZonesFromContext(ctx, state);
   const graveyardBefore = snapshotGraveyardCardIds(state);
+  const exileBefore = snapshotExileCardIds(state);
   const controllersBefore = snapshotBattlefieldControllers(state);
 
   const controller = (params?.controller || irCtx.controllerId) as PlayerID;
@@ -2145,6 +2424,9 @@ export function applyOracleIRStepsOnServer(
   });
   Object.assign(state, result.state);
   syncOracleIRPlayerZonesToContext(ctx, state, controller, graveyardBefore);
+  bridgeScheduleDelayedFlickerReturnsFromOracleIRResult(ctx, state, result, exileBefore, {
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+  });
   queueTopLibraryChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -2192,6 +2474,12 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
   });
+  queueBlightChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
   queuePopulateChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -2226,6 +2514,12 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
   });
+  queueTapOrUntapChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
   queueCopyPermanentChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -2234,5 +2528,279 @@ export function applyOracleIRStepsOnServer(
   syncPreparedCopiesAfterBattlefieldControllerChanges(state, controllersBefore);
   syncPreparedCopiesFromControlChangeEffects(state);
   resyncPreparedExileCopiesWithControllers(state);
+  syncIrTemporaryGrantEffectsToServerTemporaryAbilities(
+    state,
+    String(irCtx.sourceName || '').trim() || 'Ability',
+  );
+  syncIrImpulseExileToPendingImpulseDraws(
+    state,
+    result,
+    String(irCtx.sourceName || '').trim() || 'Ability',
+  );
+  syncIrAtNextEndStepTokenSacrificeFromOracleIRResult(state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+  });
+  syncIrReanimationRidersFromOracleIRResult(state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+  });
+  syncIrCopyTokenProvenanceFromOracleIRResult(state, result, irCtx);
   return result;
+}
+
+function syncIrCopyTokenProvenanceFromOracleIRResult(
+  state: any,
+  result: OracleIRExecutionResult,
+  irCtx: OracleIRExecutionContext,
+): void {
+  const copyStepApplied = (result.appliedSteps || []).some(
+    (step) =>
+      step.kind === 'create_token'
+      && /copy of target creature/i.test(String((step as { token?: string }).token || '')),
+  );
+  if (!copyStepApplied) return;
+
+  const preferredIds = [
+    String(irCtx.targetPermanentId || '').trim(),
+    String(irCtx.targetCreatureId || '').trim(),
+    String(irCtx.selectorContext?.targetPermanentId || '').trim(),
+    ...(Array.isArray(irCtx.selectorContext?.chosenObjectIds)
+      ? irCtx.selectorContext.chosenObjectIds.map((id: unknown) => String(id || '').trim())
+      : []),
+  ].filter(Boolean);
+
+  const sourceId = preferredIds.find((id) =>
+    (state.battlefield || []).some(
+      (perm: any) => String(perm?.id || '').trim() === id && perm?.isToken !== true,
+    ),
+  );
+  if (!sourceId) return;
+
+  for (const perm of state.battlefield || []) {
+    if (!perm?.isToken || perm.copiedFromPermanentId) continue;
+    perm.copiedFromPermanentId = sourceId;
+    break;
+  }
+}
+
+function syncIrReanimationRidersFromOracleIRResult(
+  state: any,
+  result: OracleIRExecutionResult,
+  params: { controller: PlayerID; sourceName: string },
+): void {
+  const appliedSteps = result.appliedSteps || [];
+  const appliedKinds = new Set(appliedSteps.map((step) => step.kind));
+  const hasReanimationBridge =
+    appliedKinds.has('move_zone')
+    || appliedKinds.has('grant_temporary_ability')
+    || appliedKinds.has('grant_static_ability')
+    || appliedKinds.has('grant_leave_battlefield_replacement')
+    || appliedKinds.has('schedule_delayed_battlefield_action');
+
+  if (!hasReanimationBridge) return;
+
+  for (const perm of state.battlefield || []) {
+    if (!perm || typeof perm !== 'object') continue;
+
+    const granted = (Array.isArray(perm.grantedAbilities) ? perm.grantedAbilities : [])
+      .map((ability: unknown) => String(ability || '').trim().toLowerCase());
+    if (granted.includes('haste')) {
+      perm.summoningSickness = false;
+    }
+
+    const leaveReplacement = String(perm.leaveBattlefieldReplacement || perm.leaveBattlefieldReplacementDestination || '').trim().toLowerCase();
+    if (leaveReplacement === 'exile') {
+      perm.leaveBattlefieldReplacementDestination = 'exile';
+      if (params.sourceName) {
+        perm.leaveBattlefieldReplacementSourceName = params.sourceName;
+      }
+      perm.card = {
+        ...(perm.card || {}),
+        leaveBattlefieldReplacementDestination: 'exile',
+        ...(params.sourceName ? { leaveBattlefieldReplacementSourceName: params.sourceName } : {}),
+      };
+    }
+  }
+
+  if (!appliedKinds.has('schedule_delayed_battlefield_action')) return;
+
+  const registry = state.delayedTriggerRegistry as { triggers?: Record<string, unknown> } | undefined;
+  const triggers = registry?.triggers ? Object.values(registry.triggers) : [];
+  if (triggers.length === 0) return;
+
+  state.pendingExileAtNextEndStep = Array.isArray(state.pendingExileAtNextEndStep)
+    ? state.pendingExileAtNextEndStep
+    : [];
+
+  const fireAtTurnNumber = getNextEndStepFireTurnNumber(state);
+
+  for (const delayed of triggers) {
+    const effect = String((delayed as any)?.effect || '').toLowerCase();
+    if (!effect.includes('exile')) continue;
+
+    const timing = String((delayed as any)?.timing || '').toUpperCase();
+    if (!timing.includes('END_STEP')) continue;
+
+    const targetIds = Array.isArray((delayed as any)?.targets)
+      ? (delayed as any).targets.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    for (const permanentId of targetIds) {
+      const alreadyScheduled = (state.pendingExileAtNextEndStep as any[]).some(
+        (entry: any) => String(entry?.permanentId || '').trim() === permanentId,
+      );
+      if (alreadyScheduled) continue;
+
+      state.pendingExileAtNextEndStep.push({
+        permanentId,
+        fireAtTurnNumber,
+        sourceName: params.sourceName,
+        createdBy: String(params.controller),
+      });
+    }
+  }
+}
+
+function syncIrAtNextEndStepTokenSacrificeFromOracleIRResult(
+  state: any,
+  result: OracleIRExecutionResult,
+  params: { controller: PlayerID; sourceName: string },
+): void {
+  const scheduledSacrifice = (result.appliedSteps || []).some(
+    (step) => step.kind === 'create_token' && (step as { atNextEndStep?: string }).atNextEndStep === 'sacrifice',
+  );
+  if (!scheduledSacrifice) return;
+
+  const registry = state.delayedTriggerRegistry as { triggers?: Record<string, unknown> } | undefined;
+  const triggers = registry?.triggers ? Object.values(registry.triggers) : [];
+  if (triggers.length === 0) return;
+
+  state.pendingSacrificeAtNextEndStep = Array.isArray(state.pendingSacrificeAtNextEndStep)
+    ? state.pendingSacrificeAtNextEndStep
+    : [];
+
+  const fireAtTurnNumber = getNextEndStepFireTurnNumber(state);
+
+  for (const delayed of triggers) {
+    const effect = String((delayed as any)?.effect || '');
+    if (!/sacrifice (?:that|those) tokens?\.?/i.test(effect)) continue;
+
+    const timing = String((delayed as any)?.timing || '').toUpperCase();
+    if (!timing.includes('END_STEP')) continue;
+
+    const targetIds = Array.isArray((delayed as any)?.targets)
+      ? (delayed as any).targets.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+    for (const permanentId of targetIds) {
+      const alreadyScheduled = (state.pendingSacrificeAtNextEndStep as any[]).some(
+        (entry: any) => String(entry?.permanentId || '').trim() === permanentId,
+      );
+      if (alreadyScheduled) continue;
+
+      state.pendingSacrificeAtNextEndStep.push({
+        permanentId,
+        fireAtTurnNumber,
+        maxManaValue: 0,
+        sourceName: params.sourceName,
+        createdBy: String(params.controller),
+      });
+    }
+  }
+}
+
+function syncIrImpulseExileToPendingImpulseDraws(
+  state: any,
+  result: OracleIRExecutionResult,
+  sourceName: string,
+): void {
+  const hadImpulseExile = (result.appliedSteps || []).some((step) => step.kind === 'impulse_exile_top');
+  if (!hadImpulseExile) return;
+
+  state.pendingImpulseDraws = state.pendingImpulseDraws || {};
+
+  for (const player of state.players || []) {
+    const playerId = String(player?.id || '').trim();
+    if (!playerId) continue;
+
+    const playableMap = state.playableFromExile?.[playerId];
+    if (!playableMap || typeof playableMap !== 'object') continue;
+
+    const exileCards = [
+      ...(Array.isArray(state.zones?.[playerId]?.exile) ? state.zones[playerId].exile : []),
+      ...(Array.isArray(player?.exile) ? player.exile : []),
+    ];
+
+    state.pendingImpulseDraws[playerId] = state.pendingImpulseDraws[playerId] || [];
+
+    for (const card of exileCards) {
+      const cardId = String(card?.id || '').trim();
+      if (!cardId || playableMap[cardId] === undefined) continue;
+
+      const playableUntilTurn = Number(card?.playableUntilTurn ?? playableMap[cardId]);
+      if (!Number.isFinite(playableUntilTurn)) continue;
+
+      const alreadyQueued = state.pendingImpulseDraws[playerId].some(
+        (entry: any) => String(entry?.cardId || '') === cardId,
+      );
+      if (alreadyQueued) continue;
+
+      state.pendingImpulseDraws[playerId].push({
+        cardId,
+        cardName: card?.name,
+        exiledBy: card?.exiledBy || sourceName,
+        playableUntilTurn,
+      });
+    }
+  }
+}
+
+function syncIrTemporaryGrantEffectsToServerTemporaryAbilities(
+  state: any,
+  sourceName: string,
+): void {
+  const turnNumber = Number(state?.turnNumber || 0);
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+
+  for (const perm of battlefield) {
+    if (!perm || typeof perm !== 'object') continue;
+
+    const pendingAbilities: string[] = [];
+    const temporaryEffects = Array.isArray(perm.temporaryEffects) ? perm.temporaryEffects : [];
+    for (const effect of temporaryEffects) {
+      if (!effect || typeof effect !== 'object') continue;
+      const expiresAt = String(effect.expiresAt || '').trim();
+      if (expiresAt && expiresAt !== 'end_of_turn' && expiresAt !== 'end_of_combat') continue;
+
+      const description = String(effect.description || '').trim();
+      if (description) pendingAbilities.push(description);
+
+      const effectGranted = Array.isArray(effect.grantedAbilities) ? effect.grantedAbilities : [];
+      for (const ability of effectGranted) {
+        const text = String(ability || '').trim();
+        if (text) pendingAbilities.push(text);
+      }
+    }
+
+    if (pendingAbilities.length === 0) continue;
+
+    perm.temporaryAbilities = Array.isArray(perm.temporaryAbilities) ? perm.temporaryAbilities : [];
+    for (const abilityText of pendingAbilities) {
+      const normalized = abilityText.toLowerCase();
+      const alreadyPresent = perm.temporaryAbilities.some((entry: any) => {
+        const existing = typeof entry === 'string'
+          ? String(entry || '').trim().toLowerCase()
+          : String(entry?.ability || '').trim().toLowerCase();
+        return existing === normalized || existing.includes(normalized) || normalized.includes(existing);
+      });
+      if (alreadyPresent) continue;
+
+      perm.temporaryAbilities.push({
+        ability: abilityText,
+        source: sourceName,
+        expiresAt: 'end_of_turn',
+        turnApplied: turnNumber,
+      });
+    }
+  }
 }

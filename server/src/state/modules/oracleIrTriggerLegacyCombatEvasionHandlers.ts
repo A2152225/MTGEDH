@@ -10,6 +10,13 @@ export interface TriggerLegacyCombatEvasionParams {
   readonly state: any;
 }
 
+function normalizeTemporaryAbilityKey(ability: string): string {
+  return String(ability || '')
+    .toLowerCase()
+    .replace(/\s+this turn/g, '')
+    .trim();
+}
+
 function pushTemporaryAbility(
   permanent: any,
   ability: string,
@@ -17,6 +24,24 @@ function pushTemporaryAbility(
   state: any,
 ): void {
   permanent.temporaryAbilities = Array.isArray(permanent.temporaryAbilities) ? permanent.temporaryAbilities : [];
+  const key = normalizeTemporaryAbilityKey(ability);
+  const existingIndex = permanent.temporaryAbilities.findIndex((entry: any) =>
+    normalizeTemporaryAbilityKey(String(entry?.ability || '')) === key
+    && String(entry?.source || '') === String(sourceName)
+    && entry?.expiresAt === 'end_of_turn'
+  );
+  if (existingIndex >= 0) {
+    const existing = permanent.temporaryAbilities[existingIndex];
+    if (/\bthis turn\b/i.test(ability) && !/\bthis turn\b/i.test(String(existing?.ability || ''))) {
+      permanent.temporaryAbilities[existingIndex] = {
+        ability,
+        source: sourceName,
+        expiresAt: 'end_of_turn',
+        turnApplied: state.turnNumber || 0,
+      };
+    }
+    return;
+  }
   permanent.temporaryAbilities.push({
     ability,
     source: sourceName,
@@ -62,12 +87,20 @@ export function applyRetiredTriggerLegacySelfCantBeBlocked(
     return false;
   }
 
-  const selfCantBeBlockedMatch = params.desc.match(/(?:it|this creature) can't be blocked this turn(?: and you scry (\d+))?\.?$/i);
-  if (!selfCantBeBlockedMatch) {
+  const selfCantBeBlockedMatch = params.desc.match(/(?:it|this creature) can't be blocked this turn(?: and you scry (\d+))?\.?$/i)
+    || params.desc.match(/you scry (\d+) and (?:it|this creature) can't be blocked this turn\.?$/i);
+  const hasSelfUnblockable = /(?:it|this creature) can't be blocked this turn/i.test(params.desc);
+  if (!selfCantBeBlockedMatch && !hasSelfUnblockable) {
     return false;
   }
 
-  const unblockableSourceId = params.triggerItem.source || params.triggerItem.permanentId;
+  const unblockableSourceId = String(
+    params.triggerItem.source
+      || params.triggerItem.permanentId
+      || params.triggerItem.sourceId
+      || params.triggerItem.effectData?.exertedPermanentId
+      || '',
+  ).trim();
   const sourcePermanent = unblockableSourceId
     ? (params.state.battlefield || []).find((permanent: any) => permanent?.id === unblockableSourceId)
     : null;
@@ -77,11 +110,20 @@ export function applyRetiredTriggerLegacySelfCantBeBlocked(
     debug(2, `[executeTriggerEffect] ${sourcePermanent.card?.name || unblockableSourceId} can't be blocked this turn`);
   }
 
-  const scryCount = selfCantBeBlockedMatch[1] ? parseInt(selfCantBeBlockedMatch[1], 10) : 0;
+  const scryCount = selfCantBeBlockedMatch?.[1]
+    ? parseInt(selfCantBeBlockedMatch[1], 10)
+    : selfCantBeBlockedMatch?.[2]
+      ? parseInt(selfCantBeBlockedMatch[2], 10)
+      : (() => {
+          const inlineScry = params.desc.match(/(?:and )?you scry (\d+)/i);
+          return inlineScry?.[1] ? parseInt(inlineScry[1], 10) : 0;
+        })();
   if (scryCount > 0) {
     params.state.pendingScry = params.state.pendingScry || {};
-    params.state.pendingScry[params.controller] = scryCount;
-    debug(2, `[executeTriggerEffect] ${params.controller} scries ${scryCount}`);
+    if (typeof params.state.pendingScry[params.controller] !== 'number') {
+      params.state.pendingScry[params.controller] = scryCount;
+      debug(2, `[executeTriggerEffect] ${params.controller} scries ${scryCount}`);
+    }
   }
 
   return true;

@@ -324,7 +324,8 @@ export function getSupportedExertAttackReward(card: any): string | null {
     new RegExp(`(?:if [^.]+,\\s*)?you may exert ${selfReferencePattern} as (?:it|he|she) attacks\\. when you do, (.+?)(?:\\s*\\(an exerted creature won't untap during your next untap step\\.?\\))?$`, 'i'),
   );
   const rewardDescription = String(exertRewardMatch?.[1] || '')
-    .replace(/\s*\([^)]*\)\s*$/i, '')
+    .replace(/\s*\(an exerted creature won't untap during your next untap step\.?\)\s*/ig, ' ')
+    .replace(/\s*\{[WUBRGC\dP/\d]+\}(?:\{[WUBRGC\dP/\d]+\})*:\s*[\s\S]*$/i, '')
     .trim();
   if (!isSupportedExertAttackRewardDescription(rewardDescription)) {
     return null;

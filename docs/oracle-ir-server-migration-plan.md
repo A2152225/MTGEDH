@@ -2,8 +2,11 @@
 
 **Purpose:** Plan the full supersession of handwritten spell/trigger/ability resolution with Oracle IR execution and the Effect Program orchestrator.
 
-**Last updated:** 2026-06-10  
+**Last updated:** 2026-06-11 (batch 173 — partial IR apply guardrails + reanimation rider wiring)  
 **Owner:** Project maintainers  
+
+> **New session?** Start at [Current status / session handoff](#current-status--session-handoff-2026-06-11) below. Batch 171–173 work is **uncommitted** locally.
+
 **Companion docs:**
 - [oracle-automation-remaining-work.md](./oracle-automation-remaining-work.md) — rules-engine parser/executor gap closure (mostly complete)
 - [oracle-automation-roadmap.md](./oracle-automation-roadmap.md) — historical milestone log
@@ -22,6 +25,139 @@ The project has **three distinct layers**. Layers 1–2 are in strong shape; **L
 | **3 — Integrate** | Server routes live gameplay through IR + resolution UI | **Partial** — activated abilities yes; spells/triggers still prefer handwritten paths |
 
 **Goal:** Make Layer 3 match Layer 2 — every spell, trigger, and activated ability that parses and executes in the rules-engine should resolve through a **single server pipeline**, not parallel handwritten shims.
+
+---
+
+## Current status / session handoff (2026-06-11)
+
+**Latest completed work:** Stack refactor **batch 173** — **partial multi-step IR apply guardrails** (activated abilities, spells, triggers, uncategorized fallback). Reanimation rider step kinds (`grant_temporary_ability`, `grant_leave_battlefield_replacement`, `schedule_delayed_battlefield_action`) added to fallback allowlists. Whip of Erebos + Kheru Lich Lord integration corridors green.
+
+**Git state:** ~60+ files modified, **no commits** unless explicitly requested.
+
+### Batch 173 — what landed
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Wiring centralization** | `oracleIrStepWiring.ts` — mandatory-step completeness, activated allowlists, queue-bridged player-choice handling | `oracleIrStepWiring.ts` |
+| **Activated partial apply fix** | No step filtering; require full wiring; `handled:false` + legacy fallback on incomplete apply | `oracleIrAbilityExecution.ts` |
+| **Spell/trigger completeness** | `isOracleIrExecutionHandled` checks mandatory steps; partial trigger apply logs warning | `oracleIrSpellExecution.ts`, `oracleIrTriggerExecution.ts` |
+| **Fallback allowlist expansion** | Reanimation riders + combat/attach kinds in `ORACLE_IR_FALLBACK_STEP_KINDS` | `trigger-runtime-wiring.ts` |
+| **Server sync bridges** | Haste clears summoning sickness; delayed exile + leave replacement fields | `oracleIrServerZoneSync.ts`, `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Inline activated text** | Single-line oracle keeps full multi-sentence effect after cost | `interaction.ts` (`extractActivatedAbilitiesFromText`) |
+| **Tests** | `oracle-ir-step-wiring.test.ts`, Whip IR integration, activated guardrail source checks | `server/tests/` |
+
+**Invariant:** Multi-step IR effects are **all-or-nothing** — partial apply never returns `handled:true`; legacy runs instead.
+
+### Prior handoff (2026-06-10, batch 172)
+
+**Completed work:** Stack refactor **batch 172** — exert attack-reward integration corridor is **green** (23/23 integration tests). Batch **171** fixed partial multi-step trigger fallthrough and impulse-exile bridging.
+
+**Git state:** ~56 files modified, **no commits** unless explicitly requested. Largest diffs: legacy trigger handler gutting (`oracleIrTriggerLegacyRegexHandlers.ts`, `oracleIrTriggerLegacySingleEffectRegexBatch.ts`), `oracleIrServerZoneSync.ts` (+375 lines sync bridges), rules-engine executor/parser updates.
+
+### Production vs test defaults
+
+| Flag | Production default | Vitest default (`server/tests/vitest.setup.ts`) |
+|------|-------------------|--------------------------------------------------|
+| `ORACLE_IR_TRIGGER_PRIMARY` | **ON** (`oracleIrFeatureFlags.ts`) | **OFF** (`=0` in `beforeEach`) |
+| `ORACLE_IR_SPELL_PRIMARY` | **ON** | **OFF** |
+
+IR-primary integration tests **opt in** per test with `process.env.ORACLE_IR_TRIGGER_PRIMARY = '1'` (or spell equivalent). Legacy-path suites rely on the harness default OFF.
+
+### Batch 172 — what landed
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Copy token IR** | Fixed `splitCopyTokenReference` regex to match singular **copy of** (was `copies?` only → missed `"copy of target creature…"`; Sandstorm root cause) | `rules-engine/src/oracleIRExecutorTokenStepHandlers.ts` |
+| **Sandstorm tail guard** | When IR fallback creates tapped-attacking copy token, skip legacy `TappedAttackingCopyToken` handler (prevents double tokens when primary is OFF) | `stackExecuteTriggerEffectTailUtils.ts` |
+| **IR fallback context** | Defending player via `targetOpponentId`; `targetPermanentId` + `chosenObjectIds` from trigger targets | `stackExecuteTriggerEffectIrFallbackUtils.ts`, `oracleIrStackContextUtils.ts` |
+| **Server sync bridges** | `syncIrCopyTokenProvenanceFromOracleIRResult`, `syncIrAtNextEndStepTokenSacrificeFromOracleIRResult` after `applyOracleIRStepsOnServer` | `oracleIrServerZoneSync.ts` |
+| **Glorybringer target** | `resolveSingleCreatureTargetId` uses `pickFromControllerPool()` for opponent/you-control variants | `rules-engine/src/oracleIRExecutorCreatureStepUtils.ts` |
+| **Hydra Trainer pump** | Strip exert reminder + Adapt activated text from execution description (`+3/+3` not `+5/+5`) | `trigger-runtime-wiring.ts` (`normalizeTriggerEffectDescriptionForExecution`) |
+| **Clockwork Droid** | Broader self-unblockable match; scry only if not already pending | `oracleIrTriggerLegacyCombatEvasionHandlers.ts` |
+| **Routing helper** | `isTriggerEffectFullyIrWired()` — wiring check without primary flag; primary ownership delegates to it | `oracleIrTriggerLegacyRouting.ts` |
+
+### Exert corridor — test matrix (batch 172)
+
+Suite: `server/tests/exert-choice.integration.test.ts` (**23/23** as of 2026-06-10).
+
+| Card / family | Batch 172 fix | Notes |
+|---------------|---------------|-------|
+| **Sandstorm Crasher** | Rules-engine `cop(?:y\|ies) of` regex + server tail guard + sync bridges | Was creating generic `"Token"` (copy path never entered). With `ORACLE_IR_TRIGGER_PRIMARY=0`, IR fallback creates token; legacy `TappedAttackingCopyToken` must **not** also run. |
+| **Glorybringer** | `resolveSingleCreatureTargetId` → `pickFromControllerPool()` | Opponent-controlled non-Dragon filter. |
+| **Hydra Trainer** | `normalizeTriggerEffectDescriptionForExecution()` strips Adapt + exert reminder | Without strip, IR parsed `+5/+5` from Adapt text bleed. Long-term: IR `modify_pt` should own counter math. |
+| **Clockwork Droid** | Self-unblockable + scry in legacy handler; impulse bridge (171) | Scry only queued if not already pending. |
+| **Anep, Vizier of Hazoret** | Impulse exile bridge (171) | `syncIrImpulseExileToPendingImpulseDraws`. |
+| Other exert rewards | Unaffected / already green | Draw, pump, untap, damage watchers, equipment search, Devoted Crop-Mate GY, etc. |
+
+Replay: `server/tests/exert-choice.replay.test.ts` — Sandstorm case passes with defending-player snapshot.
+
+### Trigger resolution flow (exert reflexive — primary OFF)
+
+Vitest default (`ORACLE_IR_TRIGGER_PRIMARY=0`) exercises **coexistence** of IR fallback + legacy regex. Production default is ON.
+
+```
+exert choice → reflexive trigger on stack → executeTriggerEffect
+  1. oracleIrTriggerExecution (primary) → handled:false when primary OFF or not fully wired
+  2. stackExecuteTriggerEffectLegacyBodyUtils (card-specific / early regex)
+  3. stackExecuteTriggerEffectTailUtils:
+       a. applyOracleIRFallbackForTriggeredEffect (uncategorized IR)
+       b. if IR applied + Sandstorm pattern → return early (no legacy duplicate)
+       c. if IR applied + isTriggerEffectOwnedByOracleIrPrimary → return early
+       d. applyRetiredTriggerLegacy* regex batches
+  4. applyOracleIRStepsOnServer sync hooks:
+       syncIrCopyTokenProvenanceFromOracleIRResult
+       syncIrAtNextEndStepTokenSacrificeFromOracleIRResult
+       syncIrImpulseExileToPendingImpulseDraws
+```
+
+**Sandstorm pitfall (fixed):** `splitCopyTokenReference` used `/copies?/` which matches `copie`/`copies` but **not** singular `copy`. Parser emits `"copy of target creature you control"` → copy branch skipped → generic `"Token"`. Fix: `/cop(?:y|ies)/`.
+
+### Batch 171 — recap (still relevant)
+
+- Primary IR must **not** apply partial steps when legacy still needed (multi-step effects like Clockwork Droid).
+- Tail uncategorized fallback short-circuits legacy regex only when effect is **fully** IR-owned (`isTriggerEffectOwnedByOracleIrPrimary`).
+- `syncIrImpulseExileToPendingImpulseDraws` bridges IR `impulse_exile_top` → server `pendingImpulseDraws` (Anep exert, Clockwork scry path).
+
+### Verify before starting next batch
+
+```powershell
+cd server
+npx vitest run tests/exert-choice.integration.test.ts
+npx vitest run tests/oracle-ir-trigger-primary.integration.test.ts
+npx vitest run tests/exert-choice.replay.test.ts -t "Sandstorm"
+npm run test:oracle-ir-migration   # broader migration suite when touching routing/sync
+```
+
+**Expected (2026-06-10):** exert 23/23, trigger-primary 4/4, Sandstorm replay pass.
+
+### Uncommitted file manifest (batch 171–172, grouped)
+
+| Group | Paths |
+|-------|-------|
+| **Trigger primary + routing** | `oracleIrTriggerExecution.ts`, `oracleIrTriggerLegacyRouting.ts`, `stackExecuteTriggerEffectUtils.ts`, `stackExecuteTriggerEffectTailUtils.ts`, `stackExecuteTriggerEffectIrFallbackUtils.ts`, `stackExecuteTriggerEffectLegacyBodyUtils.ts` |
+| **Legacy handler retirement** | `oracleIrTriggerLegacy*.ts` (regex/combat/token/counter/mill/search/combined/single/late batches gutted) |
+| **Server zone sync** | `oracleIrServerZoneSync.ts` (copy provenance, next-end-step sacrifice, impulse exile, temporary abilities bridge) |
+| **Runtime wiring** | `trigger-runtime-wiring.ts`, `triggers/combat.ts`, `oracleIrTriggerUncategorizedFallback.ts` |
+| **Rules-engine (batch 172 fixes)** | `oracleIRExecutorTokenStepHandlers.ts`, `oracleIRExecutorCreatureStepUtils.ts` |
+| **Rules-engine (broader)** | `oracleIR.ts`, `oracleIRParserPostprocess.ts`, `oracleIRParserSimpleActionClauses.ts`, `oracleIRExecutorMainLoop.ts`, `oracleIRExecutorKeywordStepHandlers.ts`, … |
+| **Spell-side retirement** | `oracleIrSpellExecution.ts`, `oracleIrSpellLegacyRouting.ts`, `stackResolveSpell*.ts`, `stackResolveInstantSorceryLegacyBodyUtils.ts` |
+| **Tests** | `exert-choice.integration.test.ts` (green), `oracle-ir-trigger-primary.integration.test.ts`, `oracle-ir-trigger-legacy-*.test.ts`, `oracle-ir-spell-*.integration.test.ts`, `oracle-ir-legacy-forced.integration.test.ts` |
+
+### Next session priorities (Phase 4 continuation)
+
+1. **`grant_temporary_ability` wiring** — retire combat evasion legacy handlers (`oracleIrTriggerLegacyCombatEvasionHandlers.ts`); server bridge from IR `temporaryEffects` → `temporaryAbilities` exists (batch 170) but step-kind wiring deferred.
+2. **`modify_pt` counter-scaled pumps** — long-term IR ownership for Hydra Trainer–style effects (description normalization is a shim; IR step should own counter math).
+3. **Continue regex retirement** — grep `skipRetiredTriggerLegacyHandler` / `applyRetiredTriggerLegacy*` for handlers whose step kinds are in `ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS`; add guardrail + integration test, then gut handler body.
+4. **Copy-token regression test** — add rules-engine unit test asserting `"copy of target creature you control"` hint resolves via copy path (not generic Token). Suggested: extend `rules-engine/test/oracleIRExecutor.test.ts` near existing Rite of Replication copy test (~line 37945).
+5. **Run migration suite** after routing/sync edits: `cd server ; npm run test:oracle-ir-migration`
+6. **Uncommitted work** — all batch 171–172 changes are local only; no commits unless explicitly requested.
+
+### Known invariants (do not break)
+
+- **Double application:** IR fallback applied + legacy regex both running → duplicate tokens/effects. Use tail guards (`triggeredOracleIRApplied > 0` + pattern match) or `skipRetiredTriggerLegacyHandler` when IR owns the effect.
+- **Partial multi-step:** Primary returns `handled: false` when not fully wired; tail fallback may apply step 1 only — legacy must still run for remaining steps unless `isTriggerEffectFullyIrWired` is true for the **whole** description.
+- **Test harness:** Default `ORACLE_IR_TRIGGER_PRIMARY=0` means tail IR fallback + legacy coexist; guards must work in **both** primary-ON and primary-OFF modes.
+- **Zone sync:** Never call `applyOracleIRStepsToGameState` directly on live `ctx.state` — always `applyOracleIRStepsOnServer` (hydrate + sync + queue prompts).
 
 ---
 
@@ -70,7 +206,7 @@ oracle text
 | **Activated ability** | `tryApplyOracleIRToActivatedAbility` | **Primary** — `applyOracleIRStepsOnServer` |
 | **Optional may (game-actions)** | `queueMayAbilityStep` callback | Partial — single optional step via `applyOracleIRStepsOnServer` |
 | **Spell resolves** | `categorizeSpell` → spec hydration → `executeSpellEffect` | **Fallback only** — `applyOracleIRFallbackForUncategorizedSpell` after spec miss |
-| **Triggered ability** | `executeTriggerEffect` (~26k lines of matchers) | **Tail fallback** — `applyOracleIRFallbackForTriggeredEffect` → same uncategorized fallback |
+| **Triggered ability** | `executeTriggerEffect` (~26k lines of matchers) | **Primary when `ORACLE_IR_TRIGGER_PRIMARY` ON** (production default); else **tail fallback** — `applyOracleIRFallbackForTriggeredEffect` → uncategorized fallback |
 | **Optional trigger deferral** | Custom 2-step Effect Program (`stackResolveTriggeredAbilityOptionalUtils.ts`) | Effect Program for yes/no only; defers to stack re-push |
 | **Planeswalker loyalty** | `tryResolvePlaneswalkerLoyaltyTemplate` (~100 template cases) | Separate system; not IR |
 | **Supplemental spell riders** | `applySupplementalOracleIRForResolvedSpell` | Ad-hoc unknown-step handlers |
@@ -90,6 +226,10 @@ oracle text
 | Trigger legacy tail (IR fallback + regex) | `server/src/state/modules/stackExecuteTriggerEffectTailUtils.ts` |
 | Trigger effect preface (pre-IR) | `server/src/state/modules/stackExecuteTriggerEffectPrefaceUtils.ts` |
 | Trigger IR uncategorized fallback | `server/src/state/modules/stackExecuteTriggerEffectIrFallbackUtils.ts` |
+| Trigger legacy routing / primary gate | `server/src/state/modules/oracleIrTriggerLegacyRouting.ts` |
+| Trigger primary execution | `server/src/state/modules/oracleIrTriggerExecution.ts` |
+| Trigger effect description normalize | `server/src/state/modules/trigger-runtime-wiring.ts` |
+| Copy token step handlers (rules-engine) | `rules-engine/src/oracleIRExecutorTokenStepHandlers.ts` |
 | Instant/sorcery orchestration | `server/src/state/modules/stackResolveInstantSorceryOrchestratorUtils.ts` |
 | Instant/sorcery preface (IR + spec) | `server/src/state/modules/stackResolveInstantSorceryPrefaceUtils.ts` |
 | Instant/sorcery legacy resolution | `server/src/state/modules/stackResolveInstantSorceryLegacyResolutionUtils.ts` |
@@ -386,6 +526,8 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
 
 **Objective:** Remove redundant code paths after parity proof.
 
+**Progress (batch 172):** Exert attack-reward corridor validated end-to-end under test harness (primary OFF) and primary-ON suites. Copy-token `create_token` steps with `"copy of …"` hints now resolve correctly in rules-engine (regex fix). Remaining exert-adjacent legacy: `grant_temporary_ability` combat evasion handlers, counter-scaled `modify_pt` (see session handoff).
+
 **Delete or gut:**
 - `applyOracleIRFallbackForUncategorizedSpell` — replace with thin wrapper calling `applyOracleIRStepsOnServer`
 - Redundant `categorizeSpell` patterns superseded by IR
@@ -515,6 +657,24 @@ Update this file when:
 
 | Date | Change |
 |------|--------|
+| 2026-06-10 | Stack refactor batch 172: exert integration corridor green (23/23). **Rules-engine:** `splitCopyTokenReference` now matches singular **copy of** (Sandstorm was creating generic `"Token"`). **Server:** Sandstorm tail guard when IR fallback applies tapped-attacking copy; defending-player `targetOpponentId` binding; `syncIrCopyTokenProvenanceFromOracleIRResult` + `syncIrAtNextEndStepTokenSacrificeFromOracleIRResult`; Glorybringer `pickFromControllerPool` target resolution; Hydra Trainer exert description normalization (Adapt bleed); Clockwork Droid unblockable/scry; `isTriggerEffectFullyIrWired()` routing helper. |
+| 2026-06-10 | Stack refactor batch 171: fixed partial multi-step trigger fallthrough — primary IR skips apply when effect is not fully owned; tail uncategorized fallback no longer short-circuits legacy regex when only partially applied; added `pendingImpulseDraws` bridge for IR `impulse_exile_top` (Clockwork Droid exert + Anep impulse). |
+| 2026-06-10 | Stack refactor batch 170: trigger primary falls through when IR only partially applies non-owned multi-step effects; added server bridge from IR `temporaryEffects` to legacy `temporaryAbilities` (step kind wiring deferred). |
+| 2026-06-11 | Stack refactor batch 169: wired `double_counters` IR fallback step kind; gutted double-+1/+1-on-self trigger regex handler; deferred `grant_temporary_ability` wiring pending server `temporaryAbilities` bridge (exert regressions). |
+| 2026-06-11 | Stack refactor batch 168: gutted chosen-type mass +1/+1 counter and equipped-creature copy token trigger regex handlers (`add_counter`/`create_token` IR steps); removed batch calls; kept Elspeth two-counter Angel rider, optional hand-to-battlefield, and combat-context token bridges. |
+| 2026-06-11 | Stack refactor batch 167: gutted trigger regex handlers for indestructible self-counter, untap/tap-all-lands, each-other-type +1/+1, and power-scaled mass +1/+1 (`add_counter`/`tap_or_untap` IR steps); removed batch calls; kept double-counters, Elspeth rider, and optional hand-to-battlefield bridges. |
+| 2026-06-11 | Stack refactor batch 166: gutted target-player token creation and generic library search trigger regex handlers; removed batch calls; kept Protean Hulk and card-specific search bridges. |
+| 2026-06-11 | Stack refactor batch 165: gutted late-batch target life/damage handler and inline simple counter/tap-target paths; kept devotion scaling counters and mass untap/control-change tap handlers. |
+| 2026-06-11 | Stack refactor batch 164: gutted retired trigger combined handlers for counter-then-draw, deal-damage-each-opponent-and-gain-life, and counter-then-deal-damage; removed body/batch calls; kept custom-queue optional discard/sacrifice and effectData counter riders. |
+| 2026-06-11 | Stack refactor batch 163: gutted retired trigger regex handlers for predefined artifact tokens and generic creature tokens (`create_token` IR step); removed batch calls; kept combat-context and target-player token handlers. |
+| 2026-06-11 | Stack refactor batch 162: gutted retired trigger regex handlers for discard, deal-damage-each-opponent, life-loss variants, and simple +1/+1 counter patterns; removed batch calls; kept compound/specialized counter handlers (Elspeth Angel rider, power-based, etc.). |
+| 2026-06-11 | Stack refactor batch 161: gutted retired trigger single-effect regex handlers for draw/gain/scry/mill (kept compound you-gain-that-much-life); removed batch calls; wired `shouldSkipTriggerUncategorizedFallback` in trigger uncategorized fallback entry. |
+| 2026-06-11 | Stack refactor batch 160: removed retired simple spell draw/gain legacy regex handlers; kept compound draw/discard/treasure/wheel patterns; wired `shouldSkipSpellUncategorizedFallback` in uncategorized spell fallback entry. |
+| 2026-06-11 | Stack refactor batch 159: retired `TARGET_CREATURE`/`TARGET_PERMANENT`/`TARGET_PLAYER` categorize ops; added `choose_target_creature` to runtime-wired fallback kinds; routing assertions (sacrifice-target parity already covered). |
+| 2026-06-11 | Stack refactor batch 158: expanded `ORACLE_IR_FALLBACK_STEP_KINDS` for queued step kinds (`explore`, `connive`, `unless_pays_*`, `conditional`, `search_library`, look-choose, `choose_pile`, `change_target`) so IR primary ownership skips legacy body for those-only effects. |
+| 2026-06-11 | Stack refactor batch 157: wired `blight` IR step kind with server `keywordBlight` TARGET_SELECTION bridge; retired all five `BLIGHT_*` categorize ops; production-default + legacy-forced spell/trigger blight parity; routing assertions. |
+| 2026-06-11 | Stack refactor batch 156: wired `schedule_delayed_trigger` IR step kind with server `pendingFlickerReturns` bridge for delayed battlefield returns; retired `FLICKER_TARGET` categorize op (immediate flicker via `exile`+`move_zone`, delayed via `schedule_delayed_trigger`); production-default + legacy-forced spell parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 155: extended `counter_spell` IR executor to counter stack abilities (not just spells); retired `COUNTER_TARGET_ABILITY` categorize op; production-default + legacy-forced spell parity; routing assertions. |
 | 2026-06-10 | Stack refactor batch 154: retired `DESTROY_ALL_TARGET_PLAYER`/`EXILE_ALL_TARGET_PLAYER` categorize ops; production-default + legacy-forced spell/trigger scoped mass-destroy/exile parity; routing assertions. |
 | 2026-06-10 | Stack refactor batch 153: wired `goad`/`proliferate`/`populate` IR step kinds; retired `SURVEIL_TARGET_PLAYER`, `GOAD_TARGET`, and mass tap/untap categorize ops; production-default + legacy-forced spell/trigger parity; routing assertions. |
 | 2026-06-10 | Stack refactor batch 152: wired `investigate` IR step kind in fallback runtime wiring; retired scry/surveil each-player/each-opponent + `INVESTIGATE` categorize ops; production-default + legacy-forced spell/trigger parity; routing assertions. |

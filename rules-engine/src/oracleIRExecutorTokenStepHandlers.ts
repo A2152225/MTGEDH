@@ -456,9 +456,9 @@ function splitCopyTokenReference(tokenHint: string): {
   readonly exceptionText: string;
 } | null {
   const raw = String(tokenHint || '').trim();
-  if (!/\bcopies?\s+of\b/i.test(raw)) return null;
+  if (!/\bcop(?:y|ies)\s+of\b/i.test(raw)) return null;
 
-  const body = normalizeCopyReferenceBody(raw.replace(/^.*?\bcopies?\s+of\s+/i, '').trim());
+  const body = normalizeCopyReferenceBody(raw.replace(/^.*?\bcop(?:y|ies)\s+of\s+/i, '').trim());
   if (!body) return null;
 
   const exceptMatch = body.match(/^(.*?),\s*except\s+(.+)$/i);
@@ -748,6 +748,7 @@ function createCopiedTokenPermanent(params: {
   readonly controllerId: PlayerID;
   readonly sourceId?: string;
   readonly sourceName?: string;
+  readonly copySourcePermanentId?: string;
   readonly entersTapped?: boolean;
   readonly withCounters?: Record<string, number>;
   readonly overrides: CopyTokenOverrides;
@@ -833,6 +834,9 @@ function createCopiedTokenPermanent(params: {
     oracle_text: tokenCard.oracle_text,
     card: tokenCard,
     isToken: true,
+    ...(String(params.copySourcePermanentId || sourceObject?.id || '').trim()
+      ? { copiedFromPermanentId: String(params.copySourcePermanentId || sourceObject.id).trim() }
+      : {}),
     ...(params.sourceId ? { createdBySourceId: String(params.sourceId).trim() } : {}),
     ...(params.sourceName ? { createdBySourceName: String(params.sourceName).trim() } : {}),
   } as BattlefieldPermanent;
@@ -1281,6 +1285,16 @@ function addTokensToBattlefield(
       };
     }
 
+    const copySourcePermanentId = [
+      String(ctx.targetPermanentId || '').trim(),
+      String(ctx.targetCreatureId || '').trim(),
+      String(ctx.selectorContext?.targetPermanentId || '').trim(),
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds.map((id: unknown) => String(id || '').trim())
+        : []),
+      String((copySource.sourceObject as any)?.id || '').trim(),
+    ].find((id) => id.length > 0);
+
     const copyParts = splitCopyTokenReference(tokenHint);
     const overrides = parseCopyTokenOverrides(copyParts?.exceptionText || '');
     const count = Math.max(1, amount | 0);
@@ -1291,6 +1305,7 @@ function addTokensToBattlefield(
           controllerId,
           sourceId: ctx.sourceId,
           sourceName: ctx.sourceName,
+          copySourcePermanentId,
           entersTapped,
           withCounters,
           overrides,

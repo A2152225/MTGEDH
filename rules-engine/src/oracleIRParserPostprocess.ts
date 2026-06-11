@@ -2846,11 +2846,6 @@ function parseStructuredKeywordActionGrant(
     return [createStructuredKeywordActionGrantStep([`bushido ${String(bushidoMatch[1] || '').trim()}`], raw, sequence)];
   }
 
-  const blightMatch = raw.match(/^blight\s+(\d+)$/i);
-  if (blightMatch) {
-    return [createStructuredKeywordActionGrantStep([`blight ${String(blightMatch[1] || '').trim()}`], raw, sequence)];
-  }
-
   const bolsterWhereMatch = raw.match(/^bolster x, where x is .+$/i);
   if (bolsterWhereMatch) {
     return [createStructuredKeywordActionGrantStep(['bolster x'], raw, sequence, 'this card')];
@@ -2941,6 +2936,68 @@ function parseStructuredKeywordActionGrant(
   return null;
 }
 
+function parseBlightActionFragmentSteps(
+  raw: string,
+  sequence: { sequence?: 'then' },
+): readonly OracleEffectStep[] | null {
+  const self = raw.match(/^blight\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)$/i);
+  if (self) {
+    return [{
+      kind: 'blight',
+      who: { kind: 'you' },
+      amount: parseQuantity(String(self[1] || '1').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachOpponent = raw.match(/^each\s+opponent\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)$/i);
+  if (eachOpponent) {
+    return [{
+      kind: 'blight',
+      who: { kind: 'each_opponent' },
+      amount: parseQuantity(String(eachOpponent[1] || '1').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachPlayer = raw.match(/^each\s+player\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)$/i);
+  if (eachPlayer) {
+    return [{
+      kind: 'blight',
+      who: { kind: 'each_player' },
+      amount: parseQuantity(String(eachPlayer[1] || '1').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetOpponent = raw.match(/^target\s+opponent\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)$/i);
+  if (targetOpponent) {
+    return [{
+      kind: 'blight',
+      who: { kind: 'target_opponent' },
+      amount: parseQuantity(String(targetOpponent[1] || '1').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetPlayer = raw.match(/^target\s+player\s+blights?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)$/i);
+  if (targetPlayer) {
+    return [{
+      kind: 'blight',
+      who: { kind: 'target_player' },
+      amount: parseQuantity(String(targetPlayer[1] || '1').trim()),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  return null;
+}
+
 export function parseBareTriggerEffectFragmentSteps(raw: string): readonly OracleEffectStep[] | null {
   const normalized = normalizeOracleText(String(raw || ''))
     .replace(/^•\s*/, '')
@@ -2949,6 +3006,9 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
   if (!normalized) return null;
 
   const sequence = {} as { sequence?: 'then' };
+  const blightAction = parseBlightActionFragmentSteps(normalized, sequence);
+  if (blightAction) return blightAction;
+
   const keywordGrant = parseStructuredKeywordActionGrant(normalized, sequence);
   if (keywordGrant) return keywordGrant;
 
@@ -5489,7 +5549,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     } as OracleEffectStep];
   }
 
-  if (/^target\s+opponent\s+(?:blights\s+\d+|chooses\b|chosen\s+at\s+random\s+gains\s+control\b|exiles\s+(?:a\s+creature\s+they\s+control\s+and\s+their\s+graveyard|cards\s+from\s+the\s+bottom|the\s+top\s+half)|gets\s+an\s+emblem\b|guesses\b|looks\s+at\b|loses\s+all\s+counters\b|may\s+(?:ante|choose|guess|have|put|sacrifice)\b|reveals\s+cards\s+from\s+the\s+top\b|skips\b|whose\s+turn\s+it\s+is\b|(?:'|’)s\s+life\s+total\s+becomes\b)/i.test(raw)) {
+  if (/^target\s+opponent\s+(?:chooses\b|chosen\s+at\s+random\s+gains\s+control\b|exiles\s+(?:a\s+creature\s+they\s+control\s+and\s+their\s+graveyard|cards\s+from\s+the\s+bottom|the\s+top\s+half)|gets\s+an\s+emblem\b|guesses\b|looks\s+at\b|loses\s+all\s+counters\b|may\s+(?:ante|choose|guess|have|put|sacrifice)\b|reveals\s+cards\s+from\s+the\s+top\b|skips\b|whose\s+turn\s+it\s+is\b|(?:'|’)s\s+life\s+total\s+becomes\b)/i.test(raw)) {
     return staticMetadata('target opponent residual', raw);
   }
 

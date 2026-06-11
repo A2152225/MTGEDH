@@ -209,6 +209,21 @@ function syncEffectProgramStateToGame(game: any, state: GameState): GameState {
     const originalPlayer = originalPlayers.get(playerId);
     let nextPlayer = player as any;
 
+    if (Array.isArray((player as any).hand)) {
+      const hand = ((player as any).hand as any[]).map(card => ({ ...card, zone: 'hand' }));
+      zones[playerId] = {
+        ...(zones[playerId] || {}),
+        hand,
+        handCount: hand.length,
+      };
+      didSyncZones = true;
+
+      if (!originalPlayer || !Object.prototype.hasOwnProperty.call(originalPlayer, 'hand')) {
+        const { hand: _hand, ...playerWithoutHand } = nextPlayer;
+        nextPlayer = playerWithoutHand;
+      }
+    }
+
     if (Array.isArray((player as any).library)) {
       const library = ((player as any).library as any[]).map(card => ({ ...card, zone: 'library' }));
       (game as any).libraries.set(playerId, library);

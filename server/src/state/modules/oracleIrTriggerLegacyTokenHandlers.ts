@@ -44,182 +44,21 @@ function parseTokenCountFromText(text: string): number {
 }
 
 export function applyRetiredTriggerLegacyTargetPlayerCreatesToken(
-  params: TriggerLegacyTokenParams,
+  _params: TriggerLegacyTokenParams,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
-    return false;
-  }
-
-  const targetPlayerTokenMatch = params.description.match(/target player creates (?:a|an|one|two|three|four|five|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
-  if (!targetPlayerTokenMatch) {
-    return false;
-  }
-
-  const countWord = params.description.match(/target player creates (a|an|one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() || 'a';
-  const tokenCount = TOKEN_COUNT_WORDS[countWord] || (targetPlayerTokenMatch[1] ? parseInt(targetPlayerTokenMatch[1], 10) : 1);
-  const power = parseInt(targetPlayerTokenMatch[2], 10);
-  const toughness = parseInt(targetPlayerTokenMatch[3], 10);
-  const tokenDescription = String(targetPlayerTokenMatch[4] || '').trim();
-  const targetPlayerId = resolveTriggeredAbilityTargetPlayerId(params.state, params.triggerItem);
-
-  if (targetPlayerId && Number.isFinite(power) && Number.isFinite(toughness)) {
-    const { name, colors, creatureTypes, abilities } = parseCreateTokenDescriptor(tokenDescription);
-    const typeLine = `Token Creature — ${creatureTypes.length ? creatureTypes.join(' ') : name}`;
-    const tokensToCreate = tokenCount * getTokenDoublerMultiplier(targetPlayerId as PlayerID, params.state);
-
-    createToken(params.ctx, targetPlayerId as PlayerID, name, tokensToCreate, power, toughness, {
-      colors,
-      abilities,
-      typeLine,
-    });
-  }
-
-  maybeApplyPreparedStateChange(params.ctx, params.controller, params.description, params.triggerItem);
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyPredefinedArtifactTokens(
-  params: TriggerLegacyTokenParams,
+  _params: TriggerLegacyTokenParams,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  const predefinedTokenMatch = params.desc.match(/create (?:a|an|one|two|three|four|five|(\d+)) (food|treasure|clue|map|blood|gold|powerstone) tokens?/i);
-  if (!predefinedTokenMatch) {
-    return false;
-  }
-
-  const tokenCount = parseTokenCountFromText(params.desc);
-  const tokenType = predefinedTokenMatch[2].toLowerCase();
-  if (!isPredefinedTriggerArtifactTokenKind(tokenType)) {
-    return false;
-  }
-
-  const ctx = params.ctx as GameContext;
-  if (!ctx.state && params.state) {
-    (ctx as any).state = params.state;
-  }
-  if (!ctx.bumpSeq) {
-    (ctx as any).bumpSeq = () => {};
-  }
-
-  const tokensToCreate = tokenCount * getTokenDoublerMultiplier(params.controller, params.state);
-  debug(
-    2,
-    `[executeTriggerEffect] Creating ${tokensToCreate} ${tokenType} tokens (base: ${tokenCount}, multiplier: ${getTokenDoublerMultiplier(params.controller, params.state)})`,
-  );
-
-  createCommonArtifactTokenFromText(ctx, params.controller, tokenType, tokensToCreate);
-
-  maybeApplyPreparedStateChange(params.ctx, params.controller, params.description, params.triggerItem);
-  return true;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyCreateCreatureToken(
-  params: TriggerLegacyTokenParams,
+  _params: TriggerLegacyTokenParams,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  const createTokenMatch = params.desc.match(/create (?:a|an|one|two|three|four|five|(\d+))(?: (tapped))? (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
-  if (!createTokenMatch) {
-    return false;
-  }
-
-  const tokenCount = parseTokenCountFromText(params.desc);
-  const entersTapped = Boolean(createTokenMatch[2]);
-  const power = parseInt(createTokenMatch[3], 10);
-  const toughness = parseInt(createTokenMatch[4], 10);
-  const tokenDescription = createTokenMatch[5].trim();
-  const tokensToCreate = tokenCount * getTokenDoublerMultiplier(params.controller, params.state);
-  debug(2, `[executeTriggerEffect] Generic trigger creating ${tokensToCreate} tokens (base: ${tokenCount}, multiplier: ${getTokenDoublerMultiplier(params.controller, params.state)})`);
-
-  const isTappedAndAttacking = params.desc.includes('tapped and attacking');
-  const entersTappedOnly = entersTapped && !isTappedAndAttacking;
-
-  const parts = tokenDescription.split(/\s+/);
-  const colors: string[] = [];
-  const creatureTypes: string[] = [];
-  const colorMap: Record<string, string> = {
-    white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G', colorless: '',
-  };
-
-  for (const part of parts) {
-    const lowerPart = part.toLowerCase();
-    if (colorMap[lowerPart] !== undefined) {
-      if (colorMap[lowerPart]) colors.push(colorMap[lowerPart]);
-    } else if (lowerPart !== 'creature' && lowerPart !== 'token' && lowerPart !== 'and' && lowerPart !== 'with'
-      && lowerPart !== 'that' && lowerPart !== 'are' && lowerPart !== 'tapped' && lowerPart !== 'attacking') {
-      creatureTypes.push(part.charAt(0).toUpperCase() + part.slice(1).toLowerCase());
-    }
-  }
-
-  const abilities: string[] = [];
-  if (params.desc.includes('vigilance')) abilities.push('Vigilance');
-  if (params.desc.includes('haste')) abilities.push('Haste');
-  if (params.desc.includes('lifelink')) abilities.push('Lifelink');
-  if (params.desc.includes('deathtouch')) abilities.push('Deathtouch');
-  if (params.desc.includes('flying')) abilities.push('Flying');
-  if (params.desc.includes('first strike')) abilities.push('First strike');
-  if (params.desc.includes('trample')) abilities.push('Trample');
-  if (params.desc.includes('menace')) abilities.push('Menace');
-  if (params.desc.includes('reach')) abilities.push('Reach');
-
-  params.state.battlefield = params.state.battlefield || [];
-  debug(2, `[executeTriggerEffect] Creating tokens: tokenName=${creatureTypes.join(' ')}, power=${power}, toughness=${toughness}, colors=${JSON.stringify(colors)}`);
-
-  for (let i = 0; i < tokensToCreate; i++) {
-    const tokenId = uid('token');
-    const tokenName = creatureTypes.length > 0 ? creatureTypes.join(' ') : 'Token';
-    const typeLine = `Token Creature — ${creatureTypes.join(' ')}`;
-
-    let tokenImageUrls: any;
-    try {
-      tokenImageUrls = getTokenImageUrls(tokenName, power, toughness, colors);
-    } catch (e) {
-      debugWarn(1, '[executeTriggerEffect] getTokenImageUrls failed (continuing without image):', {
-        tokenName,
-        power,
-        toughness,
-        colors,
-      }, e);
-      tokenImageUrls = undefined;
-    }
-
-    const token = {
-      id: tokenId,
-      controller: params.controller,
-      owner: params.controller,
-      tapped: entersTappedOnly || isTappedAndAttacking,
-      counters: {},
-      basePower: power,
-      baseToughness: toughness,
-      summoningSickness: !abilities.includes('Haste') && !isTappedAndAttacking,
-      isToken: true,
-      isAttacking: isTappedAndAttacking,
-      card: {
-        id: tokenId,
-        name: tokenName,
-        type_line: typeLine,
-        power: String(power),
-        toughness: String(toughness),
-        colors,
-        oracle_text: abilities.join(', '),
-        keywords: abilities,
-        zone: 'battlefield',
-        image_uris: tokenImageUrls,
-      },
-    } as any;
-
-    params.state.battlefield.push(token);
-    debug(2, `[executeTriggerEffect] Created ${power}/${toughness} ${tokenName} token for ${params.controller}${isTappedAndAttacking ? ' (tapped and attacking)' : entersTappedOnly ? ' (tapped)' : ''}`);
-    triggerETBEffectsForToken(params.ctx, token, params.controller);
-  }
-
-  maybeApplyPreparedStateChange(params.ctx, params.controller, params.description, params.triggerItem);
-  return true;
+  return false;
 }
 
 const COMBAT_COLOR_MAP: Record<string, string> = {
@@ -595,26 +434,9 @@ export function createEquippedCreatureCopyTokenFromEquipment(
 }
 
 export function applyRetiredTriggerLegacyEquippedCreatureCopyToken(
-  params: TriggerLegacyTokenParams,
+  _params: TriggerLegacyTokenParams,
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  if (!params.desc.includes('token') || !params.desc.includes('copy')) {
-    return false;
-  }
-  if (!params.desc.includes('equipped creature') && !params.desc.includes('equipped permanent')) {
-    return false;
-  }
-
-  const sourceId = params.triggerItem.source || params.triggerItem.permanentId;
-  return createEquippedCreatureCopyTokenFromEquipment(
-    params.ctx,
-    params.controller,
-    String(sourceId || ''),
-    params.description,
-  ) > 0;
+  return false;
 }
 
 const IRREGULAR_PLURALS: Record<string, string> = {
@@ -1104,6 +926,21 @@ export function applyRetiredTriggerLegacyTappedAttackingCopyToken(params: {
   const [targetRef] = (params.triggerItem as any).targets || [];
   const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
   const targetCreature = battlefield.find((permanent: any) => String(permanent?.id || '') === String(targetId || ''));
+  const existingCopyToken = battlefield.find(
+    (permanent: any) =>
+      permanent?.isToken === true
+      && (
+        String(permanent?.copiedFromPermanentId || '').trim() === String(targetId || '').trim()
+        || (
+          targetCreature?.card?.name
+          && String(permanent?.card?.name || '').trim() === String(targetCreature.card.name).trim()
+          && String(permanent?.controller || '') === String(params.controller || '')
+        )
+      ),
+  );
+  if (existingCopyToken) {
+    return true;
+  }
   const sourcePermanentId = params.triggerItem.source || params.triggerItem.permanentId;
   const sourcePermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === String(sourcePermanentId || ''));
   const defendingPlayerId = String(

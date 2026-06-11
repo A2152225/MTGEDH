@@ -26,12 +26,16 @@ describe('trigger runtime wiring assessment', () => {
     expect(collectOracleEffectSteps(effect, 'Cryptoplasm')).toEqual(steps);
   });
 
-  it('flags optional draw triggers that parse but lack runtime handlers', () => {
+  it('does not flag wired lose-life trigger fragments', () => {
+    expect(getTriggerRuntimeWiringGaps('that player loses 3 life', 'Shrieking Affliction')).toEqual([]);
+  });
+
+  it('treats optional draw triggers as wired when draw is in the fallback set', () => {
     const effect = 'you may draw a card';
     const steps = parseTriggerEffectSteps(effect, 'Sample Card');
 
     expect(steps.some(step => step.kind === 'draw')).toBe(true);
-    expect(getTriggerRuntimeWiringGaps(effect, 'Sample Card')).toContain('draw (optional)');
+    expect(getTriggerRuntimeWiringGaps(effect, 'Sample Card')).toEqual([]);
   });
 
   it('does not flag effects outside the oracle IR fallback surface area', () => {

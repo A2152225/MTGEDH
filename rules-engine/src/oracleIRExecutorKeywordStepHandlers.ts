@@ -125,6 +125,158 @@ function applyInvestigateWithAmount(
   };
 }
 
+export function getBlightEligibleCreatures(
+  state: GameState,
+  playerId: PlayerID,
+): readonly BattlefieldPermanent[] {
+  return (state.battlefield || []).filter((permanent) => {
+    if (String((permanent as any)?.controller || '').trim() !== String(playerId)) return false;
+    return isExecutorCreature(permanent);
+  });
+}
+
+export type BlightTargetSelectionConfig = {
+  readonly playerId: PlayerID;
+  readonly count: number;
+  readonly validTargets: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly description?: string;
+    readonly imageUrl?: string;
+  }[];
+};
+
+export function collectBlightTargetSelectionConfigs(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'blight' }>,
+  ctx: OracleIRExecutionContext,
+): readonly BlightTargetSelectionConfig[] {
+  const whereX = (step as { whereX?: { kind: 'where'; raw: string } }).whereX;
+  const amount = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+    whereX,
+  });
+  if (amount === null || amount <= 0) return [];
+
+  const players = resolvePlayers(state, step.who, ctx);
+  const configs: BlightTargetSelectionConfig[] = [];
+  for (const playerId of players) {
+    const creatures = getBlightEligibleCreatures(state, playerId);
+    if (creatures.length === 0) continue;
+    configs.push({
+      playerId,
+      count: amount,
+      validTargets: creatures.map((permanent) => {
+        const id = String((permanent as any)?.id || '').trim();
+        const card = (permanent as any)?.card || {};
+        return {
+          id,
+          label: String(card?.name || 'Creature'),
+          description: String(card?.type_line || 'creature'),
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        };
+      }),
+    });
+  }
+  return configs;
+}
+
+function applyMinusOneCountersToPermanent(permanent: BattlefieldPermanent, amount: number): BattlefieldPermanent {
+  const count = Math.max(0, amount | 0);
+  if (count <= 0) return permanent;
+  const counters = {
+    ...(((permanent as any).counters || {}) as Record<string, number>),
+    '-1/-1': Number((permanent as any).counters?.['-1/-1'] || 0) + count,
+  };
+  return {
+    ...(permanent as any),
+    counters,
+  } as BattlefieldPermanent;
+}
+
+export function applyBlightStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'blight' }>,
+  ctx: OracleIRExecutionContext,
+): KeywordStepHandlerResult {
+  const whereX = (step as { whereX?: { kind: 'where'; raw: string } }).whereX;
+  const amount = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+    whereX,
+  });
+  if (amount === null || amount <= 0) {
+    return {
+      applied: false,
+      message: `Skipped blight (unsupported amount): ${step.raw}`,
+      reason: 'failed_to_apply',
+    };
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped blight (unsupported player selector): ${step.raw}`,
+      reason: 'failed_to_apply',
+    };
+  }
+
+  const eligibleCreatureIds = new Set<string>();
+  for (const playerId of players) {
+    for (const creature of getBlightEligibleCreatures(state, playerId)) {
+      const creatureId = String((creature as any)?.id || '').trim();
+      if (creatureId) eligibleCreatureIds.add(creatureId);
+    }
+  }
+
+  const rawChosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+    ? ctx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const chosenCreatureId = rawChosenIds.find((id) => eligibleCreatureIds.has(id));
+  if (chosenCreatureId) {
+    const targetId = chosenCreatureId;
+    const targetPermanent = (state.battlefield || []).find(
+      (permanent) => String((permanent as any)?.id || '').trim() === targetId,
+    );
+    const controllerId = String((targetPermanent as any)?.controller || '').trim() as PlayerID;
+    if (!targetPermanent || !players.includes(controllerId)) {
+      return {
+        applied: false,
+        message: `Skipped blight (invalid target choice): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+
+    const nextBattlefield = (state.battlefield || []).map((permanent) =>
+      String((permanent as any)?.id || '').trim() === targetId
+        ? applyMinusOneCountersToPermanent(permanent, amount)
+        : permanent,
+    );
+    const targetName = String((targetPermanent as any)?.card?.name || targetId || 'a creature');
+    return {
+      applied: true,
+      state: {
+        ...state,
+        battlefield: nextBattlefield,
+      },
+      log: [`${controllerId} blighted ${targetName} with ${amount} -1/-1 counter${amount === 1 ? '' : 's'} (${ctx.sourceName || 'Oracle IR'})`],
+    };
+  }
+
+  const configs = collectBlightTargetSelectionConfigs(state, step, ctx);
+  if (configs.length === 0) {
+    return {
+      applied: true,
+      state,
+      log: [`Blight had no eligible creatures: ${step.raw}`],
+    };
+  }
+
+  return createChoiceRequiredResult(`Skipped blight (requires player choice): ${step.raw}`, {
+    blightPlayerIds: configs.map((config) => config.playerId),
+    blightAmount: amount,
+    eligiblePermanentIds: configs.flatMap((config) => config.validTargets.map((target) => target.id)),
+  });
+}
+
 export function buildPopulateTargetSelectionOptions(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'populate' }>,

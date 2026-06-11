@@ -26,6 +26,8 @@ import {
 import { copyPermanentTriggerStepNeedsTargetSelectionQueue } from './trigger-copy-permanent.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
+import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
+import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
 
 export { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 
@@ -99,6 +101,10 @@ function resolveTriggerTargetBinding(
     const sourcePermanent = (state?.battlefield || []).find(
       (permanent: any) => String(permanent?.id || '').trim() === sourcePermanentId,
     ) as any;
+    const attackingPlayerId = String(sourcePermanent?.attacking || '').trim();
+    if (attackingPlayerId && !attackingPlayerId.startsWith('perm_')) {
+      targetPlayerId = attackingPlayerId as PlayerID;
+    }
     const enchantedTarget = String(
       sourcePermanent?.attachedTo
         || sourcePermanent?.enchanting
@@ -107,6 +113,13 @@ function resolveTriggerTargetBinding(
     ).trim();
     if (enchantedTarget) {
       targetPlayerId = enchantedTarget as PlayerID;
+    }
+  }
+
+  if (!targetPlayerId) {
+    const defendingPlayerId = String(triggerItem?.defendingPlayer || '').trim();
+    if (defendingPlayerId && !defendingPlayerId.startsWith('perm_')) {
+      targetPlayerId = defendingPlayerId as PlayerID;
     }
   }
 
@@ -166,6 +179,10 @@ function buildTriggerIrContext(
       ? params.triggerItem.selectedModes
       : undefined;
 
+  const defendingOpponentId = binding.targetPlayerId && String(binding.targetPlayerId) !== String(params.controller)
+    ? binding.targetPlayerId
+    : undefined;
+
   return buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
@@ -177,6 +194,7 @@ function buildTriggerIrContext(
       selectorContext: {
         ...(binding.chosenObjectIds ? { chosenObjectIds: binding.chosenObjectIds } : {}),
         ...(binding.targetPlayerId ? { targetPlayerId: binding.targetPlayerId } : {}),
+        ...(defendingOpponentId ? { targetOpponentId: defendingOpponentId } : {}),
         ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
       },
       ...(binding.targetPermanentId ? { targetPermanentId: binding.targetPermanentId } : {}),
@@ -184,6 +202,7 @@ function buildTriggerIrContext(
     {
       targetPermanentId: binding.targetPermanentId,
       targetPlayerId: binding.targetPlayerId,
+      targetOpponentId: defendingOpponentId,
       targetSpellId: binding.targetSpellId,
       chosenObjectIds: binding.chosenObjectIds,
       sourceObjectType: 'ability',
@@ -232,7 +251,7 @@ export function tryResolveTriggerViaOracleIR(
   ctx: GameContext,
   params: TryResolveTriggerViaOracleIRParams,
 ): TryResolveTriggerViaOracleIRResult {
-  const effectText = String(params.effectText || '').trim();
+  const effectText = normalizeTriggerEffectDescriptionForExecution(String(params.effectText || ''));
   if (!effectText) {
     return { handled: false, applied: 0, shadowWouldHandle: false };
   }
@@ -250,6 +269,9 @@ export function tryResolveTriggerViaOracleIR(
   const normalizedSelectedModeIds = executionOptions.selectedModeIds;
 
   const useEffectProgram = requiresEffectProgramOrchestration(steps, normalizedSelectedModeIds);
+  const hasChooseModeStep = steps.some((step) => step.kind === 'choose_mode');
+  const hasPreselectedModes = Array.isArray(normalizedSelectedModeIds) && normalizedSelectedModeIds.length > 0;
+  const canApplyPreselectedChooseMode = hasChooseModeStep && hasPreselectedModes;
   const effectProgramParams = {
     controller: params.controller,
     sourceName: params.sourceName,
@@ -299,6 +321,10 @@ export function tryResolveTriggerViaOracleIR(
     }
   }
 
+  if (!isTriggerEffectOwnedByOracleIrPrimary(effectText, params.sourceName) && !canApplyPreselectedChooseMode) {
+    return { handled: false, applied: 0, shadowWouldHandle: false };
+  }
+
   try {
     const gameId = String((ctx as any).gameId || 'unknown');
     const queueBefore = gameId !== 'unknown'
@@ -321,7 +347,7 @@ export function tryResolveTriggerViaOracleIR(
     const queueAfter = gameId !== 'unknown'
       ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
       : queueBefore;
-    let handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter);
+    let handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter, steps);
     const applied = result.appliedSteps.length;
 
     if (
@@ -368,10 +394,23 @@ export function tryResolveTriggerViaOracleIR(
       handled = false;
     }
 
+    if (
+      handled
+      && !isTriggerEffectOwnedByOracleIrPrimary(effectText, params.sourceName)
+      && !canApplyPreselectedChooseMode
+    ) {
+      handled = false;
+    }
+
     if (handled) {
       debug(
         2,
         `[oracleIR] Primary trigger resolution for ${params.sourceName}: ${applied} step(s) applied`,
+      );
+    } else if (applied > 0) {
+      debugWarn(
+        1,
+        `[oracleIR] Partial trigger IR apply for ${params.sourceName}: ${applied}/${steps.length} step(s); falling back to legacy`,
       );
     }
 

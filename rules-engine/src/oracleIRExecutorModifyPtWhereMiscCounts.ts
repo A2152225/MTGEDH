@@ -73,6 +73,13 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
   }
 
   {
+    const m = raw.match(/^x is the number of creatures you control$/i);
+    if (m) {
+      return controlled.filter((p: any) => hasExecutorClass(p, 'creature')).length;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of other creatures you control$/i);
     if (m) {
       const excludedId = getExcludedId();

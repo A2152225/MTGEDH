@@ -41,11 +41,15 @@ export function applyOracleIRFallbackForTriggeredEffect(
   if (!text) return 0;
 
   const targets = Array.isArray(triggerItem?.targets) ? triggerItem.targets : [];
-  let targetPlayerId = String(
-    targets[0]?.id || targets[0] || triggerItem?.targetPlayerId || ''
-  ).trim() as PlayerID;
+  const players = Array.isArray((ctx as any).state?.players) ? (ctx as any).state.players : [];
+  const playerIds = new Set(players.map((player: any) => String(player?.id || '')).filter(Boolean));
+
+  let targetPlayerId = String(triggerItem?.targetPlayerId || '').trim() as PlayerID;
   if (!targetPlayerId) {
-    targetPlayerId = resolveTriggeredAbilityTargetPlayerId((ctx as any).state, triggerItem) as PlayerID;
+    const defendingPlayerId = String(triggerItem?.defendingPlayer || '').trim();
+    if (defendingPlayerId && !defendingPlayerId.startsWith('perm_') && playerIds.has(defendingPlayerId)) {
+      targetPlayerId = defendingPlayerId as PlayerID;
+    }
   }
 
   const sourcePermanentId = String(
@@ -55,15 +59,22 @@ export function applyOracleIRFallbackForTriggeredEffect(
     const sourcePermanent = ((ctx as any).state?.battlefield || []).find(
       (permanent: any) => String(permanent?.id || '').trim() === sourcePermanentId
     ) as any;
+    const attackingPlayerId = String(sourcePermanent?.attacking || '').trim();
+    if (attackingPlayerId && !attackingPlayerId.startsWith('perm_') && playerIds.has(attackingPlayerId)) {
+      targetPlayerId = attackingPlayerId as PlayerID;
+    }
     const enchantedTarget = String(
       sourcePermanent?.attachedTo ||
         sourcePermanent?.enchanting ||
         sourcePermanent?.enchantedPlayerId ||
         ''
     ).trim();
-    if (enchantedTarget) {
+    if (!targetPlayerId && enchantedTarget && playerIds.has(enchantedTarget)) {
       targetPlayerId = enchantedTarget as PlayerID;
     }
+  }
+  if (!targetPlayerId) {
+    targetPlayerId = resolveTriggeredAbilityTargetPlayerId((ctx as any).state, triggerItem) as PlayerID;
   }
   const sourceId = String(triggerItem?.id || triggerItem?.sourceId || sourcePermanentId || '').trim();
 
@@ -91,12 +102,19 @@ export function applyOracleIRFallbackForTriggeredEffect(
     xValue: typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined,
     sourceId: sourcePermanentId || sourceId,
     targetPlayerId: (targetPlayerId || losingPlayerId || undefined) as PlayerID | undefined,
+    targetOpponentId: (
+      targetPlayerId && String(targetPlayerId) !== String(controller)
+        ? targetPlayerId
+        : losingPlayerId && String(losingPlayerId) !== String(controller)
+          ? losingPlayerId
+          : undefined
+    ) as PlayerID | undefined,
     targetPermanentId,
     chosenObjectIds: normalizedTargetIds.length > 0 ? normalizedTargetIds : undefined,
     referenceAmount: Number.isFinite(lifeLostReference) && lifeLostReference > 0 ? lifeLostReference : undefined,
   });
 
-  return applyOracleIRTriggerUncategorizedFallback(
+  const applied = applyOracleIRTriggerUncategorizedFallback(
     ctx,
     controller,
     sourceName,
@@ -105,4 +123,18 @@ export function applyOracleIRFallbackForTriggeredEffect(
     irCtx,
     triggerUncategorizedFallbackDeps,
   );
+
+  if (
+    applied > 0
+    && /copy of target creature you control/i.test(text)
+    && targetPermanentId
+  ) {
+    const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+    const newestToken = [...battlefield].reverse().find((perm: any) => perm?.isToken === true);
+    if (newestToken && !newestToken.copiedFromPermanentId) {
+      newestToken.copiedFromPermanentId = targetPermanentId;
+    }
+  }
+
+  return applied;
 }

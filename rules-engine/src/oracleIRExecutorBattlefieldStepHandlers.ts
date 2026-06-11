@@ -2569,6 +2569,7 @@ function resolveDirectBattlefieldPermanents(
       const boundMatches = resolveBoundSelectorMatches(battlefield, selector, ctx);
       if (boundMatches.length > 0) return boundMatches.slice(0, 1);
       const matched = battlefield.filter(perm => permanentMatchesSelector(perm, selector, ctx));
+      if (matched.length > 1) return [];
       return matched.length > 0 ? matched.slice(0, 1) : [];
     }
     return battlefield.filter(perm => permanentMatchesSelector(perm, selector, ctx));
@@ -2733,10 +2734,15 @@ function applyTemporaryEffectToPermanents(
       }
     }
 
+    const grantsHaste =
+      normalizedGrantedAbilities.includes('haste')
+      || effect.descriptions.some((description) => /\bhaste\b/i.test(String(description || '')));
+
     return {
       ...perm,
       ...(existingEffects.length > 0 ? { temporaryEffects: existingEffects } : {}),
       ...(existingGrantedAbilities.length > 0 ? { grantedAbilities: existingGrantedAbilities } : {}),
+      ...(grantsHaste ? { summoningSickness: false } : {}),
     } as any;
   });
 
@@ -2903,10 +2909,13 @@ export function applyGrantStaticAbilityStep(
       }
     }
 
+    const grantsHaste = existingGranted.some((ability) => String(ability || '').trim().toLowerCase() === 'haste');
+
     return {
       ...perm,
       ...(existingGranted.length > 0 ? { grantedAbilities: existingGranted } : {}),
       ...(existingModifiers.length > 0 ? { modifiers: existingModifiers } : {}),
+      ...(grantsHaste ? { summoningSickness: false } : {}),
       effectivePower: undefined,
       effectiveToughness: undefined,
     } as BattlefieldPermanent;
@@ -3957,11 +3966,19 @@ export function applyGrantTemporaryAbilityStep(
   }
 
   if (/^(?:it|this creature|this permanent)$/i.test(normalizedTargetText)) {
-    const selfTargets = resolveDirectBattlefieldPermanents(
+    const selfReference = /^this permanent$/i.test(normalizedTargetText) ? 'this permanent' : 'it';
+    const recentTargets = resolveRecentlyMovedBattlefieldPermanents(
       battlefield,
-      { kind: 'raw', text: /^this permanent$/i.test(normalizedTargetText) ? 'this permanent' : 'it' },
-      ctx
+      { kind: 'raw', text: selfReference },
+      runtime,
     );
+    const selfTargets = recentTargets.length > 0
+      ? recentTargets
+      : resolveDirectBattlefieldPermanents(
+          battlefield,
+          { kind: 'raw', text: selfReference },
+          ctx
+        );
     if (selfTargets.length > 0) {
       const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
         .map(value => String(value || '').trim())
@@ -7163,10 +7180,20 @@ export function applyGrantLeaveBattlefieldReplacementStep(
   const nextBattlefield = battlefield.map((perm: any) => {
     const permanentId = String((perm as any)?.id || '').trim();
     if (!targetIds.includes(permanentId)) return perm;
-    return {
+    const nextPerm = {
       ...perm,
       leaveBattlefieldReplacement: step.destination,
+      ...(step.destination === 'exile'
+        ? {
+            leaveBattlefieldReplacementDestination: 'exile',
+            card: {
+              ...((perm as any)?.card || {}),
+              leaveBattlefieldReplacementDestination: 'exile',
+            },
+          }
+        : {}),
     } as BattlefieldPermanent;
+    return nextPerm;
   });
 
   return {

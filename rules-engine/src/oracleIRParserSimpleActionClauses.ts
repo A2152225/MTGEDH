@@ -3382,6 +3382,47 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const blightSelf = clause.match(
+      new RegExp(`^blight\\s+(${COUNTER_AMOUNT_PATTERN}|x)(?:\\s*,\\s+where\\s+x\\s+is\\s+(.+))?\\s*\\.?(?:\\s*\\(.*\\))?$`, 'i')
+    );
+    if (blightSelf) {
+      const whereX = blightSelf[2]
+        ? ({ kind: 'where', raw: String(blightSelf[2] || '').trim() } as const)
+        : undefined;
+      return withMeta({
+        kind: 'blight',
+        who: { kind: 'you' },
+        amount: parseQuantity(String(blightSelf[1] || '1').trim()),
+        ...(whereX ? { whereX } : {}),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const blight = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?blights?\\s+(${COUNTER_AMOUNT_PATTERN}|x)(?:\\s*,\\s+where\\s+x\\s+is\\s+(.+))?\\s*\\.?(?:\\s*\\(.*\\))?$`,
+        'i'
+      )
+    );
+    if (blight) {
+      const whoRaw = String(blight[1] || 'you').trim() || 'you';
+      const whereX = blight[3]
+        ? ({ kind: 'where', raw: String(blight[3] || '').trim() } as const)
+        : undefined;
+      return withMeta({
+        kind: 'blight',
+        who: parsePlayerSelector(whoRaw),
+        amount: parseQuantity(String(blight[2] || '1').trim()),
+        ...(whereX ? { whereX } : {}),
+        optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const investigate = clause.match(
       new RegExp(
         `^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?(?:investigate|investigates)(?:\\s+(twice|that many|that much|\\d+|x)(?:\\s+times)?)?(?:,\\s+where\\s+x\\s+is\\s+(.+))?$`,

@@ -44,7 +44,7 @@ describe('oracleIrTriggerLegacySearchHandlers', () => {
     })).toBe(false);
   });
 
-  it('skips generic search when library is empty', () => {
+  it('retired generic search defers to IR uncategorized fallback', () => {
     expect(applyRetiredTriggerLegacyGenericSearchLibrary({
       ctx: { gameId: 'g1', libraries: new Map([['p1', []]]) } as any,
       controller: 'p1' as PlayerID,
@@ -52,6 +52,6 @@ describe('oracleIrTriggerLegacySearchHandlers', () => {
       desc: 'Search your library for a basic land card, put it onto the battlefield, then shuffle.',
       triggerItem: {},
       state: { players: [{ id: 'p1' }] },
-    })).toBe(true);
+    })).toBe(false);
   });
 });

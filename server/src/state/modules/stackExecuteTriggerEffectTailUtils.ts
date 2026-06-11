@@ -7,8 +7,10 @@ import type { TriggerEffectLegacyBodyContinuation } from './stackResolveSharedTy
 import { maybeApplyPreparedStateChange } from './triggerPreparedStateUtils.js';
 import { getTriggerSourcePermanent } from './triggerSourceUtils.js';
 import {
+  isTriggerEffectOwnedByOracleIrPrimary,
   shouldSkipLegacyTriggerRegexHandlers,
 } from './oracleIrTriggerLegacyRouting.js';
+import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
 import {
   applyRetiredTriggerLegacyCombinedEffectsRegexBatch,
   applyRetiredTriggerLegacyPutLandFromHand,
@@ -160,7 +162,7 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
       ctx,
       controller,
       sourceName,
-      descriptionForOracleFallback,
+      desc,
       triggerItem,
     );
   const createTokenTrigger = isCreateCreatureTokenTriggerText(desc)
@@ -171,7 +173,23 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
   const drawLibrarySynced = drawTriggerLibrarySynced(desc, ctx, controller, libraryCountBefore)
     && drawTriggerLibrarySynced(descriptionForOracleFallback, ctx, controller, libraryCountBefore);
 
-  if (triggeredOracleIRApplied > 0 && createTokenBattlefieldSynced && drawLibrarySynced) {
+  const normalizedFallbackText = normalizeTriggerEffectDescriptionForExecution(descriptionForOracleFallback);
+  if (
+    triggeredOracleIRApplied > 0
+    && createTokenBattlefieldSynced
+    && drawLibrarySynced
+    && /create a tapped and attacking token that's a copy of target creature you control/i.test(normalizedFallbackText)
+  ) {
+    tryResolveThassasOracleWin(ctx, controller, sourceName);
+    return true;
+  }
+
+  if (
+    triggeredOracleIRApplied > 0
+    && createTokenBattlefieldSynced
+    && drawLibrarySynced
+    && isTriggerEffectOwnedByOracleIrPrimary(descriptionForOracleFallback, sourceName)
+  ) {
     tryResolveThassasOracleWin(ctx, controller, sourceName);
     return true;
   }

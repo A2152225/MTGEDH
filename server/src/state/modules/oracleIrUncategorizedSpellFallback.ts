@@ -1,7 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import { buildOracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutor.js';
-import type { OracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
+import type { OracleIRExecutionContext, OracleIRExecutionOptions } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
 import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
@@ -12,6 +12,7 @@ import {
   wouldOracleIRFallbackPrefilterMatch,
 } from './trigger-runtime-wiring.js';
 import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync.js';
+import { isOptionalOracleEffectStep } from './oracleIrStepWiring.js';
 import { isOracleIrExecutionHandled } from './oracleIrSpellExecution.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
@@ -30,8 +31,11 @@ const UNLESS_PAY_KINDS = new Set<string>([
 ]);
 
 function isOptionalStep(step: OracleEffectStep): boolean {
-  if ((step as { optional?: boolean }).optional === true) return true;
-  return /^you may\b/i.test(String(step.raw || '').trim());
+  return isOptionalOracleEffectStep(step);
+}
+
+function mandatoryStepsFrom(allSteps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  return allSteps.filter((step) => step && step.kind !== 'unknown' && !isOptionalStep(step));
 }
 
 function shouldIncludeUncategorizedSpellFallbackStep(step: OracleEffectStep): boolean {
@@ -81,6 +85,7 @@ export function applyOracleIRUncategorizedSpellFallback(
   sourceObjectType: 'spell' | 'ability' = 'spell',
   sourceItem?: any,
   targets?: readonly string[],
+  executionOptions?: OracleIRExecutionOptions,
 ): number {
   try {
     const text = String(oracleText || '').trim();
@@ -108,6 +113,17 @@ export function applyOracleIRUncategorizedSpellFallback(
     }
     if (fallbackSteps.length === 0) return 0;
 
+    const mandatoryAll = mandatoryStepsFrom(allSteps);
+    const mandatoryIncluded = mandatoryStepsFrom(fallbackSteps);
+    if (mandatoryAll.length > 0 && mandatoryIncluded.length < mandatoryAll.length) {
+      debugWarn(
+        1,
+        `[oracleIR] Fallback refusing partial apply for ${spellName}: ` +
+          `${mandatoryIncluded.length}/${mandatoryAll.length} mandatory step(s) wired`,
+      );
+      return 0;
+    }
+
     const executionCtx = irCtx || buildOracleIRExecutionContext({
       controllerId: caster,
       sourceId: sourcePermanentId || sourceId,
@@ -130,11 +146,11 @@ export function applyOracleIRUncategorizedSpellFallback(
 
     let applied = 0;
 
-    const countHandled = (result: ReturnType<typeof applyOracleIRStepsOnServer>, queueStart: number) => {
+    const countHandled = (result: ReturnType<typeof applyOracleIRStepsOnServer>, queueStart: number, parsedSteps: readonly OracleEffectStep[]) => {
       const queueAfter = gameId !== 'unknown'
         ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
         : queueStart;
-      if (!isOracleIrExecutionHandled(result, queueStart, queueAfter)) return;
+      if (!isOracleIrExecutionHandled(result, queueStart, queueAfter, parsedSteps)) return;
       if (result.appliedSteps.length > 0) {
         applied += result.appliedSteps.length;
         return;
@@ -154,6 +170,11 @@ export function applyOracleIRUncategorizedSpellFallback(
       applyMillReplacements: true,
     };
 
+    const resolvedExecutionOptions: OracleIRExecutionOptions = {
+      allowOptional: false,
+      ...(executionOptions || {}),
+    };
+
     if (mandatorySteps.length > 0) {
       const result = applyOracleIRStepsOnServer(
         ctx,
@@ -165,10 +186,10 @@ export function applyOracleIRUncategorizedSpellFallback(
           sourceName: spellName,
           sourceId: sourcePermanentId || sourceId,
         },
-        { allowOptional: false },
+        resolvedExecutionOptions,
         serverParams,
       );
-      countHandled(result, queueBefore);
+      countHandled(result, queueBefore, mandatorySteps);
     }
 
     for (const step of optionalSteps) {
@@ -185,10 +206,13 @@ export function applyOracleIRUncategorizedSpellFallback(
           sourceName: spellName,
           sourceId: sourcePermanentId || sourceId,
         },
-        { allowOptional: true },
+        {
+          ...resolvedExecutionOptions,
+          allowOptional: true,
+        },
         serverParams,
       );
-      countHandled(result, queueStart);
+      countHandled(result, queueStart, [step]);
     }
 
     if (applied > 0) {

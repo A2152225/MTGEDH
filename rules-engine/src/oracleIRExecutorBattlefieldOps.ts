@@ -19,6 +19,64 @@ function permanentMatchesTapTargetType(perm: BattlefieldPermanent, type: SimpleP
   return hasExecutorClass(perm as any, type);
 }
 
+function parseUpToMassTapCount(raw: string): number | null {
+  const normalized = String(raw || '').trim().toLowerCase();
+  if (!normalized) return null;
+  const wordValues: Record<string, number> = {
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+  if (wordValues[normalized] !== undefined) return wordValues[normalized];
+  const parsed = parseInt(normalized, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function resolveUpToMassTapOrUntapTargetIds(
+  battlefield: readonly BattlefieldPermanent[],
+  targetText: string,
+  ctx: OracleIRExecutionContext,
+  sourceId: string,
+  isAnotherTarget: boolean,
+): string[] {
+  const match = targetText.match(
+    /^up to (one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(.+?)(?:\s+you control)?$/i,
+  );
+  if (!match) return [];
+
+  const maxCount = parseUpToMassTapCount(String(match[1] || ''));
+  if (maxCount === null || maxCount <= 0) return [];
+
+  const typePhrase = String(match[2] || '').trim();
+  const requiredType = parseSimplePermanentTypeFromText(typePhrase) || 'permanent';
+  const controllerId = String(ctx.controllerId || '').trim();
+  const candidates = battlefield.filter((perm: any) => {
+    const permanentId = String(perm?.id || '').trim();
+    if (!permanentId) return false;
+    if (String(perm?.controller || '').trim() !== controllerId) return false;
+    if (isAnotherTarget && sourceId && permanentId === sourceId) return false;
+    return permanentMatchesTapTargetType(perm, requiredType);
+  });
+
+  const sorted = [...candidates].sort((left: any, right: any) => {
+    const leftTapped = Boolean(left?.tapped) ? 0 : 1;
+    const rightTapped = Boolean(right?.tapped) ? 0 : 1;
+    return leftTapped - rightTapped;
+  });
+
+  return sorted
+    .slice(0, Math.min(maxCount, sorted.length))
+    .map((perm: any) => String(perm?.id || '').trim())
+    .filter(Boolean);
+}
+
 export function resolveTapOrUntapTargetIds(
   state: GameState,
   target: OracleObjectSelector | any,
@@ -93,6 +151,17 @@ export function resolveTapOrUntapTargetIds(
     if (creatures.length === 1) {
       return [String((creatures[0] as any)?.id || '').trim()].filter(Boolean);
     }
+  }
+
+  const upToMassTargetIds = resolveUpToMassTapOrUntapTargetIds(
+    battlefield,
+    text,
+    ctx,
+    sourceId,
+    isAnotherTarget,
+  );
+  if (upToMassTargetIds.length > 0) {
+    return upToMassTargetIds;
   }
 
   return [];

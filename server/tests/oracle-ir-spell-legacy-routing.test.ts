@@ -82,6 +82,9 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(isSpellEffectOwnedByOracleIrPrimary('Sacrifice target creature.', 'Test Edict')).toBe(true);
     expect(isSpellEffectOwnedByOracleIrPrimary('Sacrifice a creature.', 'Test Altar')).toBe(true);
     expect(isSpellEffectOwnedByOracleIrPrimary('Counter target spell.', 'Test Counterspell')).toBe(true);
+    expect(isSpellEffectOwnedByOracleIrPrimary('Counter target activated ability.', 'Test Stifle')).toBe(true);
+    expect(isSpellEffectOwnedByOracleIrPrimary('Explore.', 'Test Explore')).toBe(true);
+    expect(isSpellEffectOwnedByOracleIrPrimary('Connive 1.', 'Test Connive')).toBe(true);
     expect(isSpellEffectOwnedByOracleIrPrimary('Tap target creature.', 'Test Twiddle')).toBe(true);
     expect(isSpellEffectOwnedByOracleIrPrimary('Untap target creature.', 'Test Vitalize')).toBe(true);
     expect(isSpellEffectOwnedByOracleIrPrimary('Put a +1/+1 counter on target creature.', 'Test Incubate')).toBe(true);
@@ -152,6 +155,12 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('EXILE_ALL')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('EXILE_ALL_TARGET_PLAYER')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('BOUNCE_TARGET')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('FLICKER_TARGET')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('BLIGHT_SELF')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('BLIGHT_EACH_OPPONENT')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('BLIGHT_EACH_PLAYER')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('BLIGHT_TARGET_OPPONENT')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS.has('BLIGHT_TARGET_PLAYER')).toBe(true);
     expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('DRAW_CARDS')).toBe(true);
     expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('DRAW_CARDS_EACH_OPPONENT')).toBe(true);
     expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('DRAW_CARDS_EACH_PLAYER')).toBe(true);
@@ -195,7 +204,17 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('EXILE_ALL')).toBe(true);
     expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('EXILE_ALL_TARGET_PLAYER')).toBe(true);
     expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('BOUNCE_TARGET')).toBe(true);
+    expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('FLICKER_TARGET')).toBe(true);
+    expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('BLIGHT_SELF')).toBe(true);
+    expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('BLIGHT_EACH_OPPONENT')).toBe(true);
+    expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('BLIGHT_EACH_PLAYER')).toBe(true);
+    expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('BLIGHT_TARGET_OPPONENT')).toBe(true);
+    expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('BLIGHT_TARGET_PLAYER')).toBe(true);
     expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('COUNTER_TARGET_SPELL')).toBe(true);
+    expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('COUNTER_TARGET_ABILITY')).toBe(true);
+    expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('TARGET_CREATURE')).toBe(true);
+    expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('TARGET_PERMANENT')).toBe(true);
+    expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('TARGET_PLAYER')).toBe(true);
     expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('TAP_TARGET')).toBe(true);
     expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('UNTAP_TARGET')).toBe(true);
     expect(isCategorizeOpcodeRetiredUnderOracleIrPrimary('ADD_COUNTERS_TARGET')).toBe(true);
@@ -252,8 +271,13 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(categorizeSpell('Test Opp Terminus', 'Exile all creatures your opponents control.')).toBeNull();
     expect(categorizeSpell('Test Oblivion Ring', 'Exile target nonland permanent.')).toBeNull();
     expect(categorizeSpell('Test Unsummon', "Return target creature to its owner's hand.")).toBeNull();
+    expect(categorizeSpell('Test Momentary Blink', "Exile target creature you control, then return it to the battlefield under its owner's control.")).toBeNull();
+    expect(categorizeSpell('Test Flickerwisp', "Exile target creature. Return it to the battlefield under its owner's control at the beginning of the next end step.")).toBeNull();
     expect(categorizeSpell('Test Bojuka Bog', "Exile all cards from target player's graveyard.")).toBeNull();
     expect(categorizeSpell('Test Counterspell', 'Counter target spell.')).toBeNull();
+    expect(categorizeSpell('Test Stifle', 'Counter target activated ability.')).toBeNull();
+    expect(categorizeSpell('Test Edict', 'Sacrifice target creature.')).toBeNull();
+    expect(categorizeSpell('Test Target Permanent', 'Target permanent.')).toBeNull();
     expect(categorizeSpell('Test Twiddle', 'Tap target creature.')).toBeNull();
     expect(categorizeSpell('Test Vitalize', 'Untap target creature.')).toBeNull();
     expect(categorizeSpell('Test Incubate', 'Put a +1/+1 counter on target creature.')).toBeNull();
@@ -313,12 +337,23 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(categorizeSpellWithoutPrimaryRetirement('Test Opp Terminus', 'Exile all creatures your opponents control.')?.opponentOnly).toBe(true);
     expect(categorizeSpellWithoutPrimaryRetirement('Test Oblivion Ring', 'Exile target nonland permanent.')?.nonlandOnly).toBe(true);
     expect(categorizeSpellWithoutPrimaryRetirement('Test Unsummon', "Return target creature to its owner's hand.")?.op).toBe('BOUNCE_TARGET');
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Momentary Blink', "Exile target creature you control, then return it to the battlefield under its owner's control.")?.op).toBe('FLICKER_TARGET');
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Flickerwisp', "Exile target creature. Return it to the battlefield under its owner's control at the beginning of the next end step.")?.op).toBe('FLICKER_TARGET');
     expect(categorizeSpellWithoutPrimaryRetirement('Test Bojuka Bog', "Exile all cards from target player's graveyard.")?.op).toBe('EXILE_ALL');
     expect(categorizeSpellWithoutPrimaryRetirement('Test Counterspell', 'Counter target spell.')?.op).toBe('COUNTER_TARGET_SPELL');
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Stifle', 'Counter target activated ability.')?.op).toBe('COUNTER_TARGET_ABILITY');
     expect(categorizeSpellWithoutPrimaryRetirement('Test Twiddle', 'Tap target creature.')?.op).toBe('TAP_TARGET');
     expect(categorizeSpellWithoutPrimaryRetirement('Test Vitalize', 'Untap target creature.')?.op).toBe('UNTAP_TARGET');
     expect(categorizeSpellWithoutPrimaryRetirement('Test Incubate', 'Put a +1/+1 counter on target creature.')?.op).toBe('ADD_COUNTERS_TARGET');
     expect(categorizeSpellWithoutPrimaryRetirement('Test Collective Growth', 'Put a +1/+1 counter on each creature you control.')?.op).toBe('ADD_COUNTERS_EACH');
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Self Blight', 'Blight 2.')?.op).toBe('BLIGHT_SELF');
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Each Opp Blight', 'Each opponent blights 1.')?.op).toBe('BLIGHT_EACH_OPPONENT');
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Each Player Blight', 'Each player blights 1.')?.op).toBe('BLIGHT_EACH_PLAYER');
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Target Opp Blight', 'Target opponent blights 2.')?.op).toBe('BLIGHT_TARGET_OPPONENT');
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Target Player Blight', 'Target player blights 1.')?.op).toBe('BLIGHT_TARGET_PLAYER');
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Edict', 'Sacrifice target creature.')?.op).toBe('TARGET_CREATURE');
+    expect(categorizeSpellWithoutPrimaryRetirement('Test Target Permanent', 'Target permanent.')?.op).toBe('TARGET_PERMANENT');
+    expect(isSpellEffectOwnedByOracleIrPrimary('Target opponent blights 2.', 'Test Target Opp Blight')).toBe(true);
   });
 
   it('documents retired spell step kinds synced to runtime wiring', () => {
@@ -332,6 +367,8 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('tap_or_untap')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('add_counter')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('copy_permanent')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('schedule_delayed_trigger')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('blight')).toBe(true);
     expect(isSpellStepKindRetiredUnderOracleIrPrimary('mill')).toBe(true);
     expect(isSpellStepKindRetiredUnderOracleIrPrimary('choose_mode')).toBe(false);
   });

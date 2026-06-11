@@ -28,10 +28,12 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'add_counter',
   'deal_damage',
   'prevent_damage',
+  'double_counters',
   'discard',
   'mill',
   'create_token',
   'investigate',
+  'blight',
   'destroy',
   'exile',
   'move_zone',
@@ -39,21 +41,60 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'goad',
   'proliferate',
   'populate',
+  'schedule_delayed_trigger',
+  'explore',
+  'connive',
+  'unless_pays_mana',
+  'unless_pays_life',
+  'conditional',
+  'search_library',
+  'look_choose_from_top',
+  'look_select_top',
+  'choose_pile',
+  'change_target',
+  'choose_target_creature',
+  'grant_temporary_ability',
+  'grant_static_ability',
+  'grant_leave_battlefield_replacement',
+  'schedule_delayed_battlefield_action',
+  'animate_permanent',
+  'attach',
+  'fight',
+  'modify_pt',
+  'remove_counter',
+  'regenerate',
+  'grant_graveyard_permission',
+  'grant_graveyard_keyword_ability',
 ]);
 
 /** Optional trigger steps with explicit runtime handlers outside the spell fallback. */
 export const TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS = new Set<string>(['copy_permanent']);
 
+export function normalizeTriggerEffectDescriptionForExecution(effectText: string): string {
+  let text = String(effectText || '').trim();
+  if (!text) return text;
+
+  text = text
+    .replace(/\s*\(an exerted creature won't untap during your next untap step\.?\)\s*/ig, ' ')
+    .replace(/\.\s*\{[WUBRGC\dP/]+\}(?:\{[WUBRGC\dP/]+\})*:\s*[\s\S]*$/i, ' ')
+    .replace(/\s*\{[WUBRGC\dP/\d]+\}(?:\{[WUBRGC\dP/\d]+\})*:\s*[\s\S]*$/i, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const stripped = text.replace(/[.!?,;:]+$/g, '').trim();
+  return stripped || String(effectText || '').trim();
+}
+
 export function normalizeTriggerEffectForIrAudit(effectText: string): string {
   const raw = String(effectText || '').trim();
+  const executionNormalized = normalizeTriggerEffectDescriptionForExecution(raw);
   const preserveModalBullets = /[\u2022•]/.test(raw) && /\bchoose\b/i.test(raw);
 
-  let processed = raw
+  let processed = executionNormalized
     .replace(/\([^()]*\)/g, ' ')
     .replace(/\s+\)/g, ' ')
     .replace(/\btap enchanted (?:land|creature|permanent):[\s\S]*$/i, ' ')
-    .replace(/\bactivate only if[\s\S]*$/i, ' ')
-    .replace(/\.\s*\{[WUBRGC\dP/]+\}(?:\{[WUBRGC\dP/]+\})*:\s*[\s\S]*$/i, ' ');
+    .replace(/\bactivate only if[\s\S]*$/i, ' ');
 
   if (!preserveModalBullets) {
     processed = processed.replace(/\s+/g, ' ').trim();
@@ -96,9 +137,11 @@ export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean
     lower.includes('mill') ||
     lower.includes('create') ||
     lower.includes('investigate') ||
+    lower.includes('blight') ||
     (lower.includes('top') && lower.includes('library') && lower.includes('graveyard')) ||
     lower.includes('damage') ||
     lower.includes('prevent') ||
+    lower.includes('blocked') ||
     lower.includes('deal') ||
     lower.includes('counter') ||
     lower.includes('sacrifice') ||
@@ -112,7 +155,11 @@ export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean
     /\buntap\b/.test(lower) ||
     lower.includes('goad') ||
     lower.includes('proliferate') ||
-    lower.includes('populate')
+    lower.includes('populate') ||
+    lower.includes('blight') ||
+    lower.includes('explore') ||
+    lower.includes('connive') ||
+    lower.includes('search your library')
   );
 }
 
@@ -129,7 +176,10 @@ export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
   }
 
   if (isOptionalTriggerStep(step)) {
-    return TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS.has(step.kind);
+    return (
+      TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS.has(step.kind)
+      || ORACLE_IR_FALLBACK_STEP_KINDS.has(step.kind)
+    );
   }
 
   return ORACLE_IR_FALLBACK_STEP_KINDS.has(step.kind);

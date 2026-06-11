@@ -118,6 +118,54 @@ describe('Oracle IR Executor', () => {
     expect((p2.graveyard || []).map((entry: any) => entry.id)).toEqual(['spell-card-1']);
   });
 
+  it('applies Counter target activated ability by removing the ability from the stack without moving a card to graveyard', () => {
+    const ir = parseOracleTextToIR('Counter target activated ability.', 'Stifle');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'ability-1',
+          type: 'activated_ability',
+          controller: 'p2',
+          description: '{T}: Draw a card.',
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Stifle',
+      targetSpellId: 'ability-1',
+    });
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['counter_spell']);
+    expect(result.state.stack).toEqual([]);
+    expect(p2.graveyard || []).toEqual([]);
+  });
+
   it('applies plain Counter target spell to an explicit targetSpellId when multiple spells are on the stack', () => {
     const ir = parseOracleTextToIR('Counter target spell.', 'Counterspell');
     const steps = ir.abilities[0]?.steps ?? [];

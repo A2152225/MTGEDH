@@ -92,7 +92,12 @@ export function applyRetiredTriggerLegacyKeywordTriggerFallback(
   const sourceCard = Object.keys(params.triggerCard || {}).length > 0
     ? params.triggerCard
     : (permanent?.card || {});
-  const oracleText = sourceCard.oracle_text || params.description;
+  const effectText = String(params.description || '').trim();
+  const cardOracle = String(sourceCard.oracle_text || '').trim();
+  const useEffectClauseOnly = effectText.length > 0
+    && !/^(?:when|whenever|at)\b/i.test(effectText)
+    && !effectText.includes('\n');
+  const oracleText = useEffectClauseOnly ? effectText : (cardOracle || effectText);
   const cardNameForKeyword = sourceCard.name || params.sourceName;
 
   const detectedKeywords = detectKeywords(oracleText, cardNameForKeyword);
