@@ -236,6 +236,7 @@ import {
   parseQuantity,
   splitIntoClauses,
 } from './oracleIRParserUtils';
+import { normalizeOracleForParsing } from './oracleReminderText';
 
 function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   const normalized = normalizeClauseForParse(rawClause);
@@ -1518,10 +1519,16 @@ function mergeSplitChooseModeParsedAbilities(parsed: OracleTextParseResult): Ora
 }
 
 export function parseOracleTextToIR(oracleText: string, cardName?: string): OracleIRResult {
-  const preserveChapterRetargetUnknown = /\b(?:i|ii|iii|iv|v)\s+—\s+until\s+end\s+of\s+turn,\s+whenever\s+you\s+cast\s+an\s+instant\s+or\s+sorcery\s+spell,\s+copy\s+it\.\s+you\s+may\s+choose\s+new\s+targets\s+for\s+the\s+copy\.?\s*$/i.test(oracleText);
   const normalizedOracleText = normalizeOracleText(oracleText);
+  const needsGameplayPreNormalize = /\b(?:you may cast either half|that door unlocks on the battlefield)\b/i.test(normalizedOracleText)
+    || /\(as a siege enters\b/i.test(normalizedOracleText)
+    || /\([^)]*(?:this creature|this card|it's an artifact|it's an enchantment|it's an creature)\b[^)]*\)/i.test(normalizedOracleText);
+  const parsingOracleText = needsGameplayPreNormalize
+    ? (normalizeOracleForParsing(normalizedOracleText) || normalizedOracleText)
+    : normalizedOracleText;
+  const preserveChapterRetargetUnknown = /\b(?:i|ii|iii|iv|v)\s+—\s+until\s+end\s+of\s+turn,\s+whenever\s+you\s+cast\s+an\s+instant\s+or\s+sorcery\s+spell,\s+copy\s+it\.\s+you\s+may\s+choose\s+new\s+targets\s+for\s+the\s+copy\.?\s*$/i.test(parsingOracleText);
   const parsed: OracleTextParseResult = mergeSplitChooseModeParsedAbilities(
-    parseOracleText(normalizedOracleText, cardName)
+    parseOracleText(parsingOracleText, cardName)
   );
 
   let abilities = parsed.abilities.map(ability => parseAbilityToIRAbility(ability, cardName));

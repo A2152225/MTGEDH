@@ -111,8 +111,8 @@ function precedingToken(text: string, openIndex: number): string {
 }
 
 function isKeywordAnchoredReminder(preceding: string): boolean {
-  return new RegExp(`(?:^|[\\s,.])${KEYWORD_WORD_PATTERN}(?:\\s*\\{[^}]*\\})?\\s*$`, 'i').test(preceding)
-    || /\b(?:equip|reconfigure|cycling|kicker|flashback|escape|evoke|eternalize|ward)\s*(?:\{[^}]*\}|\d+)?\s*$/i.test(preceding);
+  return new RegExp(`(?:^|[\\s,.])${KEYWORD_WORD_PATTERN}(?:\\s*\\{[^}]+\\})*\\s*$`, 'i').test(preceding)
+    || /\b(?:equip|reconfigure|cycling|kicker|flashback|escape|evoke|eternalize|ward)\s*(?:\{[^}]+\})*\s*$/i.test(preceding);
 }
 
 function shouldStripParenthetical(source: string, openIndex: number): boolean {
@@ -260,6 +260,41 @@ export function normalizeGameplayEffectText(effectText: string): string {
     .replace(/\.\s*\./g, '.')
     .replace(/([^.?!])\s*$/g, (_, ending: string) => `${ending}.`)
     .trim();
+}
+
+/**
+ * Strip reminder/boilerplate noise from a single oracle line without effect-tail
+ * normalization (preserves keyword costs, activation headers, etc.).
+ */
+export function normalizeOracleLineForParsing(line: string): string {
+  let text = String(line || '').trim();
+  if (!text) return '';
+
+  text = stripStandardOracleFragments(text);
+  text = stripTokenTypeReminders(text);
+  text = stripReminderParentheticals(text);
+
+  return text.replace(/\s+/g, ' ').replace(/\.\s*\./g, '.').trim();
+}
+
+/**
+ * Normalize full oracle text for IR/clause parsing: drop boilerplate-only lines and
+ * strip reminders, but preserve keyword ability structure on remaining lines.
+ */
+export function normalizeOracleForParsing(oracleText: string): string {
+  const source = String(oracleText || '').replace(/\r/g, '');
+  if (!source.trim()) return '';
+
+  const lines = source.split('\n');
+  const normalizedLines = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || isStandardOracleFragmentOnly(trimmed)) return '';
+    const normalized = normalizeOracleLineForParsing(trimmed);
+    if (!normalized || isStandardOracleFragmentOnly(normalized)) return '';
+    return normalized;
+  });
+
+  return normalizedLines.filter(Boolean).join('\n');
 }
 
 /**

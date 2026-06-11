@@ -40,6 +40,12 @@ export {
   getTriggersForTiming,
   groupTriggersByController,
 } from "./registry.js";
+export {
+  detectRoomUnlockDoorTriggers,
+  detectRoomTriggers,
+  extractRoomUnlockDoorEffect,
+  queueRoomUnlockDoorTriggersOnEnter,
+} from "./room.js";
 export { orderTriggersByAPNAP } from "./ordering.js";
 export { inferGenericTriggeredAbilityTargetMetadata, hasUnsupportedTargetRequirement } from "./target-metadata.js";
 

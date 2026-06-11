@@ -56,6 +56,10 @@ import { permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
 import { parseChosenTypeCreatureEtbTrigger } from "./chosen-creature-type.js";
 import { detectCastTrigger } from "../../../../rules-engine/src/cards/castTriggers.js";
 import { timingTriggerEffect } from './triggers/timing-effect-extraction.js';
+import {
+  buildRoomUnlockDoorRegisteredTrigger,
+  detectRoomUnlockDoorTriggers,
+} from './triggers/room.js';
 
 function buildCardNameRegexAlternatives(cardName: string): string[] {
   const names = new Set<string>();
@@ -285,6 +289,26 @@ function extendSpellCopyEffectText(
   }
 
   return extendedEffect;
+}
+
+function extractSpellCastEffect(
+  oracleText: string,
+  match: RegExpMatchArray,
+  captureGroup: number,
+): string {
+  const matchIndex = Number.isFinite(match.index)
+    ? Number(match.index)
+    : oracleText.toLowerCase().indexOf(String(match[0] || '').toLowerCase());
+  const execMatch = Object.assign([...match], {
+    index: matchIndex >= 0 ? matchIndex : 0,
+    input: oracleText,
+  }) as RegExpExecArray;
+  return extendSpellCopyEffectText(
+    oracleText,
+    match[0],
+    timingTriggerEffect(oracleText, execMatch, captureGroup),
+    matchIndex >= 0 ? matchIndex : undefined,
+  );
 }
 
 function normalizeSpellCastEffectText(
@@ -531,6 +555,11 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       effect: timingTriggerEffect(oracleText, castMatch, 2),
       mandatory: !timingTriggerEffect(oracleText, castMatch, 2).includes('you may'),
     });
+  }
+
+  const roomUnlock = buildRoomUnlockDoorRegisteredTrigger(card, permanentId, controllerId);
+  if (roomUnlock) {
+    triggers.push(roomUnlock);
   }
   
   return triggers;
@@ -6181,26 +6210,8 @@ export function detectMonstrousTriggers(card: any, permanent?: any): TriggeredAb
   return triggers;
 }
 
-export function detectRoomTriggers(card: any, permanent?: any): TriggeredAbility[] {
-  const triggers: TriggeredAbility[] = [];
-  const oracleText = String(card?.oracle_text || '');
-  const cardName = String(card?.name || 'Unknown');
-  const permanentId = permanent?.id || '';
-
-  const unlockDoorMatch = oracleText.match(/when you unlock this door,?\s*([^.]+)/i);
-  if (unlockDoorMatch) {
-    const effectText = timingTriggerEffect(oracleText, unlockDoorMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      triggerType: 'unlock_door',
-      description: effectText,
-      effect: effectText,
-      mandatory: !effectText.toLowerCase().includes('you may'),
-    });
-  }
-
-  return triggers;
+export function detectRoomTriggers(card: any, permanent?: any) {
+  return detectRoomUnlockDoorTriggers(card, permanent);
 }
 
 export function detectTransformTriggers(card: any, permanent?: any): TriggeredAbility[] {
@@ -12830,7 +12841,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[1].trim(), match.index);
+      const effectText = extractSpellCastEffect(oracleText, match, 1);
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'any')) {
         triggers.push({
           permanentId,
@@ -12940,7 +12951,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
       const spellType = untypedSpell ? 'any' : match[1].toLowerCase();
-      const effectCapture = untypedSpell ? match[1].trim() : match[2].trim();
+      const effectCapture = timingTriggerEffect(oracleText, match, untypedSpell ? 1 : 2);
       const normalizedEffect = normalizeSpellCastEffectText(oracleText, match[0], effectCapture, match.index);
       const effectText = normalizedEffect.effectText;
       const { spellCondition, tribalType } = getSpellCastConditionData(spellType);
@@ -12990,7 +13001,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
       const spellType = match[1].toLowerCase();
-      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
+      const effectText = extractSpellCastEffect(oracleText, match, 2);
       const { spellCondition, tribalType } = getSpellCastConditionData(spellType);
       const { copiesSpell, isOptional } = getSpellCastEffectMetadata(effectText, tribalType);
 
@@ -13029,7 +13040,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
       const spellType = match[1].toLowerCase();
-      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
+      const effectText = extractSpellCastEffect(oracleText, match, 2);
       const { spellCondition, tribalType } = getSpellCastConditionData(spellType);
       const { copiesSpell, isTapUntap, createsToken, tokenDetails, isOptional } = getSpellCastEffectMetadata(effectText, tribalType);
 
@@ -13204,7 +13215,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     for (const rawMatch of firstSpellDuringOpponentTurnMatch) {
       const effectMatch = /whenever you cast your first spell during each opponent's turn,?\s*([^.]+)/i.exec(rawMatch);
       if (!effectMatch) continue;
-      const effectText = extendSpellCopyEffectText(oracleText, effectMatch[0], effectMatch[1].trim());
+      const effectText = extractSpellCastEffect(oracleText, effectMatch, 1);
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.firstSpellDuringOpponentTurn)) {
         triggers.push({
           permanentId,
@@ -13226,7 +13237,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     for (const rawMatch of firstSpellEachTurnUntypedMatch) {
       const effectMatch = /whenever you cast your first spell each turn,?\s*([^.]+)/i.exec(rawMatch);
       if (!effectMatch) continue;
-      const effectText = extendSpellCopyEffectText(oracleText, effectMatch[0], effectMatch[1].trim());
+      const effectText = extractSpellCastEffect(oracleText, effectMatch, 1);
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.firstSpellThisTurn && trigger.spellCondition === 'any')) {
         triggers.push({
           permanentId,
@@ -13250,7 +13261,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     for (const rawMatch of castInstantOrSorceryWithoutSpellWord) {
       const effectMatch = /whenever you cast an? (instant|sorcery),?\s*([^.]+)/i.exec(rawMatch);
       if (!effectMatch) continue;
-      const effectText = extendSpellCopyEffectText(oracleText, effectMatch[0], effectMatch[2].trim());
+      const effectText = extractSpellCastEffect(oracleText, effectMatch, 2);
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'instant_sorcery')) {
         triggers.push({
           permanentId,
@@ -13297,7 +13308,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   while ((manaCostMatch = manaCostQualifierPattern.exec(oracleText)) !== null) {
     const rawType = String(manaCostMatch[1] || 'spell').trim().toLowerCase() || 'spell';
     const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
-    const effectText = extendSpellCopyEffectText(oracleText, manaCostMatch[0], manaCostMatch[3].trim(), manaCostMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, manaCostMatch, 3);
     if (!triggers.some((trigger) => trigger.effect === effectText)) {
       triggers.push({
         permanentId,
@@ -13317,7 +13328,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   let castFromHandMatch: RegExpExecArray | null;
   castFromHandPattern.lastIndex = 0;
   while ((castFromHandMatch = castFromHandPattern.exec(oracleText)) !== null) {
-    const effectText = extendSpellCopyEffectText(oracleText, castFromHandMatch[0], castFromHandMatch[1].trim(), castFromHandMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, castFromHandMatch, 1);
     if (!triggers.some((trigger) => trigger.effect === effectText && trigger.sourceZoneRequirement === 'hand')) {
       triggers.push({
         permanentId,
@@ -13340,7 +13351,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[1].trim(), match.index);
+      const effectText = extractSpellCastEffect(oracleText, match, 1);
       const isFromExile = /from exile/i.test(match[0]);
       if (!triggers.some((trigger) => trigger.effect === effectText)) {
         triggers.push({
@@ -13359,7 +13370,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const playtestCastMatch = oracleText.match(/whenever you cast a playtest card,?\s*([^.]+)/i);
   if (playtestCastMatch) {
-    const effectText = extendSpellCopyEffectText(oracleText, playtestCastMatch[0], playtestCastMatch[1].trim(), playtestCastMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, playtestCastMatch, 1);
     if (!triggers.some((trigger) => trigger.effect === effectText)) {
       triggers.push({
         permanentId,
@@ -13380,7 +13391,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   if (entersAndCastMatch) {
     const rawType = String(entersAndCastMatch[1] || '').trim().toLowerCase();
     const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
-    const effectText = extendSpellCopyEffectText(oracleText, entersAndCastMatch[0], entersAndCastMatch[2].trim(), entersAndCastMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, entersAndCastMatch, 2);
     if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === spellCondition)) {
       triggers.push({
         permanentId,
@@ -13402,7 +13413,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[1].trim(), match.index);
+      const effectText = extractSpellCastEffect(oracleText, match, 1);
       const copiesSpell = effectText.toLowerCase().includes('copy that spell') || effectText.toLowerCase().includes('copy it');
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'instant_sorcery')) {
         triggers.push({
@@ -13423,7 +13434,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   let spellOfThatTypeMatch: RegExpExecArray | null;
   spellOfThatTypePattern.lastIndex = 0;
   while ((spellOfThatTypeMatch = spellOfThatTypePattern.exec(oracleText)) !== null) {
-    const effectText = extendSpellCopyEffectText(oracleText, spellOfThatTypeMatch[0], spellOfThatTypeMatch[1].trim(), spellOfThatTypeMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, spellOfThatTypeMatch, 1);
     if (!triggers.some((trigger) => trigger.effect === effectText)) {
       triggers.push({
         permanentId,
@@ -13448,7 +13459,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     while ((match = pattern.exec(oracleText)) !== null) {
       const rawType = String(match[1] || 'spell').trim().toLowerCase();
       const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
-      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
+      const effectText = extractSpellCastEffect(oracleText, match, 2);
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.description === match[0].trim())) {
         triggers.push({
           permanentId,
@@ -13466,7 +13477,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const commanderCastMatch = oracleText.match(/(?:when|whenever) you cast your commander,?\s*([^.]+)/i);
   if (commanderCastMatch) {
-    const effectText = extendSpellCopyEffectText(oracleText, commanderCastMatch[0], commanderCastMatch[1].trim(), commanderCastMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, commanderCastMatch, 1);
     if (!triggers.some((trigger) => trigger.effect === effectText)) {
       triggers.push({
         permanentId,
@@ -13490,7 +13501,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
       const rawType = String(match[1] || '').trim().toLowerCase();
-      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[2].trim(), match.index);
+      const effectText = extractSpellCastEffect(oracleText, match, 2);
       const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
       if (!triggers.some((trigger) =>
         trigger.effect === effectText &&
@@ -13517,7 +13528,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   firstTribalSpellPattern.lastIndex = 0;
   while ((firstTribalMatch = firstTribalSpellPattern.exec(oracleText)) !== null) {
     const rawType = String(firstTribalMatch[1] || '').trim().toLowerCase();
-    const effectText = extendSpellCopyEffectText(oracleText, firstTribalMatch[0], firstTribalMatch[2].trim(), firstTribalMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, firstTribalMatch, 2);
     const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
     if (!triggers.some((trigger) =>
       trigger.effect === effectText &&
@@ -13545,7 +13556,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   castDuringYourTurnsPattern.lastIndex = 0;
   while ((castDuringTurnsMatch = castDuringYourTurnsPattern.exec(oracleText)) !== null) {
     const rawType = String(castDuringTurnsMatch[1] || 'spell').trim().toLowerCase() || 'spell';
-    const effectText = extendSpellCopyEffectText(oracleText, castDuringTurnsMatch[0], castDuringTurnsMatch[2].trim(), castDuringTurnsMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, castDuringTurnsMatch, 2);
     const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
     if (!triggers.some((trigger) => trigger.effect === effectText && trigger.description === castDuringTurnsMatch[0].trim())) {
       triggers.push({
@@ -13565,7 +13576,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   let castOrCycleMatch: RegExpExecArray | null;
   castOrCyclePattern.lastIndex = 0;
   while ((castOrCycleMatch = castOrCyclePattern.exec(oracleText)) !== null) {
-    const effectText = extendSpellCopyEffectText(oracleText, castOrCycleMatch[0], castOrCycleMatch[2].trim(), castOrCycleMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, castOrCycleMatch, 2);
     if (!triggers.some((trigger) => trigger.effect === effectText)) {
       triggers.push({
         permanentId,
@@ -13581,7 +13592,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const castItThisTurnMatch = oracleText.match(/when(?:ever)? you cast it this turn,?\s*([^.]+)/i);
   if (castItThisTurnMatch) {
-    const effectText = extendSpellCopyEffectText(oracleText, castItThisTurnMatch[0], castItThisTurnMatch[1].trim(), castItThisTurnMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, castItThisTurnMatch, 1);
     if (!triggers.some((trigger) => trigger.effect === effectText)) {
       triggers.push({
         permanentId,
@@ -13597,7 +13608,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const castEnchantedCardMatch = oracleText.match(/when(?:ever)? you cast enchanted card,?\s*([^.]+)/i);
   if (castEnchantedCardMatch) {
-    const effectText = extendSpellCopyEffectText(oracleText, castEnchantedCardMatch[0], castEnchantedCardMatch[1].trim(), castEnchantedCardMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, castEnchantedCardMatch, 1);
     if (!triggers.some((trigger) => trigger.effect === effectText)) {
       triggers.push({
         permanentId,
@@ -13616,7 +13627,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   let castFromExileAmongMatch: RegExpExecArray | null;
   castFromExileAmongPattern.lastIndex = 0;
   while ((castFromExileAmongMatch = castFromExileAmongPattern.exec(oracleText)) !== null) {
-    const effectText = extendSpellCopyEffectText(oracleText, castFromExileAmongMatch[0], castFromExileAmongMatch[1].trim(), castFromExileAmongMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, castFromExileAmongMatch, 1);
     if (!triggers.some((trigger) => trigger.effect === effectText && trigger.sourceZoneRequirement === 'exile')) {
       triggers.push({
         permanentId,
@@ -13633,7 +13644,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const castSpellFromThatMatch = oracleText.match(/whenever you cast (?:a |an )?spell from that,?\s*([^.]+)/i);
   if (castSpellFromThatMatch) {
-    const effectText = extendSpellCopyEffectText(oracleText, castSpellFromThatMatch[0], castSpellFromThatMatch[1].trim(), castSpellFromThatMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, castSpellFromThatMatch, 1);
     if (!triggers.some((trigger) => trigger.effect === effectText)) {
       triggers.push({
         permanentId,
@@ -13655,7 +13666,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
-      const effectText = extendSpellCopyEffectText(oracleText, match[0], match[1].trim(), match.index);
+      const effectText = extractSpellCastEffect(oracleText, match, 1);
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.description === match[0].trim())) {
         triggers.push({
           permanentId,
@@ -13676,7 +13687,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   );
   const namedCardCastMatch = oracleText.match(namedCardCastPattern);
   if (namedCardCastMatch) {
-    const effectText = extendSpellCopyEffectText(oracleText, namedCardCastMatch[0], namedCardCastMatch[1].trim(), namedCardCastMatch.index);
+    const effectText = extractSpellCastEffect(oracleText, namedCardCastMatch, 1);
     if (!triggers.some((trigger) => trigger.effect === effectText)) {
       triggers.push({
         permanentId,
@@ -13695,7 +13706,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   if (chosenType && lowerOracle.includes('whenever you cast a spell of the chosen type')) {
     const effectMatch = /whenever you cast a spell of the chosen type,?\s*([^.]+)/i.exec(oracleText);
     if (effectMatch) {
-      const effect = extendSpellCopyEffectText(oracleText, effectMatch[0], effectMatch[1].trim(), effectMatch.index);
+      const effect = extractSpellCastEffect(oracleText, effectMatch, 1);
       const copiesSpell = effect.toLowerCase().includes('copy that spell') || effect.toLowerCase().includes('copy it');
       const chosenTypeLower = chosenType.toLowerCase();
 

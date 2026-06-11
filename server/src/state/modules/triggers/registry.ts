@@ -7,6 +7,7 @@
 
 import type { GameContext, RegisteredTrigger, TriggerTiming } from "./types.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
+import { buildRoomUnlockDoorRegisteredTrigger } from "./room.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 
 /**
@@ -266,6 +267,11 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       effect,
       mandatory: isMandatoryEffect(effect),
     });
+  }
+
+  const roomUnlock = buildRoomUnlockDoorRegisteredTrigger(card, permanentId, controllerId);
+  if (roomUnlock) {
+    triggers.push(roomUnlock);
   }
   
   return triggers;

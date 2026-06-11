@@ -5,6 +5,7 @@ import {
   getTriggerRuntimeWiringGaps,
   isSupportedCopyPermanentTriggerPattern,
   isTriggerStepRuntimeWired,
+  normalizeTriggerEffectDescriptionForExecution,
   parseTriggerEffectSteps,
 } from '../src/state/modules/trigger-runtime-wiring.js';
 
@@ -41,5 +42,13 @@ describe('trigger runtime wiring assessment', () => {
   it('does not flag effects outside the oracle IR fallback surface area', () => {
     const effect = "put the cards exiled with it into their owner's hand";
     expect(getTriggerRuntimeWiringGaps(effect, 'Solemn Simulacrum')).toEqual([]);
+  });
+
+  it('strips keyword suffixes and room DFC boilerplate before execution parsing', () => {
+    const effect =
+      'When you unlock this door, destroy target creature. You may cast either half. That door unlocks on the battlefield. Escape—{3}{R}{R}, exile four other cards from your graveyard.';
+    expect(normalizeTriggerEffectDescriptionForExecution(effect).toLowerCase()).toBe(
+      'when you unlock this door, destroy target creature',
+    );
   });
 });

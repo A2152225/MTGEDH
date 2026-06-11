@@ -6,6 +6,7 @@ import {
   repairGapClosureAbilitySteps,
   repairRandomChooseModeSagaAbilities,
 } from '../../../../rules-engine/src/oracleIRParserPostprocess.js';
+import { normalizeGameplayEffectText } from '../../../../rules-engine/src/oracleReminderText.js';
 import { isSupportedCopyPermanentTriggerPattern } from './trigger-copy-permanent.js';
 
 export { isSupportedCopyPermanentTriggerPattern } from './trigger-copy-permanent.js';
@@ -71,28 +72,23 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
 export const TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS = new Set<string>(['copy_permanent']);
 
 export function normalizeTriggerEffectDescriptionForExecution(effectText: string): string {
-  let text = String(effectText || '').trim();
-  if (!text) return text;
+  const raw = String(effectText || '').trim();
+  if (!raw) return raw;
 
-  text = text
-    .replace(/\s*\(an exerted creature won't untap during your next untap step\.?\)\s*/ig, ' ')
-    .replace(/\.\s*\{[WUBRGC\dP/]+\}(?:\{[WUBRGC\dP/]+\})*:\s*[\s\S]*$/i, ' ')
-    .replace(/\s*\{[WUBRGC\dP/\d]+\}(?:\{[WUBRGC\dP/\d]+\})*:\s*[\s\S]*$/i, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  const stripped = text.replace(/[.!?,;:]+$/g, '').trim();
-  return stripped || String(effectText || '').trim();
+  const normalized = normalizeGameplayEffectText(raw);
+  // Legacy regex handlers historically matched without trailing punctuation.
+  const stripped = normalized.replace(/[.!?,;:]+$/g, '').trim();
+  return stripped || normalized || raw;
 }
 
 export function normalizeTriggerEffectForIrAudit(effectText: string): string {
   const raw = String(effectText || '').trim();
+  if (!raw) return raw;
+
   const executionNormalized = normalizeTriggerEffectDescriptionForExecution(raw);
   const preserveModalBullets = /[\u2022•]/.test(raw) && /\bchoose\b/i.test(raw);
 
   let processed = executionNormalized
-    .replace(/\([^()]*\)/g, ' ')
-    .replace(/\s+\)/g, ' ')
     .replace(/\btap enchanted (?:land|creature|permanent):[\s\S]*$/i, ' ')
     .replace(/\bactivate only if[\s\S]*$/i, ' ');
 

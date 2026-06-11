@@ -35,6 +35,7 @@ import {
   parseQuantity,
   splitIntoClauses,
 } from './oracleIRParserUtils';
+import { isStandardOracleFragmentOnly } from './oracleReminderText';
 
 type GlobalExiledWithSourceImpulsePermission = {
   readonly duration: 'as_long_as_control_source';
@@ -15665,6 +15666,7 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     .replace(/\s+/g, ' ')
     .trim();
   if (rawNormalizedText === '(' || rawNormalizedText === ')' || rawNormalizedText === '()') return true;
+  if (isStandardOracleFragmentOnly(rawNormalizedText)) return true;
   if (/^\.{3,}$/.test(rawNormalizedText) || rawNormalizedText === '\u2026') return true;
   if (/^[a-z0-9][a-z0-9\s'.,/&-]{0,80}\.{2,}\)?$/i.test(rawNormalizedText)) return true;
   const isParentheticalText = /^\(/.test(rawNormalizedText) || /\)$/.test(rawNormalizedText);

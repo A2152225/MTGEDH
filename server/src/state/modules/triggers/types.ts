@@ -49,7 +49,8 @@ export type TriggerTiming =
   | 'life_change'      // When life total changes
   | 'counter'          // When counters are added/removed
   | 'tap'              // When something becomes tapped
-  | 'untap';           // When something becomes untapped
+  | 'untap'            // When something becomes untapped
+  | 'unlock_door';     // When a Room door becomes unlocked
 
 /**
  * Registered trigger on a permanent - marks what triggers the permanent has

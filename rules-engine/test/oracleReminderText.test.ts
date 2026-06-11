@@ -3,6 +3,7 @@ import {
   isStandardOracleFragmentOnly,
   normalizeGameplayEffectText,
   normalizeOracleForGameplay,
+  normalizeOracleForParsing,
   stripKeywordAbilitySuffixes,
   stripReminderParentheticals,
   stripStandardOracleFragments,
@@ -92,6 +93,24 @@ describe('oracleReminderText', () => {
     const text =
       'Scry 2, then draw a card. Return this card transformed under its owner\'s control. Craft only as a sorcery.';
     expect(stripStandardOracleFragments(text).toLowerCase()).toBe('scry 2, then draw a card.');
+  });
+
+  it('normalizeOracleForParsing preserves keyword costs while stripping reminders', () => {
+    const oracle = [
+      'Flying (This creature can\'t be blocked except by creatures with flying.)',
+      'Fortify {3}',
+      'You may cast either half.',
+    ].join('\n');
+    expect(normalizeOracleForParsing(oracle)).toBe('Flying\nFortify {3}');
+  });
+
+  it('normalizeOracleForParsing preserves cycling while stripping its reminder', () => {
+    const oracle =
+      'When you cycle this card and when this creature dies, you may exile target card from a graveyard.\n'
+      + 'Cycling {2}{B} (Discard this card: Draw a card.)';
+    expect(normalizeOracleForParsing(oracle)).toBe(
+      'When you cycle this card and when this creature dies, you may exile target card from a graveyard.\nCycling {2}{B}',
+    );
   });
 
   it('normalizeOracleForGameplay drops boilerplate-only lines', () => {

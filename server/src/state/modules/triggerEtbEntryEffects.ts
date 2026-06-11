@@ -16,6 +16,7 @@ import {
 } from './triggerSourceUtils.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
+import { queueRoomUnlockDoorTriggersOnEnter } from './triggers/room.js';
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -377,6 +378,8 @@ export function queueSelfETBTriggersForPermanent(
       debugWarn(1, '[queueSelfETBTriggersForPermanent] graveyard target selection wiring failed:', err);
     }
   }
+
+  queueRoomUnlockDoorTriggersOnEnter(ctx, permanent, controller);
 }
 
 export function persistTriggeredAbilityPush(ctx: GameContext, stackItem: any): void {
