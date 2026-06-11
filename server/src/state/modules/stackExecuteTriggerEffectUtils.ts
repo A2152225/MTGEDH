@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
+import { tryApplyRoomDoorUnlockFromResolvedEffect } from './triggers/room.js';
 import { tryApplyTriggerEffectPrefaceHandlers } from './stackExecuteTriggerEffectPrefaceUtils.js';
 import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
 import { tryApplyTriggerEffectLegacyBodyHandlers } from './stackExecuteTriggerEffectLegacyBodyUtils.js';
@@ -65,6 +66,7 @@ export function executeTriggerEffect(
     triggerItem,
   });
   if (triggerIrOutcome.handled) {
+    tryApplyRoomDoorUnlockFromResolvedEffect(ctx, controller, normalizedDescription, triggerItem);
     return;
   }
 
@@ -78,6 +80,7 @@ export function executeTriggerEffect(
     triggerCard,
   );
   if (legacyBodyResult.handled) {
+    tryApplyRoomDoorUnlockFromResolvedEffect(ctx, controller, normalizedDescription, triggerItem);
     return;
   }
 
@@ -91,6 +94,7 @@ export function executeTriggerEffect(
     state,
     legacyBodyResult,
   )) {
+    tryApplyRoomDoorUnlockFromResolvedEffect(ctx, controller, normalizedDescription, triggerItem);
     return;
   }
 

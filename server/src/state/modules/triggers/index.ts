@@ -44,7 +44,14 @@ export {
   detectRoomUnlockDoorTriggers,
   detectRoomTriggers,
   extractRoomUnlockDoorEffect,
+  handleRoomDoorStateOnEnter,
+  initializeRoomDoorStateForEnter,
+  isRoomDoorLocked,
+  isRoomPermanent,
   queueRoomUnlockDoorTriggersOnEnter,
+  tryApplyRoomDoorUnlockFromResolvedEffect,
+  unlockRoomDoor,
+  unlockRoomDoorPermanent,
 } from "./room.js";
 export { orderTriggersByAPNAP } from "./ordering.js";
 export { inferGenericTriggeredAbilityTargetMetadata, hasUnsupportedTargetRequirement } from "./target-metadata.js";

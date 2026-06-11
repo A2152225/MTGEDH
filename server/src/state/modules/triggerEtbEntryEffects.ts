@@ -16,7 +16,7 @@ import {
 } from './triggerSourceUtils.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
-import { queueRoomUnlockDoorTriggersOnEnter } from './triggers/room.js';
+import { handleRoomDoorStateOnEnter } from './triggers/room.js';
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -379,7 +379,7 @@ export function queueSelfETBTriggersForPermanent(
     }
   }
 
-  queueRoomUnlockDoorTriggersOnEnter(ctx, permanent, controller);
+  handleRoomDoorStateOnEnter(ctx, permanent, controller);
 }
 
 export function persistTriggeredAbilityPush(ctx: GameContext, stackItem: any): void {

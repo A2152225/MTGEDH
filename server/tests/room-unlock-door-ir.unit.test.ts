@@ -3,7 +3,10 @@ import { analyzeCardTriggers } from '../src/state/modules/triggers/registry.js';
 import {
   detectRoomUnlockDoorTriggers,
   extractRoomUnlockDoorEffect,
-  queueRoomUnlockDoorTriggersOnEnter,
+  handleRoomDoorStateOnEnter,
+  isRoomDoorLocked,
+  tryApplyRoomDoorUnlockFromResolvedEffect,
+  unlockRoomDoor,
 } from '../src/state/modules/triggers/room.js';
 import { extractTriggeredEffectFromTimingMatch } from '../../rules-engine/src/triggerEffectTextExtraction.js';
 import { collectOracleEffectSteps } from '../src/state/modules/trigger-runtime-wiring.js';
@@ -50,7 +53,7 @@ describe('room unlock door trigger wiring', () => {
     expect(isTriggerEffectFullyIrWired(effect, 'Cramped Vents // Access Maze')).toBe(true);
   });
 
-  it('queues unlock-door trigger on room enter', () => {
+  it('queues unlock-door trigger on room enter and marks door unlocked', () => {
     const game = createInitialGameState('room_unlock_queue');
     const p1 = 'p1' as PlayerID;
     game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
@@ -60,11 +63,59 @@ describe('room unlock door trigger wiring', () => {
       controller: p1,
       card: { name: 'Cramped Vents // Access Maze', oracle_text: oracle, type_line: 'Room' },
     };
+    (game.state as any).battlefield = [permanent];
 
-    queueRoomUnlockDoorTriggersOnEnter(game as any, permanent, p1);
+    handleRoomDoorStateOnEnter(game as any, permanent, p1);
 
     const stack = (game.state as any).stack || [];
     expect(stack.some((item: any) => item.triggerType === 'unlock_door')).toBe(true);
+    expect(isRoomDoorLocked(permanent)).toBe(false);
+  });
+
+  it('unlockRoomDoor on a locked room queues trigger once', () => {
+    const game = createInitialGameState('room_midgame_unlock');
+    const p1 = 'p1' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+
+    const permanent = {
+      id: 'room-1',
+      controller: p1,
+      doorLocked: true,
+      card: { name: 'Cramped Vents // Access Maze', oracle_text: oracle, type_line: 'Room' },
+    };
+    (game.state as any).battlefield = [permanent];
+
+    expect(unlockRoomDoor(game as any, 'room-1', p1)).toBe(true);
+    expect(isRoomDoorLocked(permanent)).toBe(false);
+    expect(((game.state as any).stack || []).filter((item: any) => item.triggerType === 'unlock_door')).toHaveLength(1);
+
+    expect(unlockRoomDoor(game as any, 'room-1', p1)).toBe(false);
+    expect(((game.state as any).stack || []).filter((item: any) => item.triggerType === 'unlock_door')).toHaveLength(1);
+  });
+
+  it('tryApplyRoomDoorUnlockFromResolvedEffect unlocks targeted room doors', () => {
+    const game = createInitialGameState('room_unlock_effect_hook');
+    const p1 = 'p1' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+
+    const permanent = {
+      id: 'room-1',
+      controller: p1,
+      doorLocked: true,
+      card: { name: 'Cramped Vents // Access Maze', oracle_text: oracle, type_line: 'Room' },
+    };
+    (game.state as any).battlefield = [permanent];
+
+    const applied = tryApplyRoomDoorUnlockFromResolvedEffect(
+      game as any,
+      p1,
+      'Unlock a locked door of up to one target Room you control.',
+      { targets: ['room-1'] },
+    );
+
+    expect(applied).toBe(true);
+    expect(isRoomDoorLocked(permanent)).toBe(false);
+    expect(((game.state as any).stack || []).some((item: any) => item.triggerType === 'unlock_door')).toBe(true);
   });
 
   it('primary mode resolves unlock-door damage via Oracle IR', () => {

@@ -1,5 +1,5 @@
 /**
- * Room unlock-door triggered abilities.
+ * Room unlock-door triggered abilities and door lock state.
  *
  * "When you unlock this door, …" fires when that door becomes unlocked — including
  * when the corresponding half is cast and the door unlocks on the battlefield.
@@ -24,6 +24,16 @@ export interface RoomUnlockDoorTrigger {
 
 const UNLOCK_DOOR_TIMING_PATTERN = /when you unlock this door,?\s*([^.]+)/i;
 
+const ROOM_UNLOCK_EFFECT_PATTERNS = [
+  /unlock a locked door of up to one target room you control/i,
+  /unlock a locked door of target room you control/i,
+  /lock or unlock a door of target room you control/i,
+] as const;
+
+export function isRoomPermanent(permanent: any): boolean {
+  return /\broom\b/i.test(String(permanent?.card?.type_line || permanent?.type_line || ''));
+}
+
 export function extractRoomUnlockDoorEffect(oracleText: string): string | null {
   const source = String(oracleText || '');
   const match = source.match(UNLOCK_DOOR_TIMING_PATTERN);
@@ -34,6 +44,26 @@ export function extractRoomUnlockDoorEffect(oracleText: string): string | null {
 
 export function permanentHasUnlockDoorTrigger(card: any): boolean {
   return extractRoomUnlockDoorEffect(String(card?.oracle_text || '')) != null;
+}
+
+export function isRoomDoorLocked(permanent: any): boolean {
+  return permanent?.doorLocked === true;
+}
+
+/**
+ * Initialize door lock state when a Room permanent enters.
+ * Doors with unlock triggers start locked unless already stamped.
+ */
+export function initializeRoomDoorStateForEnter(permanent: any): void {
+  if (!isRoomPermanent(permanent)) return;
+  if (permanent.doorLocked != null) return;
+
+  if (permanentHasUnlockDoorTrigger(permanent.card)) {
+    permanent.doorLocked = true;
+    return;
+  }
+
+  permanent.doorLocked = false;
 }
 
 export function buildRoomUnlockDoorRegisteredTrigger(
@@ -74,20 +104,46 @@ export function detectRoomUnlockDoorTriggers(card: any, permanent?: any): RoomUn
 /** @deprecated Use detectRoomUnlockDoorTriggers */
 export const detectRoomTriggers = detectRoomUnlockDoorTriggers;
 
-function shouldFireUnlockDoorTriggerOnEnter(permanent: any): boolean {
-  if (permanent?.doorLocked === true) return false;
-  if (permanent?.skipUnlockDoorTriggerOnEnter === true) return false;
-  return true;
+function findBattlefieldPermanent(ctx: GameContext, permanentId: string): any | null {
+  const state = (ctx as any).state;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  return battlefield.find((entry: any) => String(entry?.id || '') === String(permanentId || '')) || null;
 }
 
-export function queueRoomUnlockDoorTriggersOnEnter(
+function resolveRoomTargetPermanentId(
+  ctx: GameContext,
+  triggerItem?: any,
+): string | null {
+  const state = (ctx as any).state;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const targetIds = Array.isArray(triggerItem?.targets)
+    ? triggerItem.targets.map((target: unknown) => String(target || '').trim()).filter(Boolean)
+    : [];
+
+  for (const targetId of targetIds) {
+    const permanent = battlefield.find((entry: any) => String(entry?.id || '') === targetId);
+    if (permanent && isRoomPermanent(permanent)) {
+      return targetId;
+    }
+  }
+
+  const sourceId = String(triggerItem?.permanentId || triggerItem?.source || '').trim();
+  if (!sourceId) return null;
+  const sourcePermanent = battlefield.find((entry: any) => String(entry?.id || '') === sourceId);
+  if (sourcePermanent && isRoomPermanent(sourcePermanent)) {
+    return sourceId;
+  }
+
+  return null;
+}
+
+function queueRoomUnlockDoorTriggers(
   ctx: GameContext,
   permanent: any,
   controller: PlayerID,
 ): void {
   const state = (ctx as any).state;
   if (!state || !permanent?.card) return;
-  if (!shouldFireUnlockDoorTriggerOnEnter(permanent)) return;
 
   const triggers = detectRoomUnlockDoorTriggers(permanent.card, permanent);
   if (triggers.length === 0) return;
@@ -124,6 +180,98 @@ export function queueRoomUnlockDoorTriggersOnEnter(
     } as any;
 
     state.stack.push(stackItem);
-    debug(2, `[queueRoomUnlockDoorTriggersOnEnter] queued ${trigger.cardName}: ${effectText}`);
+    debug(2, `[queueRoomUnlockDoorTriggers] queued ${trigger.cardName}: ${effectText}`);
   }
+}
+
+/**
+ * Unlock a Room door and queue its "When you unlock this door" triggers once.
+ * Returns true when the door transitioned from locked to unlocked.
+ */
+export function unlockRoomDoorPermanent(
+  ctx: GameContext,
+  permanent: any,
+  controller: PlayerID,
+): boolean {
+  if (!permanent || !isRoomPermanent(permanent)) return false;
+  if (!permanentHasUnlockDoorTrigger(permanent.card)) {
+    permanent.doorLocked = false;
+    return false;
+  }
+
+  if (permanent.doorLocked === false) {
+    return false;
+  }
+
+  permanent.doorLocked = false;
+  queueRoomUnlockDoorTriggers(ctx, permanent, controller);
+  return true;
+}
+
+export function unlockRoomDoor(
+  ctx: GameContext,
+  permanentId: string,
+  controller: PlayerID,
+): boolean {
+  const permanent = findBattlefieldPermanent(ctx, permanentId);
+  if (!permanent) return false;
+  return unlockRoomDoorPermanent(ctx, permanent, controller);
+}
+
+/**
+ * Called when a Room enters. Cast-half entry unlocks the door and fires triggers.
+ */
+export function handleRoomDoorStateOnEnter(
+  ctx: GameContext,
+  permanent: any,
+  controller: PlayerID,
+): void {
+  if (!isRoomPermanent(permanent)) return;
+
+  initializeRoomDoorStateForEnter(permanent);
+
+  if (permanent.skipUnlockDoorTriggerOnEnter === true) {
+    permanent.doorLocked = true;
+    return;
+  }
+
+  if (permanentHasUnlockDoorTrigger(permanent.card)) {
+    unlockRoomDoorPermanent(ctx, permanent, controller);
+  }
+}
+
+/** @deprecated Use handleRoomDoorStateOnEnter */
+export function queueRoomUnlockDoorTriggersOnEnter(
+  ctx: GameContext,
+  permanent: any,
+  controller: PlayerID,
+): void {
+  handleRoomDoorStateOnEnter(ctx, permanent, controller);
+}
+
+function effectUnlocksRoomDoor(effectText: string): boolean {
+  const text = String(effectText || '').trim();
+  if (!text) return false;
+  if (/^lock or unlock a door of target room you control$/i.test(text)) {
+    return false;
+  }
+  return ROOM_UNLOCK_EFFECT_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/**
+ * After a spell/trigger effect resolves, unlock targeted Room doors when the
+ * effect text is a standard unlock-door instruction.
+ */
+export function tryApplyRoomDoorUnlockFromResolvedEffect(
+  ctx: GameContext,
+  controller: PlayerID,
+  effectText: string,
+  triggerItem?: any,
+): boolean {
+  if (!effectUnlocksRoomDoor(effectText)) return false;
+
+  const targetId = resolveRoomTargetPermanentId(ctx, triggerItem);
+  if (!targetId) return false;
+
+  return unlockRoomDoor(ctx, targetId, controller);
 }
