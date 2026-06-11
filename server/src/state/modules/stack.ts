@@ -1,8 +1,18 @@
-﻿export { executeTriggerEffect } from './stackExecuteTriggerEffectUtils.js';
+/**
+ * Re-export barrel for stack resolution. Production code imports orchestrator
+ * modules directly; this file preserves the public surface for external callers.
+ */
+export { executeTriggerEffect } from './stackExecuteTriggerEffectUtils.js';
 export { tryApplyTriggerEffectPrefaceHandlers } from './stackExecuteTriggerEffectPrefaceUtils.js';
 export { tryApplyTriggerEffectLegacyBodyHandlers } from './stackExecuteTriggerEffectLegacyBodyUtils.js';
 export { tryApplyTriggerEffectLegacyTailHandlers } from './stackExecuteTriggerEffectTailUtils.js';
 export { applyOracleIRFallbackForTriggeredEffect } from './stackExecuteTriggerEffectIrFallbackUtils.js';
+export {
+  isTriggerEffectOwnedByOracleIrPrimary,
+  shouldSkipLegacyTriggerBodyHandlers,
+  shouldSkipLegacyTriggerRegexHandlers,
+  skipRetiredTriggerLegacyHandler,
+} from './oracleIrTriggerLegacyRouting.js';
 export { resolveTopOfStack } from './stackResolveTopOfStackUtils.js';
 export type {
   ExecuteTriggerEffectFn,
@@ -22,7 +32,9 @@ export type {
   PermanentSpellStackResolveOptions,
   ResolveTopOfStackContinuation,
   ResolveTopOfStackPrefaceResult,
+  StackActivatedAbilityHandlerContext,
   StackActivatedAbilityLateHandlerDeps,
+  StackActivatedAbilityLateHandlerOptions,
   TriggeredAbilityDeferralOptions,
   TriggeredAbilityStackResolveOptions,
   TriggerEffectLegacyBodyContinuation,
@@ -115,7 +127,6 @@ export {
   applyInstantSorceryPostCategorizeSpellRiders,
 } from './stackResolveSpellPostCategorizeRidersUtils.js';
 export {
-  resolveSkipLegacySpellRegexHandlers,
   logLegacySpellRegexPrimaryMiss,
   applyLegacySpellRegexLifeGainHandler,
   applyLegacySpellRegexDrawHandlers,
@@ -131,6 +142,7 @@ export { applyInstantSorcerySpecialAndRemovalRiders } from './stackResolveSpellL
 export { resolveInstantOrSorceryStackItem } from './stackResolveInstantSorceryOrchestratorUtils.js';
 export { tryResolveInstantSorceryPreface } from './stackResolveInstantSorceryPrefaceUtils.js';
 export { tryResolveInstantSorceryLegacyResolution } from './stackResolveInstantSorceryLegacyResolutionUtils.js';
+export { tryApplyInstantSorceryLegacyBodyHandlers } from './stackResolveInstantSorceryLegacyBodyUtils.js';
 export { resolveTriggeredAbilityStackItem } from './stackResolveTriggeredAbilityOrchestratorUtils.js';
 export { tryDeferTriggeredAbilityBeforeExecution } from './stackResolveTriggeredAbilityDeferralUtils.js';
 export { tryResolveTriggeredAbilityChosenTypeEffects } from './stackResolveTriggeredAbilityChosenTypeUtils.js';
@@ -163,5 +175,11 @@ export {
   detectInstantSorcerySpellShapeFlags,
   shouldSkipLegacySpellCategorizationForInstantSorcery,
 } from './oracleIrSpellLegacySpellShapeUtils.js';
+export {
+  isSpellEffectOwnedByOracleIrPrimary,
+  shouldSkipLegacySpellBodyHandlers,
+  shouldSkipLegacySpellRegexHandlers,
+  skipRetiredSpellLegacyHandler,
+} from './oracleIrSpellLegacyRouting.js';
 export { manifestCard } from './stackManifestUtils.js';
 export { exileEntireStack } from './stackExileUtils.js';

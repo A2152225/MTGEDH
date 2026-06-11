@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { appendEvent, createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
-import { resolveTopOfStack } from '../src/state/modules/stack.js';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 import { ensureGame, transformDbEventsForReplay } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';

@@ -91,8 +91,6 @@ export enum ResolutionStepType {
   ADDITIONAL_COST_PAYMENT = 'additional_cost_payment',
   // Legacy interactive: choose how many times to pay squad cost
   SQUAD_COST_PAYMENT = 'squad_cost_payment',
-  // Legacy interactive: tap creatures for Teamwork additional cost
-  TEAMWORK_COST_PAYMENT = 'teamwork_cost_payment',
   SACRIFICE_ABILITY = 'sacrifice_ability',
   ENTRAPMENT_MANEUVER = 'entrapment_maneuver',
   MODAL_CHOICE = 'modal_choice',
@@ -527,43 +525,12 @@ export interface SquadCostPaymentStep extends BaseResolutionStep {
 }
 
 /**
- * Teamwork cost payment step
- * Used when a spell with Teamwork asks which creatures to tap for the optional additional cost.
- */
-export interface TeamworkCostPaymentStep extends BaseResolutionStep {
-  readonly type: ResolutionStepType.TEAMWORK_COST_PAYMENT;
-  readonly cardId: string;
-  readonly cardName: string;
-  readonly teamworkMinPower: number;
-  readonly imageUrl?: string;
-  readonly availableCreatures?: readonly {
-    readonly permanentId: string;
-    readonly cardName: string;
-    readonly power: number;
-    readonly imageUrl?: string;
-  }[];
-
-  /** Optional continuation context so the server can resume castSpellFromHand. */
-  readonly castSpellFromHandArgs?: {
-    cardId: string;
-    payment?: any;
-    targets?: any;
-    xValue?: number;
-    alternateCostId?: string;
-    convokeTappedCreatures?: string[];
-  };
-}
-
-/**
  * Discard selection resolution step
  */
 export interface DiscardSelectionStep extends BaseResolutionStep {
   readonly type: ResolutionStepType.DISCARD_SELECTION;
   readonly hand: readonly ChoiceOption[];
   readonly discardCount: number;
-  readonly minDiscardCount?: number;
-  readonly maxDiscardCount?: number;
-  readonly anyNumberDiscard?: boolean;
   readonly currentHandSize: number;
   readonly maxHandSize: number;
   readonly reason: 'cleanup' | 'effect' | 'activation_cost';
@@ -958,7 +925,6 @@ export type ResolutionStep =
   | LifePaymentStep
   | AdditionalCostPaymentStep
   | SquadCostPaymentStep
-  | TeamworkCostPaymentStep
   | ModeSelectionStep
   | DiscardSelectionStep
   | OpeningHandActionsStep

@@ -145,7 +145,10 @@ export function tryApplyOracleIRToActivatedAbility(
 
     const applied = result.appliedSteps.length;
     const pendingOptional = (result.pendingOptionalSteps || []).length > 0;
-    const handled = applied > 0 || pendingOptional;
+    const hasUnqueuedPlayerChoiceGap = (result.automationGaps || []).some(
+      (gap) => gap.reasonCode === 'player_choice_required',
+    );
+    const handled = (applied > 0 || pendingOptional) && !hasUnqueuedPlayerChoiceGap;
 
     if (handled) {
       debug(

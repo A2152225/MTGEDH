@@ -3,7 +3,8 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
-import { executeTriggerEffect, triggerETBEffectsForPermanent } from '../src/state/modules/stack';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
+import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 import { applyEvent } from '../src/state/modules/applyEvent';
 
 const liveReplayGameId = 'test_graveyard_provenance_etb_replay_live';

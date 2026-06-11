@@ -5,6 +5,7 @@ import { debug } from '../../utils/debug.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import { checkOpponentHasMoreLands } from './stackLandCountUtils.js';
 import { enqueueLibrarySearchStep, type EnqueueLibrarySearchStepFn } from './triggerLibrarySearchUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export type { EnqueueLibrarySearchStepFn };
 
@@ -20,6 +21,10 @@ export interface TriggerLegacySearchParams {
 export function applyRetiredTriggerLegacyProteanHulkSearch(
   params: TriggerLegacySearchParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const proteanHulkMatch = params.desc.match(
     /search your library for any number of creature cards with total mana value (\d+) or less and put them onto the battlefield/i,
   );
@@ -52,6 +57,10 @@ export function applyRetiredTriggerLegacyProteanHulkSearch(
 export function applyRetiredTriggerLegacyGenericSearchLibrary(
   params: TriggerLegacySearchParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const searchLibraryMatch = params.desc.match(/(?:you may )?search your library for (?:a|an|up to (?:one|two|three|\d+)) ([^,\.]+)/i);
   if (!searchLibraryMatch) {
     return false;
@@ -278,6 +287,10 @@ function summarizeLibraryCard(card: any): any {
 export function applyRetiredTriggerLegacyRevealUntilEquipment(
   params: TriggerLegacySearchParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (
     !params.desc.includes('reveal cards from the top of your library until you reveal an equipment card')
     || !params.desc.includes('put that card onto the battlefield attached to that creature')

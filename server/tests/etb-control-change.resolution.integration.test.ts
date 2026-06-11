@@ -3,7 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
-import { triggerETBEffectsForPermanent } from '../src/state/modules/stack.js';
+import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 import { setPermanentPrepared } from '../src/state/modules/prepared.js';
 import { games } from '../src/socket/socket.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';

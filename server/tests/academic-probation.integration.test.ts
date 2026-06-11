@@ -7,7 +7,7 @@ import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 import { createInitialGameState } from '../src/state/gameState.js';
-import { resolveTopOfStack } from '../src/state/modules/stack.js';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 import type { PlayerID } from '../../shared/src/index.js';
 import '../src/state/modules/priority.js';
 

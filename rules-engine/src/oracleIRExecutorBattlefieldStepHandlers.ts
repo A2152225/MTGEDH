@@ -9245,6 +9245,51 @@ export function applySacrificeStep(
     };
   }
 
+  const sacrificeWhatTextEarly = extractSacrificeWhatText(step);
+  const explicitTargetSacrificeMatch = sacrificeWhatTextEarly.match(
+    /^target (creature(?: or planeswalker)?|permanent|artifact|enchantment|land|planeswalker)$/i,
+  );
+  if (explicitTargetSacrificeMatch) {
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    if (boundIds.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+
+    const typeWord = String(explicitTargetSacrificeMatch[1] || 'permanent').toLowerCase();
+    const selected = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!boundIds.includes(permanentId)) return false;
+      if (typeWord.includes('creature') && typeWord.includes('planeswalker')) {
+        return permanentMatchesType(perm, 'creature') || permanentMatchesType(perm, 'planeswalker');
+      }
+      const typeFilter = parseSimplePermanentTypeFromText(typeWord) || 'permanent';
+      return permanentMatchesType(perm, typeFilter);
+    });
+    if (selected.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+
+    const removedIds = new Set(
+      selected.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean),
+    );
+    const kept = battlefield.filter(perm => !removedIds.has(String((perm as any)?.id || '').trim()));
+    const result = finalizeBattlefieldRemoval(state, selected, removedIds, kept, 'graveyard', 'sacrificed');
+    return {
+      applied: true,
+      state: result.state,
+      log: result.log,
+      lastSacrificedPermanents: selected,
+    };
+  }
+
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {

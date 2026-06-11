@@ -4,6 +4,7 @@ import { permanentHasCreatureTypeNow } from '../creatureTypeNow.js';
 import { queueBecomesUntappedTriggers } from './triggers/tap-untap.js';
 import { debug } from '../../utils/debug.js';
 import { scheduleDelayedDrawAtNextUpkeep } from './triggerDelayedEffectUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 const IRREGULAR_PLURALS: Record<string, string> = {
   elves: 'elf',
@@ -103,6 +104,10 @@ export function applyRetiredTriggerLegacyDelayedDrawAtNextUpkeep(
     return { matched: false };
   }
 
+  if (skipRetiredTriggerLegacyHandler(delayedDrawSourceText, params.sourceName)) {
+    return { matched: false };
+  }
+
   scheduleDelayedDrawAtNextUpkeep(params.ctx, {
     playerId: String(params.controller || '').trim(),
     sourceName: params.sourceName,
@@ -134,6 +139,10 @@ export function applyRetiredTriggerLegacyDelayedDrawAtNextUpkeep(
 export function applyRetiredTriggerLegacyUntapAllCreatureType(
   params: TriggerLegacyTimingParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const untapAllCreatureTypeMatch = params.desc.match(/untap all (\w+(?:\s+\w+)*) you control/i);
   if (!untapAllCreatureTypeMatch) {
     return false;

@@ -9,6 +9,7 @@ import {
 } from './oracleIrSpellLegacyTokenUtils.js';
 import { parseNumberWord } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { buildResolvedSpellCopySnapshot, wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
+import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 
 type InstantSorceryPostCategorizeRiderOptions = {
   controller: PlayerID;
@@ -22,10 +23,77 @@ type InstantSorceryPostCategorizeRiderOptions = {
   uncategorizedSpellFallbackApplied: number;
 };
 
+export function applyInstantSorceryGraveyardConditionalTokenRider(
+  ctx: GameContext,
+  options: InstantSorceryPostCategorizeRiderOptions,
+): void {
+  const spellName = String(options.effectiveCard?.name || 'spell');
+  if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
+    return;
+  }
+
+  if (!wasSpellCastFromGraveyard(options.item)) {
+    return;
+  }
+
+  const oracleTextLower = options.oracleTextLower;
+  const graveyardTokenInsteadMatch = oracleTextLower.match(
+    /if this spell was cast from a graveyard,\s*create (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) of those tokens instead/i,
+  );
+  if (!graveyardTokenInsteadMatch) {
+    return;
+  }
+
+  let tokenCreationResult = parseSpellLegacyTokenCreation(
+    options.effectiveCard.name,
+    oracleTextLower,
+    options.controller,
+    (ctx as any).state,
+    options.spellXValue,
+  );
+  if (!tokenCreationResult) {
+    return;
+  }
+
+  const replacementCount = parseNumberWord(graveyardTokenInsteadMatch[1], tokenCreationResult.count);
+  const state = (ctx as any).state;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const existingMatchingTokens = battlefield.filter((perm: any) => {
+    const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+    const tokenName = String(tokenCreationResult?.name || '').toLowerCase();
+    const power = Number(perm?.basePower ?? perm?.card?.power ?? 0);
+    const toughness = Number(perm?.baseToughness ?? perm?.card?.toughness ?? 0);
+    if (power !== tokenCreationResult.power || toughness !== tokenCreationResult.toughness) {
+      return false;
+    }
+    if (tokenName && typeLine.includes(tokenName)) return true;
+    return tokenName === 'human' && typeLine.includes('human');
+  }).length;
+
+  const tokensToCreate = Math.max(0, replacementCount - existingMatchingTokens);
+  if (tokensToCreate <= 0) {
+    return;
+  }
+
+  createSpellLegacyTokenFromSpec(ctx, options.controller, {
+    ...tokenCreationResult,
+    count: tokensToCreate,
+  });
+  debug(
+    2,
+    `[applyInstantSorceryGraveyardConditionalTokenRider] ${spellName}: created ${tokensToCreate} supplemental token(s) for graveyard cast (${existingMatchingTokens} already present, target ${replacementCount})`,
+  );
+}
+
 export function applyInstantSorceryCopyStackSpellRiders(
   ctx: GameContext,
   options: InstantSorceryPostCategorizeRiderOptions,
 ): void {
+  const spellName = String(options.effectiveCard?.name || 'spell');
+  if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
+    return;
+  }
+
   const state = (ctx as any).state;
   const controller = options.controller;
   const effectiveCard = options.effectiveCard;
@@ -91,6 +159,11 @@ export function applyInstantSorceryFracturedIdentityAndFallbackRiders(
   ctx: GameContext,
   options: InstantSorceryPostCategorizeRiderOptions,
 ): void {
+  const spellName = String(options.effectiveCard?.name || 'spell');
+  if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
+    return;
+  }
+
   const state = (ctx as any).state;
   const controller = options.controller;
   const effectiveCard = options.effectiveCard;
@@ -170,6 +243,8 @@ export function applyInstantSorceryFracturedIdentityAndFallbackRiders(
       createSpellLegacyTokenFromSpec(ctx, controller, tokenCreationResult);
       debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
     }
+  } else if (wasSpellCastFromGraveyard(item)) {
+    applyInstantSorceryGraveyardConditionalTokenRider(ctx, options);
   }
 
   const conditionalWipeMatch = oracleTextLower.match(/if x is (\d+) or more,\s*(destroy all (?:other )?creatures)/i);

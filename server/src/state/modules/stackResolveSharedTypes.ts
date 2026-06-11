@@ -29,8 +29,18 @@ export type StackActivatedAbilityLateHandlerDeps = {
   executeTriggerEffect: ExecuteTriggerEffectFn;
 };
 
-export type ResolveTopOfStackContinuation = {
+export type StackActivatedAbilityLateHandlerOptions = {
   item: any;
+  controller: PlayerID;
+  targets: any[];
+} & StackActivatedAbilityLateHandlerDeps;
+
+export type StackActivatedAbilityHandlerContext = {
+  item: any;
+  controller: PlayerID;
+};
+
+export type ResolveTopOfStackContinuation = {  item: any;
   card: any;
   controller: PlayerID;
   targets: any[];

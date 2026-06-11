@@ -24,7 +24,6 @@ import { getMillTriggers } from "./triggers/mill.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./triggers/target-metadata.js";
 import { evaluateDrawReplacementEvent } from "./replacement-effects.js";
-import { updateCounters } from "./counters_tokens.js";
 
 function clearPreparedStateOnBattlefieldExit(state: any, permanent: any): void {
   if (!permanent) {
@@ -1443,11 +1442,14 @@ export function applyExplore(
     (z as any).hand.push({ ...topCard, zone: "hand", faceDown: false });
     (z as any).handCount = ((z as any).hand || []).length;
   } else {
-    // Not a land - add +1/+1 counter to exploring permanent (respects Branching Evolution, Hardened Scales, etc.)
+    // Not a land - add +1/+1 counter to exploring permanent
     const battlefield = ctx.state.battlefield || [];
     const perm = battlefield.find((p: any) => p.id === permanentId && p.controller === playerId);
     if (perm) {
-      updateCounters(ctx, permanentId, { '+1/+1': 1 });
+      // Create a mutable copy of counters to avoid modifying readonly object
+      const newCounters = { ...(perm.counters || {}) };
+      newCounters["+1/+1"] = (newCounters["+1/+1"] || 0) + 1;
+      (perm as any).counters = newCounters;
     }
     
     if (toGraveyard) {

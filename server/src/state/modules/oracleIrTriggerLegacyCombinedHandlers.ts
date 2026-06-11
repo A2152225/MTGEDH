@@ -14,6 +14,7 @@ import {
   applyRetiredTriggerLegacyDrawAndLifeCombinedEffects,
   applyRetiredTriggerLegacyPutThatManyCountersOnSelf,
 } from './oracleIrTriggerLegacyRegexHandlers.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 const WORD_TO_NUMBER: Record<string, number> = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
@@ -43,6 +44,10 @@ export interface TriggerLegacyCombinedParams {
 export function applyRetiredTriggerLegacyCounterThenDraw(
   params: TriggerLegacyCombinedParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const counterThenDrawMatch = params.desc.match(
     /put (a|an|one|two|three|four|five|\d+) \+1\/\+1 counters? on (?:up to (?:one|two|three|four|five|\d+) )?target creatures?, then draw (?:a|1) card/i,
   );
@@ -72,6 +77,10 @@ export function applyRetiredTriggerLegacyCounterThenDraw(
 export function applyRetiredTriggerLegacyOptionalDiscardThenDraw(
   params: TriggerLegacyCombinedParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const optionalDiscardThenDrawMatch = String(params.desc || '').trim().match(
     /^you may discard a card\. if you do, draw a card(?:\. if a land card (?:is|was) discarded this way, draw an additional card)?\.?$/i,
   );
@@ -106,6 +115,10 @@ export function applyRetiredTriggerLegacyOptionalDiscardThenDraw(
 export function applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit(
   params: TriggerLegacyCombinedParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const sacrificeAnotherPermanentForBenefitMatch = String(params.desc || '').trim().match(
     /^you may sacrifice another permanent\. if you do, you gain (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) life and draw a card\.?$/i,
   );
@@ -146,6 +159,10 @@ export function applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit(
 export function applyRetiredTriggerLegacyPutLandFromHand(
   params: TriggerLegacyCombinedParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (!/you may put a land card from your hand onto the battlefield/i.test(String(params.desc || ''))) {
     return false;
   }
@@ -214,6 +231,10 @@ export function applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife(
     readonly triggerCard: any;
   },
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const thatPlayerSacrificesAndLosesMatch = params.desc.match(/that player sacrifices a creature(?: of their choice)? and loses (\d+) life/i);
   if (!thatPlayerSacrificesAndLosesMatch) {
     return false;

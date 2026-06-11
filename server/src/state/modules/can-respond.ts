@@ -2093,15 +2093,13 @@ function hasActivatableAbility(
       return false; // Can only be activated during player's turn
     }
     
-    const selfPaymentOptions = { excludedPermanentIds: [String(permanent.id || '')] };
-
     // Check for mana costs BEFORE tap symbol (e.g., "{2}{R}, {T}:")
     if (costsBeforeTap) {
       const manaCostMatch = costsBeforeTap.match(/\{[^}]+\}/g);
       if (manaCostMatch) {
         const costString = manaCostMatch.join("");
         const parsedCost = parseManaCost(costString);
-        if (!canPayManaCostWithAvailableSources(state, playerId, parsedCost, Infinity, selfPaymentOptions)) {
+        if (!canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
           return false; // Can't pay mana cost
         }
       }
@@ -2113,7 +2111,7 @@ function hasActivatableAbility(
       if (manaCostMatch) {
         const costString = manaCostMatch.join("");
         const parsedCost = parseManaCost(costString);
-        if (!canPayManaCostWithAvailableSources(state, playerId, parsedCost, Infinity, selfPaymentOptions)) {
+        if (!canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
           return false; // Can't pay mana cost
         }
       }

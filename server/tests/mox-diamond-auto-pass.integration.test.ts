@@ -5,7 +5,7 @@ import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { tryQueueMoxDiamondBeforeStackResolve } from '../src/state/modules/mox-diamond-choice.js';
-import { resolveTopOfStack } from '../src/state/modules/stack.js';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 
 async function resetGame(gameId: string) {
   games.delete(gameId as any);

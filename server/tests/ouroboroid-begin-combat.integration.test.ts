@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.ts';
 import { createInitialGameState } from '../src/state/gameState.js';
-import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import type { PlayerID } from '../../shared/src';
 
 function addPlayer(game: any, id: PlayerID, name: string) {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
-import { triggerETBEffectsForPermanent } from '../src/state/modules/stack';
+import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 
 describe('Intervening-if ETB triggers', () => {
   it('does not let an opponent Thalia\'s Lieutenant trigger when your non-Human creature resolves from the stack', () => {

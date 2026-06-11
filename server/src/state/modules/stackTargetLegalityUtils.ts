@@ -36,15 +36,30 @@ export function inferStackTargetLocations(oracleText: string): Set<StackTargetLo
     locations.add('stack');
   }
 
-  if (/\btarget\b[^.]*\bgraveyard\b/.test(normalized)) {
+  // "Copy target instant or sorcery spell you control" — instant/sorcery are two words before spell.
+  if (/\btarget\s+instant\s+or\s+sorcery\s+spell\b/.test(normalized)) {
+    locations.add('stack');
+  }
+
+  // Battlefield bounce: "return target creature to its owner's hand" targets a permanent, not a hand card.
+  if (
+    /\breturn\s+(?:up to \w+\s+)?target\b/.test(normalized) &&
+    /\bto\s+(?:its owner's|their owner's|that permanent's owner's|the)\s+(?:hand|library)\b/.test(normalized) &&
+    !/\btarget\b[^.]*\b(?:from|in)\b[^.]*\b(?:graveyard|hand|exile)\b/.test(normalized)
+  ) {
+    locations.add('battlefield');
+    return locations;
+  }
+
+  if (/\btarget\b[^.]*\b(?:from|in)\b[^.]*\bgraveyard\b/.test(normalized)) {
     locations.add('graveyard');
   }
 
-  if (/\btarget\b[^.]*\bexile\b/.test(normalized)) {
+  if (/\btarget\b[^.]*\b(?:from|in)\b[^.]*\bexile\b/.test(normalized)) {
     locations.add('exile');
   }
 
-  if (/\btarget\b[^.]*\bhand\b/.test(normalized)) {
+  if (/\btarget\b[^.]*\b(?:from|in)\b[^.]*\bhand\b/.test(normalized)) {
     locations.add('hand');
   }
 

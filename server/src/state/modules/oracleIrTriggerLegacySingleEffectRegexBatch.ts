@@ -53,6 +53,7 @@ import {
   applyRetiredTriggerLegacyTargetCreatureCantBeBlocked,
 } from './oracleIrTriggerLegacyCombatEvasionHandlers.js';
 import { applyRetiredTriggerLegacyChosenTypeCounterEachCreature } from './oracleIrTriggerLegacyCounterHandlers.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacySingleEffectBatchParams {
   readonly ctx: GameContext;
@@ -87,11 +88,15 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     isKynaiosEffect,
   } = params;
 
-  if (applyRetiredTriggerLegacySingleGainLife({ desc, controller, state })) {
+  if (skipRetiredTriggerLegacyHandler(desc, sourceName)) {
+    return false;
+  }
+
+  if (applyRetiredTriggerLegacySingleGainLife({ desc, controller, state, sourceName })) {
     return true;
   }
 
-  if (applyRetiredTriggerLegacyMayGainLife({ desc, controller, state })) {
+  if (applyRetiredTriggerLegacyMayGainLife({ desc, controller, state, sourceName })) {
     return true;
   }
 
@@ -128,6 +133,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     triggerItem,
     opponents,
     state,
+    sourceName,
   })) {
     return true;
   }
@@ -137,6 +143,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     controller,
     triggerItem,
     state,
+    sourceName,
   })) {
     return true;
   }
@@ -170,7 +177,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     return true;
   }
 
-  if (applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget({ desc, triggerItem, state })) {
+  if (applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget({ desc, triggerItem, state, sourceName })) {
     return true;
   }
 
@@ -189,11 +196,12 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     controller,
     triggerItem,
     state,
+    sourceName,
   })) {
     return true;
   }
 
-  if (applyRetiredTriggerLegacyPlusOneCounterEachCreatureYouControl({ desc, controller, state })) {
+  if (applyRetiredTriggerLegacyPlusOneCounterEachCreatureYouControl({ desc, controller, state, sourceName })) {
     return true;
   }
 
@@ -202,11 +210,12 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     controller,
     triggerItem,
     state,
+    sourceName,
   })) {
     return true;
   }
 
-  if (applyRetiredTriggerLegacyPlusOneCounterOnSelf({ desc, triggerItem, state })) {
+  if (applyRetiredTriggerLegacyPlusOneCounterOnSelf({ desc, triggerItem, state, sourceName })) {
     return true;
   }
 
@@ -219,11 +228,11 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     return true;
   }
 
-  if (applyRetiredTriggerLegacyDoublePlusOneCountersOnSelf({ desc, triggerItem, state })) {
+  if (applyRetiredTriggerLegacyDoublePlusOneCountersOnSelf({ desc, triggerItem, state, sourceName })) {
     return true;
   }
 
-  if (applyRetiredTriggerLegacySingleDraw({ ctx, controller, desc, isKynaiosEffect })) {
+  if (applyRetiredTriggerLegacySingleDraw({ ctx, controller, desc, isKynaiosEffect, sourceName })) {
     return true;
   }
 
@@ -253,7 +262,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     return true;
   }
 
-  if (applyRetiredTriggerLegacyTargetPlayerDraws({ ctx, controller, desc, triggerItem })) {
+  if (applyRetiredTriggerLegacyTargetPlayerDraws({ ctx, controller, desc, triggerItem, sourceName })) {
     return true;
   }
 
@@ -379,6 +388,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     desc,
     opponents,
     state,
+    sourceName,
   })) {
     return true;
   }
@@ -447,7 +457,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     return true;
   }
 
-  if (applyRetiredTriggerLegacyScry({ desc, controller, state })) {
+  if (applyRetiredTriggerLegacyScry({ desc, controller, state, sourceName })) {
     return true;
   }
 
@@ -455,7 +465,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     return true;
   }
 
-  if (applyRetiredTriggerLegacyEachOpponentDiscards({ desc, state, opponents })) {
+  if (applyRetiredTriggerLegacyEachOpponentDiscards({ desc, state, opponents, sourceName })) {
     return true;
   }
 

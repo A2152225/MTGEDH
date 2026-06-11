@@ -1,5 +1,6 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import { debug } from '../../utils/debug.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyCombatEvasionParams {
   readonly controller: PlayerID;
@@ -27,6 +28,10 @@ function pushTemporaryAbility(
 export function applyRetiredTriggerLegacyTargetCreatureCantBeBlocked(
   params: TriggerLegacyCombatEvasionParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const targetCreatureCantBeBlockedMatch = params.desc.match(/(?:up to (?:one|two|three|four|five|\d+) )?target creatures? can't be blocked this turn\.?$/i);
   if (!targetCreatureCantBeBlockedMatch) {
     return false;
@@ -53,6 +58,10 @@ export function applyRetiredTriggerLegacyTargetCreatureCantBeBlocked(
 export function applyRetiredTriggerLegacySelfCantBeBlocked(
   params: TriggerLegacyCombatEvasionParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const selfCantBeBlockedMatch = params.desc.match(/(?:it|this creature) can't be blocked this turn(?: and you scry (\d+))?\.?$/i);
   if (!selfCantBeBlockedMatch) {
     return false;
@@ -81,6 +90,10 @@ export function applyRetiredTriggerLegacySelfCantBeBlocked(
 export function applyRetiredTriggerLegacySelfPreventCombatDamage(
   params: TriggerLegacyCombatEvasionParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const selfPreventCombatDamageMatch = params.desc.match(/prevent all combat damage that would be dealt to (?:it|this creature) this turn\.?$/i);
   if (!selfPreventCombatDamageMatch) {
     return false;
@@ -107,6 +120,10 @@ export function applyRetiredTriggerLegacySelfPreventCombatDamage(
 export function applyRetiredTriggerLegacySelfCantBeBlockedByLowPower(
   params: TriggerLegacyCombatEvasionParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const selfCantBeBlockedByLowPowerMatch = params.desc.match(/(?:it|this creature) can't be blocked by creatures with power 2 or less this turn\.?$/i);
   if (!selfCantBeBlockedByLowPowerMatch) {
     return false;

@@ -13,6 +13,7 @@ import {
   turnReturnedPermanentFaceUp,
 } from './triggerDelayedEffectUtils.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentBridge.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyGraveyardParams {
   readonly ctx: GameContext;
@@ -31,6 +32,10 @@ export function applyRetiredTriggerLegacyDiscardTriggeredCastFromGraveyard(
     ? params.triggerItem.effectData
     : undefined;
   if (discardTriggeredCastData?.discardTriggeredCastFromGraveyard !== true) {
+    return false;
+  }
+
+  if (skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
     return false;
   }
 
@@ -71,6 +76,10 @@ export function applyRetiredTriggerLegacyDiscardTriggeredCastFromGraveyard(
 export function applyRetiredTriggerLegacyTargetedPlayFromGraveyard(
   params: TriggerLegacyGraveyardParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
+    return false;
+  }
+
   const selectedGraveyardTargetId = Array.isArray(params.triggerItem?.targets)
     ? String(params.triggerItem.targets[0] || '').trim()
     : '';

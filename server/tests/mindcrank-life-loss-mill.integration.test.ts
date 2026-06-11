@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
-import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import { queueLifeLossTriggers } from '../src/state/modules/triggers/life-loss.js';
 
 describe('Mindcrank life-loss mill (integration)', () => {

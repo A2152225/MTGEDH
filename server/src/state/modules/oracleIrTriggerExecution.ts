@@ -23,7 +23,20 @@ import {
   requiresEffectProgramOrchestration,
   startOracleEffectProgramOnServer,
 } from './oracleIrEffectProgramServer.js';
+import { copyPermanentTriggerStepNeedsTargetSelectionQueue } from './trigger-copy-permanent.js';
 import { debug, debugWarn } from '../../utils/debug.js';
+import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
+
+export { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
+
+function triggerCopyStepsNeedServerTargetQueue(steps: readonly OracleEffectStep[]): boolean {
+  return steps.some(
+    (step) => step.kind === 'copy_permanent'
+      && copyPermanentTriggerStepNeedsTargetSelectionQueue(
+        step as Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
+      ),
+  );
+}
 
 export interface TryResolveTriggerViaOracleIRParams {
   readonly controller: PlayerID;
@@ -37,11 +50,6 @@ export interface TryResolveTriggerViaOracleIRResult {
   readonly handled: boolean;
   readonly applied: number;
   readonly shadowWouldHandle: boolean;
-}
-
-export function isOracleIrTriggerPrimaryEnabled(): boolean {
-  const raw = String(process.env.ORACLE_IR_TRIGGER_PRIMARY || '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
 function resolveTriggerTargetBinding(
@@ -280,6 +288,9 @@ export function tryResolveTriggerViaOracleIR(
   if (useEffectProgram) {
     const effectProgramResult = startOracleEffectProgramOnServer(ctx, effectProgramParams);
     if (effectProgramResult.handled) {
+      if (effectProgramResult.waitingForChoice && !effectProgramResult.completed) {
+        return { handled: false, applied: 0, shadowWouldHandle: false };
+      }
       return {
         handled: true,
         applied: effectProgramResult.completed ? 1 : 0,
@@ -310,8 +321,52 @@ export function tryResolveTriggerViaOracleIR(
     const queueAfter = gameId !== 'unknown'
       ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
       : queueBefore;
-    const handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter);
+    let handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter);
     const applied = result.appliedSteps.length;
+
+    if (
+      handled
+      && queueAfter <= queueBefore
+      && applied === 0
+      && triggerCopyStepsNeedServerTargetQueue(steps)
+    ) {
+      handled = false;
+    }
+
+    if (
+      handled
+      && queueAfter <= queueBefore
+      && applied > 0
+      && String(params.triggerItem?.triggerType || '').toLowerCase() === 'annihilator'
+      && steps.some((step) => step.kind === 'sacrifice')
+    ) {
+      handled = false;
+    }
+
+    if (
+      handled
+      && queueAfter <= queueBefore
+      && (result.pendingContinuationSteps || []).length > 0
+    ) {
+      handled = false;
+    }
+
+    if (
+      handled
+      && queueAfter <= queueBefore
+      && (result.pendingOptionalSteps || []).length > 0
+      && applied > 0
+    ) {
+      handled = false;
+    }
+
+    if (
+      handled
+      && queueAfter <= queueBefore
+      && (result.automationGaps || []).some((gap) => gap.reasonCode === 'player_choice_required')
+    ) {
+      handled = false;
+    }
 
     if (handled) {
       debug(

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
-import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 
 describe('Hope Estheim end step mill', () => {
   it('mills each opponent for life gained this turn', () => {

@@ -18,6 +18,7 @@ import {
   queueTopLibraryExileSelectionPrompt,
   queueTopLibraryToHandSelectionPrompt,
 } from './oracleIrSpellLegacyLibrarySelectionUtils.js';
+import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 
 function getRecordedManaSpentTotal(stackItem: any): number | null {
   const direct = Number(stackItem?.manaSpentTotal);
@@ -55,6 +56,11 @@ export function applyInstantSorceryLibraryTopCardPromptHandlers(
     targets: any[];
   },
 ): void {
+  const spellName = String(options.effectiveCard?.name || 'spell');
+  if (skipRetiredSpellLegacyHandler(options.oracleTextLower, spellName)) {
+    return;
+  }
+
   const state = (ctx as any).state;
   const controller = options.controller;
   const effectiveCard = options.effectiveCard;

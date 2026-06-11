@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
 import { movePermanentToGraveyard } from '../src/state/modules/counters_tokens.js';
-import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import { handleElixirShuffle } from '../src/state/modules/zone-manipulation.js';
 import { movePermanentToHand, movePermanentToLibrary } from '../src/state/modules/zones.js';
 import { replay as replayEvents } from '../src/state/modules/replay.js';

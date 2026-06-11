@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { countArtifacts, hasMetalcraft } from './game-state-effects.js';
 import { movePermanentToExile } from './counters_tokens.js';
 import { debug } from '../../utils/debug.js';
+import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 
 /**
  * Handle Dispatch and similar metalcraft-conditional spells.
@@ -17,6 +18,10 @@ export function handleDispatch(
 ): boolean {
   const oracleText = (card.oracle_text || '').toLowerCase();
   const cardName = (card.name || '').toLowerCase();
+
+  if (skipRetiredSpellLegacyHandler(oracleText, card.name || '')) {
+    return false;
+  }
 
   const isDispatchPattern =
     cardName.includes('dispatch') ||

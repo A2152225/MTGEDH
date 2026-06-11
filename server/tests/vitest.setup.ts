@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { beforeAll, afterAll } from 'vitest';
+import { beforeAll, afterAll, beforeEach } from 'vitest';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workerId =
@@ -16,6 +16,14 @@ function rmIfExists(filePath: string) {
     // ignore
   }
 }
+
+beforeEach(() => {
+  // Default-off in tests so legacy-path suites stay stable; IR-primary tests opt in with =1.
+  process.env.ORACLE_IR_TRIGGER_PRIMARY = '0';
+  delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+  process.env.ORACLE_IR_SPELL_PRIMARY = '0';
+  delete process.env.ORACLE_IR_SPELL_LEGACY;
+});
 
 beforeAll(() => {
   process.env.SQLITE_FILE = testDbFile;

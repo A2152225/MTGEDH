@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 
 import { applyPermanentKeywordGrantFromText } from './triggerReanimationRiders.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export function computeTriggerLegacyIsKynaiosEffect(
   sourceName: string,
@@ -38,6 +39,10 @@ export function applyRetiredTriggerLegacyInterveningSubjectKeywordGrant(
     readonly state: any;
   },
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const interveningSubjectPermanentId = String(params.triggerItem?.interveningIfSubjectPermanentId || '').trim();
   if (!interveningSubjectPermanentId) {
     return false;

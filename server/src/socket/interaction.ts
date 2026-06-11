@@ -24,7 +24,6 @@ import {
   getExtraManaProduction, 
   getDevotionManaAmount, 
   getCreatureCountManaAmount,
-  buildDynamicManaColorSelectionFields,
   detectManaModifiers
 } from "../state/modules/mana-abilities";
 import { canPayManaCost, canPayManaCostWithAvailableSources, getAvailableMana } from "../state/modules/mana-check.js";
@@ -48,12 +47,6 @@ import { countArtifacts, getActiveAbilityConditions, getTotalCreaturePower } fro
 import { detectActivatedAbilityConditionRequirement, type ActivatedAbilityConditionRequirement } from "../state/modules/activated-ability-conditions.js";
 import { buildCastFromGraveyardCard, buildGraveyardCastingPermissionId, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { detectAdditionalCost } from "./land-helpers.js";
-import {
-  applyPowerUpEnteredThisTurnDiscount,
-  isPowerUpAbilityLine,
-  parsePowerUpActivatedAbility,
-  stripPowerUpReminderParenthetical,
-} from "../state/modules/marvelMechanicsHelpers.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -712,7 +705,6 @@ function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; 
     const costLower = cost.toLowerCase();
     if (
       !cost.includes('{') &&
-      !costLower.includes('power-up') &&
       !costLower.includes('tap') &&
       !costLower.includes('sacrifice') &&
       !costLower.includes('discard') &&
@@ -732,7 +724,7 @@ function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; 
   };
 
   for (const rawLine of String(text || '').split(/\r?\n+/)) {
-    const line = stripPowerUpReminderParenthetical(rawLine.trim());
+    const line = rawLine.trim();
     if (!line.includes(':')) continue;
     const lineMatch = line.match(/^([^:]+):\s*(.+)$/);
     if (lineMatch) {
@@ -4510,7 +4502,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const card = (permanent as any).card;
     const cardName = card?.name || "Unknown";
     const typeLine = (card?.type_line || "").toLowerCase();
-    const isCreature = isCreatureNow(permanent);
+    const isCreature = /\bcreature\b/.test(typeLine);
     const isLand = typeLine.includes("land");
     
     // ========================================================================
@@ -4721,7 +4713,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             singleColor: true,
             dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
             manaMultiplier: effectiveMultiplier,
-            ...buildDynamicManaColorSelectionFields(game.state, pid, permanent, creatureCountMana, effectiveMultiplier),
           } as any);
           
           io.to(gameId).emit("chat", {
@@ -7527,13 +7518,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Handle Station abilities (Spacecraft and Planet cards)
+    // Handle Station abilities (Spacecraft cards)
     // Station N (Rule 702.184a): "Tap another untapped creature you control: Put a number of 
     // charge counters on this permanent equal to the tapped creature's power."
-    const isStationPermanent = typeLine.includes("spacecraft") || typeLine.includes("planet");
+    const isSpacecraft = typeLine.includes("spacecraft");
     const hasExplicitStationAbilityId = /-station-(\d+)$/i.test(abilityId) || abilityId === 'station';
     const stationAbilityText = hasExplicitStationAbilityId ? oracleText : scopedAbilityFullText;
-    const isStationAbility = hasExplicitStationAbilityId || (isStationPermanent && /\bstation\b/i.test(stationAbilityText));
+    const isStationAbility = hasExplicitStationAbilityId || (isSpacecraft && /\bstation\b/i.test(stationAbilityText));
     if (isStationAbility) {
       // Parse station threshold from oracle text
       const stationThreshold = parseStationThreshold(stationAbilityText);
@@ -8104,19 +8095,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           message: `${cardName} is already tapped`,
         });
         return;
-      }
-
-      // Rule 302.6 / 702.10: creatures with summoning sickness cannot use tap mana abilities
-      // unless they have haste (Cryptolith Rite / Elven Chorus / Enduring Vitality grant native_any).
-      if (isCreatureNow(permanent) && !typeLine.includes("land")) {
-        const hasHaste = creatureHasHaste(permanent, battlefield, pid);
-        if ((permanent as any).summoningSickness && !hasHaste) {
-          socket.emit("error", {
-            code: "SUMMONING_SICKNESS",
-            message: `${cardName} has summoning sickness and cannot use tap abilities this turn`,
-          });
-          return;
-        }
       }
       
       // Check for Metalcraft requirement (Mox Opal)
@@ -8933,7 +8911,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const costLower = line.slice(0, colonIndex).toLowerCase();
         return (
           costLower.includes('{') ||
-          costLower.includes('power-up') ||
           costLower.includes('tap') ||
           costLower.includes('sacrifice') ||
           costLower.includes('discard') ||
@@ -8947,24 +8924,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ? String(activatedLines[selectedAbilityIndex] || '').trim()
         : selectedAbilityFullText;
     })();
-
-    const powerUpAbilityInfo = parsePowerUpActivatedAbility(selectedAbilityFullText)
-      || (isPowerUpAbilityLine(selectedAbilityOracleLine) ? parsePowerUpActivatedAbility(selectedAbilityOracleLine) : null);
-    if (powerUpAbilityInfo) {
-      const usedIndices = Array.isArray((permanent as any).powerUpUsedIndices)
-        ? (permanent as any).powerUpUsedIndices.map((value: unknown) => String(value))
-        : [];
-      const powerUpKey = String(selectedAbilityIndex);
-      if (usedIndices.includes(powerUpKey)) {
-        socket.emit('error', {
-          code: 'ABILITY_ALREADY_USED',
-          message: `${cardName}'s power-up ability has already been activated.`,
-        });
-        return;
-      }
-      abilityText = stripPowerUpReminderParenthetical(powerUpAbilityInfo.effectText || abilityText);
-      manaCost = powerUpAbilityInfo.manaCost;
-    }
 
     if (
       isSacrificeCreatureOfChosenTypeCost(selectedAbilityFullText)
@@ -11288,7 +11247,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       for (const perm of battlefield) {
         if (!perm || String(perm.controller) !== String(pid)) continue;
-        if (requiresTap && String((perm as any).id || '') === String(permanentId || '')) continue;
         if ((perm as any).tapped) continue;
         const c = perm.card;
         if (!c) continue;
@@ -11450,17 +11408,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             return;
           }
 
-          let resolvedManaOnly = xSymbolCount > 0
+          const resolvedManaOnly = xSymbolCount > 0
             ? applyXValueToText(manaOnly, selectedXValue)
             : manaOnly;
 
-          if (powerUpAbilityInfo) {
-            resolvedManaOnly = applyPowerUpEnteredThisTurnDiscount(resolvedManaOnly, permanent);
-          }
-
-          if (!resolvedManaOnly) {
-            // Entire mana cost was discounted away (power-up ETB discount).
-          } else {
           const parsedCost = parseManaCost(resolvedManaOnly);
           const manaPool = getOrInitManaPool(game.state, pid);
           const wouldBeManaAbility = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) &&
@@ -11702,7 +11653,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             message: `${getPlayerName(game, pid)} paid ${resolvedManaOnly} to activate ${cardName}.`,
             ts: Date.now(),
           });
-          }
         }
       }
     }
@@ -12455,18 +12405,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         activatedAbilityText: activatedAbilityTextForStack,
         xValue: selectedXValue,
       } as any;
-
-      if (powerUpAbilityInfo) {
-        (permanent as any).powerUpUsedIndices = Array.isArray((permanent as any).powerUpUsedIndices)
-          ? (permanent as any).powerUpUsedIndices
-          : [];
-        const powerUpKey = String(selectedAbilityIndex);
-        if (!(permanent as any).powerUpUsedIndices.includes(powerUpKey)) {
-          (permanent as any).powerUpUsedIndices.push(powerUpKey);
-        }
-        stackItem.isPowerUpAbility = true;
-        stackItem.powerUpAbilityIndex = selectedAbilityIndex;
-      }
       
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
@@ -12687,7 +12625,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             allowedColors: ['W', 'U', 'B', 'R', 'G'],
             dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
             manaMultiplier: effectiveMultiplier,
-            ...buildDynamicManaColorSelectionFields(game.state, pid, permanent, creatureCountMana, effectiveMultiplier),
             // Activation-cost evidence (for deterministic replay) and deferred costs
             lifeToPayForCost: pendingLifePaymentForCost || undefined,
             tappedPermanentsForCost: tappedPermanentsForCost,

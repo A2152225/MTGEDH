@@ -129,10 +129,7 @@ export function applyOracleIRTriggerUncategorizedFallback(
   const sourceId = String(triggerItem?.id || triggerItem?.sourceId || sourcePermanentId || '').trim();
 
   let applied = 0;
-  if (
-    wouldOracleIRFallbackPrefilterMatch(text)
-    && !isTriggerEffectOwnedByOracleIrPrimary(text, sourceName)
-  ) {
+  if (wouldOracleIRFallbackPrefilterMatch(text)) {
     try {
       const steps = collectOracleEffectSteps(text, sourceName);
       applied = applyLegacyTriggerSpecialHandlers(
@@ -150,6 +147,10 @@ export function applyOracleIRTriggerUncategorizedFallback(
   }
 
   if (applied > 0) return applied;
+
+  if (isTriggerEffectOwnedByOracleIrPrimary(text, sourceName)) {
+    return 0;
+  }
 
   return applyOracleIRUncategorizedSpellFallback(
     ctx,

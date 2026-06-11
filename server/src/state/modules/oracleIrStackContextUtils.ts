@@ -11,6 +11,8 @@ export function buildStackOracleIRContext(
     sourceId?: string;
     targetPlayerId?: PlayerID;
     targetOpponentId?: PlayerID;
+    targetPermanentId?: string;
+    chosenObjectIds?: readonly string[];
     referenceAmount?: number;
   },
 ): OracleIRExecutionContext {
@@ -18,12 +20,15 @@ export function buildStackOracleIRContext(
     controllerId: caster,
     sourceId: options?.sourceId,
     xValue: options?.xValue,
+    ...(options?.targetPermanentId ? { targetPermanentId: options.targetPermanentId } : {}),
     ...(typeof options?.referenceAmount === 'number' && Number.isFinite(options.referenceAmount)
       ? { referenceAmount: Math.max(0, Math.floor(options.referenceAmount)) }
       : {}),
     selectorContext: {
       ...(options?.targetPlayerId ? { targetPlayerId: options.targetPlayerId } : {}),
       ...(options?.targetOpponentId ? { targetOpponentId: options.targetOpponentId } : {}),
+      ...(options?.targetPermanentId ? { targetPermanentId: options.targetPermanentId } : {}),
+      ...(options?.chosenObjectIds?.length ? { chosenObjectIds: options.chosenObjectIds } : {}),
     },
   };
 }

@@ -4,15 +4,10 @@ import { debug, debugWarn } from '../../utils/debug.js';
 import { shuffleZoneIntoLibrary } from './zone-manipulation.js';
 import { drawCards as drawCardsFromZone } from './zones.js';
 import { createTreasureToken } from './oracleIrSpellLegacyArtifactTokenUtils.js';
-import { shouldSkipLegacySpellRegexHandlers } from './oracleIrSpellLegacyRouting.js';
-
-export function resolveSkipLegacySpellRegexHandlers(
-  oracleIrSpellHandled: boolean,
-  oracleText: string,
-  spellName: string,
-): boolean {
-  return oracleIrSpellHandled || shouldSkipLegacySpellRegexHandlers(oracleText, spellName);
-}
+import {
+  shouldSkipLegacySpellRegexHandlers,
+  skipRetiredSpellLegacyHandler,
+} from './oracleIrSpellLegacyRouting.js';
 
 export function logLegacySpellRegexPrimaryMiss(
   oracleIrSpellHandled: boolean,
@@ -36,6 +31,12 @@ export function applyLegacySpellRegexLifeGainHandler(
     spellXValue: unknown;
   },
 ): void {
+  const spellName = String(options.effectiveCard?.name || 'spell');
+  const oracleText = String(options.oracleTextLower || '');
+  if (skipRetiredSpellLegacyHandler(oracleText, spellName)) {
+    return;
+  }
+
   const state = (ctx as any).state;
   const controller = options.controller;
   const effectiveCard = options.effectiveCard;
@@ -68,6 +69,12 @@ export function applyLegacySpellRegexDrawHandlers(
     oracleTextLower: string;
   },
 ): void {
+  const spellName = String(options.effectiveCard?.name || 'spell');
+  const oracleText = String(options.oracleTextLower || '');
+  if (skipRetiredSpellLegacyHandler(oracleText, spellName)) {
+    return;
+  }
+
   const state = (ctx as any).state;
   const controller = options.controller;
   const effectiveCard = options.effectiveCard;

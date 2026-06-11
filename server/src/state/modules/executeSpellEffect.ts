@@ -356,14 +356,50 @@ export function executeSpellEffect(
     case 'RequestDiscard': {
       const playerId = (effect as any).playerId as PlayerID;
       const count = Math.max(0, Number((effect as any).count ?? 0));
-      if (playerId && count > 0) {
-        (state as any).pendingDiscard = (state as any).pendingDiscard || {};
-        (state as any).pendingDiscard[playerId] = {
-          count,
-          source: spellName,
-          reason: 'spell_effect',
-        };
-        debug(2, `[resolveSpell] ${spellName} queued discard: ${playerId} discards ${count}`);
+      const stepSourceId = String((effect as any).sourceId || sourceId || '').trim() || undefined;
+      const gameId = (ctx as any).gameId;
+      const isReplaying = !!(ctx as any).isReplaying;
+      if (!playerId || count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
+
+      const player = (state as any).players?.find((entry: any) => entry.id === playerId);
+      const hand = Array.isArray(player?.hand) ? player.hand : [];
+      const handOptions = hand.map((card: any) => ({
+        id: String(card?.id || ''),
+        name: String(card?.name || card?.card?.name || 'Card'),
+        type_line: card?.type_line || card?.card?.type_line,
+        oracle_text: card?.oracle_text || card?.card?.oracle_text,
+        imageUrl: card?.image_uris?.normal || card?.imageUrl,
+        mana_cost: card?.mana_cost || card?.card?.mana_cost,
+        cmc: card?.cmc ?? card?.card?.cmc,
+      })).filter((card) => card.id);
+
+      if (handOptions.length <= count) {
+        break;
+      }
+
+      try {
+        const step = ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.DISCARD_SELECTION,
+          playerId,
+          description: `${spellName}: Discard ${count} card(s)`,
+          mandatory: true,
+          sourceId: stepSourceId,
+          sourceName: spellName,
+          hand: handOptions,
+          discardCount: count,
+          minDiscardCount: count,
+          maxDiscardCount: count,
+          currentHandSize: handOptions.length,
+          reason: 'effect',
+        } as any);
+        appendQueuedResolutionPromptEvent(ctx, {
+          playerId,
+          sourceId: stepSourceId || String((step as any)?.sourceId || '').trim(),
+          queuedResolutionStep: step,
+        });
+        debug(2, `[resolveSpell] ${spellName} queued discard selection ${count} for ${playerId}`);
+      } catch (err) {
+        debugWarn(1, `[resolveSpell] ${spellName} queue discard failed:`, err);
       }
       break;
     }

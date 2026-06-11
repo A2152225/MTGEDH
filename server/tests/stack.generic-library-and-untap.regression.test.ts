@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
-import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import { getAttackTriggersForCreatures } from '../src/state/modules/triggers/combat.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 

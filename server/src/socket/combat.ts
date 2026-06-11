@@ -193,45 +193,6 @@ function getAttackProhibitionSourceForPlayer(battlefield: any[], defendingPlayer
   return null;
 }
 
-function creatureCantAttackDefender(
-  creature: any,
-  battlefield: any[],
-  targetPlayerId?: string,
-  targetPermanentId?: string,
-): { blocked: boolean; reason?: string } {
-  const restrictions = (creature as any)?.cantAttackPlayers;
-  if (!restrictions || typeof restrictions !== 'object') {
-    return { blocked: false };
-  }
-
-  const blockedPlayerIds = new Set<string>();
-  const normalizedTargetPlayerId = String(targetPlayerId || '').trim();
-  if (normalizedTargetPlayerId && restrictions[normalizedTargetPlayerId]) {
-    blockedPlayerIds.add(normalizedTargetPlayerId);
-  }
-
-  const normalizedTargetPermanentId = String(targetPermanentId || '').trim();
-  if (normalizedTargetPermanentId) {
-    const targetPerm = battlefield.find((perm: any) => String(perm?.id || '') === normalizedTargetPermanentId);
-    const controllerId = String(targetPerm?.controller || '').trim();
-    const typeLine = String(targetPerm?.card?.type_line || '').toLowerCase();
-    if (controllerId && typeLine.includes('planeswalker') && restrictions[controllerId]) {
-      blockedPlayerIds.add(controllerId);
-    }
-  }
-
-  if (blockedPlayerIds.size === 0) {
-    return { blocked: false };
-  }
-
-  const blockedId = Array.from(blockedPlayerIds)[0];
-  const creatureName = String(creature?.card?.name || 'This creature');
-  return {
-    blocked: true,
-    reason: `${creatureName} can't attack that player or their planeswalkers until that player's next turn`,
-  };
-}
-
 function pushPaidAttackTriggerEffectOntoStack(
   game: any,
   gameId: string,
@@ -1094,9 +1055,7 @@ function hasCounterPreventingAction(
 function canPermanentAttack(
   permanent: any,
   battlefield: any[] = [],
-  controllerId?: string,
-  defendingPlayerId?: string,
-  defendingPermanentId?: string,
+  controllerId?: string
 ): { canAttack: boolean; reason?: string } {
   // Check for counters that prevent attacking (e.g., bribery counters with Gwafa Hazid)
   // Uses scalable pattern matching instead of hardcoded card checks
@@ -1106,16 +1065,6 @@ function canPermanentAttack(
       canAttack: false, 
       reason: `Has ${counterCheck.counterType} counter (${counterCheck.sourceName} effect)` 
     };
-  }
-
-  const cantAttackDefenderCheck = creatureCantAttackDefender(
-    permanent,
-    battlefield,
-    defendingPlayerId,
-    defendingPermanentId,
-  );
-  if (cantAttackDefenderCheck.blocked) {
-    return { canAttack: false, reason: cantAttackDefenderCheck.reason };
   }
   
   // Check for defender
@@ -1818,13 +1767,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
 
         // Check for defender and "as though it didn't have defender" effects (Rule 508.1c)
-        const canAttackCheck = canPermanentAttack(
-          creature,
-          battlefield,
-          playerId,
-          attacker.targetPlayerId,
-          attacker.targetPermanentId,
-        );
+        const canAttackCheck = canPermanentAttack(creature, battlefield, playerId);
         if (!canAttackCheck.canAttack) {
           socket.emit("error", {
             code: "CANT_ATTACK",

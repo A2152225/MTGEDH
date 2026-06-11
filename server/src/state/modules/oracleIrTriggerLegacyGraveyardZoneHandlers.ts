@@ -13,6 +13,7 @@ import { movePermanentToHand } from './zones.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 import { queueCastFromExileResolutionPrompt } from './triggerCastFromExileUtils.js';
 import { applyTriggeredReanimationEntryRiders } from './triggerReanimationRiders.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 function splitRulesTextIntoSentences(text: string): string[] {
   return String(text || '')
@@ -55,6 +56,10 @@ export function applyRetiredTriggerLegacyGraveyardZoneChangeBatch(
     readonly state: any;
   },
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const {
     ctx,
     controller,

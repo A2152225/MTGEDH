@@ -5,6 +5,12 @@ import { tryApplyTriggerEffectPrefaceHandlers } from './stackExecuteTriggerEffec
 import { tryApplyTriggerEffectLegacyBodyHandlers } from './stackExecuteTriggerEffectLegacyBodyUtils.js';
 import { tryApplyTriggerEffectLegacyTailHandlers } from './stackExecuteTriggerEffectTailUtils.js';
 import { tryResolveTriggerViaOracleIR } from './oracleIrTriggerExecution.js';
+import { applyRetiredTriggerLegacyKeywordTriggerFallback } from './oracleIrTriggerLegacyKeywordHandlers.js';
+import { applyRetiredTriggerLegacyCreateCreatureToken } from './oracleIrTriggerLegacyTokenHandlers.js';
+
+function isCreateCreatureTokenTriggerText(text: string): boolean {
+  return /create (?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+).*?\s+tokens?/i.test(String(text || ''));
+}
 
 export function executeTriggerEffect(
   ctx: GameContext,
@@ -19,6 +25,34 @@ export function executeTriggerEffect(
   const battlefield = state.battlefield || [];
 
   if (tryApplyTriggerEffectPrefaceHandlers(ctx, controller, sourceName, description, triggerItem, state, battlefield)) {
+    return;
+  }
+
+  const normalizedDesc = String(description || '').replace(/[\u2019]/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
+  if (isCreateCreatureTokenTriggerText(normalizedDesc)) {
+    if (applyRetiredTriggerLegacyCreateCreatureToken({
+      ctx,
+      controller,
+      sourceName,
+      desc: normalizedDesc,
+      description,
+      triggerItem,
+      state,
+    })) {
+      return;
+    }
+  }
+
+  if (applyRetiredTriggerLegacyKeywordTriggerFallback({
+    ctx,
+    controller,
+    sourceName,
+    description,
+    triggerItem,
+    state,
+    triggerCard,
+    battlefield,
+  })) {
     return;
   }
 

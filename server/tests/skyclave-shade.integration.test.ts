@@ -6,7 +6,7 @@ import { initializePriorityResolutionHandler, registerResolutionHandlers } from 
 import { games } from '../src/socket/socket.js';
 import { ensureGame, transformDbEventsForReplay } from '../src/socket/util.js';
 import { getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
-import { playLand } from '../src/state/modules/stack.js';
+import { playLand } from '../src/state/modules/stackPlayLandUtils.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import '../src/state/modules/priority.js';
 

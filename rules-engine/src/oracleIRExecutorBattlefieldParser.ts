@@ -201,6 +201,8 @@ export function parseSimpleBattlefieldSelector(
   if (/\byou control\b/i.test(remainder)) controllerFilter = 'you';
   if (/\b(?:your opponents|opponents)\s+control\b/i.test(remainder)) controllerFilter = 'opponents';
   if (/\b(?:each opponent|an opponent)\s+controls\b/i.test(remainder)) controllerFilter = 'opponents';
+  if (/\btarget player controls\b/i.test(remainder)) controllerFilter = 'target_player';
+  if (/\bthat player controls\b/i.test(remainder)) controllerFilter = 'target_player';
   if (/\bthey control\b/i.test(remainder)) controllerFilter = 'target_player';
   if (/\byou\s+(?:don'?t|do not)\s+control\b/i.test(remainder)) controllerFilter = 'opponents';
 
@@ -208,6 +210,8 @@ export function parseSimpleBattlefieldSelector(
     .replace(/\byou control\b/i, '')
     .replace(/\b(?:your opponents|opponents)\s+control\b/i, '')
     .replace(/\b(?:each opponent|an opponent)\s+controls\b/i, '')
+    .replace(/\btarget player controls\b/i, '')
+    .replace(/\bthat player controls\b/i, '')
     .replace(/\bthey control\b/i, '')
     .replace(/\byou\s+(?:don'?t|do not)\s+control\b/i, '')
     .trim();

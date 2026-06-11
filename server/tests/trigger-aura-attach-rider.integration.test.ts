@@ -3,7 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PlayerID } from '../../shared/src/index.js';
 import GameManager from '../src/GameManager.js';
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
-import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';

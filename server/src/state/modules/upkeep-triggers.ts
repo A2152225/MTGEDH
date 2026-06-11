@@ -307,7 +307,6 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
   const counters = permanent?.counters || {};
-  let skipGenericSacrificeUpkeep = false;
   
   // Check known cards first for accurate descriptions
   for (const [knownName, info] of Object.entries(KNOWN_UPKEEP_CARDS)) {
@@ -323,9 +322,6 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
         controllerTrigger: true,
         anyPlayerTrigger: false,
       });
-      if (info.requiresSacrifice) {
-        skipGenericSacrificeUpkeep = true;
-      }
       // Don't return early - card might have multiple triggers
     }
   }
@@ -546,7 +542,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     yourUpkeepMatch = oracleText.match(pattern);
     if (yourUpkeepMatch) break;
   }
-  if (yourUpkeepMatch && !skipGenericSacrificeUpkeep) {
+  if (yourUpkeepMatch) {
     const effectText = extendUpkeepEffectText(
       oracleText,
       yourUpkeepMatch[0],
@@ -813,10 +809,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   // Examples: Eldrazi Monument, Demonic Appetite, Jinxed Idol
   // 
   // Use module-level constants for these patterns (defined at top of file)
-  if (
-    !skipGenericSacrificeUpkeep &&
-    (SACRIFICE_CREATURE_OR_SELF_PATTERN.test(oracleText) || SACRIFICE_OR_PATTERN.test(oracleText))
-  ) {
+  if (SACRIFICE_CREATURE_OR_SELF_PATTERN.test(oracleText) || SACRIFICE_OR_PATTERN.test(oracleText)) {
     // Determine what type of permanent this is for the alternative sacrifice
     const permTypeLine = (card?.type_line || '').toLowerCase();
     let sacrificeAlternativeType = 'this permanent';

@@ -6,6 +6,7 @@ import { cardHasCreatureType } from '../creatureTypeNow.js';
 import { drawCards as drawCardsFromZone } from './zones.js';
 import { millCardsFromLibrary } from './triggerLibraryMillUtils.js';
 import { debug } from '../../utils/debug.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyLibraryParams {
   readonly ctx: GameContext;
@@ -19,6 +20,10 @@ export interface TriggerLegacyLibraryParams {
 export function applyRetiredTriggerLegacyChosenTypeTopCardReveal(
   params: TriggerLegacyLibraryParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const chosenTypeTopReveal = parseChosenTypeTopCardRevealToHand(params.desc);
   if (!chosenTypeTopReveal) {
     return false;
@@ -78,6 +83,10 @@ export function applyRetiredTriggerLegacyChosenTypeTopCardReveal(
 export function applyRetiredTriggerLegacyRevealTopCreatureOfChosenType(
   params: TriggerLegacyLibraryParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (
     !params.desc.includes('reveal the top card of your library')
     || !params.desc.includes('creature card of the chosen type')

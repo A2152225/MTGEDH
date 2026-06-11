@@ -70,7 +70,37 @@ import {
 } from './oracleIrTriggerLegacyLibraryHandlers.js';
 
 export type { TriggerEffectLegacyBodyContinuation, TriggerEffectLegacyBodyResult } from './stackResolveSharedTypes.js';
-import type { TriggerEffectLegacyBodyResult } from './stackResolveSharedTypes.js';
+import type { TriggerEffectLegacyBodyContinuation, TriggerEffectLegacyBodyResult } from './stackResolveSharedTypes.js';
+
+function buildTriggerEffectLegacyBodyContinuation(
+  controller: PlayerID,
+  sourceName: string,
+  description: string,
+  triggerItem: any,
+  state: any,
+): TriggerEffectLegacyBodyContinuation {
+  let desc = String(description || '').replace(/[â€™]/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
+  let descriptionForOracleFallback = String(description || '');
+  const {
+    sourceNameLower,
+    triggerSourceNameLower,
+  } = computeTriggerLegacySourceNames(sourceName, triggerItem);
+  const isKynaiosEffect = computeTriggerLegacyIsKynaiosEffect(sourceName, triggerItem, desc);
+  desc = stripTriggerLegacyInterveningIfPrefix(desc);
+  const players = state.players || [];
+  const opponents = players.filter((p: any) => p.id !== controller && !p.hasLost);
+  const battlefield = state.battlefield || [];
+  return {
+    desc,
+    descriptionForOracleFallback,
+    isKynaiosEffect,
+    sourceNameLower,
+    triggerSourceNameLower,
+    opponents,
+    players,
+    battlefield,
+  };
+}
 
 export function tryApplyTriggerEffectLegacyBodyHandlers(
   ctx: GameContext,
@@ -479,13 +509,6 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
 
   return {
     handled: false,
-    desc,
-    descriptionForOracleFallback,
-    isKynaiosEffect,
-    sourceNameLower,
-    triggerSourceNameLower,
-    opponents,
-    players,
-    battlefield,
+    ...buildTriggerEffectLegacyBodyContinuation(controller, sourceName, description, triggerItem, state),
   };
 }

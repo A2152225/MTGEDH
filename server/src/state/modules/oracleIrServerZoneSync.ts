@@ -12,7 +12,7 @@ import { resolveOracleQuantity } from '../../../../rules-engine/src/oracleIRExec
 import { resolvePlayers } from '../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
 import { buildSacrificeTargetSelectionOptions } from '../../../../rules-engine/src/oracleIRExecutorBattlefieldStepHandlers.js';
 import {
-  buildDiscardSelectionOptions,
+  collectDiscardSelectionOptionsForStep,
   buildExploreDecisionFromStep,
   buildLookChooseFromTopSelectionOptions,
   buildLookSelectTopSelectionOptions,
@@ -24,6 +24,11 @@ import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.
 import { applyMillReplacements } from './game-state-effects.js';
 import { processMillTriggers } from './zones.js';
 import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
+import {
+  applyCopyPermanentTriggerStep,
+  copyPermanentTriggerStepNeedsTargetSelectionQueue,
+} from './trigger-copy-permanent.js';
+import { syncPreparedPermanentAfterControlChange, resyncPreparedExileCopiesWithControllers } from './prepared.js';
 
 /**
  * The live server stores libraries in ctx.libraries and zone summaries in state.zones,
@@ -120,8 +125,6 @@ export function syncOracleIRPlayerZonesToContext(
       changed = true;
     }
 
-    if (!canSyncLibraries) continue;
-
     const playerZones = zones[playerId] = zones[playerId] || {
       hand: [],
       handCount: 0,
@@ -132,8 +135,17 @@ export function syncOracleIRPlayerZonesToContext(
       libraryCount: 0,
     };
 
+    if (Array.isArray(player.hand)) {
+      playerZones.hand = [...player.hand];
+      playerZones.handCount = player.hand.length;
+      changed = true;
+    }
+
+    if (!canSyncLibraries) continue;
+
     if (Array.isArray(player.library)) {
       libraries.set(playerId as PlayerID, [...player.library]);
+      playerZones.library = [...player.library];
       playerZones.libraryCount = player.library.length;
       changed = true;
     }
@@ -161,12 +173,6 @@ export function syncOracleIRPlayerZonesToContext(
       }
     }
 
-    if (Array.isArray(player.hand)) {
-      playerZones.hand = [...player.hand];
-      playerZones.handCount = player.hand.length;
-      changed = true;
-    }
-
     if (Array.isArray(player.exile)) {
       playerZones.exile = [...player.exile];
       playerZones.exileCount = player.exile.length;
@@ -178,6 +184,46 @@ export function syncOracleIRPlayerZonesToContext(
 
   if (changed && typeof (ctx as any).bumpSeq === 'function') {
     (ctx as any).bumpSeq();
+  }
+}
+
+function snapshotBattlefieldControllers(state: any): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const perm of state.battlefield || []) {
+    const id = String(perm?.id || '').trim();
+    const controllerId = String(perm?.controller || '').trim();
+    if (id && controllerId) {
+      out.set(id, controllerId);
+    }
+  }
+  return out;
+}
+
+function syncPreparedCopiesAfterBattlefieldControllerChanges(
+  state: any,
+  controllersBefore: Map<string, string>,
+): void {
+  for (const perm of state.battlefield || []) {
+    const id = String(perm?.id || '').trim();
+    if (!id) continue;
+    const previousController = controllersBefore.get(id);
+    const currentController = String(perm?.controller || '').trim();
+    if (!previousController || !currentController || previousController === currentController) {
+      continue;
+    }
+    syncPreparedPermanentAfterControlChange(state, perm, previousController);
+  }
+}
+
+function syncPreparedCopiesFromControlChangeEffects(state: any): void {
+  const effects = Array.isArray(state.controlChangeEffects) ? state.controlChangeEffects : [];
+  for (const effect of effects) {
+    const permanentId = String(effect?.permanentId || '').trim();
+    const previousController = String(effect?.originalController || '').trim();
+    if (!permanentId || !previousController) continue;
+    const perm = (state.battlefield || []).find((entry: any) => String(entry?.id || '').trim() === permanentId);
+    if (!perm) continue;
+    syncPreparedPermanentAfterControlChange(state, perm, previousController);
   }
 }
 
@@ -396,6 +442,16 @@ function queueSacrificeChoicePromptsFromOracleIRResult(
     const choosingPlayerId =
       resolvePlayers(state, (step as any).who, params.irCtx)[0] || params.controller;
 
+    const stepRaw = String((step as any).raw || '');
+    const sacrificeWhatText = String((step as any)?.what?.text || (step as any)?.what?.raw || '').trim();
+    const isAnnihilatorStyleSacrifice =
+      /\bdefending player sacrifices\b/i.test(stepRaw)
+      || (/\bannihilator\b/i.test(params.sourceName || '') && /\bpermanents?\b/i.test(sacrificeWhatText));
+    const annihilatorCountMatch = sacrificeWhatText.match(/^(\d+)\s+permanents?$/i);
+    const annihilatorRequiredCount = annihilatorCountMatch
+      ? Math.max(1, Number.parseInt(String(annihilatorCountMatch[1] || '1'), 10))
+      : built.minTargets;
+
     ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
       type: ResolutionStepType.TARGET_SELECTION,
       playerId: choosingPlayerId,
@@ -408,6 +464,16 @@ function queueSacrificeChoicePromptsFromOracleIRResult(
       minTargets: built.minTargets,
       maxTargets: built.maxTargets,
       targetDescription: String((step as any).raw || 'Choose permanents to sacrifice'),
+      ...(isAnnihilatorStyleSacrifice
+        ? {
+          annihilatorChoice: true,
+          sacrificeSelection: true,
+          sacrificePermanentType: 'permanent',
+          sacrificeCount: built.minTargets,
+          sacrificeReason: `${sourceName}'s Annihilator ${annihilatorRequiredCount} triggered`,
+          sacrificeSourceName: sourceName,
+        }
+        : {}),
       oracleIrChoiceStepJson: JSON.stringify([step]),
       oracleIrControllerId: params.controller,
       oracleIrSourceId: sourceId,
@@ -441,46 +507,48 @@ function queueDiscardChoicePromptsFromOracleIRResult(
     const step = findSkippedOracleStep(result, gap);
     if (!step || step.kind !== 'discard') continue;
 
-    const built = buildDiscardSelectionOptions(state, step, params.irCtx);
-    if (!built || built.options.length === 0) continue;
-    const isAnyNumberDiscard = built.anyNumberDiscard === true;
-    if (!isAnyNumberDiscard && built.discardCount <= 0) continue;
+    const builtPrompts = collectDiscardSelectionOptionsForStep(state, step, params.irCtx);
+    for (const built of builtPrompts) {
+      if (!built || built.options.length === 0) continue;
+      const isAnyNumberDiscard = built.anyNumberDiscard === true;
+      if (!isAnyNumberDiscard && built.discardCount <= 0) continue;
 
-    const queueKey = `discard:${String((step as any).raw || '')}:${built.playerId}`;
-    if (queuedKeys.has(queueKey)) continue;
-    queuedKeys.add(queueKey);
+      const queueKey = `discard:${String((step as any).raw || '')}:${built.playerId}`;
+      if (queuedKeys.has(queueKey)) continue;
+      queuedKeys.add(queueKey);
 
-    try {
-      const existing = ResolutionQueueManager
-        .getStepsForPlayer(gameId, built.playerId)
-        .find(
-          (candidate) =>
-            candidate.type === ResolutionStepType.DISCARD_SELECTION &&
-            sourceId &&
-            String((candidate as any)?.sourceId || '') === sourceId &&
-            String((candidate as any)?.description || '').includes(String((step as any).raw || ''))
-        );
-      if (existing) continue;
-    } catch {
-      // ignore
+      try {
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, built.playerId)
+          .find(
+            (candidate) =>
+              candidate.type === ResolutionStepType.DISCARD_SELECTION &&
+              sourceId &&
+              String((candidate as any)?.sourceId || '') === sourceId &&
+              String((candidate as any)?.description || '').includes(String((step as any).raw || ''))
+          );
+        if (existing) continue;
+      } catch {
+        // ignore
+      }
+
+      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        type: ResolutionStepType.DISCARD_SELECTION,
+        playerId: built.playerId,
+        description: `${sourceName}: ${String((step as any).raw || 'Discard')}`,
+        mandatory: (step as any).optional !== true,
+        sourceId,
+        sourceName,
+        hand: built.options,
+        discardCount: built.discardCount,
+        minDiscardCount: built.minDiscardCount,
+        maxDiscardCount: built.maxDiscardCount,
+        anyNumberDiscard: built.anyNumberDiscard === true,
+        currentHandSize: built.currentHandSize,
+        maxHandSize: built.maxHandSize,
+        reason: 'effect',
+      } as any, result, params) as any);
     }
-
-    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
-      type: ResolutionStepType.DISCARD_SELECTION,
-      playerId: built.playerId,
-      description: `${sourceName}: ${String((step as any).raw || 'Discard')}`,
-      mandatory: (step as any).optional !== true,
-      sourceId,
-      sourceName,
-      hand: built.options,
-      discardCount: built.discardCount,
-      minDiscardCount: built.minDiscardCount,
-      maxDiscardCount: built.maxDiscardCount,
-      anyNumberDiscard: built.anyNumberDiscard === true,
-      currentHandSize: built.currentHandSize,
-      maxHandSize: built.maxHandSize,
-      reason: 'effect',
-    } as any, result, params) as any);
   }
 }
 
@@ -1556,6 +1624,55 @@ function findSkippedOracleStep(
   ) as OracleEffectStep | undefined;
 }
 
+function queueCopyPermanentChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  _state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourcePermanentId = String(params.sourceId || '').trim();
+  if (!sourcePermanentId) return;
+
+  const queuedKeys = new Set<string>();
+  const candidates: OracleEffectStep[] = [];
+  for (const step of result.skippedSteps || []) {
+    if (step.kind === 'copy_permanent') candidates.push(step);
+  }
+  for (const step of result.pendingOptionalSteps || []) {
+    if (step.kind === 'copy_permanent') candidates.push(step);
+  }
+
+  for (const step of candidates) {
+    if (step.kind !== 'copy_permanent') continue;
+    const copyStep = step as Extract<OracleEffectStep, { kind: 'copy_permanent' }>;
+    if (!copyPermanentTriggerStepNeedsTargetSelectionQueue(copyStep)) continue;
+
+    const queueKey = `copy_permanent:${String(copyStep.raw || '')}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    applyCopyPermanentTriggerStep(
+      ctx,
+      params.controller,
+      sourceName,
+      copyStep,
+      {
+        source: sourcePermanentId,
+        permanentId: sourcePermanentId,
+        sourceId: sourcePermanentId,
+      },
+    );
+  }
+}
+
 function queueUnlessPayChoicePromptsFromOracleIRResult(
   ctx: GameContext,
   state: any,
@@ -2005,6 +2122,7 @@ export function applyOracleIRStepsOnServer(
 ): OracleIRExecutionResult {
   hydrateOracleIRPlayerZonesFromContext(ctx, state);
   const graveyardBefore = snapshotGraveyardCardIds(state);
+  const controllersBefore = snapshotBattlefieldControllers(state);
 
   const controller = (params?.controller || irCtx.controllerId) as PlayerID;
   const adjustedSteps = params?.applyMillReplacements === false
@@ -2108,5 +2226,13 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
   });
+  queueCopyPermanentChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+  });
+  syncPreparedCopiesAfterBattlefieldControllerChanges(state, controllersBefore);
+  syncPreparedCopiesFromControlChangeEffects(state);
+  resyncPreparedExileCopiesWithControllers(state);
   return result;
 }

@@ -115,6 +115,22 @@ export function isSupportedCopyPermanentTriggerPattern(step: OracleEffectStep): 
   return classifyCopyPermanentTriggerPattern(step as Extract<OracleEffectStep, { kind: 'copy_permanent' }>) != null;
 }
 
+const COPY_PERMANENT_TARGET_SELECTION_PATTERNS = new Set<CopyPermanentTriggerPattern>([
+  'self_from_another_target',
+  'self_from_target_selection',
+  'other_from_target_selection',
+  'self_from_exiled_card_choice',
+  'other_from_exiled_card_choice',
+]);
+
+/** True when copy_permanent must queue TARGET_SELECTION on the server (not IR executor). */
+export function copyPermanentTriggerStepNeedsTargetSelectionQueue(
+  step: Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
+): boolean {
+  const pattern = classifyCopyPermanentTriggerPattern(step);
+  return pattern != null && COPY_PERMANENT_TARGET_SELECTION_PATTERNS.has(pattern);
+}
+
 function normalizeSelectorText(value: string): string {
   return String(value || '')
     .trim()

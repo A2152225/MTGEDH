@@ -1,5 +1,9 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
+import type { StackActivatedAbilityHandlerContext } from './stackResolveSharedTypes.js';
+
+export type { StackActivatedAbilityHandlerContext } from './stackResolveSharedTypes.js';
+
 import { debug, debugWarn } from '../../utils/debug.js';
 import { appendEvent } from '../../db/index.js';
 import { canPermanentBeTargetedByPlayer } from '../../rules-engine/targeting.js';
@@ -462,9 +466,9 @@ function resolveFortifyAbility(ctx: GameContext, item: any, controller: PlayerID
 
 export function tryResolveStackActivatedAbilityMidHandlers(
   ctx: GameContext,
-  item: any,
-  controller: PlayerID,
+  options: StackActivatedAbilityHandlerContext,
 ): boolean {
+  const { item, controller } = options;
   if (item?.type !== 'ability') return false;
 
   const abilityType = item?.abilityType;

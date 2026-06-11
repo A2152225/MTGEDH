@@ -25,6 +25,7 @@ import {
   applyRetiredTriggerLegacyUpkeepEffectDoubling,
 } from './oracleIrTriggerLegacyLifeAndGameHandlers.js';
 import { applyRetiredTriggerLegacyBothPlayersPutPermanentFromHand } from './oracleIrTriggerLegacyResolutionHandlers.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyLateEffectBatchParams {
   readonly ctx: GameContext;
@@ -56,6 +57,10 @@ export function applyRetiredTriggerLegacyLateEffectRegexBatch(
     players,
     battlefield,
   } = params;
+
+  if (skipRetiredTriggerLegacyHandler(desc, sourceName)) {
+    return false;
+  }
 
   if (applyRetiredTriggerLegacyCounterInlineBatch({
     controller,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  collectOracleEffectSteps,
   getTriggerRuntimeWiringGaps,
   isSupportedCopyPermanentTriggerPattern,
   isTriggerStepRuntimeWired,
@@ -22,6 +23,7 @@ describe('trigger runtime wiring assessment', () => {
     expect(isSupportedCopyPermanentTriggerPattern(steps[0]!)).toBe(true);
     expect(isTriggerStepRuntimeWired(steps[0]!)).toBe(true);
     expect(getTriggerRuntimeWiringGaps(effect, 'Cryptoplasm')).toEqual([]);
+    expect(collectOracleEffectSteps(effect, 'Cryptoplasm')).toEqual(steps);
   });
 
   it('flags optional draw triggers that parse but lack runtime handlers', () => {

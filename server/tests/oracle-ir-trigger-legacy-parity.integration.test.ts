@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
-import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import { isOracleIrTriggerPrimaryEnabled } from '../src/state/modules/oracleIrTriggerExecution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
@@ -183,6 +183,7 @@ describe('oracle IR trigger legacy parity (primary mode)', () => {
       .filter((step) => step.type === ResolutionStepType.SCRY);
     expect(scrySteps).toHaveLength(1);
     expect((scrySteps[0] as any)?.scryCount).toBe(1);
+    expect((game.state as any).pendingScry?.[p1]).toBeUndefined();
   });
 
   it('routes simple lose-life triggers through IR primary', () => {
@@ -257,5 +258,56 @@ describe('oracle IR trigger legacy parity (primary mode)', () => {
 
     expect((game.state as any).pendingDiscard?.[p2]).toBeUndefined();
     expect((game.state as any).pendingDiscard?.[p1]).toBeUndefined();
+  });
+
+  it('does not use legacy pendingDiscard when IR primary owns each-player discard text', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_trigger_execute_discard_each_player';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+
+    const handCardsFor = (prefix: string) => [
+      { id: `${prefix}-1`, name: 'Hand 1', zone: 'hand' },
+      { id: `${prefix}-2`, name: 'Hand 2', zone: 'hand' },
+      { id: `${prefix}-3`, name: 'Hand 3', zone: 'hand' },
+    ];
+    for (const [playerId, prefix] of [[p1, 'p1'], [p2, 'p2']] as const) {
+      const handCards = handCardsFor(prefix);
+      (game.state as any).zones = (game.state as any).zones || {};
+      (game.state as any).zones[playerId] = {
+        hand: handCards,
+        handCount: handCards.length,
+        graveyard: [],
+        graveyardCount: 0,
+      };
+      const player = (game.state as any).players.find((entry: any) => entry.id === playerId);
+      player.hand = handCards.map((card) => ({ ...card }));
+    }
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+    (game.state as any).pendingDiscard = {};
+
+    executeTriggerEffect(
+      ctx,
+      p1,
+      'Wheel',
+      'Each player discards two cards.',
+      { id: 'trigger-1', source: 'wheel-1' },
+    );
+
+    expect((game.state as any).pendingDiscard?.[p1]).toBeUndefined();
+    expect((game.state as any).pendingDiscard?.[p2]).toBeUndefined();
+    for (const playerId of [p1, p2]) {
+      const discardSteps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId)
+        .filter((step) => step.type === ResolutionStepType.DISCARD_SELECTION);
+      expect(discardSteps).toHaveLength(1);
+    }
   });
 });

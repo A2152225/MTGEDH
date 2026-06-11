@@ -5,12 +5,13 @@ import { debug, debugWarn } from '../../utils/debug.js';
 import { permanentsShareCardType, selectionRequiresSharedCardType } from '../../rules-engine/targeting.js';
 import { movePermanentToHand, movePermanentToGraveyard } from './zones.js';
 import { addExtraTurn } from './turn.js';
-import { syncPreparedPermanentAfterControlChange } from './prepared.js';
+import { syncPreparedPermanentAfterControlChange, resyncPreparedExileCopiesWithControllers } from './prepared.js';
 import {
   queueSelfETBTriggersForPermanent,
   triggerETBEffectsForToken,
 } from './triggerEtbPermanentEffects.js';
 import { isExtraTurnSpell } from './oracleIrSpellLegacySpellShapeUtils.js';
+import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 
 function buildPermanentTokenCopy(
   sourcePermanent: any,
@@ -77,6 +78,11 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
     targets: any[];
   },
 ): void {
+  const spellName = String(options.effectiveCard?.name || 'spell');
+  if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
+    return;
+  }
+
   const state = (ctx as any).state;
   const controller = options.controller;
   const effectiveCard = options.effectiveCard;
@@ -95,23 +101,44 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
     : [oracleTextLower];
   const applyControllerChange = (permanent: any, newController: string, options?: { temporary?: boolean }) => {
     const originalController = String(permanent?.controller || '').trim();
-    if (!newController || !originalController || originalController === newController) {
+    if (!newController || !originalController) {
       return false;
     }
 
-    permanent.controller = newController;
-    syncPreparedPermanentAfterControlChange(state, permanent, originalController);
+    let syncPreviousController = originalController;
+    let changed = false;
+    if (originalController !== newController) {
+      permanent.controller = newController;
+      syncPreviousController = originalController;
+      changed = true;
+    } else {
+      const stateAny = state as any;
+      const trackedEffect = (Array.isArray(stateAny.controlChangeEffects) ? stateAny.controlChangeEffects : [])
+        .find((entry: any) => String(entry?.permanentId || '').trim() === String(permanent?.id || '').trim());
+      const trackedOriginal = String(trackedEffect?.originalController || '').trim();
+      if (trackedOriginal && trackedOriginal !== newController) {
+        syncPreviousController = trackedOriginal;
+      } else {
+        const ownerController = String(permanent?.owner || '').trim();
+        if (!ownerController || ownerController === newController) {
+          return false;
+        }
+        syncPreviousController = ownerController;
+      }
+    }
+
+    syncPreparedPermanentAfterControlChange(state, permanent, syncPreviousController);
 
     const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
     if (typeLine.includes('creature')) {
       (permanent as any).summoningSickness = true;
     }
 
-    if (options?.temporary) {
-      recordTemporaryControlChange(String(permanent.id || ''), originalController, newController);
+    if (options?.temporary && changed) {
+      recordTemporaryControlChange(String(permanent.id || ''), syncPreviousController, newController);
     }
 
-    return true;
+    return changed || syncPreviousController !== newController;
   };
   const grantTemporaryHaste = (permanent: any) => {
     (permanent as any).grantedAbilities = Array.isArray((permanent as any).grantedAbilities)
@@ -483,4 +510,6 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
     addExtraTurn(ctx, extraTurnPlayer, effectiveCard.name || 'Extra turn spell');
     debug(2, `[resolveTopOfStack] Extra turn granted to ${extraTurnPlayer} by ${effectiveCard.name}`);
   }
+
+  resyncPreparedExileCopiesWithControllers(state);
 }

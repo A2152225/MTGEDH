@@ -7,7 +7,7 @@ import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
 import { clearTemporaryGraveyardKeywordGrants } from '../src/state/modules/graveyard-permissions.js';
-import { inferTriggeredAbilityTargetMetadata } from '../src/state/modules/stack.js';
+import { inferTriggeredAbilityTargetMetadata } from '../src/state/modules/inferTriggeredAbilityTargetMetadata.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import '../src/state/modules/priority.js';
 

@@ -4,6 +4,7 @@ import { debug, debugWarn } from '../../utils/debug.js';
 import { appendEvent } from '../../db/index.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { isJoinForcesSpell, isTemptingOfferSpell } from './oracleIrSpellLegacySpellShapeUtils.js';
+import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 
 export function applyInstantSorceryJoinForcesAndTemptingOfferHandlers(
   ctx: GameContext,
@@ -15,6 +16,11 @@ export function applyInstantSorceryJoinForcesAndTemptingOfferHandlers(
     oracleTextLower: string;
   },
 ): void {
+  const spellName = String(options.effectiveCard?.name || 'spell');
+  if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
+    return;
+  }
+
   const state = (ctx as any).state;
   const controller = options.controller;
   const effectiveCard = options.effectiveCard;

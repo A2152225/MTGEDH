@@ -5,6 +5,7 @@ import { debugWarn } from '../../utils/debug.js';
 import { createToken, movePermanentToExile } from './counters_tokens.js';
 import { attachEquipmentToCreature } from './triggerEquipmentUtils.js';
 import { permanentIsCommanderCard, wasPermanentCardMovedToExile } from './triggerPermanentUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacySelfReflexiveParams {
   readonly ctx: GameContext;
@@ -19,6 +20,10 @@ export interface TriggerLegacySelfReflexiveParams {
 export function applyRetiredTriggerLegacySelfExileCreateToken(
   params: TriggerLegacySelfReflexiveParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const selfExileCreateTokenMatch = String(params.desc || '').match(
     /^exile\s+(?:it|this(?:\s+(?:permanent|creature|card))?)\.\s*if\s+you\s+do,\s*create\s+(?:a|an|one)\s+(\d+)\/(\d+)\s+(?:(white|blue|black|red|green|colorless)\s+)?([a-z][a-z\s-]*?)\s+creature\s+token(?:\s+with\s+([^.]+))?\.?$/i,
   );
@@ -111,6 +116,10 @@ export function applyRetiredTriggerLegacySelfExileCreateToken(
 export function applyRetiredTriggerLegacyAttachToTargetCreatureYouControl(
   params: TriggerLegacySelfReflexiveParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (
     !/^attach\s+(?:it|this\s+(?:equipment|artifact)|~)\s+to\s+target\s+creature\s+you\s+control\b/i.test(String(params.desc || ''))
     || !params.sourcePermanentIdForSelf

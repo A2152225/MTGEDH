@@ -6,6 +6,7 @@ import {
   isOracleIrTriggerPrimaryEnabled,
   tryResolveTriggerViaOracleIR,
 } from '../src/state/modules/oracleIrTriggerExecution.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 describe('oracle IR trigger execution', () => {
   const previousPrimary = process.env.ORACLE_IR_TRIGGER_PRIMARY;
@@ -19,7 +20,8 @@ describe('oracle IR trigger execution', () => {
   });
 
   it('shadow mode probes ETB draw without mutating game state', () => {
-    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '0';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
 
     const gameId = 'oracle_ir_trigger_shadow';
     const game = createInitialGameState(gameId);
@@ -96,5 +98,61 @@ describe('oracle IR trigger execution', () => {
     expect(outcome.handled).toBe(true);
     expect(outcome.applied).toBeGreaterThan(0);
     expect(player.hand.length + player.library.length).toBe(1);
+  });
+
+  it('primary mode queues copy_permanent target selection via server zone sync', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_trigger_copy_primary_direct';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+
+    (game.state as any).battlefield = [
+      {
+        id: 'cryptoplasm_1',
+        controller: p1,
+        card: {
+          name: 'Cryptoplasm',
+          type_line: 'Creature — Shapeshifter',
+          power: '3',
+          toughness: '3',
+        },
+        power: 3,
+        toughness: 3,
+      },
+      {
+        id: 'bear_1',
+        controller: p2,
+        card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+        power: 2,
+        toughness: 2,
+      },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const outcome = tryResolveTriggerViaOracleIR(ctx, {
+      controller: p1,
+      sourceName: 'Cryptoplasm',
+      effectText:
+        'you may have this creature become a copy of another target creature, except it has this ability',
+      triggerItem: {
+        id: 'trigger-1',
+        source: 'cryptoplasm_1',
+        permanentId: 'cryptoplasm_1',
+      },
+    });
+
+    expect(outcome.handled).toBe(true);
+    const targetSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p1)
+      .filter((step) => step.type === ResolutionStepType.TARGET_SELECTION);
+    expect(targetSteps).toHaveLength(1);
+    expect((targetSteps[0] as any)?.action).toBe('self_become_copy_of_creature');
   });
 });

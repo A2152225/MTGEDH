@@ -150,6 +150,7 @@ Responsibilities:
 | `search_library` | `queueSearchLibraryChoicePromptsFromOracleIRResult` | `LIBRARY_SEARCH` | choice bind + resume | `oracle-ir-search-library` |
 | `choose_pile` | `queueChoosePileChoicePromptsFromOracleIRResult` | `OPTION_CHOICE` | choice bind + resume | `oracle-ir-choose-pile` |
 | `change_target` | `queueChangeTargetChoicePromptsFromOracleIRResult` | `OPTION_CHOICE` / `TARGET_SELECTION` | choice bind + resume | `oracle-ir-change-target` |
+| `copy_permanent` (target selection) | `queueCopyPermanentChoicePromptsFromOracleIRResult` → `applyCopyPermanentTriggerStep` | `TARGET_SELECTION` (`self_become_copy_of_creature`) | resolution applies copy via `permanent-copy.ts` | `cryptoplasm-copy`, `oracle-ir-trigger-primary` |
 | `add_mana` (distribution) | `queueAddManaChoicePromptsFromOracleIRResult` | `MANA_COLOR_SELECTION` (`distribution`) | choice bind + resume | `oracle-ir-add-mana-distribution` |
 
 Resolution hooks (`resolution.ts`):
@@ -325,7 +326,7 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
    - Call `applyOracleIRStepsOnServer` with full step list
    - If `appliedSteps.length > 0` OR resolution queue gained prompts OR `pendingOptionalSteps` → **done**
    - If all steps skipped with `unsupported_*` / `ir_gap` → fall through to legacy
-2. Feature flag: `ORACLE_IR_SPELL_PRIMARY=1` for gradual rollout
+2. `ORACLE_IR_SPELL_PRIMARY` defaults **on** via `oracleIrFeatureFlags.ts`; opt out with `ORACLE_IR_SPELL_PRIMARY=0` or `ORACLE_IR_SPELL_LEGACY=1`
 3. Log divergence when legacy path would have produced different outcome (shadow mode first)
 
 **Exit criteria:**
@@ -346,8 +347,9 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
    - Build Effect Program from trigger effect text (respect intervening-if)
    - `startEffectProgramResolution` with `createOracleIREffectProgramHandlers`
    - Return early on `waiting_for_choice` or `completed`
-2. Move high-volume regex shortcuts (draw a card, lose X life) behind IR parity tests, then delete
-3. Retire `applyOracleIRFallbackForTriggeredEffect` once primary path covers same cases
+2. `ORACLE_IR_TRIGGER_PRIMARY` defaults **on** via `oracleIrFeatureFlags.ts`; opt out with `ORACLE_IR_TRIGGER_PRIMARY=0` or `ORACLE_IR_TRIGGER_LEGACY=1`
+3. Move high-volume regex shortcuts (draw a card, lose X life) behind IR parity tests, then delete
+4. Retire `applyOracleIRFallbackForTriggeredEffect` once primary path covers same cases
 
 **Exit criteria:**
 - Trigger coverage audit unchanged (0 parse→execute gaps)
@@ -513,6 +515,10 @@ Update this file when:
 
 | Date | Change |
 |------|--------|
+| 2026-06-10 | Stack refactor batch 154: retired `DESTROY_ALL_TARGET_PLAYER`/`EXILE_ALL_TARGET_PLAYER` categorize ops; production-default + legacy-forced spell/trigger scoped mass-destroy/exile parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 153: wired `goad`/`proliferate`/`populate` IR step kinds; retired `SURVEIL_TARGET_PLAYER`, `GOAD_TARGET`, and mass tap/untap categorize ops; production-default + legacy-forced spell/trigger parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 152: wired `investigate` IR step kind in fallback runtime wiring; retired scry/surveil each-player/each-opponent + `INVESTIGATE` categorize ops; production-default + legacy-forced spell/trigger parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 151: retired `MILL_SELF` + draw-variant categorize ops (`DRAW_CARDS_EACH_OPPONENT`, `DRAW_CARDS_EACH_PLAYER`, `DRAW_TARGET_PLAYER`); production-default + legacy-forced spell draw/mill-self parity; routing assertions. |
 | 2026-06-10 | `choose_pile` + `change_target` queue/resume wiring; `applyChangeTargetStep` replaces main-loop stub; `add_mana` added to halt set (distribution sequences). |
 | 2026-06-10 | `search_library` halts when `matches.length > maxResults`; `queueSearchLibraryChoicePromptsFromOracleIRResult` + resume via `LIBRARY_SEARCH` / `oracleIrChoiceStepJson`. |
 | 2026-06-10 | Fateseal/clash Effect Program server integration tests (`oracle-ir-fateseal-clash-effect-program`); spell/trigger primary paths already route these via `requiresEffectProgramOrchestration` + `startOracleEffectProgramOnServer`. |
@@ -521,6 +527,64 @@ Update this file when:
 | 2026-06-10 | Phase 3 started: `oracleIrEffectProgramServer.ts` routes unresolved `choose_mode`/optional/fateseal/clash through Effect Program (`startOracleEffectProgramOnServer`); zone sync after EP runs in `effectProgramResolutionService`. |
 | 2026-06-10 | Phase 2 started: `oracleIrTriggerExecution.ts` — IR-first trigger resolve with `ORACLE_IR_TRIGGER_PRIMARY` flag; shadow probe before `executeTriggerEffect` regex corpus. |
 | 2026-06-10 | Phase 1 started: `oracleIrSpellExecution.ts` — IR-first spell resolve with `ORACLE_IR_SPELL_PRIMARY` flag; shadow probe logs when legacy would also match. Optional steps in uncategorized fallback delegate to `applyOracleIRStepsOnServer`. |
+| 2026-06-10 | Stack refactor batch 150: retired `ADD_COUNTERS_EACH` categorize op (`add_counter` already wired); production-default + legacy-forced spell/trigger add-counter-each parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 149: retired `ADD_COUNTERS_TARGET` categorize op (`add_counter` already wired); guard legacy target-buff regex against categorize double-apply; production-default + legacy-forced spell/trigger add-counter-target parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 148: retired `TAP_TARGET`/`UNTAP_TARGET` categorize ops (`tap_or_untap` already wired); production-default + legacy-forced spell/trigger tap-target-creature parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 147: wired `counter_spell` IR step kind; retired `COUNTER_TARGET_SPELL`; production-default + legacy-forced spell/trigger counter-target-spell parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 146: wired `move_zone` IR step kind + `return` uncategorized prefilter; retired `BOUNCE_TARGET`; fixed stack target-legality bounce fizzle + sacrifice-target IR binding; production-default + legacy-forced spell/trigger bounce/graveyard-exile/sacrifice parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 145: `EXILE_ALL`/`EXILE_TARGET` scoped variant coverage (opponents control, nonland permanent); spell/trigger primary + legacy-forced parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 144: wired `exile` IR step kind + uncategorized prefilter; retired `EXILE_TARGET`/`EXILE_ALL` categorize ops; production-default + legacy-forced spell/trigger exile (target/all/each) parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 143: retired `DESTROY_EACH`/`DESTROY_ALL` categorize ops; planeswalker-only `DAMAGE_EACH` variant coverage; production-default + legacy-forced spell/trigger mass-destroy parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 142: `DAMAGE_EACH` scoped/multi-filter variant coverage (you control, opponents control, creature+planeswalker); spell/trigger primary + legacy-forced parity; routing assertions. |
+| 2026-06-10 | Stack refactor batch 141: retired `DAMAGE_EACH` categorize op; production-default + legacy-forced spell/trigger each-creature damage; opponent-scoped `DAMAGE_TARGET` spell/trigger coverage; routing parity. |
+| 2026-06-10 | Stack refactor batch 140: retired `ANY_TARGET_DAMAGE`/`DAMAGE_TARGET` categorize ops; production-default + legacy-forced spell/trigger creature-token and targeted-damage (any target + creature) coverage; routing parity. |
+| 2026-06-10 | Stack refactor batch 139: retired `CREATE_TOKEN` + damage categorize ops (`DAMAGE_TARGET_PLAYER`/`DAMAGE_EACH_OPPONENT`/`DAMAGE_EACH_PLAYER`); production-default + legacy-forced spell/trigger create-token and deal-damage coverage; spell/trigger routing parity. |
+| 2026-06-10 | Stack refactor batch 138: spell categorize-parity for each-opponent/each-player discard/mill; retired categorize-op documentation; stack orchestrator import guardrail; trigger legacy-parity each-player discard queue assertion. |
+| 2026-06-10 | Stack refactor batch 137: legacy-forced each-player discard/mill trigger (IR uncategorized fallback) + spell (categorize) parity; trigger routing/handler-retirement each-player discard/mill coverage. |
+| 2026-06-10 | Stack refactor batch 136: retired `DISCARD_EACH_OPPONENT`/`DISCARD_EACH_PLAYER`/`MILL_EACH_OPPONENT`/`MILL_EACH_PLAYER` spell categorize ops; multi-player discard queue via `collectDiscardSelectionOptionsForStep`; production-default each-player discard/mill trigger + spell coverage. |
+| 2026-06-10 | Stack refactor batch 135: each-opponent discard/mill trigger + spell parity (production default + legacy forced); spell routing destroy/mill skip assertions; each-opponent categorize still legacy-only (`DISCARD_EACH_OPPONENT`/`MILL_EACH_OPPONENT` not retired). |
+| 2026-06-10 | Stack refactor batch 134: production-default trigger destroy; legacy-forced trigger mill/destroy; trigger routing + handler retirement for destroy/mill. |
+| 2026-06-10 | Stack refactor batch 133: discard `chosenObjectIds` hand-card filter in `applyDiscardStep`; `RequestDiscard` queues `DISCARD_SELECTION`; production-default trigger surveil/mill + spell discard/destroy/mill; legacy-forced trigger surveil + spell destroy/mill parity. |
+| 2026-06-10 | Stack refactor batch 132: legacy modal gain-life resume (`mode_2`); legacy-forced scry/surveil/discard spell + trigger scry/discard; spell routing scry/surveil/discard parity; production-default trigger discard; discard hand-card filter + `RequestDiscard` resolution-queue bridge. |
+| 2026-06-10 | Stack refactor batch 131: legacy unresolved modal at resolve time (`modalSpellResolve` MODE_SELECTION queue + resume); legacy-forced modal queue/resume integration tests; wired `resolution.ts` resume handler. |
+| 2026-06-10 | Stack refactor batch 130: gain-life opcode matrix complete (`GAIN_LIFE_EACH_OPPONENT`/`GAIN_LIFE_EACH_PLAYER` retired ops); production-default + legacy-forced spell/trigger gain-life variants; trigger lose-life target-player parity. |
+| 2026-06-10 | Stack refactor batch 129: `LOSE_LIFE_EACH_PLAYER` spell categorize-parity + routing; production-default/legacy-forced each-player and each-opponent lose-life spell/trigger coverage completes lose-life opcode matrix. |
+| 2026-06-10 | Stack refactor batch 128: lose-life target/each-opponent spell categorize-parity + routing; production-default and legacy-forced trigger each-opponent lose-life; legacy modal `mode_2` gain-life + legacy spell lose-life target player. |
+| 2026-06-10 | Stack refactor batch 127: legacy modal pre-select bridge (`stackResolveSpellLegacyModalUtils.ts`) when spell legacy forced; legacy-forced trigger lose-life + modal draw tests; trigger routing lose-life skip coverage. |
+| 2026-06-10 | Stack refactor batch 126: `LOSE_LIFE` (+ target/each variants) in `ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS`; spell legacy routing + categorize-parity lose-life coverage. |
+| 2026-06-10 | Stack refactor batch 125: production-default spell lose-life; legacy-forced spell lose/gain-life + trigger gain-life; spell legacy gain-life regex when `ORACLE_IR_SPELL_PRIMARY=0`. |
+| 2026-06-10 | Stack refactor batch 124: `oracle-ir-legacy-forced.integration.test.ts` (spell categorize + trigger regex draw when `ORACLE_IR_*_LEGACY=1`); production-default gain/lose-life spell/trigger coverage. |
+| 2026-06-10 | Stack refactor batch 123: gain-life modal mode coverage under production default (spell + trigger, pre-select `mode_2` and EP resume); spell legacy draw regex still applies when `ORACLE_IR_SPELL_PRIMARY=0`. |
+| 2026-06-10 | Stack refactor batch 122: production-default modal Effect Program resume (spell + trigger); `oracle-ir-trigger-modal-primary-default.integration.test.ts` for trigger modal pre-select, EP queue, and resume under cleared env. |
+| 2026-06-10 | Stack refactor batch 121: `oracle-ir-modal-spell-primary-default.integration.test.ts` (production-default modal + Effect Program mode queue); inlined `skipRetired*` routing (removed redundant `shouldRetire*LegacyRegexHandlerForEffect` aliases). |
+| 2026-06-10 | Stack refactor batch 120: removed dead `resolveSkipLegacySpellRegexHandlers` wrapper (body handlers self-guard via `skipRetiredSpellLegacyHandler`); synced monolithic trigger guardrail with body-utils extraction and ability handler options object. |
+| 2026-06-10 | Stack refactor batch 119: trigger routing exports on stack barrel; scoped trigger guardrail test; spell body utils simplified (handlers self-guard, no redundant skip wrapper). |
+| 2026-06-10 | Stack refactor batch 118: trigger primary-default integration test; `npm run test:oracle-ir-migration` script (19 files). |
+| 2026-06-10 | Stack refactor batch 117: spell primary-default integration test; spell guardrail stack-barrel scan. |
+| 2026-06-10 | Stack refactor batch 116: guards on copy-stack riders, `handleDispatch`, `executeInstantSorceryLegacyCategorizedSpell`; spell legacy guardrail test. |
+| 2026-06-10 | Stack refactor batch 115: extended `skipRetiredSpellLegacyHandler` to library/control/removal/target-buff/post-categorize/multiplayer modules. |
+| 2026-06-10 | Stack refactor batch 114: `skipRetiredSpellLegacyHandler`; defense-in-depth on draw/gain regex handlers; spell handler retirement unit test. |
+| 2026-06-10 | Stack refactor batch 113: `shouldSkipLegacySpellBodyHandlers`; extracted `stackResolveInstantSorceryLegacyBodyUtils.ts`; structural preface vs body bypass. |
+| 2026-06-10 | Stack refactor batch 112: spell IR primary defaults ON via `oracleIrFeatureFlags.ts`; opt-out with `ORACLE_IR_SPELL_PRIMARY=0` or `ORACLE_IR_SPELL_LEGACY=1`; vitest harness forces spell legacy off by default. |
+| 2026-06-10 | Stack refactor batch 111: trigger IR primary defaults ON via `oracleIrFeatureFlags.ts`; opt-out with `ORACLE_IR_TRIGGER_PRIMARY=0` or `ORACLE_IR_TRIGGER_LEGACY=1`; vitest harness forces legacy off by default. |
+| 2026-06-10 | Stack refactor batch 110: `shouldSkipLegacyTriggerBodyHandlers` bypasses legacy body regex chain when IR primary owns effect (after structural graveyard handlers); tail still runs copy bridge + parity logging. |
+| 2026-06-10 | Stack refactor batch 109: extended `skipRetiredTriggerLegacyHandler` to preface (casting/graveyard permission), game-state hooks, desc-prep keyword grant, and single/late regex batch entry short-circuit. |
+| 2026-06-10 | Stack refactor batch 108: extended `skipRetiredTriggerLegacyHandler` to resolution, graveyard, card-specific, timing, library, target-damage, self-reflexive, graveyard-zone, turn/zone, mana/combat, PT-mod, combat-damage, keyword, life/game, special-trigger, and sacrifice legacy modules. |
+| 2026-06-10 | Stack refactor batch 107: extended `skipRetiredTriggerLegacyHandler` to remaining token attack/block/count variants, search reveal-until, counter inline batch, and combined-effect legacy handlers. |
+| 2026-06-10 | Stack refactor batch 106: centralized `skipRetiredTriggerLegacyHandler` in routing; extended defense-in-depth to token/search/combat-evasion/tap-untap legacy handler modules. |
+| 2026-06-10 | Stack refactor batch 105: extended `skipRetiredTriggerLegacyHandler` defense-in-depth to discard/mill/damage/counter/tap-land legacy regex handlers; batch call sites pass `sourceName` for routing checks. |
+| 2026-06-10 | Stack refactor batch 104: defense-in-depth `shouldRetireTriggerLegacyRegexHandlerForEffect` on draw/gain-life/lose-life/scry legacy regex handlers; parity asserts `pendingScry` unused under IR primary. |
+| 2026-06-10 | Stack refactor batch 103: `queueCopyPermanentChoicePromptsFromOracleIRResult` bridges skipped/pending `copy_permanent` steps to `trigger-copy-permanent.ts` during `applyOracleIRStepsOnServer`; primary-mode direct IR test for Cryptoplasm upkeep copy. |
+| 2026-06-10 | Stack refactor batch 102: `copyPermanentTriggerStepNeedsTargetSelectionQueue`; IR trigger primary defers copy_permanent target selection to `trigger-copy-permanent.ts`; guardrails for `collectOracleEffectSteps` fragment-first order and always-on copy fallback tail. |
+| 2026-06-10 | Stack refactor batch 101: `collectOracleEffectSteps` prefers trigger-fragment parsing (fixes Cryptoplasm `copy_permanent`); copy special handlers always run; tail always invokes IR fallback; vitest setup clears `ORACLE_IR_*_PRIMARY` between tests. |
+| 2026-06-10 | Stack refactor batch 100: all server tests decoupled from stack barrel (57 files → concrete orchestrator imports); guardrail forbids test imports from `modules/stack`. |
+| 2026-06-10 | Stack refactor batch 99: ability dispatch shares `StackActivatedAbilityHandlerContext`; ability handlers barrel re-exports context type; migration-suite tests + production guardrail for stack-barrel imports. |
+| 2026-06-10 | Stack refactor batch 98: `replay.ts`, `state/index.ts`, `interaction.ts`, and `resolution.ts` decoupled from stack barrel (direct push/resolve/playLand/ETB/trigger imports). |
+| 2026-06-10 | Stack refactor batch 97: `turn.ts`, `kynaiosChoice.ts`, and `applyEvent.ts` decoupled from stack barrel; skip removal riders when IR spell primary already handled; restored dropped day-night/turn-tracking helpers. |
+| 2026-06-10 | Stack refactor batch 96: `categorizeSpell` suppresses retired opcodes under spell primary; `counters_tokens` imports ETB from `triggerEtbPermanentEffects` (not stack barrel). |
+| 2026-06-10 | Stack refactor batch 95: restored `stack.ts` re-export barrel; `StackActivatedAbilityHandlerContext` for early/mid ability handlers. |
+| 2026-06-10 | Stack refactor batch 94: `StackActivatedAbilityLateHandlerOptions` in shared types; late handler + dispatch use options object. |
+| 2026-06-10 | Stack refactor batch 93: `ORACLE_IR_SPELL_RETIRED_STEP_KINDS` synced to runtime-wired fallback + optional step kinds (mirrors trigger batch 92). |
 | 2026-06-10 | Stack refactor batch 92: `ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS` synced to runtime-wired fallback + optional trigger step kinds. |
 | 2026-06-10 | Stack refactor batch 91: `TriggeredAbilityDeferralOptions` in shared types; deferral utils typed against shared contract. |
 | 2026-06-10 | Stack refactor batch 90: permanent spell entry/post-entry types (`PermanentBattlefieldEntryOutcome`, `PermanentBattlefieldEntryOptions`, `PermanentSpellPostEntryOptions`) in shared types. |

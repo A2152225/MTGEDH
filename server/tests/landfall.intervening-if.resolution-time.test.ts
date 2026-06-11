@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
-import { resolveTopOfStack } from '../src/state/modules/stack';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 
 describe('Intervening-if landfall resolution-time checks', () => {
   it('skips resolving a landfall trigger if the intervening-if condition becomes false before resolution', () => {

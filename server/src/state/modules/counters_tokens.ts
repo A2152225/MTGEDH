@@ -23,10 +23,10 @@ import { moveRemovedPermanentToExile } from "./zones.js";
 import { registerLinkedExile } from "./triggers/linked-exile.js";
 import { queueCounterPlacedTriggers, queueCounterRemovedTriggers } from "./triggers/counters.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
+import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
 import { queueTokenCreatedTriggers } from "./triggers/tokens.js";
 import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacementEvent } from "./replacement-effects.js";
-import { triggerETBEffectsForToken } from "./triggerEtbEntryEffects.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -938,6 +938,40 @@ export function applyUpdateCountersBulk(ctx: GameContext, updates:{ permanentId:
   for (const u of updates) updateCounters(ctx, u.permanentId, u.deltas);
 }
 
+export function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
+  let multiplier = 1;
+  const battlefield = state.battlefield || [];
+
+  for (const perm of battlefield) {
+    const permName = (perm.card?.name || '').toLowerCase();
+    const permOracle = (perm.card?.oracle_text || '').toLowerCase();
+
+    if (permName.includes('primal vigor')) {
+      multiplier *= 2;
+      continue;
+    }
+
+    if (perm.controller !== controller) continue;
+
+    if (permName.includes('ojer taq') ||
+        (permOracle.includes('three times that many') && permOracle.includes('token'))) {
+      multiplier *= 3;
+    }
+
+    if (permName.includes('anointed procession') ||
+        permName.includes('parallel lives') ||
+        permName.includes('doubling season') ||
+        permName.includes('mondrak, glory dominus') ||
+        permName.includes('adrix and nev') ||
+        (permName.includes('elspeth') && permOracle.includes('twice that many')) ||
+        (permOracle.includes('twice that many') && permOracle.includes('token'))) {
+      multiplier *= 2;
+    }
+  }
+
+  return multiplier;
+}
+
 export function createToken(
   ctx: GameContext,
   controller: PlayerID,
@@ -1120,7 +1154,7 @@ export function createToken(
 
     // Fire ETB triggers (including the token's own ETBs if applicable).
     try {
-      triggerETBEffectsForToken(ctx as any, tokenPerm, controller);
+      triggerETBEffectsForPermanent(ctx as any, tokenPerm, controller);
     } catch {
       // Defensive: do not block token creation.
     }
@@ -1219,7 +1253,7 @@ export function createCopyTokensOfCard(
 
     // Fire ETB triggers for the copy token.
     try {
-      triggerETBEffectsForToken(ctx as any, tokenPerm, controller);
+      triggerETBEffectsForPermanent(ctx as any, tokenPerm, controller);
     } catch {
       // Defensive.
     }
@@ -2172,7 +2206,9 @@ export function runSBA(ctx: GameContext) {
   }
   
   // Rule 704.5e: If a copy of a card is in any zone other than the stack or the battlefield, it ceases to exist.
-  const isCopyInIllegalZone = (card: any): boolean => Boolean(card?.isCopy);
+  const isCopyInIllegalZone = (card: any): boolean =>
+    Boolean(card?.isCopy)
+    && !Boolean(card?.preparedGeneratedCopy || card?.preparedSourcePermanentId);
   for (const playerId of Object.keys(zones)) {
     const playerZones = zones[playerId];
     if (!playerZones) continue;
@@ -2345,41 +2381,4 @@ export function updateGodCreatureStatus(ctx: GameContext): void {
   }
   
   if (changed) bumpSeq();
-}
-
-/**
- * Calculate token doubling multiplier from battlefield effects.
- */
-export function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {
-  let multiplier = 1;
-  const battlefield = state.battlefield || [];
-
-  for (const perm of battlefield) {
-    const permName = (perm.card?.name || '').toLowerCase();
-    const permOracle = (perm.card?.oracle_text || '').toLowerCase();
-
-    if (permName.includes('primal vigor')) {
-      multiplier *= 2;
-      continue;
-    }
-
-    if (perm.controller !== controller) continue;
-
-    if (permName.includes('ojer taq') ||
-        (permOracle.includes('three times that many') && permOracle.includes('token'))) {
-      multiplier *= 3;
-    }
-
-    if (permName.includes('anointed procession') ||
-        permName.includes('parallel lives') ||
-        permName.includes('doubling season') ||
-        permName.includes('mondrak, glory dominus') ||
-        permName.includes('adrix and nev') ||
-        (permName.includes('elspeth') && permOracle.includes('twice that many')) ||
-        (permOracle.includes('twice that many') && permOracle.includes('token'))) {
-      multiplier *= 2;
-    }
-  }
-
-  return multiplier;
 }

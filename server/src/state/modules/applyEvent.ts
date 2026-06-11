@@ -13,7 +13,7 @@
 import { createContext, type GameContext } from "../context";
 import type { PlayerID, GameEvent } from "../types";
 
-import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn, recordGraveyardPermanentTypesCastThisTurn } from "./turn-tracking.js";
+import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 
 import {
   importDeckResolved,
@@ -54,12 +54,6 @@ import { cleanupCardLeavingExile, removePlayableFromExileForCard, stripPlayableF
 import { buildEmbalmOrEternalizeTokenPermanent } from "./graveyard-tokens.js";
 import { clearPreparedPermanent, syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { transformPermanentToFace } from "./day-night.js";
-import { castSpell } from "./stackCastSpellUtils.js";
-import { pushStack } from "./stackPushUtils.js";
-import { resolveTopOfStack } from "./stackResolveTopOfStackUtils.js";
-import { playLand } from "./stackPlayLandUtils.js";
-import { applyMyriadTokenCopies } from "./triggerMyriadTokenUtils.js";
-import { triggerETBEffectsForToken } from "./triggerEtbEntryEffects.js";
 import {
   applyDivineReckoningBatchResult,
   applyPrisonersDilemmaBatchResult,
@@ -70,7 +64,13 @@ import {
   recordDivineReckoningChoice,
   recordPrisonersDilemmaChoice,
 } from "./spellLegacyChoiceBatchUtils.js";
+import { castSpell } from "./stackCastSpellUtils.js";
 import { exileEntireStack } from "./stackExileUtils.js";
+import { playLand } from "./stackPlayLandUtils.js";
+import { pushStack } from "./stackPushUtils.js";
+import { resolveTopOfStack } from "./stackResolveTopOfStackUtils.js";
+import { triggerETBEffectsForToken } from "./triggerEtbEntryEffects.js";
+import { applyMyriadTokenCopies } from "./triggerMyriadTokenUtils.js";
 import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText, buildCastFromGraveyardCard, getMatchingGraveyardCastingPermission } from "./graveyard-permissions.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
 import {
@@ -353,7 +353,6 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./
 import { processLifeChange, resolveOpponentDirectedDamage } from "./game-state-effects";
 import { markEchoPaid, sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
-import { finalizeGameStateAfterReplay } from "./replay-prompt-cleanup.js";
 import { parseManaCost } from "./mana-check.js";
 import { addRestrictedManaToPool, calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../../rules-engine/src/creatureUpgradeAbilities.js";
@@ -821,6 +820,25 @@ function normalizeRecordedManaMap(raw: unknown): Record<string, number> {
   }
 
   return normalized;
+}
+
+function getPermanentSpellTypeWords(card: any): string[] {
+  const typeLine = String(card?.type_line || card?.typeLine || '').toLowerCase();
+  return ['artifact', 'creature', 'enchantment', 'planeswalker', 'battle']
+    .filter((typeWord) => new RegExp(`\\b${typeWord}\\b`, 'i').test(typeLine));
+}
+
+function recordGraveyardPermanentTypesCastThisTurn(state: any, playerId: string, card: any): void {
+  const permanentTypes = getPermanentSpellTypeWords(card);
+  if (permanentTypes.length === 0) return;
+
+  state.graveyardPermanentTypesCastThisTurn = state.graveyardPermanentTypesCastThisTurn || {};
+  const playerEntry = state.graveyardPermanentTypesCastThisTurn[String(playerId)] =
+    state.graveyardPermanentTypesCastThisTurn[String(playerId)] || {};
+
+  for (const typeWord of permanentTypes) {
+    playerEntry[typeWord] = true;
+  }
 }
 
 function inferLegacyManaReplay(rawState: any, permanent: any, playerId: string, manaColor: unknown, abilityId?: unknown): Record<string, number> {
@@ -3082,9 +3100,6 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             }
             if ((e as any).giftPromised === true) {
               applyToStackItem('giftPromised', true);
-            }
-            if ((e as any).teamworkWasPaid === true) {
-              applyToStackItem('teamworkWasPaid', true);
             }
             if (typeof (e as any).giftRecipient === 'string' && (e as any).giftRecipient) {
               applyToStackItem('giftRecipient', String((e as any).giftRecipient));
@@ -14783,7 +14798,6 @@ export function replay(
     // The queue is not persisted in the event log, so it must not leak across reset/replay.
     try {
       if (ctx?.gameId) {
-        ResolutionQueueManager.beginReplay(ctx.gameId);
         ResolutionQueueManager.clearAllSteps(ctx.gameId);
       }
     } catch {
@@ -14888,11 +14902,6 @@ export function replay(
   } finally {
     // Clear replay mode flag when done
     (ctx as any).isReplaying = false;
-    try {
-      finalizeGameStateAfterReplay(ctx);
-    } catch {
-      // best-effort only
-    }
     try {
       delete (ctx as any)._replayCurrentEventType;
       delete (ctx as any)._replayNextEventType;

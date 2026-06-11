@@ -5,7 +5,7 @@ import { requestCastSpellForSocket } from '../src/socket/game-actions.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
-import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import { setPermanentPrepared } from '../src/state/modules/prepared.js';
 import { movePermanentToGraveyard } from '../src/state/modules/counters_tokens.js';
 import { movePermanentToHand } from '../src/state/modules/zones.js';

@@ -8,11 +8,15 @@ import { ResolutionQueueManager } from '../resolution/index.js';
 import {
   ORACLE_IR_FALLBACK_STEP_KINDS,
   TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS,
+  collectOracleEffectSteps,
   wouldOracleIRFallbackPrefilterMatch,
 } from './trigger-runtime-wiring.js';
 import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync.js';
 import { isOracleIrExecutionHandled } from './oracleIrSpellExecution.js';
 import { debug, debugWarn } from '../../utils/debug.js';
+import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
+import { detectInstantSorcerySpellShapeFlags } from './oracleIrSpellLegacySpellShapeUtils.js';
+import { applyInstantSorceryNibelheimAflameEffect } from './stackResolveSpellSpecialCaseUtils.js';
 
 const EFFECT_PROGRAM_ONLY_KINDS = new Set<string>([
   'choose_mode',
@@ -47,6 +51,9 @@ function shouldIncludeUncategorizedSpellFallbackStep(step: OracleEffectStep): bo
 }
 
 function collectSpellSteps(oracleText: string, spellName: string): OracleEffectStep[] {
+  const fromShared = collectOracleEffectSteps(oracleText, spellName);
+  if (fromShared.length > 0) return fromShared;
+
   const ir = parseOracleTextToIR(oracleText, spellName);
   const steps: OracleEffectStep[] = [];
   for (const ability of ir.abilities || []) {
@@ -72,13 +79,33 @@ export function applyOracleIRUncategorizedSpellFallback(
   castFromGraveyard?: boolean,
   irCtx?: OracleIRExecutionContext,
   sourceObjectType: 'spell' | 'ability' = 'spell',
+  sourceItem?: any,
+  targets?: readonly string[],
 ): number {
   try {
     const text = String(oracleText || '').trim();
     if (!text || !wouldOracleIRFallbackPrefilterMatch(text)) return 0;
 
+    const textLower = text.toLowerCase();
     const allSteps = collectSpellSteps(text, spellName);
-    const fallbackSteps = allSteps.filter(shouldIncludeUncategorizedSpellFallbackStep);
+    let fallbackSteps = allSteps.filter(shouldIncludeUncategorizedSpellFallbackStep);
+    const hasGraveyardTokenInsteadRider = Boolean(
+      castFromGraveyard
+      && /if this spell was cast from a graveyard,\s*create (?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) of those tokens instead/i.test(textLower),
+    );
+    if (hasGraveyardTokenInsteadRider) {
+      fallbackSteps = fallbackSteps.filter((step) => {
+        if (step.kind === 'create_token') return false;
+        if (step.kind === 'conditional' && /of those tokens instead/i.test(String(step.raw || ''))) {
+          return false;
+        }
+        return true;
+      });
+    }
+    const isNibelheimShape = /choose target creature you control\. it deals damage equal to its power to each other creature/i.test(textLower);
+    if (isNibelheimShape) {
+      fallbackSteps = fallbackSteps.filter((step) => step.kind !== 'deal_damage');
+    }
     if (fallbackSteps.length === 0) return 0;
 
     const executionCtx = irCtx || buildOracleIRExecutionContext({
@@ -108,7 +135,23 @@ export function applyOracleIRUncategorizedSpellFallback(
         ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
         : queueStart;
       if (!isOracleIrExecutionHandled(result, queueStart, queueAfter)) return;
-      applied += Math.max(1, result.appliedSteps.length);
+      if (result.appliedSteps.length > 0) {
+        applied += result.appliedSteps.length;
+        return;
+      }
+      if (queueAfter > queueStart) {
+        applied += 1;
+      }
+    };
+
+    const targetPlayerId = (
+      executionCtx.selectorContext?.targetPlayerId
+      || executionCtx.targetPlayerId
+    ) as PlayerID | undefined;
+    const serverParams = {
+      controller: caster,
+      ...(targetPlayerId ? { targetPlayerId } : {}),
+      applyMillReplacements: true,
     };
 
     if (mandatorySteps.length > 0) {
@@ -123,7 +166,7 @@ export function applyOracleIRUncategorizedSpellFallback(
           sourceId: sourcePermanentId || sourceId,
         },
         { allowOptional: false },
-        { controller: caster },
+        serverParams,
       );
       countHandled(result, queueBefore);
     }
@@ -143,7 +186,7 @@ export function applyOracleIRUncategorizedSpellFallback(
           sourceId: sourcePermanentId || sourceId,
         },
         { allowOptional: true },
-        { controller: caster },
+        serverParams,
       );
       countHandled(result, queueStart);
     }
@@ -151,6 +194,33 @@ export function applyOracleIRUncategorizedSpellFallback(
     if (applied > 0) {
       debug(2, `[oracleIR] Fallback applied ${applied} step(s) for ${spellName}`);
     }
+
+    if (sourceObjectType === 'spell' && sourceItem && castFromGraveyard && applied > 0) {
+      applyInstantSorceryGraveyardConditionalTokenRider(ctx, {
+        controller: caster,
+        card: sourceItem?.card || { name: spellName },
+        effectiveCard: { name: spellName },
+        item: sourceItem,
+        oracleText: text,
+        oracleTextLower: textLower,
+        targets: Array.isArray(targets) ? [...targets] : [],
+        spellXValue: xValue,
+        uncategorizedSpellFallbackApplied: applied,
+      });
+    }
+
+    if (sourceObjectType === 'spell' && isNibelheimShape && Array.isArray(targets) && targets.length > 0 && sourceItem) {
+      const shapeFlags = detectInstantSorcerySpellShapeFlags(spellName, textLower);
+      applyInstantSorceryNibelheimAflameEffect(ctx, {
+        controller: caster,
+        effectiveCard: { name: spellName },
+        item: sourceItem,
+        targets: [...targets],
+        isNibelheimAflameStyleSweep: true,
+        hasNibelheimGraveyardRider: shapeFlags.hasNibelheimGraveyardRider,
+      });
+    }
+
     return applied;
   } catch (err) {
     debugWarn(2, `[oracleIR] Fallback failed for ${spellName}:`, err);

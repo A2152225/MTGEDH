@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
-import { resolveTopOfStack } from '../src/state/modules/stack';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 
 function addPlayer(g: any, id: PlayerID, name: string) {

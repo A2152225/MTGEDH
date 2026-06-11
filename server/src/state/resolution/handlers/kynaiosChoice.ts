@@ -8,8 +8,8 @@ import {
 import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
 import { applyCounterModifications } from '../../modules/counters_tokens.js';
-import { checkPermanentEntersTapped } from '../../modules/triggerPermanentEntersTapped.js';
 import { detectEntersWithCounters } from '../../modules/detectEntersWithCounters.js';
+import { checkPermanentEntersTapped } from '../../modules/triggerPermanentEntersTapped.js';
 import { queueSelfETBTriggersForPermanent } from '../../modules/triggerEtbEntryEffects.js';
 import { triggerETBEffectsForPermanent } from '../../modules/triggerEtbPermanentEffects.js';
 

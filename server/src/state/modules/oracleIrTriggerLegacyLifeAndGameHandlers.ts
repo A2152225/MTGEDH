@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import { debug } from '../../utils/debug.js';
 import { applyTriggerLifeGain, getTriggerEffectHandSize } from './triggerLifeDamageUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyLifeAndGameParams {
   readonly controller: PlayerID;
@@ -14,6 +15,10 @@ export interface TriggerLegacyLifeAndGameParams {
 export function applyRetiredTriggerLegacyThousandLifeLoseGame(
   params: TriggerLegacyLifeAndGameParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (!/then, if you have 1,000 or more life, you lose the game/i.test(String(params.desc || ''))) {
     return false;
   }
@@ -29,6 +34,10 @@ export function applyRetiredTriggerLegacyThousandLifeLoseGame(
 export function applyRetiredTriggerLegacyUpkeepEffectDoubling(
   params: TriggerLegacyLifeAndGameParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (!/double the amount of life you lose and cards you draw for the rest of the game from this ability/i.test(String(params.desc || ''))) {
     return false;
   }
@@ -46,6 +55,10 @@ export function applyRetiredTriggerLegacyUpkeepEffectDoubling(
 export function applyRetiredTriggerLegacyLoseGameReplacement(
   params: TriggerLegacyLifeAndGameParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (!/the next time you would lose the game this turn, instead draw three cards and your life total becomes 5/i.test(String(params.desc || ''))) {
     return false;
   }
@@ -69,6 +82,10 @@ export function applyRetiredTriggerLegacyHandSizeLifeGain(
     readonly sourceNameLower: string;
   },
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (params.sourceNameLower.includes("venser's journal") || String(params.desc || '').includes('gain life equal to cards in hand')) {
     const cardsInHand = getTriggerEffectHandSize(params.state, String(params.controller));
     applyTriggerLifeGain(params.state, String(params.controller), cardsInHand, params.sourceName);

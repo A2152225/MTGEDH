@@ -2208,28 +2208,7 @@ export function chooseAIScrySelection(
 function getProtectedStackItem(game: any, step: any): any | null {
   const triggeredBy = String(step?.wardTriggeredBy || step?.sourceId || '').trim();
   if (!triggeredBy) return null;
-  const stackItem = (game?.state?.stack || []).find((entry: any) => String(entry?.id || '') === triggeredBy);
-  if (stackItem) return stackItem;
-
-  const pendingCast = (game?.state as any)?.pendingSpellCasts?.[triggeredBy];
-  if (pendingCast) {
-    return {
-      id: triggeredBy,
-      controller: pendingCast.playerId,
-      card: pendingCast.card || {
-        name: pendingCast.cardName,
-        oracle_text: pendingCast.oracleText,
-        type_line: pendingCast.typeLine,
-      },
-    };
-  }
-
-  const mappedStackItemId = String((game?.state as any)?.castEffectIdToStackItemId?.[triggeredBy] || '').trim();
-  if (mappedStackItemId) {
-    return (game?.state?.stack || []).find((entry: any) => String(entry?.id || '') === mappedStackItemId) || null;
-  }
-
-  return null;
+  return (game?.state?.stack || []).find((entry: any) => String(entry?.id || '') === triggeredBy) || null;
 }
 
 function scoreProtectedObjectForWard(game: any, playerId: PlayerID, step: any): number {
@@ -8178,34 +8157,6 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
     return null;
   }
 
-  export async function chooseAIWardManaPaymentResponse(
-    io: Server,
-    gameId: string,
-    game: any,
-    playerId: PlayerID,
-    step: any,
-  ): Promise<{ selections: { payment: Array<{ permanentId: string; mana: string; count?: number; abilityId?: string }> }; cancelled: boolean }> {
-    const wardCost = String(step?.wardCost || step?.manaCost || '').trim();
-    const parsedCost = parseManaCost(wardCost);
-    const wardValue = scoreProtectedObjectForWard(game, playerId, step);
-    const canPay = canPayManaCostWithAvailableSources(game.state, playerId, parsedCost);
-
-    if (!canPay || wardValue < 30) {
-      return { selections: { payment: [] }, cancelled: true };
-    }
-
-    const plan = await chooseAISpellPaymentSelections(io, gameId, game, playerId, {
-      ...step,
-      manaCost: wardCost,
-      totalManaCost: wardCost,
-    });
-    if (!plan) {
-      return { selections: { payment: [] }, cancelled: true };
-    }
-
-    return { selections: plan, cancelled: false };
-  }
-
 /**
  * Check the maximum hand size for a player (considering "no maximum hand size" effects)
  */
@@ -11067,16 +11018,6 @@ async function handleAIResolutionStep(
 
       case 'mana_payment_choice': {
         const stepData = step as any;
-        if (stepData.wardPayment === true && String(stepData.wardPaymentType || '').trim().toLowerCase() === 'mana') {
-          const wardResponse = await chooseAIWardManaPaymentResponse(io as any, gameId, game, playerId as any, stepData);
-          ResolutionQueueManager.completeStep(
-            gameId,
-            step.id,
-            createResponse(wardResponse.selections, wardResponse.cancelled),
-          );
-          debug(1, `[AI] mana_payment_choice: ward ${wardResponse.cancelled ? 'declined' : 'paid'}`);
-          break;
-        }
         if (stepData.spellPaymentRequired === true || stepData.sacrificeUnlessPayChoice === true) {
           const selections = await chooseAISpellPaymentSelections(io as any, gameId, game, playerId as any, stepData);
           ResolutionQueueManager.completeStep(

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
-import { resolveTopOfStack, triggerETBEffectsForPermanent } from '../src/state/modules/stack.js';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
+import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 import type { PlayerID } from '../../shared/src';
 
 describe("Legion's Landing ETB", () => {

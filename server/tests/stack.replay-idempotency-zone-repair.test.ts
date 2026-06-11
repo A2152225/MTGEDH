@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { castSpell, playLand } from '../src/state/modules/stack';
+import { castSpell } from '../src/state/modules/stackCastSpellUtils.js';
+import { playLand } from '../src/state/modules/stackPlayLandUtils.js';
 
 describe('replay idempotency repairs stale source zones', () => {
   it('removes a replayed land from hand when it is already on the battlefield', () => {

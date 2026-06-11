@@ -875,6 +875,20 @@ function getNormalizedChosenIds(ctx: OracleIRExecutionContext): readonly string[
     .filter(Boolean);
 }
 
+function filterChosenHandCardIds(
+  state: GameState,
+  playerId: PlayerID,
+  chosenIds: readonly string[],
+): readonly string[] {
+  const player = state.players.find((candidate) => candidate.id === playerId) as any;
+  const handIds = new Set(
+    (Array.isArray(player?.hand) ? player.hand : [])
+      .map((card: any) => String(card?.id || card?.card?.id || '').trim())
+      .filter(Boolean),
+  );
+  return chosenIds.filter((id) => handIds.has(id));
+}
+
 function getNormalizedChosenDungeonId(ctx: OracleIRExecutionContext): string | undefined {
   const chosenDungeonId = String(ctx.selectorContext?.chosenDungeonId || '').trim().toLowerCase();
   return chosenDungeonId || undefined;
@@ -4312,10 +4326,11 @@ function handCardMatchesDiscardTarget(card: any, target: OracleObjectSelector | 
   return cardMatchesLookChooseSelector(card, normalized);
 }
 
-export function buildDiscardSelectionOptions(
+export function buildDiscardSelectionOptionsForPlayer(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'discard' }>,
   ctx: OracleIRExecutionContext,
+  playerId: PlayerID,
 ): {
   readonly playerId: PlayerID;
   readonly options: readonly { id: string; label: string; description?: string; imageUrl?: string }[];
@@ -4326,10 +4341,6 @@ export function buildDiscardSelectionOptions(
   readonly currentHandSize: number;
   readonly maxHandSize: number;
 } | null {
-  const players = resolvePlayers(state, step.who, ctx);
-  if (players.length !== 1) return null;
-
-  const playerId = players[0];
   const player = state.players.find((candidate) => candidate.id === playerId) as any;
   const hand = Array.isArray(player?.hand) ? player.hand : [];
   if (hand.length === 0) return null;
@@ -4388,6 +4399,37 @@ export function buildDiscardSelectionOptions(
     currentHandSize: options.length,
     maxHandSize: Math.max(0, options.length - discardCount),
   };
+}
+
+export function collectDiscardSelectionOptionsForStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'discard' }>,
+  ctx: OracleIRExecutionContext,
+): Array<NonNullable<ReturnType<typeof buildDiscardSelectionOptionsForPlayer>>> {
+  const players = resolvePlayers(state, step.who, ctx);
+  return players
+    .map((playerId) => buildDiscardSelectionOptionsForPlayer(state, step, ctx, playerId))
+    .filter((built): built is NonNullable<typeof built> => Boolean(built));
+}
+
+export function buildDiscardSelectionOptions(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'discard' }>,
+  ctx: OracleIRExecutionContext,
+): {
+  readonly playerId: PlayerID;
+  readonly options: readonly { id: string; label: string; description?: string; imageUrl?: string }[];
+  readonly discardCount: number;
+  readonly minDiscardCount?: number;
+  readonly maxDiscardCount?: number;
+  readonly anyNumberDiscard?: boolean;
+  readonly currentHandSize: number;
+  readonly maxHandSize: number;
+} | null {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) return null;
+
+  return buildDiscardSelectionOptionsForPlayer(state, step, ctx, players[0]);
 }
 
 export function applyDiscardStep(
@@ -4576,6 +4618,7 @@ export function applyDiscardStep(
     }
 
     let chosenIds = getNormalizedChosenIds(ctx);
+    chosenIds = filterChosenHandCardIds(state, players[0], chosenIds);
     const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
     if (
       chosenIds.length !== Math.max(0, amount | 0) &&
@@ -4627,7 +4670,10 @@ export function applyDiscardStep(
     };
   }
 
-  const chosenIds = getNormalizedChosenIds(ctx);
+  let chosenIds = getNormalizedChosenIds(ctx);
+  if (players.length === 1) {
+    chosenIds = filterChosenHandCardIds(state, players[0], chosenIds);
+  }
   if (chosenIds.length === Math.max(0, amount | 0)) {
     if (players.length !== 1) {
       return {

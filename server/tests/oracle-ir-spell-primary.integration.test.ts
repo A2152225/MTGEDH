@@ -23,7 +23,8 @@ describe('oracle IR spell execution', () => {
   });
 
   it('shadow mode probes without mutating game state', () => {
-    delete process.env.ORACLE_IR_SPELL_PRIMARY;
+    process.env.ORACLE_IR_SPELL_PRIMARY = '0';
+    delete process.env.ORACLE_IR_SPELL_LEGACY;
 
     const gameId = 'oracle_ir_spell_shadow';
     const game = createInitialGameState(gameId);

@@ -4,7 +4,7 @@ import type { PlayerID } from '../../shared/src';
 import { initDb } from '../src/db/index.js';
 import { processPendingLimDulsVault } from '../src/socket/resolution.js';
 import { createInitialGameState } from '../src/state/gameState.js';
-import { resolveTopOfStack } from '../src/state/modules/stack.js';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 const LIM_DULS_VAULT_ORACLE = "Look at the top five cards of your library. As many times as you choose, you may pay 1 life, put those cards on the bottom of your library in any order, then look at the top five cards of your library. Then shuffle and put the last cards you looked at this way on top in any order.";

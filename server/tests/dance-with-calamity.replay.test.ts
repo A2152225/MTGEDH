@@ -4,7 +4,7 @@ import type { PlayerID } from '../../shared/src';
 import { initDb } from '../src/db/index.js';
 import { processPendingDanceWithCalamity } from '../src/socket/resolution.js';
 import { createInitialGameState } from '../src/state/gameState.js';
-import { resolveTopOfStack } from '../src/state/modules/stack.js';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 const DANCE_WITH_CALAMITY_ORACLE = 'Shuffle your library. As many times as you choose, you may exile the top card of your library. If the total mana value of the cards exiled this way is 13 or less, you may cast any number of spells from among those cards without paying their mana costs.';

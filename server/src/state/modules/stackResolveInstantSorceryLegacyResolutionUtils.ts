@@ -1,8 +1,6 @@
-import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import {
   applyInstantSorcerySpecialCaseSpellEffects,
-  applyInstantSorceryNibelheimAflameEffect,
 } from './stackResolveSpellSpecialCaseUtils.js';
 import { tryApplyInstantSorceryUncategorizedSpellFallback } from './stackResolveSpellUncategorizedUtils.js';
 import {
@@ -11,26 +9,14 @@ import {
 } from './stackResolveSpellGraveyardAutomationUtils.js';
 import {
   applyInstantSorceryCopyStackSpellRiders,
-  applyInstantSorceryFracturedIdentityAndFallbackRiders,
 } from './stackResolveSpellPostCategorizeRidersUtils.js';
+import { tryApplyInstantSorceryLegacyBodyHandlers } from './stackResolveInstantSorceryLegacyBodyUtils.js';
 import {
-  resolveSkipLegacySpellRegexHandlers,
-  logLegacySpellRegexPrimaryMiss,
-  applyLegacySpellRegexLifeGainHandler,
-  applyLegacySpellRegexDrawHandlers,
-} from './stackResolveSpellLegacyRegexDrawUtils.js';
-import { applyInstantSorceryControlChangeAndMassZoneEffects } from './stackResolveSpellControlChangeUtils.js';
-import {
-  applyInstantSorceryTokenForEachCreatureHandler,
-  applyInstantSorceryLibrarySearchSpellHandlers,
-} from './stackResolveSpellLibraryHandlersUtils.js';
-import { applyInstantSorceryJoinForcesAndTemptingOfferHandlers } from './stackResolveSpellMultiplayerPromptUtils.js';
-import { applyInstantSorceryLibraryTopCardPromptHandlers } from './stackResolveSpellLibraryTopPromptUtils.js';
+  tryHandleInstantSorceryLegacyModalResolution,
+} from './stackResolveSpellLegacyModalUtils.js';
 import { finalizeResolvedInstantOrSorceryResolution } from './stackResolveSpellZoneUtils.js';
-import { applyInstantSorcerySpecialAndRemovalRiders } from './stackResolveSpellLateRidersUtils.js';
 import { applyGraveyardPermissionEffectsFromText } from './graveyard-permissions.js';
-import { applySimpleTargetedTemporarySpellEffects } from './oracleIrSpellLegacyTargetBuffUtils.js';
-import { handleDispatch } from './oracleIrSpellLegacyDispatchUtils.js';
+import { resyncPreparedExileCopiesWithControllers } from './prepared.js';
 import type {
   InstantSorceryPrefaceContinuation,
   InstantSorceryStackResolveOptions,
@@ -56,8 +42,6 @@ export function tryResolveInstantSorceryLegacyResolution(
     spellSpec,
     oracleIrSpellHandled,
     skipLegacySpellCategorization,
-    targetControllerForRemovalEffects,
-    targetPowerBeforeRemoval,
   } = preface;
 
   applyInstantSorcerySpecialCaseSpellEffects(ctx, {
@@ -73,19 +57,29 @@ export function tryResolveInstantSorceryLegacyResolution(
     isSummonsOfSarumanStyle,
   });
 
-  applyInstantSorceryNibelheimAflameEffect(ctx, {
+  const legacyModalOutcome = tryHandleInstantSorceryLegacyModalResolution(ctx, {
     controller,
+    card,
     effectiveCard,
     item,
     targets,
-    isNibelheimAflameStyleSweep,
-    hasNibelheimGraveyardRider,
+    spellXValue,
+    oracleText,
   });
+
+  if (legacyModalOutcome === 'queued') {
+    const state = (ctx as any).state;
+    state.stack = state.stack || [];
+    state.stack.push(item);
+    return true;
+  }
+
+  const legacySelectedModalApplied = legacyModalOutcome === 'applied';
 
   const uncategorizedSpellFallbackApplied = tryApplyInstantSorceryUncategorizedSpellFallback(ctx, {
     oracleIrSpellHandled,
     spellSpec,
-    skipLegacySpellCategorization,
+    skipLegacySpellCategorization: skipLegacySpellCategorization || legacySelectedModalApplied,
     oracleText,
     effectiveCard,
     controller,
@@ -125,108 +119,27 @@ export function tryResolveInstantSorceryLegacyResolution(
     uncategorizedSpellFallbackApplied,
   });
 
-  applySimpleTargetedTemporarySpellEffects(
-    ctx,
-    oracleText,
-    targets,
-    effectiveCard.name || 'spell',
-  );
-
-  handleDispatch(ctx, card, controller, targets, (ctx as any).state);
-
-  applyInstantSorceryFracturedIdentityAndFallbackRiders(ctx, {
-    controller,
-    card,
-    effectiveCard,
-    item,
-    oracleText,
-    oracleTextLower,
-    targets,
-    spellXValue,
-    uncategorizedSpellFallbackApplied,
-  });
-
-  const skipLegacySpellRegexHandlers = resolveSkipLegacySpellRegexHandlers(
-    oracleIrSpellHandled,
-    oracleText,
-    effectiveCard.name || 'spell',
-  );
-  logLegacySpellRegexPrimaryMiss(
-    oracleIrSpellHandled,
-    effectiveCard.name || 'spell',
-    oracleText,
-  );
-
-  if (!skipLegacySpellRegexHandlers) {
-    applyLegacySpellRegexLifeGainHandler(ctx, {
-      controller,
-      effectiveCard,
-      oracleTextLower,
-      spellXValue,
-    });
-  }
-
-  applyInstantSorceryControlChangeAndMassZoneEffects(ctx, {
-    controller,
-    effectiveCard,
-    item,
-    oracleText,
-    oracleTextLower,
-    targets,
-  });
-
-  if (!skipLegacySpellRegexHandlers) {
-    applyLegacySpellRegexDrawHandlers(ctx, {
-      controller,
-      effectiveCard,
-      oracleTextLower,
-    });
-  }
-
-  applyInstantSorceryTokenForEachCreatureHandler(ctx, {
-    controller,
-    effectiveCard,
-    oracleTextLower,
-  });
-
-  applyInstantSorceryLibrarySearchSpellHandlers(ctx, {
-    controller,
-    card,
-    effectiveCard,
-    item,
-    oracleText,
-    oracleTextLower,
-  });
-
-  const riderResult = applyInstantSorcerySpecialAndRemovalRiders(ctx, {
-    controller,
-    effectiveCard,
-    item,
-    oracleTextLower,
-    targets,
-    targetControllerForRemovalEffects: targetControllerForRemovalEffects,
-    targetPowerBeforeRemoval,
-  });
-  if (riderResult.shouldEarlyReturn) {
+  const legacyBodyResult = legacySelectedModalApplied
+    ? { shouldEarlyReturn: false }
+    : tryApplyInstantSorceryLegacyBodyHandlers(
+      ctx,
+      {
+        controller,
+        card,
+        effectiveCard,
+        item,
+        targets,
+        spellXValue,
+        oracleText,
+        oracleTextLower,
+        uncategorizedSpellFallbackApplied,
+      },
+      preface,
+    );
+  if (legacyBodyResult.shouldEarlyReturn) {
+    resyncPreparedExileCopiesWithControllers((ctx as any).state);
     return true;
   }
-
-  applyInstantSorceryJoinForcesAndTemptingOfferHandlers(ctx, {
-    controller,
-    effectiveCard,
-    item,
-    oracleText,
-    oracleTextLower,
-  });
-
-  applyInstantSorceryLibraryTopCardPromptHandlers(ctx, {
-    controller,
-    effectiveCard,
-    item,
-    oracleTextLower,
-    spellXValue,
-    targets,
-  });
 
   if (finalizeResolvedInstantOrSorceryResolution(ctx, {
     controller,
@@ -240,5 +153,6 @@ export function tryResolveInstantSorceryLegacyResolution(
     return true;
   }
 
+  resyncPreparedExileCopiesWithControllers((ctx as any).state);
   return false;
 }

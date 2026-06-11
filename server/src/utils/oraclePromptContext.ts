@@ -1,4 +1,5 @@
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
+import { isOracleIrSpellPrimaryEnabled } from '../state/modules/oracleIrFeatureFlags.js';
 
 export interface OraclePromptContext {
   readonly flags: {
@@ -248,12 +249,6 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
   const normalMinModes = minModes;
   const normalMaxModes = maxModes;
 
-  const teamworkChooseBoth = /\bif this spell was cast using teamwork,\s*choose both instead\b/i.test(text);
-  if (teamworkChooseBoth) {
-    minModes = 1;
-    maxModes = 1;
-  }
-
   // Collect bullet lines that follow.
   const rawOptions: string[] = [];
   for (let i = headerIndex + 1; i < lines.length; i++) {
@@ -298,11 +293,6 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
   return { minModes, maxModes, normalMinModes, normalMaxModes, entwineCost, options, allOptionsHaveTargets };
 }
 
-function isOracleIrSpellPrimaryEnabledForCast(): boolean {
-  const raw = String(process.env.ORACLE_IR_SPELL_PRIMARY || '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes';
-}
-
 /**
  * When Oracle IR spell primary is enabled, align cast-time modal option ids with
  * IR choose_mode labels while preserving legacy min/max/entwine/teamwork metadata.
@@ -312,7 +302,7 @@ export function extractModalModesForSpellCast(
   spellName = '',
 ): OracleModalModeInfo | undefined {
   const legacy = extractModalModesFromOracleText(oracleText);
-  if (!legacy || !isOracleIrSpellPrimaryEnabledForCast()) {
+  if (!legacy || !isOracleIrSpellPrimaryEnabled()) {
     return legacy;
   }
 

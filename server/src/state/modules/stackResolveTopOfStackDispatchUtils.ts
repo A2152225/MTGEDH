@@ -1,6 +1,9 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
-import type { ResolveTopOfStackContinuation } from './stackResolveSharedTypes.js';
+import type {
+  ResolveTopOfStackContinuation,
+  StackActivatedAbilityHandlerContext,
+} from './stackResolveSharedTypes.js';
 import {
   tryResolveStackActivatedAbilityEarlyHandlers,
   tryResolveStackActivatedAbilityMidHandlers,
@@ -33,13 +36,21 @@ export function tryDispatchResolvedStackItem(
   } = continuation;
 
   if ((item as any).type === 'ability') {
-    if (tryResolveStackActivatedAbilityEarlyHandlers(ctx, item, controller)) {
+    const abilityHandlerContext: StackActivatedAbilityHandlerContext = {
+      item,
+      controller: controller as PlayerID,
+    };
+    if (tryResolveStackActivatedAbilityEarlyHandlers(ctx, abilityHandlerContext)) {
       return true;
     }
-    if (tryResolveStackActivatedAbilityMidHandlers(ctx, item, controller)) {
+    if (tryResolveStackActivatedAbilityMidHandlers(ctx, abilityHandlerContext)) {
       return true;
     }
-    if (tryResolveStackActivatedAbilityLateHandlers(ctx, item, controller, targets, { executeTriggerEffect })) {
+    if (tryResolveStackActivatedAbilityLateHandlers(ctx, {
+      ...abilityHandlerContext,
+      targets,
+      executeTriggerEffect,
+    })) {
       return true;
     }
   }

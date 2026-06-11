@@ -12,6 +12,7 @@ import { applyMyriadTokenCopies } from './triggerMyriadTokenUtils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { resolveTriggeredAbilityTargetPlayerId } from './triggerSourceUtils.js';
 import { maybeApplyPreparedStateChange } from './triggerPreparedStateUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 import {
   queueSelfETBTriggersForPermanent,
   triggerETBEffectsForToken,
@@ -45,6 +46,10 @@ function parseTokenCountFromText(text: string): number {
 export function applyRetiredTriggerLegacyTargetPlayerCreatesToken(
   params: TriggerLegacyTokenParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
+    return false;
+  }
+
   const targetPlayerTokenMatch = params.description.match(/target player creates (?:a|an|one|two|three|four|five|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
   if (!targetPlayerTokenMatch) {
     return false;
@@ -76,6 +81,10 @@ export function applyRetiredTriggerLegacyTargetPlayerCreatesToken(
 export function applyRetiredTriggerLegacyPredefinedArtifactTokens(
   params: TriggerLegacyTokenParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const predefinedTokenMatch = params.desc.match(/create (?:a|an|one|two|three|four|five|(\d+)) (food|treasure|clue|map|blood|gold|powerstone) tokens?/i);
   if (!predefinedTokenMatch) {
     return false;
@@ -110,6 +119,10 @@ export function applyRetiredTriggerLegacyPredefinedArtifactTokens(
 export function applyRetiredTriggerLegacyCreateCreatureToken(
   params: TriggerLegacyTokenParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const createTokenMatch = params.desc.match(/create (?:a|an|one|two|three|four|five|(\d+))(?: (tapped))? (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
   if (!createTokenMatch) {
     return false;
@@ -257,6 +270,10 @@ export function applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken(
     return false;
   }
 
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const createTokenMatch = params.desc.match(/create (?:a|an|one|two|three|four|five|(\d+)) (\d+)\/(\d+) ([^\.]+?)(?:\s+creature)?\s+tokens?/i);
   debug(2, `[executeTriggerEffect] ATTACK TRIGGER: createTokenMatch=${!!createTokenMatch}`);
   if (!createTokenMatch) {
@@ -337,6 +354,10 @@ export function applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken(
 ): boolean {
   const triggerType = (params.triggerItem as any)?.triggerType;
   if (triggerType !== 'blocks') {
+    return false;
+  }
+
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
     return false;
   }
 
@@ -576,6 +597,10 @@ export function createEquippedCreatureCopyTokenFromEquipment(
 export function applyRetiredTriggerLegacyEquippedCreatureCopyToken(
   params: TriggerLegacyTokenParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (!params.desc.includes('token') || !params.desc.includes('copy')) {
     return false;
   }
@@ -701,6 +726,10 @@ export function applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken(
     return false;
   }
 
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const triggerValue = (params.triggerItem as any).value || (params.triggerItem as any).effectData;
   debug(2, `[executeTriggerEffect] COUNT-BASED CHECK: value=${JSON.stringify((params.triggerItem as any).value)}, effectData=${JSON.stringify((params.triggerItem as any).effectData)}, triggerValue.countType=${triggerValue?.countType}`);
   if (!triggerValue || typeof triggerValue !== 'object' || !triggerValue.countType) {
@@ -736,6 +765,10 @@ export function applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken(
 export function applyRetiredTriggerLegacyCreateXTokensByControlledTypeCount(
   params: TriggerLegacyTokenParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const createXTokensPattern = params.desc.match(
     /create\s+x\s+(\d+)\/(\d+)\s+(colorless\s+)?(\w+(?:\s+\w+)*?)\s+(artifact\s+)?creature\s+tokens?,?\s*where\s+x\s+is\s+(?:the\s+)?number\s+of\s+(\w+)s?\s+you\s+control/i,
   );
@@ -835,6 +868,10 @@ function createDoubledTokensFromControlledType(
 export function applyRetiredTriggerLegacyTypedCountTokenFallbacks(
   params: TriggerLegacyTokenParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const desc = String(params.desc || '').toLowerCase();
   const sourceNameLower = String(params.sourceName || '').toLowerCase();
 
@@ -902,6 +939,10 @@ export function applyRetiredTriggerLegacyTypedCountTokenFallbacks(
 export function applyRetiredTriggerLegacyDeployToTheFrontTokens(
   params: TriggerLegacyTokenParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const desc = String(params.desc || '').toLowerCase();
   const sourceNameLower = String(params.sourceName || '').toLowerCase();
   if (
@@ -932,6 +973,10 @@ export function applyRetiredTriggerLegacyDeployToTheFrontTokens(
 export function applyRetiredTriggerLegacyCallTheCoppercoatsTokens(
   params: TriggerLegacyTokenParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const desc = String(params.desc || '').toLowerCase();
   const sourceNameLower = String(params.sourceName || '').toLowerCase();
   if (
@@ -988,6 +1033,10 @@ export function applyRetiredTriggerLegacyInterveningSubjectCopyToken(params: {
   readonly triggerItem: any;
   readonly state: any;
 }): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const interveningSubjectPermanentIdForCopy = String((params.triggerItem as any)?.interveningIfSubjectPermanentId || '').trim();
   if (
     !interveningSubjectPermanentIdForCopy
@@ -1042,6 +1091,10 @@ export function applyRetiredTriggerLegacyTappedAttackingCopyToken(params: {
   readonly triggerItem: any;
   readonly state: any;
 }): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const tappedAttackingCopyMatch = params.desc.match(/^create a tapped and attacking token that's a copy of target creature you control\. sacrifice the token at the beginning of the next end step\.?$/i);
   if (!tappedAttackingCopyMatch || !(params.triggerItem as any).targets?.length) {
     return false;

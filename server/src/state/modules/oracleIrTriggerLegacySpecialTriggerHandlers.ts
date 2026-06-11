@@ -7,6 +7,7 @@ import { syncPreparedPermanentAfterControlChange } from './prepared.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueCastFromExileResolutionPrompt } from './triggerCastFromExileUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacySpecialParams {
   readonly ctx: GameContext;
@@ -20,6 +21,10 @@ export interface TriggerLegacySpecialParams {
 export function applyRetiredTriggerLegacySacrificeThisCreature(
   params: TriggerLegacySpecialParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (params.desc !== 'sacrifice this creature' && params.desc !== 'sacrifice this creature.') {
     return false;
   }
@@ -34,6 +39,10 @@ export function applyRetiredTriggerLegacySacrificeThisCreature(
 export function applyRetiredTriggerLegacyAttackingPlayerGainsControlOfArtifact(
   params: TriggerLegacySpecialParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (params.desc !== 'the attacking player gains control of this artifact and untaps it') {
     return false;
   }
@@ -60,6 +69,10 @@ export function applyRetiredTriggerLegacyReboundTrigger(
   params: TriggerLegacySpecialParams,
 ): boolean {
   if (params.triggerItem?.triggerType !== 'rebound') {
+    return false;
+  }
+
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
     return false;
   }
 
@@ -157,6 +170,10 @@ export function applyRetiredTriggerLegacyParadigmTrigger(
   params: TriggerLegacySpecialParams,
 ): boolean {
   if (params.triggerItem?.triggerType !== 'paradigm') {
+    return false;
+  }
+
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
     return false;
   }
 

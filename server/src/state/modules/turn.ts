@@ -20,9 +20,9 @@ import { appendEvent } from '../../db/index.js';
 import { drawCards } from "./zones.js";
 import { resetConvokeGrantsForNewTurn } from "./casting-modifiers.js";
 import { recalculatePlayerEffects, canDamageBePrevented, clearTemporaryLandBonuses, processLifeChange, resolveCombatDamageToOpponent } from "./game-state-effects.js";
-import { detectEntersWithCounters } from "./detectEntersWithCounters.js";
-import { clearTemporaryEtbTriggers } from "./triggerEtbEntryEffects.js";
-import { triggerETBEffectsForPermanent } from "./triggerEtbPermanentEffects.js";
+import { clearTemporaryEtbTriggers } from './triggerEtbEntryEffects.js';
+import { detectEntersWithCounters } from './detectEntersWithCounters.js';
+import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { 
   getBeginningOfCombatTriggers, 
   getEndStepTriggers, 
@@ -287,23 +287,6 @@ function removeExpiredUntilNextTurnEffects(ctx: GameContext, currentPlayerId: Pl
         (permanent as any).untilNextTurnGrants = activeEntries;
       } else {
         delete (permanent as any).untilNextTurnGrants;
-      }
-    }
-
-    const cantAttackPlayers = (permanent as any).cantAttackPlayers;
-    if (cantAttackPlayers && typeof cantAttackPlayers === 'object') {
-      const nextRestrictions: Record<string, any> = {};
-      for (const [restrictedPlayerId, entry] of Object.entries(cantAttackPlayers)) {
-        const sourcePlayer = String((entry as any)?.sourcePlayer || restrictedPlayerId || '').trim();
-        if (sourcePlayer === String(currentPlayerId) && String((entry as any)?.until || '') === 'next_turn') {
-          continue;
-        }
-        nextRestrictions[restrictedPlayerId] = entry;
-      }
-      if (Object.keys(nextRestrictions).length > 0) {
-        (permanent as any).cantAttackPlayers = nextRestrictions;
-      } else {
-        delete (permanent as any).cantAttackPlayers;
       }
     }
 

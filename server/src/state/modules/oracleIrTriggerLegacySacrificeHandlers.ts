@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { sacrificePermanent } from './upkeep-triggers.js';
 import { debug, debugWarn } from '../../utils/debug.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyUpkeepSacrificeParams {
   readonly ctx: GameContext;
@@ -24,6 +25,10 @@ export function applyRetiredTriggerLegacyUpkeepSacrificeCreatureOrSelf(
   );
 
   if (!isUpkeepSacrificeTrigger) {
+    return false;
+  }
+
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
     return false;
   }
 

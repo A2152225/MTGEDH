@@ -382,6 +382,14 @@ const stackResolveInstantSorceryLegacyResolutionUtilsSource = readFileSync(
   join(serverRoot, 'src/state/modules/stackResolveInstantSorceryLegacyResolutionUtils.ts'),
   'utf8',
 );
+const stackResolveInstantSorceryLegacyBodyUtilsSource = readFileSync(
+  join(serverRoot, 'src/state/modules/stackResolveInstantSorceryLegacyBodyUtils.ts'),
+  'utf8',
+);
+const oracleIrUncategorizedSpellFallbackSource = readFileSync(
+  join(serverRoot, 'src/state/modules/oracleIrUncategorizedSpellFallback.ts'),
+  'utf8',
+);
 const stackResolvePermanentEtbChoiceUtilsSource = readFileSync(
   join(serverRoot, 'src/state/modules/stackResolvePermanentEtbChoiceUtils.ts'),
   'utf8',
@@ -818,7 +826,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(triggerEtbPermanentEffectsSource.includes("from './triggerKeywordChoiceUtils.js'")).toBe(true);
     expect(stackSource.includes("from './triggerEtbPermanentEffects.js'")).toBe(true);
     expect(stackSource.includes('registerTriggerETBEffectsForPermanent')).toBe(false);
-    expect(countersTokensSource.includes('triggerEtbEntryEffects.js')).toBe(true);
+    expect(countersTokensSource.includes('triggerEtbPermanentEffects.js')).toBe(true);
     expect(countersTokensSource.includes("require('./stack.js')")).toBe(false);
     expect(lateEffectRegexBatchSource.includes('readonly triggerETBEffectsForToken')).toBe(false);
     expect(lateEffectRegexBatchSource.includes('readonly modifyLife')).toBe(false);
@@ -904,7 +912,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('function applySimpleTargetedTemporarySpellEffects')).toBe(false);
     expect(stackSource.includes('function splitGrantedTemporaryAbilities')).toBe(false);
     expect(stackSource.includes("from './oracleIrSpellLegacyTargetBuffUtils.js'") || stackSource.includes('from "./oracleIrSpellLegacyTargetBuffUtils.js"')).toBe(false);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes("from './oracleIrSpellLegacyTargetBuffUtils.js'") || stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('from "./oracleIrSpellLegacyTargetBuffUtils.js"')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes("from './oracleIrSpellLegacyTargetBuffUtils.js'") || stackResolveInstantSorceryLegacyBodyUtilsSource.includes('from "./oracleIrSpellLegacyTargetBuffUtils.js"')).toBe(true);
     expect(ptModificationHandlersSource.includes("from './oracleIrSpellLegacyTargetBuffUtils.js'")).toBe(true);
     expect(ptModificationHandlersSource.includes('function splitGrantedTemporaryAbilities')).toBe(false);
     expect(stackContextUtilsSource.includes('export function buildStackOracleIRContext')).toBe(true);
@@ -917,7 +925,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('function handleDispatch')).toBe(false);
     expect(stackSource.includes('function evaluateMetalcraft')).toBe(false);
     expect(stackSource.includes("from './oracleIrSpellLegacyDispatchUtils.js'") || stackSource.includes('from "./oracleIrSpellLegacyDispatchUtils.js"')).toBe(false);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes("from './oracleIrSpellLegacyDispatchUtils.js'") || stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('from "./oracleIrSpellLegacyDispatchUtils.js"')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes("from './oracleIrSpellLegacyDispatchUtils.js'") || stackResolveInstantSorceryLegacyBodyUtilsSource.includes('from "./oracleIrSpellLegacyDispatchUtils.js"')).toBe(true);
     expect(spellLegacyTutorUtilsSource.includes('export function detectTutorSpell')).toBe(true);
     expect(spellLegacyTutorUtilsSource.includes('export function parseLibrarySearchFilter')).toBe(true);
     expect(spellLegacyTutorUtilsSource.includes('export function resolveCelestialReunionLibrarySearch')).toBe(true);
@@ -1075,7 +1083,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('[resolveTopOfStack] Transform DFC')).toBe(false);
     expect(stackSource.includes('function resolveStackItemEffectiveCard')).toBe(false);
     expect(stackSource.includes("from './stackResolveEffectiveCardUtils.js'") || stackSource.includes('from "./stackResolveEffectiveCardUtils.js"')).toBe(true);
-    expect(stackResolveAbilityHandlersUtilsSource.includes('export { tryResolveStackActivatedAbilityEarlyHandlers }')).toBe(true);
+    expect(stackResolveAbilityHandlersUtilsSource.includes('tryResolveStackActivatedAbilityEarlyHandlers')).toBe(true);
     expect(stackResolveAbilityEarlyHandlersUtilsSource.includes('export function tryResolveStackActivatedAbilityEarlyHandlers')).toBe(true);
     expect(stackResolveAbilityEarlyHandlersUtilsSource.includes("abilityType === 'fetch-land'")).toBe(true);
     expect(stackResolveAbilityEarlyHandlersUtilsSource.includes("abilityType === 'cycling'")).toBe(true);
@@ -1090,7 +1098,8 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('isEquipmentAttachAbility')).toBe(false);
     expect(stackSource.includes('tryApplyOracleIRToActivatedAbility(ctx')).toBe(false);
     expect(stackSource.includes("from './stackResolveAbilityHandlersUtils.js'") || stackSource.includes('from "./stackResolveAbilityHandlersUtils.js"')).toBe(true);
-    expect(stackResolveTopOfStackDispatchUtilsSource.includes('tryResolveStackActivatedAbilityLateHandlers(ctx, item, controller, targets, { executeTriggerEffect })')).toBe(true);
+    expect(stackResolveTopOfStackDispatchUtilsSource.includes('tryResolveStackActivatedAbilityLateHandlers(ctx, {')).toBe(true);
+    expect(stackResolveTopOfStackDispatchUtilsSource.includes('executeTriggerEffect')).toBe(true);
     expect(stackResolveTopOfStackUtilsSource.includes('tryResolveStackActivatedAbilityLateHandlers(ctx, item, controller, targets, { executeTriggerEffect })')).toBe(false);
     expect(stackResolveSpellZoneUtilsSource.includes('export function moveResolvedInstantOrSorceryAfterResolution')).toBe(true);
     expect(stackResolveSpellZoneUtilsSource.includes('export function finalizeResolvedInstantOrSorceryResolution')).toBe(true);
@@ -1130,7 +1139,14 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('createPrisonersDilemmaChoiceBatch(')).toBe(false);
     expect(stackSource.includes('addTemporaryEtbTrigger(state')).toBe(false);
     expect(stackResolveSpellSpecialCaseUtilsSource.includes('export function applyInstantSorceryNibelheimAflameEffect')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx')).toBe(true);
+    expect(
+      stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('tryApplyInstantSorceryUncategorizedSpellFallback(ctx')
+      || stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx'),
+    ).toBe(true);
+    expect(
+      oracleIrUncategorizedSpellFallbackSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx')
+      || stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx'),
+    ).toBe(true);
     expect(stackSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx')).toBe(false);
     expect(stackSource.includes('isNibelheimAflameStyleSweep =')).toBe(false);
     expect(stackSource.includes('creaturesDamagedByThisCreatureThisTurn')).toBe(false);
@@ -1181,7 +1197,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackResolveSpellPostCategorizeRidersUtilsSource.includes('export function applyInstantSorceryCopyStackSpellRiders')).toBe(true);
     expect(stackResolveSpellPostCategorizeRidersUtilsSource.includes('export function applyInstantSorceryFracturedIdentityAndFallbackRiders')).toBe(true);
     expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyInstantSorceryCopyStackSpellRiders(ctx')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyInstantSorceryFracturedIdentityAndFallbackRiders(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorceryFracturedIdentityAndFallbackRiders(ctx')).toBe(true);
     expect(stackSource.includes('applyInstantSorceryCopyStackSpellRiders(ctx')).toBe(false);
     expect(stackSource.includes('applyInstantSorceryFracturedIdentityAndFallbackRiders(ctx')).toBe(false);
     expect(stackSource.includes('isFracturedIdentity')).toBe(false);
@@ -1190,26 +1206,26 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('copy target instant or sorcery spell you control')).toBe(false);
     expect(stackResolveSpellLegacyRegexDrawUtilsSource.includes('export function applyLegacySpellRegexLifeGainHandler')).toBe(true);
     expect(stackResolveSpellLegacyRegexDrawUtilsSource.includes('export function applyLegacySpellRegexDrawHandlers')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyLegacySpellRegexLifeGainHandler(ctx')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyLegacySpellRegexDrawHandlers(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyLegacySpellRegexLifeGainHandler(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyLegacySpellRegexDrawHandlers(ctx')).toBe(true);
     expect(stackSource.includes('applyLegacySpellRegexLifeGainHandler(ctx')).toBe(false);
     expect(stackSource.includes('applyLegacySpellRegexDrawHandlers(ctx')).toBe(false);
     expect(stackSource.includes('lifeGainMatch')).toBe(false);
     expect(stackSource.includes('shuffleHandAndGraveyardWheelMatch')).toBe(false);
     expect(stackResolveSpellControlChangeUtilsSource.includes('export function applyInstantSorceryControlChangeAndMassZoneEffects')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyInstantSorceryControlChangeAndMassZoneEffects(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorceryControlChangeAndMassZoneEffects(ctx')).toBe(true);
     expect(stackSource.includes('applyInstantSorceryControlChangeAndMassZoneEffects(ctx')).toBe(false);
     expect(stackSource.includes('massBounceFilter')).toBe(false);
     expect(stackSource.includes('hasExchangeCreaturesEffect')).toBe(false);
     expect(stackSource.includes('function buildPermanentTokenCopy')).toBe(false);
     expect(stackResolveSpellLibraryHandlersUtilsSource.includes('export function applyInstantSorceryTokenForEachCreatureHandler')).toBe(true);
     expect(stackResolveSpellLibraryHandlersUtilsSource.includes('export function applyInstantSorceryLibrarySearchSpellHandlers')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyInstantSorceryTokenForEachCreatureHandler(ctx')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyInstantSorceryLibrarySearchSpellHandlers(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorceryTokenForEachCreatureHandler(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorceryLibrarySearchSpellHandlers(ctx')).toBe(true);
     expect(stackSource.includes('applyInstantSorceryTokenForEachCreatureHandler(ctx')).toBe(false);
     expect(stackSource.includes('applyInstantSorceryLibrarySearchSpellHandlers(ctx')).toBe(false);
     expect(stackResolveSpellLateRidersUtilsSource.includes('export function applyInstantSorcerySpecialAndRemovalRiders')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyInstantSorcerySpecialAndRemovalRiders(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorcerySpecialAndRemovalRiders(ctx')).toBe(true);
     expect(stackSource.includes('applySpellLegacySpecialSpellRiders(ctx')).toBe(false);
     expect(stackSource.includes('applySpellLegacyRemovalRiders(ctx')).toBe(false);
     expect(stackSource.includes('tokenForEachCreaturePattern')).toBe(false);
@@ -1218,8 +1234,9 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('detectTutorSpell(')).toBe(false);
     expect(stackResolveSpellMultiplayerPromptUtilsSource.includes('export function applyInstantSorceryJoinForcesAndTemptingOfferHandlers')).toBe(true);
     expect(stackResolveSpellLibraryTopPromptUtilsSource.includes('export function applyInstantSorceryLibraryTopCardPromptHandlers')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyInstantSorceryJoinForcesAndTemptingOfferHandlers(ctx')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyInstantSorceryLibraryTopCardPromptHandlers(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorceryJoinForcesAndTemptingOfferHandlers(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorceryLibraryTopCardPromptHandlers(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('tryApplyInstantSorceryLegacyBodyHandlers(')).toBe(true);
     expect(stackSource.includes('applyInstantSorceryJoinForcesAndTemptingOfferHandlers(ctx')).toBe(false);
     expect(stackSource.includes('applyInstantSorceryLibraryTopCardPromptHandlers(ctx')).toBe(false);
     expect(stackSource.includes('isJoinForcesSpell(')).toBe(false);

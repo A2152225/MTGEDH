@@ -5,6 +5,7 @@ import { debug } from '../../utils/debug.js';
 import { broadcastGame } from '../../socket/util.js';
 import { modifyTriggerEffectLife } from './triggerLifeDamageUtils.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 function getCombatDamagedPlayerIds(state: any): string[] {
   const tracker = state?.creaturesThatDealtDamageToPlayer;
@@ -102,6 +103,10 @@ export interface TriggerLegacyCombatDamageParams {
 export function applyRetiredTriggerLegacyCombatDamageDrawEffects(
   params: TriggerLegacyCombatDamageParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (params.desc.includes('draw cards equal to the number of opponents who were dealt combat damage this turn')) {
     const drawCount = countOpponentsDealtCombatDamageThisTurn(params.state, params.controller);
     if (drawCount > 0) {

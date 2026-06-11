@@ -6,6 +6,7 @@ import { queueLandPlayFromHandPrompt } from './triggerLandPlayPromptUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { filterHandCreatureCardsOfChosenType } from './chosen-creature-type.js';
 import { drawCards as drawCardsFromZone } from './zones.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyResolutionParams {
   readonly ctx: GameContext;
@@ -24,6 +25,10 @@ export function applyRetiredTriggerLegacyKynaiosLandDrawChoice(
   },
 ): boolean {
   if (!params.isKynaiosEffect) {
+    return false;
+  }
+
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
     return false;
   }
 
@@ -191,6 +196,10 @@ function queuePutCreatureFromHandModal(
 export function applyRetiredTriggerLegacyBelbePortalPutFromHand(
   params: TriggerLegacyResolutionParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (!/(?:you may )?put a creature card of the chosen type from your hand onto the battlefield/i.test(params.desc)
     || params.desc.includes('search your library')) {
     return false;
@@ -223,6 +232,10 @@ export function applyRetiredTriggerLegacyBelbePortalPutFromHand(
 export function applyRetiredTriggerLegacyPutCreatureFromHandOntoBattlefield(
   params: TriggerLegacyResolutionParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const putFromHandPattern = params.desc.match(
     /(?:you may )?put (?:a|an)(?: ([\w,\s]+?))? creature card from your hand onto the battlefield(?: tapped and attacking)?/i,
   );
@@ -279,6 +292,10 @@ export function applyRetiredTriggerLegacyJoinForcesAttack(
     params.triggerItem?.triggerType !== 'join_forces_attack'
     && !(params.desc.includes('join forces') && params.desc.includes('each player may pay'))
   ) {
+    return false;
+  }
+
+  if (skipRetiredTriggerLegacyHandler(params.desc || params.description, params.sourceName)) {
     return false;
   }
 
@@ -362,6 +379,10 @@ export function applyRetiredTriggerLegacyJoinForcesAttack(
 export function applyRetiredTriggerLegacyBothPlayersPutPermanentFromHand(
   params: TriggerLegacyResolutionParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (!/you and that player may each put a permanent card from your hand onto the battlefield/i.test(String(params.desc || ''))) {
     return false;
   }

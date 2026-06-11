@@ -93,12 +93,19 @@ export function parseSpellLegacyTokenCreation(
       creatureType = creatureType.replace(/colorless/gi, '').trim();
     }
 
+    const normalizedCreatureType = creatureType
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+
     return {
       count,
       power,
       toughness,
-      name: creatureType || 'Token',
-      typeLine: `Token Creature — ${creatureType || 'Token'}`,
+      name: normalizedCreatureType || 'Token',
+      typeLine: `Token Creature — ${normalizedCreatureType || 'Token'}`,
       colors: foundColors.length > 0 ? foundColors : undefined,
     };
   }

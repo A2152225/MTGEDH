@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { applyGraveyardPermissionEffectsFromText } from './graveyard-permissions.js';
 import { tryApplyCastingModifierGrantsFromText } from './casting-modifiers.js';
 import { debug } from '../../utils/debug.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyPrefaceParams {
   readonly ctx: GameContext;
@@ -40,6 +41,10 @@ export function applyRetiredTriggerLegacyPlaneswalkerLoyaltyCounters(
 export function applyRetiredTriggerLegacyCastingModifierGrants(
   params: TriggerLegacyPrefaceParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
+    return false;
+  }
+
   if (tryApplyCastingModifierGrantsFromText(params.state, params.controller, params.description, params.sourceName, params.triggerItem)) {
     return true;
   }
@@ -59,6 +64,10 @@ export function applyRetiredTriggerLegacyCastingModifierGrants(
 export function applyRetiredTriggerLegacyGraveyardPermissionEffects(
   params: TriggerLegacyPrefaceParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
+    return false;
+  }
+
   const directGraveyardPermissionEffectsApplied = applyGraveyardPermissionEffectsFromText(
     params.ctx,
     params.controller,

@@ -7,17 +7,23 @@ import { createToken } from './counters_tokens.js';
 import { applyTriggerLifeGain } from './triggerLifeDamageUtils.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
 import { queueExploreDecisionStep } from './triggerExploreUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyCardSpecificParams {
   readonly controller: PlayerID;
   readonly desc: string;
   readonly triggerItem: any;
   readonly state: any;
+  readonly sourceName?: string;
 }
 
 export function applyRetiredTriggerLegacyAgentOfShadowThievesAttack(
   params: TriggerLegacyCardSpecificParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, String(params.sourceName || ''))) {
+    return false;
+  }
+
   const desc = String(params.desc || '').toLowerCase();
   if (
     !desc.includes('whenever this creature attacks a player')
@@ -87,6 +93,10 @@ export function applyRetiredTriggerLegacyCurseDefendingPlayer(
     readonly desc: string;
   },
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (!/^curse defending player/i.test(String(params.desc || ''))) {
     return false;
   }
@@ -131,6 +141,10 @@ export function applyRetiredTriggerLegacyEachMerfolkExplores(
     readonly desc: string;
   },
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (!/\beach merfolk you control explores\b/.test(String(params.desc || ''))) {
     return false;
   }
@@ -172,6 +186,10 @@ export function applyRetiredTriggerLegacyDarienDamageTokens(
     readonly sourceName: string;
   },
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const desc = String(params.desc || '').toLowerCase();
   const sourceNameLower = String(params.sourceName || '').toLowerCase();
   if (
@@ -199,6 +217,10 @@ export function applyRetiredTriggerLegacyElixirOfImmortality(
     readonly sourceName: string;
   },
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const desc = String(params.desc || '').toLowerCase();
   const sourceNameLower = String(params.sourceName || '').toLowerCase();
   if (

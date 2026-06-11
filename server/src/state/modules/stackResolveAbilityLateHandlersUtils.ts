@@ -1,6 +1,6 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
-import type { StackActivatedAbilityLateHandlerDeps } from './stackResolveSharedTypes.js';
+import type { StackActivatedAbilityLateHandlerOptions } from './stackResolveSharedTypes.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { canPermanentBeTargetedByPlayer, permanentsShareCardType, selectionRequiresSharedCardType } from '../../rules-engine/targeting.js';
 import {
@@ -228,15 +228,13 @@ function resolveTextDrivenActivatedControlChange(
   return applied;
 }
 
-export type { StackActivatedAbilityLateHandlerDeps } from './stackResolveSharedTypes.js';
+export type { StackActivatedAbilityLateHandlerDeps, StackActivatedAbilityLateHandlerOptions } from './stackResolveSharedTypes.js';
 
 export function tryResolveStackActivatedAbilityLateHandlers(
   ctx: GameContext,
-  item: any,
-  controller: PlayerID,
-  targets: any[],
-  deps: StackActivatedAbilityLateHandlerDeps,
+  options: StackActivatedAbilityLateHandlerOptions,
 ): boolean {
+  const { item, controller, targets, executeTriggerEffect } = options;
   if (item?.type !== 'ability') return false;
 
   const state = (ctx as any).state;
@@ -358,7 +356,7 @@ export function tryResolveStackActivatedAbilityLateHandlers(
   }
 
   debug(2, `[tryResolveStackActivatedAbilityLateHandlers] Executing activated ability from ${sourceName} for ${controller}: ${description}`);
-  deps.executeTriggerEffect(ctx, controller, sourceName, description, item);
+  executeTriggerEffect(ctx, controller, sourceName, description, item);
   bumpSeq();
   return true;
 }

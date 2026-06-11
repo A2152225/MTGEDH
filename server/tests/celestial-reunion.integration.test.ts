@@ -6,7 +6,7 @@ import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
-import { resolveTopOfStack } from '../src/state/modules/stack.js';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 import '../src/state/modules/priority.js';
 
 function createNoopIo() {

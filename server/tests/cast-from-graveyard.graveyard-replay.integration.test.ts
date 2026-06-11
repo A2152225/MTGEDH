@@ -7,7 +7,7 @@ import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame, transformDbEventsForReplay } from '../src/socket/util.js';
 import { getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
-import { triggerETBEffectsForPermanent } from '../src/state/modules/stack.js';
+import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 import { nextStep } from '../src/state/modules/turn.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 

@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import { syncPreparedPermanentAfterControlChange } from './prepared.js';
 import { debug } from '../../utils/debug.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export function applyRetiredTriggerLegacyTapUntapInlineBatch(params: {
   readonly controller: PlayerID;
@@ -10,6 +11,10 @@ export function applyRetiredTriggerLegacyTapUntapInlineBatch(params: {
   readonly state: any;
 }): boolean {
   const { controller, sourceName, desc, triggerItem, state } = params;
+
+  if (skipRetiredTriggerLegacyHandler(desc, sourceName)) {
+    return false;
+  }
 
   if (desc.includes('untap all other creatures you control') && !desc.includes('combat phase')) {
     const battlefield = state.battlefield || [];

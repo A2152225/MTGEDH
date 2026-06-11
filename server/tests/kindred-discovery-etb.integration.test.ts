@@ -4,7 +4,7 @@ import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { initializePriorityResolutionHandler } from '../src/socket/resolution.js';
-import { resolveTopOfStack } from '../src/state/modules/stack.js';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 import '../src/state/modules/priority.js';
 
 function createNoopIo() {

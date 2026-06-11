@@ -970,6 +970,8 @@ export function buildCastFromGraveyardCard(card: any, abilityId: string): any {
     ...card,
     zone: 'stack',
     castWithAbility: abilityId,
+    castFromGraveyard: true,
+    castSourceZone: 'graveyard',
   };
 
   if (normalizedAbilityId === 'escape') {

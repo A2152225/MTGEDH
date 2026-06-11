@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { addExtraTurn } from './turn.js';
 import { queuePlayableFromExileChoiceStep } from './triggerPlayableFromExileUtils.js';
 import { debug } from '../../utils/debug.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyTurnAndZoneParams {
   readonly ctx: GameContext;
@@ -17,6 +18,10 @@ export interface TriggerLegacyTurnAndZoneParams {
 export function applyRetiredTriggerLegacyExtraTurnAfterThisOne(
   params: Pick<TriggerLegacyTurnAndZoneParams, 'ctx' | 'controller' | 'sourceName' | 'description'>,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
+    return false;
+  }
+
   if (!/^(?:you\s+)?take\s+an\s+extra\s+turn\s+after\s+this\s+one\.?$/i.test(String(params.description || '').trim())) {
     return false;
   }
@@ -29,6 +34,10 @@ export function applyRetiredTriggerLegacyExtraTurnAfterThisOne(
 export function applyRetiredTriggerLegacyGainControlOfTargetOpponent(
   params: Pick<TriggerLegacyTurnAndZoneParams, 'ctx' | 'controller' | 'sourceName' | 'description' | 'triggerItem' | 'state'>,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
+    return false;
+  }
+
   if (!String(params.description || '').toLowerCase().includes('gain control of target opponent')) {
     return false;
   }
@@ -52,6 +61,10 @@ export function applyRetiredTriggerLegacyExileTargetPlayerGraveyard(
   params: Pick<TriggerLegacyTurnAndZoneParams, 'desc' | 'triggerItem' | 'state'>,
 ): boolean {
   const desc = String(params.desc || '');
+  if (skipRetiredTriggerLegacyHandler(desc, '')) {
+    return false;
+  }
+
   if (!desc.includes('exile') || !desc.includes('graveyard') || !desc.includes('target player')) {
     return false;
   }
@@ -93,6 +106,10 @@ export function applyRetiredTriggerLegacyExileTopTwoPlayableChoice(
   params: TriggerLegacyTurnAndZoneParams,
 ): boolean {
   const desc = String(params.desc || '');
+  if (skipRetiredTriggerLegacyHandler(desc, params.sourceName)) {
+    return false;
+  }
+
   const currentTurn = Number((params.state as any).turnNumber ?? 0) || 0;
 
   if (

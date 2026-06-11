@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { castSpell } from '../src/state/modules/stack';
+import { castSpell } from '../src/state/modules/stackCastSpellUtils.js';
 import { nextTurn } from '../src/state/modules/turn';
 
 function createTrackingContext() {

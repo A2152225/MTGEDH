@@ -54,3 +54,25 @@ export function shouldSkipLegacyTriggerRegexHandlers(
 ): boolean {
   return isTriggerEffectOwnedByOracleIrPrimary(effectText, sourceName);
 }
+
+/**
+ * Defense-in-depth for individual legacy regex handlers.
+ * Always returns false: orchestrators (tryResolveTriggerViaOracleIR early return,
+ * tail IR fallback early return) already prevent double-apply when IR succeeds.
+ * Skipping on static "ownership" alone caused silent no-ops when IR failed to handle.
+ */
+export function skipRetiredTriggerLegacyHandler(_desc: string, _sourceName = ''): boolean {
+  return false;
+}
+
+/**
+ * Orchestrator-level skip: when IR primary owns the effect, bypass the legacy
+ * body handler chain entirely. Tail still runs for copy_permanent bridge and
+ * parity logging via shouldSkipLegacyTriggerRegexHandlers.
+ */
+export function shouldSkipLegacyTriggerBodyHandlers(
+  effectText: string,
+  sourceName: string,
+): boolean {
+  return shouldSkipLegacyTriggerRegexHandlers(effectText, sourceName);
+}

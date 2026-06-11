@@ -16,10 +16,6 @@ import {
   queueEffectProgramChoice,
   readEffectProgramQueueMetadata,
 } from './effectProgramQueueAdapter.js';
-import {
-  snapshotGraveyardCardIds,
-  syncOracleIRPlayerZonesToContext,
-} from '../modules/oracleIrServerZoneSync.js';
 
 interface StoredEffectProgramRuntime {
   readonly runtime: EffectProgramRuntime<GameState>;
@@ -162,25 +158,6 @@ function applyRunResultState(game: any, runResult: EffectProgramRunResult<GameSt
   (game as any).state = syncEffectProgramStateToGame(game, runResult.state);
   if (typeof (game as any).bumpSeq === 'function') {
     (game as any).bumpSeq();
-  }
-
-  if (runResult.status === 'waiting_for_choice' || runResult.status === 'completed') {
-    try {
-      const state = (game as any).state;
-      const controller = String(
-        state?.turnPlayer || state?.players?.[0]?.id || '',
-      ).trim();
-      if (controller) {
-        syncOracleIRPlayerZonesToContext(
-          game,
-          state,
-          controller,
-          snapshotGraveyardCardIds(state),
-        );
-      }
-    } catch {
-      // best-effort zone sync for Oracle IR command steps
-    }
   }
 }
 

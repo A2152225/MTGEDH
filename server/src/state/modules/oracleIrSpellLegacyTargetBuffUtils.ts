@@ -1,4 +1,6 @@
 import type { GameContext } from '../context.js';
+import { categorizeSpellWithoutPrimaryRetirement } from '../../rules-engine/targeting.js';
+import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 
 const WORD_TO_NUMBER: Record<string, number> = {
   a: 1,
@@ -58,6 +60,13 @@ export function applySimpleTargetedTemporarySpellEffects(
   sourceName: string,
 ): number {
   const text = String(oracleText || '').replace(/\u2019/g, "'").trim();
+  if (skipRetiredSpellLegacyHandler(text, sourceName)) {
+    return 0;
+  }
+  const categorizeOp = categorizeSpellWithoutPrimaryRetirement(sourceName, text)?.op;
+  if (categorizeOp === 'ADD_COUNTERS_TARGET' || categorizeOp === 'ADD_COUNTERS_EACH') {
+    return 0;
+  }
   if (!text || !Array.isArray(targets) || targets.length === 0) return 0;
 
   const targetCounterMatch = text.match(

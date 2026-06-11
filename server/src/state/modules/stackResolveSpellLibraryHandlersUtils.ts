@@ -19,6 +19,7 @@ import {
   detectRevealUntilHandSpell,
   summarizeLibraryCard,
 } from './oracleIrSpellLegacyKindredRevealUtils.js';
+import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 
 function computeGreatestControlledCreaturePower(state: any, controller: PlayerID): number {
   const battlefield = state.battlefield || [];
@@ -79,6 +80,11 @@ export function applyInstantSorceryTokenForEachCreatureHandler(
     oracleTextLower: string;
   },
 ): void {
+  const spellName = String(options.effectiveCard?.name || 'spell');
+  if (skipRetiredSpellLegacyHandler(options.oracleTextLower, spellName)) {
+    return;
+  }
+
   const state = (ctx as any).state;
   const controller = options.controller;
   const effectiveCard = options.effectiveCard;
@@ -166,6 +172,11 @@ export function applyInstantSorceryLibrarySearchSpellHandlers(
     oracleTextLower: string;
   },
 ): void {
+  const spellName = String(options.effectiveCard?.name || 'spell');
+  if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
+    return;
+  }
+
   const state = (ctx as any).state;
   const controller = options.controller;
   const card = options.card;

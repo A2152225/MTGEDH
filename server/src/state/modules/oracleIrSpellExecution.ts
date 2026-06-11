@@ -21,6 +21,12 @@ import {
 import { collectOracleEffectSteps } from './trigger-runtime-wiring.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { normalizeOracleIrSelectedModeIds } from './oracleIrModeSelection.js';
+import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
+import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
+import { detectInstantSorcerySpellShapeFlags } from './oracleIrSpellLegacySpellShapeUtils.js';
+import { applyInstantSorceryNibelheimAflameEffect } from './stackResolveSpellSpecialCaseUtils.js';
+
+export { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 
 export interface TryResolveSpellViaOracleIRParams {
   readonly controller: PlayerID;
@@ -38,6 +44,7 @@ export interface TryResolveSpellViaOracleIRParams {
   readonly chosenCreatureType?: string;
   readonly sourceColors?: readonly string[];
   readonly sourceImage?: string;
+  readonly sourceItem?: any;
 }
 
 export interface TryResolveSpellViaOracleIRResult {
@@ -45,11 +52,6 @@ export interface TryResolveSpellViaOracleIRResult {
   readonly applied: number;
   readonly shadowWouldHandle: boolean;
   readonly legacySpellSpecOp?: string;
-}
-
-export function isOracleIrSpellPrimaryEnabled(): boolean {
-  const raw = String(process.env.ORACLE_IR_SPELL_PRIMARY || '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
 function collectSpellSteps(oracleText: string, sourceName: string): OracleEffectStep[] {
@@ -127,10 +129,16 @@ export function isOracleIrExecutionHandled(
   resolutionQueueStepsBefore: number,
   resolutionQueueStepsAfter: number,
 ): boolean {
+  const queueBridged = resolutionQueueStepsAfter > resolutionQueueStepsBefore;
+  const pendingContinuation = (result.pendingContinuationSteps || []).length;
+  if (pendingContinuation > 0 && !queueBridged) {
+    return false;
+  }
+
   if (result.appliedSteps.length > 0) return true;
   if ((result.pendingOptionalSteps || []).length > 0) return true;
   if ((result.pendingContinuationSteps || []).length > 0) return true;
-  if (resolutionQueueStepsAfter > resolutionQueueStepsBefore) return true;
+  if (queueBridged) return true;
   if (result.automationGaps.some((gap) => gap.classification === 'player_choice_required')) return true;
   return false;
 }
@@ -170,6 +178,54 @@ function probeOracleIrSpellShadow(
   } catch (err) {
     debugWarn(1, `[oracleIR-shadow] Probe failed for ${params.spellName}:`, err);
     return null;
+  }
+}
+
+function applyOracleIrSpellStructuralSupplements(
+  ctx: GameContext,
+  params: TryResolveSpellViaOracleIRParams,
+): void {
+  const oracleTextLower = String(params.oracleText || '').toLowerCase();
+  const shapeFlags = detectInstantSorcerySpellShapeFlags(params.spellName, oracleTextLower);
+  const supplementItem = params.sourceItem || {
+    castFromGraveyard: params.castFromGraveyard,
+    card: {
+      castFromGraveyard: params.castFromGraveyard,
+      castWithAbility: params.castFromGraveyard ? 'flashback' : undefined,
+    },
+  };
+  const supplementTargets = (Array.isArray(params.targets) && params.targets.length > 0
+    ? params.targets
+    : Array.isArray(supplementItem?.targets)
+      ? supplementItem.targets
+          .map((targetRef: any) => (typeof targetRef === 'string' ? targetRef : String(targetRef?.id || '')))
+          .filter(Boolean)
+      : []) as string[];
+
+  applyInstantSorceryGraveyardConditionalTokenRider(ctx, {
+    controller: params.controller,
+    card: params.sourceItem?.card || { id: params.sourceId, name: params.spellName },
+    effectiveCard: { name: params.spellName },
+    item: supplementItem,
+    oracleText: params.oracleText,
+    oracleTextLower,
+    targets: supplementTargets,
+    spellXValue: params.xValue,
+    uncategorizedSpellFallbackApplied: 0,
+  });
+
+  if (
+    shapeFlags.isNibelheimAflameStyleSweep
+    && supplementTargets.length > 0
+  ) {
+    applyInstantSorceryNibelheimAflameEffect(ctx, {
+      controller: params.controller,
+      effectiveCard: { name: params.spellName },
+      item: supplementItem,
+      targets: supplementTargets,
+      isNibelheimAflameStyleSweep: true,
+      hasNibelheimGraveyardRider: shapeFlags.hasNibelheimGraveyardRider,
+    });
   }
 }
 
@@ -237,6 +293,11 @@ export function tryResolveSpellViaOracleIR(
   if (useEffectProgram) {
     const effectProgramResult = startOracleEffectProgramOnServer(ctx, effectProgramParams);
     if (effectProgramResult.handled) {
+      if (effectProgramResult.waitingForChoice && !effectProgramResult.completed) {
+        applyOracleIrSpellStructuralSupplements(ctx, params);
+        return { handled: false, applied: 0, shadowWouldHandle: false };
+      }
+      applyOracleIrSpellStructuralSupplements(ctx, params);
       return {
         handled: true,
         applied: effectProgramResult.completed ? 1 : 0,
@@ -270,6 +331,8 @@ export function tryResolveSpellViaOracleIR(
     const handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter);
     const applied = result.appliedSteps.length;
 
+    applyOracleIrSpellStructuralSupplements(ctx, params);
+
     if (handled) {
       debug(
         2,
@@ -286,6 +349,7 @@ export function tryResolveSpellViaOracleIR(
     return { handled, applied, shadowWouldHandle: false };
   } catch (err) {
     debugWarn(1, `[oracleIR] Primary spell resolution failed for ${params.spellName}:`, err);
+    applyOracleIrSpellStructuralSupplements(ctx, params);
     return { handled: false, applied: 0, shadowWouldHandle: false };
   }
 }

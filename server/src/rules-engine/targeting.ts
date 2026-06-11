@@ -763,7 +763,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };
 }
 
-function categorizeSpellLegacy(_name: string, oracleText?: string): SpellSpec | null {
+export function categorizeSpellWithoutPrimaryRetirement(_name: string, oracleText?: string): SpellSpec | null {
   const normalizedOracleText = String(oracleText || '').replace(/\u2019/g, "'");
   const t = normalizedOracleText
     .split(/\r?\n/)
@@ -2903,13 +2903,10 @@ function categorizeSpellLegacy(_name: string, oracleText?: string): SpellSpec | 
   return null;
 }
 
-export function categorizeSpell(name: string, oracleText?: string): SpellSpec | null {
-  return maybeSuppressRetiredCategorizeSpellSpec(categorizeSpellLegacy(name, oracleText));
-}
-
-/** Legacy matcher without ORACLE_IR_SPELL_PRIMARY retirement — for parity/shadow tests. */
-export function categorizeSpellWithoutPrimaryRetirement(name: string, oracleText?: string): SpellSpec | null {
-  return categorizeSpellLegacy(name, oracleText);
+export function categorizeSpell(_name: string, oracleText?: string): SpellSpec | null {
+  return maybeSuppressRetiredCategorizeSpellSpec(
+    categorizeSpellWithoutPrimaryRetirement(_name, oracleText),
+  );
 }
 
 function isCreature(p: BattlefieldPermanent) {

@@ -5,6 +5,7 @@ import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
 import { processMillTriggers } from './zones.js';
 import { debug } from '../../utils/debug.js';
 import { millPlayerCardsFromTrigger } from './triggerMillFromEffectUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 const WORD_TO_NUMBER: Record<string, number> = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
@@ -27,6 +28,7 @@ export interface TriggerLegacyMillParams {
   readonly desc: string;
   readonly opponents: readonly any[];
   readonly state: any;
+  readonly sourceName?: string;
 }
 
 export interface TriggerLegacyTargetMillParams extends TriggerLegacyMillParams {
@@ -37,6 +39,10 @@ export interface TriggerLegacyTargetMillParams extends TriggerLegacyMillParams {
 export function applyRetiredTriggerLegacyEachOpponentMills(
   params: TriggerLegacyMillParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName || '')) {
+    return false;
+  }
+
   const millOpponentsMatch = params.desc.match(/each opponent mills? (?:a card|(\d+) cards?)/i);
   if (!millOpponentsMatch) {
     return false;
@@ -106,6 +112,10 @@ export function applyRetiredTriggerLegacyEachOpponentMills(
 export function applyRetiredTriggerLegacyThatPermanentControllerMills(
   params: TriggerLegacyTargetMillParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const thatPermanentControllerMillsMatch = params.desc.match(/that permanent's controller mills? (?:a card|([a-z]+|\d+) cards?)/i);
   if (!thatPermanentControllerMillsMatch) {
     return false;
@@ -131,6 +141,10 @@ export function applyRetiredTriggerLegacyThatPermanentControllerMills(
 export function applyRetiredTriggerLegacyTargetPlayerMills(
   params: TriggerLegacyTargetMillParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const millTargetPlayerMatch = params.desc.match(/target (?:player|opponent) mills? ([a-z]+|\d+) cards?/i);
   if (!millTargetPlayerMatch) {
     return false;

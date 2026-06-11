@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { getCombinedOracleText, isCommanderLegalCard, isEligible, isIgnorableCardForIrGap } from './trigger-coverage-audit.ts';
+import { getCombinedOracleText, isCommanderLegalCard, isEligible } from './trigger-coverage-audit.ts';
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.ts';
 import { collectStepsFromIrText, dryRunOracleSteps } from './executor-coverage-audit.ts';
 import { hasUnknownIRSteps } from './trigger-coverage-audit.ts';
@@ -18,7 +18,6 @@ const items: { card: string; text: string; external: boolean }[] = [];
 
 for (const card of cards) {
   if (!isEligible(card) || !isCommanderLegalCard(card)) continue;
-  if (isIgnorableCardForIrGap(card)) continue;
   const oracle = getCombinedOracleText(card);
   if (!oracle) continue;
   const parsed = parseOracleTextToIR(oracle, card.name);
@@ -49,12 +48,6 @@ for (const card of cards) {
 
 console.log('no_steps total', items.length);
 console.log('externally handled but still no_steps', items.filter((i) => i.external).length);
-if (process.argv.includes('--all')) {
-  for (const i of items.sort((a, b) => a.text.localeCompare(b.text))) {
-    console.log(`[${i.card}] ${i.text.slice(0, 200)}`);
-  }
-  process.exit(0);
-}
 console.log('\nTop clusters:');
 for (const [key, c] of [...clusters.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, 40)) {
   console.log(`[${c.count}] ${c.sample}`);

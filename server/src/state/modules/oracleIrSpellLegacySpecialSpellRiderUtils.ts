@@ -4,6 +4,7 @@ import { uid, parsePT } from '../utils.js';
 import { debug } from '../../utils/debug.js';
 import { movePermanentToLibrary } from './zones.js';
 import { enqueueLibrarySearchStep } from './triggerLibrarySearchUtils.js';
+import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 
 export function isJaheirasRespiteSpell(cardName: string, oracleTextLower: string): boolean {
   const normalizedName = String(cardName || '').toLowerCase();
@@ -204,6 +205,10 @@ export function applySpellLegacySpecialSpellRiders(
   const cardName = String(options?.cardName || '');
   const oracleTextLower = String(options?.oracleTextLower || '').toLowerCase();
   const spellController = options.spellController;
+
+  if (skipRetiredSpellLegacyHandler(oracleTextLower, cardName)) {
+    return { shouldEarlyReturn: false };
+  }
 
   if (isJaheirasRespiteSpell(cardName, oracleTextLower)) {
     applyJaheirasRespiteLibrarySearch(ctx, spellController, cardName);

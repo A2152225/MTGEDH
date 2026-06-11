@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { transformPermanentToFace } from './day-night.js';
 import { tryResolveThassasOracleWin } from './game-state-effects.js';
 import { queueInitiativeVentureTrigger, resolveVentureProgress } from './triggerVentureUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyGameStateHookParams {
   readonly ctx: GameContext;
@@ -17,6 +18,10 @@ export interface TriggerLegacyGameStateHookParams {
 export function applyRetiredTriggerLegacyGameStateOracleHooks(
   params: TriggerLegacyGameStateHookParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   let initiativeTriggeredThisEffect = false;
 
   if (params.desc.includes('become the monarch') || params.desc.includes('you become the monarch')) {

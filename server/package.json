@@ -22,7 +22,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run typecheck",
     "test:vitest": "vitest run",
-    "test:vitest:watch": "vitest"
+    "test:vitest:watch": "vitest",
+    "test:oracle-ir-migration": "vitest run tests/oracle-ir-feature-flags.test.ts tests/oracle-ir-legacy-forced.integration.test.ts tests/oracle-ir-spell-legacy-guardrail.test.ts tests/oracle-ir-spell-primary-default.integration.test.ts tests/oracle-ir-modal-spell-primary-default.integration.test.ts tests/oracle-ir-spell-legacy-handler-retirement.unit.test.ts tests/oracle-ir-spell-legacy-routing.test.ts tests/oracle-ir-spell-primary.integration.test.ts tests/oracle-ir-spell-categorize-parity.integration.test.ts tests/oracle-ir-modal-spell-resolve.integration.test.ts tests/oracle-ir-mode-selection.test.ts tests/oracle-ir-trigger-scoped-guardrail.test.ts tests/oracle-ir-trigger-primary-default.integration.test.ts tests/oracle-ir-trigger-modal-primary-default.integration.test.ts tests/oracle-ir-trigger-legacy-guardrail.test.ts tests/oracle-ir-trigger-legacy-handler-retirement.unit.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts tests/oracle-ir-trigger-legacy-parity.integration.test.ts tests/oracle-ir-trigger-primary.integration.test.ts tests/cryptoplasm-copy.integration.test.ts tests/trigger-copy-permanent.integration.test.ts tests/stack.regressions.effects.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^9.6.0",

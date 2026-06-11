@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { getEvents, deleteGame, createGameIfNotExists, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
-import { triggerETBEffectsForPermanent, triggerETBEffectsForToken } from '../src/state/modules/stack.js';
+import { triggerETBEffectsForToken } from '../src/state/modules/triggerEtbEntryEffects.js';
+import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 
 describe('triggerETBEffectsForPermanent self trigger persistence', () => {
   const gameId = 'test_etb_self_trigger_persistence';

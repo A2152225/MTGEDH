@@ -256,21 +256,6 @@ function restartServer(): void {
 }
 
 /**
- * Clear the terminal screen (useful before exporting logs from a fresh test game).
- */
-function clearConsole(): void {
-  if (process.stdout.isTTY) {
-    // ANSI: clear entire screen and move cursor to home.
-    process.stdout.write('\x1B[2J\x1B[H');
-  }
-  try {
-    console.clear();
-  } catch {
-    // ignore — ANSI clear above is enough on most TTYs
-  }
-}
-
-/**
  * Display help information
  */
 function showHelp(): void {
@@ -281,7 +266,6 @@ function showHelp(): void {
   delete game #     Delete a specific game by its number (from list)
   delete id <id>    Delete a specific game by its gameId
   delete all        Delete ALL games (in-memory + persisted)
-  clear / cls       Clear the console window
   stop              Stop the server gracefully
   restart           Restart the server (requires process manager)
   help              Show this help message
@@ -294,7 +278,6 @@ Examples:
   delete game 3        - Deletes the third game in the list
   delete id my_game     - Deletes by id
   delete all            - Deletes everything
-  clear                - Clears the terminal (alias: cls)
 `);
 }
 
@@ -337,11 +320,6 @@ function processCommand(input: string): void {
       
     case 'restart':
       restartServer();
-      break;
-
-    case 'clear':
-    case 'cls':
-      clearConsole();
       break;
       
     case 'help':

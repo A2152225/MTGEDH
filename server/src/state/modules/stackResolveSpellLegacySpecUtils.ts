@@ -8,6 +8,8 @@ import { executeSpellEffect } from './executeSpellEffect.js';
 import { wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
 import { applySupplementalOracleIRForResolvedSpell } from './oracleIrSpellLegacySupplemental.js';
 import { applyInstantSorceryItsControllerCreatesToken } from './stackResolveSpellTargetMetadataUtils.js';
+import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
+import { parseNumberWord } from './oracleIrSpellLegacySpellShapeUtils.js';
 
 export function executeInstantSorceryLegacyCategorizedSpell(
   ctx: GameContext,
@@ -25,6 +27,11 @@ export function executeInstantSorceryLegacyCategorizedSpell(
     targetControllerForTokenCreation: PlayerID | null;
   },
 ): void {
+  const spellName = String(options.effectiveCard?.name || options.card?.name || 'spell');
+  if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
+    return;
+  }
+
   const state = (ctx as any).state;
   const controller = options.controller;
   const card = options.card;
@@ -59,6 +66,19 @@ export function executeInstantSorceryLegacyCategorizedSpell(
     const baseMill = Math.max(0, Number((hydratedSpec as any)?.millCount ?? spellXValue ?? 0) || 0);
     if (baseMill > 0) {
       hydratedSpec = { ...(hydratedSpec as any), millCount: baseMill * 2 };
+    }
+  }
+  if (
+    String((hydratedSpec as any)?.op || '') === 'CREATE_TOKEN'
+    && wasSpellCastFromGraveyard(item)
+  ) {
+    const graveyardTokenInsteadMatch = oracleText.toLowerCase().match(
+      /if this spell was cast from a graveyard,\s*create (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) of those tokens instead/i,
+    );
+    if (graveyardTokenInsteadMatch) {
+      const baseCount = Math.max(1, Number((hydratedSpec as any)?.tokenCount ?? 1) || 1);
+      const replacementCount = parseNumberWord(graveyardTokenInsteadMatch[1], baseCount);
+      hydratedSpec = { ...(hydratedSpec as any), tokenCount: replacementCount };
     }
   }
 

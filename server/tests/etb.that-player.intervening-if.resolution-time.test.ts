@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
-import { triggerETBEffectsForPermanent, resolveTopOfStack } from '../src/state/modules/stack';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
+import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 
 describe('Intervening-if ETB triggers (that player refs)', () => {

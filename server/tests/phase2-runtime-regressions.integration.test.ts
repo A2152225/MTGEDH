@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { initDb } from '../src/db/index.js';
 import { createInitialGameState } from '../src/state/gameState';
-import { executeTriggerEffect, resolveTopOfStack } from '../src/state/modules/stack';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import type { PlayerID } from '../../shared/src';
 

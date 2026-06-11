@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { PlayerID, TargetRef } from '../../shared/src/index.js';
 import { categorizeSpell } from '../src/rules-engine/targeting.js';
 import { createInitialGameState } from '../src/state/gameState.js';
-import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 
 const MINDSKINNER_ORACLE =
   'If a source you control would deal damage to an opponent, prevent that damage and each opponent mills cards equal to the amount of damage prevented this way.';

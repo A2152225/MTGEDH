@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
 import { nextTurn } from '../src/state/modules/turn';
-import { triggerETBEffectsForPermanent } from '../src/state/modules/stack';
+import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 
 describe('Day/Night state tracking', () => {
   it('changes day->night based on spells cast by previous active player', () => {

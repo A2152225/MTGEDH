@@ -1569,84 +1569,6 @@ export function calculateDevotion(
   return devotion;
 }
 
-const DEVOTION_COLOR_CODES = ['W', 'U', 'B', 'R', 'G'] as const;
-export type DevotionColorCode = typeof DEVOTION_COLOR_CODES[number];
-
-export function getDevotionByColor(
-  gameState: any,
-  playerId: string,
-): Record<DevotionColorCode, number> {
-  return {
-    W: calculateDevotion(gameState, playerId, 'W'),
-    U: calculateDevotion(gameState, playerId, 'U'),
-    B: calculateDevotion(gameState, playerId, 'B'),
-    R: calculateDevotion(gameState, playerId, 'R'),
-    G: calculateDevotion(gameState, playerId, 'G'),
-  };
-}
-
-export function countControlledCreaturesOfType(
-  gameState: any,
-  playerId: string,
-  creatureType: string,
-): number {
-  const chosenTypeLower = String(creatureType || '').trim().toLowerCase();
-  if (!chosenTypeLower) return 0;
-
-  const battlefield = gameState?.battlefield || [];
-  return battlefield.filter((permanent: any) => {
-    if (!permanent || permanent.controller !== playerId) return false;
-    const typeLine = String(permanent.card?.type_line || '').toLowerCase();
-    if (!typeLine.includes('creature')) return false;
-    const subTypes = (typeLine.split(/\s*[—–-]\s*/)[1] || '').toLowerCase();
-    return subTypes.includes(chosenTypeLower);
-  }).length;
-}
-
-export function buildDynamicManaColorSelectionFields(
-  gameState: any,
-  playerId: string,
-  permanent: any,
-  creatureCountMana: { dynamicAmountSource?: string; amount?: number } | null | undefined,
-  multiplier = 1,
-): Record<string, unknown> {
-  const dynamicAmountSource = String(creatureCountMana?.dynamicAmountSource || '').trim();
-
-  if (dynamicAmountSource === 'devotion') {
-    const devotionByColor = getDevotionByColor(gameState, playerId);
-    const amountByColor: Record<string, number> = {};
-    const allowedColors: string[] = [];
-    for (const color of DEVOTION_COLOR_CODES) {
-      const scaled = devotionByColor[color] * Math.max(1, multiplier);
-      amountByColor[color] = scaled;
-      if (scaled > 0) allowedColors.push(color);
-    }
-    return {
-      dynamicAmountSource: 'devotion',
-      devotionByColor,
-      amountByColor,
-      allowedColors: allowedColors.length > 0 ? allowedColors : [...DEVOTION_COLOR_CODES],
-    };
-  }
-
-  if (dynamicAmountSource === 'creature_type_count') {
-    const chosenCreatureType = String(permanent?.chosenCreatureType || '').trim();
-    const creatureTypeCount = Math.max(
-      0,
-      Number(creatureCountMana?.amount ?? countControlledCreaturesOfType(gameState, playerId, chosenCreatureType)),
-    ) * Math.max(1, multiplier);
-    return {
-      dynamicAmountSource: 'creature_type_count',
-      chosenCreatureType: chosenCreatureType || undefined,
-      creatureTypeCount,
-      amountByColor: Object.fromEntries(DEVOTION_COLOR_CODES.map((color) => [color, creatureTypeCount])),
-      allowedColors: [...DEVOTION_COLOR_CODES],
-    };
-  }
-
-  return {};
-}
-
 /**
  * Check if a permanent has a devotion-based mana ability
  * Returns the amount of mana it would produce if activated
@@ -1720,21 +1642,29 @@ export function getCreatureCountManaAmount(
   gameState: any,
   permanent: any,
   playerId: string
-): { color: string; amount: number; activationCost?: string; requiresColorChoice?: boolean; dynamicAmountSource?: 'devotion' | 'creature_type_count' } | null {
+): { color: string; amount: number; activationCost?: string; requiresColorChoice?: boolean; dynamicAmountSource?: 'devotion' } | null {
   const cardName = (permanent?.card?.name || "").toLowerCase();
   const oracleText = (permanent?.card?.oracle_text || "").toLowerCase();
 
   if (cardName.includes('three tree city')) {
     const chosenType = permanent?.chosenCreatureType;
-    const amount = chosenType
-      ? countControlledCreaturesOfType(gameState, playerId, chosenType)
-      : 0;
+    let amount = 0;
+    if (chosenType) {
+      const chosenTypeLower = chosenType.toLowerCase();
+      const battlefield = gameState?.battlefield || [];
+      amount = battlefield.filter((p: any) => {
+        if (!p || p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || "").toLowerCase();
+        if (!typeLine.includes("creature")) return false;
+        const subTypes = (typeLine.split(/\s*[—–-]\s*/)[1] || "").toLowerCase();
+        return subTypes.includes(chosenTypeLower);
+      }).length;
+    }
     return {
       color: 'any_combination',
       amount: Math.max(0, amount),
       activationCost: '{2}',
       requiresColorChoice: true,
-      dynamicAmountSource: 'creature_type_count',
     };
   }
 

@@ -67,6 +67,18 @@ export function applyOracleIRFallbackForTriggeredEffect(
   }
   const sourceId = String(triggerItem?.id || triggerItem?.sourceId || sourcePermanentId || '').trim();
 
+  const normalizedTargetIds = targets
+    .map((targetRef: any) => (typeof targetRef === 'string' ? targetRef : String(targetRef?.id || '')))
+    .filter(Boolean);
+  const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+  let targetPermanentId: string | undefined;
+  for (const targetId of normalizedTargetIds) {
+    if (battlefield.some((permanent: any) => String(permanent?.id || '').trim() === targetId)) {
+      targetPermanentId = targetId;
+      break;
+    }
+  }
+
   const lifeLostReference = Number((triggerItem as any)?.effectData?.lifeLost ?? 0);
   const losingPlayerId = String(
     (triggerItem as any)?.effectData?.losingPlayerId ||
@@ -79,6 +91,8 @@ export function applyOracleIRFallbackForTriggeredEffect(
     xValue: typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined,
     sourceId: sourcePermanentId || sourceId,
     targetPlayerId: (targetPlayerId || losingPlayerId || undefined) as PlayerID | undefined,
+    targetPermanentId,
+    chosenObjectIds: normalizedTargetIds.length > 0 ? normalizedTargetIds : undefined,
     referenceAmount: Number.isFinite(lifeLostReference) && lifeLostReference > 0 ? lifeLostReference : undefined,
   });
 

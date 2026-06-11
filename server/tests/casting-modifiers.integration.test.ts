@@ -10,7 +10,7 @@ import {
   spellHasConvokeForCast,
   tryApplyCastingModifierGrantsFromText,
 } from '../src/state/modules/casting-modifiers.js';
-import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import { calculateConvokeOptions } from '../src/socket/game-actions.js';
 
 describe('casting modifiers integration', () => {

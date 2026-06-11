@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { parseChosenTypeCounterEachCreatureEffect } from './chosen-creature-type.js';
 import { debug } from '../../utils/debug.js';
 import { resolveChosenTypeCounterEachCreature } from './triggerChosenTypeCounterUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 const NUMBER_WORDS: Record<string, number> = {
   a: 1,
@@ -33,6 +34,10 @@ export function applyRetiredTriggerLegacyChosenTypeCounterEachCreature(
     readonly triggerItem: any;
   },
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   if (!parseChosenTypeCounterEachCreatureEffect(params.desc)) {
     return false;
   }
@@ -53,6 +58,10 @@ export function applyRetiredTriggerLegacyCounterInlineBatch(params: {
   readonly triggerItem: any;
   readonly state: any;
 }): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const { controller, sourceName, desc, triggerItem, state } = params;
 
   const devotionCounterMatch = desc.match(/put (?:a number of|x) \+1\/\+1 counters? on (?:~|it|this creature) equal to (?:your devotion to (\w+)|(?:the number of )?([^.]+))/i);

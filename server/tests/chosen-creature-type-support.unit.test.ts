@@ -44,9 +44,9 @@ import {
   requiresCreatureTypeSelectionOnCast,
 } from '../src/socket/creature-type.js';
 import { detectETBTriggers, getDeathTriggers } from '../src/state/modules/triggered-abilities.js';
-import { executeTriggerEffect } from '../src/state/modules/stack.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import { createInitialGameState } from '../src/state/gameState.js';
-import { resolveTopOfStack } from '../src/state/modules/stack.js';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 import { canCastFromTop } from '../src/state/modules/game-state-effects.js';
 import type { PlayerID } from '../../shared/src/index.js';
 import { calculateAllPTBonuses } from '../src/state/utils.js';

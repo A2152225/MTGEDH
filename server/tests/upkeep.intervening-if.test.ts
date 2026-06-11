@@ -3,7 +3,7 @@ import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
 import { getUpkeepTriggersForPlayer } from '../src/state/modules/upkeep-triggers';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
-import { resolveTopOfStack } from '../src/state/modules/stack';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 
 describe('Intervening-if upkeep triggers', () => {
   beforeEach(() => {

@@ -5,6 +5,7 @@ import { debug, debugError } from '../../utils/debug.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { enqueueLibrarySearchStep } from './triggerLibrarySearchUtils.js';
 import { createCommonArtifactTokenFromText } from './oracleIrSpellLegacyArtifactTokenUtils.js';
+import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 
 export function isPathToExileRemovalRider(cardName: string, oracleTextLower: string): boolean {
   const normalizedName = String(cardName || '').toLowerCase();
@@ -272,6 +273,9 @@ export function applySpellLegacyRemovalRiders(
 ): void {
   const cardName = String(options?.cardName || '');
   const oracleTextLower = String(options?.oracleTextLower || '').toLowerCase();
+  if (skipRetiredSpellLegacyHandler(oracleTextLower, cardName)) {
+    return;
+  }
   const targetController = options?.targetController;
 
   if (targetController) {

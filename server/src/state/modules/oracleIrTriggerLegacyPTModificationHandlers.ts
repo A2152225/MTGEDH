@@ -2,6 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import { getEffectivePower } from '../utils.js';
 import { debug } from '../../utils/debug.js';
 import { splitGrantedTemporaryAbilities } from './oracleIrSpellLegacyTargetBuffUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 const NUMBER_WORDS: Record<string, number> = {
   a: 1,
@@ -62,6 +63,10 @@ export function applyRetiredTriggerLegacyPTModificationBatch(params: {
   readonly triggerItem: any;
   readonly state: any;
 }): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const { controller, sourceName, desc, triggerItem, state } = params;
   const turnNumber = state.turnNumber || 0;
   const sourcePermanent = findSourcePermanent(state, triggerItem);

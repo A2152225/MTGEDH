@@ -1,11 +1,13 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
-import { getEffectivePower, uid } from '../utils.js';
+import { getEffectivePower } from '../../socket/util.js';
+import { uid } from '../utils.js';
 import { getOrInitManaPool } from '../../socket/util.js';
 import { recordCardLeftGraveyardThisTurn } from './turn-tracking.js';
 import { debug } from '../../utils/debug.js';
 import { addExtraCombat } from './turn.js';
 import { modifyTriggerEffectLife } from './triggerLifeDamageUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 function getOrCreatePlayerZones(stateAny: any, playerId: PlayerID): any {
   stateAny.zones = stateAny.zones || {};
@@ -61,6 +63,10 @@ export function applyRetiredTriggerLegacyManaAndCombatBatch(params: {
   readonly triggerItem: any;
   readonly state: any;
 }): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const { ctx, controller, sourceName, desc, triggerItem, state } = params;
 
   const trackTemporaryRetainedMana = (

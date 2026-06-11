@@ -70,8 +70,7 @@ import { queueLifeLossTriggers } from "../state/modules/triggers/life-loss.js";
 import { queueLifePaymentTriggers } from "../state/modules/triggers/pay-life.js";
 import { queueBecomesUntappedTriggers } from "../state/modules/triggers/tap-untap.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
-import { buildOracleIRExecutionContext } from '../../../rules-engine/src/oracleIRExecutor.js';
-import { applyOracleIRStepsOnServer } from '../state/modules/oracleIrServerZoneSync.js';
+import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
 import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from '../state/modules/triggers/ability-activated.js';
 
@@ -1816,7 +1815,7 @@ async function restoreSuspendedLibrarySearchStep(
  *
  * Only runs for `type === 'spell'` or `type === 'ability'` stack items.
  * `choose_mode` steps are skipped here because modal selection is handled
- * at cast time via extractModalModesForSpellCast.
+ * at cast time via extractModalModesFromOracleText.
  */
 async function processOracleIRInteractions(
   io: Server,
@@ -1825,29 +1824,23 @@ async function processOracleIRInteractions(
   topItem: any
 ): Promise<void> {
   if (!topItem) return;
-  // Process spells and activated abilities; triggered ability effects use their own path.
+  // Only process spells and activated abilities; triggered ability effects are
+  // handled by their own trigger resolution path.
   if (topItem.type !== 'spell' && topItem.type !== 'ability') return;
 
   const resolvedCard = topItem.card;
   const resolvedController = String(topItem.controller || '');
-  const isActivatedAbility = topItem.type === 'ability';
-  const oracleText: string = isActivatedAbility
-    ? String((topItem as any)?.activatedAbilityText || (topItem as any)?.description || resolvedCard?.oracle_text || '')
-    : String(resolvedCard?.oracle_text || '');
+  const oracleText: string = resolvedCard?.oracle_text || '';
   if (!oracleText || !resolvedController) return;
 
-  const cardName: string = isActivatedAbility
-    ? String((topItem as any)?.sourceName || resolvedCard?.name || 'Ability')
-    : String(resolvedCard?.name || 'Spell');
+  const cardName: string = resolvedCard?.name || 'Spell';
   const sourceImage: string | undefined = resolvedCard?.image_uris?.small || resolvedCard?.image_uris?.normal;
   const stackItemId: string = String(topItem.id || '');
   const ctx = {
     controllerId: resolvedController as PlayerID,
     sourceId: stackItemId,
     sourceName: cardName,
-    sourceObjectType: isActivatedAbility ? 'ability' as const : 'spell' as const,
     giftPromised: Boolean((topItem as any)?.giftPromised ?? (topItem as any)?.card?.giftPromised),
-    teamworkWasPaid: Boolean((topItem as any)?.teamworkWasPaid ?? (topItem as any)?.card?.teamworkWasPaid),
   };
 
   let ir: any;
@@ -1860,7 +1853,7 @@ async function processOracleIRInteractions(
 
   for (const ability of (ir?.abilities ?? [])) {
     for (const step of (ability?.steps ?? [])) {
-      // choose_mode is handled at cast time via extractModalModesForSpellCast
+      // choose_mode is handled at cast time via extractModalModesFromOracleText
       if (step.kind === 'choose_mode') continue;
       // Only queue prompts for optional ("you may") steps
       if (!(step as any).optional) continue;
@@ -1874,17 +1867,16 @@ async function processOracleIRInteractions(
         effectText, fullAbilityText,
         async () => {
           try {
-            const irCtx = buildOracleIRExecutionContext(ctx, {
-              sourceObjectType: isActivatedAbility ? 'ability' : 'spell',
-            });
-            applyOracleIRStepsOnServer(
-              game as any,
+            const result = applyOracleIRStepsToGameState(
               game.state as any,
               [step],
-              irCtx,
-              { allowOptional: true },
-              { controller: resolvedController as PlayerID },
+              ctx,
+              { allowOptional: true }
             );
+            // Merge executor output back into the live game state.
+            // Object.assign replaces top-level fields (zones, life, battlefield,
+            // etc.) while preserving any server-side extra properties.
+            Object.assign(game.state as any, result.state);
           } catch (err) {
             debug(1, `[OracleIR] Error applying optional step for ${cardName}:`, err);
           }
@@ -5556,14 +5548,14 @@ export async function requestCastSpellForSocket(
         : undefined);
     const baseOracleText = resolveGiftAwareOracleText(oracleTextRaw, giftInfo.hasGift ? giftPromised : undefined);
     const spellModeAdditionalCost = getSpellModeAdditionalCost(baseOracleText, selectedModes, selectedAdditionalCostModes);
-    const entwineCost = getEntwineCostForSelectedModes(baseOracleText, selectedModes)
+    const entwineCost = getEntwineCostForSelectedModes(baseOracleText, selectedModes, cardName)
       || (((cardInHand as any).castWithEntwine === true && String((cardInHand as any).entwineCost || '').trim())
         ? String((cardInHand as any).entwineCost).trim()
         : undefined);
     const overloadRequested = options?.forcedAlternateCostId === 'overload' || (cardInHand as any).castWithOverload === true;
     const overloadMatch = baseOracleText.match(/overload\s*\{([^}]+)\}/i);
     const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
-    const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested, selectedModes, selectedAdditionalCostModes).toLowerCase();
+    const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested, selectedModes, selectedAdditionalCostModes, cardName).toLowerCase();
     const chosenXValue = Number.isFinite(options?.xValue) ? Math.max(0, Math.floor(Number(options?.xValue))) : undefined;
 
     if (overloadCost && !overloadRequested) {
@@ -5820,11 +5812,7 @@ export async function requestCastSpellForSocket(
     }
 
     const modalSpellInfo = isInstantOrSorcery
-      ? adjustModalSpellInfoForTeamworkCast(
-          adjustModalSpellInfoForCurrentCast(extractModalModesForSpellCast(baseOracleText, cardName), game.state, String(playerId), baseOracleText),
-          baseOracleText,
-          (cardForCast as any)?.teamworkWasPaid === true || (cardInHand as any)?.teamworkWasPaid === true,
-        )
+      ? adjustModalSpellInfoForCurrentCast(extractModalModesForSpellCast(baseOracleText, cardName), game.state, String(playerId), baseOracleText)
       : undefined;
     if (modalSpellInfo && (!Array.isArray(selectedModes) || selectedModes.length === 0)) {
       const existing = ResolutionQueueManager
@@ -7203,30 +7191,12 @@ function playerControlsCommanderForModalCast(state: any, playerId: string): bool
   });
 }
 
-function adjustModalSpellInfoForTeamworkCast(
-  modalSpellInfo: ReturnType<typeof extractModalModesFromOracleText>,
-  oracleText: string,
-  teamworkWasPaid?: boolean,
-): ReturnType<typeof extractModalModesFromOracleText> {
-  if (!modalSpellInfo || teamworkWasPaid !== true) return modalSpellInfo;
-
-  const normalizedOracleText = String(oracleText || '').replace(/[’]/g, "'");
-  if (!/\bif this spell was cast using teamwork,\s*choose both instead\b/i.test(normalizedOracleText)) {
-    return modalSpellInfo;
-  }
-
-  return {
-    ...modalSpellInfo,
-    maxModes: Math.min(2, modalSpellInfo.options.length),
-  };
-}
-
 function adjustModalSpellInfoForCurrentCast(
-  modalSpellInfo: ReturnType<typeof extractModalModesFromOracleText>,
+  modalSpellInfo: ReturnType<typeof extractModalModesForSpellCast>,
   state: any,
   playerId: string,
   oracleText: string,
-): ReturnType<typeof extractModalModesFromOracleText> {
+): ReturnType<typeof extractModalModesForSpellCast> {
   if (!modalSpellInfo) return modalSpellInfo;
 
   const normalizedOracleText = String(oracleText || '').replace(/[’]/g, "'");
@@ -7340,14 +7310,14 @@ function getSelectedAdditionalCostOracleText(oracleText: string, selectedAdditio
   return scopedLines.length > 0 ? scopedLines.join('\n') : oracleText;
 }
 
-function getEntwineCostForSelectedModes(oracleText: string, selectedModes?: unknown): string | undefined {
+function getEntwineCostForSelectedModes(oracleText: string, selectedModes?: unknown, spellName = ''): string | undefined {
   const selectedModeIds = Array.isArray(selectedModes)
     ? selectedModes.map((mode: unknown) => String(mode || '')).filter(Boolean)
     : [];
 
   if (selectedModeIds.length === 0) return undefined;
 
-  const modalInfo = extractModalModesForSpellCast(oracleText);
+  const modalInfo = extractModalModesForSpellCast(oracleText, spellName);
   if (!modalInfo?.entwineCost) return undefined;
 
   const matchedOptions = matchModalModeOptions(modalInfo, selectedModeIds);
@@ -7424,13 +7394,14 @@ function getOracleTextForCastMode(
   castWithOverload: boolean,
   selectedModes?: unknown,
   selectedAdditionalCostModes?: unknown,
+  spellName = '',
 ): string {
   const effectiveAdditionalCostModes = Array.isArray(selectedAdditionalCostModes) && selectedAdditionalCostModes.length > 0
     ? selectedAdditionalCostModes
     : selectedModes;
   const additionalCostScopedText = getSelectedAdditionalCostOracleText(oracleText, effectiveAdditionalCostModes);
   const modeScopedText = additionalCostScopedText === oracleText
-    ? getSelectedModalOracleText(oracleText, selectedModes)
+    ? getSelectedModalOracleText(oracleText, selectedModes, spellName)
     : additionalCostScopedText;
   if (!castWithOverload) return modeScopedText;
 
@@ -7914,7 +7885,6 @@ export function registerGameActions(io: Server, socket: Socket) {
     bypassExilePermissionCheck?: unknown;
     ignoreTimingRestrictions?: unknown;
     allowLibrarySearchCast?: unknown;
-    castEffectId?: unknown;
   }) => {
     const safeGameId = typeof payload?.gameId === 'string' ? payload.gameId : undefined;
     try {
@@ -7942,7 +7912,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       const bypassExilePermissionCheck = payload?.bypassExilePermissionCheck === true;
       let ignoreTimingRestrictions = payload?.ignoreTimingRestrictions === true;
       const allowLibrarySearchCast = payload?.allowLibrarySearchCast === true;
-      const castEffectId = typeof payload?.castEffectId === 'string' ? String(payload.castEffectId).trim() : '';
 
       if (!gameId || typeof gameId !== 'string') return;
       if (!cardId || typeof cardId !== 'string') return;
@@ -8226,7 +8195,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check timing restrictions for sorcery-speed spells
       const giftPromisedForCast = (cardInHand as any).giftPromised === true;
-      const teamworkWasPaidForCast = (cardInHand as any).teamworkWasPaid === true;
       const selectedModes = Array.isArray((cardInHand as any).selectedModes)
         ? (cardInHand as any).selectedModes
         : (targets as any)?.selectedModes;
@@ -8239,12 +8207,12 @@ export function registerGameActions(io: Server, socket: Socket) {
             : (targets as any)?.selectedSpreeModes));
       const baseOracleText = resolveGiftAwareOracleText(cardInHand.oracle_text || "", giftPromisedForCast);
       const spellModeAdditionalCost = getSpellModeAdditionalCost(baseOracleText, selectedModes, selectedAdditionalCostModes);
-      const entwineCost = getEntwineCostForSelectedModes(baseOracleText, selectedModes)
+      const entwineCost = getEntwineCostForSelectedModes(baseOracleText, selectedModes, String(cardInHand.name || ''))
         || (((cardInHand as any).castWithEntwine === true && String((cardInHand as any).entwineCost || '').trim())
           ? String((cardInHand as any).entwineCost).trim()
           : undefined);
       const overloadRequested = alternateCostId === 'overload' || (cardInHand as any).castWithOverload === true;
-      const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested, selectedModes, selectedAdditionalCostModes).toLowerCase();
+      const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested, selectedModes, selectedAdditionalCostModes, String(cardInHand.name || '')).toLowerCase();
 
       // Carry over additional-cost payment state from requestCastSpell -> completeCastSpell.
       // Many resolution paths check this flag on the card object.
@@ -8533,16 +8501,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // IMPORTANT: Only apply to INSTANTS and SORCERIES, not to permanents with triggered abilities
       // Permanents like Glorious Sunrise have "At the beginning of combat on your turn, choose one ΓÇö" which is a TRIGGER, not a modal spell
       const modalSpellInfo = isInstantOrSorcery
-        ? adjustModalSpellInfoForTeamworkCast(
-            adjustModalSpellInfoForCurrentCast(
-              extractModalModesForSpellCast(baseOracleText, String(cardInHand.name || '')),
-              game.state,
-              String(playerId),
-              baseOracleText,
-            ),
-            baseOracleText,
-            (cardInHand as any)?.teamworkWasPaid === true,
-          )
+        ? adjustModalSpellInfoForCurrentCast(extractModalModesForSpellCast(baseOracleText, String(cardInHand.name || '')), game.state, String(playerId), baseOracleText)
         : undefined;
       const modesAlreadySelected = (cardInHand as any).selectedModes || (targets as any)?.selectedModes;
       const additionalCostModeInfo = isInstantOrSorcery ? extractAdditionalCostModesFromOracleText(baseOracleText) : undefined;
@@ -9362,59 +9321,6 @@ export function registerGameActions(io: Server, socket: Socket) {
 
           debug(2, `[castSpellFromHand] Queued squad payment for ${cardInHand.name} (cost: ${additionalCost.cost})`);
           return; // Wait for squad payment selection via Resolution Queue
-        } else if (additionalCost.type === 'teamwork') {
-          const existing = ResolutionQueueManager
-            .getStepsForPlayer(gameId, playerId as any)
-            .find((s: any) => s?.type === ResolutionStepType.TEAMWORK_COST_PAYMENT && String((s as any)?.sourceId || '') === String(cardId));
-
-          if (!existing) {
-            const minPower = Number(additionalCost.teamworkMinPower ?? additionalCost.amount ?? 0);
-            const battlefield = Array.isArray(game.state.battlefield) ? game.state.battlefield : [];
-            const availableCreatures = battlefield
-              .filter((p: any) => p && String(p.controller || '') === String(playerId) && !p.tapped)
-              .filter((p: any) => /\bcreature\b/i.test(String(p?.card?.type_line || '')))
-              .map((p: any) => ({
-                permanentId: String(p.id || ''),
-                cardName: String(p?.card?.name || 'Creature'),
-                power: Math.max(0, Number(getEffectivePower(p) || 0)),
-                imageUrl: p?.card?.image_uris?.small || p?.card?.image_uris?.normal,
-              }))
-              .filter((entry: any) => entry.permanentId);
-
-            const teamworkStep = ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.TEAMWORK_COST_PAYMENT,
-              playerId: playerId as any,
-              sourceId: cardId,
-              sourceName: cardInHand.name,
-              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-              description: `You may tap creatures with total power ${minPower} or more as an additional cost to cast ${cardInHand.name}.`,
-              mandatory: false,
-              cardId,
-              cardName: cardInHand.name,
-              teamworkMinPower: minPower,
-              imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-              availableCreatures,
-              castSpellFromHandArgs: {
-                cardId,
-                payment,
-                targets,
-                xValue,
-                alternateCostId,
-                convokeTappedCreatures,
-              },
-            } as any);
-
-            persistQueuedSpellCastStepContinuation(gameId, game, {
-              playerId,
-              cardId,
-              queuedResolutionStep: {
-                ...(teamworkStep as any),
-              },
-            });
-          }
-
-          debug(2, `[castSpellFromHand] Queued teamwork payment for ${cardInHand.name} (min power: ${additionalCost.teamworkMinPower ?? additionalCost.amount})`);
-          return;
         }
       }
 
@@ -11375,7 +11281,6 @@ export function registerGameActions(io: Server, socket: Socket) {
                     giftType: String((cardInHand as any).giftType || '') || undefined,
                   }
                 : {}),
-              ...(teamworkWasPaidForCast === true ? { teamworkWasPaid: true } : {}),
               // Provenance / replay-stable metadata for intervening-if templates.
               fromZone: castSourceZone,
               castFromHand: castSourceZone === 'hand',
@@ -11795,15 +11700,6 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
             }
 
-            if (castEffectId && game.state.stack && game.state.stack.length > 0) {
-              const topStackItem = game.state.stack[game.state.stack.length - 1];
-              if (topStackItem) {
-                (topStackItem as any).castEffectId = castEffectId;
-                (game.state as any).castEffectIdToStackItemId = (game.state as any).castEffectIdToStackItemId || {};
-                (game.state as any).castEffectIdToStackItemId[castEffectId] = String((topStackItem as any).id || '');
-              }
-            }
-
             // Track per-turn "cast from hand" (best-effort)
             if (castSourceZone === 'hand') {
               game.state.spellsCastFromHandThisTurn = game.state.spellsCastFromHandThisTurn || {};
@@ -11868,7 +11764,6 @@ export function registerGameActions(io: Server, socket: Socket) {
             const stackItem = {
               id: `stack_${Date.now()}_${cardId}`,
               controller: playerId,
-              ...(castEffectId ? { castEffectId } : {}),
               card: {
                 ...cardInHand,
                 zone: "stack",
@@ -11881,7 +11776,6 @@ export function registerGameActions(io: Server, socket: Socket) {
                       giftType: String((cardInHand as any).giftType || '') || undefined,
                     }
                   : {}),
-                ...(teamworkWasPaidForCast === true ? { teamworkWasPaid: true } : {}),
               },
               targets: targets || [],
               targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
@@ -11893,7 +11787,6 @@ export function registerGameActions(io: Server, socket: Socket) {
                     giftType: String((cardInHand as any).giftType || '') || undefined,
                   }
                 : {}),
-              ...(teamworkWasPaidForCast === true ? { teamworkWasPaid: true } : {}),
               ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
               ...(cantBeCounteredFromCavern ? { cantBeCountered: true } : {}),
               ...(additionalCost && typeof additionalCostPaid === 'boolean'
@@ -11944,11 +11837,6 @@ export function registerGameActions(io: Server, socket: Socket) {
               // Fallback: manually add to stack
               game.state.stack = game.state.stack || [];
               game.state.stack.push(stackItem as any);
-            }
-
-            if (castEffectId) {
-              (game.state as any).castEffectIdToStackItemId = (game.state as any).castEffectIdToStackItemId || {};
-              (game.state as any).castEffectIdToStackItemId[castEffectId] = String(stackItem.id || '');
             }
             
             // Bump sequence
@@ -12103,7 +11991,6 @@ export function registerGameActions(io: Server, socket: Socket) {
                 giftType: String((cardInHand as any).giftType || '') || undefined,
               }
             : {}),
-          ...(teamworkWasPaidForCast === true ? { teamworkWasPaid: true } : {}),
           // Persist mana/payment metadata for deterministic replay / intervening-if.
           manaSpentTotal,
           manaSpentBreakdown: { ...manaConsumption.consumed },
@@ -12792,7 +12679,6 @@ export function registerGameActions(io: Server, socket: Socket) {
         bypassExilePermissionCheck: pendingBypassExilePermissionCheck,
         ignoreTimingRestrictions: pendingIgnoreTimingRestrictions,
         allowLibrarySearchCast: Boolean(suspendedLibrarySearchStep),
-        ...(effectIdStr ? { castEffectId: effectIdStr } : {}),
       });
 
       if (suspendedLibrarySearchStep) {

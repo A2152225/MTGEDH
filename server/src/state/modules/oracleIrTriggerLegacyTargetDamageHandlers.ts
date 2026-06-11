@@ -8,6 +8,7 @@ import {
   modifyTriggerEffectLife,
   queueDealsDamageToPlayerTriggersFromPermanent,
 } from './triggerLifeDamageUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export function applyRetiredTriggerLegacyTargetLifeAndDamageBatch(params: {
   readonly ctx: GameContext;
@@ -20,6 +21,10 @@ export function applyRetiredTriggerLegacyTargetLifeAndDamageBatch(params: {
   readonly players: readonly any[];
   readonly battlefield: readonly any[];
 }): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
   const {
     ctx,
     controller,

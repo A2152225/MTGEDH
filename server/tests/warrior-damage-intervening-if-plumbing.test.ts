@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveTopOfStack } from '../src/state/modules/stack';
+import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
 
 function makeCtx(state: any): any {
   return {

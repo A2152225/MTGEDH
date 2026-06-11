@@ -31,7 +31,14 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'discard',
   'mill',
   'create_token',
+  'investigate',
   'destroy',
+  'exile',
+  'move_zone',
+  'counter_spell',
+  'goad',
+  'proliferate',
+  'populate',
 ]);
 
 /** Optional trigger steps with explicit runtime handlers outside the spell fallback. */
@@ -79,12 +86,16 @@ export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean
     lower.includes('draw') ||
     (lower.includes('exile') && lower.includes('top') && lower.includes('library')) ||
     (lower.includes('add') && lower.includes('{')) ||
+    lower.includes('scries') ||
     lower.includes('scry') ||
+    lower.includes('surveils') ||
     lower.includes('surveil') ||
     lower.includes('gain') ||
     lower.includes('lose') ||
     lower.includes('discard') ||
     lower.includes('mill') ||
+    lower.includes('create') ||
+    lower.includes('investigate') ||
     (lower.includes('top') && lower.includes('library') && lower.includes('graveyard')) ||
     lower.includes('damage') ||
     lower.includes('prevent') ||
@@ -92,11 +103,16 @@ export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean
     lower.includes('counter') ||
     lower.includes('sacrifice') ||
     lower.includes('destroy') ||
+    lower.includes('exile') ||
+    /\breturn\b/.test(lower) ||
     (lower.includes('create') && lower.includes('token')) ||
     lower.includes('copy') ||
     lower.includes('become') ||
     /\btap\b/.test(lower) ||
-    /\buntap\b/.test(lower)
+    /\buntap\b/.test(lower) ||
+    lower.includes('goad') ||
+    lower.includes('proliferate') ||
+    lower.includes('populate')
   );
 }
 
@@ -142,12 +158,18 @@ export function parseTriggerEffectSteps(effectText: string, cardName: string): O
 }
 
 /**
- * Parse oracle/trigger effect text to IR steps. Uses full-card IR first (spell-style),
- * then falls back to trigger-fragment normalization used by executeTriggerEffect.
+ * Parse oracle/trigger effect text to IR steps. Trigger-fragment normalization
+ * (bare upkeep/ETB clauses) wins over spell-style full-card IR so effects like
+ * Cryptoplasm upkeep copy resolve to copy_permanent steps.
  */
 export function collectOracleEffectSteps(oracleText: string, sourceName: string): OracleEffectStep[] {
   const text = String(oracleText || '').trim();
   if (!text) return [];
+
+  const triggerSteps = parseTriggerEffectSteps(text, sourceName);
+  if (triggerSteps.length > 0) {
+    return triggerSteps;
+  }
 
   const ir = parseOracleTextToIR(text, sourceName);
   const fromAbilities = (ir.abilities || []).flatMap((ability) => ability.steps || []);
@@ -155,7 +177,7 @@ export function collectOracleEffectSteps(oracleText: string, sourceName: string)
     return fromAbilities as OracleEffectStep[];
   }
 
-  return parseTriggerEffectSteps(text, sourceName);
+  return [];
 }
 
 function collectUnwiredTriggerStepGaps(steps: readonly OracleEffectStep[]): string[] {

@@ -79,6 +79,7 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
       controller: p1,
       desc: 'draw a card.',
       isKynaiosEffect: false,
+      sourceName: 'Test Source',
     })).toBe(true);
   });
 

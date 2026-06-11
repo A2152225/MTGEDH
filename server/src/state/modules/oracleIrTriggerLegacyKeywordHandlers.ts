@@ -10,6 +10,7 @@ import {
 import { debug } from '../../utils/debug.js';
 import { enqueueSupportedKeywordChoiceStep } from './triggerKeywordChoiceUtils.js';
 import { applyTriggerLifeGain, modifyTriggerEffectLife } from './triggerLifeDamageUtils.js';
+import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyKeywordParams {
   readonly ctx: GameContext;
@@ -78,6 +79,10 @@ function resolveKeywordTriggerTiming(
 export function applyRetiredTriggerLegacyKeywordTriggerFallback(
   params: TriggerLegacyKeywordParams,
 ): boolean {
+  if (skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
+    return false;
+  }
+
   const sourceId = params.triggerItem?.source || params.triggerItem?.permanentId;
   const permanent = params.battlefield.find((p: any) => p?.id === sourceId)
     || params.triggerItem?.sourcePermanentSnapshot

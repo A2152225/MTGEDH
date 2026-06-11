@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
 import { evaluateInterveningIfClauseDetailed, isInterveningIfSatisfied } from '../src/state/modules/triggers/intervening-if';
-import { triggerETBEffectsForPermanent } from '../src/state/modules/stack';
+import { triggerETBEffectsForPermanent } from '../src/state/modules/triggerEtbPermanentEffects.js';
 
 function addPlayer(g: any, id: PlayerID, name: string) {
   g.applyEvent({ type: 'join', playerId: id, name });

@@ -2,6 +2,9 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { enqueueLibrarySearchStep } from './triggerLibrarySearchUtils.js';
+import type { StackActivatedAbilityHandlerContext } from './stackResolveSharedTypes.js';
+
+export type { StackActivatedAbilityHandlerContext } from './stackResolveSharedTypes.js';
 
 function resolveFetchLandAbility(ctx: GameContext, item: any, controller: PlayerID): void {
   const sourceName = item?.sourceName || 'Unknown';
@@ -123,9 +126,9 @@ function resolveCyclingAbility(ctx: GameContext, item: any, controller: PlayerID
 
 export function tryResolveStackActivatedAbilityEarlyHandlers(
   ctx: GameContext,
-  item: any,
-  controller: PlayerID,
+  options: StackActivatedAbilityHandlerContext,
 ): boolean {
+  const { item, controller } = options;
   if (item?.type !== 'ability') return false;
 
   const abilityType = item?.abilityType;

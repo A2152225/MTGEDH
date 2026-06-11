@@ -224,7 +224,7 @@ export function syncPreparedPermanentAfterControlChange(
     }
   }
 
-  if (!prepared) {
+  if (!prepared && !preparedCopy) {
     return null;
   }
 
@@ -252,6 +252,42 @@ export function syncPreparedPermanentAfterControlChange(
   permanent.card.preparedExileCopyCardId = preparedCopy.id;
 
   return preparedCopy;
+}
+
+export function resyncPreparedExileCopiesWithControllers(state: any): void {
+  if (!state) return;
+  for (const perm of state.battlefield || []) {
+    if (!canPermanentBePrepared(perm)) continue;
+    const controller = String(perm?.controller || perm?.owner || '').trim();
+    if (!controller) continue;
+
+    const copyId = getPreparedCopyId(perm);
+    if (copyId) {
+      const located = findPreparedCopyInExileZones(state, copyId);
+      if (located && located.controllerId !== controller) {
+        syncPreparedPermanentAfterControlChange(state, perm, located.controllerId);
+      }
+      continue;
+    }
+
+    const permanentId = String(perm?.id || '').trim();
+    if (!permanentId) continue;
+    for (const [playerId, zone] of Object.entries(state.zones || {})) {
+      const exile = Array.isArray((zone as any)?.exile) ? (zone as any).exile : [];
+      const match = exile.find(
+        (card: any) => String(card?.preparedSourcePermanentId || '').trim() === permanentId,
+      );
+      if (!match) continue;
+      const exileOwnerId = String(playerId || '').trim();
+      if (!exileOwnerId || exileOwnerId === controller) continue;
+      perm.preparedExileCopyCardId = String(match.id || '').trim();
+      if (perm.card && typeof perm.card === 'object') {
+        perm.card.preparedExileCopyCardId = perm.preparedExileCopyCardId;
+      }
+      syncPreparedPermanentAfterControlChange(state, perm, exileOwnerId);
+      break;
+    }
+  }
 }
 
 export function setPermanentPrepared(state: any, permanent: any): any | null {

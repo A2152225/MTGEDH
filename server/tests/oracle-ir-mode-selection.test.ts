@@ -55,7 +55,9 @@ describe('oracleIrModeSelection', () => {
 
   it('keeps legacy mode_ ids when spell primary is disabled', () => {
     const previousPrimary = process.env.ORACLE_IR_SPELL_PRIMARY;
-    delete process.env.ORACLE_IR_SPELL_PRIMARY;
+    const previousLegacy = process.env.ORACLE_IR_SPELL_LEGACY;
+    process.env.ORACLE_IR_SPELL_PRIMARY = '0';
+    delete process.env.ORACLE_IR_SPELL_LEGACY;
 
     try {
       const oracleText = 'Choose one —\n• Draw a card.\n• You gain 2 life.';
@@ -66,6 +68,11 @@ describe('oracleIrModeSelection', () => {
         delete process.env.ORACLE_IR_SPELL_PRIMARY;
       } else {
         process.env.ORACLE_IR_SPELL_PRIMARY = previousPrimary;
+      }
+      if (previousLegacy === undefined) {
+        delete process.env.ORACLE_IR_SPELL_LEGACY;
+      } else {
+        process.env.ORACLE_IR_SPELL_LEGACY = previousLegacy;
       }
     }
   });
