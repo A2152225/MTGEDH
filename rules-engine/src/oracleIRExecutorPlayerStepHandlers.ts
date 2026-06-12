@@ -894,6 +894,21 @@ function filterChosenHandCardIds(
   return chosenIds.filter((id) => handIds.has(id));
 }
 
+function filterChosenLibraryMatchIds(
+  matches: readonly any[],
+  chosenIds: readonly string[],
+  maxResults: number,
+): readonly string[] {
+  const matchIds = new Set(
+    matches
+      .map((card) => String(card?.id || card?.cardId || '').trim())
+      .filter(Boolean),
+  );
+  const filtered = chosenIds.filter((id) => matchIds.has(id));
+  if (filtered.length === 0) return [];
+  return filtered.slice(0, Math.max(1, maxResults));
+}
+
 function getNormalizedChosenDungeonId(ctx: OracleIRExecutionContext): string | undefined {
   const chosenDungeonId = String(ctx.selectorContext?.chosenDungeonId || '').trim().toLowerCase();
   return chosenDungeonId || undefined;
@@ -3336,24 +3351,16 @@ export function applySearchLibraryStep(
     }
 
     const maxResults = Math.max(1, Number(step.maxResults || 1) || 1);
-    const chosenIds = getNormalizedChosenIds(ctx);
+    const matchById = new Map(
+      matches.map((card) => [String(card?.id || card?.cardId || '').trim(), card] as const),
+    );
+    const chosenIds = filterChosenLibraryMatchIds(matches, getNormalizedChosenIds(ctx), maxResults);
     let selected: any[];
 
     if (chosenIds.length > 0) {
-      const matchById = new Map(
-        matches.map((card) => [String(card?.id || card?.cardId || '').trim(), card] as const),
-      );
       selected = chosenIds
         .map((id) => matchById.get(String(id || '').trim()))
         .filter(Boolean) as any[];
-      if (selected.length === 0 || selected.length > maxResults) {
-        return {
-          applied: false,
-          message: `Skipped library search (invalid card choice): ${step.raw}`,
-          reason: 'failed_to_apply',
-          options: { classification: 'invalid_input', persist: false },
-        };
-      }
     } else if (matches.length > maxResults) {
       return {
         applied: false,
@@ -5228,9 +5235,13 @@ export function applyConniveStep(
 
   const handLength = Array.isArray(player.hand) ? player.hand.length : 0;
   const libraryLength = Array.isArray(player.library) ? player.library.length : 0;
-  const chosenIds = (ctx.selectorContext?.chosenObjectIds || [])
-    .map((id) => String(id || '').trim())
-    .filter(Boolean);
+  let chosenIds = [...filterChosenHandCardIds(state, targetControllerId as PlayerID, getNormalizedChosenIds(ctx))];
+  if (chosenIds.length > amount) {
+    chosenIds = chosenIds.slice(0, amount);
+  }
+  if (chosenIds.length > 0 && chosenIds.length !== amount) {
+    chosenIds = [];
+  }
 
   if (chosenIds.length > 0) {
     if (chosenIds.length !== amount) {

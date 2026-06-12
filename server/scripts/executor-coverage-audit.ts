@@ -28,6 +28,10 @@ import {
   applyOracleIRStepsToGameState,
   buildOracleIRExecutionContext,
 } from '../../rules-engine/src/oracleIRExecutor.js';
+import {
+  extractSacrificeWhatText,
+  parseSacrificeWhat,
+} from '../../rules-engine/src/oracleIRExecutorBattlefieldStepHandlers.js';
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import {
   createExternallyHandledOracleFragmentGrantStep,
@@ -1020,6 +1024,155 @@ export function enrichAuditStateAndContextForTargets(
     }
   }
 
+  const sacrificeFixtureNeeds = (() => {
+    const extraBattlefield: any[] = [];
+    const chosenIds: string[] = [];
+    const existingIds = new Set(
+      ((nextState.battlefield || []) as any[])
+        .map((perm) => String(perm?.id || '').trim())
+        .filter(Boolean),
+    );
+    const controllerId = String(nextCtx.controllerId || 'p1').trim() || 'p1';
+    const opponents = (nextState.players || [])
+      .map((player: any) => String(player?.id || '').trim())
+      .filter((id: string) => Boolean(id) && id !== controllerId);
+    const subtypeTypeLine = (subtype: string, tokenOnly: boolean): string => {
+      const normalized = subtype.toLowerCase();
+      if (normalized === 'food') return tokenOnly ? 'Token Artifact — Food' : 'Artifact — Food';
+      if (normalized === 'blood') return 'Token Artifact — Blood';
+      if (normalized === 'powerstone') return 'Token Artifact — Powerstone';
+      if (normalized === 'egg') return 'Token Creature — Egg';
+      if (normalized === 'homunculus') return 'Creature — Homunculus';
+      if (normalized === 'island') return 'Basic Land — Island';
+      if (normalized === 'swamp') return 'Basic Land — Swamp';
+      if (normalized === 'mountain') return 'Basic Land — Mountain';
+      if (normalized === 'forest') return 'Basic Land — Forest';
+      if (normalized === 'plains') return 'Basic Land — Plains';
+      return tokenOnly ? `Token — ${subtype}` : `Permanent — ${subtype}`;
+    };
+    const ensureFixture = (
+      id: string,
+      fixture: any,
+      select: boolean,
+    ): void => {
+      if (!existingIds.has(id)) {
+        extraBattlefield.push(fixture);
+        existingIds.add(id);
+      }
+      if (select) chosenIds.push(id);
+    };
+
+    for (const step of steps) {
+      if (step.kind !== 'sacrifice') continue;
+      const sacrificeStep = step as Extract<OracleEffectStep, { kind: 'sacrifice' }>;
+      const parsed = parseSacrificeWhat({ kind: 'raw', text: extractSacrificeWhatText(sacrificeStep) });
+      if (!parsed || (parsed.mode !== 'count' && parsed.mode !== 'all')) continue;
+
+      const whoKind = String((sacrificeStep as any).who?.kind || 'you').trim();
+      const seatIds =
+        whoKind === 'each_opponent'
+          ? opponents
+          : whoKind === 'each_player'
+            ? (nextState.players || []).map((player: any) => String(player?.id || '').trim()).filter(Boolean)
+            : [controllerId];
+      const requiredCount = parsed.mode === 'all' ? 1 : Math.max(1, Number(parsed.count) || 1);
+      const subtype = String((parsed as any).subtype || '').trim().toLowerCase();
+      const tokenOnly = Boolean((parsed as any).tokenOnly);
+      const parsedType = String(parsed.type || 'permanent');
+      const wantsGreatestPower = Boolean((parsed as any).greatestPowerAmongControlled);
+
+      for (const seatId of seatIds) {
+        if (parsedType === 'creature' || /\bcreature\b/i.test(String(extractSacrificeWhatText(sacrificeStep)))) {
+          const existingCreatures = ((nextState.battlefield || []) as any[]).filter(
+            (perm) =>
+              String(perm?.controller || '').trim() === seatId &&
+              /\bcreature\b/i.test(String(perm?.type_line || perm?.card?.type_line || '')),
+          );
+          const missing = Math.max(0, requiredCount - existingCreatures.length);
+          for (let idx = 1; idx <= missing; idx += 1) {
+            const fixtureId = `bf-audit-sacrifice-creature-${seatId}-${idx}`;
+            const power = wantsGreatestPower && seatId === 'p2' && idx === 1 ? 6 : 2;
+            ensureFixture(
+              fixtureId,
+              {
+                id: fixtureId,
+                name: `Audit Sacrifice Creature ${seatId}-${idx}`,
+                controller: seatId,
+                owner: seatId,
+                type_line: 'Creature — Human',
+                power,
+                toughness: 2,
+                card: { type_line: 'Creature — Human', power: String(power), toughness: '2' },
+              },
+              wantsGreatestPower && idx === 1,
+            );
+          }
+          if (wantsGreatestPower) {
+            const seatCreatures = [
+              ...existingCreatures,
+              ...extraBattlefield.filter(
+                (perm) =>
+                  String(perm?.controller || '').trim() === seatId &&
+                  /\bcreature\b/i.test(String(perm?.type_line || '')),
+              ),
+            ];
+            const readPower = (perm: any) => Number(perm?.power ?? perm?.card?.power ?? 0) || 0;
+            const maxPower = Math.max(...seatCreatures.map(readPower), 0);
+            const best = seatCreatures.find((perm) => readPower(perm) === maxPower);
+            if (best) chosenIds.push(String(best.id || '').trim());
+          }
+          continue;
+        }
+
+        if (subtype) {
+          for (let idx = 1; idx <= requiredCount; idx += 1) {
+            const fixtureId = `bf-audit-sacrifice-${subtype}-${seatId}-${idx}`;
+            ensureFixture(
+              fixtureId,
+              {
+                id: fixtureId,
+                name: `Audit ${subtype} ${seatId}-${idx}`,
+                controller: seatId,
+                owner: seatId,
+                isToken: tokenOnly || ['food', 'blood', 'powerstone', 'egg'].includes(subtype),
+                type_line: subtypeTypeLine(subtype, tokenOnly),
+                card: { type_line: subtypeTypeLine(subtype, tokenOnly) },
+              },
+              idx === 1,
+            );
+          }
+        }
+      }
+    }
+
+    return {
+      extraBattlefield,
+      chosenIds: Array.from(new Set(chosenIds.filter(Boolean))),
+    };
+  })();
+  if (sacrificeFixtureNeeds.extraBattlefield.length > 0) {
+    nextState = {
+      ...nextState,
+      battlefield: [...((nextState.battlefield || []) as any[]), ...sacrificeFixtureNeeds.extraBattlefield],
+    } as GameState;
+  }
+  if (sacrificeFixtureNeeds.chosenIds.length > 0) {
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            ...sacrificeFixtureNeeds.chosenIds,
+          ]),
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
   const needsAttachedCopyLoop = someOracleSteps(
     steps,
     (step) =>
@@ -1069,6 +1222,30 @@ export function enrichAuditStateAndContextForTargets(
         ...(nextCtx.selectorContext || {}),
         targetPermanentId: hostId,
         targetCreatureId: hostId,
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsContextualDestroyIt = someOracleSteps(
+    steps,
+    (step) =>
+      step.kind === 'destroy' &&
+      /^(?:it|them)$/i.test(
+        String((step as any).target?.text || '')
+          .replace(/^destroy\s+/i, '')
+          .trim(),
+      ),
+  );
+  if (needsContextualDestroyIt) {
+    const targetId = 'bf-opponent-creature';
+    nextCtx = {
+      ...nextCtx,
+      targetPermanentId: targetId,
+      targetCreatureId: targetId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: targetId,
+        targetCreatureId: targetId,
       },
     } as typeof nextCtx;
   }
@@ -2942,15 +3119,38 @@ export function enrichAuditStateAndContextForTargets(
           };
           needsSuspendedExileWithTimeCounters = true;
         }
-        if (/that creature/.test(targetText)) {
-          battlefieldCounterSeeds['bf-opponent-creature'] = {
-            ...(battlefieldCounterSeeds['bf-opponent-creature'] || {}),
-            [counter]: Math.max(battlefieldCounterSeeds['bf-opponent-creature']?.[counter] || 0, 2),
+        let removeCounterTargetId: string | null = null;
+        if (/^that creature$/.test(targetText) || /^that permanent$/.test(targetText)) {
+          removeCounterTargetId = 'bf-opponent-creature';
+        } else if (/another target creature you control/.test(targetText)) {
+          removeCounterTargetId = 'bf-creature-2';
+        } else if (/target creature you control/.test(targetText)) {
+          removeCounterTargetId = 'bf-creature-1';
+        } else if (/target creature an opponent controls/.test(targetText)) {
+          removeCounterTargetId = 'bf-opponent-creature';
+        } else if (/each creature you control/.test(targetText)) {
+          for (const fixtureId of ['bf-creature-1', 'bf-creature-2', 'bf-source']) {
+            battlefieldCounterSeeds[fixtureId] = {
+              ...(battlefieldCounterSeeds[fixtureId] || {}),
+              [counter]: Math.max(battlefieldCounterSeeds[fixtureId]?.[counter] || 0, 2),
+            };
+          }
+        }
+        if (removeCounterTargetId) {
+          battlefieldCounterSeeds[removeCounterTargetId] = {
+            ...(battlefieldCounterSeeds[removeCounterTargetId] || {}),
+            [counter]: Math.max(battlefieldCounterSeeds[removeCounterTargetId]?.[counter] || 0, 2),
           };
-          battlefieldCounterSeeds['bf-creature-1'] = {
-            ...(battlefieldCounterSeeds['bf-creature-1'] || {}),
-            [counter]: Math.max(battlefieldCounterSeeds['bf-creature-1']?.[counter] || 0, 2),
-          };
+          nextCtx = {
+            ...nextCtx,
+            targetCreatureId: removeCounterTargetId,
+            targetPermanentId: removeCounterTargetId,
+            lastReferencedPermanentId: removeCounterTargetId,
+            selectorContext: {
+              ...(nextCtx.selectorContext || {}),
+              targetCreatureId: removeCounterTargetId,
+            },
+          } as typeof nextCtx;
         }
       }
     }
@@ -3281,6 +3481,53 @@ export function enrichAuditStateAndContextForTargets(
       needsCounterSpellTargetNested = true;
     }
   });
+  const needsSelfCounterSourceOnStack = steps.some(
+    (step) =>
+      step.kind === 'counter_spell' &&
+      /\b(?:this permanent|this spell)\b/i.test(String(step.raw || '')) &&
+      !/\btarget spell\b/i.test(String(step.raw || ''))
+  );
+  let needsSelfCounterSourceOnStackNested = false;
+  walkOracleSteps(steps, (step) => {
+    if (
+      step.kind === 'counter_spell' &&
+      /\b(?:this permanent|this spell)\b/i.test(String(step.raw || '')) &&
+      !/\btarget spell\b/i.test(String(step.raw || ''))
+    ) {
+      needsSelfCounterSourceOnStackNested = true;
+    }
+  });
+  if (needsSelfCounterSourceOnStack || needsSelfCounterSourceOnStackNested) {
+    const sourceSpellId = 'stack-source-spell-1';
+    const sourceCardName = String(nextCtx.sourceName || 'Audit Source').trim();
+    nextState = {
+      ...nextState,
+      stack: [
+        {
+          id: sourceSpellId,
+          type: 'spell',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'stack-source-card',
+            name: sourceCardName,
+            type_line: 'Instant',
+            colors: ['R'],
+            cmc: 2,
+            mana_cost: '{1}{R}',
+          },
+        },
+        ...(((nextState as any).stack || []) as any[]).filter(
+          (item: any) => String(item?.id || '').trim() !== sourceSpellId
+        ),
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId: sourceSpellId,
+    } as typeof nextCtx;
+  }
+
   if (needsCounterSpellTarget || needsCounterSpellTargetNested) {
     nextState = {
       ...nextState,
@@ -3481,6 +3728,18 @@ export function shouldDeclineOptionalStepsForAudit(steps: readonly OracleEffectS
           return true;
         }
         if (next.kind !== 'copy_spell') break;
+      }
+    }
+    if (step.kind === 'sacrifice' && (step as any).optional) {
+      for (let j = i + 1; j < flat.length; j += 1) {
+        const next = flat[j];
+        if (next.kind !== 'conditional') continue;
+        const raw = String(next.raw || (next as any).condition?.raw || '')
+          .replace(/\u2019/g, "'")
+          .trim()
+          .toLowerCase();
+        if (/^if you do\b/i.test(raw)) return true;
+        break;
       }
     }
     if (!(step as any).optional) continue;

@@ -579,6 +579,11 @@ function isIgnorableUnknownIrGap(raw: string): boolean {
     /^up to two cards$/i.test(n) ||
     /^seek a nonland card$/i.test(n) ||
     /^dredge \d+$/i.test(n) ||
+    /^persist$/i.test(n) ||
+    /^undying$/i.test(n) ||
+    /^rebound$/i.test(n) ||
+    /^afterlife \d+$/i.test(n) ||
+    /^storm$/i.test(n) ||
     /^station \d+\+?(?:\s*\|\s*.+)?$/i.test(n) ||
     /^augment (?:\{[^}]+\})+(?:\s*\|.*)?$/i.test(n) ||
     /^that player loses the game$/i.test(n) ||

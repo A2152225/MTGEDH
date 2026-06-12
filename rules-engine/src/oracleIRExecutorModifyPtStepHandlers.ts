@@ -795,7 +795,13 @@ export function applyModifyPtStep(
       : scale;
     const powerBonus = basePower * effectiveScale;
     const toughnessBonus = baseToughness * effectiveScale;
-    if (powerBonus === 0 && toughnessBonus === 0) continue;
+    if (powerBonus === 0 && toughnessBonus === 0) {
+      // Valid where-X can resolve to 0 (e.g. die roll 1 with "result minus 1").
+      if (usesWhereForX && targetWhereX !== null) {
+        appliedCount += 1;
+      }
+      continue;
+    }
 
     nextState = applyTemporaryPowerToughnessModifier(
       nextState,

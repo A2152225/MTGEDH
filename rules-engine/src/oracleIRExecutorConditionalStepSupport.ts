@@ -1663,6 +1663,18 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   if (
+    normalizedRaw === "you can't" ||
+    normalizedRaw === 'you can not' ||
+    normalizedRaw.startsWith("you can't,") ||
+    normalizedRaw.startsWith('you can not,')
+  ) {
+    const antecedent = getAffirmativeAntecedentOutcome();
+    if (antecedent?.kind === 'applied') return false;
+    if (antecedent) return true;
+    return null;
+  }
+
+  if (
     normalizedRaw === 'you do' ||
     normalizedRaw === 'the player does' ||
     normalizedRaw === 'a player does' ||

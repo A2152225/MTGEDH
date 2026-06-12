@@ -2913,6 +2913,33 @@ function parseStructuredKeywordActionGrant(
     return [createStructuredKeywordActionGrantStep(['horsemanship'], raw, sequence)];
   }
 
+  if (/^persist(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['persist'], raw, sequence)];
+  }
+
+  if (/^undying(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['undying'], raw, sequence)];
+  }
+
+  if (/^rebound(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['rebound'], raw, sequence)];
+  }
+
+  const afterlifeMatch = raw.match(/^afterlife\s+(\d+)(?:\s*\([^)]*\))?\.?$/i);
+  if (afterlifeMatch) {
+    return [
+      createStructuredKeywordActionGrantStep(
+        [`afterlife ${String(afterlifeMatch[1] || '').trim()}`],
+        raw,
+        sequence
+      ),
+    ];
+  }
+
+  if (/^storm(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['storm'], raw, sequence)];
+  }
+
   if (/^enchant (?:permanent|artifact(?: or creature)?|artifact|creature(?: you control)?|land|player)$/i.test(raw)) {
     return [createSemanticStaticGrantStep('this aura', raw, raw, sequence)];
   }
@@ -3044,6 +3071,16 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
       kind: 'sacrifice',
       who: { kind: 'each_player' },
       what: parseObjectSelector(`a ${String(eachPlayerSacrificeChoice[1] || '').trim()}`),
+      raw: normalized,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^destroy (?:it|them)\.?$/i.test(normalized)) {
+    const pronoun = /^destroy them\.?$/i.test(normalized) ? 'them' : 'it';
+    return [{
+      kind: 'destroy',
+      target: parseObjectSelector(pronoun),
       raw: normalized,
       ...sequence,
     } as OracleEffectStep];
@@ -5217,6 +5254,33 @@ function parseStructuredTriggerResidualGrant(
       {
         kind: 'grant_temporary_ability',
         target: parseObjectSelector('creatures you control of the chosen type'),
+        duration: 'end_of_turn',
+        ...grantFields,
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const compoundSubtypeOtherThanSelfPtAndKeyword = raw.match(
+    /^([a-z][a-z -]+) you control other than this creature get ([+-]\d+)\/([+-]\d+) and gain (.+?) until end of turn\.?$/i,
+  );
+  if (compoundSubtypeOtherThanSelfPtAndKeyword) {
+    const targetText = `${String(compoundSubtypeOtherThanSelfPtAndKeyword[1] || '').trim().toLowerCase()} you control other than this creature`;
+    const grantFields = buildTemporaryGrantStepFields(String(compoundSubtypeOtherThanSelfPtAndKeyword[4] || ''));
+    return [
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector(targetText),
+        power: Number.parseInt(String(compoundSubtypeOtherThanSelfPtAndKeyword[2] || '0'), 10),
+        toughness: Number.parseInt(String(compoundSubtypeOtherThanSelfPtAndKeyword[3] || '0'), 10),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(targetText),
         duration: 'end_of_turn',
         ...grantFields,
         raw,
@@ -17809,6 +17873,11 @@ function isRedundantTriggerEffectFragmentUnknownStep(step: OracleEffectStep): bo
     /^up to two cards$/i.test(normalized) ||
     /^seek a nonland card$/i.test(normalized) ||
     /^dredge \d+$/i.test(normalized) ||
+    /^persist$/i.test(normalized) ||
+    /^undying$/i.test(normalized) ||
+    /^rebound$/i.test(normalized) ||
+    /^afterlife \d+$/i.test(normalized) ||
+    /^storm$/i.test(normalized) ||
     /^station \d+\+?(?:\s*\|\s*.+)?$/i.test(normalized) ||
     /^augment (?:\{[^}]+\})+(?:\s*\|.*)?$/i.test(normalized) ||
     /^that player loses the game$/i.test(normalized) ||

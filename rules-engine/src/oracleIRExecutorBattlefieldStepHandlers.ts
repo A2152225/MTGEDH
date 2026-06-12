@@ -670,7 +670,7 @@ function annotateBattlefieldExilesWithSource(
   return { ...(state as any), players: updatedPlayers as any } as any;
 }
 
-function parseSacrificeWhat(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
+export function parseSacrificeWhat(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
   | { readonly mode: 'self' }
   | {
       readonly mode: 'contextual';
@@ -888,6 +888,18 @@ function parseSacrificeWhat(what: { readonly kind: string; readonly text?: strin
   const countRaw = String(mCount[1] || '').toLowerCase();
   const rest = String(mCount[2] || '').trim();
 
+  {
+    const greatestPowerControlledMatch = rest.match(
+      /^creatures? with the greatest power among creatures (?:they|he or she) control$/i
+    );
+    if (greatestPowerControlledMatch) {
+      const parsedLeadingCount = parseQuantity(countRaw);
+      if (parsedLeadingCount.kind === 'number' && parsedLeadingCount.value === 1) {
+        return { mode: 'count', count: 1, type: 'creature', greatestPowerAmongControlled: true };
+      }
+    }
+  }
+
   const parsedCount = parseQuantity(countRaw);
   if (parsedCount.kind === 'x') {
     const mixedTypes = parseMixedTypes(rest);
@@ -963,7 +975,11 @@ function parseSacrificeWhat(what: { readonly kind: string; readonly text?: strin
 
   if (/^[a-z][a-z'-]*$/i.test(rest)) {
     if (/^token$/i.test(rest)) return { mode: 'count', count: Math.max(1, count | 0), type: 'permanent', tokenOnly: true };
-    return { mode: 'count', count: Math.max(1, count | 0), type: 'permanent', subtype: normalizeSubtypeWord(rest) };
+    const subtypeWord = normalizeSubtypeWord(rest);
+    if (/^(?:plains|island|swamp|mountain|forest)$/i.test(subtypeWord)) {
+      return { mode: 'count', count: Math.max(1, count | 0), type: 'land', subtype: subtypeWord };
+    }
+    return { mode: 'count', count: Math.max(1, count | 0), type: 'permanent', subtype: subtypeWord };
   }
 
   return null;
@@ -2238,6 +2254,14 @@ function resolveDestroyTargets(
     .replace(/,\s*where\s+x\s+is\b.*$/i, '')
     .replace(/\s+they can't be regenerated$/i, '')
     .trim();
+
+  if (/^it$/i.test(targetText) || /^them$/i.test(targetText)) {
+    const ids = buildContextualBattlefieldTargetIds(battlefield, ctx, /^them$/i.test(targetText));
+    const matches = battlefield.filter((perm: any) =>
+      ids.includes(String((perm as any)?.id || '').trim())
+    );
+    return matches.length > 0 ? matches : [];
+  }
 
   const conditionalCounterMatch = rawTargetText.match(
     /if\s+it\s+has\s+((?:\d+)|(?:one|two|three|four|five|six|seven|eight|nine|ten))\s+or\s+more\s+([a-z+/-]+)\s+counters?\s+on\s+it$/i
@@ -10156,7 +10180,20 @@ export function applySacrificeStep(
         continue;
       }
 
-      if (candidates.length < effectiveCount) {
+      const resolveCountCandidates = (): BattlefieldPermanent[] => {
+        if (!Boolean((parsed as any).greatestPowerAmongControlled)) return candidates;
+        if (candidates.length === 0) return [];
+        const readPower = (perm: BattlefieldPermanent): number => {
+          const rawPower = (perm as any)?.power ?? (perm as any)?.card?.power;
+          const numeric = Number(rawPower);
+          return Number.isFinite(numeric) ? numeric : 0;
+        };
+        const maxPower = Math.max(...candidates.map(readPower));
+        return candidates.filter((perm) => readPower(perm) === maxPower);
+      };
+
+      const countCandidates = resolveCountCandidates();
+      if (countCandidates.length < effectiveCount) {
         return {
           applied: false,
           message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
@@ -10164,10 +10201,10 @@ export function applySacrificeStep(
         };
       }
 
-      if (candidates.length > effectiveCount) {
+      if (countCandidates.length > effectiveCount) {
         const chosenIds = collectBoundBattlefieldIds(ctx);
         if (chosenIds.length > 0) {
-          const selected = candidates.filter((perm: any) =>
+          const selected = countCandidates.filter((perm: any) =>
             chosenIds.includes(String((perm as any)?.id || '').trim())
           );
           if (selected.length >= effectiveCount) {
@@ -10178,7 +10215,7 @@ export function applySacrificeStep(
         needsChoice = true;
         break;
       }
-      toRemove.push(...candidates.slice(0, effectiveCount));
+      toRemove.push(...countCandidates.slice(0, effectiveCount));
     }
   }
 

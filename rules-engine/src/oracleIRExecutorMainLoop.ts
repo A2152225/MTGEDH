@@ -397,8 +397,37 @@ function counterSpellStepTargetText(step: Extract<OracleEffectStep, { kind: 'cou
   return String(step.raw || '');
 }
 
+function counterSpellStepCombinedText(step: Extract<OracleEffectStep, { kind: 'counter_spell' }>): string {
+  return `${counterSpellStepTargetText(step)} ${String(step.raw || '')}`.toLowerCase();
+}
+
+function isSelfReferentialCounterSpellStep(step: Extract<OracleEffectStep, { kind: 'counter_spell' }>): boolean {
+  const combined = counterSpellStepCombinedText(step);
+  if (!/\b(?:this permanent|this spell|~)\b/.test(combined)) return false;
+  return !/\btarget spell\b/.test(combined);
+}
+
+function resolveSelfReferentialCounterStackItem(
+  stackItems: readonly any[],
+  state: GameState,
+  ctx: OracleIRExecutionContext,
+  targetKind: CounterStackTargetKind,
+): any | undefined {
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (sourceId) {
+    const direct = stackItems.find((item) => String((item as any)?.id || '').trim() === sourceId);
+    if (direct && stackItemMatchesCounterTargetKind(state, direct, ctx, targetKind)) return direct;
+  }
+  const sourceName = String(ctx.sourceName || '').trim().toLowerCase();
+  if (!sourceName) return undefined;
+  return stackItems.find((item) => {
+    const itemName = String((item as any)?.card?.name || (item as any)?.name || '').trim().toLowerCase();
+    return itemName === sourceName && stackItemMatchesCounterTargetKind(state, item, ctx, targetKind);
+  });
+}
+
 function inferCounterStackTargetKind(step: Extract<OracleEffectStep, { kind: 'counter_spell' }>): CounterStackTargetKind {
-  const combined = `${counterSpellStepTargetText(step)} ${String(step.raw || '')}`.toLowerCase();
+  const combined = counterSpellStepCombinedText(step);
   const mentionsSpell = /\b(?:target spell|that spell|spells?\b)/.test(combined);
   const mentionsAbility = /\b(?:target ability|that ability|(?:activated|triggered)\s+abilit(?:y|ies)|abilities?\b)/.test(combined);
 
@@ -462,9 +491,13 @@ function applyCounterSpellStep(
   const targetLabel = targetKind === 'ability' ? 'ability' : targetKind === 'spell_or_ability' ? 'spell or ability' : 'spell';
   const candidates = filterCounterStackCandidates(state, stackItems, ctx, targetKind);
 
-  let targetStackItem = directTargetId
-    ? candidates.find(item => String((item as any)?.id || '').trim() === directTargetId)
+  let targetStackItem = isSelfReferentialCounterSpellStep(step)
+    ? resolveSelfReferentialCounterStackItem(stackItems, state, ctx, targetKind)
     : undefined;
+
+  if (!targetStackItem && directTargetId) {
+    targetStackItem = candidates.find(item => String((item as any)?.id || '').trim() === directTargetId);
+  }
 
   if (!targetStackItem && directTargetId) {
     if (candidates.length === 1) {

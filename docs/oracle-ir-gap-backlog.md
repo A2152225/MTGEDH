@@ -9,6 +9,82 @@ Refreshed from `tools/oracle-ir-gap-audit.ts` against `oracle-cards.json` and `A
 - Gap records: 0
 - Report artifact: `tools/oracle-ir-gap-audit.json`
 
+## Completed In This Pass (batch 278)
+
+1. **Parser:** trailing keyword reminders (`persist`, `undying`, `rebound`, `afterlife N`, `storm`) → `grant_static_ability` via `parseStructuredKeywordActionGrant`; pruned as redundant unknown trigger fragments.
+2. **Parser:** `{subtype} you control other than this creature get +N/+N and gain {keyword} until end of turn` compound buff (Triceraton Commander).
+3. **Audit:** matching ignorable unknown gaps for the same keyword reminders; seed `-1/-1` on each controlled creature fixture for `remove a -1/-1 counter from each creature you control` (Heartmender).
+4. **Tests:** `oracleIRGapBatch243.test.ts` (4).
+
+Validation:
+
+1. `npx vitest run test/oracleIRGapBatch243.test.ts` (rules-engine) — **4/4**
+2. `npm run test:oracle-ir-migration` — **648/648**
+3. Trigger `ir_gap` items **20 → 0**; parse→execute gaps remain **0**
+4. `npx tsx scripts/executor-general-gap-analysis.ts` — **0** clusters
+
+## Completed In This Pass (batch 277)
+
+1. **Executor:** zero-delta `modify_pt` with resolved where-X (e.g. die roll 1 with "result minus 1") counts as applied no-op instead of `no_applicable_targets` — fixes flaky Velukan Dragon audit partials.
+2. **Tests:** `oracleIRGapBatch242.test.ts` (2): die-roll +0/+0 no-op; mill-then-prevent combat damage when land milled.
+
+Validation:
+
+1. `npx vitest run test/oracleIRGapBatch242.test.ts` (rules-engine) — **2/2**
+2. `npm run test:oracle-ir-migration` — **648/648**
+3. Trigger parse→execute gaps **1 → 0**
+4. `npx tsx scripts/executor-general-gap-analysis.ts` — **0** clusters
+
+## Completed In This Pass (batch 276)
+
+1. **Audit enrichment:** `remove_counter` binds contextual targets (`that creature` → opponent creature; `another target creature you control` → `bf-creature-2`; `target creature you control` → `bf-creature-1`) and seeds required counters on the bound permanent.
+2. **Audit enrichment:** self-referential `counter_spell` (`counter this permanent`) places the casting spell on stack as `stack-source-spell-1` so `counter target spell` retains a separate stack target.
+3. **Executor:** `applyCounterSpellStep` resolves `this permanent` / `this spell` counters against `ctx.sourceId` (or source name) instead of `targetSpellId`.
+4. **Tests:** `oracleIRGapBatch241.test.ts` (3).
+
+Validation:
+
+1. `npx vitest run test/oracleIRGapBatch241.test.ts` (rules-engine) — **3/3**
+2. `npm run test:oracle-ir-migration` — **648/648**
+3. Trigger parse→execute gaps **4 → 1** (remaining: blocks-trigger mill+conditional partial — Loafing Giant pattern)
+4. `npx tsx scripts/executor-general-gap-analysis.ts` — **0** clusters
+
+## Completed In This Pass (batch 275)
+
+1. **Connive:** ignore polluted `chosenObjectIds` unless they match the conniving player's hand and exact discard count.
+2. **Library search:** filter bound ids to search matches before auto-picking; fixes basic-plains partial gaps.
+3. **Parser:** bare trigger fragment `destroy it` / `destroy them`.
+4. **Executor:** contextual `it`/`them` destroy targets via `buildContextualBattlefieldTargetIds`; audit enrichment for destroy-it triggers.
+5. **Tests:** `oracleIRGapBatch240.test.ts` (3).
+
+Validation:
+
+1. `npx vitest run test/oracleIRGapBatch240.test.ts` (rules-engine) — **3/3**
+2. `npm run test:oracle-ir-migration` — **648/648**
+3. Trigger parse→execute gaps **150 → 4** (batch 276 cleared the last four)
+4. `npx tsx scripts/executor-general-gap-analysis.ts` — **0** clusters
+
+## Completed In This Pass (batch 274)
+
+1. **Audit enrichment:** generic sacrifice-subtype fixtures (food/blood/homunculus/egg/powerstone/basic lands); each-opponent creature seats; optional sacrifice decline when followed by `if you do`.
+2. **Parser/executor:** `parseSacrificeWhat` greatest-power controlled creatures; plural basic lands as `land` subtype; count-mode sacrifice auto-picks unique max-power creature per seat.
+3. **Conditional:** generic `if you can't` antecedent evaluation (failed vs applied prior step).
+4. **Tests:** `oracleIRGapBatch239.test.ts` (6).
+
+Validation:
+
+1. `npx vitest run test/oracleIRGapBatch239.test.ts test/oracleIRGapBatch238.test.ts` (rules-engine) — **10/10**
+2. `npm run test:oracle-ir-migration` — **648/648**
+3. `npx tsx scripts/executor-general-gap-analysis.ts` — **15 → 0** clusters
+
+## Completed In This Pass (batch 273)
+
+1. **Copy/sacrifice chains:** delayed copy-it snapshot; attached aura/equipment copy loop; `that creature` after die roll; Faerie `except` copy reference; non-demon sacrifice subtype; each-other-opponent copy; Social Snub optional copy + each-player sacrifice audit decline.
+2. **Executor:** variable-X each-player sacrifice; twin `lastCreatedTokenIds` targeting.
+3. **Tests:** `oracleIRGapBatch238.test.ts` (4).
+
+Validation: general-gap clusters **9 → 0** (pre-batch-274 baseline); migration **648/648**.
+
 ## Completed In This Pass (batch 272)
 
 1. **Audit enrichment:** `someOracleSteps` for nested conditional steps; each-player sacrifice fixtures for all table seats; sacrificed-permanent snapshots (typeLine/manaValue); copy-it/that-creature references; each-other-opponent attacking copies; delayed `those tokens` sacrifice; die-roll where-X state; optional nonland sacrifice binding for Shadow-style chains.
@@ -20,8 +96,6 @@ Validation:
 1. `npx vitest run test/oracleIRGapBatch237.test.ts test/oracleIRGapBatch236.test.ts test/oracleIRGapBatch235.test.ts` (rules-engine) — **27/27**
 2. `npm run test:oracle-ir-migration` — **648/648**
 3. `npx tsx scripts/executor-general-gap-analysis.ts` — **11 → 9** clusters (cleared Shadow lose_life, Tip the Scales where-X, bulk each-player sacrifice, Velukan die-roll)
-
-Remaining general gaps (9): Ochre Jelly delayed copy-it; Arna/Stangg/Faerie/Dreadfeast/Shredder create_token copy chains; Social Snub copy_spell+sacrifice; Gluttonous Hellkite X sacrifices; Strength-Testing Hammer die result where-X.
 
 ## Completed In This Pass (batch 271)
 
