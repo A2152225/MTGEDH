@@ -1770,16 +1770,20 @@ export function applyMoveZoneStep(
     };
   }
 
-  const eachPlayerLandPlayRaw = String(step.raw || '').replace(/\u2019/g, "'").trim();
-  if (
+  const optionalLandPlayRaw = String(step.raw || '').replace(/\u2019/g, "'").trim();
+  const isEachPlayerOptionalLandPlay =
     step.optional === true
     && step.to === 'battlefield'
-    && /^each player may put a land card from their hand onto the battlefield$/i.test(eachPlayerLandPlayRaw)
-  ) {
+    && /^each player may put a land card from their hand onto the battlefield$/i.test(optionalLandPlayRaw);
+  const isControllerOptionalLandPlay =
+    step.optional === true
+    && step.to === 'battlefield'
+    && /^you may put a land card from your hand onto the battlefield$/i.test(optionalLandPlayRaw);
+  if (isEachPlayerOptionalLandPlay || isControllerOptionalLandPlay) {
     if (ctx.interactivePlayerChoices === true) {
       return {
         applied: false,
-        message: `Each-player optional land play requires player choice: ${step.raw}`,
+        message: `Optional land play requires player choice: ${step.raw}`,
         reason: 'player_choice_required',
         options: { classification: 'player_choice' },
       };
@@ -1787,7 +1791,7 @@ export function applyMoveZoneStep(
     return {
       applied: true,
       state,
-      log: [`Skipped non-interactive each-player land play: ${step.raw}`],
+      log: [`Skipped non-interactive optional land play: ${step.raw}`],
     };
   }
 

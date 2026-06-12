@@ -2222,13 +2222,28 @@ function parseDestroyClauseFallback(rawClause: string): OracleEffectStep | null 
   };
 }
 
+function isDestroyReminderFragment(candidate: string): boolean {
+  const normalized = normalizeOracleText(String(candidate || '')).toLowerCase();
+  if (!normalized) return false;
+  if (normalized === 'destroy them' || normalized === 'destroy it') return true;
+  if (/don'?t destroy them/.test(normalized)) return true;
+  if (/effects that say "destroy"/.test(normalized)) return true;
+  if (/damage and effects that say "destroy"/.test(normalized)) return true;
+  return false;
+}
+
 function parseWrappedDestroyUnknownStep(step: OracleEffectStep): OracleEffectStep | null {
   if (step.kind !== 'unknown') return null;
   const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
   const candidates: string[] = [];
 
   const parenthetical = raw.match(/\((destroy\s+[^)]+)\)/i);
-  if (parenthetical) candidates.push(String(parenthetical[1] || '').trim());
+  if (parenthetical) {
+    const fragment = String(parenthetical[1] || '').trim();
+    if (!isDestroyReminderFragment(fragment)) {
+      candidates.push(fragment);
+    }
+  }
 
   const otherwise = raw.match(/^otherwise,?\s+(destroy\s+.+)$/i);
   if (otherwise) candidates.push(String(otherwise[1] || '').trim());
@@ -2237,7 +2252,12 @@ function parseWrappedDestroyUnknownStep(step: OracleEffectStep): OracleEffectSte
   if (triggerBody) candidates.push(String(triggerBody[1] || '').trim());
 
   const destroyOccurrence = raw.match(/\b(destroy\s+.+)$/i);
-  if (destroyOccurrence) candidates.push(String(destroyOccurrence[1] || '').trim());
+  if (destroyOccurrence) {
+    const fragment = String(destroyOccurrence[1] || '').trim();
+    if (!isDestroyReminderFragment(fragment)) {
+      candidates.push(fragment);
+    }
+  }
 
   const forEach = raw.match(/^for\s+each\s+opponent,\s+(destroy\s+.+)$/i);
   if (forEach) candidates.push(String(forEach[1] || '').trim());
@@ -19228,6 +19248,22 @@ function isEquipmentBleedDiscardStep(step: OracleEffectStep): boolean {
 export function pruneEquipmentBleedSteps(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
   return abilities.map((ability) => {
     const filteredSteps = ability.steps.filter((step) => !isEquipmentBleedDiscardStep(step));
+    return filteredSteps.length === ability.steps.length ? ability : { ...ability, steps: filteredSteps };
+  });
+}
+
+function isIndestructibleDestroyReminderStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'destroy') return false;
+  const normalizedRaw = normalizeOracleText(String(step.raw || '')).trim().toLowerCase();
+  return isDestroyReminderFragment(normalizedRaw)
+    || normalizeOracleText(String((step.target as any)?.text || '')).trim().toLowerCase() === 'them';
+}
+
+export function pruneIndestructibleDestroyReminderSteps(
+  abilities: readonly OracleIRAbility[],
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const filteredSteps = ability.steps.filter((step) => !isIndestructibleDestroyReminderStep(step));
     return filteredSteps.length === ability.steps.length ? ability : { ...ability, steps: filteredSteps };
   });
 }

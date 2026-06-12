@@ -8985,6 +8985,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
         fields.prisonersDilemmaSourceId = (step as any).prisonersDilemmaSourceId;
         fields.prisonersDilemmaSourceName = (step as any).prisonersDilemmaSourceName;
       }
+
+      if ((step as any)?.roomDoorLockOrUnlock === true) {
+        fields.roomDoorLockOrUnlock = true;
+        fields.roomPermanentId = (step as any).roomPermanentId;
+      }
       break;
       
     case ResolutionStepType.PONDER_EFFECT:
@@ -26827,6 +26832,77 @@ async function handleOptionChoiceResponse(
         rewardDescription,
       );
     }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (stepData.roomDoorLockOrUnlock === true) {
+    const roomPermanentId = String(stepData.roomPermanentId || stepData.sourceId || '').trim();
+    const choiceId = String(extractId(selectedOption) || '').trim().toLowerCase();
+    const resolvedStepId = String((step as any).id || '').trim();
+    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+    const room = battlefield.find((permanent: any) => String(permanent?.id || '') === roomPermanentId);
+
+    if (response.cancelled || !roomPermanentId || !choiceId) {
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'roomDoorChoice', {
+          playerId,
+          roomPermanentId,
+          resolvedStepId,
+          cancelled: true,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] Failed to persist cancelled roomDoorChoice event:', err);
+      }
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    if (choiceId !== 'lock' && choiceId !== 'unlock') {
+      emitToPlayer(io, playerId as any, 'error', {
+        code: 'INVALID_ROOM_DOOR_CHOICE',
+        message: 'Choose whether to lock or unlock the Room door.',
+      });
+      return;
+    }
+
+    if (!room || !/\broom\b/i.test(String(room?.card?.type_line || ''))) {
+      emitToPlayer(io, playerId as any, 'error', {
+        code: 'INVALID_ROOM_DOOR_TARGET',
+        message: 'That Room is no longer on the battlefield.',
+      });
+      return;
+    }
+
+    if (typeof (game as any).applyEvent === 'function') {
+      (game as any).applyEvent({
+        type: 'roomDoorChoice',
+        playerId,
+        roomPermanentId,
+        choiceId,
+        resolvedStepId,
+      });
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'roomDoorChoice', {
+        playerId,
+        roomPermanentId,
+        choiceId,
+        resolvedStepId,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist roomDoorChoice event:', err);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} ${choiceId === 'unlock' ? 'unlocks' : 'locks'} a door of ${String(room?.card?.name || 'Room')}.`,
+      ts: Date.now(),
+    });
 
     broadcastGame(io, game, gameId);
     return;

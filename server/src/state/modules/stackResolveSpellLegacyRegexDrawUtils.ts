@@ -156,4 +156,45 @@ export function applyLegacySpellRegexDrawHandlers(
       debugWarn(1, `[resolveTopOfStack] Failed to process draw/treasure for ${controller}:`, err);
     }
   }
+
+  const inspiringCallMatch = oracleTextLower.includes('draw a card for each creature you control with a +1/+1 counter on it')
+    && oracleTextLower.includes('those creatures gain indestructible until end of turn');
+  if (inspiringCallMatch) {
+    const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+    const creaturesWithCounters = battlefield.filter((perm: any) => {
+      if (!perm || String(perm.controller || '') !== String(controller)) return false;
+      const typeLine = String(perm.card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('creature')) return false;
+      const amount = Number(perm.counters?.['+1/+1']);
+      return Number.isFinite(amount) && amount > 0;
+    });
+
+    try {
+      const drawCount = creaturesWithCounters.length;
+      if (drawCount > 0) {
+        const drawn = drawCardsFromZone(ctx, controller, drawCount);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${controller} drew ${drawn.length} card(s) for ${drawCount} creature(s) with +1/+1 counters`);
+      } else {
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: no creatures with +1/+1 counters to draw for`);
+      }
+
+      (state as any).endOfTurnEffects = (state as any).endOfTurnEffects || [];
+      for (const perm of creaturesWithCounters) {
+        perm.temporaryAbilities = Array.isArray(perm.temporaryAbilities) ? perm.temporaryAbilities : [];
+        if (!perm.temporaryAbilities.includes('indestructible')) {
+          perm.temporaryAbilities.push('indestructible');
+        }
+        (state as any).endOfTurnEffects.push({
+          type: 'remove_temporary_abilities',
+          permanentId: perm.id,
+          abilities: ['indestructible'],
+        });
+      }
+      if (creaturesWithCounters.length > 0) {
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name}: granted indestructible to ${creaturesWithCounters.length} creature(s) until end of turn`);
+      }
+    } catch (err) {
+      debugWarn(1, `[resolveTopOfStack] Failed to resolve ${effectiveCard.name}:`, err);
+    }
+  }
 }

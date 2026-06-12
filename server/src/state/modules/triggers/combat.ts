@@ -194,6 +194,60 @@ export function applyTriggerDoublers(
   return result;
 }
 
+/**
+ * Push additional stack copies when Roaming Throne / similar doublers apply.
+ */
+export function pushTriggerDoublerCopies(
+  state: any,
+  stackItem: any,
+): void {
+  if (!stackItem || stackItem.isDoubledTriggerCopy) return;
+
+  const controllerId = String(stackItem.controller || stackItem.controllerId || '').trim();
+  const sourcePermanentId = String(
+    stackItem.permanentId || stackItem.source || stackItem.sourceId || '',
+  ).trim();
+  if (!controllerId || !sourcePermanentId) return;
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const sourcePermanent = battlefield.find((perm: any) => String(perm?.id || '') === sourcePermanentId);
+  if (!sourcePermanent) return;
+
+  const doublers = detectTriggerDoublers(battlefield, controllerId);
+  if (doublers.length === 0) return;
+
+  const triggerTypeRaw = String(stackItem.triggerType || 'any').toLowerCase();
+  const triggerType =
+    triggerTypeRaw.includes('attack') ? 'attack'
+      : triggerTypeRaw.includes('etb') || triggerTypeRaw.includes('enters') ? 'etb'
+        : triggerTypeRaw.includes('death') || triggerTypeRaw.includes('dies') ? 'death'
+          : 'any';
+
+  const mapped = [{
+    permanentId: sourcePermanentId,
+    cardName: String(stackItem.sourceName || sourcePermanent?.card?.name || 'Unknown'),
+    controllerId,
+    description: String(stackItem.description || stackItem.effect || ''),
+    triggerType,
+    mandatory: stackItem.mandatory !== false,
+  }];
+
+  const doubled = applyTriggerDoublers(mapped, doublers, triggerType as 'attack' | 'etb' | 'death' | 'any', sourcePermanent);
+  if (doubled.length <= mapped.length) return;
+
+  state.stack = state.stack || [];
+  for (let i = mapped.length; i < doubled.length; i += 1) {
+    const copy = doubled[i];
+    state.stack.push({
+      ...stackItem,
+      id: `${String(stackItem.id || 'trigger')}_double_${i}`,
+      description: copy.description,
+      effect: copy.description,
+      isDoubledTriggerCopy: true,
+    });
+  }
+}
+
 // ============================================================================
 // Local Type Definitions (compatible with types.ts but with additional fields)
 // ============================================================================

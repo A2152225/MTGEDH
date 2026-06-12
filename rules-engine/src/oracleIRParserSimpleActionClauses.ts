@@ -2405,6 +2405,7 @@ export function tryParseSimpleActionClause(args: {
         amount: parseCounterQuantity(distributeCounters[3]),
         counter: normalizeCounterName(String(distributeCounters[4] || '')),
         target: parseObjectSelector(distributeCounters[5]),
+        distribution: 'among',
         optional: Boolean(distributeCounters[2]) || /\bmay\b/i.test(clause) || undefined,
         raw: rawClause,
         });

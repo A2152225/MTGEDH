@@ -761,8 +761,11 @@ export async function fetchDeckFromMoxfield(urlOrId: string): Promise<{
   try {
     const response = await f(apiUrl, {
       headers: {
-        'User-Agent': 'MTGEDH-DeckImporter/1.0',
-        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.moxfield.com/',
+        'Origin': 'https://www.moxfield.com',
       },
     });
     

@@ -201,6 +201,11 @@ export function requiresCreatureTypeSelection(card: any): { required: boolean; r
     return { required: true, reason: "Choose a creature type to draw cards when entering or attacking" };
   }
   
+  // Roaming Throne - "As Roaming Throne enters the battlefield, choose a creature type"
+  if (name.includes("roaming throne")) {
+    return { required: true, reason: "Choose a creature type for Roaming Throne's trigger doubling" };
+  }
+  
   // Cavern of Souls - "As Cavern of Souls enters the battlefield, choose a creature type"
   if (name.includes("cavern of souls")) {
     return { required: true, reason: "Choose a creature type for uncounterable casting" };

@@ -768,6 +768,8 @@ export type OracleEffectStep =
       readonly target: OracleObjectSelector;
       readonly counter: string;
       readonly amount: OracleQuantity;
+      /** When set, total `amount` is split among resolved targets (distribute … among …). */
+      readonly distribution?: 'among';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

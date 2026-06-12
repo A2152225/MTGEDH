@@ -51,4 +51,10 @@ describe('trigger runtime wiring assessment', () => {
       'when you unlock this door, destroy target creature',
     );
   });
+
+  it('treats Fierce Empath optional search plus shuffle as fully IR wired', () => {
+    const effect =
+      'you may search your library for a creature card with mana value 6 or greater, reveal it, put it into your hand, then shuffle';
+    expect(getTriggerRuntimeWiringGaps(effect, 'Fierce Empath')).toEqual([]);
+  });
 });

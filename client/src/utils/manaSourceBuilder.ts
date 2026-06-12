@@ -570,6 +570,52 @@ const POOL_KEY_TO_MANA_COLOR: Record<string, ManaColor> = {
   colorless: 'C',
 };
 
+function buildExplicitPoolPaymentItems(
+  floatingMana: ManaPool | undefined,
+  usedFromPool: Record<string, number>,
+): PaymentItem[] {
+  if (!floatingMana) return [];
+
+  const items: PaymentItem[] = [];
+  for (const [poolKey, totalUsed] of Object.entries(usedFromPool)) {
+    const mana = POOL_KEY_TO_MANA_COLOR[poolKey];
+    const needed = Number(totalUsed || 0);
+    if (!mana || needed <= 0) continue;
+
+    let remaining = needed;
+    const regularAvailable = Number((floatingMana as any)[poolKey] || 0);
+    const fromRegular = Math.min(regularAvailable, remaining);
+    for (let index = 0; index < fromRegular; index += 1) {
+      items.push({
+        permanentId: `__pool__:${poolKey}:${index}`,
+        mana,
+        count: 1,
+      });
+    }
+    remaining -= fromRegular;
+
+    if (remaining <= 0 || !floatingMana.restricted) continue;
+
+    for (let restrictedIndex = 0; restrictedIndex < floatingMana.restricted.length; restrictedIndex += 1) {
+      const entry = floatingMana.restricted[restrictedIndex];
+      const entryPoolKey = String(entry?.type || 'colorless');
+      if (entryPoolKey !== poolKey) continue;
+
+      const entryAmount = Number(entry?.amount || 0);
+      for (let unit = 0; unit < entryAmount && remaining > 0; unit += 1) {
+        items.push({
+          permanentId: `__pool__:restricted:${restrictedIndex}:${unit}`,
+          mana,
+          count: 1,
+        });
+        remaining -= 1;
+      }
+    }
+  }
+
+  return items;
+}
+
 /**
  * Build explicit payment items for spell/ability payment UI.
  * Applies floating mana first, then taps only for the remainder.
@@ -583,9 +629,13 @@ export function buildSuggestedPaymentItems(
   options?: { includeExplicitPoolItems?: boolean },
 ): PaymentItem[] {
   const { colors, generic, hybrids, usedFromPool } = calculateRemainingCostAfterFloatingMana(cost, floatingMana);
+  const includeExplicitPoolItems = options?.includeExplicitPoolItems === true;
+  const sourcesForSuggestion = includeExplicitPoolItems
+    ? sources.filter((source) => !String(source.id || '').startsWith('__pool__'))
+    : sources;
   const suggested = calculateSuggestedPayment(
     { colors, generic, hybrids },
-    sources,
+    sourcesForSuggestion,
     colorsToPreserve,
     undefined,
   );
@@ -593,18 +643,8 @@ export function buildSuggestedPaymentItems(
   const sourceById = new Map(sources.map((source) => [source.id, source]));
   const items: PaymentItem[] = [];
 
-  if (options?.includeExplicitPoolItems) {
-    for (const [poolKey, amount] of Object.entries(usedFromPool)) {
-      const mana = POOL_KEY_TO_MANA_COLOR[poolKey];
-      if (!mana || amount <= 0) continue;
-      for (let index = 0; index < amount; index++) {
-        items.push({
-          permanentId: `__pool__:${poolKey}:${index}`,
-          mana,
-          count: 1,
-        });
-      }
-    }
+  if (includeExplicitPoolItems) {
+    items.push(...buildExplicitPoolPaymentItems(floatingMana, usedFromPool));
   }
 
   for (const [sourceId, selection] of suggested.entries()) {
@@ -613,9 +653,14 @@ export function buildSuggestedPaymentItems(
 
   const dedupedItems: PaymentItem[] = [];
   const seenTapPermanentIds = new Set<string>();
+  const seenPoolPermanentIds = new Set<string>();
   for (const item of items) {
     const permanentId = String(item.permanentId || '');
     if (permanentId.startsWith('__pool__')) {
+      if (seenPoolPermanentIds.has(permanentId)) {
+        continue;
+      }
+      seenPoolPermanentIds.add(permanentId);
       dedupedItems.push(item);
       continue;
     }

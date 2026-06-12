@@ -10,6 +10,7 @@ import {
   parsedDecklistToExpandedString,
 } from "../services/scryfall";
 import { resolveDeckList, type ResolveDeckListStatus } from "../services/deckImport.js";
+import { getBundledPreconDecklistLines } from "../services/bundledPreconDecklists.js";
 import { ensureGame, broadcastGame } from "./util";
 import { appendEvent } from "../db";
 import {
@@ -3012,6 +3013,46 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           }
         }
 
+        if (!fetchedFullDeck && preconSetCode) {
+          const bundledLines = getBundledPreconDecklistLines(preconSetCode, deckName);
+          if (bundledLines && bundledLines.length > 0) {
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `📦 Loading bundled decklist for "${deckName}" (${preconSetCode})...`,
+              ts: Date.now(),
+            });
+
+            const commanderNamesSet = new Set(
+              resolvedCommanders.map((card) => String(card?.name || '').trim().toLowerCase()).filter(Boolean),
+            );
+            const bundledEntries = bundledLines
+              .filter((line) => !commanderNamesSet.has(String(line.name || '').trim().toLowerCase()))
+              .map((line) => ({ name: line.name, count: line.count || 1 }));
+
+            const bundledResult = await resolveDeckList(bundledEntries, {
+              uniqueInstanceIds: true,
+              onStatus: createDeckResolutionStatusReporter(io, socket, gameId, "importPreconDeck.bundled", {
+                playerId: pid,
+                slowFallbackNotice: "room",
+              }),
+            });
+
+            resolvedCards = [...resolvedCommanders, ...bundledResult.resolvedCards];
+            fetchedFullDeck = resolvedCards.length >= MIN_PRECON_DECK_SIZE;
+
+            debug(1, "[deck] importPreconDeck bundled decklist resolved", {
+              gameId,
+              deckName,
+              setCode: preconSetCode,
+              cardCount: resolvedCards.length,
+              missing: bundledResult.missing?.length ?? 0,
+              fetchedFullDeck,
+            });
+          }
+        }
+
         // Note: We no longer use fetchCardsFromSetByColorIdentity as a fallback because
         // it returns ALL cards from the set matching the color identity, not the actual
         // precon deck cards. This resulted in importing wrong cards from other precons.
@@ -3134,6 +3175,21 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             
             return;
           }
+        }
+
+        if (!fetchedFullDeck || resolvedCards.length < MIN_PRECON_DECK_SIZE) {
+          socket.emit("deckError", {
+            gameId,
+            message: `Could not load the full "${deckName}" deck automatically. Open Deck Manager → Local and paste a decklist, or try Import from URL.`,
+          });
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `⚠️ "${deckName}" did not fully import (only ${resolvedCards.length} card(s) resolved). Paste the decklist manually to continue.`,
+            ts: Date.now(),
+          });
+          return;
         }
 
         // Emit suggest commanders to the player

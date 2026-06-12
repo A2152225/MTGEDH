@@ -49,6 +49,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'unless_pays_life',
   'conditional',
   'search_library',
+  'shuffle_library',
   'look_choose_from_top',
   'look_select_top',
   'choose_pile',

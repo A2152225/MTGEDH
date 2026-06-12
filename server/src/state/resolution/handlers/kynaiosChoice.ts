@@ -241,6 +241,9 @@ export function handleKynaiosChoiceResponse(
     }
     createdPermanentId = moveResult.permanentId;
     emitChat(io, gameId, `${deps.getPlayerName(game, pid)} puts ${moveResult.cardName || 'a land'} onto the battlefield (${sourceName}).`);
+  } else if (choice === 'draw_card' && skipFinalize && isController) {
+    drawKynaiosCard(game, pid);
+    emitChat(io, gameId, `${deps.getPlayerName(game, pid)} draws a card (${sourceName}).`);
   } else {
     // Do NOT draw immediately; draws happen only after all players have made their land-drop choice.
     if (!isController) {

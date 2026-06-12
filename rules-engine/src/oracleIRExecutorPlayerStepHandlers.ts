@@ -9,6 +9,7 @@ import {
   createBattlefieldPermanentsFromCards,
   cardMatchesMoveZoneSingleTargetCriteria,
   cardMatchesType,
+  parseMoveZoneSingleTargetCriteria,
   parseSimpleCardTypeFromText,
   type MoveZoneSingleTargetCriteria,
 } from './oracleIRExecutorZoneOps';
@@ -46,7 +47,7 @@ import {
   type ResolveOracleQuantityOptions,
 } from './oracleIRExecutorResolveQuantity';
 import type { OracleClauseCondition } from './oracleIR';
-import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
+import { collectForEachReferenceBattlefieldPermanentIds } from './oracleIRExecutorForEachQuantity';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -68,6 +69,7 @@ type StepApplyResult = {
   readonly lastDungeonRoomName?: string;
   readonly lastDungeonName?: string;
   readonly lastSetInMotionScheme?: any;
+  readonly lastAntecedentBattlefieldPermanentIds?: readonly string[];
 };
 
 function sanitizeGrantedGraveyardPermissionIdPart(value: unknown): string {
@@ -1913,6 +1915,11 @@ function getSearchLibraryMatches(
   const normalizedText = normalizeOracleText(criteria.text);
   if (!normalizedText || normalizedText === 'card' || normalizedText === 'cards') return cards;
 
+  const structuredCriteria = parseMoveZoneSingleTargetCriteria(normalizedText);
+  if (structuredCriteria) {
+    return cards.filter((card) => cardMatchesMoveZoneSingleTargetCriteria(card, structuredCriteria));
+  }
+
   const sameManaValueMatch = normalizedText.match(/^((?:[a-z' -]+?)\s+)?card with the same mana value as this(?: card)?$/i);
   if (sameManaValueMatch) {
     const sourceCard = findCardByIdAcrossState(state, String(ctx.sourceId || '').trim());
@@ -1969,14 +1976,15 @@ export function buildSearchLibrarySelectionOptions(
   if (!matches || matches.length === 0) return null;
 
   const maxResults = Math.max(1, Number(step.maxResults || 1) || 1);
-  if (matches.length <= maxResults) return null;
+  const isOptional = Boolean((step as { optional?: boolean }).optional);
+  if (matches.length <= maxResults && !isOptional) return null;
 
   return {
     playerId,
     matches,
     maxResults,
-    minSelections: 1,
-    maxSelections: maxResults,
+    minSelections: isOptional ? 0 : 1,
+    maxSelections: isOptional ? Math.min(maxResults, matches.length) : maxResults,
     destination: String(step.destination || 'hand'),
   };
 }
@@ -5545,6 +5553,7 @@ export function applyDrawStep(
   let nextState = state;
   const log: string[] = [];
   let lastCount = 0;
+  let lastAntecedentBattlefieldPermanentIds: string[] | undefined;
   for (const playerId of players) {
     const amount =
       resolveStepAmountForPlayer(state, ctx.controllerId, step.amount, ctx, playerId, {
@@ -5562,13 +5571,33 @@ export function applyDrawStep(
         options: { classification: 'ambiguous' },
       };
     }
+    if (step.amount?.kind === 'reference_amount') {
+      const antecedentIds = collectForEachReferenceBattlefieldPermanentIds(
+        state,
+        ctx.controllerId,
+        String(step.amount.raw || ''),
+        ctx,
+        { runtime, targetPlayerId: playerId },
+      );
+      if (antecedentIds.length > 0) {
+        lastAntecedentBattlefieldPermanentIds = [...antecedentIds];
+      }
+    }
     lastCount = amount;
     const result = drawCardsForPlayer(nextState, playerId, amount);
     nextState = result.state;
     log.push(...result.log);
   }
 
-  return { applied: true, state: nextState, log, count: lastCount };
+  return {
+    applied: true,
+    state: nextState,
+    log,
+    count: lastCount,
+    ...(lastAntecedentBattlefieldPermanentIds
+      ? { lastAntecedentBattlefieldPermanentIds }
+      : {}),
+  };
 }
 
 export function applyAddManaStep(

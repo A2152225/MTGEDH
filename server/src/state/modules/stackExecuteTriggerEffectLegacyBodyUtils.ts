@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import {
   applyRetiredTriggerLegacyRevealUntilEquipment,
+  applyRetiredTriggerLegacyGenericSearchLibrary,
 } from './oracleIrTriggerLegacySearchHandlers.js';
 import {
   applyRetiredTriggerLegacyJoinForcesAttack,
@@ -442,6 +443,17 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     sourceName,
     desc,
     description,
+    triggerItem,
+    state,
+  })) {
+    return { handled: true };
+  }
+
+  if (applyRetiredTriggerLegacyGenericSearchLibrary({
+    ctx,
+    controller,
+    sourceName,
+    desc,
     triggerItem,
     state,
   })) {

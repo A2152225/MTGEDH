@@ -810,12 +810,15 @@ export function TableLayout(props: {
     if (prevOrientationRef.current === mobilePlayLayout.orientation) return;
     prevOrientationRef.current = mobilePlayLayout.orientation;
     if (!container.w || !container.h) return;
+    if (!focusedPlayerId) return;
     const timer = setTimeout(() => {
-      centerOnYou(true);
+      const idx = ordered.findIndex((entry) => entry.player.id === focusedPlayerId);
+      if (idx >= 0) {
+        focusOnBoardIndex(idx);
+      }
     }, 150);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobilePlayLayout.orientation, container.w, container.h]);
+  }, [mobilePlayLayout.orientation, container.w, container.h, focusedPlayerId, ordered, seatPositions]);
 
   useEffect(() => {
     if (!focusedPlayerId) return;

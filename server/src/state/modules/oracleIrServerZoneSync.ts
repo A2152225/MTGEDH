@@ -21,6 +21,10 @@ import {
 import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions, collectBlightTargetSelectionConfigs } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
+import {
+  detectTutorSpell,
+  parseLibrarySearchFilter,
+} from './oracleIrSpellLegacyTutorUtils.js';
 import { applyMillReplacements } from './game-state-effects.js';
 import { processMillTriggers } from './zones.js';
 import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
@@ -35,8 +39,14 @@ import { hasExecutorClass } from '../../../../rules-engine/src/oracleIRExecutorP
 import { getNextEndStepFireTurnNumber } from './triggerDelayedEffectUtils.js';
 import {
   isEachPlayerMayPutLandFromHandStep,
+  isControllerMayPutLandFromHandStep,
   queueEachPlayerMayPutLandOrDrawBatch,
+  queueControllerLandPlayOrDrawPrompt,
 } from './triggerLandPlayPromptUtils.js';
+import {
+  applyCounterModifications,
+  updateCounters,
+} from './counters_tokens.js';
 
 /**
  * The live server stores libraries in ctx.libraries and zone summaries in state.zones,
@@ -297,6 +307,66 @@ function snapshotBattlefieldControllers(state: any): Map<string, string> {
   return out;
 }
 
+function snapshotBattlefieldCounters(state: any): Map<string, Record<string, number>> {
+  const out = new Map<string, Record<string, number>>();
+  for (const perm of state.battlefield || []) {
+    const id = String(perm?.id || '').trim();
+    if (!id) continue;
+    out.set(id, { ...((perm?.counters || {}) as Record<string, number>) });
+  }
+  return out;
+}
+
+function syncCounterReplacementEffectsAfterOracleIR(
+  ctx: GameContext,
+  state: any,
+  countersBefore: Map<string, Record<string, number>>,
+): void {
+  const pendingUpdates: Array<{ permanentId: string; deltas: Record<string, number> }> = [];
+
+  for (const perm of state.battlefield || []) {
+    const permanentId = String(perm?.id || '').trim();
+    if (!permanentId) continue;
+
+    const oldCounters = countersBefore.get(permanentId) || {};
+    const newCounters = (perm?.counters || {}) as Record<string, number>;
+    const counterKeys = new Set([...Object.keys(oldCounters), ...Object.keys(newCounters)]);
+
+    const revertedCounters = { ...newCounters };
+    let needsReplacementPass = false;
+    const rawDeltas: Record<string, number> = {};
+
+    for (const counterType of counterKeys) {
+      const oldCount = Number(oldCounters[counterType] || 0);
+      const newCount = Number(newCounters[counterType] || 0);
+      const rawDelta = newCount - oldCount;
+      if (rawDelta <= 0) continue;
+
+      const modifiedDelta = Number(
+        applyCounterModifications(state, permanentId, { [counterType]: rawDelta })[counterType] ?? rawDelta,
+      );
+      if (modifiedDelta === rawDelta) continue;
+
+      if (oldCount > 0) {
+        revertedCounters[counterType] = oldCount;
+      } else {
+        delete revertedCounters[counterType];
+      }
+      needsReplacementPass = true;
+      rawDeltas[counterType] = rawDelta;
+    }
+
+    if (!needsReplacementPass) continue;
+
+    perm.counters = Object.keys(revertedCounters).length ? revertedCounters : undefined;
+    pendingUpdates.push({ permanentId, deltas: rawDeltas });
+  }
+
+  for (const { permanentId, deltas } of pendingUpdates) {
+    updateCounters(ctx, permanentId, deltas);
+  }
+}
+
 function syncPreparedCopiesAfterBattlefieldControllerChanges(
   state: any,
   controllersBefore: Map<string, string>,
@@ -395,6 +465,45 @@ function isOpponentDrawIfDidntPutLandConditional(step: OracleEffectStep): boolea
   if (step.kind !== 'conditional') return false;
   const raw = String(step.condition?.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
   return raw === "each opponent who didn't";
+}
+
+function isControllerDrawIfDidntPutLandConditional(step: OracleEffectStep): boolean {
+  if (step.kind !== 'conditional') return false;
+  const raw = String(step.condition?.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
+  if (raw !== "you don't" && raw !== 'you do not') return false;
+  const innerSteps = Array.isArray((step as any).steps) ? (step as any).steps : [];
+  return innerSteps.some((inner: OracleEffectStep) => inner.kind === 'draw');
+}
+
+function queueControllerMayPutLandFromHandPromptsFromOracleIRResult(
+  ctx: GameContext,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    triggerItem?: any;
+  },
+): void {
+  const landStep = [...(result.skippedSteps || []), ...(result.pendingOptionalSteps || [])]
+    .find((step) => isControllerMayPutLandFromHandStep(step));
+  if (!landStep) return;
+
+  queueControllerLandPlayOrDrawPrompt(
+    ctx,
+    params.controller,
+    String(params.sourceName || 'Ability').trim() || 'Ability',
+    params.triggerItem,
+  );
+
+  if (Array.isArray(result.pendingContinuationSteps) && result.pendingContinuationSteps.length > 0) {
+    const filtered = result.pendingContinuationSteps.filter(
+      (step) => !isControllerDrawIfDidntPutLandConditional(step),
+    );
+    if (filtered.length !== result.pendingContinuationSteps.length) {
+      (result as { pendingContinuationSteps?: OracleEffectStep[] }).pendingContinuationSteps = filtered;
+    }
+  }
 }
 
 function queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult(
@@ -1074,32 +1183,50 @@ function queueSearchLibraryChoicePromptsFromOracleIRResult(
     if (queuedKeys.has(queueKey)) continue;
     queuedKeys.add(queueKey);
 
-    const destination = built.destination === 'battlefield'
-      ? 'battlefield'
-      : built.destination === 'graveyard'
-        ? 'graveyard'
-        : built.destination === 'exile'
-          ? 'exile'
-          : built.destination === 'top'
-            ? 'top'
-            : built.destination === 'bottom'
-              ? 'bottom'
-              : 'hand';
+    const stepRaw = String((step as any).raw || 'Search your library');
+    const tutorInfo = detectTutorSpell(stepRaw);
+    const splitDestination = tutorInfo.splitDestination === true;
+    const destination = splitDestination
+      ? 'split'
+      : built.destination === 'battlefield'
+        ? 'battlefield'
+        : built.destination === 'graveyard'
+          ? 'graveyard'
+          : built.destination === 'exile'
+            ? 'exile'
+            : built.destination === 'top'
+              ? 'top'
+              : built.destination === 'bottom'
+                ? 'bottom'
+                : 'hand';
+    const criteriaText = String((step as any).criteria?.text || tutorInfo.searchCriteria || '');
+    const filter = parseLibrarySearchFilter(criteriaText);
 
     ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
       type: ResolutionStepType.LIBRARY_SEARCH,
       playerId: built.playerId,
-      description: `${sourceName}: ${String((step as any).raw || 'Search your library')}`,
+      description: `${sourceName}: ${stepRaw}`,
       mandatory: (step as any).optional !== true,
       sourceId,
       sourceName,
-      searchCriteria: String((step as any).raw || 'Search your library'),
+      searchCriteria: stepRaw,
       minSelections: built.minSelections,
       maxSelections: built.maxSelections,
       destination,
       reveal: Boolean((step as any).revealFound),
       shuffleAfter: (step as any).shuffle !== false,
+      filter,
       availableCards: built.matches.map(normalizeTopLibraryPromptCard),
+      persistLibrarySearchResolve: true,
+      persistLibrarySearchResolveReason: 'stack_resolution',
+      ...(splitDestination
+        ? {
+            splitDestination: true,
+            toBattlefield: tutorInfo.toBattlefield ?? 1,
+            toHand: tutorInfo.toHand ?? 1,
+            entersTapped: tutorInfo.entersTapped === true || Boolean((step as any).entersTapped),
+          }
+        : ((step as any).entersTapped ? { entersTapped: true } : {})),
       oracleIrChoiceStepJson: JSON.stringify([step]),
       oracleIrControllerId: params.controller,
       oracleIrSourceId: sourceId,
@@ -2446,6 +2573,7 @@ export function applyOracleIRStepsOnServer(
   const graveyardBefore = snapshotGraveyardCardIds(state);
   const exileBefore = snapshotExileCardIds(state);
   const controllersBefore = snapshotBattlefieldControllers(state);
+  const countersBefore = snapshotBattlefieldCounters(state);
 
   const controller = (params?.controller || irCtx.controllerId) as PlayerID;
   const adjustedSteps = params?.applyMillReplacements === false
@@ -2467,6 +2595,7 @@ export function applyOracleIRStepsOnServer(
     haltOnPlayerChoiceRequired: options.haltOnPlayerChoiceRequired ?? true,
   });
   Object.assign(state, result.state);
+  syncCounterReplacementEffectsAfterOracleIR(ctx, state, countersBefore);
   syncOracleIRPlayerZonesToContext(ctx, state, controller, graveyardBefore);
   bridgeScheduleDelayedFlickerReturnsFromOracleIRResult(ctx, state, result, exileBefore, {
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -2513,6 +2642,12 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
   });
   queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult(ctx, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    triggerItem: (params as any)?.triggerItem,
+  });
+  queueControllerMayPutLandFromHandPromptsFromOracleIRResult(ctx, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,

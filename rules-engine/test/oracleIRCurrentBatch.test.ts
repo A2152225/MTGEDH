@@ -1004,7 +1004,7 @@ describe('Oracle IR current audit batch support', () => {
     ).abilities);
 
     expect(courtSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'add_counter', amount: { kind: 'number', value: 2 }, counter: '+1/+1' }),
+      expect.objectContaining({ kind: 'add_counter', distribution: 'among', amount: { kind: 'number', value: 2 }, counter: '+1/+1' }),
     ]));
     expect(bardSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'add_counter', amount: { kind: 'number', value: 1 }, target: { kind: 'raw', text: 'Legendary creatures you control' } }),

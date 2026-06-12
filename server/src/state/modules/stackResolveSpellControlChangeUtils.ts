@@ -10,7 +10,7 @@ import { syncPreparedPermanentAfterControlChange, resyncPreparedExileCopiesWithC
 import {
   queueSelfETBTriggersForPermanent,
   triggerETBEffectsForToken,
-} from './triggerEtbPermanentEffects.js';
+} from './triggerEtbEntryEffects.js';
 import { isExtraTurnSpell } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 

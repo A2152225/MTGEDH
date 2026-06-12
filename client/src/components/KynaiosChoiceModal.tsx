@@ -103,15 +103,23 @@ export function KynaiosChoiceModal({
           border: '1px solid rgba(34,197,94,0.3)',
         }}>
           {isController ? (
-            <>
-              <strong>You drew a card!</strong>
-              <br /><br />
-              Now you may put a land card from your hand onto the battlefield.
-              <br /><br />
-              <em style={{ color: '#4ade80' }}>
-                Each opponent who doesn't play a land will draw a card.
-              </em>
-            </>
+            options.includes('draw_card') ? (
+              <>
+                You may put a land card from your hand onto the battlefield.
+                <br /><br />
+                <strong>If you don't, you draw a card.</strong>
+              </>
+            ) : (
+              <>
+                <strong>You drew a card!</strong>
+                <br /><br />
+                Now you may put a land card from your hand onto the battlefield.
+                <br /><br />
+                <em style={{ color: '#4ade80' }}>
+                  Each opponent who doesn't play a land will draw a card.
+                </em>
+              </>
+            )
           ) : (
             <>
               <strong>{controllerName}'s {sourceName}</strong> triggered!
@@ -218,6 +226,26 @@ export function KynaiosChoiceModal({
               }}
             >
               🏞️ {selectedLandId ? `Play ${landsInHand.find(l => l.id === selectedLandId)?.name || 'Land'}` : 'Select a Land to Play'}
+            </button>
+          )}
+
+          {/* Draw Card button (controller land-or-draw effects like Hakbal) */}
+          {isController && options.includes('draw_card') && (
+            <button
+              onClick={handleDrawCard}
+              style={{
+                flex: 1,
+                padding: '12px 20px',
+                backgroundColor: '#3b82f6',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                cursor: 'pointer',
+                fontSize: 15,
+                fontWeight: 600,
+              }}
+            >
+              📚 Draw a Card Instead
             </button>
           )}
 

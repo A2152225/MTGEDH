@@ -32,6 +32,7 @@ export const STANDARD_ORACLE_FRAGMENT_PATTERNS = {
   ],
   room_mechanic: [
     /^unlock a locked door of up to one target room you control\.?\s*$/i,
+    /^unlock a locked door of target room you control\.?\s*$/i,
     /^lock or unlock a door of target room you control\.?\s*$/i,
   ],
   siege_mechanic: [

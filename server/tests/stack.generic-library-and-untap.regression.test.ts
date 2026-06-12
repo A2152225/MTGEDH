@@ -62,6 +62,56 @@ describe('generic stack resolution regressions', () => {
     expect(step.availableCards[0]?.id).toBe('big_creature');
   });
 
+  it('filters optional Fierce Empath ETB searches with you may prefix', () => {
+    const ctx: any = {
+      gameId,
+      state: {
+        players: [{ id: playerId }, { id: opponentId }],
+        startingLife: 40,
+        life: { [playerId]: 40, [opponentId]: 40 },
+        battlefield: [],
+        zones: {
+          [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+          [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+        },
+      },
+      libraries: new Map([
+        [playerId, [
+          {
+            id: 'small_creature',
+            name: 'Elvish Mystic',
+            type_line: 'Creature — Elf Druid',
+            oracle_text: '',
+            cmc: 1,
+          },
+          {
+            id: 'big_creature',
+            name: 'Ancient Brontodon',
+            type_line: 'Creature — Dinosaur',
+            oracle_text: '',
+            cmc: 8,
+          },
+        ]],
+      ]),
+    };
+
+    executeTriggerEffect(
+      ctx,
+      playerId,
+      'Fierce Empath',
+      'you may search your library for a creature card with mana value 6 or greater, reveal it, put it into your hand, then shuffle.',
+      { sourceName: 'Fierce Empath' },
+    );
+
+    const step = ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find((entry: any) => entry?.sourceName === 'Fierce Empath') as any;
+    expect(step).toBeDefined();
+    expect(step.destination).toBe('hand');
+    expect(step.mandatory).toBe(false);
+    expect(step.filter).toEqual(expect.objectContaining({ minCmc: 6, types: ['creature'] }));
+    expect(step.availableCards).toHaveLength(1);
+    expect(step.availableCards[0]?.id).toBe('big_creature');
+  });
+
   it('untaps only the controller lands for Bear Umbra style attack triggers', () => {
     const ctx: any = {
       gameId,

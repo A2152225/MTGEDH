@@ -345,7 +345,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   if (chosenType && lowerOracle.includes('whenever you cast a spell of the chosen type')) {
     const effectMatch = oracleText.match(/whenever you cast a spell of the chosen type,?\s*([^.]+)/i);
     if (effectMatch) {
-      const effect = effectMatch[1].trim();
+      const effect = String(effectMatch[1] || '').trim();
       const copiesSpell = effect.toLowerCase().includes('copy that spell') || effect.toLowerCase().includes('copy it');
       
       triggers.push({

@@ -2,15 +2,26 @@
 
 Living document. Update this file as gaps close and audits are re-run.
 
-**Last updated: 2026-06-11** (Layer 1–2 metrics unchanged; Layer 3 batch **173** partial-IR guardrails — see migration plan handoff)
+**Last updated: 2026-06-11** (batch **174** — generic distribute-counter IR; Layer 3 handoff refreshed)
 
 > **Server integration / superseding handwritten resolution:** see **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** for the Layer 3 migration plan (IR-first spells/triggers, Effect Program wiring, choice UI batches, shim retirement). This file covers Layer 1–2 (parser/executor gaps).
 
 ## Quick start for a new session
 
-1. **Server integration (Layer 3):** read **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** § *Current status / session handoff* first — batch **172** exert corridor is green; next work is `grant_temporary_ability` wiring + continued regex retirement.
-2. Read this file for Layer 1–2 metrics and parser/executor priority order.
-3. Re-run audits if code changed since the timestamp above:
+1. **Read the rules first:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — no card-name handlers, no new `KNOWN_*` rows; parse → execute → server queue.
+2. **Server integration (Layer 3):** read **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** § *Current status / session handoff* — batch **174** added generic `distribute … among …` counter execution; G1 bug table lists what remains.
+3. Read this file for Layer 1–2 metrics and parser/executor priority order.
+4. **Verify batch 174 before new work:**
+   ```powershell
+   cd rules-engine
+   npx vitest run test/oracleIRDistributeCounters.test.ts
+
+   cd ../server
+   npx vitest run tests/inspiring-call-court-garenbrig.regression.test.ts
+   npx vitest run tests/upkeep-trigger-detection.unit.test.ts
+   npm run test:oracle-ir-migration
+   ```
+5. Re-run audits if code changed since the timestamp above:
    ```powershell
    cd server
    npm run executor:coverage
@@ -297,6 +308,7 @@ When closing a seam:
 
 ## Change log
 
+- 2026-06-11: Batch **174** generic distribute-counter IR (`add_counter.distribution: 'among'`, executor round-robin split, `lastMovedBattlefieldPermanentIds` for double tails; server counter replacement sync). Removed `court of garenbrig` from `KNOWN_UPKEEP_CARDS`; retired legacy distribute regex. Tests: `oracleIRDistributeCounters.test.ts`, `inspiring-call-court-garenbrig.regression.test.ts`.
 - 2026-06-09: Full-card batch12 ir_gap pass (**`ir_gap` 217 → 0**, fully applied **49,713**, assisted **99.6%**). Reference-stat quantity parsing, delayed-trigger/`when you do` lowering, rhystic-unless and emblem misparse repairs, choose_mode nested residual lowering. Tests: `oracleIRGapBatch41.test.ts`.
 - 2026-06-09: Full-card batch11 final partials pass (parse→execute gaps **5 → 0**, **`partial` 5 → 0**, fully applied **49,713**, assisted **99.6%**). Mindblaze/Scrying Glass chosen count conditionals; Wand of Ith/Winter's Chill unless-pay branches; Caesar split choose-mode bullet repair.
 - 2026-06-09: Full-card batch10 look-choose pass (parse→execute gaps **11 → 5**, **`partial` 11 → 5**, fully applied **49,708**, assisted **99.6%**). Infernal Offering opponent GY return; Selective Adaptation chosen-cards split; Welcome the Dead turn-stat X; Transpose cast-from-hand; Sculpted Sunburst chosen-creature conditional; Minsc hamster sacrifice rider.

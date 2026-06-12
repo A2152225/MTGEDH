@@ -35,6 +35,7 @@ import {
 } from "./zones";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander";
 import { applyArcaneAdaptationToControllerCreatures } from "./chosen-creature-type.js";
+import { pushTriggerDoublerCopies } from "./triggers/combat.js";
 import { calculateAllPTBonuses, calculateVariablePT, exchangePermanentOracleText, parsePT } from "../utils";
 import { filterLibraryCardsForSearch } from "../../socket/library-search.js";
 import {
@@ -70,6 +71,7 @@ import { playLand } from "./stackPlayLandUtils.js";
 import { pushStack } from "./stackPushUtils.js";
 import { resolveTopOfStack } from "./stackResolveTopOfStackUtils.js";
 import { triggerETBEffectsForToken } from "./triggerEtbEntryEffects.js";
+import { applyRoomDoorLockOrUnlockChoice } from "./triggers/room.js";
 import { applyMyriadTokenCopies } from "./triggerMyriadTokenUtils.js";
 import { applyGraveyardPermissionEffectsFromText, applyTemporaryGraveyardKeywordGrantFromText, buildCastFromGraveyardCard, getMatchingGraveyardCastingPermission } from "./graveyard-permissions.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
@@ -4899,6 +4901,37 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(exertChoice): failed', err);
+        }
+        break;
+      }
+
+      case "roomDoorChoice": {
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          const roomPermanentId = String((e as any).roomPermanentId || '').trim();
+          const choiceId = String((e as any).choiceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            if (resolvedStepId) {
+              clearReplayQueuedStepById(replayGameId, resolvedStepId);
+            } else {
+              clearReplayQueuedSteps(replayGameId, (step: any) => {
+                if (!step || String(step?.type || '') !== String(ResolutionStepType.OPTION_CHOICE)) return false;
+                if (String(step?.playerId || '') !== playerId) return false;
+                if ((step as any).roomDoorLockOrUnlock !== true) return false;
+                const queuedRoomId = String((step as any).roomPermanentId || (step as any).sourceId || '').trim();
+                return !roomPermanentId || queuedRoomId === roomPermanentId;
+              });
+            }
+          }
+
+          if ((e as any).cancelled === true || !roomPermanentId || !choiceId) break;
+
+          applyRoomDoorLockOrUnlockChoice(ctx as any, playerId as any, roomPermanentId, choiceId);
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(roomDoorChoice): failed', err);
         }
         break;
       }
@@ -12139,6 +12172,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(discardedCard && typeof discardedCard === 'object' ? { discardedCard } : null),
             ...(milledCard && typeof milledCard === 'object' ? { milledCard } : null),
           } as any);
+          pushTriggerDoublerCopies(ctx.state, (ctx.state.stack || [])[(ctx.state.stack || []).length - 1]);
           
           debug(2, `[applyEvent] Pushed triggered ability: ${sourceName} - ${description}`);
           ctx.bumpSeq();

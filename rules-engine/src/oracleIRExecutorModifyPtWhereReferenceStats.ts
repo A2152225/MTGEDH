@@ -1,5 +1,6 @@
 import type { BattlefieldPermanent } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { readPermanentPower } from './oracleIRExecutorCreatureStepUtils';
 
 type PlayerLike = {
   readonly life?: number;
@@ -84,23 +85,28 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
   }
 
   {
-    const m = raw.match(/^x is (?:that|this|its) creature'?s (power|toughness)$/i);
+    const m = raw.match(/^x is (that|this|its) creature'?s (power|toughness)$/i);
     if (m) {
-      const targetId = String(
-        targetCreatureId ||
-          ctx?.targetCreatureId ||
-          ctx?.selectorContext?.targetCreatureId ||
-          ctx?.targetPermanentId ||
-          ctx?.selectorContext?.targetPermanentId ||
-          ''
-      ).trim();
+      const refWord = String(m[1] || '').toLowerCase();
+      const which = String(m[2] || '').toLowerCase();
+      const targetId = refWord === 'this' || refWord === 'its'
+        ? String(ctx?.sourceId || '').trim()
+        : String(
+            targetCreatureId ||
+              ctx?.targetCreatureId ||
+              ctx?.selectorContext?.targetCreatureId ||
+              ctx?.targetPermanentId ||
+              ctx?.selectorContext?.targetPermanentId ||
+              ''
+          ).trim();
       if (!targetId) return null;
       const target = findObjectById(targetId) ?? battlefield.find((p: any) => p.id === targetId) as any;
       if (!target) return null;
-      const which = String(m[1] || '').toLowerCase();
-      const rawValue = which === 'power'
-        ? (target.power ?? target.card?.power)
-        : (target.toughness ?? target.card?.toughness);
+      if (which === 'power') {
+        const power = readPermanentPower(target);
+        return power === null ? null : power;
+      }
+      const rawValue = target.toughness ?? target.baseToughness ?? target.card?.toughness;
       const val = Number(rawValue);
       return Number.isFinite(val) ? val : null;
     }
@@ -359,10 +365,10 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
       }
 
       const rawValue = statWord === 'power'
-        ? (target.power ?? target.card?.power)
-        : (target.toughness ?? target.card?.toughness);
-      const val = Number(rawValue);
-      return Number.isFinite(val) ? val : null;
+        ? readPermanentPower(target)
+        : Number(target.toughness ?? target.baseToughness ?? target.card?.toughness);
+      const val = statWord === 'power' ? rawValue : Number(rawValue);
+      return val === null || !Number.isFinite(val) ? null : val;
     }
   }
 

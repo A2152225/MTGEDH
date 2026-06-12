@@ -18,7 +18,7 @@ import {
   syncOracleIRPlayerZonesToContext,
 } from './oracleIrServerZoneSync.js';
 import { debug, debugWarn } from '../../utils/debug.js';
-import { isEachPlayerMayPutLandFromHandStep } from './triggerLandPlayPromptUtils.js';
+import { isEachPlayerMayPutLandFromHandStep, isControllerMayPutLandFromHandStep } from './triggerLandPlayPromptUtils.js';
 
 const EFFECT_PROGRAM_ORCHESTRATION_KINDS = new Set<string>([
   'choose_mode',
@@ -32,6 +32,8 @@ const OPTIONAL_NO_CHOICE_KINDS = new Set<string>([
   'grant_graveyard_permission',
   'grant_graveyard_keyword_ability',
   'modify_graveyard_permissions',
+  // Optional tutors queue LIBRARY_SEARCH directly (optional flag + filtered cards).
+  'search_library',
 ]);
 
 const SEQUENTIAL_CHOICE_KINDS = new Set<string>([
@@ -58,6 +60,7 @@ const SEQUENTIAL_CHOICE_KINDS = new Set<string>([
 function stepOptionalRequiresChoice(step: OracleEffectStep): boolean {
   if ((step as { optional?: boolean }).optional !== true) return false;
   if (isEachPlayerMayPutLandFromHandStep(step)) return false;
+  if (isControllerMayPutLandFromHandStep(step)) return false;
   return !OPTIONAL_NO_CHOICE_KINDS.has(String(step.kind || ''));
 }
 

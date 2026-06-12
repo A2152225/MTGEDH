@@ -17,6 +17,7 @@ import {
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 import { handleRoomDoorStateOnEnter } from './triggers/room.js';
+import { pushTriggerDoublerCopies } from './triggers/combat.js';
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -269,6 +270,8 @@ export function queueSelfETBTriggersForPermanent(
       ...(typeof enrichedMetadata.maxTargets === 'number' ? { maxTargets: enrichedMetadata.maxTargets } : null),
     } as any;
     state.stack.push(stackItem);
+    pushTriggerDoublerCopies(state, stackItem);
+    pushTriggerDoublerCopies(state, stackItem);
 
     const gameId = String((ctx as any).gameId || '').trim();
     if (gameId && gameId !== 'unknown') {
@@ -562,6 +565,7 @@ export function queueTemporaryEtbTriggersForEntry(
       interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(enteringPermanent),
     } as any;
     state.stack.push(stackItem);
+    pushTriggerDoublerCopies(state, stackItem);
     persistTriggeredAbilityPush(ctx, stackItem);
 
     debug(2, `[queueTemporaryEtbTriggersForEntry] âš¡ ${stackItem.sourceName}: ${stackItem.description}`);
@@ -1083,6 +1087,7 @@ export function triggerETBEffectsForToken(
 
   for (const stackItem of orderedExternalEtbTriggers) {
     state.stack.push(stackItem);
+    pushTriggerDoublerCopies(state, stackItem);
     persistTriggeredAbilityPush(ctx, stackItem);
   }
 

@@ -2,7 +2,9 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
+import { collectBattlefieldPermanentsForCountExpression } from './oracleIRExecutorModifyPtWhereMiscCounts';
 import { normalizeOracleText } from './oracleIRExecutorPlayerUtils';
+import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 
 const COUNT_WORDS: Record<string, number> = {
   a: 1,
@@ -141,4 +143,65 @@ export function tryResolveForEachReferenceAmount(
   }
 
   return null;
+}
+
+function controlledBattlefieldPermanents(
+  state: GameState,
+  controllerId: PlayerID,
+): readonly import('../../shared/src').BattlefieldPermanent[] {
+  return ((state.battlefield || []) as import('../../shared/src').BattlefieldPermanent[]).filter(
+    (perm: any) => String(perm?.controller || '').trim() === String(controllerId || '').trim(),
+  );
+}
+
+/**
+ * Battlefield permanent IDs referenced by a "for each …" / count antecedent in reference_amount text.
+ * Used so follow-up steps like "Those creatures gain …" resolve to the counted set.
+ */
+export function collectForEachReferenceBattlefieldPermanentIds(
+  state: GameState,
+  controllerId: PlayerID,
+  raw: string,
+  ctx: OracleIRExecutionContext,
+  options?: {
+    readonly runtime?: ModifyPtRuntime;
+    readonly targetPlayerId?: PlayerID;
+  },
+): readonly string[] {
+  const normalized = normalizeOracleText(String(raw || ''));
+  if (!normalized) return [];
+
+  const cardForEach = normalized.match(/^(?:a\s+)?cards?\s+for\s+each\s+(.+)$/i);
+  if (cardForEach) {
+    return collectForEachReferenceBattlefieldPermanentIds(
+      state,
+      controllerId,
+      `1 for each ${String(cardForEach[1] || '').trim()}`,
+      ctx,
+      options,
+    );
+  }
+
+  const forEachMatch = normalized.match(
+    /^(?:(\d+)|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|x)\s+(?:cards?\s+)?for\s+each\s+(.+)$/i,
+  );
+  const countExpr = forEachMatch
+    ? String(forEachMatch[2] || '').trim()
+    : normalized.startsWith('the number of ')
+      ? normalized
+      : '';
+
+  if (!countExpr) return [];
+
+  const controlled = controlledBattlefieldPermanents(state, controllerId);
+  const ids = collectBattlefieldPermanentsForCountExpression({
+    state,
+    raw: countExpr.startsWith('the number of ') ? countExpr : `the number of ${countExpr}`,
+    controlled,
+    hasExecutorClass,
+    normalizeOracleText,
+  });
+  if (ids.length > 0) return ids;
+
+  return [];
 }

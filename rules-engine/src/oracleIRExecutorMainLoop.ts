@@ -1180,7 +1180,19 @@ export function applyOracleIRStepsToGameStateImpl(
           lastTappedMatchingPermanentCount,
           lastReferenceAmount,
         });
-        applyHandledStepResult(step, result);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          const antecedentIds = Array.isArray(appliedResult.lastAntecedentBattlefieldPermanentIds)
+            ? appliedResult.lastAntecedentBattlefieldPermanentIds
+                .map((id: unknown) => String(id || '').trim())
+                .filter(Boolean)
+            : [];
+          if (antecedentIds.length > 0) {
+            currentCtx = {
+              ...currentCtx,
+              lastAntecedentBattlefieldPermanentIds: antecedentIds,
+            };
+          }
+        });
         break;
       }
       case 'win_game': {

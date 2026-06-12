@@ -46,7 +46,7 @@ import { runSBA } from "../state/modules/counters_tokens.js";
 import { movePermanentToHand } from "../state/modules/zones.js";
 import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { getDominantCreatureType } from "./creature-type.js";
-import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks, getEffectiveAdditionalCost } from "./game-actions.js";
+import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks, getEffectiveAdditionalCost, isPlayerCompletingSpellCast } from "./game-actions.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
 import { type AdditionalCostResult } from "./land-helpers.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
@@ -3817,6 +3817,17 @@ export function chooseAIOptionSelectionsForStep(
     return chooseAIExertChoiceSelection(game, playerId, step, options, resolveOptionId);
   }
 
+  if (step?.roomDoorLockOrUnlock === true) {
+    const roomPermanentId = String(step?.roomPermanentId || step?.sourceId || '').trim();
+    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+    const room = battlefield.find((permanent: any) => String(permanent?.id || '') === roomPermanentId);
+    const preferUnlock = room?.doorLocked === true;
+    const choiceId = preferUnlock
+      ? (options.some((option: any) => resolveOptionId(option) === 'unlock') ? 'unlock' : resolveOptionId(options[0]))
+      : (options.some((option: any) => resolveOptionId(option) === 'lock') ? 'lock' : resolveOptionId(options[0]));
+    return { selections: [choiceId], cancelled: false };
+  }
+
   if (step?.mdfcFaceChoice === true) {
     return chooseAIMdfcFaceSelection(options, resolveOptionId);
   }
@@ -5129,8 +5140,9 @@ function didAICastAttemptChangeControlFlow(
   const stackGrew = stackNow > before.stackLength;
   const gainedPendingSteps = aiHasPendingSteps && !before.pendingSteps;
   const gainedPendingCast = pendingCastStatus.effectIds.length > before.pendingCastCount;
+  const castStillCompleting = isPlayerCompletingSpellCast(game, playerId);
 
-  if (!priorityStillHeld || stackGrew || gainedPendingSteps || gainedPendingCast) {
+  if (castStillCompleting || !priorityStillHeld || stackGrew || gainedPendingSteps || gainedPendingCast) {
     debug(1, '[AI] Cast attempt changed control flow; stopping additional cast attempts', {
       gameId,
       playerId,
@@ -5146,6 +5158,26 @@ function didAICastAttemptChangeControlFlow(
   }
 
   return false;
+}
+
+async function waitForAISharedCastToSettle(
+  gameId: string,
+  game: any,
+  playerId: PlayerID,
+  cardId: string,
+  sourceZone: AICastRequestSourceZone,
+  before: AICastControlFlowSnapshot,
+  maxWaitMs: number = 2000,
+): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < maxWaitMs) {
+    if (!isPlayerCompletingSpellCast(game, playerId)) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  return didAICastAttemptChangeControlFlow(gameId, game, playerId, { card: { id: cardId }, sourceZone }, before);
 }
 
 async function tryAIResponseActions(
@@ -6146,6 +6178,7 @@ async function requestAISharedCast(
 
     const stackLengthBefore = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
     const priorityBefore = game.state?.priority;
+    const castSnapshotBefore = captureAICastControlFlowSnapshot(gameId, game, playerId);
     const aiSocket = {
       data: { playerId },
       emit: (event: string, payload: any) => {
@@ -6168,8 +6201,7 @@ async function requestAISharedCast(
       fromZone: request.sourceZone,
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await waitForAISharedCastToSettle(gameId, game, playerId, cardId, request.sourceZone, castSnapshotBefore);
 
     const stackLengthAfter = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
     const cardStillInSourceZone = isAICardStillInCastSourceZone(
@@ -8401,6 +8433,12 @@ export async function handleAIPriority(
   // pending steps across ALL players, which enforces MTG Rule 608.2 more broadly.
   if (ResolutionQueueManager.playerHasPendingSteps(gameId, playerId)) {
     debug(1, '[AI] AI player has pending resolution steps, skipping priority handling:', { gameId, playerId });
+    return;
+  }
+
+  if (isPlayerCompletingSpellCast(game, playerId)) {
+    debug(1, '[AI] AI player has in-flight spell cast completion, deferring priority handling:', { gameId, playerId });
+    scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
     return;
   }
   

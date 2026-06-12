@@ -7,6 +7,8 @@ import {
 } from '../../../../rules-engine/src/oracleIRExecutor.js';
 import {
   describeOracleIrExecutionHandledIncomplete,
+  hasUnqueuedPlayerChoiceGap,
+  isOracleIrMandatoryExecutionComplete,
   logOracleIrAllOrNothingFailure,
 } from './oracleIrStepWiring.js';
 import type { GameContext } from '../context.js';
@@ -142,12 +144,31 @@ export function isOracleIrExecutionHandled(
   resolutionQueueStepsAfter: number,
   parsedSteps?: readonly OracleEffectStep[],
 ): boolean {
-  return describeOracleIrExecutionHandledIncomplete(
-    result,
-    resolutionQueueStepsBefore,
-    resolutionQueueStepsAfter,
-    parsedSteps,
-  ).length === 0;
+  const queueBridged = resolutionQueueStepsAfter > resolutionQueueStepsBefore;
+  if (hasUnqueuedPlayerChoiceGap(result, queueBridged)) return false;
+
+  const pendingContinuation = (result.pendingContinuationSteps || []).length;
+  if (pendingContinuation > 0 && !queueBridged) return false;
+
+  const applied = result.appliedSteps.length;
+  const pendingOptional = (result.pendingOptionalSteps || []).length;
+  const hasEffect =
+    applied > 0
+    || pendingOptional > 0
+    || pendingContinuation > 0
+    || queueBridged
+    || (result.automationGaps || []).some((gap) => gap.classification === 'player_choice');
+
+  if (!hasEffect) return false;
+
+  if (parsedSteps && parsedSteps.length > 0) {
+    return isOracleIrMandatoryExecutionComplete(parsedSteps, result, {
+      resolutionQueueStepsBefore,
+      resolutionQueueStepsAfter,
+    });
+  }
+
+  return true;
 }
 
 function probeOracleIrSpellShadow(

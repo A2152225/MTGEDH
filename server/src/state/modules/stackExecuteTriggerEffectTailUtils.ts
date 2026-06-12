@@ -139,7 +139,7 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
     battlefield,
   });
 
-  applyRetiredTriggerLegacyPutLandFromHand({
+  if (applyRetiredTriggerLegacyPutLandFromHand({
     ctx,
     controller,
     sourceName,
@@ -147,7 +147,9 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
     description,
     triggerItem,
     state,
-  });
+  })) {
+    return true;
+  }
 
   if (combinedEffectsHandled) {
     tryResolveThassasOracleWin(ctx, controller, sourceName);

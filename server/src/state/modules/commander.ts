@@ -281,6 +281,24 @@ export function setCommander(
       debugWarn(1, "setCommander: failed to perform opening draw for", playerId, err);
     }
   } else {
+    try {
+      const stateAny = state as any;
+      const phase = String(stateAny?.phase || '').trim().toLowerCase();
+      const isPreGame = phase === '' || phase === 'pre_game' || phase.includes('pre');
+      if (isPreGame) {
+        const z = zones[playerId] || null;
+        const handCount = z
+          ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0))
+          : 0;
+        const libraryCount = (libraries.get(playerId) || []).length;
+        if (handCount === 0 && libraryCount > 0) {
+          shuffleLibrary(ctx, playerId);
+          drawCards(ctx, playerId, 7);
+        }
+      }
+    } catch (err) {
+      debugWarn(1, "setCommander: pre-game opening draw safety net failed for", playerId, err);
+    }
     bumpSeq();
   }
 }

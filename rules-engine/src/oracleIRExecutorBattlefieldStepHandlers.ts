@@ -1377,6 +1377,151 @@ function collectBoundBattlefieldIds(ctx: OracleIRExecutionContext): string[] {
   );
 }
 
+const DISTRIBUTE_WORD_TO_NUMBER: Record<string, number> = {
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+};
+
+function parseDistributeMaxTargets(targetText: string): number | undefined {
+  const normalized = String(targetText || '').trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (/any number of/i.test(normalized)) return undefined;
+
+  const upToMatch = normalized.match(/\bup to (one|two|three|four|five|\d+)\b/i);
+  if (upToMatch) {
+    const token = String(upToMatch[1] || '').toLowerCase();
+    return DISTRIBUTE_WORD_TO_NUMBER[token] ?? Number.parseInt(token, 10);
+  }
+
+  const orListMatch = normalized.match(/\b(one|two|three|four|five|\d+)(?:,\s*(?:one|two|three|four|five|\d+))+\b/i);
+  if (orListMatch) {
+    const tokens = normalized.match(/\b(one|two|three|four|five|\d+)\b/gi) || [];
+    const values = tokens
+      .map((token) => DISTRIBUTE_WORD_TO_NUMBER[String(token || '').toLowerCase()] ?? Number.parseInt(String(token || ''), 10))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (values.length > 0) return Math.max(...values);
+  }
+
+  return undefined;
+}
+
+function splitCountersAcrossTargets(totalCounters: number, targetCount: number): number[] {
+  if (targetCount <= 0 || totalCounters <= 0) return [];
+  const counts = new Array(targetCount).fill(0);
+  let remaining = totalCounters;
+  let index = 0;
+  while (remaining > 0) {
+    counts[index % targetCount] += 1;
+    remaining -= 1;
+    index += 1;
+  }
+  return counts;
+}
+
+function resolveDistributeAmongTargetIds(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
+  ctx: OracleIRExecutionContext,
+  normalizedTarget: OracleObjectSelector | undefined,
+): string[] {
+  const targetText = String((normalizedTarget as any)?.text || step.target?.text || '').trim().toLowerCase();
+  const maxTargets = parseDistributeMaxTargets(targetText);
+  const battlefield = ((state.battlefield || []) as BattlefieldPermanent[]);
+  const controllerId = String(ctx.controllerId || '').trim();
+
+  const boundIds = collectBoundBattlefieldIds(ctx).filter((id) =>
+    battlefield.some((perm: any) => String(perm?.id || '').trim() === id),
+  );
+
+  let candidateIds = boundIds.filter((id) => {
+    const perm = battlefield.find((entry: any) => String(entry?.id || '').trim() === id);
+    return perm ? permanentMatchesType(perm, 'creature') : false;
+  });
+
+  if (candidateIds.length === 0 && /creatures you control/i.test(targetText)) {
+    candidateIds = battlefield
+      .filter((perm: any) => String(perm?.controller || '').trim() === controllerId)
+      .filter((perm: any) => permanentMatchesType(perm, 'creature'))
+      .map((perm: any) => String(perm?.id || '').trim())
+      .filter(Boolean);
+  }
+
+  if (candidateIds.length === 0 && boundIds.length > 0) {
+    candidateIds = boundIds;
+  }
+
+  if (Number.isFinite(maxTargets) && (maxTargets as number) > 0) {
+    candidateIds = candidateIds.slice(0, maxTargets as number);
+  }
+
+  return Array.from(new Set(candidateIds));
+}
+
+function tryApplyDistributeCountersAmong(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime,
+): BattlefieldStepHandlerResult | null {
+  const raw = String(step.raw || '').trim();
+  const isDistributeAmong =
+    step.distribution === 'among' || /^distribute\b/i.test(raw);
+  if (!isDistributeAmong) return null;
+
+  const amountValue = resolveAddCounterAmount(state, step, ctx, runtime);
+  if (amountValue === null || amountValue <= 0) {
+    return {
+      applied: false,
+      message: `Skipped distribute counters (unsupported amount): ${step.raw}`,
+      reason: 'unsupported_target',
+    };
+  }
+
+  const counterName = String(step.counter || '+1/+1').trim();
+  if (!counterName) {
+    return {
+      applied: false,
+      message: `Skipped distribute counters (unsupported counter): ${step.raw}`,
+      reason: 'unsupported_target',
+    };
+  }
+
+  const normalizedTarget = normalizeWhereQualifiedTarget(step.target as any);
+  const targetIds = resolveDistributeAmongTargetIds(state, step, ctx, normalizedTarget as any);
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped distribute counters (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const perTargetCounts = splitCountersAcrossTargets(amountValue, targetIds.length);
+  const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+    const permanentId = String(perm?.id || '').trim();
+    const targetIndex = targetIds.indexOf(permanentId);
+    if (targetIndex < 0) return perm;
+    const addAmount = perTargetCounts[targetIndex] ?? 0;
+    if (addAmount <= 0) return perm;
+    const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+    const currentCount = Number(counters[counterName] ?? 0);
+    counters[counterName] = (Number.isFinite(currentCount) ? currentCount : 0) + addAmount;
+    return { ...perm, counters };
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+    log: [`Distributed ${amountValue} ${counterName} counter(s) among ${targetIds.length} permanent(s)`],
+    lastMovedBattlefieldPermanentIds: targetIds,
+  };
+}
+
 function buildContextualBattlefieldTargetIds(
   battlefield: readonly BattlefieldPermanent[],
   ctx: OracleIRExecutionContext,
@@ -3049,12 +3194,21 @@ function resolveAddCounterAmount(
 
   const controllerId = String(ctx?.controllerId || '').trim() as PlayerID;
   if (controllerId && ctx) {
+    const stepWhereX = (step as { whereX?: { kind: 'where'; raw: string } }).whereX;
     const whereXMatch = String(step.raw || '').match(/\bwhere x is (.+?)(?:[.,]|$)/i);
-    const resolvedQuantity = resolveOracleQuantity(state, controllerId, step.amount, ctx, {
-      runtime,
-      whereX: whereXMatch ? { kind: 'where', raw: String(whereXMatch[1] || '').trim() } : undefined,
-    });
-    if (resolvedQuantity !== null) return resolvedQuantity;
+    const whereX =
+      stepWhereX?.kind === 'where'
+        ? stepWhereX
+        : whereXMatch
+          ? { kind: 'where' as const, raw: String(whereXMatch[1] || '').trim() }
+          : undefined;
+    if (whereX) {
+      const resolvedQuantity = resolveOracleQuantity(state, controllerId, step.amount, ctx, {
+        runtime,
+        whereX,
+      });
+      if (resolvedQuantity !== null) return resolvedQuantity;
+    }
   }
 
   if (step.amount.kind === 'reference_amount') {
@@ -4440,13 +4594,50 @@ export function applyGrantTemporaryAbilityStep(
       ? recentMovedTargets
       : directTargets;
 
+  if (targets.length === 0 && /^those creatures$/i.test(normalizedTargetText)) {
+    const antecedentIds = Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds)
+      ? ctx.lastAntecedentBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (antecedentIds.length > 0) {
+      const antecedentSet = new Set(antecedentIds);
+      const antecedentTargets = battlefield.filter((perm: any) =>
+        antecedentSet.has(String((perm as any)?.id || '').trim())
+      );
+      if (antecedentTargets.length > 0) {
+        const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
+          .map(value => String(value || '').trim())
+          .filter(Boolean);
+        const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
+          .map(value => String(value || '').trim())
+          .filter(Boolean);
+        const descriptions = [...grantedAbilities, ...effectText].filter(Boolean);
+        const controllerId = (String(ctx.controllerId || '').trim() ||
+          String((antecedentTargets[0] as any)?.controller || '').trim()) as PlayerID;
+        const nextState = applyTemporaryEffectToPermanents(state, antecedentTargets, ctx, {
+          descriptions: descriptions.length > 0 ? descriptions : [stepRaw],
+          grantedAbilities,
+          expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+          ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
+        });
+        return {
+          applied: true,
+          state: nextState,
+          log: [`Granted temporary ability text to ${antecedentTargets.length} antecedent creature(s) until end of turn`],
+        };
+      }
+    }
+  }
+
   if (targets.length === 0) {
     if (
       /^you$/i.test(normalizedTargetText) ||
       /^each opponent$/i.test(normalizedTargetText) ||
       /^the next (?:.+?\s+)?spell you cast/i.test(normalizedTargetText) ||
       /^creature cards in your graveyard$/i.test(normalizedTargetText) ||
-      /\b(?:you gain|until (?:end of turn|your next turn)|all damage that would be dealt|face-down spells you cast)\b/i.test(stepRaw)
+      (
+        !/^those\b/i.test(normalizedTargetText) &&
+        /\b(?:you gain|until (?:end of turn|your next turn)|all damage that would be dealt|face-down spells you cast)\b/i.test(stepRaw)
+      )
     ) {
       return registerTemporaryStaticAbilityGrant(state, step, ctx, {
         duration: step.duration === 'until_next_turn' ? 'until_next_turn' : 'end_of_turn',
@@ -7904,6 +8095,9 @@ export function applyAddCounterStep(
   const normalizedTargetText = String((normalizedTarget as any)?.text || '').trim().toLowerCase();
   const rawTargetText = String((step.target as any)?.text || '').trim().toLowerCase();
   const isAnotherCreatureYouControl = /^another target creature you control$/i.test(rawTargetText);
+
+  const distributeResult = tryApplyDistributeCountersAmong(state, step, ctx, runtime);
+  if (distributeResult) return distributeResult;
 
   const special = trySpecialAddCounterStep(state, step, ctx);
   if (special) return special;

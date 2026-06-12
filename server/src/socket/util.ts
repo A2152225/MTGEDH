@@ -1969,7 +1969,7 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
  * For human players, a small delay is added before auto-passing to give them a chance
  * to evaluate the board state and potentially claim priority if they want to act.
  */
-function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string): void {
+export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string): void {
   try {
     const stateAny = game.state as any;
     const priority = stateAny?.priority;

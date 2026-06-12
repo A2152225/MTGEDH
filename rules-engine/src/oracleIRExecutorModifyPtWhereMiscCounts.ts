@@ -108,6 +108,26 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
   }
 
   {
+    const plusOnePatterns = [
+      /^x is the number of creatures you control with a \+1\/\+1 counter on (?:it|them)$/i,
+      /^x is the number of creature you control with a \+1\/\+1 counter on it$/i,
+      /^x is creature you control with a \+1\/\+1 counter on it$/i,
+      /^x is the number of creatures you control with \+1\/\+1 counters on (?:it|them)$/i,
+      /^creatures you control with a \+1\/\+1 counter on (?:it|them)$/i,
+      /^creature you control with a \+1\/\+1 counter on (?:it|them)$/i,
+    ];
+    if (plusOnePatterns.some((pattern) => pattern.test(raw))) {
+      return controlled.filter((p: any) => {
+        if (!hasExecutorClass(p, 'creature')) return false;
+        const counters = (p as any)?.counters;
+        if (!counters || typeof counters !== 'object') return false;
+        const amount = Number((counters as Record<string, unknown>)['+1/+1']);
+        return Number.isFinite(amount) && amount > 0;
+      }).length;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of permanents you control with oil counters on them$/i);
     if (m) {
       return controlled.filter((p: any) => {
@@ -298,4 +318,40 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
   }
 
   return null;
+}
+
+/** Returns battlefield permanent IDs matched by count expressions used in "for each" antecedents. */
+export function collectBattlefieldPermanentsForCountExpression(args: {
+  state: GameState;
+  raw: string;
+  controlled: readonly BattlefieldPermanent[];
+  hasExecutorClass: HasExecutorClass;
+  normalizeOracleText: NormalizeOracleText;
+}): readonly string[] {
+  const { raw, controlled, hasExecutorClass, normalizeOracleText } = args;
+  const normalized = normalizeOracleText(String(raw || ''));
+  if (!normalized) return [];
+
+  const plusOnePatterns = [
+    /^x is the number of creatures you control with a \+1\/\+1 counter on (?:it|them)$/i,
+    /^x is the number of creature you control with a \+1\/\+1 counter on it$/i,
+    /^x is creature you control with a \+1\/\+1 counter on it$/i,
+    /^x is the number of creatures you control with \+1\/\+1 counters on (?:it|them)$/i,
+    /^creatures you control with a \+1\/\+1 counter on (?:it|them)$/i,
+    /^creature you control with a \+1\/\+1 counter on (?:it|them)$/i,
+    /^the number of creatures you control with a \+1\/\+1 counter on (?:it|them)$/i,
+    /^the number of creature you control with a \+1\/\+1 counter on it$/i,
+  ];
+  if (!plusOnePatterns.some((pattern) => pattern.test(normalized))) return [];
+
+  return controlled
+    .filter((p: any) => {
+      if (!hasExecutorClass(p, 'creature')) return false;
+      const counters = (p as any)?.counters;
+      if (!counters || typeof counters !== 'object') return false;
+      const amount = Number((counters as Record<string, unknown>)['+1/+1']);
+      return Number.isFinite(amount) && amount > 0;
+    })
+    .map((p: any) => String((p as any)?.id || '').trim())
+    .filter(Boolean);
 }

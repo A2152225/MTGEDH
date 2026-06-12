@@ -180,6 +180,11 @@ export function computeColorsNeededByOtherCards(otherCards: OtherCardInfo[]): Se
   return neededColors;
 }
 
+export interface RestrictedManaPoolEntry {
+  type?: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+  amount?: number;
+}
+
 /**
  * Mana pool structure (floating mana)
  */
@@ -190,6 +195,7 @@ export interface ManaPool {
   red?: number;
   green?: number;
   colorless?: number;
+  restricted?: readonly RestrictedManaPoolEntry[];
 }
 
 /**
@@ -242,6 +248,11 @@ export function calculateRemainingCostAfterFloatingMana(
     green: floatingMana.green || 0,
     colorless: floatingMana.colorless || 0,
   };
+
+  for (const entry of floatingMana.restricted || []) {
+    const poolKey = String(entry.type || 'colorless');
+    poolRemaining[poolKey] = (poolRemaining[poolKey] || 0) + Number(entry.amount || 0);
+  }
   
   // First, use floating mana for colored requirements
   for (const c of MANA_COLORS) {

@@ -1,6 +1,6 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
-import { applyRetiredTriggerLegacyCounterInlineBatch } from './oracleIrTriggerLegacyCounterHandlers.js';
+import { applyRetiredTriggerLegacyCounterInlineBatch, applyRetiredTriggerLegacyDistributeCounters } from './oracleIrTriggerLegacyCounterHandlers.js';
 import { applyRetiredTriggerLegacyPTModificationBatch } from './oracleIrTriggerLegacyPTModificationHandlers.js';
 import { applyRetiredTriggerLegacyTapUntapInlineBatch } from './oracleIrTriggerLegacyTapUntapHandlers.js';
 import { applyRetiredTriggerLegacyGraveyardZoneChangeBatch } from './oracleIrTriggerLegacyGraveyardZoneHandlers.js';
@@ -62,6 +62,17 @@ export function applyRetiredTriggerLegacyLateEffectRegexBatch(
   }
 
   if (applyRetiredTriggerLegacyCounterInlineBatch({
+    controller,
+    sourceName,
+    desc,
+    triggerItem,
+    state,
+  })) {
+    return true;
+  }
+
+  if (applyRetiredTriggerLegacyDistributeCounters({
+    ctx,
     controller,
     sourceName,
     desc,

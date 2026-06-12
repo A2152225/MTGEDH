@@ -302,16 +302,16 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       return { allPassed: false, resolved: false };
     }
     
-    // Check if auto-pass is enabled for current player
-    if (!autoPassPlayers.has(currentPlayer)) {
-      // Auto-pass not enabled, stop here
+    const autoPassForTurn = stateAny.autoPassForTurn?.[currentPlayer] || false;
+    const triggerAutoPassReason = getTopTriggeredAbilityAutoPassReason(state, currentPlayer);
+
+    // Match checkAndTriggerAutoPass: allow auto-pass when globally enabled,
+    // "rest of turn" is active, or a top-stack trigger shortcut applies.
+    if (!autoPassPlayers.has(currentPlayer) && !autoPassForTurn && !triggerAutoPassReason) {
       debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: auto-pass not enabled`);
       return { allPassed: false, resolved: false };
     }
-    
-    // Check if player has explicitly enabled "auto-pass for rest of turn"
-    const autoPassForTurn = stateAny.autoPassForTurn?.[currentPlayer] || false;
-    
+
     // If player has "Auto-Pass Rest of Turn" enabled, skip all ability checks
     // and auto-pass them through everything
     if (autoPassForTurn) {
@@ -321,8 +321,6 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       continue;
     }
 
-    const triggerAutoPassReason = getTopTriggeredAbilityAutoPassReason(state, currentPlayer);
-    
     // Check if player can take any action
     // Use different checks for active vs non-active players:
     // - Active player (turn player): use canAct() which checks ALL actions (instant-speed + sorcery-speed)

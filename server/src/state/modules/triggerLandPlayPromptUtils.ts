@@ -11,6 +11,13 @@ export function isEachPlayerMayPutLandFromHandStep(step: OracleEffectStep): bool
   return /^each player may put a land card from their hand onto the battlefield$/i.test(raw);
 }
 
+export function isControllerMayPutLandFromHandStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'move_zone') return false;
+  if (!(step as { optional?: boolean }).optional) return false;
+  const raw = String(step.raw || '').replace(/\u2019/g, "'").trim();
+  return /^you may put a land card from your hand onto the battlefield$/i.test(raw);
+}
+
 function landsInPlayerHand(state: any, playerId: PlayerID): any[] {
   const hand = Array.isArray(state?.zones?.[playerId]?.hand)
     ? (state.zones[playerId].hand as any[])
@@ -116,6 +123,51 @@ export function queueEachPlayerMayPutLandOrDrawBatch(
     turnOrder,
     activePlayerId,
   );
+
+  return true;
+}
+
+export function queueControllerLandPlayOrDrawPrompt(
+  ctx: GameContext,
+  controller: PlayerID,
+  sourceName: string,
+  triggerItem?: any,
+): boolean {
+  const landsInHand = landsInPlayerHand((ctx.state as any), controller);
+  const options = landsInHand.length > 0
+    ? (['play_land', 'draw_card'] as const)
+    : (['draw_card'] as const);
+
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.KYNAIOS_CHOICE,
+    playerId: controller as any,
+    description: `${sourceName}: You may put a land card from your hand onto the battlefield. If you don't, draw a card.`,
+    mandatory: false,
+    sourceId: triggerItem?.permanentId || triggerItem?.sourceId,
+    sourceName,
+    sourceImage: triggerItem?.card?.image_uris?.small,
+    kynaiosBatchId: String((triggerItem as any)?.id || `land_play_or_draw_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
+    isController: true,
+    sourceController: controller,
+    canPlayLand: landsInHand.length > 0,
+    landsInHand: landsInHand.map((card: any) => ({
+      id: String(card?.id || ''),
+      name: String(card?.name || ''),
+      imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+    })),
+    options,
+    landPlayOrFallbackIsController: true,
+    landPlayOrFallbackSourceController: controller,
+    landPlayOrFallbackCanPlayLand: landsInHand.length > 0,
+    landPlayOrFallbackLandsInHand: landsInHand.map((card: any) => ({
+      id: String(card?.id || ''),
+      name: String(card?.name || ''),
+      imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+    })),
+    landPlayOrFallbackOptions: options,
+    landPlayOrFallbackSkipFinalize: true,
+    landPlayOrFallbackDrawIfNot: true,
+  } as any);
 
   return true;
 }

@@ -1,5 +1,5 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
-import { getEffectivePower } from '../utils.js';
+import { getEffectivePower } from '../../socket/util.js';
 import { debug } from '../../utils/debug.js';
 import { splitGrantedTemporaryAbilities } from './oracleIrSpellLegacyTargetBuffUtils.js';
 import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';

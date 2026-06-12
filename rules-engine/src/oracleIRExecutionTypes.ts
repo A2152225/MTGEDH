@@ -190,6 +190,8 @@ export interface OracleIRExecutionContext {
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   /** Internal runtime carry-over for goad follow-ups that reference "those creatures". */
   readonly lastGoadedBattlefieldPermanentIds?: readonly string[];
+  /** Battlefield permanents matched by the most recent "for each" / count antecedent (e.g. Inspiring Call draw). */
+  readonly lastAntecedentBattlefieldPermanentIds?: readonly string[];
   /** Internal runtime carry-over for top-of-library references like "it" after a look/reveal-top step. */
   readonly lastTopLibraryOwnerId?: PlayerID;
   /** Internal runtime carry-over for scheme effects that refer to "that scheme". */

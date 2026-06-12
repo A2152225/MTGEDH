@@ -44,6 +44,50 @@ describe('buildSuggestedPaymentItems', () => {
     ]);
   });
 
+  it('uses restricted floating mana for auto-pay without duplicating regular pool slots', () => {
+    const floatingSources = [
+      { id: '__pool__:green:0', name: 'Floating {G}', options: ['G'] as const, amount: 1 },
+      { id: '__pool__:green:1', name: 'Floating {G}', options: ['G'] as const, amount: 1 },
+      { id: '__pool__:restricted:0:0', name: 'Restricted {G}', options: ['G'] as const, amount: 1 },
+      { id: '__pool__:restricted:0:1', name: 'Restricted {G}', options: ['G'] as const, amount: 1 },
+      { id: '__pool__:restricted:0:2', name: 'Restricted {G}', options: ['G'] as const, amount: 1 },
+      { id: '__pool__:restricted:0:3', name: 'Restricted {G}', options: ['G'] as const, amount: 1 },
+      { id: '__pool__:restricted:0:4', name: 'Restricted {G}', options: ['G'] as const, amount: 1 },
+    ];
+    const landSources = [
+      { id: 'forest_1', name: 'Forest', options: ['G'] as const },
+      { id: 'forest_2', name: 'Forest', options: ['G'] as const },
+    ];
+
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 1, C: 0 },
+        generic: 3,
+        hybrids: [],
+      },
+      [...floatingSources, ...landSources],
+      new Set(),
+      {
+        green: 2,
+        white: 0,
+        blue: 0,
+        black: 0,
+        red: 0,
+        colorless: 0,
+        restricted: [{ type: 'green', amount: 5 }],
+      },
+      { includeExplicitPoolItems: true },
+    );
+
+    expect(items).toEqual([
+      { permanentId: '__pool__:green:0', mana: 'G', count: 1 },
+      { permanentId: '__pool__:green:1', mana: 'G', count: 1 },
+      { permanentId: '__pool__:restricted:0:0', mana: 'G', count: 1 },
+      { permanentId: '__pool__:restricted:0:1', mana: 'G', count: 1 },
+    ]);
+    expect(items.some((item) => item.permanentId === 'forest_1')).toBe(false);
+  });
+
   it('taps each permanent at most once when dual lands expose multiple ability sources', () => {
     const items = buildSuggestedPaymentItems(
       {

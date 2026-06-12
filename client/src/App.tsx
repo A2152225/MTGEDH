@@ -1162,17 +1162,32 @@ export function App() {
     autoPassStepsRef.current = autoPassSteps;
   }, [autoPassSteps]);
   
+  const syncAutoPassToServer = React.useCallback((gameId?: string) => {
+    const targetGameId = gameId || safeView?.id;
+    if (!targetGameId || !you || !socket.connected) return;
+    const hasAutoPass = autoPassStepsRef.current.size > 0;
+    socket.emit('setAutoPass', {
+      gameId: targetGameId,
+      enabled: hasAutoPass,
+      syncOnly: true,
+    } as any);
+  }, [safeView?.id, you, socket]);
+
+  // Sync when game/player identity is ready and whenever step preferences change.
   React.useEffect(() => {
-    if (safeView?.id && socket.connected) {
-      // Send current auto-pass state to server
-      const hasAutoPass = autoPassStepsRef.current.size > 0;
-      socket.emit('setAutoPass', {
-        gameId: safeView.id,
-        enabled: hasAutoPass,
-        syncOnly: true,
-      } as any);
-    }
-  }, [safeView?.id, socket.connected]); // Only sync when game changes or socket reconnects
+    syncAutoPassToServer();
+  }, [syncAutoPassToServer, autoPassSteps]);
+
+  // Re-sync after join completes (socket may not be in the room when safeView.id first appears).
+  React.useEffect(() => {
+    const onJoined = ({ gameId: joinedGameId }: { gameId: string }) => {
+      window.setTimeout(() => syncAutoPassToServer(joinedGameId), 0);
+    };
+    socket.on('joined', onJoined);
+    return () => {
+      socket.off('joined', onJoined);
+    };
+  }, [socket, syncAutoPassToServer]);
 
   // Listen for auto-pass toggle confirmation from server
   // This updates the client UI when auto-pass is enabled/disabled
@@ -3736,8 +3751,15 @@ export function App() {
   useEffect(() => {
     if (!showMobileChrome || !you) return;
     setJoinCollapsed(true);
-    setFocusedPlayerId((prev) => prev ?? you);
   }, [showMobileChrome, you]);
+
+  const handleFocusPlayer = React.useCallback((playerId: string) => {
+    setFocusedPlayerId((prev) => (prev === playerId ? null : playerId));
+  }, []);
+
+  const clearPlayerFocus = React.useCallback(() => {
+    setFocusedPlayerId(null);
+  }, []);
 
   useEffect(() => {
     if (!showMobileChrome) setMobilePlaySheet(null);
@@ -5527,7 +5549,8 @@ export function App() {
             focusedPlayerId={focusedPlayerId}
             monarch={(safeView as any).monarch}
             initiative={(safeView as any).initiative}
-            onFocusPlayer={setFocusedPlayerId}
+            onFocusPlayer={handleFocusPlayer}
+            onClearFocus={clearPlayerFocus}
           />
         )}
 
@@ -5796,18 +5819,41 @@ export function App() {
                     Player Focus
                   </div>
                   <div style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.4 }}>
-                    Turn-order view switcher. Click any player to center the battlefield on their board.
+                    Turn-order view switcher. Click a player to center on their board. Click again or use Table overview to pan freely.
                   </div>
+                  <button
+                    type="button"
+                    onClick={clearPlayerFocus}
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      border: focusedPlayerId
+                        ? '1px solid rgba(59,130,246,0.85)'
+                        : '1px solid rgba(255,255,255,0.08)',
+                      background: focusedPlayerId
+                        ? 'rgba(255,255,255,0.04)'
+                        : 'rgba(30,64,175,0.28)',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                    title="Zoom out and pan the full table without snapping to a player board"
+                  >
+                    Table overview
+                  </button>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {playerFocusOrder.map((player: any, index: number) => {
                       const isTurnPlayer = safeView.turnPlayer === player.id;
-                      const isFocused = (focusedPlayerId || you) === player.id;
+                      const isFocused = focusedPlayerId === player.id;
                       const isYouPlayerFocus = you === player.id;
                       return (
                         <button
                           key={player.id}
                           type="button"
-                          onClick={() => setFocusedPlayerId(player.id)}
+                          onClick={() => handleFocusPlayer(player.id)}
                           style={{
                             width: '100%',
                             display: 'flex',

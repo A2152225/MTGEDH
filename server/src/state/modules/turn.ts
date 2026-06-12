@@ -38,6 +38,7 @@ import {
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { queueBecomesUntappedTriggers } from "./triggers/tap-untap.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, recordUpkeepBegan } from "./upkeep-triggers.js";
+import { pushTriggerDoublerCopies } from "./triggers/combat.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
@@ -5256,6 +5257,7 @@ export function nextStep(ctx: GameContext) {
                     triggeringPlayer: turnPlayer,
                   };
                   (ctx as any).state.stack.push(stackItem);
+                  pushTriggerDoublerCopies((ctx as any).state, stackItem);
                   persistTurnStepTriggeredAbility(ctx, stackItem, `${triggerType} nextStep`);
                 }
                 
@@ -5300,6 +5302,7 @@ export function nextStep(ctx: GameContext) {
                 triggeringPlayer: turnPlayer,
               };
               (ctx as any).state.stack.push(stackItem);
+              pushTriggerDoublerCopies((ctx as any).state, stackItem);
               persistTurnStepTriggeredAbility(ctx, stackItem, `${triggerType} nextStep`);
               debug(2, `${ts()} [nextStep] ⚡ Pushed ${triggerType} trigger: ${trigger.cardName} - ${trigger.description || trigger.effect}${trigger.requiresChoice ? ' (modal)' : ''}`);
             }

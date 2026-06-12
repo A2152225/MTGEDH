@@ -12,6 +12,8 @@ import { uid } from '../../utils.js';
 import { debug } from '../../../utils/debug.js';
 import { buildTriggerSourcePermanentSnapshot } from '../triggerSourceUtils.js';
 import { inferTriggeredAbilityTargetMetadata } from '../inferTriggeredAbilityTargetMetadata.js';
+import { ResolutionStepType } from '../../resolution/index.js';
+import { queueResolveTopOfStackPrompt } from '../resolutionPromptEvents.js';
 
 export interface RoomUnlockDoorTrigger {
   permanentId: string;
@@ -219,6 +221,75 @@ export function unlockRoomDoor(
 }
 
 /**
+ * Lock a Room door. Does not fire unlock-door triggers.
+ * Returns true when the door transitioned from unlocked to locked.
+ */
+export function lockRoomDoorPermanent(
+  ctx: GameContext,
+  permanent: any,
+): boolean {
+  if (!permanent || !isRoomPermanent(permanent)) return false;
+  if (permanent.doorLocked === true) return false;
+  permanent.doorLocked = true;
+  return true;
+}
+
+export function lockRoomDoor(
+  ctx: GameContext,
+  permanentId: string,
+): boolean {
+  const permanent = findBattlefieldPermanent(ctx, permanentId);
+  if (!permanent) return false;
+  return lockRoomDoorPermanent(ctx, permanent);
+}
+
+export function applyRoomDoorLockOrUnlockChoice(
+  ctx: GameContext,
+  controller: PlayerID,
+  roomPermanentId: string,
+  choiceId: string,
+): boolean {
+  const normalizedChoice = String(choiceId || '').trim().toLowerCase();
+  if (normalizedChoice === 'unlock') {
+    return unlockRoomDoor(ctx, roomPermanentId, controller);
+  }
+  if (normalizedChoice === 'lock') {
+    return lockRoomDoor(ctx, roomPermanentId);
+  }
+  return false;
+}
+
+export function queueRoomDoorLockOrUnlockChoice(
+  ctx: GameContext,
+  controller: PlayerID,
+  roomPermanentId: string,
+  sourceName?: string,
+): boolean {
+  const permanent = findBattlefieldPermanent(ctx, roomPermanentId);
+  if (!permanent || !isRoomPermanent(permanent)) return false;
+  if ((ctx as any).isReplaying) return true;
+
+  const roomName = String(permanent?.card?.name || sourceName || 'target Room').trim() || 'target Room';
+  queueResolveTopOfStackPrompt(ctx, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: controller,
+    sourceId: roomPermanentId,
+    sourceName: sourceName || roomName,
+    description: `Lock or unlock a door of ${roomName}?`,
+    mandatory: true,
+    options: [
+      { id: 'lock', label: 'Lock door' },
+      { id: 'unlock', label: 'Unlock door' },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    roomDoorLockOrUnlock: true,
+    roomPermanentId,
+  } as any);
+  return true;
+}
+
+/**
  * Called when a Room enters. Cast-half entry unlocks the door and fires triggers.
  */
 export function handleRoomDoorStateOnEnter(
@@ -249,29 +320,44 @@ export function queueRoomUnlockDoorTriggersOnEnter(
   handleRoomDoorStateOnEnter(ctx, permanent, controller);
 }
 
+function isRoomDoorLockOrUnlockEffect(effectText: string): boolean {
+  return /^lock or unlock a door of target room you control\.?$/i.test(String(effectText || '').trim());
+}
+
 function effectUnlocksRoomDoor(effectText: string): boolean {
   const text = String(effectText || '').trim();
-  if (!text) return false;
-  if (/^lock or unlock a door of target room you control$/i.test(text)) {
-    return false;
-  }
+  if (!text || isRoomDoorLockOrUnlockEffect(text)) return false;
   return ROOM_UNLOCK_EFFECT_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 /**
- * After a spell/trigger effect resolves, unlock targeted Room doors when the
- * effect text is a standard unlock-door instruction.
+ * After a spell/trigger effect resolves, apply Room door lock/unlock state when
+ * the effect text is a standard door instruction (unlock-only or lock-or-unlock choice).
  */
-export function tryApplyRoomDoorUnlockFromResolvedEffect(
+export function tryApplyRoomDoorStateFromResolvedEffect(
   ctx: GameContext,
   controller: PlayerID,
   effectText: string,
   triggerItem?: any,
 ): boolean {
-  if (!effectUnlocksRoomDoor(effectText)) return false;
+  const text = String(effectText || '').trim();
+  if (!text) return false;
 
   const targetId = resolveRoomTargetPermanentId(ctx, triggerItem);
   if (!targetId) return false;
 
+  if (isRoomDoorLockOrUnlockEffect(text)) {
+    return queueRoomDoorLockOrUnlockChoice(
+      ctx,
+      controller,
+      targetId,
+      String(triggerItem?.sourceName || triggerItem?.card?.name || '').trim() || undefined,
+    );
+  }
+
+  if (!effectUnlocksRoomDoor(text)) return false;
   return unlockRoomDoor(ctx, targetId, controller);
 }
+
+/** @deprecated Use tryApplyRoomDoorStateFromResolvedEffect */
+export const tryApplyRoomDoorUnlockFromResolvedEffect = tryApplyRoomDoorStateFromResolvedEffect;

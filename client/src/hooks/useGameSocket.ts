@@ -505,6 +505,21 @@ export function useGameSocket(): UseGameSocketState {
       setLastError(message || "Error")
     );
 
+    socket.on("deckError", ({ gameId: deckErrorGameId, message }: any) => {
+      const text = String(message || "Deck import failed.").trim() || "Deck import failed.";
+      setLastError(text);
+      setChat((prev) => [
+        ...prev.slice(-199),
+        {
+          id: `m_${Date.now()}`,
+          gameId: deckErrorGameId,
+          from: "system",
+          message: `⚠️ ${text}`,
+          ts: Date.now(),
+        },
+      ]);
+    });
+
     socket.on("debugCommanderState", (payload: any) =>
       setDebugData((prev: Record<string, any> | null) => ({ ...(prev || {}), commanderState: payload }))
     );
@@ -699,6 +714,7 @@ export function useGameSocket(): UseGameSocketState {
       socket.off("importedDeckCandidates");
       socket.off("deckImportMissing");
       socket.off("error");
+      socket.off("deckError");
       socket.off("debugCommanderState");
       socket.off("debugLibraryDump");
       socket.off("debugImportedDeckBuffer");

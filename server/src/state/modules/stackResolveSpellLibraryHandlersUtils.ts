@@ -5,7 +5,7 @@ import { debug } from '../../utils/debug.js';
 import { getTokenDoublerMultiplier } from './counters_tokens.js';
 import { getTokenImageUrls } from '../../services/tokens.js';
 import { isCelestialReunionOracle } from './chosen-creature-type.js';
-import { triggerETBEffectsForToken } from './triggerEtbPermanentEffects.js';
+import { triggerETBEffectsForToken } from './triggerEtbEntryEffects.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { enqueueLibrarySearchStep } from './triggerLibrarySearchUtils.js';
 import { checkOpponentHasMoreLands } from './stackLandCountUtils.js';
@@ -20,6 +20,19 @@ import {
   summarizeLibraryCard,
 } from './oracleIrSpellLegacyKindredRevealUtils.js';
 import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
+import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
+
+function hasOracleIrQueuedLibrarySearch(ctx: GameContext, spellName: string): boolean {
+  if (!isOracleIrSpellPrimaryEnabled()) return false;
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown') return false;
+  const normalizedName = String(spellName || '').trim();
+  return (ResolutionQueueManager.getQueue(gameId).steps || []).some(
+    (step) => step.type === ResolutionStepType.LIBRARY_SEARCH
+      && Boolean((step as any).oracleIrChoiceStepJson)
+      && String((step as any).sourceName || '').trim() === normalizedName,
+  );
+}
 
 function computeGreatestControlledCreaturePower(state: any, controller: PlayerID): number {
   const battlefield = state.battlefield || [];
@@ -190,7 +203,12 @@ export function applyInstantSorceryLibrarySearchSpellHandlers(
   }
 
   const tutorInfo = isCelestialReunionOracle(oracleText) ? { isTutor: false } : detectTutorSpell(oracleText);
-  if (tutorInfo.isTutor) {
+  if (tutorInfo.isTutor && hasOracleIrQueuedLibrarySearch(ctx, spellName)) {
+    debug(
+      2,
+      `[resolveTopOfStack] ${spellName}: skipping legacy tutor library search (Oracle IR choice already queued)`,
+    );
+  } else if (tutorInfo.isTutor) {
     const isVampiric = (effectiveCard.name || '').toLowerCase().trim() === 'vampiric tutor';
     const tutorFilter = parseLibrarySearchFilter(tutorInfo.searchCriteria || '');
     enqueueLibrarySearchStep(ctx, controller, {

@@ -12531,6 +12531,8 @@ export interface SpellCastTrigger {
   };
   addsLoyaltyCounters?: number; // Number of loyalty counters to add (for planeswalkers like Ral, Crackling Wit)
   optionalPaymentCost?: string; // Optional mana payment before effect (Emperor Mihail II)
+  /** Minimum printed power of the cast creature spell (Gwenna, Eyes of Gaea). */
+  minSpellPower?: number;
   mandatory: boolean;
 }
 
@@ -12824,6 +12826,27 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     };
   };
   
+  const creatureSpellMinPowerMatch = oracleText.match(
+    /(?:when|whenever) you cast a creature spell with power (\d+) or greater,?\s*([^.]+)/i,
+  );
+  if (
+    creatureSpellMinPowerMatch &&
+    !triggers.some((t) => t.minSpellPower != null && t.spellCondition === 'creature')
+  ) {
+    const minSpellPower = parseInt(creatureSpellMinPowerMatch[1], 10);
+    const effectText = timingTriggerEffect(oracleText, creatureSpellMinPowerMatch, 2).trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever you cast a creature spell with power ${minSpellPower} or greater, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'creature',
+      minSpellPower: Number.isFinite(minSpellPower) ? minSpellPower : undefined,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   // Pattern: "When/Whenever you cast a [TYPE] spell, [EFFECT]"
   const spellCastPatterns = [
     // Multi-word spell types: "nonlegendary creature", "instant or sorcery", tribal names
@@ -12841,6 +12864,14 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
+      const lowerMatchText = String(match[0] || '').toLowerCase();
+      if (
+        lowerMatchText.includes('spell of the chosen type') ||
+        lowerMatchText.includes('spell of that type') ||
+        lowerMatchText.includes('spell with the chosen name')
+      ) {
+        continue;
+      }
       const effectText = extractSpellCastEffect(oracleText, match, 1);
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'any')) {
         triggers.push({
@@ -12866,7 +12897,8 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         /\byour first\b/.test(spellType) ||
         /\bduring each\b/.test(spellType) ||
         lowerMatchText.includes('your first spell during each opponent') ||
-        lowerMatchText.includes('your first spell each turn')
+        lowerMatchText.includes('your first spell each turn') ||
+        /\bcreature spell with power \d+ or greater\b/.test(lowerMatchText)
       ) {
         continue;
       }
@@ -13706,7 +13738,7 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   if (chosenType && lowerOracle.includes('whenever you cast a spell of the chosen type')) {
     const effectMatch = /whenever you cast a spell of the chosen type,?\s*([^.]+)/i.exec(oracleText);
     if (effectMatch) {
-      const effect = extractSpellCastEffect(oracleText, effectMatch, 1);
+      const effect = String(effectMatch[1] || '').trim();
       const copiesSpell = effect.toLowerCase().includes('copy that spell') || effect.toLowerCase().includes('copy it');
       const chosenTypeLower = chosenType.toLowerCase();
 

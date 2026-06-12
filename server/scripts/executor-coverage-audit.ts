@@ -611,6 +611,30 @@ export function enrichAuditStateAndContextForTargets(
     };
   }
 
+  const needsDistributeAmongTargets = steps.some(
+    (step) =>
+      step.kind === 'add_counter' &&
+      ((step as { distribution?: string }).distribution === 'among' || /^distribute\b/i.test(String(step.raw || ''))) &&
+      /target creatures/i.test(String((step as any).target?.text || step.raw || '')),
+  );
+  if (needsDistributeAmongTargets) {
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-creature-1',
+            'bf-creature-2',
+          ]),
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
   let needsDiedCreatureCounters = false;
   walkOracleSteps(steps, (step) => {
     if (step.kind !== 'move_counters') return;

@@ -6,6 +6,7 @@ import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import { checkOpponentHasMoreLands } from './stackLandCountUtils.js';
 import { enqueueLibrarySearchStep, type EnqueueLibrarySearchStepFn } from './triggerLibrarySearchUtils.js';
 import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
+import { detectTutorSpell, parseLibrarySearchFilter } from './oracleIrSpellLegacyTutorUtils.js';
 
 export type { EnqueueLibrarySearchStepFn };
 
@@ -55,9 +56,48 @@ export function applyRetiredTriggerLegacyProteanHulkSearch(
 }
 
 export function applyRetiredTriggerLegacyGenericSearchLibrary(
-  _params: TriggerLegacySearchParams,
+  params: TriggerLegacySearchParams,
 ): boolean {
-  return false;
+  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+    return false;
+  }
+
+  const desc = String(params.desc || '').trim();
+  if (!desc.toLowerCase().includes('search your library')) {
+    return false;
+  }
+
+  const tutorInfo = detectTutorSpell(desc);
+  if (!tutorInfo.isTutor) {
+    return false;
+  }
+
+  const searchCriteria = String(tutorInfo.searchCriteria || '').trim();
+  const filter = parseLibrarySearchFilter(searchCriteria);
+  enqueueLibrarySearchStep(params.ctx, params.controller, {
+    sourceId: String(params.triggerItem?.source || params.triggerItem?.permanentId || ''),
+    source: params.sourceName,
+    description: `${params.sourceName}: ${desc}`,
+    searchFor: searchCriteria || 'a card',
+    destination: tutorInfo.destination || 'hand',
+    optional: tutorInfo.optional === true,
+    maxSelections: tutorInfo.maxSelections || 1,
+    minSelections: tutorInfo.optional ? 0 : 1,
+    reveal: true,
+    shuffleAfter: true,
+    filter,
+    entersTapped: tutorInfo.entersTapped === true,
+    ...(tutorInfo.splitDestination
+      ? {
+          splitDestination: true,
+          toBattlefield: tutorInfo.toBattlefield ?? 1,
+          toHand: tutorInfo.toHand ?? 1,
+        }
+      : {}),
+  });
+
+  debug(2, `[executeTriggerEffect] ${params.sourceName}: queued generic library search (${searchCriteria || 'a card'})`);
+  return true;
 }
 
 function summarizeLibraryCard(card: any): any {

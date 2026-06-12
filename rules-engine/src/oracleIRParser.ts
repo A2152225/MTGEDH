@@ -202,6 +202,7 @@ import {
   pruneRedundantImpulseCleanupUnknownAbilities,
   pruneDuplicateGraveyardReminderAbilities,
   pruneEquipmentBleedSteps,
+  pruneIndestructibleDestroyReminderSteps,
   convertReminderSelfExilePermissionAbilities,
   mergeRevealFollowupAbilities,
   mergeSagaChapterCopyFollowupAbilities,
@@ -1648,6 +1649,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandEternalizeKeywordAbilities(abilities);
   abilities = pruneDuplicateGraveyardReminderAbilities(abilities);
   abilities = pruneEquipmentBleedSteps(abilities);
+  abilities = pruneIndestructibleDestroyReminderSteps(abilities);
   abilities = convertReminderSelfExilePermissionAbilities(abilities);
   abilities = mergeConditionalGraveyardReminderFollowupAbilities(abilities);
   abilities = mergeExilePermissionCastCounterFollowupAbilities(abilities);

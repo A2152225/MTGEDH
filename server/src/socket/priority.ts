@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { canAct, canRespond } from "../state/modules/can-respond.js";
 import { debug, debugError } from "../utils/debug.js";
-import { broadcastGame, clearPriorityTimer, ensureGame, schedulePriorityTimeout } from "./util";
+import { broadcastGame, clearPriorityTimer, ensureGame, schedulePriorityTimeout, checkAndTriggerAutoPass } from "./util";
 
 export function registerPriorityHandlers(io: Server, socket: Socket) {
   function ensureInRoomAndSeated(gameId: string) {
@@ -97,7 +97,10 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
     const enabled = !!payload?.enabled;
     const syncOnly = payload?.syncOnly === true;
     const ctx = gameIdValue ? ensureInRoomAndSeated(gameIdValue) : null;
-    if (!ctx) return;
+    if (!ctx) {
+      debug(2, `[Priority] setAutoPass ignored for game ${gameIdValue || 'unknown'}: socket not seated in room`);
+      return;
+    }
 
     const { game, pid } = ctx;
     const stateAny = game.state as any;
@@ -131,8 +134,12 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
       (game as any).bumpSeq();
     }
 
-    if (enabled && !syncOnly && stateAny.priority === pid) {
-      rerunAutoPassEvaluation(gameIdValue, game);
+    if (enabled && stateAny.priority === pid) {
+      if (syncOnly) {
+        checkAndTriggerAutoPass(io as any, game, gameIdValue);
+      } else {
+        rerunAutoPassEvaluation(gameIdValue, game);
+      }
     }
   });
 

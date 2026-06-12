@@ -409,7 +409,7 @@ function parseStaticPowerLteConstraint(typeText: string): MoveZoneSingleTargetCr
   return { cardType: parsedCardType, powerLte };
 }
 
-function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTargetCriteria | null {
+export function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTargetCriteria | null {
   const normalized = String(typeText || '')
     .replace(/,\s*where\s+x\s+is\b.*$/i, '')
     .trim();

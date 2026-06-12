@@ -11,4 +11,23 @@ describe('upkeep trigger detection', () => {
     }, permanent);
     expect(triggers.length).toBeGreaterThan(0);
   });
+
+  it('does not treat Court of Garenbrig ETB monarch as an upkeep effect', () => {
+    const oracleText =
+      'When Court of Garenbrig enters the battlefield, you become the monarch.\n' +
+      'At the beginning of your upkeep, distribute two +1/+1 counters among up to two target creatures.';
+
+    const triggers = detectUpkeepTriggers({
+      name: 'Court of Garenbrig',
+      oracle_text: oracleText,
+    }, permanent);
+
+    const upkeepEffects = triggers
+      .filter((trigger) => trigger.triggerType === 'upkeep_effect')
+      .map((trigger) => String(trigger.effect || trigger.description || '').toLowerCase());
+
+    expect(upkeepEffects).toContain('distribute two +1/+1 counters among up to two target creatures');
+    expect(upkeepEffects.some((effect) => effect.includes('become the monarch'))).toBe(false);
+    expect(upkeepEffects.some((effect) => effect.includes('become monarch'))).toBe(false);
+  });
 });

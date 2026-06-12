@@ -287,7 +287,6 @@ const KNOWN_UPKEEP_CARDS: Record<string, { effect: string; mandatory: boolean; r
   
   // Other common ones
   "luminarch ascension": { effect: "If no damage taken, add quest counter", mandatory: true },
-  "court of": { effect: "Become monarch if not, trigger court effect", mandatory: true },
   "the gitrog monster": { effect: "Sacrifice a land", mandatory: true, requiresSacrifice: true },
   "luminous broodmoth": { effect: "When creature without flying dies, return with flying counter", mandatory: true },
   "hullbreacher": { effect: "If opponent would draw, they don't, you create Treasure instead", mandatory: true },

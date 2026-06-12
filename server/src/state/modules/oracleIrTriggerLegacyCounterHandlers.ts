@@ -3,6 +3,16 @@ import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
+export function applyRetiredTriggerLegacyDistributeCounters(_params: {  readonly ctx: GameContext;
+  readonly controller: PlayerID;
+  readonly sourceName: string;
+  readonly desc: string;
+  readonly triggerItem: any;
+  readonly state: any;
+}): boolean {
+  return false;
+}
+
 export function applyRetiredTriggerLegacyChosenTypeCounterEachCreature(  _params: {
     readonly ctx: GameContext;
     readonly controller: PlayerID;

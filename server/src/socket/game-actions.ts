@@ -25,7 +25,7 @@ import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferG
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificePermanent } from "../state/modules/upkeep-triggers";
-import { categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
+import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
 import {
   buildBeholdSelectionOptions,
@@ -1520,6 +1520,54 @@ function matchesSpellGraveyardCardTargetType(card: any, targetType: string): boo
   return matchesSharedGraveyardCardTargetType(card, targetType);
 }
 
+type CompletingSpellCastMarker = {
+  cardId: string;
+  effectId?: string;
+  startedAt: number;
+};
+
+export function isPlayerCompletingSpellCast(game: any, playerId: string): boolean {
+  const marker = (game?.state as any)?._completingSpellCastByPlayer?.[playerId] as CompletingSpellCastMarker | undefined;
+  return Boolean(marker?.cardId);
+}
+
+function markPlayerCompletingSpellCast(game: any, playerId: string, cardId: string, effectId?: string): void {
+  const stateAny = (game?.state as any) || {};
+  stateAny._completingSpellCastByPlayer = stateAny._completingSpellCastByPlayer || {};
+  stateAny._completingSpellCastByPlayer[playerId] = {
+    cardId: String(cardId),
+    effectId: effectId ? String(effectId) : undefined,
+    startedAt: Date.now(),
+  };
+}
+
+function clearPlayerCompletingSpellCast(game: any, playerId: string, cardId?: string): void {
+  const stateAny = (game?.state as any) || {};
+  const marker = stateAny._completingSpellCastByPlayer?.[playerId] as CompletingSpellCastMarker | undefined;
+  if (!marker) return;
+  if (cardId && String(marker.cardId) !== String(cardId)) return;
+  delete stateAny._completingSpellCastByPlayer[playerId];
+}
+
+function canCompleteSpellCastAtCurrentTiming(
+  game: any,
+  playerId: string,
+  allowResolutionMode: boolean,
+): boolean {
+  const priority = game?.state?.priority;
+  if (priority === playerId) return true;
+  if (allowResolutionMode && (priority === null || priority === undefined)) return true;
+  return false;
+}
+
+function isSpellAlreadyOnStackForPlayer(game: any, playerId: string, cardId: string): boolean {
+  const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
+  return stack.some((item: any) =>
+    String(item?.controller || '') === String(playerId) &&
+    String(item?.card?.id || item?.cardId || '') === String(cardId),
+  );
+}
+
 function buildSpellTargetListFromRequirements(game: any, playerId: string, targetReqs: any): Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> {
   const validTargetList: Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> = [];
   const targetControllerConstraint = String(targetReqs?.targetControllerConstraint || 'any').toLowerCase();
@@ -1540,6 +1588,9 @@ function buildSpellTargetListFromRequirements(game: any, playerId: string, targe
       });
 
       for (const permanent of permanents) {
+        if (!canPermanentBeTargetedByPlayer(permanent, game.state, playerId as PlayerID)) {
+          continue;
+        }
         validTargetList.push({
           id: permanent.id,
           kind: 'permanent',
@@ -1576,6 +1627,9 @@ function buildSpellTargetListFromRequirements(game: any, playerId: string, targe
         });
 
         for (const permanent of permanents) {
+          if (!canPermanentBeTargetedByPlayer(permanent, game.state, playerId as PlayerID)) {
+            continue;
+          }
           validTargetList.push({
             id: permanent.id,
             kind: 'permanent',
@@ -3081,6 +3135,16 @@ export function extractCreatureTypes(typeLine: string): string[] {
  * Get spell-cast triggers that should fire for a spell being cast
  * Checks battlefield for permanents with spell-cast triggered abilities
  */
+function parseCastSpellPower(spellCard: any): number {
+  const faceIndex = Number(spellCard?.faceIndex ?? 0);
+  const faces = Array.isArray(spellCard?.card_faces) ? spellCard.card_faces : [];
+  const face = faces[faceIndex];
+  const raw = face?.power ?? spellCard?.power;
+  if (raw === undefined || raw === null) return 0;
+  const parsed = parseInt(String(raw), 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any, castSourceZone?: SpellCastSourceZone): SpellCastTrigger[] {
   const triggers: SpellCastTrigger[] = [];
   const battlefield = game.state?.battlefield || [];
@@ -3107,6 +3171,11 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
       ? card.colors
       : (Array.isArray(card?.color_identity) ? card.color_identity : []);
     const isColorlessSpell = spellColors.length === 0;
+
+    if (trigger.minSpellPower != null) {
+      if (!isCreatureSpell) return false;
+      return parseCastSpellPower(card) >= Number(trigger.minSpellPower);
+    }
 
     switch (trigger.spellCondition) {
       case 'any':
@@ -10673,6 +10742,24 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       const poolBeforeSpellPayment = { ...getOrInitManaPool(game.state, playerId) } as any;
       const creatureSpellHasteLowerBoundBeforeSpellPayment = snapshotCreatureSpellHasteManaLowerBound(game.state, playerId);
+
+      const allowResolutionModeCompletion = skipPriorityCheck === true && skipInteractivePrompts === true;
+      if (!canCompleteSpellCastAtCurrentTiming(game, playerId, allowResolutionModeCompletion)) {
+        restorePlayerCastSpellPaymentCheckpoint(game, playerId, {
+          pool: castSpellPaymentCheckpoint.pool,
+          tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
+          harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
+        });
+        debugWarn(
+          1,
+          `[castSpellFromHand] Aborting cast of ${cardInHand.name} (${cardId}) — cast timing lost (priority=${String(game.state.priority)}, player=${playerId})`,
+        );
+        socket.emit('error', {
+          code: 'CAST_TIMING_LOST',
+          message: 'Cannot finish casting this spell because priority was lost.',
+        });
+        return;
+      }
       
       // Consume mana from pool to pay for the spell
       // This uses both floating mana and newly tapped mana, leaving unspent mana for subsequent spells
@@ -11045,9 +11132,28 @@ export function registerGameActions(io: Server, socket: Socket) {
           });
           
           if (!validation.legal) {
+            const reason = String(validation.reason || 'Cannot cast spell');
+            const priorityLost = /priority/i.test(reason);
+            if (priorityLost || !canCompleteSpellCastAtCurrentTiming(game, playerId, allowResolutionModeCompletion)) {
+              Object.assign(getOrInitManaPool(game.state, playerId), poolBeforeSpellPayment);
+              restorePlayerCastSpellPaymentCheckpoint(game, playerId, {
+                pool: castSpellPaymentCheckpoint.pool,
+                tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
+                harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
+              });
+              debugWarn(
+                1,
+                `[castSpellFromHand] RulesBridge rejected post-payment cast of ${cardInHand.name} (${cardId}); aborting applyEvent: ${reason}`,
+              );
+              socket.emit('error', {
+                code: priorityLost ? 'CAST_TIMING_LOST' : 'CAST_REJECTED',
+                message: reason,
+              });
+              return;
+            }
             debugWarn(
               1,
-              `[castSpellFromHand] RulesBridge rejected post-payment cast of ${cardInHand.name} (${cardId}); continuing with authoritative applyEvent: ${validation.reason || 'Cannot cast spell'}`,
+              `[castSpellFromHand] RulesBridge rejected post-payment cast of ${cardInHand.name} (${cardId}); continuing with authoritative applyEvent: ${reason}`,
             );
           } else {
             // Execute through rules engine (this will emit events)
@@ -11259,6 +11365,24 @@ export function registerGameActions(io: Server, socket: Socket) {
           })();
           
           if (typeof game.applyEvent === 'function') {
+            if (!canCompleteSpellCastAtCurrentTiming(game, playerId, allowResolutionModeCompletion)) {
+              Object.assign(getOrInitManaPool(game.state, playerId), poolBeforeSpellPayment);
+              restorePlayerCastSpellPaymentCheckpoint(game, playerId, {
+                pool: castSpellPaymentCheckpoint.pool,
+                tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
+                harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
+              });
+              debugWarn(
+                1,
+                `[castSpellFromHand] Aborting applyEvent for ${cardInHand.name} (${cardId}) — cast timing lost before stack push`,
+              );
+              socket.emit('error', {
+                code: 'CAST_TIMING_LOST',
+                message: 'Cannot finish casting this spell because priority was lost.',
+              });
+              return;
+            }
+
             const castEv: any = {
               type: "castSpell",
               playerId,
@@ -12448,6 +12572,14 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       if (!ensureInGameRoom(gameId)) return;
 
+      if (isSpellAlreadyOnStackForPlayer(game, playerId, cardId)) {
+        debug(2, `[completeCastSpell] Spell ${cardId} already on stack for ${playerId}, skipping duplicate completion`);
+        if (effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]) {
+          delete (game.state as any).pendingSpellCasts[effectIdStr];
+        }
+        return;
+      }
+
       let pendingFromZone: SpellCastSourceZone | undefined;
       let pendingBypassExilePermissionCheck = false;
       let pendingIgnoreTimingRestrictions = false;
@@ -12643,8 +12775,6 @@ export function registerGameActions(io: Server, socket: Socket) {
           });
           return;
         }
-        
-          delete (game.state as any).pendingSpellCasts[effectIdStr];
         }
       } else {
         debug(2, `[completeCastSpell] No pendingCast found for effectId: ${effectIdStr}`);
@@ -12661,6 +12791,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       debug(2, `[completeCastSpell] Calling handleCastSpellFromHand with skipInteractivePrompts=true`);
       debug(2, `[completeCastSpell] DEBUG END ==========================================`);
 
+      markPlayerCompletingSpellCast(game, playerId, cardId, effectIdStr);
+      try {
       // CRITICAL FIX: Pass skipInteractivePrompts=true to prevent infinite targeting loop
       // This tells handleCastSpellFromHand to skip all target/payment requests since we're completing a previous cast
       await handleCastSpellFromHand({
@@ -12680,6 +12812,13 @@ export function registerGameActions(io: Server, socket: Socket) {
         ignoreTimingRestrictions: pendingIgnoreTimingRestrictions,
         allowLibrarySearchCast: Boolean(suspendedLibrarySearchStep),
       });
+
+      if (isSpellAlreadyOnStackForPlayer(game, playerId, cardId) && effectIdStr) {
+        delete (game.state as any).pendingSpellCasts[effectIdStr];
+      }
+      } finally {
+        clearPlayerCompletingSpellCast(game, playerId, cardId);
+      }
 
       if (suspendedLibrarySearchStep) {
         await restoreSuspendedLibrarySearchStep(io, socket, gameId, suspendedLibrarySearchStep);

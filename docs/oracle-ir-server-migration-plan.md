@@ -2,10 +2,12 @@
 
 **Purpose:** Plan the full supersession of handwritten spell/trigger/ability resolution with Oracle IR execution and the Effect Program orchestrator.
 
-**Last updated:** 2026-06-11 (batch 173 — partial IR apply guardrails + reanimation rider wiring)  
+**Last updated:** 2026-06-11 (batch 175 — Inspiring Call antecedent "those creatures" + spell guardrail fix)  
 **Owner:** Project maintainers  
 
-> **New session?** Start at [Current status / session handoff](#current-status--session-handoff-2026-06-11) below. Batch 171–173 work is **uncommitted** locally.
+> **New session?** Start at [Current status / session handoff](#current-status--session-handoff-2026-06-11) below. Batch 171–175 work is **uncommitted** locally.
+
+**Rules for new work:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — **no card-name routing**, **no new `KNOWN_*` table rows**; extend parser → executor → `applyOracleIRStepsOnServer` → resolution queue.
 
 **Companion docs:**
 - [oracle-automation-remaining-work.md](./oracle-automation-remaining-work.md) — rules-engine parser/executor gap closure (mostly complete)
@@ -30,11 +32,73 @@ The project has **three distinct layers**. Layers 1–2 are in strong shape; **L
 
 ## Current status / session handoff (2026-06-11)
 
-**Latest completed work:** Stack refactor **batch 173** — **partial multi-step IR apply guardrails** (activated abilities, spells, triggers, uncategorized fallback). Reanimation rider step kinds (`grant_temporary_ability`, `grant_leave_battlefield_replacement`, `schedule_delayed_battlefield_action`) added to fallback allowlists. Whip of Erebos + Kheru Lich Lord integration corridors green.
+**Latest completed work:** Stack refactor **batch 175** — **Inspiring Call spell IR primary** now applies draw + indestructible end-to-end. Fixed `grant_temporary_ability` antecedent resolution (`lastAntecedentBattlefieldPermanentIds` from "for each" draw counts; "Those creatures" no longer mis-routed to static grant via overly broad `until end of turn` regex). Fixed `isOracleIrExecutionHandled` guardrail regression (uses `isOracleIrMandatoryExecutionComplete` + `hasUnqueuedPlayerChoiceGap`).
+
+**Prior batch 174:** generic `add_counter` distribute execution; Court of Garenbrig upkeep; G1 triage partial.
 
 **Git state:** ~60+ files modified, **no commits** unless explicitly requested.
 
-### Batch 173 — what landed
+### Batch 175 — Inspiring Call antecedent grants
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Execute** | Draw with `reference_amount` "for each …" records `lastAntecedentBattlefieldPermanentIds` | `oracleIRExecutorPlayerStepHandlers.ts`, `oracleIRExecutorForEachQuantity.ts`, `oracleIRExecutorModifyPtWhereMiscCounts.ts`, `oracleIRExecutorMainLoop.ts` |
+| **Execute** | `grant_temporary_ability` "Those creatures" resolves antecedent IDs; static-grant fallback excludes antecedent plurals | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Server** | Spell handled-check uses centralized wiring helpers | `oracleIrSpellExecution.ts` |
+| **Tests** | IR-primary Inspiring Call regression; rules-engine indestructible step test | `inspiring-call-court-garenbrig.regression.test.ts`, `inspiringCall.test.ts` |
+
+**Verify batch 175:**
+
+```powershell
+cd rules-engine
+npx vitest run test/inspiringCall.test.ts test/oracleIRDistributeCounters.test.ts
+
+cd ../server
+npx vitest run tests/inspiring-call-court-garenbrig.regression.test.ts
+npx vitest run tests/oracle-ir-activated-ability-guardrail.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 174 — distribute counters (generic IR)
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parse** | `add_counter` with `distribution: 'among'` for `distribute X counters among Y` | `oracleIR.ts`, `oracleIRParserSimpleActionClauses.ts` |
+| **Execute** | Round-robin split across bound `chosenObjectIds`; sets `lastMovedBattlefieldPermanentIds` for `double_counters` tails | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Server** | Counter doubling (Branching Evolution) via existing replacement sync after IR apply | `oracleIrServerZoneSync.ts` (`syncCounterReplacementEffectsAfterOracleIR`) |
+| **Upkeep detection** | Removed card-specific `KNOWN_UPKEEP_CARDS["court of garenbrig"]`; generic upkeep regex owns detection | `upkeep-triggers.ts` |
+| **Legacy retirement** | `applyRetiredTriggerLegacyDistributeCounters` → no-op | `oracleIrTriggerLegacyCounterHandlers.ts` |
+| **Tests** | `rules-engine/test/oracleIRDistributeCounters.test.ts`, `server/tests/inspiring-call-court-garenbrig.regression.test.ts` (IR path), upkeep detection (no monarch bleed) | |
+
+**Verify batch 174:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRDistributeCounters.test.ts
+
+cd ../server
+npx vitest run tests/inspiring-call-court-garenbrig.regression.test.ts
+npx vitest run tests/upkeep-trigger-detection.unit.test.ts
+```
+
+**Not yet done (distribute follow-ups):**
+- Player UI for **choosing how many counters** on each target when multiple legal splits exist (currently auto round-robin when targets are pre-bound on stack)
+- Variable-amount distribute (`distribute a number of +1/+1 counters equal to … among any number of creatures you control`) — parse exists; executor needs reference-amount + unbounded target pool
+- Stun counter / non-+1/+1 distribute families (e.g. Crashing Wave) — extend parser counter normalization + tests
+
+### G1 game-log bugs — remaining for next session
+
+| Issue | Status | Next step |
+|-------|--------|-----------|
+| **Court of Garenbrig** upkeep counters | **Fixed** (batch 174 IR) | Re-test in live game with Branching Evolution |
+| **Inspiring Call** draw + indestructible | **Fixed** (batch 175 IR primary) | Legacy draw regex still present as fallback when primary OFF |
+| **Roaming Throne** explore doubling | **Wired** (doubler on stack push) | Verify `chosenCreatureType` persisted on Roaming Throne at ETB; re-test explore |
+| **Cryptoplasm** copy | **Investigate** | Optional upkeep was declined in G1 log — re-test on accept; `copy_permanent` IR + server sync |
+| **Cavern / Three Tree City** type badge | **Investigate** | Client shows badge when `chosenCreatureType` set — check server ETB choice persistence (`creature-type.ts`) |
+| **Bighorner Rancher** null priority | **Investigate** | G1 hang during Gwenna mana selection, not clearly Bighorner-specific |
+| **Door of Destinies** partial IR tail | **Open** | All-or-nothing guard may need wiring expansion |
+
+### Batch 173 — what landed (still relevant)
 
 | Area | Change | Key files |
 |------|--------|-----------|
@@ -145,12 +209,14 @@ npm run test:oracle-ir-migration   # broader migration suite when touching routi
 
 ### Next session priorities (Phase 4 continuation)
 
-1. **`grant_temporary_ability` wiring** — retire combat evasion legacy handlers (`oracleIrTriggerLegacyCombatEvasionHandlers.ts`); server bridge from IR `temporaryEffects` → `temporaryAbilities` exists (batch 170) but step-kind wiring deferred.
-2. **`modify_pt` counter-scaled pumps** — long-term IR ownership for Hydra Trainer–style effects (description normalization is a shim; IR step should own counter math).
-3. **Continue regex retirement** — grep `skipRetiredTriggerLegacyHandler` / `applyRetiredTriggerLegacy*` for handlers whose step kinds are in `ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS`; add guardrail + integration test, then gut handler body.
-4. **Copy-token regression test** — add rules-engine unit test asserting `"copy of target creature you control"` hint resolves via copy path (not generic Token). Suggested: extend `rules-engine/test/oracleIRExecutor.test.ts` near existing Rite of Replication copy test (~line 37945).
-5. **Run migration suite** after routing/sync edits: `cd server ; npm run test:oracle-ir-migration`
-6. **Uncommitted work** — all batch 171–172 changes are local only; no commits unless explicitly requested.
+1. **G1 verification pass** — re-run scenarios from game log with batch 174 fixes; file issues for Cryptoplasm, creature-type badge persistence, Bighorner/Gwenna priority hang.
+2. **`grant_temporary_ability` wiring** — retire combat evasion legacy handlers; step-kind wiring in `oracleIrStepWiring.ts`.
+3. **`modify_pt` counter-scaled pumps** — IR ownership for Hydra Trainer–style effects (drop description-normalization shim).
+4. **Distribute-counter UI** — resolution queue step for player split when targets bound but split is ambiguous (optional; round-robin is acceptable MVP).
+5. **Continue regex retirement** — grep `applyRetiredTriggerLegacy*`; gut bodies when IR + integration test green. **Never** add card-name rows to `KNOWN_*` tables (see `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc`).
+6. **Inspiring Call spell path** — ensure full multi-step IR applies under `ORACLE_IR_SPELL_PRIMARY=1`; then remove `stackResolveSpellLegacyRegexDrawUtils` draw fallback.
+7. **Run migration suite** after routing/sync edits: `cd server ; npm run test:oracle-ir-migration`
+8. **Uncommitted work** — all batch 171–174 changes are local only; no commits unless explicitly requested.
 
 ### Known invariants (do not break)
 

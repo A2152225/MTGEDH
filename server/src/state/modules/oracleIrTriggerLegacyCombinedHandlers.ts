@@ -3,7 +3,7 @@ import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
 import { debug } from '../../utils/debug.js';
-import { queueLandPlayFromHandPrompt } from './triggerLandPlayPromptUtils.js';
+import { queueLandPlayFromHandPrompt, queueControllerLandPlayOrDrawPrompt } from './triggerLandPlayPromptUtils.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import { modifyTriggerEffectLife } from './triggerLifeDamageUtils.js';
 import { queueLifeLossTriggers } from './triggers/life-loss.js';
@@ -135,6 +135,12 @@ export function applyRetiredTriggerLegacyPutLandFromHand(
 
   if (!/you may put a land card from your hand onto the battlefield/i.test(String(params.desc || ''))) {
     return false;
+  }
+
+  const hasDrawFallback = /if you don(?:'|’)?t,?\s*draw a card/i.test(String(params.desc || ''));
+  if (hasDrawFallback) {
+    queueControllerLandPlayOrDrawPrompt(params.ctx, params.controller, params.sourceName, params.triggerItem);
+    return true;
   }
 
   queueLandPlayFromHandPrompt(params.ctx, params.controller, params.sourceName, params.triggerItem);
