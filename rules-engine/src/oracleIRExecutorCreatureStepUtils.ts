@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
+import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
 import type { OracleObjectSelector } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { normalizeOracleText } from './oracleIRExecutorPlayerUtils';
@@ -1345,10 +1346,9 @@ export function permanentIsCreature(permanent: any): boolean {
 }
 
 export function permanentHasSubtype(permanent: any, subtype: string | undefined): boolean {
-  const needle = String(subtype || '').trim().toLowerCase();
+  const needle = String(subtype || '').trim();
   if (!needle) return false;
-  const typeLine = getExecutorTypeLineLower(permanent);
-  return new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(typeLine);
+  return permanentHasCreatureType(permanent, needle);
 }
 
 export function getSourceBattlefieldPermanent(state: GameState, ctx: OracleIRExecutionContext): any | null {

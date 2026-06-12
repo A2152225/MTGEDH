@@ -16,6 +16,21 @@ function applyCopyCardOntoPermanent(
     ? sourcePermanent.card
     : sourcePermanent;
 
+  if (!sourcePermanent.preCopyCardSnapshot) {
+    sourcePermanent.preCopyCardSnapshot = {
+      name: String(sourcePermanent?.name || sourceCard?.name || '').trim() || undefined,
+      cardType: String(sourcePermanent?.cardType || sourcePermanent?.type_line || sourceCard?.type_line || '').trim() || undefined,
+      type_line: String(sourcePermanent?.type_line || sourceCard?.type_line || '').trim() || undefined,
+      oracle_text: String(sourcePermanent?.oracle_text || sourceCard?.oracle_text || '').trim() || undefined,
+      power: sourcePermanent?.power ?? sourcePermanent?.basePower,
+      toughness: sourcePermanent?.toughness ?? sourcePermanent?.baseToughness,
+      card: JSON.parse(JSON.stringify(sourceCard)),
+      grantedAbilities: Array.isArray(sourcePermanent?.grantedAbilities)
+        ? [...sourcePermanent.grantedAbilities]
+        : undefined,
+    };
+  }
+
   const rawRetained = String(retainedAbilityText || '').trim();
   const sourceOracleBeforeCopy = String(sourceCard?.oracle_text || sourcePermanent?.oracle_text || '').trim();
   const retained = /^it has this ability$/i.test(rawRetained)
@@ -87,6 +102,43 @@ function applyCopyCardOntoPermanent(
     sourceName: String(sourcePermanent?.card?.name || sourcePermanent?.name || copiedName || 'Permanent'),
     targetName: copiedName || 'creature',
   };
+}
+
+export function revertCopyPermanentToOriginal(permanent: any): boolean {
+  const snapshot = permanent?.preCopyCardSnapshot;
+  if (!snapshot || typeof snapshot !== 'object') {
+    return false;
+  }
+
+  const restoredCard = JSON.parse(JSON.stringify(snapshot.card || {}));
+  const restoredName = String(snapshot.name || restoredCard?.name || '').trim();
+  const restoredTypeLine = String(snapshot.type_line || snapshot.cardType || restoredCard?.type_line || '').trim();
+  const restoredOracle = String(snapshot.oracle_text || restoredCard?.oracle_text || '').trim();
+
+  Object.assign(permanent, {
+    ...(restoredName ? { name: restoredName } : {}),
+    ...(restoredTypeLine ? { cardType: restoredTypeLine, type_line: restoredTypeLine } : {}),
+    ...(restoredOracle ? { oracle_text: restoredOracle } : {}),
+    ...(snapshot.power !== undefined
+      ? { power: snapshot.power, basePower: snapshot.power, effectivePower: undefined }
+      : {}),
+    ...(snapshot.toughness !== undefined
+      ? { toughness: snapshot.toughness, baseToughness: snapshot.toughness, effectiveToughness: undefined }
+      : {}),
+    ...(Array.isArray(snapshot.grantedAbilities) ? { grantedAbilities: [...snapshot.grantedAbilities] } : { grantedAbilities: undefined }),
+    card: {
+      ...restoredCard,
+      ...(restoredName ? { name: restoredName } : {}),
+      ...(restoredTypeLine ? { type_line: restoredTypeLine } : {}),
+      ...(restoredOracle ? { oracle_text: restoredOracle } : {}),
+      zone: 'hand',
+    },
+    copiedFromPermanentId: undefined,
+    copiedFromCardId: undefined,
+    preCopyCardSnapshot: undefined,
+  });
+
+  return true;
 }
 
 export function applyPermanentBecomeCopyOfTargetPermanent(

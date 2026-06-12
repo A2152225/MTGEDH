@@ -31,7 +31,7 @@ import { FloatingManaPool } from './FloatingManaPool';
 import { TokenGroups } from './TokenGroups';
 import { XValueSelectionModal } from './XValueSelectionModal';
 import { socket } from '../socket';
-import type { ParsedActivatedAbility } from '../utils/activatedAbilityParser';
+import { parseActivatedAbilities, type ParsedActivatedAbility } from '../utils/activatedAbilityParser';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayAreaGradientStyle, getBackgroundStyle, getPlayableCardHighlight } from '../utils/appearanceSettings';
 import { battlefieldGridContentHeightForRows } from '../utils/battlefieldGrid';
@@ -866,13 +866,22 @@ export function TableLayout(props: {
     if (!gameId) return;
 
     const normalizedAbilityId = typeof abilityId === 'number' ? String(abilityId) : (abilityId || '0');
-    if (xValue === undefined && ability?.hasXCost) {
-      const xCount = Math.max(1, Number(ability.xCount || 1));
+    let resolvedAbility = ability;
+    if (!resolvedAbility) {
+      const perm = allBattlefieldPerms.find((entry) => entry.id === permanentId);
+      const card = perm?.card as KnownCardRef | undefined;
+      if (card) {
+        resolvedAbility = parseActivatedAbilities(card, (perm as any)?.grantedAbilities)
+          .find((entry) => entry.id === normalizedAbilityId);
+      }
+    }
+    if (xValue === undefined && resolvedAbility?.hasXCost) {
+      const xCount = Math.max(1, Number(resolvedAbility.xCount || 1));
       setPendingXActivation({
         permanentId,
         abilityId: normalizedAbilityId,
-        cardName: battlefieldCardNames.get(permanentId) || ability.label || 'Activated Ability',
-        abilityText: ability.effect || ability.description,
+        cardName: battlefieldCardNames.get(permanentId) || resolvedAbility.label || 'Activated Ability',
+        abilityText: resolvedAbility.effect || resolvedAbility.description,
         xCount,
         affordableXHint: totalFloatingMana > 0 ? Math.floor(totalFloatingMana / xCount) : undefined,
       });
@@ -888,7 +897,7 @@ export function TableLayout(props: {
     window.setTimeout(() => {
       socket.emit('getMyNextResolutionStep', { gameId });
     }, 0);
-  }, [battlefieldCardNames, gameId, totalFloatingMana]);
+  }, [allBattlefieldPerms, battlefieldCardNames, gameId, totalFloatingMana]);
 
   const handlePendingXActivationSelect = useCallback((xValue: number) => {
     if (!pendingXActivation || !gameId) return;

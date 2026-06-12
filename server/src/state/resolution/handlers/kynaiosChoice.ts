@@ -12,6 +12,8 @@ import { detectEntersWithCounters } from '../../modules/detectEntersWithCounters
 import { checkPermanentEntersTapped } from '../../modules/triggerPermanentEntersTapped.js';
 import { queueSelfETBTriggersForPermanent } from '../../modules/triggerEtbEntryEffects.js';
 import { triggerETBEffectsForPermanent } from '../../modules/triggerEtbPermanentEffects.js';
+import { runPostResolutionPermanentPromptChecks } from '../../../socket/game-actions.js';
+import { broadcastGame } from '../../../socket/util.js';
 
 function drawKynaiosCard(game: any, playerId: PlayerID): void {
   if (typeof game?.drawCards === 'function') {
@@ -241,6 +243,11 @@ export function handleKynaiosChoiceResponse(
     }
     createdPermanentId = moveResult.permanentId;
     emitChat(io, gameId, `${deps.getPlayerName(game, pid)} puts ${moveResult.cardName || 'a land'} onto the battlefield (${sourceName}).`);
+    runPostResolutionPermanentPromptChecks(io, game, gameId);
+    if (typeof game.bumpSeq === 'function') {
+      game.bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
   } else if (choice === 'draw_card' && skipFinalize && isController) {
     drawKynaiosCard(game, pid);
     emitChat(io, gameId, `${deps.getPlayerName(game, pid)} draws a card (${sourceName}).`);

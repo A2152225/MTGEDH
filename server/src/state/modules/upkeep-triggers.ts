@@ -309,8 +309,10 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   const counters = permanent?.counters || {};
   
   // Check known cards first for accurate descriptions
+  let matchedKnownUpkeep = false;
   for (const [knownName, info] of Object.entries(KNOWN_UPKEEP_CARDS)) {
     if (lowerName.includes(knownName)) {
+      matchedKnownUpkeep = true;
       triggers.push({
         permanentId,
         cardName,
@@ -809,7 +811,10 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   // Examples: Eldrazi Monument, Demonic Appetite, Jinxed Idol
   // 
   // Use module-level constants for these patterns (defined at top of file)
-  if (SACRIFICE_CREATURE_OR_SELF_PATTERN.test(oracleText) || SACRIFICE_OR_PATTERN.test(oracleText)) {
+  if (
+    !matchedKnownUpkeep
+    && (SACRIFICE_CREATURE_OR_SELF_PATTERN.test(oracleText) || SACRIFICE_OR_PATTERN.test(oracleText))
+  ) {
     // Determine what type of permanent this is for the alternative sacrifice
     const permTypeLine = (card?.type_line || '').toLowerCase();
     let sacrificeAlternativeType = 'this permanent';

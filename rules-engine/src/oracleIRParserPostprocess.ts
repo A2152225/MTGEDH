@@ -588,6 +588,50 @@ export function mergeLookSelectTopFollowupAbilities(
 const REVEAL_FROM_AMONG_PUT_HAND =
   /^you may reveal (.+?) card from among them and put (?:it|that card) into your hand$/i;
 
+const PUT_ONE_ON_TOP_REST_BOTTOM_RANDOM =
+  /^put up to one of them on top of your library and the rest on the bottom of your library in a random order$/i;
+
+const THASSA_ORACLE_WIN_CLAUSE =
+  /^if x is greater than or equal to the number of cards in your library, you win the game$/i;
+
+function isThassaOracleWinGrantStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'grant_static_ability') return false;
+  const normalized = normalizeOracleText(String(step.raw || '')).replace(/[.]+$/g, '').trim();
+  return THASSA_ORACLE_WIN_CLAUSE.test(normalized);
+}
+
+function parseLookTopPutOneOnTopRestBottomPair(
+  current: OracleEffectStep,
+  next: OracleEffectStep | undefined
+): OracleEffectStep | null {
+  if (current.kind !== 'look_top') return null;
+  if (next?.kind !== 'unknown' && next?.kind !== 'grant_static_ability') return null;
+
+  const normalizedNext = normalizeOracleText(String(next.raw || '')).replace(/[.]+$/g, '').trim();
+  if (!PUT_ONE_ON_TOP_REST_BOTTOM_RANDOM.test(normalizedNext)) return null;
+
+  const amount = (current as { amount?: ReturnType<typeof parseQuantity> }).amount;
+  if (!amount || amount.kind === 'unknown') return null;
+
+  const whereX = (current as { whereX?: OracleClauseCondition }).whereX;
+  const normalizedLook = normalizeOracleText(String(current.raw || '')).replace(/[.]+$/g, '').trim();
+
+  return {
+    kind: 'look_select_top',
+    who: (current as { who?: { kind: 'you' } }).who ?? { kind: 'you' },
+    amount,
+    ...(whereX ? { whereX } : {}),
+    choose: parseQuantity('one'),
+    chooseMin: 0,
+    destination: 'library_top',
+    restDestination: 'library',
+    restRandomOrder: true,
+    optional: true,
+    ...(current.sequence ? { sequence: current.sequence } : {}),
+    raw: `${normalizedLook}. ${normalizedNext}`.trim(),
+  };
+}
+
 function parseLookChooseFromTopPair(
   current: OracleEffectStep,
   next: OracleEffectStep | undefined
@@ -704,6 +748,14 @@ export function mergeLookChooseFromTopAbilities(
       const current = ability.steps[i];
       const next = ability.steps[i + 1];
       const after = ability.steps[i + 2];
+
+      const libraryReorder = parseLookTopPutOneOnTopRestBottomPair(current, next);
+      if (libraryReorder) {
+        merged.push(libraryReorder);
+        i += 1;
+        continue;
+      }
+
       const paired = parseLookChooseFromTopPair(current, next);
       if (paired) {
         merged.push(paired);
@@ -721,6 +773,15 @@ export function mergeLookChooseFromTopAbilities(
     }
 
     return merged.length === ability.steps.length ? ability : { ...ability, steps: merged };
+  });
+}
+
+export function pruneThassaOracleWinGrantAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const steps = ability.steps.filter(step => !isThassaOracleWinGrantStep(step));
+    return steps.length === ability.steps.length ? ability : { ...ability, steps };
   });
 }
 

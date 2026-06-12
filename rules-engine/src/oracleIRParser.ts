@@ -199,6 +199,7 @@ import {
   repairGapClosureAbilitySteps,
   repairRandomChooseModeSagaAbilities,
   mergeLookSelectTopFollowupAbilities,
+  pruneThassaOracleWinGrantAbilities,
   pruneRedundantImpulseCleanupUnknownAbilities,
   pruneDuplicateGraveyardReminderAbilities,
   pruneEquipmentBleedSteps,
@@ -1729,6 +1730,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandCastWithoutPayingFallbackAbilities(abilities, normalizedOracleText);
   abilities = repairQuotedStaticGrantAbilities(abilities);
   abilities = lowerCurrentResidualUnknownAbilities(abilities);
+  abilities = pruneThassaOracleWinGrantAbilities(abilities);
   abilities = pruneCurrentBatchReminderUnknownAbilities(abilities);
   abilities = lowerAmongThemChoosePlayerChoiceAbilities(abilities);
   abilities = splitCompoundChosenCardsMoveZoneAbilities(abilities);

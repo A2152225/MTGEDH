@@ -735,9 +735,12 @@ export type OracleEffectStep =
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
       readonly choose: OracleQuantity;
-      readonly destination: 'hand' | 'graveyard';
+      readonly chooseMin?: number;
+      readonly whereX?: OracleClauseCondition;
+      readonly destination: 'hand' | 'graveyard' | 'library_top';
       readonly restDestination: 'graveyard' | 'library';
       readonly restToTop?: boolean;
+      readonly restRandomOrder?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

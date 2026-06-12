@@ -1053,9 +1053,10 @@ export function lookSelectTopCardsForPlayer(
   playerId: PlayerID,
   lookCount: number,
   chooseCount: number,
-  destination: 'hand' | 'graveyard',
+  destination: 'hand' | 'graveyard' | 'library_top',
   restDestination: 'graveyard' | 'library',
-  restToTop = false
+  restToTop = false,
+  restRandomOrder = false
 ): { state: GameState; log: string[]; chosen: any[]; rest: any[]; lookedAtCount: number } {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) {
@@ -1079,25 +1080,49 @@ export function lookSelectTopCardsForPlayer(
 
   if (destination === 'hand') {
     hand.push(...chosen);
-  } else {
+  } else if (destination === 'graveyard') {
     graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, chosen));
+  } else if (destination === 'library_top' && chosen.length > 0) {
+    for (let index = chosen.length - 1; index >= 0; index -= 1) {
+      library.unshift(chosen[index]);
+    }
   }
 
   if (restDestination === 'graveyard') {
     graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, rest));
   } else if (rest.length > 0) {
-    const reorderedRest = restToTop ? rest : [...rest].reverse();
-    library.unshift(...reorderedRest);
+    if (destination === 'library_top') {
+      const bottomRest = restRandomOrder
+        ? [...rest].sort(() => Math.random() - 0.5)
+        : rest;
+      library.push(...bottomRest);
+    } else {
+      const reorderedRest = restToTop ? rest : [...rest].reverse();
+      library.unshift(...reorderedRest);
+    }
   }
 
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), library, hand, graveyard } as any) : p
   );
 
+  const destinationLabel = destination === 'hand'
+    ? 'their hand'
+    : destination === 'graveyard'
+      ? 'their graveyard'
+      : 'the top of their library';
+  const restLabel = restDestination === 'graveyard'
+    ? 'their graveyard'
+    : restRandomOrder
+      ? 'the bottom of their library in a random order'
+      : restToTop
+        ? 'the top of their library'
+        : 'the bottom of their library';
+
   return {
     state: { ...state, players: updatedPlayers as any },
     log: [
-      `${playerId} looks at ${actualLookCount} card(s), puts ${chosen.length} into ${destination === 'hand' ? 'their hand' : 'their graveyard'}, and moves ${rest.length} to ${restDestination === 'graveyard' ? 'their graveyard' : restToTop ? 'the top of their library' : 'the bottom of their library'}`,
+      `${playerId} looks at ${actualLookCount} card(s), puts ${chosen.length} into ${destinationLabel}, and moves ${rest.length} to ${restLabel}`,
     ],
     chosen,
     rest,

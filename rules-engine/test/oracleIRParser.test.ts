@@ -15132,6 +15132,28 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     );
   });
 
+  it("parses Thassa's Oracle ETB into look-select-top with devotion X and library reorder", () => {
+    const ir = parseOracleTextToIR(
+      "When Thassa's Oracle enters the battlefield, look at the top X cards of your library, where X is your devotion to blue. Put up to one of them on top of your library and the rest on the bottom of your library in a random order. If X is greater than or equal to the number of cards in your library, you win the game.",
+      "Thassa's Oracle"
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'look_select_top',
+        who: { kind: 'you' },
+        amount: { kind: 'x' },
+        whereX: { kind: 'where', raw: 'your devotion to blue' },
+        choose: { kind: 'number', value: 1 },
+        chooseMin: 0,
+        destination: 'library_top',
+        restDestination: 'library',
+        restRandomOrder: true,
+        optional: true,
+      }),
+    ]);
+  });
+
   it('parses top-of-library exile selection plus bottom-random remainder into a deterministic step', () => {
     const ir = parseOracleTextToIR(
       'Look at the top three cards of your library. You may exile an instant or sorcery card with mana value 2 or less from among them. Put the rest on the bottom of your library in a random order.',

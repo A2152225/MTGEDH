@@ -1367,6 +1367,7 @@ export function getCastableSpellCandidates(
     skipIgnoredCards?: boolean;
     allowAlternateCosts?: boolean;
     allowUnknownCostFallback?: boolean;
+    conservativeTargets?: boolean;
   },
 ): SharedSpellCastCandidate[] {
   try {
@@ -1384,6 +1385,7 @@ export function getCastableSpellCandidates(
     const skipIgnoredCards = options?.skipIgnoredCards === true;
     const allowAlternateCosts = options?.allowAlternateCosts !== false;
     const allowUnknownCostFallback = options?.allowUnknownCostFallback !== false;
+    const conservativeTargets = options?.conservativeTargets !== false;
     const ignoredCards = (state as any).ignoredCardsForAutoPass?.[playerId] || {};
     const stateAny = state as any;
     const currentTurn = Number(stateAny?.turnNumber ?? 0);
@@ -1508,7 +1510,7 @@ export function getCastableSpellCandidates(
           continue;
         }
 
-        if (!hasValidTargetsForSpell(state, playerId, castCard)) {
+        if (!hasValidTargetsForSpell(state, playerId, castCard, { conservative: conservativeTargets })) {
           continue;
         }
 
@@ -1866,6 +1868,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     skipIgnoredCards: true,
     allowAlternateCosts: true,
     allowUnknownCostFallback: true,
+    conservativeTargets: false,
   }).length > 0;
 }
 
@@ -3311,6 +3314,21 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
         return true;
       }
       
+      const floatingMana = getTotalManaFromPool(getManaPoolFromState(ctx.state as any, playerId));
+      if (isTurnPlayer && floatingMana > 0) {
+        const relaxedCandidates = getCastableSpellCandidates(ctx, playerId, {
+          mode: 'sorcery',
+          skipIgnoredCards: false,
+          allowAlternateCosts: true,
+          allowUnknownCostFallback: true,
+          conservativeTargets: false,
+        });
+        if (relaxedCandidates.length > 0 || canActivateAnyAbility(ctx, playerId)) {
+          debug(2, `[canAct] ${playerId}: Floating mana with affordable main-phase action - returning TRUE`);
+          return true;
+        }
+      }
+
       debug(2, `[canAct] ${playerId}: No sorcery-speed actions available in main phase - returning FALSE`);
     } else {
       debug(1, `[canAct] ${playerId}: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE`);
@@ -3377,6 +3395,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
     skipIgnoredCards: true,
     allowAlternateCosts: true,
     allowUnknownCostFallback: true,
+    conservativeTargets: false,
   }).length > 0;
 }
 

@@ -1,4 +1,5 @@
 import type { GameState, PlayerID } from '../../shared/src';
+import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
 import type { OracleEffectStep, OracleObjectSelector } from './oracleIR';
 import { createCustomEmblem } from './emblemSupport';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions } from './oracleIRExecutionTypes';
@@ -193,11 +194,9 @@ function permanentIsCreature(permanent: any): boolean {
 }
 
 function permanentHasSubtype(permanent: any, subtype: string | undefined): boolean {
-  const needle = String(subtype || '').trim().toLowerCase();
+  const needle = String(subtype || '').trim();
   if (!needle) return false;
-  const typeLine = String(permanent?.card?.type_line || permanent?.type_line || permanent?.cardType || '')
-    .toLowerCase();
-  return new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(typeLine);
+  return permanentHasCreatureType(permanent, needle);
 }
 
 function repeatManaString(mana: string, count: number): string {
@@ -685,19 +684,24 @@ export function buildLookChooseFromTopSelectionOptions(
 export function buildLookSelectTopSelectionOptions(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'look_select_top' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
 ): {
   readonly playerId: PlayerID;
   readonly lookedCount: number;
   readonly chooseCount: number;
+  readonly chooseMin: number;
   readonly availableCards: readonly any[];
-  readonly destination: 'hand' | 'graveyard';
+  readonly destination: 'hand' | 'graveyard' | 'library_top';
   readonly restDestination: 'graveyard' | 'library';
   readonly restToTop: boolean;
+  readonly restRandomOrder: boolean;
 } | null {
-  const amount = quantityToNumber(step.amount);
-  const choose = quantityToNumber(step.choose);
-  if (amount === null || choose === null || choose <= 0) return null;
+  const amount = resolveLookSelectAmount(state, step, ctx, runtime);
+  if (amount === null) return null;
+
+  const chooseMax = quantityToNumber(step.choose, ctx);
+  if (chooseMax === null) return null;
 
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length !== 1) return null;
@@ -708,18 +712,51 @@ export function buildLookSelectTopSelectionOptions(
 
   const library = Array.isArray(player.library) ? player.library : [];
   const lookedCount = Math.max(0, Math.min(library.length, amount | 0));
-  const chooseCount = Math.max(0, Math.min(lookedCount, choose | 0));
-  if (lookedCount <= 0 || chooseCount <= 0) return null;
+  const chooseCount = Math.max(0, Math.min(lookedCount, chooseMax | 0));
+  const chooseMin = Math.max(0, Math.min(chooseCount, step.chooseMin ?? (step.optional ? 0 : chooseCount)));
 
   return {
     playerId,
     lookedCount,
     chooseCount,
+    chooseMin,
     availableCards: library.slice(0, lookedCount),
     destination: step.destination,
     restDestination: step.restDestination,
     restToTop: Boolean(step.restToTop),
+    restRandomOrder: Boolean(step.restRandomOrder),
   };
+}
+
+function resolveLookSelectAmount(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'look_select_top' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
+): number | null {
+  const resolved = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
+    whereX: step.whereX,
+    runtime,
+  });
+  if (resolved !== null) return resolved;
+
+  if (step.amount.kind !== 'x') {
+    return quantityToNumber(step.amount, ctx);
+  }
+
+  const raw = String(step.raw || '').trim();
+  const whereMatch = raw.match(/\bwhere\s+x\s+is\s+(.+?)(?:\.\s|$)/i);
+  if (!whereMatch) return null;
+
+  const evaluated = evaluateModifyPtWhereX(
+    state,
+    ctx.controllerId,
+    `X is ${String(whereMatch[1] || '').trim()}`,
+    undefined,
+    ctx,
+    runtime
+  );
+  return evaluated === null ? null : Math.max(0, evaluated);
 }
 
 function lookChooseFromTopRequiresPlayerChoice(
@@ -739,12 +776,16 @@ function lookChooseFromTopRequiresPlayerChoice(
 function lookSelectTopRequiresPlayerChoice(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'look_select_top' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
 ): boolean {
   if (!ctx.interactivePlayerChoices) return false;
   if (getNormalizedChosenIds(ctx).length > 0) return false;
-  const built = buildLookSelectTopSelectionOptions(state, step, ctx);
+  const built = buildLookSelectTopSelectionOptions(state, step, ctx, runtime);
   if (!built) return false;
+  if (built.lookedCount <= 0) return false;
+  if (built.chooseMin < built.chooseCount) return true;
+  if (step.destination === 'library_top') return built.lookedCount > 0;
   return built.lookedCount > built.chooseCount;
 }
 
@@ -753,10 +794,11 @@ function applyLookSelectTopForPlayerWithChoice(
   playerId: PlayerID,
   amount: number,
   choose: number,
-  destination: 'hand' | 'graveyard',
+  destination: 'hand' | 'graveyard' | 'library_top',
   restDestination: 'graveyard' | 'library',
   restToTop: boolean,
-  chosenObjectIds: readonly string[]
+  chosenObjectIds: readonly string[],
+  restRandomOrder = false
 ): { state: GameState; log: string[]; chosen: any[]; rest: any[]; lookedAtCount: number } {
   const player = state.players.find(entry => entry.id === playerId) as any;
   if (!player) {
@@ -778,25 +820,47 @@ function applyLookSelectTopForPlayerWithChoice(
 
   if (destination === 'hand') {
     hand.push(...chosen);
-  } else {
+  } else if (destination === 'graveyard') {
     graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, chosen));
+  } else if (destination === 'library_top' && chosen.length > 0) {
+    for (let index = chosen.length - 1; index >= 0; index -= 1) {
+      library.unshift(chosen[index]);
+    }
   }
 
   if (restDestination === 'graveyard') {
     graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, rest));
   } else if (rest.length > 0) {
-    const reorderedRest = restToTop ? rest : [...rest].reverse();
-    library.unshift(...reorderedRest);
+    if (destination === 'library_top') {
+      const bottomRest = restRandomOrder ? shuffleArray(rest) : rest;
+      library.push(...bottomRest);
+    } else {
+      const reorderedRest = restToTop ? rest : [...rest].reverse();
+      library.unshift(...reorderedRest);
+    }
   }
 
   const updatedPlayers = state.players.map(entry =>
     entry.id === playerId ? ({ ...(entry as any), library, hand, graveyard } as any) : entry
   );
 
+  const destinationLabel = destination === 'hand'
+    ? 'their hand'
+    : destination === 'graveyard'
+      ? 'their graveyard'
+      : 'the top of their library';
+  const restLabel = restDestination === 'graveyard'
+    ? 'their graveyard'
+    : restRandomOrder
+      ? 'the bottom of their library in a random order'
+      : restToTop
+        ? 'the top of their library'
+        : 'the bottom of their library';
+
   return {
     state: { ...state, players: updatedPlayers as any },
     log: [
-      `${playerId} looks at ${actualLookCount} card(s), puts ${chosen.length} into ${destination === 'hand' ? 'their hand' : 'their graveyard'}, and moves ${rest.length} to ${restDestination === 'graveyard' ? 'their graveyard' : restToTop ? 'the top of their library' : 'the bottom of their library'}`,
+      `${playerId} looks at ${actualLookCount} card(s), puts ${chosen.length} into ${destinationLabel}, and moves ${rest.length} to ${restLabel}`,
     ],
     chosen,
     rest,
@@ -3862,10 +3926,11 @@ export function applySurveilStep(
 export function applyLookSelectTopStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'look_select_top' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: ModifyPtRuntime
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount);
-  const choose = quantityToNumber(step.choose);
+  const amount = resolveLookSelectAmount(state, step, ctx, runtime);
+  const choose = quantityToNumber(step.choose, ctx);
   if (amount === null || choose === null) {
     return {
       applied: false,
@@ -3884,7 +3949,7 @@ export function applyLookSelectTopStep(
     };
   }
 
-  if (lookSelectTopRequiresPlayerChoice(state, step, ctx)) {
+  if (lookSelectTopRequiresPlayerChoice(state, step, ctx, runtime)) {
     return {
       applied: false,
       message: `Skipped look-select-top (requires player choice): ${step.raw}`,
@@ -3906,7 +3971,8 @@ export function applyLookSelectTopStep(
           step.destination,
           step.restDestination,
           Boolean(step.restToTop),
-          chosenObjectIds
+          chosenObjectIds,
+          Boolean(step.restRandomOrder)
         )
       : lookSelectTopCardsForPlayer(
           nextState,
@@ -3915,7 +3981,8 @@ export function applyLookSelectTopStep(
           choose,
           step.destination,
           step.restDestination,
-          Boolean(step.restToTop)
+          Boolean(step.restToTop),
+          Boolean(step.restRandomOrder)
         );
     nextState = result.state;
     log.push(...result.log);

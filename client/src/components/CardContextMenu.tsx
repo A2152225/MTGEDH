@@ -38,7 +38,12 @@ export interface CardContextMenuProps {
   onClose: () => void;
   onTap?: (permanentId: string) => void;
   onUntap?: (permanentId: string) => void;
-  onActivateAbility?: (permanentId: string, abilityId: string) => void;
+  onActivateAbility?: (
+    permanentId: string,
+    abilityId: string,
+    ability?: ParsedActivatedAbility,
+    xValue?: number,
+  ) => void;
   onAddCounter?: (permanentId: string, counterType: string, amount: number) => void;
   onSacrifice?: (permanentId: string) => void;
   onRemove?: (permanentId: string) => void;
@@ -126,8 +131,11 @@ export function CardContextMenu({
   const name = card?.name || permanent.id;
   const isTapped = !!permanent.tapped;
   
-  // Parse activated abilities from card
-  const abilities = card ? parseActivatedAbilities(card, permanent.grantedAbilities) : [];
+  const parsedAbilities = useMemo(
+    () => (card ? parseAbilitiesFull(card, permanent.grantedAbilities) : []),
+    [card, permanent.grantedAbilities],
+  );
+  const abilities = parsedAbilities.map(convertToMenuOption);
   const tapActionDecision = useMemo(() => {
     if (isTapped) {
       return { kind: 'tap' } as const;
@@ -257,7 +265,7 @@ export function CardContextMenu({
           if (isTapped) {
             onUntap?.(permanent.id);
           } else if (tapActionDecision.kind === 'activate') {
-            onActivateAbility?.(permanent.id, tapActionDecision.ability.id);
+            onActivateAbility?.(permanent.id, tapActionDecision.ability.id, tapActionDecision.ability);
           } else {
             onTap?.(permanent.id);
           }
@@ -326,7 +334,8 @@ export function CardContextMenu({
                 style={canUse ? menuItemStyle : disabledStyle}
                 onClick={() => {
                   if (!canUse) return;
-                  onActivateAbility?.(permanent.id, ability.id);
+                  const fullAbility = parsedAbilities.find((entry) => entry.id === ability.id);
+                  onActivateAbility?.(permanent.id, ability.id, fullAbility);
                   onClose();
                 }}
                 onMouseEnter={(e) => {

@@ -15,6 +15,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { BattlefieldPermanent, PlayerRef, PlayerID, KnownCardRef, CombatControlEffect } from '../../../shared/src';
+import { getLandwalkUnblockableReason } from '../../../shared/src/combatLandwalk';
 import { canCreatureAttackNow, hasCurrentKeyword, isCurrentlyCreature } from '../utils/creatureUtils';
 import { getBlockerCapacity } from '../utils/blockerCapacity';
 import { getCombinedPermanentText } from '../utils/permanentText';
@@ -177,6 +178,11 @@ function canBlockAttacker(
   attacker: BattlefieldPermanent,
   battlefield: BattlefieldPermanent[],
 ): { canBlock: boolean; reason?: string } {
+  const landwalkReason = getLandwalkUnblockableReason(attacker, blocker.controller, battlefield);
+  if (landwalkReason) {
+    return { canBlock: false, reason: landwalkReason };
+  }
+
   // Flying - need flying or reach
   if (hasCurrentKeyword(attacker, 'flying', battlefield)) {
     if (!hasCurrentKeyword(blocker, 'flying', battlefield) && !hasCurrentKeyword(blocker, 'reach', battlefield)) {

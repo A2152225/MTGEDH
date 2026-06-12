@@ -12,6 +12,7 @@
 
 import type { GameState, CombatInfo, CombatantInfo, BattlefieldPermanent } from '../../../shared/src';
 import { GameStep as SharedGameStep } from '../../../shared/src';
+import { getLandwalkUnblockableReason } from '../../../shared/src/combatLandwalk.js';
 import type { EngineResult, ActionContext, BaseAction } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
 import {
@@ -820,6 +821,15 @@ export function canPermanentBlock(permanent: any, attacker?: any, battlefield?: 
 export function checkEvasionAbilities(blocker: any, attacker: any, battlefield?: any[]): CombatValidationResult {
   const attackerText = getCombinedPermanentText(attacker);
   const blockerText = getCombinedPermanentText(blocker);
+
+  const landwalkReason = getLandwalkUnblockableReason(
+    attacker,
+    blocker?.controller,
+    Array.isArray(battlefield) ? battlefield : [],
+  );
+  if (landwalkReason) {
+    return { canParticipate: false, reason: landwalkReason };
+  }
   
   // Flying (Rule 702.9) - can only be blocked by creatures with flying or reach
   if (attackerText.includes('flying') || hasAbility(attacker, 'flying', battlefield)) {

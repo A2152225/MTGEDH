@@ -18,6 +18,7 @@ import { escapeCardNameForRegex } from "./types.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 import { uid } from "../../utils.js";
 import { orderTriggersByAPNAP } from "./ordering.js";
+import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
 
 // Re-export detectDoesntUntapEffects from turn-phases for backwards compatibility
@@ -45,6 +46,7 @@ export interface TapTrigger {
   triggerCondition: 'becomes_tapped' | 'becomes_untapped' | 'taps_for_mana';
   affectedType: 'any' | 'creature' | 'tribal_type' | 'self';
   tribalType?: string;
+  nontokenOnly?: boolean;
   mandatory: boolean;
   lifeGain?: number;
   createsToken?: boolean;
@@ -470,6 +472,29 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
   
+  // "Whenever one or more nontoken [TYPE] you control become tapped" (Deeproot Pilgrimage)
+  const nontokenTribalTapMatch = oracleText.match(
+    /whenever one or more nontoken (\w+) you control become tapped,?\s*([^.]+)/i,
+  );
+  if (nontokenTribalTapMatch) {
+    const tribalType = nontokenTribalTapMatch[1].toLowerCase();
+    const effectText = timingTriggerEffect(oracleText, nontokenTribalTapMatch, 2);
+    const isOptional = isOptionalTapTriggerEffect(effectText);
+
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever one or more nontoken ${tribalType} you control become tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'tribal_type',
+      tribalType,
+      nontokenOnly: true,
+      mandatory: !isOptional,
+    });
+  }
+
   // "Whenever a [TYPE] you control becomes tapped" pattern
   const tribalTapMatch = oracleText.match(/whenever (?:a |an )?(\w+) you control becomes tapped,?\s*([^.]+)/i);
   if (tribalTapMatch) {
@@ -614,7 +639,6 @@ export function getTapTriggers(
   const battlefield = ctx.state?.battlefield || [];
   
   const tappedTypeLine = (tappedPermanent?.card?.type_line || '').toLowerCase();
-  const tappedCreatureTypes = extractCreatureTypes(tappedTypeLine);
   const isCreature = tappedTypeLine.includes('creature');
   
   for (const permanent of battlefield) {
@@ -638,7 +662,10 @@ export function getTapTriggers(
           break;
         case 'tribal_type':
           if (trigger.tribalType) {
-            shouldTrigger = tappedCreatureTypes.includes(trigger.tribalType.toLowerCase());
+            shouldTrigger = permanentHasCreatureTypeNow(tappedPermanent, trigger.tribalType);
+            if (shouldTrigger && trigger.nontokenOnly && tappedPermanent?.isToken) {
+              shouldTrigger = false;
+            }
           }
           break;
         case 'self':
@@ -663,7 +690,6 @@ export function getBecomesUntappedTriggers(
   const triggers: TapTrigger[] = [];
   const battlefield = ctx.state?.battlefield || [];
   const untappedTypeLine = String(untappedPermanent?.card?.type_line || '').toLowerCase();
-  const untappedCreatureTypes = extractCreatureTypes(untappedTypeLine);
   const isCreature = untappedTypeLine.includes('creature');
 
   for (const permanent of battlefield) {
@@ -683,7 +709,7 @@ export function getBecomesUntappedTriggers(
           break;
         case 'tribal_type':
           if (trigger.tribalType) {
-            shouldTrigger = untappedCreatureTypes.includes(trigger.tribalType.toLowerCase());
+            shouldTrigger = permanentHasCreatureTypeNow(untappedPermanent, trigger.tribalType);
           }
           break;
         case 'self':

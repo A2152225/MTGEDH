@@ -129,7 +129,8 @@ import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./pla
 import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
 import { buildResolutionEventDataFromGameState, buildTriggeredAbilityEventDataFromChoices, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
-import { buildTapTriggeredStackItem, getTapTriggers, queueBecomesUntappedTriggers, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
+import { queueTapTriggersForTappedPermanents } from "../state/modules/tap-trigger-queue.js";
+import { queueBecomesUntappedTriggers } from "../state/modules/triggers/tap-untap.js";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import {
   extractStackItemTargetIds,
@@ -2527,103 +2528,6 @@ function queueDiscardTriggeredAbilities(
     for (const matchingCard of matchingCards) {
       pushDiscardTrigger(trigger, [matchingCard]);
     }
-  }
-}
-
-function pushTapTriggerOntoStack(
-  io: Server,
-  game: any,
-  gameId: string,
-  trigger: any,
-  tappedPermanentId: string
-): void {
-  game.state.stack = game.state.stack || [];
-  const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const tappedPermanent = Array.isArray(game.state?.battlefield)
-    ? game.state.battlefield.find((perm: any) => String(perm?.id || '') === String(tappedPermanentId || ''))
-    : undefined;
-  const sourcePermanent = Array.isArray(game.state?.battlefield)
-    ? game.state.battlefield.find((perm: any) => String(perm?.id || '') === String(trigger?.permanentId || ''))
-    : undefined;
-  const stackItem = buildTapTriggeredStackItem(trigger, tappedPermanentId, triggerId, tappedPermanent, sourcePermanent);
-
-  game.state.stack.push(stackItem);
-
-  try {
-    appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', serializeTapTriggeredStackItem(stackItem));
-  } catch (err) {
-    debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility tap trigger) failed:', err);
-  }
-
-  io.to(gameId).emit('chat', {
-    id: `m_${Date.now()}`,
-    gameId,
-    from: 'system',
-    message: `${trigger.cardName} triggers: ${trigger.description}`,
-    ts: Date.now(),
-  });
-}
-
-function queueTapTriggersForTappedPermanents(
-  io: Server,
-  game: any,
-  gameId: string,
-  tappedPermanentIds: string[],
-  tappedByPlayerId: string
-): void {
-  const uniqueTappedIds = Array.from(new Set(tappedPermanentIds.map((id) => String(id).trim()).filter(Boolean)));
-  if (uniqueTappedIds.length === 0) return;
-
-  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-  const ctx = {
-    state: game.state,
-    bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
-  } as any;
-
-  const orderedTapTriggerEntries = orderTriggersByAPNAP(
-    ctx,
-    uniqueTappedIds.flatMap((tappedPermanentId) => {
-      const tappedPermanent = battlefield.find((perm: any) => perm && String(perm.id) === tappedPermanentId);
-      if (!tappedPermanent) return [];
-
-      const tappedPermanentController = String(tappedPermanent.controller || tappedByPlayerId || '').trim();
-      return getTapTriggers(ctx, tappedPermanent, tappedPermanentController).map((trigger) => ({
-        controllerId: String(trigger.controllerId || tappedPermanentController),
-        trigger,
-        tappedPermanentId,
-      }));
-    })
-  );
-
-  let addedStackTrigger = false;
-  for (const entry of orderedTapTriggerEntries) {
-    const trigger = entry.trigger;
-    const tappedPermanentId = entry.tappedPermanentId;
-
-    if (trigger.mandatory === false) {
-      queueMayAbilityStep(
-        io,
-        gameId,
-        game,
-        String(trigger.controllerId),
-        String(trigger.cardName || 'Triggered ability'),
-        String(trigger.effect || trigger.description || '').trim(),
-        String(trigger.description || trigger.effect || '').trim() || undefined,
-        async () => {
-          pushTapTriggerOntoStack(io, game, gameId, trigger, tappedPermanentId);
-          if (typeof game.bumpSeq === 'function') game.bumpSeq();
-          broadcastGame(io, game, gameId);
-        }
-      );
-      continue;
-    }
-
-    pushTapTriggerOntoStack(io, game, gameId, trigger, tappedPermanentId);
-    addedStackTrigger = true;
-  }
-
-  if (addedStackTrigger && typeof game.bumpSeq === 'function') {
-    game.bumpSeq();
   }
 }
 
@@ -8933,6 +8837,9 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
       if ('cardName' in step) fields.cardName = (step as any).cardName;
       if ('reason' in step) fields.reason = (step as any).reason;
+      if (Array.isArray((step as any).offeredCreatureTypes)) {
+        fields.offeredCreatureTypes = (step as any).offeredCreatureTypes;
+      }
       break;
     
     case ResolutionStepType.CARD_NAME_CHOICE:
@@ -10225,6 +10132,8 @@ async function handleStepResponse(
           tappedSet.add(String(permanentId));
         }
         for (const id of tappedSet) tappedPermanentsForCost.push(id);
+
+        queueTapTriggersForTappedPermanents(io, game, gameId, tappedPermanentsForCost, controllerId);
 
         const targetReqs = parseTargetRequirements(abilityText, {
           gameState: game.state,
@@ -24637,6 +24546,7 @@ async function putCardOntoBattlefield(
     basePower: baseP,
     baseToughness: baseT,
     summoningSickness: hasSummoningSickness,
+    ...(isCreature ? { enteredThisTurn: true } : {}),
     card: { ...card, zone: "battlefield" },
   } as any;
   

@@ -3146,8 +3146,10 @@ function clearSummoningSicknessForPlayer(ctx: GameContext, playerId: string) {
     let clearedCount = 0;
 
     for (const permanent of battlefield) {
-      if (permanent && permanent.controller === playerId && permanent.summoningSickness) {
+      if (!permanent || permanent.controller !== playerId) continue;
+      if (permanent.summoningSickness || permanent.enteredThisTurn) {
         permanent.summoningSickness = false;
+        delete permanent.enteredThisTurn;
         clearedCount++;
       }
     }

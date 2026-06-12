@@ -3373,6 +3373,47 @@ describe('canAct', () => {
     expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should keep main phase open when floating mana plus untapped lands can pay for a sorcery', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'merfolk_1',
+              name: 'Merfolk Sovereign',
+              type_line: 'Creature — Merfolk',
+              mana_cost: '{1}{U}{U}',
+              oracle_text: 'Other Merfolk creatures you control get +1/+1.\n{T}: Target Merfolk creature gains islandwalk until end of turn.',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'island_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Island',
+            type_line: 'Basic Land — Island',
+            oracle_text: '{T}: Add {U}.',
+          },
+        },
+      ],
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+      },
+      landsPlayedThisTurn: { p1: 1 },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should surface permanent spells whose later abilities target after a second land drop', () => {
     const ctx = createTestContext({
       zones: {

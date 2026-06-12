@@ -13,7 +13,7 @@ import {
   type ParsedActivatedAbility,
   type ActivationContext,
 } from '../utils/activatedAbilityParser';
-import { hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
+import { canCreatureUseTapAbilityNow, hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
 import { KeywordHighlighter } from './KeywordHighlighter';
 import { XValueSelectionModal } from './XValueSelectionModal';
 
@@ -472,7 +472,7 @@ export function ActivatedAbilityButtons({
   // Build activation context
   const context: ActivationContext = useMemo(() => ({
     isTapped: !!perm.tapped,
-    hasSummoningSickness: !!perm.summoningSickness && isCurrentlyCreature(perm),
+    hasSummoningSickness: isCurrentlyCreature(perm) && !canCreatureUseTapAbilityNow(perm, battlefield),
     hasHaste: hasCurrentHaste(perm, battlefield),
     hasThousandYearElixirEffect,
     loyaltyCounters: getLoyaltyCounters(perm),

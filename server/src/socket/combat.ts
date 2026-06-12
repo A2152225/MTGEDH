@@ -9,13 +9,14 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness, broadcastManaPoolUpdate, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, millUntilLand, getMaxGenericManaAvailable } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
+import { getLandwalkUnblockableReason } from "../../../shared/src/combatLandwalk.js";
 import { getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
 import { buildTapTriggeredStackItem, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
 import { canExertAsItAttacks, getAttackTriggersForCreatures, getSupportedExertAttackReward } from "../state/modules/triggers/combat.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if.js";
 import { transformPermanentToFace } from "../state/modules/day-night.js";
 import { getCurrentGoaders } from "../state/modules/goad-effects.js";
-import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
+import { creatureHasHaste, permanentHasKeyword, permanentHasSummoningSickness } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
@@ -124,7 +125,7 @@ function enqueueSupportedEnlistChoiceSteps(
         if (!tl.includes('creature')) return false;
         if (p.tapped) return false;
         if (p.attacking) return false;
-        if ((p as any).summoningSickness && !creatureHasHaste(p, battlefield as any, attackerControllerId)) return false;
+        if (permanentHasSummoningSickness(p, battlefield as any, attackerControllerId)) return false;
         return true;
       })
       .map((p: any) => ({
@@ -1153,6 +1154,14 @@ function canBlockAttacker(
     };
   }
 
+  const landwalkReason = getLandwalkUnblockableReason(attacker, blockerControllerId, battlefield);
+  if (landwalkReason) {
+    return {
+      canBlock: false,
+      reason: landwalkReason,
+    };
+  }
+
   const blockerPower = getEffectivePower(blocker);
   if (attackerRestrictionTexts.some((entry) => entry.includes("can't be blocked by creatures with power 2 or less")) && blockerPower <= 2) {
     return {
@@ -1338,14 +1347,11 @@ export async function executeDeclareAttackers(
       }
     }
 
-    if ((creature as any).summoningSickness) {
-      const hasHaste = creatureHasHaste(creature, battlefield, playerId);
-      if (!hasHaste) {
-        throw Object.assign(
-          new Error(`${(creature as any).card?.name || 'Creature'} has summoning sickness and cannot attack`),
-          { code: 'SUMMONING_SICKNESS' },
-        );
-      }
+    if (permanentHasSummoningSickness(creature, battlefield, playerId)) {
+      throw Object.assign(
+        new Error(`${(creature as any).card?.name || 'Creature'} has summoning sickness and cannot attack`),
+        { code: 'SUMMONING_SICKNESS' },
+      );
     }
 
     attackerIds.push(attacker.creatureId);
@@ -1824,17 +1830,12 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
 
         // Check for summoning sickness (can't attack unless haste)
-        if ((creature as any).summoningSickness) {
-          // Use comprehensive haste check that includes equipment (Lightning Greaves, etc.)
-          const hasHaste = creatureHasHaste(creature, battlefield, playerId);
-          
-          if (!hasHaste) {
-            socket.emit("error", {
-              code: "SUMMONING_SICKNESS",
-              message: `${(creature as any).card?.name || "Creature"} has summoning sickness and cannot attack`,
-            });
-            return;
-          }
+        if (permanentHasSummoningSickness(creature, battlefield, playerId)) {
+          socket.emit("error", {
+            code: "SUMMONING_SICKNESS",
+            message: `${(creature as any).card?.name || "Creature"} has summoning sickness and cannot attack`,
+          });
+          return;
         }
 
         // ========================================================================
@@ -2041,8 +2042,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             const cantAttack = (perm.card?.oracle_text || '').toLowerCase().includes("can't attack");
             
             // Check if there's summoning sickness (creature entered this turn without haste)
-            const hasSummoningSickness = (perm as any).enteredThisTurn && 
-              !permanentHasKeyword(perm, battlefield, playerId, 'haste');
+            const hasSummoningSickness = permanentHasSummoningSickness(perm, battlefield, playerId);
             
             if (!isTapped && !hasDefender && !cantAttack && !hasSummoningSickness) {
               // Check if there are any valid targets to attack
@@ -3394,16 +3394,12 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
 
         // Check summoning sickness
-        if ((creature as any).summoningSickness) {
-          // Use comprehensive haste check that includes equipment (Lightning Greaves, etc.)
-          const hasHaste = creatureHasHaste(creature, battlefield, playerId);
-          if (!hasHaste) {
-            socket.emit("error", {
-              code: "SUMMONING_SICKNESS",
-              message: `${(creature as any).card?.name || "Creature"} has summoning sickness`,
-            });
-            return;
-          }
+        if (permanentHasSummoningSickness(creature, battlefield, playerId)) {
+          socket.emit("error", {
+            code: "SUMMONING_SICKNESS",
+            message: `${(creature as any).card?.name || "Creature"} has summoning sickness`,
+          });
+          return;
         }
 
         attackerIds.push(attacker.creatureId);

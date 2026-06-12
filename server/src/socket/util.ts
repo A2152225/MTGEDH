@@ -515,6 +515,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     } as any, playerId, {
       mode: spellCandidateMode,
       allowUnknownCostFallback: false,
+      conservativeTargets: false,
     });
 
     const highlightedSpellIds = new Set<string>();
@@ -819,6 +820,7 @@ function getGraveyardAbilityHints(game: InMemoryGame, playerId: PlayerID): Recor
     const graveyardSpellCandidates = getCastableSpellCandidates({ state, libraries: (game as any).libraries } as any, playerId, {
       mode: spellCandidateMode,
       allowUnknownCostFallback: false,
+      conservativeTargets: false,
     }).filter((candidate) => String(candidate.sourceZone || '') === 'graveyard');
     const genericGraveyardCastableIds = new Set(
       graveyardSpellCandidates
@@ -2316,8 +2318,10 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
         return;
       }
 
-      debug(2, `${ts()} [checkAndTriggerAutoPass] Scheduling auto-pass for ${priority} with ${AUTO_PASS_DELAY_MS}ms delay (ID: ${debugCallId})`);
-      const timeout = setTimeout(executeAutoPass, AUTO_PASS_DELAY_MS);
+      const floatingMana = getTotalManaFromPool(getManaPoolFromState(game.state as any, priorityPlayerId as PlayerID));
+      const autoPassDelayMs = floatingMana > 0 ? 750 : AUTO_PASS_DELAY_MS;
+      debug(2, `${ts()} [checkAndTriggerAutoPass] Scheduling auto-pass for ${priority} with ${autoPassDelayMs}ms delay (floatingMana=${floatingMana}) (ID: ${debugCallId})`);
+      const timeout = setTimeout(executeAutoPass, autoPassDelayMs);
       pendingHumanAutoPassTimers.set(gameId, {
         playerId: priorityPlayerId as PlayerID,
         timeout,

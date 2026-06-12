@@ -26,6 +26,7 @@ import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./triggers/target-metadata.js";
 import { evaluateDrawReplacementEvent } from "./replacement-effects.js";
 import { updateCounters } from "./counters_tokens.js";
+import { revertCopyPermanentToOriginal } from "./permanent-copy.js";
 
 function clearPreparedStateOnBattlefieldExit(state: any, permanent: any): void {
   if (!permanent) {
@@ -1766,6 +1767,13 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
   const perm = battlefield.splice(idx, 1)[0];
   const removedPermanentId = String((perm as any)?.id || permanentId || '').trim();
   const owner = perm.owner as PlayerID;
+
+  try {
+    revertCopyPermanentToOriginal(perm);
+  } catch {
+    // best-effort only
+  }
+
   const card = perm.card;
 
   clearPreparedStateOnBattlefieldExit(state, perm);

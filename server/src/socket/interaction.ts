@@ -14,6 +14,7 @@ import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility, detectHideawayAbility } from "../state/modules/triggered-abilities";
 import { movePermanentToGraveyard, trackPermanentSacrificedThisTurn } from "../state/modules/counters_tokens.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
+import { queueTapTriggersForTappedPermanents } from "../state/modules/tap-trigger-queue.js";
 import { queueSacrificeTriggers } from "../state/modules/triggers/sacrifice.js";
 import { queueSelfETBTriggersForPermanent, triggerETBEffectsForToken } from "../state/modules/triggerEtbEntryEffects.js";
 import { triggerETBEffectsForPermanent } from "../state/modules/triggerEtbPermanentEffects.js";
@@ -5040,6 +5041,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();
     }
+
+    queueTapTriggersForTappedPermanents(io, game, gameId, [String(permanentId)], String(pid));
     
         appendEvent(gameId, (game as any).seq ?? 0, "tapPermanent", {
           playerId: pid,
@@ -11443,6 +11446,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
       }
     };
+
+    const activationCostForX = String(
+      manaCost
+      || selectedAbilityFullText.split(':')[0]
+      || selectedAbilityOracleLine.split(':')[0]
+      || '',
+    ).trim();
+    const xSymbolsRequired = (activationCostForX.match(/\{X\}/gi) || []).length;
+    if (xSymbolsRequired > 0 && selectedXValue === undefined) {
+      socket.emit('error', {
+        code: 'X_VALUE_REQUIRED',
+        message: `Choose a value for X before activating ${cardName}.`,
+      });
+      return;
+    }
 
     // Parse and validate mana cost if present
     // Extract just the mana symbols from the cost string (excluding {T}, sacrifice, etc.)

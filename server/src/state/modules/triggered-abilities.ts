@@ -14005,6 +14005,26 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
     });
   }
 
+  const nontokenTribalTapMatch = oracleText.match(
+    /whenever one or more nontoken (\w+) you control become tapped,?\s*([^.]+)/i,
+  );
+  if (nontokenTribalTapMatch) {
+    const tribalType = nontokenTribalTapMatch[1].toLowerCase();
+    const effectText = timingTriggerEffect(oracleText, nontokenTribalTapMatch, 2);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever one or more nontoken ${tribalType} you control become tapped, ${effectText}`,
+      effect: effectText,
+      triggerCondition: 'becomes_tapped',
+      affectedType: 'tribal_type',
+      tribalType,
+      nontokenOnly: true,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   const tribalTapMatch = oracleText.match(/whenever (?:a |an )?(\w+) you control becomes tapped,?\s*([^.]+)/i);
   if (tribalTapMatch) {
     const tribalType = tribalTapMatch[1].toLowerCase();
@@ -14640,58 +14660,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   return triggers;
 }
 
-/**
- * Get all tap triggers that should fire when a permanent becomes tapped
- */
-export function getTapTriggers(
-  ctx: GameContext,
-  tappedPermanent: any,
-  tappedByPlayerId: string
-): TapTrigger[] {
-  const triggers: TapTrigger[] = [];
-  const battlefield = ctx.state?.battlefield || [];
-  
-  const tappedTypeLine = (tappedPermanent?.card?.type_line || '').toLowerCase();
-  const tappedCreatureTypes = extractCreatureTypes(tappedTypeLine);
-  const isCreature = tappedTypeLine.includes('creature');
-  
-  for (const permanent of battlefield) {
-    if (!permanent || !permanent.card) continue;
-    
-    const permTriggers = detectTapTriggers(permanent.card, permanent);
-    
-    for (const trigger of permTriggers) {
-      // Only trigger for the controller's permanents becoming tapped
-      if (permanent.controller !== tappedByPlayerId) continue;
-      
-      let shouldTrigger = false;
-      
-      switch (trigger.affectedType) {
-        case 'any':
-          shouldTrigger = true;
-          break;
-        case 'creature':
-          shouldTrigger = isCreature;
-          break;
-        case 'tribal_type':
-          if (trigger.tribalType) {
-            shouldTrigger = tappedCreatureTypes.includes(trigger.tribalType.toLowerCase());
-          }
-          break;
-        case 'self':
-          // Self-referential triggers only fire when this specific permanent is tapped
-          shouldTrigger = permanent.id === tappedPermanent.id;
-          break;
-      }
-      
-      if (shouldTrigger) {
-        triggers.push(trigger);
-      }
-    }
-  }
-  
-  return triggers;
-}
+export { getTapTriggers } from './triggers/tap-untap.js';
 
 // ============================================================================
 // NOTE: "Doesn't Untap" Static Effects have been moved to ./triggers/turn-phases.ts

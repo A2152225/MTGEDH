@@ -34,6 +34,7 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getActualPowerToughness } from "../../state/utils.js";
 import { libraryTopCardHasType } from "./game-state-effects.js";
 import { countControlledCreaturesOfChosenType, getChosenTypeManaSpendRestriction } from "./chosen-creature-type.js";
+import { extractCreatureTypes } from "../../../../shared/src/creatureTypes.js";
 
 const COLOR_SYMBOL_ORDER = ['W', 'U', 'B', 'R', 'G'] as const;
 
@@ -2137,25 +2138,31 @@ export function getCreatureCountManaAmount(
     
     // "greatest number of creatures you control that have a creature type in common"
     if (condition.includes('creature type in common') || condition.includes('creature type') && condition.includes('greatest')) {
-      // Build a map of creature types to count
       const creatureTypeCounts: Record<string, number> = {};
-      
-      for (const perm of battlefield) {
-        if (!perm || perm.controller !== playerId) continue;
-        const permTypeLine = (perm.card?.type_line || '').toLowerCase();
-        if (!permTypeLine.includes('creature')) continue;
-        
-        // Extract creature types from type line (after the em-dash)
-        // Format: "Creature — Human Soldier" or "Legendary Creature — Elf Druid"
-        const typeLineParts = permTypeLine.split(/[—-]/);
-        if (typeLineParts.length > 1) {
-          const subtypes = typeLineParts[1].trim().split(/\s+/);
-          for (const subtype of subtypes) {
-            if (subtype && subtype.length > 0) {
-              creatureTypeCounts[subtype] = (creatureTypeCounts[subtype] || 0) + 1;
-            }
+
+      const addCreatureTypesForPermanent = (perm: any) => {
+        const types = extractCreatureTypes(perm?.card?.type_line || perm?.type_line || '');
+        if (types.length === 0 && perm?.chosenCreatureType) {
+          types.push(String(perm.chosenCreatureType));
+        }
+        if (types.length === 0) {
+          const cardName = String(perm?.card?.name || perm?.name || '').trim();
+          if (cardName && !cardName.toLowerCase().includes('token')) {
+            types.push(cardName);
           }
         }
+        for (const subtype of types) {
+          const normalized = String(subtype || '').trim().toLowerCase();
+          if (!normalized) continue;
+          creatureTypeCounts[normalized] = (creatureTypeCounts[normalized] || 0) + 1;
+        }
+      };
+
+      for (const perm of battlefield) {
+        if (!perm || perm.controller !== playerId) continue;
+        const permTypeLine = (perm.card?.type_line || perm.type_line || '').toLowerCase();
+        if (!permTypeLine.includes('creature') && !perm?.isToken) continue;
+        addCreatureTypesForPermanent(perm);
       }
       
       // Find the greatest count

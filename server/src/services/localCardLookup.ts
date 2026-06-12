@@ -43,7 +43,7 @@ type StoredCandidate = {
 
 const serviceDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(serviceDir, '../../..');
-const schemaVersion = '1';
+const schemaVersion = '2';
 const defaultDbFile = path.join(repoRoot, 'server', 'data', 'card-lookup.sqlite');
 
 let db: DB | null = null;
@@ -322,6 +322,12 @@ function getCachedLocalCardNamesForChoice(database: DB, criteria: CardNameChoice
   return candidateNames.slice();
 }
 
+function shouldIndexOracleCard(card: LocalCardLookupRecord): boolean {
+  if (card.layout === 'art_series') return false;
+  if (card.layout === 'token' && String(card.type_line || '').toLowerCase().includes('checklist')) return false;
+  return true;
+}
+
 function candidateQuality(card: LocalCardLookupRecord): number {
   const faces = Array.isArray(card.card_faces) ? card.card_faces : [];
   const faceOracleTexts = faces.map((face) => String(face?.oracle_text || '').trim()).filter(Boolean);
@@ -463,7 +469,7 @@ async function buildLookupMap(options?: LocalCardLookupOptions): Promise<Map<str
     const cards = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.data) ? parsed.data : [];
     for (const entry of cards) {
       const card = toOracleRecord(entry);
-      if (!card) continue;
+      if (!card || !shouldIndexOracleCard(card)) continue;
       indexAlias(aliasMap, card.name, card, 1);
       indexAlias(aliasMap, entry?.asciiName, card, 1);
       if (Array.isArray(card.card_faces)) {
@@ -511,7 +517,7 @@ function buildLookupMapSync(options?: LocalCardLookupOptions): Map<string, Store
     const cards = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.data) ? parsed.data : [];
     for (const entry of cards) {
       const card = toOracleRecord(entry);
-      if (!card) continue;
+      if (!card || !shouldIndexOracleCard(card)) continue;
       indexAlias(aliasMap, card.name, card, 1);
       indexAlias(aliasMap, entry?.asciiName, card, 1);
       if (Array.isArray(card.card_faces)) {
@@ -675,13 +681,28 @@ export async function lookupLocalCards(names: string[], options: LocalCardLookup
     const row = lookup.get(normalizedName) as { payload: string } | undefined;
     if (!row?.payload) continue;
     try {
-      result.set(normalizedName, JSON.parse(row.payload));
+      const parsed = JSON.parse(row.payload) as LocalCardLookupRecord;
+      if (isUsableLookupCard(parsed)) {
+        result.set(normalizedName, parsed);
+      }
     } catch (error) {
       debugWarn(1, `[card-lookup] Failed to parse lookup payload for ${normalizedName}`, error);
     }
   }
 
   return result;
+}
+
+function isUsableLookupCard(card: LocalCardLookupRecord | undefined): boolean {
+  if (!card) return false;
+  if (card.layout === 'art_series') return false;
+  const faceOracleTexts = Array.isArray(card.card_faces)
+    ? card.card_faces.map((face) => String(face?.oracle_text || '').trim()).filter(Boolean)
+    : [];
+  if (!String(card.oracle_text || '').trim() && faceOracleTexts.length === 0) {
+    return false;
+  }
+  return true;
 }
 
 export function lookupLocalCardByNameSync(
@@ -705,7 +726,8 @@ export function lookupLocalCardByNameSync(
   }
 
   try {
-    return JSON.parse(row.payload) as LocalCardLookupRecord;
+    const parsed = JSON.parse(row.payload) as LocalCardLookupRecord;
+    return isUsableLookupCard(parsed) ? parsed : undefined;
   } catch (error) {
     debugWarn(1, `[card-lookup] Failed to parse lookup payload for ${normalizedName}`, error);
     return undefined;

@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { parseEtbOfferedCreatureTypes } from '../src/state/modules/chosen-creature-type.js';
 import { requiresCreatureTypeSelection, getOfferedCreatureTypesForSelection } from '../src/socket/creature-type.js';
 import { resolveManaAbilityActivationShape } from '../src/socket/interaction.js';
+import { permanentHasSummoningSickness } from '../src/socket/game-actions.js';
+import { sanitizeStepForClient } from '../src/socket/resolution.js';
+import { ResolutionStepType } from '../src/state/resolution/index.js';
 import { detectTapTriggers } from '../src/state/modules/triggers/tap-untap.js';
+import { getTapTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectKeywords } from '../src/state/modules/keyword-detection.js';
 
 describe('G1 card regression helpers', () => {
@@ -82,5 +86,151 @@ describe('G1 card regression helpers', () => {
     const triggers = detectTapTriggers(card, { id: 'surge', controller: 'p1' });
     expect(triggers).toHaveLength(1);
     expect(triggers[0].mandatory).toBe(true);
+  });
+
+  it('detects Deeproot Pilgrimage nontoken merfolk tap trigger', () => {
+    const card = {
+      name: 'Deeproot Pilgrimage',
+      oracle_text:
+        'Whenever one or more nontoken Merfolk you control become tapped, create a 1/1 blue Merfolk creature token with hexproof.',
+    };
+    const triggers = detectTapTriggers(card, { id: 'deeproot', controller: 'p1' });
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0]).toMatchObject({
+      tribalType: 'merfolk',
+      nontokenOnly: true,
+      mandatory: true,
+    });
+  });
+
+  it('does not fire Deeproot Pilgrimage when a token merfolk is tapped', () => {
+    const ctx = {
+      state: {
+        battlefield: [
+      {
+        id: 'deeproot',
+        controller: 'p1',
+        card: {
+          name: 'Deeproot Pilgrimage',
+          type_line: 'Enchantment',
+          oracle_text:
+            'Whenever one or more nontoken Merfolk you control become tapped, create a 1/1 blue Merfolk creature token with hexproof.',
+        },
+      },
+      {
+        id: 'token_merfolk',
+        controller: 'p1',
+        isToken: true,
+        card: {
+          name: 'Merfolk Token',
+          type_line: 'Creature — Merfolk',
+        },
+      },
+        ],
+      },
+    };
+    const tappedPermanent = ctx.state.battlefield[1];
+    const triggers = getTapTriggers(ctx as any, tappedPermanent, 'p1');
+    expect(triggers.some((trigger) => trigger.cardName === 'Deeproot Pilgrimage')).toBe(false);
+  });
+
+  it('fires Deeproot Pilgrimage when Roaming Throne with chosen Merfolk is tapped', () => {
+    const throneOracle =
+      'Ward {2}\n' +
+      'As this creature enters, choose a creature type.\n' +
+      'This creature is the chosen type in addition to its other types.\n' +
+      'If a triggered ability of another creature you control of the chosen type triggers, it triggers an additional time.';
+
+    const ctx = {
+      state: {
+        battlefield: [
+          {
+            id: 'deeproot',
+            controller: 'p1',
+            card: {
+              name: 'Deeproot Pilgrimage',
+              type_line: 'Enchantment',
+              oracle_text:
+                'Whenever one or more nontoken Merfolk you control become tapped, create a 1/1 blue Merfolk creature token with hexproof.',
+            },
+          },
+          {
+            id: 'roaming_throne',
+            controller: 'p1',
+            chosenCreatureType: 'Merfolk',
+            card: {
+              name: 'Roaming Throne',
+              type_line: 'Artifact Creature — Golem',
+              oracle_text: throneOracle,
+            },
+          },
+        ],
+      },
+    };
+    const tappedPermanent = ctx.state.battlefield[1];
+    const triggers = getTapTriggers(ctx as any, tappedPermanent, 'p1');
+    expect(triggers.some((trigger) => trigger.cardName === 'Deeproot Pilgrimage')).toBe(true);
+  });
+
+  it('does not count Cavern of Souls chosen type as intrinsic Merfolk for tribal tap triggers', () => {
+    const ctx = {
+      state: {
+        battlefield: [
+          {
+            id: 'deeproot',
+            controller: 'p1',
+            card: {
+              name: 'Deeproot Pilgrimage',
+              type_line: 'Enchantment',
+              oracle_text:
+                'Whenever one or more nontoken Merfolk you control become tapped, create a 1/1 blue Merfolk creature token with hexproof.',
+            },
+          },
+          {
+            id: 'cavern',
+            controller: 'p1',
+            chosenCreatureType: 'Merfolk',
+            card: {
+              name: 'Cavern of Souls',
+              type_line: 'Land',
+              oracle_text:
+                'As Cavern of Souls enters the battlefield, choose a creature type.\n' +
+                'Each creature spell of the chosen type you cast can\'t be countered.',
+            },
+          },
+        ],
+      },
+    };
+    const tappedPermanent = ctx.state.battlefield[1];
+    const triggers = getTapTriggers(ctx as any, tappedPermanent, 'p1');
+    expect(triggers.some((trigger) => trigger.cardName === 'Deeproot Pilgrimage')).toBe(false);
+  });
+
+  it('treats enteredThisTurn as summoning sickness until cleared', () => {
+    const creature = {
+      id: 'svyelun',
+      controller: 'p1',
+      enteredThisTurn: true,
+      card: {
+        name: 'Svyelun of Sea and Sky',
+        type_line: 'Legendary Creature — Merfolk God',
+        oracle_text: 'Svyelun has indestructible.',
+      },
+    };
+    expect(permanentHasSummoningSickness(creature, [creature], 'p1')).toBe(true);
+  });
+
+  it('preserves offeredCreatureTypes on creature type choice steps sent to client', () => {
+    const offered = ['Elemental', 'Elf', 'Merfolk'];
+    const sanitized = sanitizeStepForClient('game_test', {
+      id: 'step_creature_type',
+      type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+      gameId: 'game_test',
+      permanentId: 'eclipsed_realms_1',
+      cardName: 'Eclipsed Realms',
+      reason: 'Choose one: Elemental, Elf, Merfolk',
+      offeredCreatureTypes: offered,
+    } as any);
+    expect(sanitized.offeredCreatureTypes).toEqual(offered);
   });
 });

@@ -1129,12 +1129,13 @@ function queueLookChooseChoicePromptsFromOracleIRResult(
 
     if (step.kind === 'look_select_top') {
       const built = buildLookSelectTopSelectionOptions(state, step, params.irCtx);
-      if (!built || built.availableCards.length === 0) continue;
+      if (!built || built.lookedCount === 0) continue;
 
       const queueKey = `look_select:${String((step as any).raw || '')}:${built.playerId}`;
       if (queuedKeys.has(queueKey)) continue;
       queuedKeys.add(queueKey);
 
+      const isLibraryTop = built.destination === 'library_top';
       ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
         type: ResolutionStepType.LIBRARY_SEARCH,
         playerId: built.playerId,
@@ -1143,13 +1144,13 @@ function queueLookChooseChoicePromptsFromOracleIRResult(
         sourceId,
         sourceName,
         searchCriteria: String((step as any).raw || 'Look at the top cards of your library'),
-        minSelections: built.chooseCount,
+        minSelections: built.chooseMin,
         maxSelections: built.chooseCount,
-        destination: built.destination === 'graveyard' ? 'graveyard' : 'hand',
+        destination: isLibraryTop ? 'top' : built.destination === 'graveyard' ? 'graveyard' : 'hand',
         reveal: false,
         shuffleAfter: false,
-        remainderDestination: built.restDestination === 'graveyard' ? 'graveyard' : built.restToTop ? 'top' : 'bottom',
-        remainderRandomOrder: false,
+        remainderDestination: built.restDestination === 'graveyard' ? 'graveyard' : 'bottom',
+        remainderRandomOrder: built.restRandomOrder,
         availableCards: built.availableCards.map(normalizeTopLibraryPromptCard),
         oracleIrChoiceStepJson: JSON.stringify([step]),
         oracleIrControllerId: params.controller,

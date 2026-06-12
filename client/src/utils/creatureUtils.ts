@@ -21,7 +21,11 @@ function hasWord(text: string, word: string): boolean {
 }
 
 function getSummoningSickness(perm: BattlefieldPermanent): boolean {
-  return Boolean((perm as any).summoningSickness ?? (perm as any).summoningSick);
+  return Boolean(
+    (perm as any).summoningSickness
+    ?? (perm as any).summoningSick
+    ?? (perm as any).enteredThisTurn,
+  );
 }
 
 function getAttachedPermanents(

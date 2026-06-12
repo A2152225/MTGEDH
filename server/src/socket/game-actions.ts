@@ -4725,6 +4725,21 @@ function detectBanneretTypeReduction(oracleText: string): { types: string[]; red
  * @param controller - The controller of the creature
  * @returns true if the creature has haste
  */
+export function permanentHasSummoningSickness(
+  permanent: any,
+  battlefield: any[],
+  controller: string,
+): boolean {
+  const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+  if (!typeLine.includes('creature')) {
+    return false;
+  }
+  if (creatureHasHaste(permanent, battlefield, controller)) {
+    return false;
+  }
+  return permanent?.summoningSickness === true || permanent?.enteredThisTurn === true;
+}
+
 export function creatureHasHaste(permanent: any, battlefield: any[], controller: string): boolean {
   try {
     const permCard = permanent?.card || {};

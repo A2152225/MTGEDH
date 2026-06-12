@@ -230,6 +230,23 @@ export function extractCreatureTypes(
 }
 
 /**
+ * Check if a permanent gains the chosen creature type as an intrinsic type
+ * (Roaming Throne, Adaptive Automaton, etc.) — not cards like Cavern of Souls
+ * that choose a type for other effects only.
+ */
+export function permanentAddsChosenCreatureTypeToSelf(
+  permanent: { chosenCreatureType?: string; card?: { oracle_text?: string; chosenCreatureType?: string }; oracle_text?: string } | null | undefined,
+): boolean {
+  const chosen = String(
+    permanent?.chosenCreatureType || permanent?.card?.chosenCreatureType || '',
+  ).trim().toLowerCase();
+  if (!chosen) return false;
+
+  const oracle = String(permanent?.oracle_text || permanent?.card?.oracle_text || '').toLowerCase();
+  return /\bis the chosen type\b/.test(oracle) || /\bbecomes the chosen type\b/.test(oracle);
+}
+
+/**
  * Check if a permanent (battlefield object) has a specific creature type.
  * Convenience wrapper for cardHasCreatureType that works with permanent objects.
  * 
@@ -247,12 +264,14 @@ export function permanentHasCreatureType(
 ): boolean {
   if (!permanent?.card) return false;
   
-  // Check if permanent has a chosen creature type that matches
-  // This handles cards like Roaming Throne that become the chosen type
   const permAny = permanent as any;
-  if (permAny.chosenCreatureType && 
-      permAny.chosenCreatureType.toLowerCase() === creatureType.toLowerCase()) {
-    return true;
+
+  // Roaming Throne-style: chosen type counts as an additional creature type.
+  if (permanentAddsChosenCreatureTypeToSelf(permanent)) {
+    const chosen = String(permAny.chosenCreatureType || permAny.card?.chosenCreatureType || '').trim();
+    if (chosen && chosen.toLowerCase() === creatureType.toLowerCase()) {
+      return true;
+    }
   }
   
   // Also check for grantedCreatureTypes array (for other type-granting effects)

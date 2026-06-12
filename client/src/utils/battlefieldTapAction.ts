@@ -7,7 +7,7 @@ import {
   type ActivationContext,
   type ParsedActivatedAbility,
 } from './activatedAbilityParser';
-import { hasCurrentHaste, isCurrentlyCreature } from './creatureUtils';
+import { canCreatureUseTapAbilityNow, hasCurrentHaste, isCurrentlyCreature } from './creatureUtils';
 
 export type BattlefieldTapActionDecision =
   | { kind: 'tap' }
@@ -72,7 +72,7 @@ export function getBattlefieldTapActionDecision(
   const activationContext: ActivationContext = {
     ...context,
     isTapped: !!permanent.tapped,
-    hasSummoningSickness: !!permanent.summoningSickness && isCurrentlyCreature(permanent),
+    hasSummoningSickness: isCurrentlyCreature(permanent) && !canCreatureUseTapAbilityNow(permanent, battlefieldList),
     hasHaste: hasCurrentHaste(permanent, battlefieldList),
   };
 

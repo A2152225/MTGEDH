@@ -175,11 +175,16 @@ describe('Growing Rites of Itlimoc regressions', () => {
   });
 
   it('resolves the playable DFC from local lookup instead of the art-series placeholder', () => {
-    const card = lookupLocalCardByNameSync('Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun');
-    expect(card).toBeTruthy();
-    expect(String(card?.layout || '')).not.toBe('art_series');
-    expect(String(card?.type_line || '').toLowerCase()).toContain('enchantment');
-    expect(String(card?.card_faces?.[0]?.type_line || '').toLowerCase()).toContain('enchantment');
-    expect(String(card?.card_faces?.[0]?.oracle_text || '')).toContain('enters');
+    const fullName = lookupLocalCardByNameSync('Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun');
+    expect(fullName).toBeTruthy();
+    expect(String(fullName?.layout || '')).not.toBe('art_series');
+    expect(String(fullName?.type_line || '').toLowerCase()).toContain('enchantment');
+    expect(String(fullName?.card_faces?.[0]?.type_line || '').toLowerCase()).toContain('enchantment');
+    expect(String(fullName?.card_faces?.[0]?.oracle_text || '')).toContain('enters');
+
+    const shortName = lookupLocalCardByNameSync('Growing Rites of Itlimoc');
+    expect(shortName).toBeTruthy();
+    expect(String(shortName?.layout || '')).not.toBe('art_series');
+    expect(String(shortName?.card_faces?.[0]?.oracle_text || shortName?.oracle_text || '')).toContain('enters');
   });
 });

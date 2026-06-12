@@ -369,6 +369,7 @@ export function resolvePermanentSpellBattlefieldEntry(
     basePower: baseP,
     baseToughness: baseT,
     summoningSickness: hasSummoningSickness,
+    ...(isCreature ? { enteredThisTurn: true } : {}),
     card: wasCastWithMorph ? { 
       // Face-down card - show generic 2/2 colorless creature
       name: "Face-down Creature",
