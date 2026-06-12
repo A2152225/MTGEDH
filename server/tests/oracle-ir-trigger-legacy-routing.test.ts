@@ -173,6 +173,8 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(shouldSkipLegacyTriggerRegexHandlers('Put a +1/+1 counter on target creature.', 'Test Incubate')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('deal_damage')).toBe(true);
     expect(isTriggerStepKindRetiredUnderOracleIrPrimary('deal_damage')).toBe(true);
+    expect(isTriggerStepKindRetiredUnderOracleIrPrimary('choose_mode')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('choose_mode')).toBe(true);
     expect(shouldSkipLegacyTriggerBodyHandlers('Draw two cards.', 'Mulldrifter')).toBe(true);
     expect(shouldSkipLegacyTriggerBodyHandlers('Take an extra turn after this one.', 'Time Warp')).toBe(false);
   });
@@ -186,6 +188,10 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(isTriggerEffectFullyIrWired(
       "draw a card. Each player may put a land card from their hand onto the battlefield, then each opponent who didn't draws a card.",
       'Kynaios and Tiro of Meletis',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'Choose up to three -\n\u2022 Sell Contraband - You lose 1 life. Create a Treasure token.\n\u2022 Buy Information - You lose 2 life. Draw a card.\n\u2022 Hire a Mercenary - You lose 3 life. Create a 3/2 colorless Shapeshifter creature token with changeling.',
+      'Contraband Kingpin',
     )).toBe(true);
     expect(isTriggerEffectFullyIrWired('Do something utterly non-oracular.', 'Creature')).toBe(false);
   });

@@ -37,6 +37,8 @@ export interface OracleIRCommandExecutionEvent {
   readonly skippedStepKinds: readonly string[];
   readonly automationGapCount: number;
   readonly pendingOptionalStepCount: number;
+  /** Full executor result so server bridges (e.g. deferred stack copies) after Effect Program commands. */
+  readonly execution?: OracleIRExecutionResult;
 }
 
 export interface BuildEffectProgramsFromOracleTextInput {
@@ -64,6 +66,7 @@ interface DerivedOracleIRContextBindings {
 
 const LAST_GRANTED_GRAVEYARD_CARDS_BINDING = '__oracleLastGrantedGraveyardCards';
 const LAST_GRANTED_GRAVEYARD_PERMISSION_IDS_BINDING = '__oracleLastGrantedGraveyardPermissionIds';
+const LAST_ACTION_OUTCOME_BINDING = '__oracleLastActionOutcome';
 
 export type OracleIREffectProgramHandlerOverrides = Omit<EffectProgramHandlers<GameState>, 'applyCommand'> & {
   readonly applyCommand?: EffectProgramHandlers<GameState>['applyCommand'];
@@ -120,8 +123,13 @@ export function createOracleIRCommandHandler(
       createOracleIRContextWithEffectProgramBindings(ctx, runtime),
       createOracleIROptionsWithEffectProgramBindings(options, runtime, step)
     );
+    const bindings: Record<string, unknown> = {};
+    if (execution.lastStepOutcome) {
+      bindings[LAST_ACTION_OUTCOME_BINDING] = execution.lastStepOutcome;
+    }
     return {
       state: execution.state,
+      ...(Object.keys(bindings).length > 0 ? { bindings } : {}),
       events: [createOracleIRCommandExecutionEvent(step.id, execution)],
     };
   };
@@ -221,12 +229,25 @@ export function createOracleIREffectProgramHandlers(
     ...handlers,
     createChoiceEvent: handlers.createChoiceEvent ?? ((args) => createOracleIRChoiceEvent(args, ctx)),
     evaluateCondition: handlers.evaluateCondition ?? ((args) => {
+      const boundOutcome = args.runtime.bindings[LAST_ACTION_OUTCOME_BINDING] as {
+        readonly kind?: string;
+        readonly stepKind?: string;
+        readonly count?: number;
+      } | undefined;
+      const lastActionOutcome = boundOutcome?.kind && boundOutcome?.stepKind
+        ? {
+          kind: boundOutcome.kind,
+          stepKind: boundOutcome.stepKind,
+          ...(typeof boundOutcome.count === 'number' ? { count: boundOutcome.count } : {}),
+        } as any
+        : null;
+
       const evaluation = evaluateConditionalWrapperCondition({
         condition: args.step.condition as any,
         nextState: args.state,
         controllerId: ctx.controllerId,
         ctx: createOracleIRContextWithEffectProgramBindings(ctx, args.runtime),
-        lastActionOutcome: null,
+        lastActionOutcome,
         lastConditionalEvaluation: null,
       });
       return evaluation === null ? 'unknown' : evaluation;
@@ -543,6 +564,7 @@ function createOracleIRCommandExecutionEvent(
     skippedStepKinds: execution.skippedSteps.map(step => step.kind),
     automationGapCount: execution.automationGaps.length,
     pendingOptionalStepCount: execution.pendingOptionalSteps.length,
+    execution,
   };
 }
 

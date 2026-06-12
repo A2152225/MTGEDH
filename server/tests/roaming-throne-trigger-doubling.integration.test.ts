@@ -4,6 +4,7 @@ import {
   detectTriggerDoublers,
   pushTriggerDoublerCopies,
 } from '../src/state/modules/triggers/combat.js';
+import { detectETBTriggers } from '../src/state/modules/triggered-abilities.js';
 
 describe('Roaming Throne trigger doubling', () => {
   const throneOracle =
@@ -34,6 +35,20 @@ describe('Roaming Throne trigger doubling', () => {
     }], 'p1');
 
     expect(withoutType).toHaveLength(0);
+  });
+
+  it('does not double-queue a modal ETB trigger for choose-a-creature-type text', () => {
+    const triggers = detectETBTriggers(
+      {
+        name: 'Roaming Throne',
+        type_line: 'Artifact Creature — Golem',
+        oracle_text: throneOracle,
+      },
+      { id: 'throne_1', controller: 'p1' },
+    );
+
+    expect(triggers.some((trigger) => trigger.triggerType === 'etb_modal_choice')).toBe(false);
+    expect(triggers.some((trigger) => String(trigger.effect || '').trim() === 'a creature type')).toBe(false);
   });
 
   it('doubles explore triggers from another Merfolk when Roaming Throne has chosen type', () => {

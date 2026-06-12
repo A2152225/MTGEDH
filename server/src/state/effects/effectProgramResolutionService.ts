@@ -16,11 +16,18 @@ import {
   queueEffectProgramChoice,
   readEffectProgramQueueMetadata,
 } from './effectProgramQueueAdapter.js';
+import {
+  bridgeOracleIrEffectProgramRunEvents,
+  maybeEmitDeclinedOptionalAbilityCopyFromEffectProgram,
+  maybeEmitPaidOptionalManaFromEffectProgram,
+  type EffectProgramOracleIrBridgeConfig,
+} from '../modules/oracleIrEffectProgramBridge.js';
 
 interface StoredEffectProgramRuntime {
   readonly runtime: EffectProgramRuntime<GameState>;
   readonly handlers: EffectProgramHandlers<GameState>;
   readonly queueExtraConfig?: EffectProgramQueueExtraConfig;
+  readonly oracleIrBridge?: EffectProgramOracleIrBridgeConfig;
 }
 
 export interface StartEffectProgramResolutionArgs {
@@ -32,6 +39,7 @@ export interface StartEffectProgramResolutionArgs {
   readonly persistPrompt?: boolean;
   readonly queueExtraConfig?: EffectProgramQueueExtraConfig;
   readonly initialBindings?: Readonly<Record<string, unknown>>;
+  readonly oracleIrBridge?: EffectProgramOracleIrBridgeConfig;
 }
 
 export interface ResumeEffectProgramResolutionArgs {
@@ -66,6 +74,7 @@ export function startEffectProgramResolution(args: StartEffectProgramResolutionA
     handlers: args.handlers || {},
     persistPrompt: args.persistPrompt ?? true,
     queueExtraConfig: args.queueExtraConfig,
+    oracleIrBridge: args.oracleIrBridge,
     resumed: false,
   });
 }
@@ -97,7 +106,9 @@ export function resumeEffectProgramResolution(args: ResumeEffectProgramResolutio
     handlers: stored.handlers,
     persistPrompt: args.persistPrompt ?? true,
     queueExtraConfig: stored.queueExtraConfig,
+    oracleIrBridge: stored.oracleIrBridge,
     resumed: true,
+    resolvedStepId: String(args.step.id || '').trim() || undefined,
   });
 }
 
@@ -119,10 +130,35 @@ function continueEffectProgramResolution(args: {
   readonly handlers: EffectProgramHandlers<GameState>;
   readonly persistPrompt: boolean;
   readonly queueExtraConfig?: EffectProgramQueueExtraConfig;
+  readonly oracleIrBridge?: EffectProgramOracleIrBridgeConfig;
   readonly resumed: boolean;
+  readonly resolvedStepId?: string;
 }): EffectProgramResolutionResult {
   const runResult = runEffectProgram(args.runtime, args.handlers);
   applyRunResultState(args.game, runResult);
+
+  if (args.oracleIrBridge) {
+    bridgeOracleIrEffectProgramRunEvents(
+      args.game,
+      (args.game as any).state,
+      runResult.events,
+      args.oracleIrBridge,
+    );
+    if (runResult.status === 'completed') {
+      maybeEmitPaidOptionalManaFromEffectProgram(
+        args.game,
+        runResult,
+        args.oracleIrBridge,
+        args.resolvedStepId,
+      );
+      maybeEmitDeclinedOptionalAbilityCopyFromEffectProgram(
+        args.game,
+        runResult,
+        runResult.events,
+        args.oracleIrBridge,
+      );
+    }
+  }
 
   if (runResult.status === 'waiting_for_choice' && runResult.pendingChoice) {
     const queuedStep = queueEffectProgramChoice(args.gameId, runResult.pendingChoice, args.queueExtraConfig);
@@ -130,6 +166,7 @@ function continueEffectProgramResolution(args: {
       runtime: runResult.pendingChoice.runtime,
       handlers: args.handlers,
       queueExtraConfig: args.queueExtraConfig,
+      oracleIrBridge: args.oracleIrBridge,
     });
 
     if (args.persistPrompt) {

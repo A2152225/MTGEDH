@@ -251,6 +251,11 @@ export interface OracleIRExecutionContext {
    * Set by server-side Oracle IR execution; dry-run/audit callers leave this unset.
    */
   readonly interactivePlayerChoices?: boolean;
+  /**
+   * When true, stack-target `copy_spell` steps defer to the server bridge instead of
+   * inline replay (push copied spells onto the stack + optional retarget prompts).
+   */
+  readonly deferStackSpellCopiesToServer?: boolean;
 }
 
 export interface OracleIRExecutionResult {

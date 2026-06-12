@@ -371,7 +371,21 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('schedule_delayed_trigger')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('blight')).toBe(true);
     expect(isSpellStepKindRetiredUnderOracleIrPrimary('mill')).toBe(true);
-    expect(isSpellStepKindRetiredUnderOracleIrPrimary('choose_mode')).toBe(false);
+    expect(isSpellStepKindRetiredUnderOracleIrPrimary('choose_mode')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('choose_mode')).toBe(true);
+  });
+
+  it('isSpellEffectFullyIrWired reports player_choice steps as wired', () => {
+    expect(isSpellEffectFullyIrWired(
+      'Choose odd or even. If you chose odd, you gain 1 life.',
+      'Test Choice',
+    )).toBe(true);
+    expect(isSpellStepKindRetiredUnderOracleIrPrimary('player_choice')).toBe(true);
+  });
+
+  it('isSpellEffectFullyIrWired reports modal choose_mode spells as wired', () => {
+    const modalCharm = 'Choose one —\n• Draw a card.\n• You gain 2 life.';
+    expect(isSpellEffectFullyIrWired(modalCharm, 'Test Charm')).toBe(true);
   });
 
   it('does not skip unknown spell fragments', () => {

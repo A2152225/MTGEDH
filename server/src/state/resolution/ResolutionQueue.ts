@@ -14,6 +14,7 @@
 import type { PlayerID } from '../../../../shared/src/types.js';
 import type { ChoiceEvent, ChoiceResponse } from '../../../../rules-engine/src/choiceEvents.js';
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { normalizeResolutionStepMandatory } from './mandatoryInference.js';
 import {
   ResolutionStepStatus,
   ResolutionStepType,
@@ -80,7 +81,7 @@ export function createResolutionStep(config: CreateResolutionStepConfig): Resolu
     }
   }
 
-  return { ...step, ...typeSpecificFields } as ResolutionStep;
+  return normalizeResolutionStepMandatory({ ...step, ...typeSpecificFields } as ResolutionStep);
 }
 
 /**

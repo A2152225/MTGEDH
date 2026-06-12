@@ -197,7 +197,12 @@ function resolveTriggerTargetBinding(
     }
   }
 
-  const sourceId = String(triggerItem?.id || triggerItem?.sourceId || sourcePermanentId || '').trim();
+  const sourceId = String(sourcePermanentId || triggerItem?.sourceId || triggerItem?.id || '').trim();
+  const triggeringStackItemId = String(
+    triggerItem?.triggeringStackItemId
+    || triggerItem?.effectData?.triggeringStackItemId
+    || '',
+  ).trim();
   const lifeLostReference = Number(triggerItem?.effectData?.lifeLost ?? 0);
   const losingPlayerId = String(
     triggerItem?.effectData?.losingPlayerId
@@ -216,6 +221,9 @@ function resolveTriggerTargetBinding(
 
   let targetPermanentId: string | undefined;
   let targetSpellId: string | undefined;
+  if (triggeringStackItemId) {
+    targetSpellId = triggeringStackItemId;
+  }
   for (const targetId of normalizedTargetIds) {
     if (battlefield.some((permanent: any) => String(permanent?.id || '') === targetId)) {
       targetPermanentId = targetId;
@@ -265,7 +273,7 @@ function buildTriggerIrContext(
   return buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
-      sourceId: binding.sourceId || binding.sourcePermanentId,
+      sourceId: binding.sourcePermanentId || binding.sourceId,
       sourceName: params.sourceName,
       sourceObjectType: 'ability',
       xValue: binding.xValue,
@@ -278,6 +286,7 @@ function buildTriggerIrContext(
         ...(chosenCreatureType ? { chosenCreatureType } : {}),
       },
       ...(binding.targetPermanentId ? { targetPermanentId: binding.targetPermanentId } : {}),
+      ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
     },
     {
       targetPermanentId: binding.targetPermanentId,
@@ -362,7 +371,10 @@ export function tryResolveTriggerViaOracleIR(
     irCtx,
     executionOptions,
     programIdPrefix: `trigger:${binding.sourceId || params.sourceName}`,
-    metadata: { family: 'trigger_resolution' },
+    metadata: {
+      family: 'trigger_resolution',
+      triggerItem: params.triggerItem,
+    },
   };
 
   if (!primary) {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { PlayerID } from '../../shared/src/index.js';
 import { createContext, type GameContext } from '../src/state/context.js';
+import { lookupLocalCardByNameSync } from '../src/services/localCardLookup.js';
 import { applyLegacySpellRegexDrawHandlers } from '../src/state/modules/stackResolveSpellLegacyRegexDrawUtils.js';
 import {
   isSpellEffectFullyIrWired,
@@ -76,6 +77,7 @@ describe('compound spell Oracle IR primary (batch 177)', () => {
   const previousPrimary = process.env.ORACLE_IR_SPELL_PRIMARY;
 
   afterEach(() => {
+    ResolutionQueueManager.clearAllSteps('compound-spell-ir');
     if (previousPrimary === undefined) {
       delete process.env.ORACLE_IR_SPELL_PRIMARY;
     } else {
@@ -83,7 +85,18 @@ describe('compound spell Oracle IR primary (batch 177)', () => {
     }
   });
 
-  it('Chart a Course is fully IR-wired and skips legacy compound draw regex', () => {
+  it('Chart a Course local oracle is fully IR-wired and skips legacy compound draw regex', () => {
+    const card = lookupLocalCardByNameSync('Chart a Course');
+    const oracleText = String(card?.oracle_text || '').trim();
+    expect(oracleText.length).toBeGreaterThan(0);
+
+    expect(isSpellEffectFullyIrWired(oracleText, 'Chart a Course')).toBe(true);
+
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+    expect(shouldSkipLegacySpellRegexHandlers(oracleText, 'Chart a Course')).toBe(true);
+  });
+
+  it('draw-then-discard compound clause is fully IR-wired (Chart a Course mode shorthand)', () => {
     const oracleText = 'Draw two cards, then discard a card.';
     expect(isSpellEffectFullyIrWired(oracleText, 'Chart a Course')).toBe(true);
 
@@ -123,6 +136,67 @@ describe('compound spell Oracle IR primary (batch 177)', () => {
     });
 
     expect(state.zones[playerId].hand.length).toBe(2);
+  });
+
+  it('resolves local Chart a Course oracle under IR primary (draw + unless-attack discard)', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const card = lookupLocalCardByNameSync('Chart a Course');
+    const oracleText = String(card?.oracle_text || '').trim();
+    expect(oracleText.length).toBeGreaterThan(0);
+
+    const playerId = 'p1' as PlayerID;
+    const ctx = createBaseCtx(playerId);
+    const state = (ctx as any).state;
+    state.attackedThisTurn = {};
+    state.attackedPlayersThisTurnByPlayer = { [playerId]: [] };
+
+    const outcome = tryResolveSpellViaOracleIR(ctx, {
+      controller: playerId,
+      spellName: 'Chart a Course',
+      oracleText,
+      sourceId: 'chart-local-1',
+    });
+
+    expect(outcome.handled).toBe(true);
+    expect(outcome.applied).toBeGreaterThanOrEqual(1);
+    expect(state.zones[playerId].hand.length).toBe(2);
+
+    const queuedDiscard = ResolutionQueueManager
+      .getQueue(String((ctx as any).gameId))
+      .steps.some((step) => step.type === ResolutionStepType.DISCARD_SELECTION);
+    const legacyPendingDiscard = state.pendingDiscard?.[playerId]?.count === 1;
+    expect(queuedDiscard || legacyPendingDiscard).toBe(true);
+  });
+
+  it('skips Chart a Course discard when controller attacked this turn', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const card = lookupLocalCardByNameSync('Chart a Course');
+    const oracleText = String(card?.oracle_text || '').trim();
+    expect(oracleText.toLowerCase()).toContain('unless');
+
+    const playerId = 'p1' as PlayerID;
+    const ctx = createBaseCtx(playerId);
+    const state = (ctx as any).state;
+    state.attackedThisTurn = { [playerId]: true };
+    state.attackedPlayersThisTurnByPlayer = { [playerId]: ['attacker-1'] };
+
+    const outcome = tryResolveSpellViaOracleIR(ctx, {
+      controller: playerId,
+      spellName: 'Chart a Course',
+      oracleText,
+      sourceId: 'chart-local-2',
+    });
+
+    expect(outcome.handled).toBe(true);
+    expect(state.zones[playerId].hand.length).toBe(2);
+
+    const queuedDiscard = ResolutionQueueManager
+      .getQueue(String((ctx as any).gameId))
+      .steps.some((step) => step.type === ResolutionStepType.DISCARD_SELECTION);
+    const legacyPendingDiscard = Boolean(state.pendingDiscard?.[playerId]?.count);
+    expect(queuedDiscard || legacyPendingDiscard).toBe(false);
   });
 
   it('Echo of Eons wheel text is fully IR-wired and skips legacy compound regex under primary', () => {
@@ -234,6 +308,43 @@ describe('compound spell Oracle IR primary (batch 177)', () => {
     expect(state.zones[player2Id].hand.length).toBe(5);
     expect(state.zones[playerId].graveyard.length).toBe(3);
     expect(state.zones[player2Id].graveyard.length).toBe(5);
+  });
+
+  it('resolves Reforge the Soul under IR primary (discard hand then draw seven)', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const playerId = 'p1' as PlayerID;
+    const player2Id = 'p2' as PlayerID;
+    const ctx = createTwoPlayerCtx(playerId, player2Id);
+    const state = (ctx as any).state;
+
+    state.zones[playerId].hand = [
+      { id: 'p1_hand_1', name: 'Opt', type_line: 'Instant', zone: 'hand' },
+      { id: 'p1_hand_2', name: 'Bolt', type_line: 'Instant', zone: 'hand' },
+    ];
+    state.zones[playerId].handCount = 2;
+    state.zones[player2Id].hand = Array.from({ length: 4 }, (_, index) => ({
+      id: `p2_hand_${index}`,
+      name: `P2 Hand ${index}`,
+      type_line: 'Instant',
+      zone: 'hand',
+    }));
+    state.zones[player2Id].handCount = 4;
+
+    const oracleText = 'Each player discards their hand, then draws seven cards.';
+
+    const outcome = tryResolveSpellViaOracleIR(ctx, {
+      controller: playerId,
+      spellName: 'Reforge the Soul',
+      oracleText,
+      sourceId: 'reforge-1',
+    });
+
+    expect(outcome.handled).toBe(true);
+    expect(state.zones[playerId].hand.length).toBe(7);
+    expect(state.zones[player2Id].hand.length).toBe(7);
+    expect(state.zones[playerId].graveyard.length).toBe(2);
+    expect(state.zones[player2Id].graveyard.length).toBe(4);
   });
 
   it('Big Score draw-plus-treasure is fully IR-wired under primary', () => {

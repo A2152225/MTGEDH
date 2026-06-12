@@ -1,14 +1,11 @@
 import { detectCastTrigger } from '../../../../rules-engine/src/cards/castTriggers.js';
-import type { EldraziEffect } from './triggered-abilities.js';
 
 /**
  * Resolve the on-cast triggered ability text for a spell being cast from hand.
- * Prefers oracle-driven detectCastTrigger; falls back to Eldrazi name table for
- * non-standard wording (e.g. Emrakul extra turn without "When you cast this spell").
+ * Oracle-driven via detectCastTrigger (including Emrakul extra-turn shorthand).
  */
 export function resolveOnCastSpellTriggerDescription(
   card: any,
-  eldraziEffect: EldraziEffect | null,
 ): { description: string; effect: string } | null {
   const oracleText = String(card?.oracle_text || '');
   const castTriggerInfo = detectCastTrigger(oracleText, card?.type_line);
@@ -24,13 +21,10 @@ export function resolveOnCastSpellTriggerDescription(
 
     const description = /^when you cast this spell\b/i.test(effectClause)
       ? effectClause
-      : `When you cast this spell, ${effectClause}`;
+      : effectClause.toLowerCase().includes('take an extra turn after this one')
+        ? 'Take an extra turn after this one.'
+        : `When you cast this spell, ${effectClause}`;
 
-    return { description, effect: description };
-  }
-
-  if (eldraziEffect?.castTrigger) {
-    const description = String(eldraziEffect.castTrigger);
     return { description, effect: description };
   }
 

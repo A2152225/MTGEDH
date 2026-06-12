@@ -975,6 +975,8 @@ export type OracleEffectStep =
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
       readonly whereX?: OracleClauseCondition;
+      readonly unlessCondition?: OracleClauseCondition;
+      readonly atRandom?: boolean;
       readonly target?: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';

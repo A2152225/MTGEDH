@@ -129,7 +129,7 @@ export function applyOracleIRTriggerUncategorizedFallback(
   const sourcePermanentId = String(
     triggerItem?.source || triggerItem?.permanentId || '',
   ).trim();
-  const sourceId = String(triggerItem?.id || triggerItem?.sourceId || sourcePermanentId || '').trim();
+  const sourceId = String(sourcePermanentId || triggerItem?.sourceId || triggerItem?.id || '').trim();
 
   let applied = 0;
   if (wouldOracleIRFallbackPrefilterMatch(text)) {

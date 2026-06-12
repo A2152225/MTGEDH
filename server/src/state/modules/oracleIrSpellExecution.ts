@@ -353,6 +353,7 @@ export function tryResolveSpellViaOracleIR(
         targetPlayerId: targetBinding.targetPlayerId,
         applyMillReplacements: true,
         sourceItem: params.sourceItem,
+        oracleText: params.oracleText,
       },
     );
 

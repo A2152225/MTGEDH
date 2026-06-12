@@ -86,6 +86,30 @@ export function normalizeManaColorCode(value: unknown): string | null {
   return null;
 }
 
+export function normalizeOracleManaCostString(manaCost: string | undefined): string {
+  const raw = String(manaCost || '').trim();
+  if (!raw) return '';
+
+  return raw.replace(/\{([^}]+)\}/g, (_match, inner: string) => {
+    const token = String(inner || '').trim();
+    if (!token) return '{}';
+
+    const parts = token.split('/').map((part) => {
+      const color = normalizeManaColorCode(part);
+      if (color) return color;
+      if (/^\d+$/.test(part)) return part;
+      if (/^[xyz]$/i.test(part)) return part.toUpperCase();
+      if (/^c$/i.test(part)) return 'C';
+      if (/^e$/i.test(part)) return 'E';
+      if (/^s$/i.test(part)) return 'S';
+      if (/^p$/i.test(part)) return 'P';
+      return part;
+    });
+
+    return `{${parts.join('/')}}`;
+  });
+}
+
 export function getColorsOfManaSpent(obj: any): number | null {
   if (!obj) return null;
 

@@ -2,6 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
 import { cleanupCardLeavingExile } from './playable-from-exile.js';
+import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import { movePermanentToGraveyard } from './counters_tokens.js';
 import { syncPreparedPermanentAfterControlChange } from './prepared.js';
 import { debug, debugWarn } from '../../utils/debug.js';
@@ -132,7 +133,9 @@ export function applyRetiredTriggerLegacyReboundTrigger(
     }
 
     (zones as any).graveyard = Array.isArray((zones as any).graveyard) ? (zones as any).graveyard : [];
-    (zones as any).graveyard.push({ ...exiledCard, zone: 'graveyard', reboundPending: false, reboundTriggered: false });
+    pushCardToPlayerGraveyardWithReplacements(params.ctx, String(params.controller), exiledCard, (zones as any).graveyard, {
+      extraFields: { reboundPending: false, reboundTriggered: false },
+    });
     (zones as any).graveyardCount = (zones as any).graveyard.length;
 
     io?.to?.(gameId)?.emit?.('chat', {

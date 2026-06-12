@@ -91,6 +91,37 @@ export function buildResolvedSpellCopySnapshot(
   };
 }
 
+export function buildResolvedAbilityCopySnapshot(
+  item: any,
+  sourceName: string,
+  controller: PlayerID,
+): any {
+  const copiedFromStackItemId = String(item?.id || '').trim();
+  return {
+    ...item,
+    id: uid('copied_ability'),
+    type: String(item?.type || 'ability'),
+    controller: String(item?.controller || controller),
+    targets: Array.isArray(item?.targets)
+      ? item.targets.map((target: any) => (
+          target && typeof target === 'object' && !Array.isArray(target)
+            ? { ...target }
+            : target
+        ))
+      : item?.targets,
+    card: item?.card ? { ...(item.card as Record<string, any>) } : item?.card,
+    ability: item?.ability ? { ...(item.ability as Record<string, any>) } : item?.ability,
+    searchParams: item?.searchParams ? { ...(item.searchParams as Record<string, any>) } : item?.searchParams,
+    upgradeData: item?.upgradeData ? { ...(item.upgradeData as Record<string, any>) } : item?.upgradeData,
+    equipParams: item?.equipParams ? { ...(item.equipParams as Record<string, any>) } : item?.equipParams,
+    fortifyParams: item?.fortifyParams ? { ...(item.fortifyParams as Record<string, any>) } : item?.fortifyParams,
+    reconfigureParams: item?.reconfigureParams ? { ...(item.reconfigureParams as Record<string, any>) } : item?.reconfigureParams,
+    copiedFromStackItemId,
+    copiedBySourceName: sourceName,
+    isCopy: true,
+  };
+}
+
 function buildSevinnesReclamationCopyRetargetTargets(
   ctx: GameContext,
   controller: PlayerID,

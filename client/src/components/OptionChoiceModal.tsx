@@ -6,6 +6,7 @@
  */
 
 import React, { useState } from 'react';
+import { ResolutionPromptMinimizeButton } from './ResolutionMinimizedChip';
 
 export interface OptionChoiceOption {
   id: string;
@@ -31,12 +32,14 @@ export interface OptionChoiceRequest {
 export interface OptionChoiceModalProps {
   open: boolean;
   request: OptionChoiceRequest | null;
+  onMinimize?: () => void;
   onRespond: (selections: string[]) => void;
 }
 
 export function OptionChoiceModal({
   open,
   request,
+  onMinimize,
   onRespond,
 }: OptionChoiceModalProps) {
   const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
@@ -111,6 +114,7 @@ export function OptionChoiceModal({
               {description}
             </div>
           </div>
+          {onMinimize ? <ResolutionPromptMinimizeButton onMinimize={onMinimize} /> : null}
         </div>
 
         {/* Options List */}

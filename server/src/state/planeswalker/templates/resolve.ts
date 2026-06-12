@@ -15,7 +15,21 @@ import { permanentHasCreatureTypeNow } from "../../creatureTypeNow.js";
 import { applyDamageToPermanentWithCounterEffects } from "../../modules/counter-common-effects.js";
 import { syncPreparedPermanentAfterControlChange } from "../../modules/prepared.js";
 import { getPlaneswalkerTemplateMatch } from "./registry.js";
+import { pushCardToPlayerGraveyardWithReplacements } from "../../modules/graveyardEntryUtils.js";
 import { getBattlefield, getGameId, getPlaneswalkerX, getTargets, modifyLifeLikeStack, normalizeOracleEffectText, parseCountTokenWord, parseCreateTokenDescriptor } from "./utils.js";
+
+function discardHandCardsToGraveyard(
+  ctx: GameContext,
+  playerId: string,
+  hand: any[],
+  graveyard: any[],
+): void {
+  for (const card of hand) {
+    if (card) {
+      pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), card, graveyard);
+    }
+  }
+}
 
 function shuffleInPlace<T>(arr: T[], rng: () => number) {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -2785,8 +2799,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
 
         if (z.hand.length > 0) {
-          const moved = z.hand.map((c: any) => ({ ...c, zone: "graveyard" }));
-          z.graveyard.push(...moved);
+          discardHandCardsToGraveyard(ctx, pid, z.hand, z.graveyard);
           z.hand = [];
         }
 
@@ -4234,8 +4247,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
 
       if (z.hand.length > 0) {
-        const moved = z.hand.map((c: any) => ({ ...c, zone: 'graveyard' }));
-        z.graveyard.push(...moved);
+        discardHandCardsToGraveyard(ctx, controller, z.hand, z.graveyard);
         z.hand = [];
       }
       z.handCount = (z.hand as any[]).length;
@@ -4280,8 +4292,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
 
       // Discard your hand.
       if (z.hand.length > 0) {
-        const moved = z.hand.map((c: any) => ({ ...c, zone: 'graveyard' }));
-        z.graveyard.push(...moved);
+        discardHandCardsToGraveyard(ctx, controller, z.hand, z.graveyard);
         z.hand = [];
       }
       z.handCount = (z.hand as any[]).length;
@@ -4686,7 +4697,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         const idx = Math.max(0, Math.min(z.hand.length - 1, Math.floor(r * z.hand.length)));
         const [discarded] = z.hand.splice(idx, 1);
         if (discarded) {
-          z.graveyard.push({ ...discarded, zone: 'graveyard' });
+          pushCardToPlayerGraveyardWithReplacements(ctx, String(controller), discarded, z.graveyard);
         }
       }
 
@@ -11370,9 +11381,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
 
       const discardN = (z.hand as any[]).length;
       if (discardN > 0) {
-        for (const card of z.hand as any[]) {
-          z.graveyard.push({ ...(card as any), zone: 'graveyard' });
-        }
+        discardHandCardsToGraveyard(ctx, controller, z.hand as any[], z.graveyard);
         z.hand = [];
       }
       z.handCount = (z.hand as any[]).length;

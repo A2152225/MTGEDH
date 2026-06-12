@@ -29,6 +29,7 @@ import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/sta
 import { canCastFromTop } from "../state/modules/game-state-effects.js";
 import { cardHasCreatureType, getCreatureTypesNow } from "../state/creatureTypeNow.js";
 import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
+import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
 import { debug, debugWarn, debugError, debugEnv } from "../utils/debug.js";
 import { BOOT_ID } from "../utils/bootId.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
@@ -448,13 +449,20 @@ export function millUntilLand(
     if (!zones || !Array.isArray(zones.library)) return result;
     
     zones.graveyard = zones.graveyard || [];
+    const millCtx = {
+      state: game.state,
+      libraries: game.libraries,
+      bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
+      rng: game.rng,
+      gameId: game.gameId || game.id,
+    } as any;
     
     while (zones.library.length > 0) {
       const card = zones.library.shift();
       if (!card) break;
       result.milled.push(card);
       const isLand = (card.type_line || "").toLowerCase().includes("land");
-      zones.graveyard.push(card);
+      pushCardToPlayerGraveyardWithReplacements(millCtx, targetPlayerId, card, zones.graveyard);
       if (isLand) {
         result.landHit = card;
         break;

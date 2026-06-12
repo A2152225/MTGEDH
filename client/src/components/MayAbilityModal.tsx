@@ -18,6 +18,7 @@
 import React, { useState } from 'react';
 import { socket } from '../socket';
 import { SHORTCUT_ELIGIBLE_TRIGGERS } from '../../../shared/src/types';
+import { ResolutionPromptMinimizeButton } from './ResolutionMinimizedChip';
 
 export interface MayAbilityModalData {
   /** Resolution queue step ID to respond to */
@@ -45,11 +46,12 @@ export interface MayAbilityModalData {
 export interface MayAbilityModalProps {
   open: boolean;
   data: MayAbilityModalData | null;
+  onMinimize?: () => void;
   onYes: (stepId: string) => void;
   onNo: (stepId: string) => void;
 }
 
-export function MayAbilityModal({ open, data, onYes, onNo }: MayAbilityModalProps) {
+export function MayAbilityModal({ open, data, onMinimize, onYes, onNo }: MayAbilityModalProps) {
   const [saving, setSaving] = useState(false);
   const [yesCount, setYesCount] = useState(2);
 
@@ -156,6 +158,7 @@ export function MayAbilityModal({ open, data, onYes, onNo }: MayAbilityModalProp
               {data.sourceName}
             </div>
           </div>
+          {onMinimize ? <ResolutionPromptMinimizeButton onMinimize={onMinimize} /> : null}
         </div>
 
         {/* Trigger text */}

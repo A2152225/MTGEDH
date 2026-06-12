@@ -7,6 +7,8 @@ import { broadcastGame, consumeManaFromPool, getOrInitManaPool, parseManaCost } 
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { ResolutionStepType } from '../resolution/index.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
+import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
+import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
 
 const OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const DIRECT_COPY_ABILITY_PATTERN = /^copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
@@ -125,12 +127,36 @@ export function queueAbilityCopyRetargetPrompt(
     ? (copiedItem as any).copyRetargetValidTargets
     : [];
   const currentTargets = Array.isArray((copiedItem as any)?.targets) ? (copiedItem as any).targets : [];
-  if (validTargets.length === 0 || currentTargets.length === 0) {
-    return;
-  }
+  if (validTargets.length === 0) return;
 
   const gameId = String((ctx as any).gameId || '').trim();
   if (!gameId) {
+    return;
+  }
+
+  const minTargets = Number((copiedItem as any)?.copyRetargetMinTargets || currentTargets.length || 1);
+  const maxTargets = Number((copiedItem as any)?.copyRetargetMaxTargets || currentTargets.length || 1);
+  const targetDescription = String((copiedItem as any)?.copyRetargetTargetDescription || 'target');
+  const copyStackItemId = String((copiedItem as any).id || '').trim();
+
+  if (currentTargets.length === 0) {
+    queueResolveTopOfStackPrompt(ctx, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: controller,
+      description: `${sourceName}: You may choose ${targetDescription} for the copy.`,
+      mandatory: false,
+      sourceId: copyStackItemId || undefined,
+      sourceName,
+      validTargets,
+      targetTypes: Array.isArray((copiedItem as any)?.copyRetargetTargetTypes)
+        ? (copiedItem as any).copyRetargetTargetTypes
+        : ['spell_target'],
+      minTargets,
+      maxTargets,
+      targetDescription,
+      retargetAbilityCopyTargetSelection: true,
+      retargetAbilityCopyStackItemId: copyStackItemId,
+    } as any);
     return;
   }
 
@@ -153,9 +179,9 @@ export function queueAbilityCopyRetargetPrompt(
     retargetAbilityCopyTargetTypes: Array.isArray((copiedItem as any)?.copyRetargetTargetTypes)
       ? (copiedItem as any).copyRetargetTargetTypes
       : [],
-    retargetAbilityCopyMinTargets: Number((copiedItem as any)?.copyRetargetMinTargets || currentTargets.length || 1),
-    retargetAbilityCopyMaxTargets: Number((copiedItem as any)?.copyRetargetMaxTargets || currentTargets.length || 1),
-    retargetAbilityCopyTargetDescription: String((copiedItem as any)?.copyRetargetTargetDescription || 'target'),
+    retargetAbilityCopyMinTargets: minTargets,
+    retargetAbilityCopyMaxTargets: maxTargets,
+    retargetAbilityCopyTargetDescription: targetDescription,
   } as any);
 }
 
@@ -169,6 +195,13 @@ export function tryDeferCopyTriggeredAbilityPrompts(
   triggerType: string,
   state: any,
 ): boolean {
+  if (
+    isOracleIrTriggerPrimaryEnabled()
+    && isTriggerEffectOwnedByOracleIrPrimary(trimmedDescription, sourceName)
+  ) {
+    return false;
+  }
+
   const optionalCopyAbilityMatch = triggerType === 'ability_activated'
     ? trimmedDescription.match(OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN)
     : null;

@@ -121,7 +121,7 @@ export function applySupplementalOracleIRForResolvedSpell(
 
         const millsThatMany = /^(?:its controller|that player|they|he or she|target player|target opponent|that opponent)\s+mills?\s+that many cards$/i.test(normalized);
         if (millsThatMany && options?.targetPlayerId && lastNumericResult && lastNumericResult > 0) {
-          const milled = millCardsFromLibrary(stateAny, options.targetPlayerId, lastNumericResult);
+          const milled = millCardsFromLibrary(stateAny, options.targetPlayerId, lastNumericResult, ctx);
           if (milled > 0) {
             debug(2, `[oracleIR] ${spellName}: ${options.targetPlayerId} milled ${milled} card(s)`);
             if (typeof (ctx as any).bumpSeq === 'function') {
@@ -140,7 +140,7 @@ export function applySupplementalOracleIRForResolvedSpell(
         millStep.kind === 'mill' &&
         normalizeOracleResolutionText(String(millStep?.amount?.raw || '')) === 'that many';
       if (millsThatManyStep && options?.targetPlayerId && chooseRandomNumberIfNeeded() && lastNumericResult && lastNumericResult > 0) {
-        const milled = millCardsFromLibrary(stateAny, options.targetPlayerId, lastNumericResult);
+        const milled = millCardsFromLibrary(stateAny, options.targetPlayerId, lastNumericResult, ctx);
         if (milled > 0) {
           debug(2, `[oracleIR] ${spellName}: ${options.targetPlayerId} milled ${milled} card(s)`);
           if (typeof (ctx as any).bumpSeq === 'function') {

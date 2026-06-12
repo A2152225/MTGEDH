@@ -193,3 +193,6 @@ export * from "./aura-graveyard.js";
 
 // Damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
 export * from "./damage-received.js";
+
+export * from "./ability-activated.js";
+export * from "./targeted.js";

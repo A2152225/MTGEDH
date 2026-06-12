@@ -2531,6 +2531,25 @@ describe('Oracle IR current audit batch support', () => {
     ]);
   });
 
+  it('repairs discard unless attacked this turn (Chart a Course)', () => {
+    const ir = parseOracleTextToIR(
+      'Draw two cards. Then discard a card unless you attacked this turn.',
+      'Chart a Course',
+    );
+    const steps = ir.abilities?.[0]?.steps || [];
+    expect(steps).toEqual([
+      expect.objectContaining({
+        kind: 'draw',
+        amount: { kind: 'number', value: 2 },
+      }),
+      expect.objectContaining({
+        kind: 'discard',
+        amount: { kind: 'number', value: 1 },
+        unlessCondition: { kind: 'if', raw: 'you attacked this turn' },
+      }),
+    ]);
+  });
+
   it('cleans after15 activation limitation residual rows', () => {
     const noUnknownCases = [
       ['Magitek Scythe', 'A Test of Your Reflexes!'],

@@ -6,6 +6,7 @@ import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import {
+  ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS,
   ORACLE_IR_FALLBACK_STEP_KINDS,
   TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS,
   collectOracleEffectSteps,
@@ -25,12 +26,6 @@ import { detectInstantSorcerySpellShapeFlags } from './oracleIrSpellLegacySpellS
 import { applyInstantSorceryNibelheimAflameEffect } from './stackResolveSpellSpecialCaseUtils.js';
 import { isCelestialReunionOracle } from './chosen-creature-type.js';
 
-const EFFECT_PROGRAM_ONLY_KINDS = new Set<string>([
-  'choose_mode',
-  'fateseal',
-  'clash',
-]);
-
 const UNLESS_PAY_KINDS = new Set<string>([
   'unless_pays_mana',
   'unless_pays_life',
@@ -46,7 +41,7 @@ function mandatoryStepsFrom(allSteps: readonly OracleEffectStep[]): OracleEffect
 
 function shouldIncludeUncategorizedSpellFallbackStep(step: OracleEffectStep): boolean {
   if (!step || step.kind === 'unknown') return false;
-  if (EFFECT_PROGRAM_ONLY_KINDS.has(String(step.kind))) return false;
+  if (ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS.has(String(step.kind))) return false;
 
   if (isOptionalStep(step)) {
     if (UNLESS_PAY_KINDS.has(String(step.kind))) return true;

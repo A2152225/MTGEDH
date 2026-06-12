@@ -61,6 +61,15 @@ export function detectCastTrigger(oracleText: string, typeLine?: string): CastTr
       effect: match ? match[1].trim() : 'Cast trigger effect',
     };
   }
+
+  // Emrakul-style on-cast extra turn when oracle omits explicit "When you cast this spell,".
+  if (/take an extra turn after this one/i.test(text) && !/whenever you cast/i.test(text)) {
+    return {
+      hasCastTrigger: true,
+      triggerType: 'self_cast',
+      effect: 'Take an extra turn after this one.',
+    };
+  }
   
   // Check for "when you cast" other spells (like Ulalek)
   // Pattern: "whenever you cast" + creature type (handles multi-word types)

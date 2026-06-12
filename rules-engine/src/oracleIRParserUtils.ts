@@ -89,6 +89,7 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^a third of their life, rounded up$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^cards equal to its power$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^for each other creature you control that the spell could target$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^for each other creature you control that ability could target$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^for each other creature that spell could target$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^for each other permanent or player the spell or ability could target$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^damage equal to the number of charge counters on it to target player and that much$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };

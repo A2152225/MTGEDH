@@ -18,6 +18,7 @@ import { queueSacrificeTriggers } from "../state/modules/triggers/sacrifice.js";
 import { queueSelfETBTriggersForPermanent, triggerETBEffectsForToken } from "../state/modules/triggerEtbEntryEffects.js";
 import { triggerETBEffectsForPermanent } from "../state/modules/triggerEtbPermanentEffects.js";
 import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
+import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
 import { 
   getManaAbilitiesForPermanent, 
   getManaMultiplier, 
@@ -13425,7 +13426,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Discard the card (cost is paid immediately)
     zones.hand.splice(handIndex, 1);
     zones.graveyard = zones.graveyard || [];
-    zones.graveyard.push({ ...card, zone: "graveyard" });
+    const cyclingCtx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as any;
+    pushCardToPlayerGraveyardWithReplacements(cyclingCtx, String(pid), card, zones.graveyard);
     zones.handCount = zones.hand.length;
     zones.graveyardCount = zones.graveyard.length;
 

@@ -21,6 +21,7 @@ type InstantSorceryPostCategorizeRiderOptions = {
   targets: any[];
   spellXValue: unknown;
   uncategorizedSpellFallbackApplied: number;
+  oracleIrSpellHandled?: boolean;
 };
 
 export function applyInstantSorceryGraveyardConditionalTokenRider(
@@ -89,6 +90,10 @@ export function applyInstantSorceryCopyStackSpellRiders(
   ctx: GameContext,
   options: InstantSorceryPostCategorizeRiderOptions,
 ): void {
+  if (options.oracleIrSpellHandled) {
+    return;
+  }
+
   const spellName = String(options.effectiveCard?.name || 'spell');
   if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
     return;

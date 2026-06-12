@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { ResolutionPromptMinimizeButton } from './ResolutionMinimizedChip';
 
 export interface ManaDistributionModalProps {
   open: boolean;
@@ -14,6 +15,9 @@ export interface ManaDistributionModalProps {
   totalAmount: number;
   availableColors: string[]; // e.g., ['W', 'U', 'B', 'R', 'G']
   message?: string;
+  /** When false, Cancel is hidden (mandatory resolution steps). */
+  canCancel?: boolean;
+  onMinimize?: () => void;
   onConfirm: (distribution: Record<string, number>) => void;
   onCancel: () => void;
 }
@@ -41,6 +45,8 @@ export function ManaDistributionModal({
   totalAmount,
   availableColors,
   message,
+  canCancel = true,
+  onMinimize,
   onConfirm,
   onCancel,
 }: ManaDistributionModalProps) {
@@ -117,9 +123,12 @@ export function ManaDistributionModal({
           color: '#e0e0e0',
         }}
       >
-        <h2 style={{ margin: '0 0 12px 0', fontSize: 20, color: '#fff' }}>
-          Distribute Mana - {cardName}
-        </h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
+          <h2 style={{ margin: 0, fontSize: 20, color: '#fff', flex: 1 }}>
+            Distribute Mana - {cardName}
+          </h2>
+          {onMinimize ? <ResolutionPromptMinimizeButton onMinimize={onMinimize} /> : null}
+        </div>
         {message && (
           <p style={{ margin: '0 0 16px 0', fontSize: 14, color: '#bbb' }}>{message}</p>
         )}
@@ -210,19 +219,21 @@ export function ManaDistributionModal({
         </div>
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button
-            onClick={onCancel}
-            style={{
-              padding: '8px 16px',
-              background: '#444',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 6,
-              cursor: 'pointer',
-            }}
-          >
-            Cancel
-          </button>
+          {canCancel && (
+            <button
+              onClick={onCancel}
+              style={{
+                padding: '8px 16px',
+                background: '#444',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          )}
           <button
             onClick={handleConfirm}
             disabled={allocated !== totalAmount}

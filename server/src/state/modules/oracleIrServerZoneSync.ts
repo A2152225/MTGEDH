@@ -9,6 +9,7 @@ import {
 } from '../../../../rules-engine/src/oracleIRExecutor.js';
 import { resolveSingleCreatureTargetId } from '../../../../rules-engine/src/oracleIRExecutorCreatureStepUtils.js';
 import { resolveOracleQuantity, resolveOracleQuantityForPlayer } from '../../../../rules-engine/src/oracleIRExecutorResolveQuantity.js';
+import { normalizeOracleManaCostString } from '../../../../rules-engine/src/oracleIRExecutorManaUtils.js';
 import { resolvePlayers } from '../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
 import { buildSacrificeTargetSelectionOptions } from '../../../../rules-engine/src/oracleIRExecutorBattlefieldStepHandlers.js';
 import {
@@ -33,6 +34,9 @@ import {
   applyCopyPermanentTriggerStep,
   copyPermanentTriggerStepNeedsTargetSelectionQueue,
 } from './trigger-copy-permanent.js';
+import { queueCopySpellStackPushFromOracleIRResult } from './oracleIrServerCopySpellSync.js';
+import { appendCopyTriggeredAbilityResolveEvent } from './triggerAbilityCopyUtils.js';
+import { consumeManaFromPool, getOrInitManaPool, parseManaCost } from '../../socket/util.js';
 import { syncPreparedPermanentAfterControlChange, resyncPreparedExileCopiesWithControllers } from './prepared.js';
 import { scheduleExiledCardReturnToBattlefield } from './executeSpellEffect.js';
 import { parseSimplePermanentTypeFromText } from '../../../../rules-engine/src/oracleIRExecutorBattlefieldParser.js';
@@ -540,6 +544,22 @@ function queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult(
   }
 }
 
+function unwrapYouDoResumeSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  if (steps.length === 1 && steps[0]?.kind === 'conditional') {
+    const conditionRaw = String((steps[0] as any)?.condition?.raw || '')
+      .replace(/\u2019/g, "'")
+      .trim()
+      .toLowerCase();
+    if (conditionRaw === 'you do' || conditionRaw.startsWith('you do,')) {
+      const nested = (steps[0] as any)?.steps;
+      if (Array.isArray(nested) && nested.length > 0) {
+        return nested as OracleEffectStep[];
+      }
+    }
+  }
+  return [...steps];
+}
+
 function attachOracleIrResumeMetadata(
   payload: Record<string, unknown>,
   result: OracleIRExecutionResult,
@@ -556,7 +576,7 @@ function attachOracleIrResumeMetadata(
 
   return {
     ...payload,
-    oracleIrResumeStepsJson: JSON.stringify(pending),
+    oracleIrResumeStepsJson: JSON.stringify(unwrapYouDoResumeSteps(pending)),
     oracleIrControllerId: params.controller,
     oracleIrSourceId: params.sourceId,
     oracleIrSourceName: params.sourceName,
@@ -2211,6 +2231,7 @@ function queueUnlessPayChoicePromptsFromOracleIRResult(
     sourceName?: string;
     sourceId?: string;
     irCtx: OracleIRExecutionContext;
+    triggerItem?: any;
   }
 ): void {
   const gameId = String((ctx as any).gameId || '').trim();
@@ -2218,10 +2239,16 @@ function queueUnlessPayChoicePromptsFromOracleIRResult(
 
   const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
   const sourceId = String(params.sourceId || '').trim() || undefined;
+  const triggerItem = params.triggerItem;
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (
+      gap.reasonCode !== 'player_choice_required'
+      && gap.reasonCode !== 'optional_step_requires_player_choice'
+    ) {
+      continue;
+    }
 
     const stepKind = String(gap.stepKind || '');
     const gapRaw = String(gap.raw || '');
@@ -2229,7 +2256,7 @@ function queueUnlessPayChoicePromptsFromOracleIRResult(
     if (queuedKeys.has(queueKey)) continue;
 
     const metadata = (gap.metadata || {}) as Record<string, unknown>;
-    const unlessPayManaCost = String(metadata.unlessPayManaCost || '').trim();
+    const unlessPayManaCost = normalizeOracleManaCostString(String(metadata.unlessPayManaCost || '').trim());
     const unlessPayLifeAmount = Number(metadata.unlessPayLifeAmount);
 
     if (stepKind === 'sacrifice' && unlessPayManaCost && sourceId) {
@@ -2252,8 +2279,52 @@ function queueUnlessPayChoicePromptsFromOracleIRResult(
     }
 
     const skippedStep = findSkippedOracleStep(result, gap);
+
+    if (stepKind === 'pay_mana' && skippedStep?.kind === 'pay_mana') {
+      const manaCost = normalizeOracleManaCostString(String((skippedStep as any).mana || metadata.manaCost || '').trim());
+      if (!manaCost) continue;
+
+      const players = resolvePlayers(state, (skippedStep as any).who, params.irCtx);
+      const payerId = String(metadata.payerId || players[0] || params.controller).trim() as PlayerID;
+      queuedKeys.add(queueKey);
+
+      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: payerId,
+        description: `${sourceName}: You may pay ${manaCost}. If you do, copy that ability.`,
+        mandatory: false,
+        sourceId,
+        sourceName,
+        options: [
+          { id: 'pay', label: `Pay ${manaCost}`, description: `Pay ${manaCost}` },
+          { id: 'decline', label: 'Decline', description: 'Decline to pay' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        optionalPaymentPrompt: true,
+        optionalPaymentValidationKind: 'mana',
+        optionalPaymentManaCost: manaCost,
+        optionalPaymentPayChoiceId: 'pay',
+        optionalPaymentDeclineChoiceId: 'decline',
+        oracleIrOptionalPayManaChoice: true,
+        oracleIrControllerId: params.controller,
+        oracleIrSourceId: sourceId,
+        oracleIrSourceName: sourceName,
+        copyTriggeredAbilityDeclineEvent: true,
+        copyTriggeredAbilitySourceId: String(triggerItem?.source || triggerItem?.permanentId || sourceId || '').trim() || undefined,
+        copyTriggeredAbilityTriggerStackItemId: String(triggerItem?.id || '').trim() || undefined,
+        copyTriggeredAbilityTriggeringStackItemId: String(
+          triggerItem?.triggeringStackItemId
+          || triggerItem?.effectData?.triggeringStackItemId
+          || params.irCtx.targetSpellId
+          || '',
+        ).trim() || undefined,
+      } as any, result, params) as any);
+      continue;
+    }
+
     if (stepKind === 'unless_pays_mana' && skippedStep?.kind === 'unless_pays_mana') {
-      const manaCost = String((skippedStep as any).mana || metadata.manaCost || '').trim();
+      const manaCost = normalizeOracleManaCostString(String((skippedStep as any).mana || metadata.manaCost || '').trim());
       if (!manaCost) continue;
 
       const players = resolvePlayers(state, (skippedStep as any).who, params.irCtx);
@@ -2384,6 +2455,7 @@ export function resumeOracleIRRemainingStepsFromResolution(
     steps: readonly OracleEffectStep[];
     targetPlayerId?: PlayerID;
     targetSpellId?: string;
+    triggerItem?: any;
   },
 ): OracleIRExecutionResult | null {
   if (!Array.isArray(params.steps) || params.steps.length === 0) {
@@ -2412,6 +2484,7 @@ export function resumeOracleIRRemainingStepsFromResolution(
     {
       controller: params.controller,
       targetPlayerId: params.targetPlayerId,
+      triggerItem: params.triggerItem,
     },
   );
 }
@@ -2609,6 +2682,79 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
   });
 }
 
+export function resolveOracleIrOptionalPaymentPromptFromResolution(
+  ctx: GameContext,
+  params: {
+    step: any;
+    choiceId: string;
+    cancelled: boolean;
+  },
+): boolean {
+  const step = params.step;
+  const stepData = (step && typeof step === 'object') ? step as Record<string, unknown> : {};
+  if (stepData.optionalPaymentPrompt !== true) return false;
+  if (stepData.oracleIrUnlessPayChoice !== true && stepData.oracleIrOptionalPayManaChoice !== true) {
+    return false;
+  }
+
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown') return false;
+
+  const playerId = String(stepData.playerId || step?.playerId || '').trim() as PlayerID;
+  const choiceId = String(params.choiceId || '').trim();
+  const payChoiceId = String(stepData.optionalPaymentPayChoiceId || 'pay').trim();
+  const paid = !params.cancelled && choiceId === payChoiceId;
+
+  if (paid && String(stepData.optionalPaymentValidationKind || '') === 'mana') {
+    const manaCost = String(stepData.optionalPaymentManaCost || stepData.manaCost || '').trim();
+    if (manaCost) {
+      const parsed = parseManaCost(manaCost);
+      const pool = getOrInitManaPool((ctx as any).state, playerId);
+      consumeManaFromPool(pool as any, parsed.colors, parsed.generic, `[oracleIR:${String(stepData.sourceName || 'Ability')}]`);
+    }
+  }
+
+  if (paid) {
+    if (stepData.oracleIrUnlessPayChoice === true) {
+      let unlessSteps: OracleEffectStep[] = [];
+      try {
+        const parsed = JSON.parse(String(stepData.oracleIrUnlessPayStepsJson || '[]'));
+        unlessSteps = Array.isArray(parsed) ? parsed as OracleEffectStep[] : [];
+      } catch {
+        unlessSteps = [];
+      }
+      if (unlessSteps.length > 0) {
+        resumeOracleIRUnlessPayFromResolution(ctx, {
+          controller: String(stepData.oracleIrControllerId || playerId).trim() as PlayerID,
+          sourceId: String(stepData.oracleIrSourceId || stepData.sourceId || '').trim() || undefined,
+          sourceName: String(stepData.oracleIrSourceName || stepData.sourceName || '').trim() || undefined,
+          steps: unlessSteps,
+          unlessPayKind: stepData.oracleIrUnlessPayKind === 'life' ? 'life' : 'mana',
+          choice: 'pay',
+        });
+      }
+    } else {
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
+    }
+  } else if (stepData.copyTriggeredAbilityDeclineEvent === true) {
+    appendCopyTriggeredAbilityResolveEvent(ctx, {
+      sourceId: String(stepData.copyTriggeredAbilitySourceId || stepData.sourceId || '').trim() || undefined,
+      sourceName: String(stepData.sourceName || 'Ability').trim() || 'Ability',
+      controllerId: String(stepData.oracleIrControllerId || playerId).trim() || undefined,
+      paid: false,
+      manaCost: String(stepData.optionalPaymentManaCost || '').trim() || undefined,
+      triggerStackItemId: String(stepData.copyTriggeredAbilityTriggerStackItemId || '').trim() || undefined,
+      triggeringStackItemId: String(stepData.copyTriggeredAbilityTriggeringStackItemId || '').trim() || undefined,
+    });
+  }
+
+  if (typeof (ctx as any).bumpSeq === 'function') {
+    (ctx as any).bumpSeq();
+  }
+
+  return true;
+}
+
 export function maybeResumeOracleIRStepsAfterResolution(
   ctx: GameContext,
   step: any,
@@ -2634,6 +2780,18 @@ export function maybeResumeOracleIRStepsAfterResolution(
     sourceId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
     sourceName: String(step?.oracleIrSourceName || step?.sourceName || '').trim() || undefined,
     steps: remainingSteps,
+    targetSpellId: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim() || undefined,
+    triggerItem: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim()
+      ? {
+          id: String(step?.copyTriggeredAbilityTriggerStackItemId || '').trim() || undefined,
+          permanentId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
+          source: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
+          triggeringStackItemId: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim(),
+          effectData: {
+            triggeringStackItemId: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim(),
+          },
+        }
+      : undefined,
   });
 }
 
@@ -2649,6 +2807,7 @@ export function applyOracleIRStepsOnServer(
     applyMillReplacements?: boolean;
     triggerItem?: any;
     sourceItem?: any;
+    oracleText?: string;
   },
 ): OracleIRExecutionResult {
   hydrateOracleIRPlayerZonesFromContext(ctx, state);
@@ -2672,6 +2831,7 @@ export function applyOracleIRStepsOnServer(
   const result = applyOracleIRStepsToGameState(state, adjustedSteps, {
     ...irCtx,
     interactivePlayerChoices: irCtx.interactivePlayerChoices ?? true,
+    deferStackSpellCopiesToServer: true,
   }, {
     ...options,
     haltOnPlayerChoiceRequired: options.haltOnPlayerChoiceRequired ?? true,
@@ -2699,6 +2859,7 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
+    triggerItem: params?.triggerItem,
   });
   queueDiscardChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
@@ -2797,6 +2958,14 @@ export function applyOracleIRStepsOnServer(
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
+  });
+  queueCopySpellStackPushFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+    sourceItem: params?.sourceItem ?? params?.triggerItem,
+    oracleText: params?.oracleText,
   });
   syncPreparedCopiesAfterBattlefieldControllerChanges(state, controllersBefore);
   syncPreparedCopiesFromControlChangeEffects(state);

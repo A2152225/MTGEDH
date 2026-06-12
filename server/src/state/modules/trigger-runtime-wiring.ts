@@ -68,10 +68,23 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'regenerate',
   'grant_graveyard_permission',
   'grant_graveyard_keyword_ability',
+  'copy_spell',
+  'pay_mana',
 ]);
 
 /** Optional trigger steps with explicit runtime handlers outside the spell fallback. */
 export const TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS = new Set<string>(['copy_permanent']);
+
+/**
+ * Spell/trigger steps orchestrated by Effect Program (not uncategorized fallback).
+ * Treated as fully wired for isSpellEffectFullyIrWired / primary retirement checks.
+ */
+export const ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS = new Set<string>([
+  'choose_mode',
+  'fateseal',
+  'clash',
+  'player_choice',
+]);
 
 export function normalizeTriggerEffectDescriptionForExecution(effectText: string): string {
   const raw = String(effectText || '').trim();
@@ -179,6 +192,10 @@ export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
   if (step.kind === 'unknown') return true;
 
   if (TRIGGER_CHOICE_STEP_KINDS.has(String(step.kind))) {
+    return true;
+  }
+
+  if (ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS.has(String(step.kind))) {
     return true;
   }
 

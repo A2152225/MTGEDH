@@ -6,7 +6,8 @@ import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEf
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 describe('oracle IR unless-pay queue adapter', () => {
-  it('queues sacrifice-unless-pay upkeep prompts for Phantasmal Forces style text', () => {
+  it('queues sacrifice-unless-pay upkeep prompts for Phantasmal Forces style text under legacy-primary coexistence', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '0';
     const gameId = 'oracle_ir_phantasmal_upkeep';
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;

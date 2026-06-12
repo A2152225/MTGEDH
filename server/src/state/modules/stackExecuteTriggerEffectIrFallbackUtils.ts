@@ -76,7 +76,7 @@ export function applyOracleIRFallbackForTriggeredEffect(
   if (!targetPlayerId) {
     targetPlayerId = resolveTriggeredAbilityTargetPlayerId((ctx as any).state, triggerItem) as PlayerID;
   }
-  const sourceId = String(triggerItem?.id || triggerItem?.sourceId || sourcePermanentId || '').trim();
+  const sourceId = String(sourcePermanentId || triggerItem?.sourceId || triggerItem?.id || '').trim();
 
   const normalizedTargetIds = targets
     .map((targetRef: any) => (typeof targetRef === 'string' ? targetRef : String(targetRef?.id || '')))

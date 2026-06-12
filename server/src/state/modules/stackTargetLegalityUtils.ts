@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { canPermanentBeTargetedByPlayer, requiresTargeting } from '../../rules-engine/targeting.js';
 import { debug } from '../../utils/debug.js';
 import { shouldExileStackCardInsteadOfGraveyard } from './stack-zone-replacements.js';
+import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 
 export type StackTargetLocation = 'battlefield' | 'player' | 'stack' | 'graveyard' | 'exile' | 'hand';
 
@@ -202,7 +203,7 @@ export function moveFizzledStackSpellCard(ctx: GameContext, item: any, controlle
     debug(2, `[moveFizzledStackSpellCard] Fizzled graveyard-cast spell ${card.name || 'unnamed'} exiled for ${controller}`);
   } else {
     playerZones.graveyard = playerZones.graveyard || [];
-    playerZones.graveyard.push({ ...card, zone: 'graveyard' });
+    pushCardToPlayerGraveyardWithReplacements(ctx, String(controller), card, playerZones.graveyard);
     playerZones.graveyardCount = playerZones.graveyard.length;
     debug(2, `[moveFizzledStackSpellCard] Fizzled spell ${card.name || 'unnamed'} moved to graveyard for ${controller}`);
   }

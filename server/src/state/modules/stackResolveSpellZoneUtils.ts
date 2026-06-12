@@ -3,8 +3,7 @@ import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { normalizeOracleResolutionText } from './oracleIrSpellLegacySupplemental.js';
 import { shouldExileStackCardInsteadOfGraveyard } from './stack-zone-replacements.js';
-import { checkGraveyardTrigger } from './triggered-abilities.js';
-import { tryApplyGraveyardSelfShuffleReplacementForCard } from './zone-manipulation.js';
+import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import { queueInitiativeVentureTrigger, resolveVentureProgress } from './triggerVentureUtils.js';
 import {
   queueResolvedSpellCopyChoice,
@@ -231,17 +230,10 @@ export function moveResolvedInstantOrSorceryAfterResolution(
   }
 
   playerZones.graveyard = playerZones.graveyard || [];
-  if (tryApplyGraveyardSelfShuffleReplacementForCard(ctx, card, controller)) {
+  if (pushCardToPlayerGraveyardWithReplacements(ctx, controller, card, playerZones.graveyard)) {
+    playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+    debug(2, `[moveResolvedInstantOrSorceryAfterResolution] Spell ${card?.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
+  } else {
     debug(2, `[moveResolvedInstantOrSorceryAfterResolution] ${card?.name} self-shuffled into library instead of graveyard for ${controller}`);
-    return;
   }
-
-  (playerZones.graveyard as any[]).push({ ...card, zone: 'graveyard' });
-  playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
-
-  if (checkGraveyardTrigger(ctx, card, controller)) {
-    debug(2, `[moveResolvedInstantOrSorceryAfterResolution] ${card?.name} triggered graveyard shuffle for ${controller}`);
-  }
-
-  debug(2, `[moveResolvedInstantOrSorceryAfterResolution] Spell ${card?.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
 }

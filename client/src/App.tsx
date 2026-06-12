@@ -68,6 +68,8 @@ import { BatchExploreModal, type ExploreResult } from "./components/BatchExplore
 import { CascadeModal } from "./components/CascadeModal";
 import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/OpponentMayPayModal";
 import { MayAbilityModal, type MayAbilityModalData } from "./components/MayAbilityModal";
+import { ResolutionMinimizedChip, ResolutionPromptMinimizeButton } from "./components/ResolutionMinimizedChip";
+import { isResolutionStepMandatory } from "./utils/resolutionStepUtils";
 import { MutateTargetModal, type MutateTarget } from "./components/MutateTargetModal";
 import { GraveyardSelectionModal, type GraveyardCard } from "./components/GraveyardSelectionModal";
 import { XValueSelectionModal } from "./components/XValueSelectionModal";
@@ -814,6 +816,38 @@ export function App() {
     chosenCreatureType?: string;
     cardImageUrl?: string;
   } | null>(null);
+
+  // Tracks pending resolution steps assigned to this player (from resolutionQueueChanged).
+  const [myPendingResolutionCount, setMyPendingResolutionCount] = useState(0);
+  const [minimizedResolutionStep, setMinimizedResolutionStep] = useState<{ stepId: string; title: string } | null>(null);
+  const [activeResolutionPrompt, setActiveResolutionPrompt] = useState<{ stepId: string; title: string } | null>(null);
+  const resolutionPromptNudgeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const minimizeResolutionStep = React.useCallback((stepId: string, title: string) => {
+    setMinimizedResolutionStep({ stepId: String(stepId), title: title || 'Pending choice' });
+  }, []);
+  const restoreResolutionStep = React.useCallback(() => {
+    setMinimizedResolutionStep(null);
+  }, []);
+  const isResolutionStepMinimized = React.useCallback((stepId?: string | null) => {
+    return !!stepId && minimizedResolutionStep?.stepId === String(stepId);
+  }, [minimizedResolutionStep]);
+  const resolutionPromptOpen = React.useCallback((
+    modalOpen: boolean,
+    stepId?: string | null,
+  ) => {
+    const id = stepId ?? activeResolutionPrompt?.stepId ?? null;
+    return modalOpen && !isResolutionStepMinimized(id);
+  }, [activeResolutionPrompt?.stepId, isResolutionStepMinimized]);
+
+  const scheduleResolutionPromptNudge = React.useCallback((gameId: string) => {
+    if (resolutionPromptNudgeTimerRef.current) {
+      clearTimeout(resolutionPromptNudgeTimerRef.current);
+    }
+    resolutionPromptNudgeTimerRef.current = window.setTimeout(() => {
+      socket.emit('getMyNextResolutionStep', { gameId });
+    }, 100);
+  }, []);
   
   // Phyrexian Mana Choice Modal state - for cards with {W/P}, {U/P}, etc. costs
   const [phyrexianManaModalOpen, setPhyrexianManaModalOpen] = useState(false);
@@ -2440,6 +2474,8 @@ export function App() {
     setReplacementEffectModalOpen(false);
     setMutateModalOpen(false);
     setGraveyardSelectionModalOpen(false);
+    setMinimizedResolutionStep(null);
+    setActiveResolutionPrompt(null);
   }, []);
 
   React.useEffect(() => {
@@ -2462,6 +2498,15 @@ export function App() {
       
       const step = payload.step;
       lastResolutionStepsRef.current.set(String(step.id || ''), step);
+      setMinimizedResolutionStep((prev) =>
+        prev && prev.stepId !== String(step.id || '') ? null : prev
+      );
+      if (!you || !step.playerId || String(step.playerId) === String(you)) {
+        setActiveResolutionPrompt({
+          stepId: String(step.id || ''),
+          title: String(step.sourceName || step.description || 'Pending choice').slice(0, 100),
+        });
+      }
 
       const replayState = loopShortcutReplayRef.current;
       if (replayState.running && replayState.waitingPrompt) {
@@ -2654,7 +2699,7 @@ export function App() {
           options: step.options || [],
           minSelections: step.minSelections || 0,
           maxSelections: step.maxSelections || 1,
-          mandatory: step.mandatory !== false,
+          mandatory: isResolutionStepMandatory(step),
         };
         
         setOptionChoiceRequest(request);
@@ -2669,7 +2714,7 @@ export function App() {
           setManaDistributionModalData({
             gameId: payload.gameId,
             stepId: String(step.id),
-            mandatory: step.mandatory !== false,
+            mandatory: isResolutionStepMandatory(step),
             permanentId: String(step.permanentId || step.sourceId || ''),
             cardName: String(step.cardName || step.sourceName || 'Mana'),
             cardImageUrl: step.sourceImage,
@@ -2681,7 +2726,7 @@ export function App() {
         } else {
           setAnyColorManaModalData({
             stepId: String(step.id),
-            mandatory: step.mandatory !== false,
+            mandatory: isResolutionStepMandatory(step),
             activationId: '',
             permanentId: String(step.permanentId || step.sourceId || ''),
             cardName: String(step.cardName || step.sourceName || 'Mana'),
@@ -2777,7 +2822,7 @@ export function App() {
       else if (step.type === 'mana_payment_choice' && step.phyrexianManaChoice === true) {
         setPhyrexianManaModalData({
           stepId: String(step.id),
-          mandatory: step.mandatory !== false,
+          mandatory: isResolutionStepMandatory(step),
           pendingId: String(step.pendingId || ''),
           permanentId: step.permanentId,
           cardId: step.cardId,
@@ -2802,7 +2847,7 @@ export function App() {
           mutateCost: String(step.mutateCost || ''),
           targets: Array.isArray(step.validTargets) ? step.validTargets : [],
           stepId: String(step.id),
-          mandatory: step.mandatory !== false,
+          mandatory: isResolutionStepMandatory(step),
         });
         setMutateModalOpen(true);
       }
@@ -2824,7 +2869,7 @@ export function App() {
 
         setGraveyardSelectionModalData({
           stepId: String(step.id),
-          mandatory: step.mandatory !== false,
+          mandatory: isResolutionStepMandatory(step),
           title: String(step.title || step.cardName || step.sourceName || (step.type === 'soulshift_target' ? 'Select a Spirit Card' : 'Select from Graveyard')),
           description: String(step.description || ''),
           sourceCard: {
@@ -2848,7 +2893,7 @@ export function App() {
           description: step.description || '',
           items: step.items || [],
           minPerPile: step.minPerPile ?? 0,
-          mandatory: step.mandatory !== false,
+          mandatory: isResolutionStepMandatory(step),
         };
         setTwoPileSplitRequest(request);
         setTwoPileSplitModalOpen(true);
@@ -2946,7 +2991,7 @@ export function App() {
       else if (step.type === 'life_payment') {
         setLifePaymentModalData({
           stepId: String(step.id),
-          mandatory: step.mandatory !== false,
+          mandatory: isResolutionStepMandatory(step),
           cardId: String(step.cardId || step.sourceId || ''),
           cardName: String(step.cardName || step.sourceName || 'Spell'),
           description: String(step.description || 'Choose an amount of life to pay.'),
@@ -2995,7 +3040,7 @@ export function App() {
           subtitle: 'Choose a card to exile face down',
           oracleText: step.description || `Choose a card to exile face down with ${sourceName}.`,
           confirmButtonText: 'Hide Away Selected Card',
-          mandatory: step.mandatory !== false,
+          mandatory: isResolutionStepMandatory(step),
           stepId: step.id,
         });
         setHideawayChoiceModalOpen(true);
@@ -3077,7 +3122,7 @@ export function App() {
             isSelf: Boolean(p.isSelf),
           })),
           opponentOnly: Boolean(step.opponentOnly),
-          isOptional: Boolean(step.isOptional) || step.mandatory === false,
+          isOptional: Boolean(step.isOptional) || !isResolutionStepMandatory(step),
         });
         setResolutionPlayerChoiceModalOpen(true);
       }
@@ -3276,7 +3321,7 @@ export function App() {
           reason: (step as any).reason || step.description || 'Choose a color',
           imageUrl: step.sourceImage,
           colors: (step as any).colors || ['white', 'blue', 'black', 'red', 'green'],
-          mandatory: step.mandatory !== false,
+          mandatory: isResolutionStepMandatory(step),
         });
         setColorChoiceModalOpen(true);
       }
@@ -3287,7 +3332,7 @@ export function App() {
           cardName: (step as any).cardName || step.sourceName || 'Permanent',
           reason: (step as any).reason || step.description || 'Choose a card name',
           imageUrl: step.sourceImage,
-          mandatory: step.mandatory !== false,
+          mandatory: isResolutionStepMandatory(step),
           restrictionText: (step as any).restrictionText,
           candidateNames: Array.isArray((step as any).candidateNames) ? (step as any).candidateNames : undefined,
         });
@@ -3300,7 +3345,7 @@ export function App() {
           permanentId: (step as any).permanentId,
           cardName: (step as any).cardName || step.sourceName,
           reason: (step as any).reason || step.description,
-          mandatory: step.mandatory !== false,
+          mandatory: isResolutionStepMandatory(step),
         });
         setCreatureTypeModalOpen(true);
       }
@@ -3346,7 +3391,7 @@ export function App() {
             isSpree: purpose === 'spree',
             effectId: step.sourceId,
             resolutionStepId: String(step.id),
-            mandatory: step.mandatory !== false,
+            mandatory: isResolutionStepMandatory(step),
           });
           setModalSpellModalOpen(true);
           return;
@@ -3369,7 +3414,7 @@ export function App() {
           modes,
           effectId: step.sourceId,
           resolutionStepId: step.id,
-          resolutionStepMandatory: step.mandatory !== false,
+          resolutionStepMandatory: isResolutionStepMandatory(step),
         });
         setCastingModeModalOpen(true);
       }
@@ -3390,7 +3435,7 @@ export function App() {
           effectId: step.sourceId,
           resolutionStepId: String(step.id),
           resolutionStepType: 'additional_cost_payment',
-          resolutionStepMandatory: step.mandatory !== false,
+          resolutionStepMandatory: isResolutionStepMandatory(step),
         });
         setAdditionalCostModalOpen(true);
       }
@@ -3404,7 +3449,7 @@ export function App() {
           imageUrl: step.imageUrl || step.sourceImage,
           effectId: step.sourceId,
           resolutionStepId: String(step.id),
-          mandatory: step.mandatory !== false,
+          mandatory: isResolutionStepMandatory(step),
         });
         setSquadCostModalOpen(true);
       }
@@ -3517,7 +3562,7 @@ export function App() {
           effectId: step.id,
           resolutionStepId: step.id,
           resolutionStepType: 'upkeep_sacrifice',
-          resolutionStepMandatory: step.mandatory !== false,
+          resolutionStepMandatory: isResolutionStepMandatory(step),
           resolutionSourceChoiceId: allowSourceSacrifice && sourceToSacrifice ? resolutionSourceChoiceId : undefined,
         });
         setAdditionalCostModalOpen(true);
@@ -3544,24 +3589,45 @@ export function App() {
     const handleResolutionStepCancelled = (payload: { gameId: string; stepId?: string }) => {
       if (payload.gameId !== safeView?.id) return;
       lastResolutionStepsRef.current.delete(String(payload.stepId || ''));
+      setActiveResolutionPrompt(null);
       dismissResolutionStepUi();
     };
 
     const handleNoResolutionStep = (payload: { gameId?: string }) => {
       if (payload.gameId !== safeView?.id) return;
+      setMyPendingResolutionCount(0);
+      setActiveResolutionPrompt(null);
       dismissResolutionStepUi();
+    };
+
+    const handleResolutionQueueChanged = (payload: {
+      gameId?: string;
+      hasPending?: boolean;
+      myPendingCount?: number;
+    }) => {
+      if (payload.gameId !== safeView?.id) return;
+      const pendingForMe = Number(payload.myPendingCount ?? 0);
+      setMyPendingResolutionCount(pendingForMe);
+      if (pendingForMe === 0) {
+        setActiveResolutionPrompt(null);
+      }
+      if (pendingForMe > 0) {
+        scheduleResolutionPromptNudge(payload.gameId!);
+      }
     };
     
     socket.on("resolutionStepPrompt", handleResolutionStepPrompt);
     socket.on("resolutionStepCancelled", handleResolutionStepCancelled);
     socket.on("noResolutionStep", handleNoResolutionStep);
+    socket.on("resolutionQueueChanged", handleResolutionQueueChanged);
     
     return () => {
       socket.off("resolutionStepPrompt", handleResolutionStepPrompt);
       socket.off("resolutionStepCancelled", handleResolutionStepCancelled);
       socket.off("noResolutionStep", handleNoResolutionStep);
+      socket.off("resolutionQueueChanged", handleResolutionQueueChanged);
     };
-  }, [safeView?.id, openConfirmFromResolutionStep, you, mulliganBottomLastSubmittedStepId, dismissResolutionStepUi]);
+  }, [safeView?.id, openConfirmFromResolutionStep, you, mulliganBottomLastSubmittedStepId, dismissResolutionStepUi, scheduleResolutionPromptNudge]);
 
   // Explore prompt handler
   // Legacy explorePrompt / batchExplorePrompt listeners removed - now handled via Resolution Queue.
@@ -5541,6 +5607,72 @@ export function App() {
           </div>
         )}
 
+        {safeView && myPendingResolutionCount > 0 && priority === null && !minimizedResolutionStep && (
+          <div
+            style={{
+              marginBottom: 8,
+              padding: '10px 14px',
+              borderRadius: 8,
+              border: '1px solid #f59e0b',
+              background: 'rgba(245, 158, 11, 0.12)',
+              color: '#fde68a',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              fontSize: 13,
+            }}
+          >
+            <span>
+              You have a pending choice while the game is resolving. Complete it to continue.
+            </span>
+            <button
+              type="button"
+              onClick={() => scheduleResolutionPromptNudge(safeView.id)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 6,
+                border: '1px solid #f59e0b',
+                background: '#b45309',
+                color: '#fff',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Resume choice
+            </button>
+          </div>
+        )}
+
+        {minimizedResolutionStep && (
+          <ResolutionMinimizedChip
+            title={minimizedResolutionStep.title}
+            onRestore={restoreResolutionStep}
+          />
+        )}
+
+        {activeResolutionPrompt
+          && !isResolutionStepMinimized(activeResolutionPrompt.stepId)
+          && myPendingResolutionCount > 0 && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 12,
+              right: 12,
+              zIndex: 10005,
+            }}
+          >
+            <ResolutionPromptMinimizeButton
+              onMinimize={() => minimizeResolutionStep(
+                activeResolutionPrompt.stepId,
+                activeResolutionPrompt.title,
+              )}
+            />
+          </div>
+        )}
+
         {showMobileChrome && safeView && (
           <SeatStrip
             players={safeView.players || []}
@@ -6405,7 +6537,7 @@ export function App() {
       )}
 
       {/* Scry/Surveil */}
-      {peek && (
+      {peek && resolutionPromptOpen(true, peek.stepId) && (
         <ScrySurveilModal
           mode={peek.mode}
           cards={peek.cards}
@@ -6440,7 +6572,7 @@ export function App() {
       )}
 
       {/* Explore */}
-      {explorePrompt && view && (
+      {explorePrompt && view && resolutionPromptOpen(true, explorePrompt.stepId) && (
         <ExploreModal
           exploringCreature={{
             id: explorePrompt.permanentId,
@@ -6510,7 +6642,7 @@ export function App() {
       )}
 
       {/* Batch Explore */}
-      {batchExplorePrompt && view && (
+      {batchExplorePrompt && view && resolutionPromptOpen(true, batchExplorePrompt.stepId) && (
         <BatchExploreModal
           explores={batchExplorePrompt.explores}
           imagePref={imagePref}
@@ -6559,7 +6691,7 @@ export function App() {
       )}
 
       {/* Opponent May Pay */}
-      {opponentMayPayPrompt && view && (
+      {opponentMayPayPrompt && view && resolutionPromptOpen(true, opponentMayPayStepId) && (
         <OpponentMayPayModal
           prompt={opponentMayPayPrompt}
           onPay={() => {
@@ -6604,7 +6736,7 @@ export function App() {
 
       {/* Tap/Untap Target Modal - for abilities that tap/untap targets */}
       <TapUntapTargetModal
-        open={tapUntapTargetModalOpen}
+        open={resolutionPromptOpen(tapUntapTargetModalOpen, tapUntapTargetModalData?.stepId)}
         title={tapUntapTargetModalData?.title || tapUntapTargetModalData?.sourceName || "Tap/Untap Target"}
         description={tapUntapTargetModalData?.description}
         source={{
@@ -6644,7 +6776,7 @@ export function App() {
 
       {/* Fight Target Modal - for Brash Taunter and similar fight abilities */}
       <TapUntapTargetModal
-        open={fightTargetModalOpen}
+        open={resolutionPromptOpen(fightTargetModalOpen, fightTargetModalData?.stepId)}
         title={fightTargetModalData?.title || `${fightTargetModalData?.sourceName || 'Creature'} - Fight`}
         description={fightTargetModalData?.description}
         source={{
@@ -6690,7 +6822,7 @@ export function App() {
 
       {/* Counter Movement Modal - for Nesting Grounds and similar abilities */}
       <CounterMovementModal
-        open={counterMovementModalOpen}
+        open={resolutionPromptOpen(counterMovementModalOpen, counterMovementModalData?.stepId)}
         title={counterMovementModalData?.title || counterMovementModalData?.sourceName || "Move Counter"}
         description={counterMovementModalData?.description}
         source={{
@@ -6732,7 +6864,7 @@ export function App() {
 
       {/* Station Creature Selection Modal (Rule 702.184a) */}
       <StationCreatureSelectionModal
-        open={stationCreatureSelectionOpen}
+        open={resolutionPromptOpen(stationCreatureSelectionOpen, stationCreatureSelectionData?.stepId)}
         gameId={safeView?.id || ""}
         activationId={stationCreatureSelectionData?.stepId || ""}
         station={stationCreatureSelectionData?.station || { id: "", name: "", threshold: 0, currentCounters: 0 }}
@@ -6765,7 +6897,7 @@ export function App() {
 
       {/* Resolution Queue Player Choice Modal */}
       <PlayerTargetSelectionModal
-        open={resolutionPlayerChoiceModalOpen}
+        open={resolutionPromptOpen(resolutionPlayerChoiceModalOpen, resolutionPlayerChoiceModalData?.stepId)}
         title={resolutionPlayerChoiceModalData?.title || 'Choose Player'}
         description={resolutionPlayerChoiceModalData?.description}
         source={{
@@ -6907,7 +7039,7 @@ export function App() {
       />
 
       <XValueSelectionModal
-        isOpen={pendingSpellXSelection !== null}
+        isOpen={resolutionPromptOpen(pendingSpellXSelection !== null, pendingSpellXSelection?.stepId)}
         cardName={pendingSpellXSelection?.cardName || ''}
         abilityText={pendingSpellXSelection?.description}
         minValue={pendingSpellXSelection?.minValue ?? 0}
@@ -7042,7 +7174,7 @@ export function App() {
 
       {/* Return Controlled Permanent Modal */}
       <ReturnControlledPermanentChoiceModal
-        open={returnControlledPermanentModalOpen}
+        open={resolutionPromptOpen(returnControlledPermanentModalOpen, returnControlledPermanentData?.stepId)}
         sourceName={returnControlledPermanentData?.sourceName || ''}
         sourceImageUrl={returnControlledPermanentData?.imageUrl}
         optionsToChoose={returnControlledPermanentData?.optionsToChoose || []}
@@ -7054,7 +7186,7 @@ export function App() {
       />
 
       <CardSelectionModal
-        open={hideawayChoiceModalOpen}
+        open={resolutionPromptOpen(hideawayChoiceModalOpen, hideawayChoiceData?.stepId)}
         title={hideawayChoiceData?.title || 'Hideaway'}
         subtitle={hideawayChoiceData?.subtitle}
         sourceCardName={hideawayChoiceData?.sourceName}
@@ -7075,7 +7207,7 @@ export function App() {
 
       {/* Proliferate Modal */}
       <ProliferateModal
-        open={proliferateModalOpen}
+        open={resolutionPromptOpen(proliferateModalOpen, proliferateData?.stepId)}
         sourceName={proliferateData?.sourceName || ''}
         imageUrl={proliferateData?.imageUrl}
         validTargets={proliferateData?.validTargets || []}
@@ -7083,7 +7215,7 @@ export function App() {
       />
       
       {/* Fateseal Modal */}
-      {fatesealModalOpen && fatesealData && view && (
+      {fatesealModalOpen && fatesealData && view && resolutionPromptOpen(true, fatesealData.stepId) && (
         <FatesealModal
           opponentName={fatesealData.opponentName}
           cards={fatesealData.cards}
@@ -7098,7 +7230,7 @@ export function App() {
       )}
       
       {/* Clash Modal */}
-      {clashModalOpen && clashData && view && (
+      {clashModalOpen && clashData && view && resolutionPromptOpen(true, clashData.stepId) && (
         <ClashModal
           revealedCard={clashData.revealedCard}
           imagePref={imagePref}
@@ -7111,7 +7243,7 @@ export function App() {
       {/* Vote Modal */}
       {voteModalOpen && voteData && view && (
         <VoteModal
-          open={voteModalOpen}
+          open={resolutionPromptOpen(voteModalOpen, voteData?.stepId)}
           sourceName={voteData.sourceName}
           choices={voteData.choices}
           votesSubmitted={voteData.votesSubmitted}
@@ -7193,14 +7325,14 @@ export function App() {
 
       {/* Triggered Ability Modal */}
       <TriggeredAbilityModal
-        open={triggerModalOpen}
+        open={resolutionPromptOpen(triggerModalOpen, triggerOrderStepId)}
         triggers={pendingTriggers}
         onOrderConfirm={handleOrderTriggersConfirm}
       />
 
       {/* Mulligan Bottom Selection Modal (London Mulligan) */}
       <MulliganBottomModal
-        open={mulliganBottomModalOpen}
+        open={resolutionPromptOpen(mulliganBottomModalOpen, mulliganBottomStepId)}
         hand={useMemo(() => {
           if (!safeView || !you) return [];
           const zones = safeView.zones?.[you];
@@ -7235,7 +7367,7 @@ export function App() {
 
       {/* Cleanup Step Discard Selection Modal */}
       <DiscardSelectionModal
-        open={discardModalOpen}
+        open={resolutionPromptOpen(discardModalOpen, discardResolutionStepId)}
         hand={useMemo(() => {
           if (discardResolutionHand.length > 0) {
             return discardResolutionHand;
@@ -7282,7 +7414,7 @@ export function App() {
 
       {/* Opening Hand Actions Modal (Leylines) */}
       <OpeningHandActionsModal
-        open={openingHandActionsModalOpen}
+        open={resolutionPromptOpen(openingHandActionsModalOpen, openingHandActionsStepId)}
         hand={useMemo(() => {
           if (!safeView || !you) return [];
           const zones = safeView.zones?.[you];
@@ -7295,7 +7427,7 @@ export function App() {
 
       {/* Library Search Modal (Tutors) */}
       <LibrarySearchModal
-        open={librarySearchModalOpen}
+        open={resolutionPromptOpen(librarySearchModalOpen, librarySearchData?.stepId)}
         cards={librarySearchData?.cards || []}
         nonSelectableCards={librarySearchData?.nonSelectableCards || []}
         revealedCards={librarySearchData?.revealedCards || []}
@@ -7319,7 +7451,7 @@ export function App() {
 
       {/* Target Selection Modal */}
       <TargetSelectionModal
-        open={targetModalOpen}
+        open={resolutionPromptOpen(targetModalOpen, targetModalData?.stepId)}
         title={targetModalData?.title || 'Select Targets'}
         description={targetModalData?.description}
         contextSteps={targetModalData?.contextSteps}
@@ -7356,7 +7488,7 @@ export function App() {
 
       {/* Creature Type Selection Modal */}
       <CreatureTypeSelectModal
-        open={creatureTypeModalOpen}
+        open={resolutionPromptOpen(creatureTypeModalOpen, creatureTypeModalData?.stepId)}
         title={`Choose a Creature Type for ${creatureTypeModalData?.cardName || 'this card'}`}
         description={creatureTypeModalData?.reason}
         cardName={creatureTypeModalData?.cardName}
@@ -7391,7 +7523,7 @@ export function App() {
 
       {/* Life Payment Modal (Toxic Deluge, Hatred, etc.) */}
       <LifePaymentModal
-        open={lifePaymentModalOpen}
+        open={resolutionPromptOpen(lifePaymentModalOpen, lifePaymentModalData?.stepId)}
         cardName={lifePaymentModalData?.cardName || ''}
         description={lifePaymentModalData?.description || ''}
         cardImageUrl={lifePaymentModalData?.imageUrl}
@@ -7429,7 +7561,7 @@ export function App() {
 
       {/* Color Choice Modal (Caged Sun, Gauntlet of Power, etc.) */}
       <ColorChoiceModal
-        open={colorChoiceModalOpen}
+        open={resolutionPromptOpen(colorChoiceModalOpen, colorChoiceModalData?.stepId)}
         confirmId={colorChoiceModalData?.confirmId || ''}
         cardName={colorChoiceModalData?.cardName || ''}
         reason={colorChoiceModalData?.reason || ''}
@@ -7466,7 +7598,7 @@ export function App() {
 
       {/* Card Name Choice Modal (Pithing Needle, Nevermore, etc.) */}
       <CardNameChoiceModal
-        open={cardNameChoiceModalOpen}
+        open={resolutionPromptOpen(cardNameChoiceModalOpen, cardNameChoiceModalData?.stepId)}
         title={cardNameChoiceModalData ? `Choose a Card Name for ${cardNameChoiceModalData.cardName}` : 'Choose a Card Name'}
         description={cardNameChoiceModalData?.reason}
         cardName={cardNameChoiceModalData?.cardName}
@@ -7500,7 +7632,7 @@ export function App() {
 
       {/* Any Color Mana Modal (Birds of Paradise, Chromatic Lantern, etc.) */}
       <AnyColorManaModal
-        open={anyColorManaModalOpen}
+        open={resolutionPromptOpen(anyColorManaModalOpen, anyColorManaModalData?.stepId)}
         activationId={anyColorManaModalData?.activationId || ''}
         permanentId={anyColorManaModalData?.permanentId || ''}
         cardName={anyColorManaModalData?.cardName || ''}
@@ -7510,6 +7642,7 @@ export function App() {
         dynamicAmountSource={anyColorManaModalData?.dynamicAmountSource}
         chosenCreatureType={anyColorManaModalData?.chosenCreatureType}
         cardImageUrl={anyColorManaModalData?.cardImageUrl}
+        canCancel={anyColorManaModalData?.mandatory === false}
         onConfirm={(chosenColor) => {
           if (safeView?.id && anyColorManaModalData) {
             if (anyColorManaModalData.stepId) {
@@ -7525,7 +7658,8 @@ export function App() {
           }
         }}
         onCancel={() => {
-          if (safeView?.id && anyColorManaModalData?.stepId && anyColorManaModalData.mandatory === false) {
+          if (anyColorManaModalData?.mandatory !== false) return;
+          if (safeView?.id && anyColorManaModalData?.stepId) {
             socket.emit('cancelResolutionStep', {
               gameId: safeView.id,
               stepId: anyColorManaModalData.stepId,
@@ -7538,7 +7672,7 @@ export function App() {
 
       {/* Phyrexian Mana Choice Modal (Mite Overseer, K'rrik, etc.) */}
       <PhyrexianManaChoiceModal
-        open={phyrexianManaModalOpen}
+        open={resolutionPromptOpen(phyrexianManaModalOpen, phyrexianManaModalData?.stepId)}
         cardName={phyrexianManaModalData?.cardName || ''}
         abilityText={phyrexianManaModalData?.abilityText || ''}
         totalManaCost={phyrexianManaModalData?.totalManaCost || ''}
@@ -7581,12 +7715,13 @@ export function App() {
 
       {/* Mana Distribution Modal (Selvala, Heart of the Wilds, etc.) */}
       <ManaDistributionModal
-        open={manaDistributionModalOpen}
+        open={resolutionPromptOpen(manaDistributionModalOpen, manaDistributionModalData?.stepId)}
         cardName={manaDistributionModalData?.cardName || ''}
         cardImageUrl={manaDistributionModalData?.cardImageUrl}
         totalAmount={manaDistributionModalData?.totalAmount || 0}
         availableColors={manaDistributionModalData?.availableColors || []}
         message={manaDistributionModalData?.message}
+        canCancel={manaDistributionModalData?.mandatory === false}
         onConfirm={(distribution) => {
           if (safeView?.id && manaDistributionModalData) {
             if (manaDistributionModalData.stepId) {
@@ -7602,7 +7737,8 @@ export function App() {
           }
         }}
         onCancel={() => {
-          if (safeView?.id && manaDistributionModalData?.stepId && manaDistributionModalData.mandatory === false) {
+          if (manaDistributionModalData?.mandatory !== false) return;
+          if (safeView?.id && manaDistributionModalData?.stepId) {
             socket.emit('cancelResolutionStep', {
               gameId: safeView.id,
               stepId: manaDistributionModalData.stepId,
@@ -7615,7 +7751,7 @@ export function App() {
 
       {/* Additional Cost Modal (Discard/Sacrifice as additional cost) */}
       <AdditionalCostModal
-        open={additionalCostModalOpen}
+        open={resolutionPromptOpen(additionalCostModalOpen, additionalCostModalData?.resolutionStepId)}
         cardId={additionalCostModalData?.cardId || ''}
         cardName={additionalCostModalData?.cardName || ''}
         costType={additionalCostModalData?.costType || 'discard'}
@@ -7666,7 +7802,7 @@ export function App() {
 
       {/* Squad Cost Modal (Pay squad cost multiple times) */}
       <SquadCostModal
-        open={squadCostModalOpen}
+        open={resolutionPromptOpen(squadCostModalOpen, squadCostModalData?.resolutionStepId)}
         cardId={squadCostModalData?.cardId || ''}
         cardName={squadCostModalData?.cardName || ''}
         squadCost={squadCostModalData?.squadCost || ''}
@@ -7699,7 +7835,7 @@ export function App() {
 
       {/* "You may" optional ability modal */}
       <MayAbilityModal
-        open={mayAbilityModalOpen}
+        open={resolutionPromptOpen(mayAbilityModalOpen, mayAbilityModalData?.stepId)}
         data={mayAbilityModalData}
         onYes={(stepId) => {
           if (safeView?.id) {
@@ -7729,7 +7865,7 @@ export function App() {
 
       {/* Casting Mode Selection Modal (Overload, Abundant Harvest, etc.) */}
       <CastingModeSelectionModal
-        open={castingModeModalOpen}
+        open={resolutionPromptOpen(castingModeModalOpen, castingModeModalData?.resolutionStepId)}
         cardId={castingModeModalData?.cardId || ''}
         cardName={castingModeModalData?.cardName || ''}
         source={castingModeModalData?.source}
@@ -7766,7 +7902,7 @@ export function App() {
 
       {/* Modal Spell Selection Modal (Spree, Choose One/Two, Charms, etc.) */}
       <ModalSpellSelectionModal
-        open={modalSpellModalOpen}
+        open={resolutionPromptOpen(modalSpellModalOpen, modalSpellModalData?.resolutionStepId)}
         cardName={modalSpellModalData?.cardName || ''}
         imageUrl={modalSpellModalData?.imageUrl}
         description={modalSpellModalData?.description}
@@ -7908,7 +8044,7 @@ export function App() {
 
       {/* Join Forces Modal (Collective Voyage, Minds Aglow, etc.) */}
       <JoinForcesModal
-        open={joinForcesModalOpen}
+        open={resolutionPromptOpen(joinForcesModalOpen, joinForcesRequest?.id)}
         request={joinForcesRequest}
         currentPlayerId={you || ''}
         playerNames={useMemo(() => {
@@ -7960,7 +8096,7 @@ export function App() {
 
       {/* Tempting Offer Modal (Tempt with Reflections, Tempt with Discovery, etc.) */}
       <TemptingOfferModal
-        open={temptingOfferModalOpen}
+        open={resolutionPromptOpen(temptingOfferModalOpen, temptingOfferRequest?.id)}
         request={temptingOfferRequest}
         currentPlayerId={you || ''}
         playerNames={useMemo(() => {
@@ -7980,7 +8116,7 @@ export function App() {
       
       {/* Kynaios Choice Modal (Kynaios and Tiro of Meletis style land/draw choice) */}
       <KynaiosChoiceModal
-        open={kynaiosChoiceModalOpen}
+        open={resolutionPromptOpen(kynaiosChoiceModalOpen, kynaiosChoiceRequest?.stepId)}
         request={kynaiosChoiceRequest}
         controllerName={useMemo(() => {
           if (!kynaiosChoiceRequest || !safeView?.players) return '';
@@ -7992,14 +8128,14 @@ export function App() {
 
       {/* Generic Option Choice Modal (Agitator Ant and similar effects) */}
       <OptionChoiceModal
-        open={optionChoiceModalOpen}
+        open={resolutionPromptOpen(optionChoiceModalOpen, optionChoiceRequest?.stepId)}
         request={optionChoiceRequest}
         onRespond={handleOptionChoiceRespond}
       />
 
       {/* Two-pile split Modal (separate into two piles) */}
       <TwoPileSplitModal
-        open={twoPileSplitModalOpen}
+        open={resolutionPromptOpen(twoPileSplitModalOpen, twoPileSplitRequest?.stepId)}
         request={twoPileSplitRequest}
         onRespond={(payload) => {
           if (!safeView?.id || !twoPileSplitRequest) return;
@@ -8015,7 +8151,7 @@ export function App() {
       />
 
       {/* Ponder Modal (Ponder, Index, Telling Time, etc.) */}
-      {ponderModalOpen && ponderRequest && (
+      {resolutionPromptOpen(ponderModalOpen, ponderRequest?.stepId) && ponderRequest && (
         <PonderModal
           cards={ponderRequest.cards}
           cardName={ponderRequest.cardName}
@@ -8058,7 +8194,7 @@ export function App() {
         />
       )}
 
-      {limDulsVaultModalOpen && limDulsVaultRequest && (
+      {resolutionPromptOpen(limDulsVaultModalOpen, limDulsVaultRequest?.stepId) && limDulsVaultRequest && (
         <LimDulsVaultModal
           cards={limDulsVaultRequest.cards}
           cardName={limDulsVaultRequest.cardName}
@@ -8097,7 +8233,7 @@ export function App() {
         />
       )}
 
-      {danceWithCalamityModalOpen && danceWithCalamityRequest && (
+      {resolutionPromptOpen(danceWithCalamityModalOpen, danceWithCalamityRequest?.stepId) && danceWithCalamityRequest && (
         <DanceWithCalamityModal
           cardName={danceWithCalamityRequest.cardName}
           cardImageUrl={danceWithCalamityRequest.cardImageUrl}
@@ -8134,7 +8270,7 @@ export function App() {
         />
       )}
 
-      {danceWithCalamityCastModalOpen && danceWithCalamityCastRequest && (
+      {resolutionPromptOpen(danceWithCalamityCastModalOpen, danceWithCalamityCastRequest?.stepId) && danceWithCalamityCastRequest && (
         <DanceWithCalamityCastModal
           cardName={danceWithCalamityCastRequest.cardName}
           cardImageUrl={danceWithCalamityCastRequest.cardImageUrl}
@@ -8159,7 +8295,7 @@ export function App() {
       )}
       
       {/* Cascade Modal */}
-      {cascadeModalOpen && cascadePrompt && (
+      {resolutionPromptOpen(cascadeModalOpen, cascadePrompt?.stepId) && cascadePrompt && (
         <CascadeModal
           open={cascadeModalOpen}
           sourceName={cascadePrompt.sourceName}
@@ -8194,7 +8330,7 @@ export function App() {
 
       {/* Mutate Target Selection Modal */}
       <MutateTargetModal
-        open={mutateModalOpen}
+        open={resolutionPromptOpen(mutateModalOpen, mutateModalData?.stepId)}
         mutatingCard={{
           id: mutateModalData?.cardId || '',
           name: mutateModalData?.cardName || '',
@@ -8229,7 +8365,7 @@ export function App() {
 
       {/* Graveyard Selection Modal */}
       <GraveyardSelectionModal
-        open={graveyardSelectionModalOpen}
+        open={resolutionPromptOpen(graveyardSelectionModalOpen, graveyardSelectionModalData?.stepId)}
         title={graveyardSelectionModalData?.title || 'Select from Graveyard'}
         description={graveyardSelectionModalData?.description || ''}
         sourceCard={graveyardSelectionModalData?.sourceCard}

@@ -162,7 +162,7 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
       ctx,
       controller,
       sourceName,
-      desc,
+      descriptionForOracleFallback,
       triggerItem,
     );
   const createTokenTrigger = isCreateCreatureTokenTriggerText(desc)

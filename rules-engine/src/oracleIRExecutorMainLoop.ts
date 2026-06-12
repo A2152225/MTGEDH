@@ -22,6 +22,7 @@ import {
   resolveCopiedTargetSpellStackItem,
   resolveCopiedSpellSourceCards,
   resolveThisSpellCopyReplaySteps,
+  shouldDeferStackSpellCopyToServer,
 } from './oracleIRExecutorCopySpellSupport';
 import { performDieRoll, performMultipleDieRolls } from './dieRoll';
 import { applyAttachStep } from './oracleIRExecutorAttachStepHandlers';
@@ -154,7 +155,7 @@ import {
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
 import { applyAddExtraCombat, applyEndTurnStep, applySkipNextDrawStep, applySkipNextTurnStep, applyTakeExtraTurn } from './oracleIRExecutorTurnStepHandlers';
 import { stampCardsPutIntoGraveyardThisTurn, resolvePlayers } from './oracleIRExecutorPlayerUtils';
-import { getColorsFromObject } from './oracleIRExecutorManaUtils';
+import { getColorsFromObject, normalizeOracleManaCostString } from './oracleIRExecutorManaUtils';
 import type {
   OracleIRExecutionContext,
   OracleIRExecutionOptions,
@@ -603,6 +604,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'look_choose_from_top',
   'look_select_top',
   'move_zone',
+  'pay_mana',
   'player_choice',
   'proliferate',
   'populate',
@@ -2592,6 +2594,34 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'copy_spell': {
+        if (shouldDeferStackSpellCopyToServer(currentCtx, step)) {
+          const copyCount = Math.max(0, resolveCopySpellCount(nextState, controllerId, step, currentCtx));
+          if (copyCount <= 0) {
+            setLastStepOutcome(step, 'applied', { count: 0 });
+            appliedSteps.push(step);
+            log.push(`[oracle-ir] Copy spell produced 0 copies: ${step.raw}`);
+            break;
+          }
+
+          const deferMessage = `Deferred ${copyCount} stack spell cop${copyCount === 1 ? 'y' : 'ies'} to server: ${step.raw}`;
+          const gap = createOracleAutomationGapRecord({
+            state: nextState,
+            ctx: currentCtx,
+            step,
+            reasonCode: 'server_stack_copy_required',
+            message: deferMessage,
+            sequence: ++automationGapSequence,
+            classification: 'ambiguous',
+            metadata: { copyCount },
+          });
+          localAutomationGaps.push(gap);
+          automationGaps.push(gap);
+          appliedSteps.push(step);
+          setLastStepOutcome(step, 'applied', { count: copyCount });
+          log.push(`[oracle-ir] ${deferMessage}`);
+          break;
+        }
+
         if (step.subject === 'this_spell') {
           const replayableSteps = resolveThisSpellCopyReplaySteps({
             steps,
@@ -2957,7 +2987,7 @@ export function applyOracleIRStepsToGameStateImpl(
                 classification: 'player_choice',
                 metadata: {
                   unlessPayConditionRaw: step.condition.raw,
-                  ...(manaMatch ? { unlessPayManaCost: manaMatch[1] } : {}),
+                  ...(manaMatch ? { unlessPayManaCost: normalizeOracleManaCostString(manaMatch[1]) } : {}),
                   ...(lifeMatch ? { unlessPayLifeAmount: Number(lifeMatch[1]) } : {}),
                   unlessPayNestedStepKinds: step.steps.map(inner => inner.kind),
                 },

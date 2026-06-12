@@ -4,10 +4,24 @@ import {
   getCopiedStackObjectReplaySteps,
   resolveCopiedTargetSpellStackItem,
   resolveCopiedSpellSourceCards,
+  resolveCopySpellCount,
+  resolveOtherCreaturesCopyCouldTargetCount,
   resolveThisSpellCopyReplaySteps,
+  shouldDeferStackSpellCopyToServer,
 } from '../src/oracleIRExecutorCopySpellSupport';
 
 describe('oracleIRExecutorCopySpellSupport', () => {
+  it('defers stack-target copy_spell steps when server bridge flag is set', () => {
+    expect(shouldDeferStackSpellCopyToServer(
+      { controllerId: 'p1', deferStackSpellCopiesToServer: true } as any,
+      { kind: 'copy_spell', subject: 'target_spell', raw: 'copy target instant or sorcery spell' } as any,
+    )).toBe(true);
+    expect(shouldDeferStackSpellCopyToServer(
+      { controllerId: 'p1', deferStackSpellCopiesToServer: true } as any,
+      { kind: 'copy_spell', subject: 'linked_exiled_cards', raw: 'copy the exiled card' } as any,
+    )).toBe(false);
+  });
+
   it('parses replay steps from oracle text on card-like objects', () => {
     const steps = getCopiedSpellReplaySteps({
       name: 'Lightning Bolt',
@@ -86,6 +100,96 @@ describe('oracleIRExecutorCopySpellSupport', () => {
       ctx: { controllerId: 'p1' } as any,
     });
     expect(resolved).toEqual([steps[1]]);
+  });
+
+  it('counts other creatures the copied ability could target for Agrus-style copies', () => {
+    const state = {
+      stack: [{
+        id: 'ability_1',
+        type: 'ability',
+        controller: 'p1',
+        targets: ['agrus_1'],
+        copyRetargetValidTargets: [
+          { id: 'agrus_1', type: 'permanent' },
+          { id: 'bear_1', type: 'permanent' },
+          { id: 'bear_2', type: 'permanent' },
+        ],
+      }],
+      battlefield: [
+        { id: 'agrus_1', controller: 'p1', card: { type_line: 'Legendary Creature' } },
+        { id: 'bear_1', controller: 'p1', card: { type_line: 'Creature — Bear' } },
+        { id: 'bear_2', controller: 'p1', card: { type_line: 'Creature — Bear' } },
+      ],
+    } as any;
+    const step = {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: 'that ability' },
+      copies: {
+        kind: 'reference_amount',
+        raw: 'for each other creature you control that ability could target',
+      },
+      raw: 'copy that ability for each other creature you control that ability could target',
+    } as const;
+    const ctx = { controllerId: 'p1', targetSpellId: 'ability_1' } as any;
+
+    expect(resolveOtherCreaturesCopyCouldTargetCount(state, 'p1', step, ctx)).toBe(2);
+    expect(resolveCopySpellCount(state, 'p1', step, ctx)).toBe(2);
+  });
+
+  it('counts any other creature the spell could target when the reference omits you control', () => {
+    const state = {
+      stack: [{
+        id: 'spell_1',
+        type: 'spell',
+        controller: 'p2',
+        targets: ['nephilim_1'],
+        copyRetargetValidTargets: [
+          { id: 'nephilim_1', type: 'permanent' },
+          { id: 'bear_1', type: 'permanent' },
+          { id: 'opp_bear', type: 'permanent' },
+        ],
+      }],
+      battlefield: [
+        { id: 'nephilim_1', controller: 'p1', card: { type_line: 'Creature — Nephilim' } },
+        { id: 'bear_1', controller: 'p1', card: { type_line: 'Creature — Bear' } },
+        { id: 'opp_bear', controller: 'p2', card: { type_line: 'Creature — Bear' } },
+      ],
+    } as any;
+    const step = {
+      kind: 'copy_spell',
+      subject: 'target_spell',
+      target: { kind: 'raw', text: 'the spell' },
+      copies: {
+        kind: 'reference_amount',
+        raw: 'for each other creature that spell could target',
+      },
+      raw: 'copy the spell for each other creature that spell could target',
+    } as const;
+    const ctx = { controllerId: 'p1', targetSpellId: 'spell_1' } as any;
+
+    expect(resolveOtherCreaturesCopyCouldTargetCount(state, 'p1', step, ctx)).toBe(2);
+    expect(resolveCopySpellCount(state, 'p1', step, ctx)).toBe(2);
+  });
+
+  it('counts storm copies from server-style spellsCastThisTurn arrays', () => {
+    const count = resolveCopySpellCount(
+      {
+        spellsCastThisTurn: [
+          { id: 'a', casterId: 'p1' },
+          { id: 'b', casterId: 'p1' },
+          { id: 'c', casterId: 'p1' },
+        ],
+      } as any,
+      'p1',
+      {
+        kind: 'copy_spell',
+        subject: 'target_spell',
+        copies: { kind: 'spells_cast_before_this_turn' },
+        raw: 'copy it for each other instant and sorcery spell you have cast before it this turn',
+      } as any,
+    );
+    expect(count).toBe(2);
   });
 
   it('selects stack abilities when copying that ability', () => {

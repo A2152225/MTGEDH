@@ -2,6 +2,7 @@ import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js'
 import {
   collectOracleEffectSteps,
   isTriggerStepRuntimeWired,
+  ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS,
   ORACLE_IR_FALLBACK_STEP_KINDS,
   TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS,
 } from './trigger-runtime-wiring.js';
@@ -14,6 +15,7 @@ import { isOracleIrSpellPrimaryEnabled } from './oracleIrSpellExecution.js';
 export const ORACLE_IR_SPELL_RETIRED_STEP_KINDS = new Set<string>([
   ...ORACLE_IR_FALLBACK_STEP_KINDS,
   ...TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS,
+  ...ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS,
 ]);
 
 /**

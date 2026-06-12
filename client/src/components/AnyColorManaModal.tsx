@@ -15,6 +15,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { ResolutionPromptMinimizeButton } from './ResolutionMinimizedChip';
 
 export interface AnyColorManaModalProps {
   open: boolean;
@@ -27,6 +28,9 @@ export interface AnyColorManaModalProps {
   dynamicAmountSource?: 'devotion' | 'creature_type_count';
   chosenCreatureType?: string;
   cardImageUrl?: string;
+  /** When false, backdrop click and Cancel are hidden (mandatory resolution steps). */
+  canCancel?: boolean;
+  onMinimize?: () => void;
   onConfirm: (chosenColor: 'white' | 'blue' | 'black' | 'red' | 'green') => void;
   onCancel: () => void;
 }
@@ -91,6 +95,8 @@ export function AnyColorManaModal({
   dynamicAmountSource,
   chosenCreatureType,
   cardImageUrl,
+  canCancel = true,
+  onMinimize,
   onConfirm,
   onCancel,
 }: AnyColorManaModalProps) {
@@ -155,7 +161,7 @@ export function AnyColorManaModal({
         zIndex: 10000,
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) {
+        if (canCancel && e.target === e.currentTarget) {
           onCancel();
         }
       }}
@@ -173,9 +179,13 @@ export function AnyColorManaModal({
       >
         {/* Header */}
         <div style={{ marginBottom: '20px', textAlign: 'center' }}>
-          <h2 style={{ margin: '0 0 8px 0', color: '#fff', fontSize: '20px' }}>
-            Choose Mana Color
-          </h2>
+          <div style={{ display: 'flex', justifyContent: onMinimize ? 'space-between' : 'center', alignItems: 'flex-start', marginBottom: 8 }}>
+            {onMinimize ? <div style={{ width: 72 }} /> : null}
+            <h2 style={{ margin: 0, color: '#fff', fontSize: '20px', flex: 1 }}>
+              Choose Mana Color
+            </h2>
+            {onMinimize ? <ResolutionPromptMinimizeButton onMinimize={onMinimize} /> : null}
+          </div>
           <p style={{ margin: 0, color: '#aaa', fontSize: '14px', lineHeight: 1.5 }}>
             {subtitle}
           </p>
@@ -255,29 +265,30 @@ export function AnyColorManaModal({
           })}
         </div>
 
-        {/* Cancel Button */}
-        <button
-          onClick={onCancel}
-          style={{
-            width: '100%',
-            padding: '12px',
-            backgroundColor: '#555',
-            color: '#fff',
-            border: '1px solid #777',
-            borderRadius: '4px',
-            fontSize: '14px',
-            cursor: 'pointer',
-            transition: 'background-color 0.2s',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = '#666';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = '#555';
-          }}
-        >
-          Cancel
-        </button>
+        {canCancel && (
+          <button
+            onClick={onCancel}
+            style={{
+              width: '100%',
+              padding: '12px',
+              backgroundColor: '#555',
+              color: '#fff',
+              border: '1px solid #777',
+              borderRadius: '4px',
+              fontSize: '14px',
+              cursor: 'pointer',
+              transition: 'background-color 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#666';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#555';
+            }}
+          >
+            Cancel
+          </button>
+        )}
       </div>
     </div>
   );

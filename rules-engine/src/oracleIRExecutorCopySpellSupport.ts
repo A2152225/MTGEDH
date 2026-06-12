@@ -480,6 +480,91 @@ export function bindCopiedStackSpellTargetsToContext(params: {
   };
 }
 
+export function shouldDeferStackSpellCopyToServer(
+  ctx: OracleIRExecutionContext | undefined,
+  step: Extract<OracleEffectStep, { kind: 'copy_spell' }>,
+): boolean {
+  if (!ctx?.deferStackSpellCopiesToServer) return false;
+  return step.subject === 'target_spell' || step.subject === 'this_spell';
+}
+
+function normalizeCopyTargetId(target: unknown): string {
+  if (target && typeof target === 'object' && !Array.isArray(target)) {
+    return String((target as { id?: string }).id || '').trim();
+  }
+  return String(target || '').trim();
+}
+
+function isOtherCreaturesCopyCouldTargetReference(raw: string): boolean {
+  return /for each other creature(?: you control)? that (?:(?:the |that )?spell|(?:that )?ability) could target/.test(raw);
+}
+
+export function resolveOtherCreaturesCopyCouldTargetCount(
+  state: GameState,
+  controllerId: PlayerID,
+  step: Extract<OracleEffectStep, { kind: 'copy_spell' }>,
+  ctx?: OracleIRExecutionContext,
+): number | undefined {
+  if (step.copies?.kind !== 'reference_amount') return undefined;
+  const raw = String(step.copies.raw || '').trim().toLowerCase();
+  if (!isOtherCreaturesCopyCouldTargetReference(raw)) return undefined;
+
+  const targetResolution = resolveCopiedTargetSpellStackItem({
+    state,
+    step,
+    ctx: ctx || { controllerId },
+  });
+  const targetStackItem = targetResolution.stackItem;
+  if (!targetStackItem) return 0;
+
+  const currentTargetIds = new Set(
+    (Array.isArray(targetStackItem?.targets) ? targetStackItem.targets : [])
+      .map(normalizeCopyTargetId)
+      .filter(Boolean),
+  );
+
+  const battlefield = Array.isArray((state as any)?.battlefield) ? (state as any).battlefield : [];
+  const controllerCreatures = new Set(
+    battlefield
+      .filter((permanent: any) =>
+        String(permanent?.controller || '').trim() === String(controllerId || '').trim()
+        && /\bcreature\b/i.test(String(permanent?.card?.type_line || permanent?.type_line || '')),
+      )
+      .map((permanent: any) => String(permanent?.id || '').trim())
+      .filter(Boolean),
+  );
+
+  const validTargets = Array.isArray(targetStackItem?.copyRetargetValidTargets)
+    ? targetStackItem.copyRetargetValidTargets
+    : [];
+
+  const requiresControlledCreatures = /you control/.test(raw);
+
+  const eligibleIds = new Set<string>();
+  for (const target of validTargets) {
+    const targetId = normalizeCopyTargetId(target);
+    if (!targetId || currentTargetIds.has(targetId)) continue;
+
+    const targetType = String((target as any)?.type || '').trim().toLowerCase();
+    if (targetType === 'player') continue;
+
+    const battlefieldPermanent = battlefield.find(
+      (permanent: any) => String(permanent?.id || '').trim() === targetId,
+    );
+    const isCreature = battlefieldPermanent
+      ? /\bcreature\b/i.test(String(battlefieldPermanent?.card?.type_line || battlefieldPermanent?.type_line || ''))
+      : targetType === 'permanent';
+
+    if (!isCreature) continue;
+
+    if (requiresControlledCreatures && !controllerCreatures.has(targetId)) continue;
+
+    eligibleIds.add(targetId);
+  }
+
+  return eligibleIds.size;
+}
+
 export function resolveCopySpellCount(
   state: GameState,
   controllerId: PlayerID,
@@ -502,7 +587,14 @@ export function resolveCopySpellCount(
   }
   if (step.copies.kind === 'spells_cast_before_this_turn') {
     const stateAny = state as any;
-    const totalCastThisTurn = Number((stateAny?.spellsCastThisTurn || {})?.[controllerId] || 0);
+    const spellsCastThisTurn = stateAny?.spellsCastThisTurn;
+    if (Array.isArray(spellsCastThisTurn)) {
+      const countForController = spellsCastThisTurn.filter(
+        (entry: any) => String(entry?.casterId || '').trim() === String(controllerId || '').trim(),
+      ).length;
+      return Math.max(0, countForController - 1);
+    }
+    const totalCastThisTurn = Number(spellsCastThisTurn?.[controllerId] || 0);
     return Math.max(0, totalCastThisTurn - 1);
   }
   if (step.copies.kind === 'reference_amount') {
@@ -510,6 +602,10 @@ export function resolveCopySpellCount(
     if (/commander.*command zone.*this game/.test(raw)) {
       const count = Number((state as any)?.commanderCastsFromCommandZoneThisGame?.[controllerId]);
       return Math.max(0, Number.isFinite(count) ? count : 0);
+    }
+    const otherCreaturesCount = resolveOtherCreaturesCopyCouldTargetCount(state, controllerId, step, ctx);
+    if (otherCreaturesCount !== undefined) {
+      return otherCreaturesCount;
     }
     return 1;
   }

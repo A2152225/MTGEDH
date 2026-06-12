@@ -19,8 +19,12 @@ import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, app
 import { requiresColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
 import { checkAndPromptOpeningHandActions, isOpeningHandBattlefieldCard } from "./opening-hand";
-import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { tryResolveTriggerViaOracleIR } from "../state/modules/oracleIrTriggerExecution.js";
+import { isOracleIrTriggerPrimaryEnabled } from "../state/modules/oracleIrFeatureFlags.js";
+import { isTriggerEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIrTriggerLegacyRouting.js";
 import { resolveOnCastSpellTriggerDescription } from "../state/modules/onCastSpellTriggerUtils.js";
+import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferGenericTriggeredAbilityTargetMetadata } from "../state/modules/triggers/index.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
@@ -74,6 +78,10 @@ import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js
 import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
 import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from '../state/modules/triggers/ability-activated.js';
+import {
+  persistTargetedTriggeredStackItems,
+  triggerPermanentTargetedTriggersFromSpell,
+} from '../state/modules/triggers/targeted.js';
 
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import {
@@ -3717,7 +3725,43 @@ export function processSpellCastTriggersForCast(
       }
 
       if (trigger.copiesSpell === true) {
-        cloneTriggeredSpellCopy(gameId, game, io, trigger, casterId, resolvedTriggeringStackItemId, String(spellCard?.id || ''));
+        const copyEffectText = String(trigger.effect || trigger.description || '').trim();
+        let copiedViaOracleIr = false;
+        if (
+          copyEffectText
+          && isOracleIrTriggerPrimaryEnabled()
+          && isTriggerEffectOwnedByOracleIrPrimary(copyEffectText, trigger.cardName)
+        ) {
+          const irOutcome = tryResolveTriggerViaOracleIR(
+            {
+              gameId,
+              state: game.state,
+              io,
+              ...(typeof game.bumpSeq === 'function' ? { bumpSeq: game.bumpSeq.bind(game) } : {}),
+            } as any,
+            {
+              controller: String(trigger.controllerId || casterId) as PlayerID,
+              sourceName: trigger.cardName,
+              effectText: copyEffectText,
+              triggerItem: {
+                permanentId: trigger.permanentId,
+                source: trigger.permanentId,
+                triggeringStackItemId: resolvedTriggeringStackItemId,
+                triggeringPlayer: casterId,
+                effectData: {
+                  casterId: String(casterId),
+                  ...(resolvedTriggeringStackItemId ? { triggeringStackItemId: resolvedTriggeringStackItemId } : null),
+                  ...(triggeringSpellSnapshot ? { triggeringSpell: triggeringSpellSnapshot } : null),
+                },
+              },
+            },
+          );
+          copiedViaOracleIr = irOutcome.handled;
+        }
+
+        if (!copiedViaOracleIr) {
+          cloneTriggeredSpellCopy(gameId, game, io, trigger, casterId, resolvedTriggeringStackItemId, String(spellCard?.id || ''));
+        }
       }
 
       if (trigger.cardName.toLowerCase().includes('consuming aberration') || effectLower.includes('until they reveal a land card')) {
@@ -4498,6 +4542,30 @@ export function processHeroicTriggersForTargets(
     debug(2, `[processHeroicTriggersForTargets] Heroic triggered: ${trigger.cardName} - ${trigger.description}`);
     applyHeroicTrigger(game, trigger, io, gameId);
   }
+
+  processTargetedTriggersForSpellTargets(game, casterId, normalizedTargetIds, gameId);
+}
+
+export function processTargetedTriggersForSpellTargets(
+  game: any,
+  casterId: string,
+  targetIds: string[],
+  gameId: string,
+  stackItemId?: string,
+): void {
+  const normalizedTargetIds = Array.from(new Set(
+    (Array.isArray(targetIds) ? targetIds : [])
+      .map((targetId) => String(targetId || '').trim())
+      .filter(Boolean),
+  ));
+  if (normalizedTargetIds.length === 0) return;
+
+  const targetedTriggers = triggerPermanentTargetedTriggersFromSpell(game as any, {
+    castBy: casterId as any,
+    targetIds: normalizedTargetIds,
+    ...(stackItemId ? { stackItemId } : {}),
+  });
+  persistTargetedTriggeredStackItems(gameId, game, targetedTriggers);
 }
 
 export function applyCostAdjustment<TParsedCost extends { generic: number; colors: Record<string, number> }>(
@@ -12202,8 +12270,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check for "When you cast this spell" triggers on the spell itself (Kozilek, Ulamog, etc.)
       try {
-        const eldraziEffect = detectEldraziEffect(cardInHand, { id: cardId, controller: playerId });
-        const onCastTrigger = resolveOnCastSpellTriggerDescription(cardInHand, eldraziEffect);
+        const onCastTrigger = resolveOnCastSpellTriggerDescription(cardInHand);
         if (onCastTrigger) {
           debug(2, `[castSpellFromHand] On-cast trigger matching: ${cardInHand.name} - ${onCastTrigger.description}`);
 
@@ -15952,23 +16019,25 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       // Get the top N cards from library
+      const millCtx = {
+        state: game.state,
+        libraries: (game as any).libraries,
+        bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
+        rng: (game as any).rng,
+        gameId,
+      } as any;
+      zones.graveyard = zones.graveyard || [];
       const milledCards: any[] = [];
       for (let i = 0; i < actualCount; i++) {
-        const card = library.shift(); // Remove from top of library
+        const card = library.shift();
         if (card) {
-          card.zone = "graveyard";
-          milledCards.push(card);
+          pushCardToPlayerGraveyardWithReplacements(millCtx, String(targetPid), card, zones.graveyard);
+          milledCards.push({ ...card, zone: 'graveyard' });
         }
       }
 
       // Update library count
       zones.libraryCount = library.length;
-
-      // Add milled cards to graveyard
-      zones.graveyard = zones.graveyard || [];
-      for (const card of milledCards) {
-        zones.graveyard.push(card);
-      }
       zones.graveyardCount = zones.graveyard.length;
 
       // Bump sequence

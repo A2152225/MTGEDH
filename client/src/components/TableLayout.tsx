@@ -885,6 +885,9 @@ export function TableLayout(props: {
       abilityId: normalizedAbilityId,
       xValue,
     });
+    window.setTimeout(() => {
+      socket.emit('getMyNextResolutionStep', { gameId });
+    }, 0);
   }, [battlefieldCardNames, gameId, totalFloatingMana]);
 
   const handlePendingXActivationSelect = useCallback((xValue: number) => {
@@ -895,6 +898,9 @@ export function TableLayout(props: {
       abilityId: pendingXActivation.abilityId,
       xValue,
     });
+    window.setTimeout(() => {
+      socket.emit('getMyNextResolutionStep', { gameId });
+    }, 0);
     setPendingXActivation(null);
   }, [gameId, pendingXActivation]);
 

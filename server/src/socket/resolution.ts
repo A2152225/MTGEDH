@@ -18,6 +18,7 @@ import {
   type ResolutionStepResponse,
   type TargetSelectionStep,
 } from "../state/resolution/index.js";
+import { inferResolutionStepMandatory } from "../state/resolution/mandatoryInference.js";
 import {
   ensureGame,
   broadcastGame,
@@ -92,6 +93,7 @@ import {
 import { returnExiledCardToBattlefield, scheduleExiledCardReturnToBattlefield } from "../state/modules/executeSpellEffect.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { executeTriggerEffect } from "../state/modules/stackExecuteTriggerEffectUtils.js";
+import { applyPermanentBecomeCopyOfTargetPermanent } from "../state/modules/permanent-copy.js";
 import { applyTriggeredReanimationEntryRiders } from "../state/modules/triggerReanimationRiders.js";
 import { queueSelfETBTriggersForPermanent, triggerETBEffectsForToken } from "../state/modules/triggerEtbEntryEffects.js";
 import { triggerETBEffectsForPermanent } from "../state/modules/triggerEtbPermanentEffects.js";
@@ -121,7 +123,6 @@ import { isRemovableCounterType, permanentMatchesCounterRemovalFilter } from "..
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, permanentsShareCardType, selectionRequiresSharedCardType, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
-import { checkGraveyardTrigger } from "../state/modules/triggered-abilities.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
 import { handleImportWipeConfirmVote } from "./deck.js";
@@ -129,8 +130,14 @@ import { handleJudgeConfirmVote } from "./judge.js";
 import { buildResolutionEventDataFromGameState, buildTriggeredAbilityEventDataFromChoices, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
 import { buildTapTriggeredStackItem, getTapTriggers, queueBecomesUntappedTriggers, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
+import {
+  extractStackItemTargetIds,
+  persistTargetedTriggeredStackItems,
+  triggerPermanentTargetedTriggersFromAbility,
+} from "../state/modules/triggers/targeted.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
+import { resolveOracleIrOptionalPaymentPromptFromResolution } from '../state/modules/oracleIrServerZoneSync.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
@@ -2642,6 +2649,22 @@ function fireBattlefieldAbilityActivatedTriggers(
       debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility ability-activated) failed:', err);
     }
   }
+
+  if (!stackItemId) return;
+
+  const stack = Array.isArray(game.state?.stack) ? game.state.stack : [];
+  const stackItem = stack.find((item: any) => item && String(item.id || '') === String(stackItemId));
+  const targetIds = extractStackItemTargetIds(stackItem);
+  if (targetIds.length === 0) return;
+
+  const targetedTriggers = triggerPermanentTargetedTriggersFromAbility(game as any, {
+    activatedBy: controllerId as any,
+    sourcePermanentId: permanentId,
+    stackItemId,
+    targetIds,
+  });
+
+  persistTargetedTriggeredStackItems(gameId, game, targetedTriggers);
 }
 
 function matchesGraveyardCardTargetType(card: any, targetType: string): boolean {
@@ -8224,7 +8247,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         Boolean((step as any)?.battlefieldAbilityTargetSelection)) ||
       step.type === ResolutionStepType.STATION_CREATURE_SELECTION;
 
-    if (step.mandatory && !isCancellableMandatoryStep) {
+    if (inferResolutionStepMandatory(step as any) && !isCancellableMandatoryStep) {
       socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });
       return;
     }
@@ -8284,11 +8307,17 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       case ResolutionQueueEvent.QUEUE_CHANGED:
         // Notify client queue has changed (for UI updates)
         const summary = ResolutionQueueManager.getPendingSummary(eventGameId);
+        const queuePid = socket.data.playerId as any;
+        const myPendingSteps = queuePid
+          ? ResolutionQueueManager.getStepsForPlayer(eventGameId, queuePid)
+          : [];
         socket.emit("resolutionQueueChanged", {
           gameId: eventGameId,
           hasPending: summary.hasPending,
           pendingCount: summary.pendingCount,
           pendingTypes: summary.pendingTypes,
+          myPendingCount: myPendingSteps.length,
+          myNextStepId: myPendingSteps[0]?.id,
         });
         break;
     }
@@ -8380,7 +8409,7 @@ export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any
     type: step.type,
     playerId: step.playerId,
     description: step.description,
-    mandatory: step.mandatory,
+    mandatory: inferResolutionStepMandatory(step as any),
     sourceId: step.sourceId,
     sourceName: step.sourceName,
     sourceImage: step.sourceImage,
@@ -13462,6 +13491,13 @@ async function handleStepResponse(
       if (costType === 'discard') {
         zones.graveyard = zones.graveyard || [];
         zones.exile = zones.exile || [];
+        const discardTrackingCtx = {
+          state: game.state,
+          libraries: (game as any).libraries,
+          bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+          rng: (game as any).rng,
+          gameId,
+        } as any;
 
         for (const discardId of selectedIds) {
           const idx = (zones.hand as any[]).findIndex((c: any) => c && c.id === discardId);
@@ -13505,32 +13541,15 @@ async function handleStepResponse(
             continue;
           }
 
-          const graveyardCard = {
-            ...discarded,
-            zone: 'graveyard',
-          };
-          (zones.graveyard as any[]).push(graveyardCard);
-          movedDiscardedCardsToGraveyard.push(graveyardCard);
+          const enteredGraveyard = pushCardToPlayerGraveyardWithReplacements(discardTrackingCtx, String(pid), discarded, zones.graveyard as any[]);
+          if (enteredGraveyard) {
+            movedDiscardedCardsToGraveyard.push(zones.graveyard[zones.graveyard.length - 1]);
+          }
         }
 
         zones.handCount = (zones.hand as any[]).length;
         zones.graveyardCount = (zones.graveyard as any[]).length;
         zones.exileCount = Array.isArray(zones.exile) ? zones.exile.length : 0;
-
-        if (movedDiscardedCardsToGraveyard.length > 0) {
-          const discardTrackingCtx = {
-            state: game.state,
-            libraries: (game as any).libraries,
-            bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-            rng: (game as any).rng,
-            gameId,
-          } as any;
-
-          for (const movedCard of movedDiscardedCardsToGraveyard) {
-            recordCardPutIntoGraveyardThisTurn(discardTrackingCtx, String(pid), movedCard, { fromBattlefield: false });
-            checkGraveyardTrigger(discardTrackingCtx, movedCard, String(pid));
-          }
-        }
 
         if (selectedIds.length > 0) {
           const stateAny = game.state as any;
@@ -17297,6 +17316,44 @@ async function handleTargetSelectionResponse(
     return;
   }
 
+  if (stepAny?.retargetSpellCopyTargetSelection === true) {
+    const copyStackItemId = String(stepAny?.retargetSpellCopyStackItemId || step.sourceId || '').trim();
+    if (!copyStackItemId) {
+      return;
+    }
+
+    const stack = Array.isArray(game.state?.stack) ? game.state.stack : [];
+    const copiedItem = stack.find((item: any) => item && String(item.id || '') === copyStackItemId);
+    if (!copiedItem) {
+      emitToPlayer(io, pid as any, 'error', { code: 'STACK_ITEM_NOT_FOUND', message: 'Copied spell is no longer on the stack.' });
+      return;
+    }
+
+    copiedItem.targets = selections.map((value: any) => String(value)).filter(Boolean);
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${String(step.sourceName || 'Copied spell')} gets new target${copiedItem.targets.length === 1 ? '' : 's'}.`,
+      ts: Date.now(),
+    });
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'retargetSpellCopyResolve', {
+        playerId: pid,
+        stackItemId: copyStackItemId,
+        targets: copiedItem.targets,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist retargetSpellCopyResolve event:', err);
+    }
+
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   if (stepAny?.crewAbility === true) {
     const vehicleId = String(stepAny?.vehicleId || step.sourceId || '').trim();
     const crewPower = Number(stepAny?.crewPower || 0);
@@ -18620,6 +18677,15 @@ async function handleTargetSelectionResponse(
     if (stackItem) {
       stackItem.targets = selections;
       debug(2, `[Resolution] Stored targets for ${sourceId}: ${selections.join(', ')}`);
+      if (String(stackItem.type || '') === 'ability') {
+        const targetedTriggers = triggerPermanentTargetedTriggersFromAbility(game as any, {
+          activatedBy: String(stackItem.controller || pid) as any,
+          sourcePermanentId: String(stackItem.source || ''),
+          stackItemId: String(stackItem.id || sourceId),
+          targetIds: selections.map((value: any) => String(value)),
+        });
+        persistTargetedTriggeredStackItems(gameId, game, targetedTriggers);
+      }
     } else {
       debugWarn(2, `[Resolution] Stack item ${sourceId} not found to store targets`);
     }
@@ -20286,44 +20352,6 @@ async function handleTargetSelectionResponse(
     }
   }
 
-  if (stepAny?.retargetSpellCopyTargetSelection === true) {
-    const copyStackItemId = String(stepAny?.retargetSpellCopyStackItemId || step.sourceId || '').trim();
-    if (!copyStackItemId) {
-      return;
-    }
-
-    const stack = Array.isArray(game.state?.stack) ? game.state.stack : [];
-    const copiedItem = stack.find((item: any) => item && String(item.id || '') === copyStackItemId);
-    if (!copiedItem) {
-      emitToPlayer(io, pid as any, 'error', { code: 'STACK_ITEM_NOT_FOUND', message: 'Copied spell is no longer on the stack.' });
-      return;
-    }
-
-    copiedItem.targets = selections.map((value: any) => String(value)).filter(Boolean);
-
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${String(step.sourceName || 'Copied spell')} gets new target${copiedItem.targets.length === 1 ? '' : 's'}.`,
-      ts: Date.now(),
-    });
-
-    try {
-      await appendEvent(gameId, (game as any).seq ?? 0, 'retargetSpellCopyResolve', {
-        playerId: pid,
-        stackItemId: copyStackItemId,
-        targets: copiedItem.targets,
-      });
-    } catch (err) {
-      debugWarn(1, '[Resolution] Failed to persist retargetSpellCopyResolve event:', err);
-    }
-
-    if (typeof game.bumpSeq === 'function') game.bumpSeq();
-    broadcastGame(io, game, gameId);
-    return;
-  }
-  
   // ========================================================================
   // SPELL CASTING TARGET SELECTION
   // When a spell requires targets and is being cast via Resolution Queue,
@@ -20722,6 +20750,77 @@ async function handleTargetSelectionResponse(
       game.bumpSeq();
     }
 
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (
+    stepAny?.action === 'self_become_copy_of_creature' ||
+    stepAny?.action === 'other_become_copy_of_creature'
+  ) {
+    const sourceName = String(step.sourceName || stepAny?.cardName || 'Ability').trim() || 'Ability';
+    const retainedAbilityText = String(stepAny?.retainedAbilityText || '').trim() || undefined;
+    const selectedTargetId = String(selections?.[0] || '').trim();
+
+    if (!selectedTargetId) {
+      if (minTargets === 0) {
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} declined to copy for ${sourceName}.`,
+          ts: Date.now(),
+        });
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+      }
+      return;
+    }
+
+    const copyOntoPermanentId = stepAny?.action === 'other_become_copy_of_creature'
+      ? String(stepAny?.copyTargetPermanentId || stepAny?.selfBecomeCopySourcePermanentId || step.sourceId || '').trim()
+      : String(stepAny?.selfBecomeCopySourcePermanentId || step.sourceId || '').trim();
+
+    if (!copyOntoPermanentId) {
+      debugWarn(1, '[Resolution] Copy target selection missing source permanent id');
+      return;
+    }
+
+    const result = applyPermanentBecomeCopyOfTargetPermanent(
+      game.state,
+      copyOntoPermanentId,
+      selectedTargetId,
+      retainedAbilityText,
+    );
+
+    if (!result.applied) {
+      emitToPlayer(io, pid as any, 'error', { code: 'COPY_FAILED', message: 'Could not apply copy effect' });
+      return;
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'permanentBecomeCopyResolve', {
+        playerId: pid,
+        resolvedStepId: String(step.id || '').trim(),
+        copyOntoPermanentId,
+        copyFromPermanentId: selectedTargetId,
+        sourceName,
+        retainedAbilityText,
+        targetName: result.targetName,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] appendEvent(permanentBecomeCopyResolve) failed:', e);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)}: ${sourceName} became a copy of ${result.targetName || 'the chosen creature'}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
     broadcastGame(io, game, gameId);
     return;
   }
@@ -23837,6 +23936,13 @@ async function handleLibrarySearchResponse(
   const zones = state.zones = state.zones || {};
   const z = zones[searchOwnerId] = zones[searchOwnerId] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
   const lib = (game as any).libraries?.get(searchOwnerId) || [];
+  const graveyardEntryCtx = {
+    state,
+    libraries: (game as any).libraries,
+    bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+    rng: (game as any).rng,
+    gameId,
+  } as any;
 
   if (isTrueLibrarySearchStep(searchStep)) {
     queueLibrarySearchTriggers(game as any, String(pid), {
@@ -24075,7 +24181,7 @@ async function handleLibrarySearchResponse(
         debug(2, `[Resolution] ${sourceName}: Put ${card.name} into hand`);
       } else if (destination === 'graveyard') {
         z.graveyard = z.graveyard || [];
-        z.graveyard.push({ ...card, zone: 'graveyard' });
+        pushCardToPlayerGraveyardWithReplacements(graveyardEntryCtx, searchOwnerId, card, z.graveyard);
         z.graveyardCount = z.graveyard.length;
         debug(2, `[Resolution] ${sourceName}: Put ${card.name} into graveyard`);
       } else if (destination === 'exile') {
@@ -24132,7 +24238,7 @@ async function handleLibrarySearchResponse(
     z.graveyard = z.graveyard || [];
     for (const card of unselectedCards) {
       const fromLib = takeCardFromLibrary(card.id) || card;
-      z.graveyard.push({ ...fromLib, zone: 'graveyard' });
+      pushCardToPlayerGraveyardWithReplacements(graveyardEntryCtx, searchOwnerId, fromLib, z.graveyard);
     }
     z.graveyardCount = z.graveyard.length;
     debug(2, `[Resolution] ${sourceName}: Put ${unselectedCards.length} unselected cards into graveyard`);
@@ -28124,6 +28230,35 @@ async function handleOptionChoiceResponse(
 
   if (isOptionalPaymentPromptStep(stepData)) {
     const choiceId = extractId(selectedOption);
+    const oracleIrPaymentCtx = {
+      gameId,
+      state: game.state,
+      io,
+      ...(typeof game.bumpSeq === 'function' ? { bumpSeq: game.bumpSeq.bind(game) } : {}),
+    } as GameContext;
+    if (
+      resolveOracleIrOptionalPaymentPromptFromResolution(oracleIrPaymentCtx, {
+        step: { ...step, ...stepData },
+        choiceId: String(choiceId || ''),
+        cancelled: Boolean(response.cancelled),
+      })
+    ) {
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'optionalPaymentPromptResolve', {
+          playerId,
+          sourceId: String(stepData?.sourceId || step.sourceId || '').trim() || undefined,
+          resolvedStepId: String(step.id || '').trim() || undefined,
+          choiceId: String(choiceId || '').trim() || undefined,
+          optionalPaymentValidationKind: String(stepData?.optionalPaymentValidationKind || '').trim() || undefined,
+          manaCost: String(stepData?.optionalPaymentManaCost || stepData?.manaCost || '').trim() || undefined,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(optionalPaymentPromptResolve oracleIR) failed:', err);
+      }
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
     const callbackId = String(stepData?.pendingOptionalPaymentCallbackId || '').trim();
     const callback = consumeOptionalPaymentCallback(gameId, callbackId);
     if (!callback) {
@@ -28695,6 +28830,14 @@ async function handleOptionChoiceResponse(
     playerZones.hand = playerZones.hand || [];
     playerZones.graveyard = playerZones.graveyard || [];
 
+    const moxDiamondCtx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as any;
+
     let discardedLandName: string | null = null;
 
     if (discardLandId) {
@@ -28710,7 +28853,7 @@ async function handleOptionChoiceResponse(
         // Discard land
         (playerZones.hand as any[]).splice(handIndex, 1);
         playerZones.handCount = (playerZones.hand as any[]).length;
-        playerZones.graveyard.push({ ...handCard, zone: 'graveyard' });
+        pushCardToPlayerGraveyardWithReplacements(moxDiamondCtx, String(playerId), handCard, playerZones.graveyard);
         playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
         discardedLandName = String(handCard?.name || 'a land');
 
@@ -28736,7 +28879,7 @@ async function handleOptionChoiceResponse(
 
     if (!discardedLandName) {
       // Put Mox Diamond into graveyard.
-      playerZones.graveyard.push({ ...(moxCard || {}), zone: 'graveyard' });
+      pushCardToPlayerGraveyardWithReplacements(moxDiamondCtx, String(playerId), moxCard || {}, playerZones.graveyard);
       playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
 
       io.to(gameId).emit('chat', {
@@ -30024,6 +30167,14 @@ async function handleOptionChoiceResponse(
         } catch {}
       };
 
+      const declineCtx = {
+        state: game.state,
+        libraries: (game as any).libraries,
+        bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+        rng: (game as any).rng,
+        gameId,
+      } as any;
+
       if (declineDestination === 'graveyard') {
         zones.exile.splice(cardIndex, 1);
         zones.exileCount = zones.exile.length;
@@ -30031,18 +30182,8 @@ async function handleOptionChoiceResponse(
         cleanupCardLeavingExile(game.state as any, exiledCard);
 
         zones.graveyard = zones.graveyard || [];
-        zones.graveyard.push({ ...exiledCard, zone: 'graveyard' });
+        pushCardToPlayerGraveyardWithReplacements(declineCtx, String(playerId), exiledCard, zones.graveyard);
         zones.graveyardCount = zones.graveyard.length;
-
-        const declineCtx = {
-          state: game.state,
-          libraries: (game as any).libraries,
-          bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-          rng: (game as any).rng,
-          gameId,
-        } as any;
-        recordCardPutIntoGraveyardThisTurn(declineCtx, String(playerId), exiledCard, { fromBattlefield: false });
-        checkGraveyardTrigger(declineCtx, exiledCard, String(playerId));
       } else if (declineDestination === 'cease_to_exist') {
         zones.exile.splice(cardIndex, 1);
         zones.exileCount = zones.exile.length;
@@ -31572,6 +31713,7 @@ async function handleOptionChoiceResponse(
       minTargets,
       maxTargets,
       targetDescription,
+      priority: -1,
       retargetSpellCopyTargetSelection: true,
       retargetSpellCopyStackItemId: copyStackItemId,
     } as any);
@@ -31628,6 +31770,7 @@ async function handleOptionChoiceResponse(
       minTargets,
       maxTargets,
       targetDescription,
+      priority: -1,
       retargetAbilityCopyTargetSelection: true,
       retargetAbilityCopyStackItemId: copyStackItemId,
     } as any);
@@ -32382,9 +32525,19 @@ async function handleOptionChoiceResponse(
       zones.exileCount = zones.exile.length;
 
       cleanupCardLeavingExile(game.state as any, exiledCard);
+
+      const reboundDeclineCtx = {
+        state: game.state,
+        libraries: (game as any).libraries,
+        bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+        rng: (game as any).rng,
+        gameId,
+      } as any;
       
       zones.graveyard = zones.graveyard || [];
-      zones.graveyard.push({ ...exiledCard, zone: 'graveyard', reboundPending: false, reboundTriggered: false });
+      pushCardToPlayerGraveyardWithReplacements(reboundDeclineCtx, String(playerId), exiledCard, zones.graveyard, {
+        extraFields: { reboundPending: false, reboundTriggered: false },
+      });
       zones.graveyardCount = zones.graveyard.length;
       
       // Emit chat message
@@ -32706,6 +32859,13 @@ async function handleOptionChoiceResponse(
     const playerZones = zones[controller] as any;
     playerZones.hand = playerZones.hand || [];
     playerZones.graveyard = playerZones.graveyard || [];
+    const moxChoiceCtx = {
+      state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as any;
     
     // Remove Mox from stack
     state.stack.splice(stackIndex, 1);
@@ -32716,7 +32876,7 @@ async function handleOptionChoiceResponse(
       if (landIdx !== -1) {
         const landCard = hand.splice(landIdx, 1)[0];
         playerZones.handCount = hand.length;
-        playerZones.graveyard.push({ ...landCard, zone: 'graveyard' });
+        pushCardToPlayerGraveyardWithReplacements(moxChoiceCtx, String(controller), landCard, playerZones.graveyard);
         playerZones.graveyardCount = playerZones.graveyard.length;
         
         // Put Mox Diamond onto battlefield
@@ -32730,13 +32890,13 @@ async function handleOptionChoiceResponse(
         debug(2, `[Resolution] Mox Diamond: discarded ${landCard.name}, put onto battlefield`);
       } else {
         // If land missing, fall back to graveyard
-        playerZones.graveyard.push({ ...(stackItem.card || {}), zone: 'graveyard' });
+        pushCardToPlayerGraveyardWithReplacements(moxChoiceCtx, String(controller), stackItem.card || {}, playerZones.graveyard);
         playerZones.graveyardCount = playerZones.graveyard.length;
         debugWarn(2, `[Resolution] Mox Diamond: selected land not found, card to graveyard`);
       }
     } else {
       // Decline: put Mox Diamond into graveyard
-      playerZones.graveyard.push({ ...(stackItem.card || {}), zone: 'graveyard' });
+      pushCardToPlayerGraveyardWithReplacements(moxChoiceCtx, String(controller), stackItem.card || {}, playerZones.graveyard);
       playerZones.graveyardCount = playerZones.graveyard.length;
       debug(2, `[Resolution] Mox Diamond: declined discard, card to graveyard`);
     }

@@ -53,7 +53,7 @@ import {
 import { escapeCardNameForRegex } from "./triggers/types.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
-import { parseChosenTypeCreatureEtbTrigger } from "./chosen-creature-type.js";
+import { isEtbCreatureTypeChoiceOracle, parseChosenTypeCreatureEtbTrigger } from "./chosen-creature-type.js";
 import { detectCastTrigger } from "../../../../rules-engine/src/cards/castTriggers.js";
 import { timingTriggerEffect } from './triggers/timing-effect-extraction.js';
 import {
@@ -8919,6 +8919,7 @@ export function detectTargetedTriggers(card: any, permanent: any): TriggeredAbil
     new RegExp(`when(?:ever)? (?:${targetedNameRefs.join('|')}) (?:attacks or )?becomes the target of a spell an opponent controls,?\\s*([^.]+)`, 'i'),
     /when(?:ever)? (?:a |an )?creature you control becomes the target of (?:a |an )?(?:instant or sorcery )?spell,?\s*([^.]+)/i,
     /when(?:ever)? (?:a |an )?creature you control becomes the target of (?:a |an )?backup ability,?\s*([^.]+)/i,
+    new RegExp(`whenever (?:${targetedNameRefs.join('|')}) becomes the target of an ability that targets only it,?\\s*(.+)$`, 'i'),
     new RegExp(`when(?:ever)? (?:${targetedNameRefs.join('|')}) becomes the target of (?:a |an )?spell,?\\s*([^.]+)`, 'i'),
     new RegExp(`when(?:ever)? (?:${targetedNameRefs.join('|')}) becomes the target of (?:a |an )?spell or ability,?\\s*([^.]+)`, 'i'),
     new RegExp(`whenever (?:${targetedNameRefs.join('|')}) becomes the target of (?:a |an )?spell or ability,?\\s*([^.]+)`, 'i'),
@@ -8931,7 +8932,6 @@ export function detectTargetedTriggers(card: any, permanent: any): TriggeredAbil
     /whenever (?:a |an )?permanent becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
     /whenever (?:a )?creature or planeswalker you control becomes the target of (?:a |an )?spell or ability(?: an opponent controls)?,?\s*([^.]+)/i,
     /whenever (?:a )?planeswalker or creature you control becomes the target of (?:a |an )?spell or ability(?: an opponent controls)?,?\s*([^.]+)/i,
-    new RegExp(`whenever (?:${targetedNameRefs.join('|')}) becomes the target of an ability that targets only it,?\\s*([^.]+)`, 'i'),
     new RegExp(`whenever (?:${targetedNameRefs.join('|')}) or another [\\w]+ you control becomes the target of a spell,?\\s*([^.]+)`, 'i'),
     /whenever (?:a |an )?creature you control with menace becomes the target of (?:a |an )?spell or ability,?\s*([^.]+)/i,
     /whenever a creature you control or a creature spell you control becomes the target of (?:a |an )?spell or ability an opponent controls,?\s*([^.]+)/i,
@@ -10441,7 +10441,7 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Pattern: "As ~ enters the battlefield, choose Khans or Dragons."
   // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
   const modalETBMatch = oracleText.match(/as (?:~|this (?:creature|permanent|enchantment)) enters(?: the battlefield)?,?\s*choose\s+([^.]+)/i);
-  if (modalETBMatch) {
+  if (modalETBMatch && !isEtbCreatureTypeChoiceOracle(oracleText)) {
     const choiceText = modalETBMatch[1].trim();
     // Parse the options (usually "X or Y" pattern)
     const options = choiceText.split(/\s+or\s+/i).map(opt => opt.trim().replace(/[.,]$/, ''));
@@ -16375,64 +16375,8 @@ export function detectUmbraEffect(card: any, permanent: any): TotemArmorEffect |
 }
 
 // ============================================================================
-// Eldrazi Effects (Ulamog, Annihilator, etc.)
+// Graveyard Triggers (Eldrazi mass shuffle, etc.)
 // ============================================================================
-
-export interface EldraziEffect {
-  permanentId: string;
-  cardName: string;
-  annihilator?: number;
-  castTrigger?: string;
-  attackTrigger?: string;
-  specialAbility?: string;
-  indestructible?: boolean;
-}
-
-const KNOWN_ELDRAZI_EFFECTS: Record<string, Omit<EldraziEffect, 'permanentId' | 'cardName'>> = {
-  "ulamog, the defiler": {
-    castTrigger: "When you cast this spell, target opponent exiles half their library",
-    annihilator: 0, // Has special annihilator based on opponents exiled cards
-    specialAbility: "Ward - Sacrifice two permanents",
-    indestructible: true,
-  },
-  "ulamog, the ceaseless hunger": {
-    castTrigger: "When you cast this spell, exile two target permanents",
-    attackTrigger: "Whenever this creature attacks, defending player exiles the top 20 cards of their library",
-    indestructible: true,
-  },
-  "ulamog, the infinite gyre": {
-    annihilator: 4,
-    indestructible: true,
-  },
-  "kozilek, butcher of truth": {
-    annihilator: 4,
-  },
-  "emrakul, the aeons torn": {
-    castTrigger: "This spell can't be countered. Take an extra turn after this one",
-    annihilator: 6,
-    specialAbility: "Flying, protection from spells that are one or more colors",
-  },
-  "emrakul, the promised end": {
-    castTrigger: "When you cast this spell, you gain control of target opponent during that player's next turn",
-    specialAbility: "Flying, trample, protection from instants",
-  },
-};
-
-export function detectEldraziEffect(card: any, permanent: any): EldraziEffect | null {
-  const cardName = (card?.name || "").toLowerCase();
-  
-  for (const [knownName, effectInfo] of Object.entries(KNOWN_ELDRAZI_EFFECTS)) {
-    if (cardName.includes(knownName)) {
-      return {
-        permanentId: permanent?.id || '',
-        cardName: card?.name || knownName,
-        ...effectInfo,
-      };
-    }
-  }
-  
-  return null;
-}
 
 /**
  * Check for graveyard triggers on a card

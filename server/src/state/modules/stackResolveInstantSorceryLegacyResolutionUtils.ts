@@ -117,6 +117,7 @@ export function tryResolveInstantSorceryLegacyResolution(
     targets,
     spellXValue,
     uncategorizedSpellFallbackApplied,
+    oracleIrSpellHandled,
   });
 
   const legacyBodyResult = legacySelectedModalApplied

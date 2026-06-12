@@ -210,6 +210,11 @@ export function startOracleEffectProgramOnServer(
   const graveyardBefore = snapshotGraveyardCardIds(state);
 
   try {
+    const serverIrCtx = {
+      ...params.irCtx,
+      deferStackSpellCopiesToServer: true,
+    };
+
     const program = buildEffectProgramFromOracleIR({
       id: `${params.programIdPrefix}:effect-program`,
       controllerId: params.controller,
@@ -222,9 +227,11 @@ export function startOracleEffectProgramOnServer(
     const initialBindings = buildPresetEffectProgramBindings(program, params.irCtx);
 
     const handlers = createOracleIREffectProgramHandlers(
-      params.irCtx,
+      serverIrCtx,
       params.executionOptions || { allowOptional: true },
     );
+
+    const triggerItem = (params.metadata as any)?.triggerItem;
 
     const result = startEffectProgramResolution({
       game: ctx,
@@ -237,6 +244,13 @@ export function startOracleEffectProgramOnServer(
         sourceId: params.sourceId,
         sourceName: params.sourceName,
         sourceImage: params.sourceImage,
+      },
+      oracleIrBridge: {
+        irCtx: serverIrCtx,
+        controller: params.controller,
+        sourceName: params.sourceName,
+        sourceId: params.sourceId,
+        triggerItem,
       },
     });
 

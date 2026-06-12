@@ -10898,8 +10898,11 @@ function reparseNestedUnknownFieldsInStep(step: OracleEffectStep): OracleEffectS
 
   if (nextStep.kind === 'discard') {
     const discardAmount = (nextStep as { amount?: ReturnType<typeof parseQuantity> }).amount;
-    if (discardAmount?.kind === 'unknown') {
-      const discardAmountRaw = normalizeOracleText(String(discardAmount.raw || '')).trim();
+    if (discardAmount?.kind === 'unknown' || discardAmount?.kind === 'reference_amount') {
+      let discardAmountRaw = normalizeOracleText(String(discardAmount.raw || '')).trim();
+      if (!discardAmountRaw && discardAmount?.kind === 'unknown') {
+        discardAmountRaw = normalizeOracleText(String(nextStep.raw || '')).trim().replace(/^then\s+/i, '');
+      }
       const discardUnlessMatch = discardAmountRaw.match(
         /^((?:two|three|four|five|six|seven|eight|nine|ten|one|a|an|\d+|x)\s+cards?(?:\s+at\s+random)?)\s+unless\s+(.+)$/i,
       );

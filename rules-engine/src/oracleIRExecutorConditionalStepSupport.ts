@@ -461,6 +461,12 @@ function controllerAttackedThisTurn(nextState: GameState, playerId: PlayerID): b
     if (Array.isArray(attackers) && attackers.length > 0) return true;
   }
 
+  const attackedPlayersThisTurn = (nextState as any)?.attackedPlayersThisTurnByPlayer;
+  if (attackedPlayersThisTurn && typeof attackedPlayersThisTurn === 'object') {
+    const attackedList = (attackedPlayersThisTurn as Record<string, unknown>)[normalizedPlayerId];
+    if (Array.isArray(attackedList) && attackedList.length > 0) return true;
+  }
+
   const battlefield = getProcessedBattlefield(nextState) as any[];
   return battlefield.some(
     (perm: any) =>
@@ -595,6 +601,28 @@ function topCardSharesCreatureTypeWithSource(nextState: GameState, ownerId: stri
     if (sourceSubtypes.has(subtype)) return true;
   }
   return false;
+}
+
+export function evaluateOracleStepUnlessCondition(
+  unlessCondition: ConditionalCondition,
+  state: GameState,
+  ctx: OracleIRExecutionContext,
+  controllerId: PlayerID = ctx.controllerId,
+): boolean | null {
+  return evaluateConditionalWrapperCondition({
+    condition: unlessCondition,
+    nextState: state,
+    controllerId,
+    ctx,
+    lastActionOutcome: undefined,
+    lastStepOutcome: undefined,
+    lastConditionalEvaluation: undefined,
+    pendingSteps: [],
+    lastMovedCards: [],
+    lastDiscardedCards: [],
+    lastCreatedTokenIds: [],
+    lastExcessDamageDealtThisWay: undefined,
+  });
 }
 
 export function evaluateConditionalWrapperCondition(params: {

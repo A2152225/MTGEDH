@@ -36,6 +36,7 @@ import {
 } from "./zones";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander";
 import { applyArcaneAdaptationToControllerCreatures } from "./chosen-creature-type.js";
+import { applyPermanentBecomeCopyOfTargetPermanent } from "./permanent-copy.js";
 import { pushTriggerDoublerCopies } from "./triggers/combat.js";
 import { calculateAllPTBonuses, calculateVariablePT, exchangePermanentOracleText, parsePT } from "../utils";
 import { filterLibraryCardsForSearch } from "../../socket/library-search.js";
@@ -3669,11 +3670,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
 
           if (replayGameId) {
+            const effectProgramMetadata = normalizeReplayEffectProgramMetadata((e as any).effectProgram);
             clearReplayQueuedSteps(replayGameId, (step: any) => {
               if (!step) return false;
               const stepId = String((step as any)?.id || '').trim();
               if (resolvedStepId && stepId === resolvedStepId) {
                 return true;
+              }
+
+              if (effectProgramMetadata?.effectProgramId) {
+                return (
+                  (step as any)?.effectProgramPrompt === true &&
+                  String((step as any)?.effectProgramId || '').trim() === effectProgramMetadata.effectProgramId
+                );
               }
 
               return (
@@ -11410,6 +11419,49 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(creatureTypeSelected): failed", err);
+        }
+        break;
+      }
+
+      case "permanentBecomeCopyResolve": {
+        const copyOntoPermanentId = String((e as any).copyOntoPermanentId || '').trim();
+        const copyFromPermanentId = String((e as any).copyFromPermanentId || '').trim();
+        const retainedAbilityText = String((e as any).retainedAbilityText || '').trim() || undefined;
+        const playerId = (e as any).playerId;
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              const stepAction = String((step as any)?.action || '').trim();
+              if (
+                stepAction !== 'self_become_copy_of_creature' &&
+                stepAction !== 'other_become_copy_of_creature'
+              ) {
+                return false;
+              }
+              return (
+                String((step as any)?.type || '').trim() === ResolutionStepType.TARGET_SELECTION &&
+                (!playerId || String((step as any)?.playerId || '').trim() === String(playerId || '').trim()) &&
+                (!copyOntoPermanentId || String((step as any)?.selfBecomeCopySourcePermanentId || (step as any)?.sourceId || '').trim() === copyOntoPermanentId)
+              );
+            });
+          }
+
+          if (copyOntoPermanentId && copyFromPermanentId) {
+            applyPermanentBecomeCopyOfTargetPermanent(
+              ctx.state,
+              copyOntoPermanentId,
+              copyFromPermanentId,
+              retainedAbilityText,
+            );
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(permanentBecomeCopyResolve): failed", err);
         }
         break;
       }

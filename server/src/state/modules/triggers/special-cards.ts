@@ -2,7 +2,7 @@
  * triggers/special-cards.ts
  * 
  * Special card effect detection.
- * Includes equipment, eldrazi, modal spells, and other unique card effects.
+ * Includes equipment, modal spells, and other unique card effects.
  */
 
 // Re-export from the legacy module for backwards compatibility
@@ -10,9 +10,6 @@ export {
   // Equipment and auras
   detectEquipmentEffect,
   detectUmbraEffect,
-  
-  // Eldrazi effects
-  detectEldraziEffect,
   
   // Control change
   detectControlChangeEffect,

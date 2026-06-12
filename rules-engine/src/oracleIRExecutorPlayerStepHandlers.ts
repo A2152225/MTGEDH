@@ -48,6 +48,7 @@ import {
 } from './oracleIRExecutorResolveQuantity';
 import type { OracleClauseCondition } from './oracleIR';
 import { collectForEachReferenceBattlefieldPermanentIds } from './oracleIRExecutorForEachQuantity';
+import { evaluateOracleStepUnlessCondition } from './oracleIRExecutorConditionalStepSupport';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -2777,6 +2778,18 @@ export function applyPayManaStep(
     };
   }
 
+  if (step.optional && ctx?.interactivePlayerChoices) {
+    return {
+      applied: false,
+      message: `Deferred optional mana payment (requires player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: { manaCost: step.mana },
+      },
+    };
+  }
+
   let nextState = state;
   const log: string[] = [];
   for (const playerId of players) {
@@ -4446,6 +4459,27 @@ export function applyDiscardStep(
   step: Extract<OracleEffectStep, { kind: 'discard' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
+  const unlessCondition = step.unlessCondition;
+  if (unlessCondition) {
+    const unlessResult = evaluateOracleStepUnlessCondition(unlessCondition, state, ctx);
+    if (unlessResult === true) {
+      return {
+        applied: true,
+        state,
+        log: [`Skipped discard (${unlessCondition.raw}): ${step.raw}`],
+        lastDiscardedCardCount: 0,
+        lastDiscardedCards: [],
+      };
+    }
+    if (unlessResult === null) {
+      return {
+        applied: false,
+        message: `Skipped discard (unsupported unless condition): ${step.raw}`,
+        reason: 'unsupported_condition_clause',
+      };
+    }
+  }
+
   if ((step.amount as any)?.kind === 'any_number') {
     const players = resolvePlayers(state, step.who, ctx);
     if (players.length === 0) {
