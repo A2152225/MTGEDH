@@ -154,7 +154,16 @@ export function createModifyPtWhereEvaluatorContext(
   const resolveLastSacrificedSnapshot = (
     requiredClass: ModifyPtWhereSnapshotClass
   ): LastKnownPermanentSnapshot | null => {
-    const snapshots = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
+    const seenIds = new Set<string>();
+    const snapshots = [
+      ...(Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : []),
+      ...(Array.isArray((ctx as any)?.lastSacrificedPermanents) ? (ctx as any).lastSacrificedPermanents : []),
+    ].filter((snapshot) => {
+      const id = String((snapshot as any)?.id || '').trim();
+      if (!id || seenIds.has(id)) return false;
+      seenIds.add(id);
+      return true;
+    });
     if (snapshots.length === 0) return null;
 
     const matches = (snapshot: LastKnownPermanentSnapshot): boolean => {
@@ -169,7 +178,8 @@ export function createModifyPtWhereEvaluatorContext(
     }
 
     const candidates = snapshots.filter(matches);
-    return candidates.length === 1 ? candidates[0] : null;
+    if (candidates.length === 0) return null;
+    return candidates[0] ?? null;
   };
 
   const getCounterCountOnObject = (obj: any, counterNameRaw: string): number | null =>

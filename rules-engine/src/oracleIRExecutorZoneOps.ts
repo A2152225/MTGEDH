@@ -2942,6 +2942,7 @@ export type AmongThemMoveCriteria = MoveZoneSingleTargetCriteria & {
   readonly maxCount?: number;
   readonly totalManaValueLte?: number;
   readonly totalManaValueLteReferenceSacrificedArtifact?: boolean;
+  readonly manaValueLteReferenceSacrificedCreaturePlus?: number;
   readonly differentPowers?: boolean;
   readonly bfHandSplit?: boolean;
   readonly bfLibraryBottomSplit?: boolean;
@@ -3428,6 +3429,29 @@ export function parseMoveZoneTypedCardFromAmongThem(
 
   if (/^(?:a|an)\s+card\s+from\s+among\s+them$/i.test(cleaned)) {
     return { cardType: 'any' };
+  }
+
+  const constrainedThoseCardsMatch = cleaned.match(
+    /^(?:a|an)\s+(.+?)\s+card(?:\s+with\s+mana\s+value\s+([x\d]+)(?:\s+or\s+less)?)?\s+from\s+among\s+those\s+cards$/i
+  );
+  if (constrainedThoseCardsMatch) {
+    const typeText = String(constrainedThoseCardsMatch[1] || '').trim();
+    const parsed =
+      parseAmongThemTypeConstraints(typeText) ||
+      (parseSimpleCardTypeFromText(typeText) ? { cardType: parseSimpleCardTypeFromText(typeText)! } : null);
+    if (!parsed) return null;
+    const mvToken = String(constrainedThoseCardsMatch[2] || '').trim().toLowerCase();
+    if (mvToken === 'x') {
+      return { ...parsed, manaValueLte: -1, manaValueLteReferenceSacrificedCreaturePlus: 1 };
+    }
+    const first = Number.parseInt(mvToken, 10);
+    if (Number.isFinite(first) && /\bor\s+less\b/i.test(cleaned)) {
+      return { ...parsed, manaValueLte: first };
+    }
+    if (Number.isFinite(first)) {
+      return { ...parsed, manaValueAnyOf: [first] };
+    }
+    return parsed;
   }
 
   const constrainedMatch = cleaned.match(
@@ -6158,18 +6182,28 @@ export function parseMoveZoneTheCardFromYourGraveyard(what: {
 }): boolean {
   if (what.kind !== 'raw') return false;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
-  return raw === 'the card from your graveyard';
+  return raw === 'the card from your graveyard' || raw === 'the chosen card from your graveyard';
 }
 
 export function parseMoveZoneUpToXLandsFromHandAndOrGraveyard(what: {
   readonly kind: string;
   readonly text?: string;
   readonly raw?: string;
-}): { readonly cardType: 'land'; readonly useXValue: true } | null {
+}):
+  | {
+      readonly cardType: 'land';
+      readonly useXValue: true;
+      readonly fromHandOnly?: boolean;
+      readonly xReferenceSacrificedCreaturePower?: boolean;
+    }
+  | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
   if (raw === 'up to x land cards from your hand and/or graveyard') {
     return { cardType: 'land', useXValue: true };
+  }
+  if (raw === 'up to x land cards from your hand') {
+    return { cardType: 'land', useXValue: true, fromHandOnly: true, xReferenceSacrificedCreaturePower: true };
   }
   return null;
 }
@@ -7471,11 +7505,8 @@ export function parseMoveZoneMechtitanReturnExiledExceptSelf(what: {
 }): boolean {
   if (what.kind !== 'raw') return false;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
-  if (raw === 'all cards exiled with this vehicle except this card') return true;
-  return (
-    raw ===
-    "all cards exiled with this vehicle except this card to the battlefield tapped under their owners' control"
-  );
+  if (/^all cards exiled with this vehicle except this card(?:\s+to\b.*)?$/i.test(raw)) return true;
+  return false;
 }
 
 export function parseMoveZoneOneOfThemFromYourGraveyard(what: {
@@ -7495,7 +7526,10 @@ export function parseMoveZoneExileItFromTheirGraveyardWithStash(what: {
 }): boolean {
   if (what.kind !== 'raw') return false;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
-  return raw === 'it from their graveyard with a stash counter on it';
+  return (
+    raw === 'it from their graveyard with a stash counter on it' ||
+    raw === "it from target opponent's graveyard with a stash counter on it"
+  );
 }
 
 export function parseMoveZoneOneOfThoseCardsWithThatNameToHand(what: {

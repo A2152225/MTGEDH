@@ -9,6 +9,110 @@ Refreshed from `tools/oracle-ir-gap-audit.ts` against `oracle-cards.json` and `A
 - Gap records: 0
 - Report artifact: `tools/oracle-ir-gap-audit.json`
 
+## Completed In This Pass (batch 272)
+
+1. **Audit enrichment:** `someOracleSteps` for nested conditional steps; each-player sacrifice fixtures for all table seats; sacrificed-permanent snapshots (typeLine/manaValue); copy-it/that-creature references; each-other-opponent attacking copies; delayed `those tokens` sacrifice; die-roll where-X state; optional nonland sacrifice binding for Shadow-style chains.
+2. **Executor:** each-player sacrifice picks one creature per player (non-source fallback); deduped `lastSacrificedPermanents` for where-X and lose_life amounts; `lastCreatedTokenIds` seeded from audit ctx.
+3. **Tests:** `oracleIRGapBatch237.test.ts` (6).
+
+Validation:
+
+1. `npx vitest run test/oracleIRGapBatch237.test.ts test/oracleIRGapBatch236.test.ts test/oracleIRGapBatch235.test.ts` (rules-engine) — **27/27**
+2. `npm run test:oracle-ir-migration` — **648/648**
+3. `npx tsx scripts/executor-general-gap-analysis.ts` — **11 → 9** clusters (cleared Shadow lose_life, Tip the Scales where-X, bulk each-player sacrifice, Velukan die-roll)
+
+Remaining general gaps (9): Ochre Jelly delayed copy-it; Arna/Stangg/Faerie/Dreadfeast/Shredder create_token copy chains; Social Snub copy_spell+sacrifice; Gluttonous Hellkite X sacrifices; Strength-Testing Hammer die result where-X.
+
+## Completed In This Pass (batch 271)
+
+1. **Audit enrichment:** distribute among target elves; skip_next_untap `that land`; each-player sacrifice choice bindings; modify_pt where-X (devotion/red mana/oil/mutated/tapped opponent); sacrificed-permanent references; create_token copy fixture context.
+2. **Parser:** each-player sacrifice no longer platform-only; residual `create token that's a copy of` step.
+3. **Executor:** elf distribute bound-ID fallback; ctx `lastSacrificedPermanents` in where-X; copy `instead` suffix; tapped-opponent greatest-power where-X ordering.
+4. **Tests:** `oracleIRGapBatch236.test.ts` (10).
+
+Validation:
+
+1. `npx vitest run test/oracleIRGapBatch236.test.ts` (rules-engine)
+2. `npm run test:oracle-ir-migration` — **648/648**
+3. `npm run executor:coverage` with `EXECUTOR_COVERAGE_ONLY_GAPS=1` — parse→execute gaps **172 → 163**
+4. `npx tsx scripts/executor-general-gap-analysis.ts` — **17 → 10** clusters
+
+## Completed In This Pass (batch 270)
+
+1. **Linked-exile bulk move_zone (11 selector gaps):** early `tryApplyMoveZoneLinkedExileBulkStep` for `all cards exiled with it/this permanent`, Mechtitan except-self, chosen-card gy return, among-those-cards MV+X, up-to-X lands from hand (sacrificed power), stash exile from opponent gy.
+2. **Condition clauses (3 remaining):** Katara `her additional cost was paid` (waterbend/optional cost); Oblivious Bookworm face-down ETB / turned face-up; Doom Foretold `that player can't` sacrifice.
+3. **Tests:** `oracleIRGapBatch235.test.ts` (11 execution).
+
+Validation:
+
+1. `npx vitest run test/oracleIRGapBatch235.test.ts` (rules-engine)
+2. `npm run test:oracle-ir-migration` — **648/648**
+3. `npx tsx scripts/executor-selector-gap-analysis.ts` — **11 → 0** `unsupported_selector` items
+4. `npx tsx scripts/executor-condition-gap-analysis.ts` — **3 → 0** `unsupported_condition_clause` items
+
+Probe notes: executor selector + condition dry-run gaps cleared. Next batch: re-run `npm run executor:coverage` with `EXECUTOR_COVERAGE_ONLY_GAPS=1` for next top cluster.
+
+## Completed In This Pass (batch 269)
+
+1. **Scaled unless-pay:** `not (you pay {1} for each card in your hand/+1/+1 counter on it/other creature you control)` via `resolveUnlessPayScalerMultiplier`; main loop queues `player_choice_required` instead of unsupported.
+2. **Library-search antecedent:** `you search your library this way` defaults false when search skipped; `searchedLibraryThisWay: false` on failed search.
+3. **State/count conditions:** `a graveyard has twenty or more cards in it`; `this creature entered this turn`; `it entered from your library or was cast from your library`.
+4. **Discard unless:** `they/you discard a nonland/pirate/artifact card`; `you control another creature with power 2 or less`.
+5. **Tests:** `oracleIRGapBatch234.test.ts` (11 execution), routing (+4 patterns).
+
+## Completed In This Pass (batch 268)
+
+1. **X counter amounts:** `resolveAddCounterAmount` delegates to `resolveOracleQuantity` so `amount.kind === 'x'` uses `ctx.xValue` (fixes 11 add_counter probe cases).
+2. **Typed counter targets:** `target land you control` bound resolution; `enchanted permanent` / `that creature` / `this permanent` / `it` via existing attached/contextual paths once amount resolves.
+3. **Distribute counters:** `target elves` subtype filter; `other target creatures you control` early path via `resolveCreatureTargetIds`; `it and any number of commanders` compound targets.
+4. **Antecedent counters:** `each of those permanents` uses `lastAntecedentBattlefieldPermanentIds`.
+5. **Power-scaled counters:** `object_stat` amounts (e.g. this permanent's power → another target creature) via `resolveOracleQuantity`.
+6. **Mass PT (already wired):** `creatures you control with power 4 or greater`; `each creature you control with a counter on it` — confirmed execution paths in `resolveCreatureTargetIds`.
+7. **Aura self-pump:** `this creature`/`it` on aura source resolves to enchanted creature when host is a creature.
+8. **Tests:** `oracleIRGapBatch233.test.ts` (12 execution), routing (+8 patterns).
+
+Validation:
+
+1. `npx vitest run test/oracleIRGapBatch233.test.ts test/oracleIRGapBatch232.test.ts` (rules-engine)
+2. `npx vitest run tests/oracle-ir-trigger-legacy-routing.test.ts`
+3. `npm run test:oracle-ir-migration` — **648/648**
+
+Probe notes: all 11 batch-268 add_counter probes apply; remaining modify_pt probe failures are sparse-fixture no-ops (no qualifying creatures / aura on land). Next batch: `unsupported_condition_clause` cluster or player-choice multi-target mass PT.
+
+## Completed In This Pass (batch 267)
+
+1. **Combat blocking mass PT:** `each creature blocking it/this creature` and `blocking creatures` resolve via `combat.blockers` + `blockedBy`; bare parser covers `this creature` variant.
+2. **Antecedent mass PT:** `each of them` uses `lastAntecedentBattlefieldPermanentIds`; bare scaled + compound PT+keyword (`+X/+X and gains vigilance`).
+3. **Global mass PT:** `nonartifact creatures` parser + executor target resolution.
+4. **Where-X / scalers:** `x is the number of attacking creatures you control`; mutate count reads `mutationCount`/`mutateCount`; `per_goblin_you_control` scaler.
+5. **Counter targets:** `him`/`her` pronouns; source card name as self target (e.g. Nev); `other target creatures you control` distribute resolution.
+6. **Tests:** `oracleIRGapBatch232.test.ts` (8 execution), bare parse (+1), fallback (+3), routing wiring (+7 patterns).
+
+Validation:
+
+1. `npx vitest run test/oracleIRGapBatch232.test.ts test/oracleIRTriggerPtBareParse.test.ts` (rules-engine)
+2. `npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts`
+3. `npm run test:oracle-ir-migration` — **648/648**
+
+Probe notes: executor gaps down to 222 parse→execute (from 225). Next batch: add_counter typed targets (`enchanted permanent`, `that creature`), conditional upkeep compounds, or player-choice Sigardian-style multi-target.
+
+## Completed In This Pass (batch 266)
+
+1. **Tap-antecedent scaler:** `per_creature_tapped_this_way` reads `lastTappedMatchingPermanentCount` from preceding `tap_or_untap`; main loop propagates tap count across compound steps.
+2. **Mass tap resolution:** `any number of untapped creatures you control` uses `chosenObjectIds`; mass tap bypasses single `targetPermanentId` shortcut.
+3. **Server fallback ordering:** `preserveTapScalerOrder` runs optional tap + scaled self pump in one `applyOracleIRStepsOnServer` call (`hasTapAntecedentScalerDependency`).
+4. **This-creature target fix:** `resolveSingleCreatureTargetId` no longer maps `this creature` / `it` to trigger `targetPermanentId` (Siege Striker pump lands on source).
+5. **Die-roll where-X:** `x is the result minus N` for roll-die self pumps (Velukan Dragon pattern).
+6. **Tests:** tap-any-number → per-tapped self pump (parse + fallback + routing); roll-die result-minus-one self +X/+0.
+
+Validation:
+
+1. `npx vitest run test/oracleIRTriggerPtBareParse.test.ts` (rules-engine) — **47/47**
+2. `npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts` — **79/79**
+3. `npm run test:oracle-ir-migration` — **645/645**
+
+Probe notes: remaining `modify_pt` gaps include player-choice multi-target (Sigardian Zealot) and sparse X=0 fixtures. Next batch: Sigardian Zealot player-choice mass PT or conditional/upkeep compounds.
+
 ## Completed In This Pass (batch 265)
 
 1. **Executor import fix:** `resolveSingleCreatureTargetId` import restored in `oracleIRExecutorPlayerStepHandlers.ts` (unblocks `executor:coverage` / connive dry-run).

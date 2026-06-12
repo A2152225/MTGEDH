@@ -90,8 +90,11 @@ export function resolveTapOrUntapTargetIds(
   if (!text) return [];
 
   const isAnotherTarget = /^(?:another|other)\s+target\b/.test(text);
+  const isMassTapSelector =
+    /^any number of\b/i.test(text) ||
+    /^up to (?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i.test(text);
 
-  if (!isAnotherTarget) {
+  if (!isAnotherTarget && !isMassTapSelector) {
     const explicitPermanentId = String(ctx.targetPermanentId || '').trim();
     if (explicitPermanentId) {
       const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitPermanentId);
@@ -108,7 +111,7 @@ export function resolveTapOrUntapTargetIds(
   const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
     ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
     : [];
-  if (chosenObjectIds.length > 0 && /\btarget\b/.test(text)) {
+  if (chosenObjectIds.length > 0 && (/\btarget\b/.test(text) || isMassTapSelector)) {
     const requiredType = parseSimplePermanentTypeFromText(text);
     const chosenMatches = battlefield.filter((perm: any) => {
       const permanentId = String((perm as any)?.id || '').trim();
@@ -162,6 +165,30 @@ export function resolveTapOrUntapTargetIds(
   );
   if (upToMassTargetIds.length > 0) {
     return upToMassTargetIds;
+  }
+
+  const anyNumberUntappedMatch = text.match(/^any number of untapped (.+?)(?:\s+you control)?$/i);
+  if (anyNumberUntappedMatch) {
+    const typePhrase = String(anyNumberUntappedMatch[1] || '').trim();
+    const requiredType = parseSimplePermanentTypeFromText(typePhrase) || 'creature';
+    const controllerId = String(ctx.controllerId || '').trim();
+    const candidates = battlefield.filter((perm: any) => {
+      const permanentId = String(perm?.id || '').trim();
+      if (!permanentId) return false;
+      if (String(perm?.controller || '').trim() !== controllerId) return false;
+      if (Boolean(perm?.tapped) || Boolean(perm?.isTapped)) return false;
+      return permanentMatchesTapTargetType(perm, requiredType);
+    });
+    if (chosenObjectIds.length > 0) {
+      const chosenSet = new Set(chosenObjectIds);
+      return candidates
+        .filter((perm: any) => chosenSet.has(String(perm?.id || '').trim()))
+        .map((perm: any) => String(perm?.id || '').trim())
+        .filter(Boolean);
+    }
+    return candidates
+      .map((perm: any) => String(perm?.id || '').trim())
+      .filter(Boolean);
   }
 
   return [];

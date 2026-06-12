@@ -2352,6 +2352,134 @@ describe('oracle IR trigger fallback — modify_pt exert rewards', () => {
       expect.objectContaining({ power: 3, toughness: 3, expiresAt: 'end_of_turn' }),
     ]);
   });
+
+  it('applies blocking-creature debuff and each-of-them antecedent pump via uncategorized IR fallback', () => {
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const game = createInitialGameState('batch267_blocking_each_fallback');
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+    (game.state as any).battlefield = [
+      { id: 'attacker', controller: p1, attacking: true, power: 4, toughness: 4, card: { name: 'Attacker', type_line: 'Creature' } },
+      { id: 'ally', controller: p1, card: { name: 'Ally', type_line: 'Creature' } },
+      { id: 'blocker', controller: p2, card: { name: 'Blocker', type_line: 'Creature' } },
+    ];
+    (game.state as any).combat = {
+      attackers: [{ permanentId: 'attacker' }],
+      blockers: [{ permanentId: 'blocker', blocking: ['attacker'] }],
+    };
+
+    const ctx = game as any;
+    ctx.gameId = 'batch267_blocking_each_fallback';
+
+    const blockingApplied = applyOracleIRFallbackForTriggeredEffect(
+      ctx,
+      p1,
+      'Attacker',
+      'each creature blocking this creature gets -0/-1 until end of turn.',
+      { source: 'attacker', permanentId: 'attacker' },
+    );
+    expect(blockingApplied).toBeGreaterThan(0);
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'blocker').temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 0, toughness: -1, expiresAt: 'end_of_turn' }),
+    ]);
+
+    const eachApplied = applyOracleIRFallbackForTriggeredEffect(
+      ctx,
+      p1,
+      'Leader',
+      'each of them gets +x/+x until end of turn, where x is this creature\'s power.',
+      {
+        source: 'attacker',
+        permanentId: 'attacker',
+        lastAntecedentBattlefieldPermanentIds: ['ally'],
+      },
+    );
+    expect(eachApplied).toBeGreaterThan(0);
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'ally').temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 4, toughness: 4, expiresAt: 'end_of_turn' }),
+    ]);
+  });
+
+  it('applies nonartifact global debuff via uncategorized IR fallback', () => {
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const game = createInitialGameState('batch267_nonartifact_fallback');
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+    (game.state as any).battlefield = [
+      { id: 'ally', controller: p1, card: { name: 'Ally', type_line: 'Creature' } },
+      { id: 'art', controller: p2, card: { name: 'Construct', type_line: 'Artifact Creature — Construct' } },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = 'batch267_nonartifact_fallback';
+
+    const debuffApplied = applyOracleIRFallbackForTriggeredEffect(
+      ctx,
+      p1,
+      'Source',
+      'nonartifact creatures get -2/-2 until end of turn.',
+      { source: 'ally', permanentId: 'ally' },
+    );
+    expect(debuffApplied).toBeGreaterThan(0);
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'ally').temporaryPTMods).toEqual([
+      expect.objectContaining({ power: -2, toughness: -2, expiresAt: 'end_of_turn' }),
+    ]);
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'art').temporaryPTMods).toBeUndefined();
+  });
+
+  it('applies goblin-scaled team pump via uncategorized IR fallback', () => {
+    const p1 = 'p1' as PlayerID;
+    const game = createInitialGameState('batch267_goblin_fallback');
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    (game.state as any).battlefield = [
+      { id: 'ally', controller: p1, card: { name: 'Ally', type_line: 'Creature' } },
+      { id: 'gob', controller: p1, card: { name: 'Gob', type_line: 'Creature — Goblin' } },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = 'batch267_goblin_fallback';
+
+    const goblinApplied = applyOracleIRFallbackForTriggeredEffect(
+      ctx,
+      p1,
+      'Warboss',
+      'each creature you control gets +1/+1 until end of turn for each goblin you control.',
+      { source: 'ally', permanentId: 'ally' },
+    );
+    expect(goblinApplied).toBeGreaterThan(0);
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'gob').temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 1, toughness: 1, expiresAt: 'end_of_turn' }),
+    ]);
+  });
+
+  it('applies tap-any-number then per-tapped self pump via uncategorized IR fallback', () => {
+    const p1 = 'p1' as PlayerID;
+    const game = createInitialGameState('batch266_tap_pump_fallback');
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    (game.state as any).battlefield = [
+      { id: 'striker', controller: p1, card: { name: 'Siege Striker', type_line: 'Creature' } },
+      { id: 'ally-a', controller: p1, card: { name: 'Ally A', type_line: 'Creature' } },
+      { id: 'ally-b', controller: p1, card: { name: 'Ally B', type_line: 'Creature' } },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = 'batch266_tap_pump_fallback';
+
+    const applied = applyOracleIRFallbackForTriggeredEffect(
+      ctx,
+      p1,
+      'Siege Striker',
+      'you may tap any number of untapped creatures you control. this creature gets +1/+1 until end of turn for each creature tapped this way.',
+      { source: 'striker', permanentId: 'striker', targets: ['ally-a', 'ally-b'] },
+    );
+    expect(applied).toBeGreaterThan(0);
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'striker').temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 2, toughness: 2, expiresAt: 'end_of_turn' }),
+    ]);
+    expect((game.state as any).battlefield.filter((entry: any) => entry.tapped).length).toBe(2);
+  });
 });
 
 describe('oracle IR trigger fallback — temporary ability grants', () => {

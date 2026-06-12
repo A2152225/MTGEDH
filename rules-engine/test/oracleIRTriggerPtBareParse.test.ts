@@ -1510,4 +1510,120 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     const giant = bessResult.state.battlefield?.find((entry) => entry.id === 'giant') as any;
     expect(giant?.modifiers?.some((entry: any) => entry?.type === 'powerToughness')).toBeFalsy();
   });
+
+  it('executes tap-any-number then per-creature-tapped-this-way self pump', () => {
+    const steps = [
+      {
+        kind: 'tap_or_untap',
+        target: { kind: 'raw', text: 'any number of untapped creatures you control' },
+        mode: 'tap',
+        optional: true,
+        raw: 'you may tap any number of untapped creatures you control',
+      },
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'this creature' },
+        power: 1,
+        toughness: 1,
+        duration: 'end_of_turn',
+        scaler: { kind: 'per_creature_tapped_this_way' },
+        raw: 'this creature gets +1/+1 until end of turn for each creature tapped this way',
+      },
+    ] as any[];
+    const state = {
+      turnNumber: 1,
+      players: [{ id: 'p1' as PlayerID }],
+      battlefield: [
+        { id: 'striker', controller: 'p1' as PlayerID, card: { type_line: 'Creature' } },
+        { id: 'ally-a', controller: 'p1' as PlayerID, card: { type_line: 'Creature' } },
+        { id: 'ally-b', controller: 'p1' as PlayerID, card: { type_line: 'Creature' } },
+      ],
+    } as GameState;
+    const result = applyOracleIRStepsToGameState(
+      state,
+      steps,
+      buildOracleIRExecutionContext({
+        controllerId: 'p1' as PlayerID,
+        sourceId: 'striker',
+        selectorContext: { chosenObjectIds: ['ally-a', 'ally-b'] },
+      }),
+      { allowOptional: true },
+    );
+    expect(result.appliedSteps?.map((step) => step.kind)).toEqual(['tap_or_untap', 'modify_pt']);
+    const striker = result.state.battlefield?.find((entry) => entry.id === 'striker') as any;
+    expect(striker?.modifiers?.some((entry: any) =>
+      entry?.type === 'powerToughness' && entry?.power === 2 && entry?.toughness === 2,
+    )).toBe(true);
+    expect(result.state.battlefield?.filter((entry: any) => entry.tapped).length).toBe(2);
+  });
+
+  it('parses batch 267 combat mass and antecedent bare fragments', () => {
+    expect(parseBareTriggerEffectFragmentSteps(
+      'each creature blocking this creature gets -0/-1 until end of turn.',
+    )?.[0]).toMatchObject({
+      kind: 'modify_pt',
+      target: { kind: 'raw', text: 'each creature blocking this creature' },
+    });
+    expect(parseBareTriggerEffectFragmentSteps(
+      'blocking creatures get -1/-1 until end of turn.',
+    )?.[0]).toMatchObject({ kind: 'modify_pt', power: -1, toughness: -1 });
+    expect(parseBareTriggerEffectFragmentSteps(
+      'nonartifact creatures get -2/-2 until end of turn.',
+    )?.[0]).toMatchObject({ kind: 'modify_pt', power: -2, toughness: -2 });
+    expect(parseBareTriggerEffectFragmentSteps(
+      'each of them gets +x/+x until end of turn, where x is this creature\'s power.',
+    )?.[0]).toMatchObject({ kind: 'modify_pt', powerUsesX: true, target: { kind: 'raw', text: 'each of them' } });
+    expect(parseBareTriggerEffectFragmentSteps(
+      'each creature you control gets +1/+1 until end of turn for each goblin you control.',
+    )?.[0]).toMatchObject({
+      kind: 'modify_pt',
+      scaler: { kind: 'per_goblin_you_control' },
+    });
+    expect(parseBareTriggerEffectFragmentSteps(
+      'this creature gets +x/+0 until end of turn, where x is the number of attacking creatures you control.',
+    )?.[0]).toMatchObject({ kind: 'modify_pt', powerUsesX: true, toughness: 0 });
+  });
+
+  it('executes roll-die then result-minus-one self +X/+0 pump', () => {
+    const steps = [
+      {
+        kind: 'roll_die',
+        who: { kind: 'you' },
+        sides: 6,
+        count: 1,
+        raw: 'roll a six-sided die',
+      },
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'this creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'x is the result minus 1' },
+        raw: 'this creature gets +x/+0 until end of turn, where x is the result minus 1',
+      },
+    ] as any[];
+    const state = {
+      turnNumber: 1,
+      players: [{ id: 'p1' as PlayerID }],
+      battlefield: [
+        { id: 'dragon', controller: 'p1' as PlayerID, card: { type_line: 'Creature — Dragon' } },
+      ],
+    } as GameState;
+    const result = applyOracleIRStepsToGameState(
+      state,
+      steps,
+      buildOracleIRExecutionContext({
+        controllerId: 'p1' as PlayerID,
+        sourceId: 'dragon',
+        dieRollResult: 4,
+      }),
+    );
+    expect(result.appliedSteps?.map((step) => step.kind)).toEqual(['roll_die', 'modify_pt']);
+    const dragon = result.state.battlefield?.find((entry) => entry.id === 'dragon') as any;
+    expect(dragon?.modifiers?.some((entry: any) =>
+      entry?.type === 'powerToughness' && entry?.power === 3 && entry?.toughness === 0,
+    )).toBe(true);
+  });
 });

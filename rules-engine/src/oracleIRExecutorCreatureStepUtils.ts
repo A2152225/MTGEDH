@@ -48,6 +48,76 @@ function isAttackingPermanent(permanent: BattlefieldPermanent | any): boolean {
   return Boolean((permanent as any)?.attacking || (permanent as any)?.defendingPlayerId || (permanent as any)?.attackingPlayerId);
 }
 
+function resolveBlockersOfPermanent(state: GameState, blockedPermanentId: string): string[] {
+  const blockedId = String(blockedPermanentId || '').trim();
+  if (!blockedId) return [];
+
+  const battlefield = getProcessedBattlefield(state);
+  const blockerIds = new Set<string>();
+
+  const blockedPermanent = battlefield.find(
+    (permanent) => String((permanent as any)?.id || '').trim() === blockedId,
+  ) as any;
+  const blockedBy = Array.isArray(blockedPermanent?.blockedBy) ? blockedPermanent.blockedBy : [];
+  for (const entry of blockedBy) {
+    const blockerId = String((entry as any)?.blockerId || entry || '').trim();
+    if (blockerId) blockerIds.add(blockerId);
+  }
+
+  const combat: any = (state as any).combat || {};
+  if (Array.isArray(combat.attackers)) {
+    const attackerEntry = combat.attackers.find(
+      (entry: any) => String(entry?.permanentId || entry?.id || '').trim() === blockedId,
+    );
+    if (attackerEntry && Array.isArray(attackerEntry.blockedBy)) {
+      for (const blockerId of attackerEntry.blockedBy) {
+        const normalized = String(blockerId || '').trim();
+        if (normalized) blockerIds.add(normalized);
+      }
+    }
+  }
+  if (Array.isArray(combat.blockers)) {
+    for (const entry of combat.blockers) {
+      const blocking = Array.isArray(entry?.blocking) ? entry.blocking : [];
+      if (!blocking.some((id: unknown) => String(id || '').trim() === blockedId)) continue;
+      const blockerId = String(entry?.permanentId || entry?.id || '').trim();
+      if (blockerId) blockerIds.add(blockerId);
+    }
+  }
+
+  return [...blockerIds].filter((blockerId) =>
+    battlefield.some((permanent) => String((permanent as any)?.id || '').trim() === blockerId),
+  );
+}
+
+function resolveBlockingCreatureIds(state: GameState): string[] {
+  const battlefield = getProcessedBattlefield(state);
+  const blockerIds = new Set<string>();
+
+  for (const permanent of battlefield) {
+    const permanentId = String((permanent as any)?.id || '').trim();
+    if (!permanentId) continue;
+    const blocking = (permanent as any)?.blocking;
+    if (Array.isArray(blocking) && blocking.length > 0) {
+      blockerIds.add(permanentId);
+      continue;
+    }
+    if (typeof blocking === 'string' && blocking.trim()) {
+      blockerIds.add(permanentId);
+    }
+  }
+
+  const combat: any = (state as any).combat || {};
+  if (Array.isArray(combat.blockers)) {
+    for (const entry of combat.blockers) {
+      const blockerId = String(entry?.permanentId || entry?.id || '').trim();
+      if (blockerId) blockerIds.add(blockerId);
+    }
+  }
+
+  return [...blockerIds].filter(Boolean);
+}
+
 function isUnblockedAttackingPermanent(permanent: BattlefieldPermanent | any): boolean {
   if (!isAttackingPermanent(permanent)) return false;
   const blockedBy = (permanent as any)?.blockedBy;
@@ -340,10 +410,12 @@ export function resolveSingleCreatureTargetId(
     if (matched && isExecutorCreature(matched)) return directTargetCreatureId;
   }
 
-  const directTargetPermanentId = String(ctx.targetPermanentId || '').trim();
+  const directTargetPermanentId = String(
+    ctx.targetPermanentId || ctx.selectorContext?.targetPermanentId || '',
+  ).trim();
   if (
     directTargetPermanentId &&
-    /^(?:that|the|this) creature$|^(?:that|this) permanent$|^it$/.test(targetText)
+    /^(?:that|the) creature$|^that permanent$/.test(targetText)
   ) {
     const matched = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === directTargetPermanentId);
     if (matched && isExecutorCreature(matched)) {
@@ -383,10 +455,23 @@ export function resolveSingleCreatureTargetId(
 
   if (
     (targetText === 'this creature' || targetText === 'this permanent' || targetText === 'it') &&
-    sourceId &&
-    creatures.some(permanent => String((permanent as any)?.id || '').trim() === sourceId)
+    sourceId
   ) {
-    return sourceId;
+    if (creatures.some(permanent => String((permanent as any)?.id || '').trim() === sourceId)) {
+      return sourceId;
+    }
+    const sourcePermanent = battlefield.find(
+      (permanent) => String((permanent as any)?.id || '').trim() === sourceId,
+    ) as any;
+    const attachedToId = String(
+      sourcePermanent?.attachedTo || sourcePermanent?.enchanting || '',
+    ).trim();
+    if (
+      attachedToId &&
+      creatures.some((permanent) => String((permanent as any)?.id || '').trim() === attachedToId)
+    ) {
+      return attachedToId;
+    }
   }
 
   if (targetText === 'enchanted creature' && sourceId) {
@@ -413,6 +498,19 @@ export function resolveSingleCreatureTargetId(
     const triggerTargetId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
     if (creatures.some((permanent) => String((permanent as any)?.id || '').trim() === triggerTargetId)) {
       return triggerTargetId;
+    }
+  }
+
+  if ((targetText === 'that creature' || targetText === 'the creature') && sourceId) {
+    const sourcePermanent = battlefield.find(
+      (permanent) => String((permanent as any)?.id || '').trim() === sourceId,
+    ) as any;
+    const attachedToId = String(sourcePermanent?.attachedTo || sourcePermanent?.enchanting || '').trim();
+    if (
+      attachedToId &&
+      creatures.some((permanent) => String((permanent as any)?.id || '').trim() === attachedToId)
+    ) {
+      return attachedToId;
     }
   }
 
@@ -662,7 +760,7 @@ export function resolveCreatureTargetIds(
       .filter(Boolean);
   }
 
-  if (targetText === 'they' || targetText === 'them') {
+  if (targetText === 'each of them' || targetText === 'they' || targetText === 'them') {
     const antecedentIds = [
       ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds)
         ? ctx.lastAntecedentBattlefieldPermanentIds
@@ -702,16 +800,7 @@ export function resolveCreatureTargetIds(
     || targetText === 'each creature blocking this creature'
   ) {
     if (!sourceId) return [];
-    const sourcePermanent = battlefield.find(
-      (permanent) => String((permanent as any)?.id || '').trim() === sourceId,
-    ) as any;
-    const blockedBy = Array.isArray(sourcePermanent?.blockedBy) ? sourcePermanent.blockedBy : [];
-    const blockerIds = blockedBy
-      .map((entry: unknown) => String((entry as any)?.blockerId || entry || '').trim())
-      .filter(Boolean);
-    return blockerIds.filter((blockerId) =>
-      battlefield.some((permanent) => String((permanent as any)?.id || '').trim() === blockerId),
-    );
+    return resolveBlockersOfPermanent(state, sourceId);
   }
 
   if (targetText === 'creatures your opponents control' || targetText === 'all creatures your opponents control') {
@@ -744,12 +833,26 @@ export function resolveCreatureTargetIds(
   }
 
   if (targetText === 'blocking creatures') {
+    return resolveBlockingCreatureIds(state);
+  }
+
+  if (targetText === 'nonartifact creatures') {
     return battlefield
       .filter((permanent) =>
-        Array.isArray((permanent as any)?.blocking) && (permanent as any).blocking.length > 0,
+        isExecutorCreature(permanent)
+        && !/\bartifact\b/i.test(getExecutorTypeLineLower(permanent)),
       )
       .map((permanent) => String((permanent as any)?.id || '').trim())
       .filter(Boolean);
+  }
+
+  if (targetText === 'other target creatures you control') {
+    const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+      ? ctx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const chosenSet = new Set(chosenIds);
+    return controlledBy(controllerId)
+      .filter((permanentId) => permanentId !== sourceId && chosenSet.has(permanentId));
   }
 
   if (targetText === 'all creatures') {

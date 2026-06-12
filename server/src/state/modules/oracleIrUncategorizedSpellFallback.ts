@@ -39,6 +39,18 @@ function mandatoryStepsFrom(allSteps: readonly OracleEffectStep[]): OracleEffect
   return allSteps.filter((step) => step && step.kind !== 'unknown' && !isOptionalStep(step));
 }
 
+function hasTapAntecedentScalerDependency(steps: readonly OracleEffectStep[]): boolean {
+  const hasTapScaler = steps.some(
+    (step) =>
+      step.kind === 'modify_pt'
+      && (step as { scaler?: { kind?: string } }).scaler?.kind === 'per_creature_tapped_this_way',
+  );
+  if (!hasTapScaler) return false;
+  return steps.some(
+    (step) => step.kind === 'tap_or_untap' || step.kind === 'tap_matching_permanents',
+  );
+}
+
 function shouldIncludeUncategorizedSpellFallbackStep(step: OracleEffectStep): boolean {
   if (!step || step.kind === 'unknown') return false;
   if (ORACLE_IR_EFFECT_PROGRAM_STEP_KINDS.has(String(step.kind))) return false;
@@ -219,6 +231,7 @@ export function applyOracleIRUncategorizedSpellFallback(
 
     const optionalSteps = fallbackSteps.filter(isOptionalStep);
     const mandatorySteps = fallbackSteps.filter((step) => !isOptionalStep(step));
+    const preserveTapScalerOrder = hasTapAntecedentScalerDependency(fallbackSteps);
 
     let applied = 0;
 
@@ -251,31 +264,11 @@ export function applyOracleIRUncategorizedSpellFallback(
       allowOptional: false,
     };
 
-    if (mandatorySteps.length > 0) {
+    if (preserveTapScalerOrder) {
       const result = applyOracleIRStepsOnServer(
         ctx,
         (ctx as any).state,
-        mandatorySteps,
-        {
-          ...executionCtx,
-          controllerId: caster,
-          sourceName: spellName,
-          sourceId: sourcePermanentId || sourceId,
-        },
-        mandatoryExecutionOptions,
-        serverParams,
-      );
-      countHandled(result, queueBefore, mandatorySteps);
-    }
-
-    for (const step of optionalSteps) {
-      const queueStart = gameId !== 'unknown'
-        ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
-        : 0;
-      const result = applyOracleIRStepsOnServer(
-        ctx,
-        (ctx as any).state,
-        [step],
+        fallbackSteps,
         {
           ...executionCtx,
           controllerId: caster,
@@ -288,7 +281,47 @@ export function applyOracleIRUncategorizedSpellFallback(
         },
         serverParams,
       );
-      countHandled(result, queueStart, [step]);
+      countHandled(result, queueBefore, fallbackSteps);
+    } else {
+      if (mandatorySteps.length > 0) {
+        const result = applyOracleIRStepsOnServer(
+          ctx,
+          (ctx as any).state,
+          mandatorySteps,
+          {
+            ...executionCtx,
+            controllerId: caster,
+            sourceName: spellName,
+            sourceId: sourcePermanentId || sourceId,
+          },
+          mandatoryExecutionOptions,
+          serverParams,
+        );
+        countHandled(result, queueBefore, mandatorySteps);
+      }
+
+      for (const step of optionalSteps) {
+        const queueStart = gameId !== 'unknown'
+          ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
+          : 0;
+        const result = applyOracleIRStepsOnServer(
+          ctx,
+          (ctx as any).state,
+          [step],
+          {
+            ...executionCtx,
+            controllerId: caster,
+            sourceName: spellName,
+            sourceId: sourcePermanentId || sourceId,
+          },
+          {
+            ...baseExecutionOptions,
+            allowOptional: true,
+          },
+          serverParams,
+        );
+        countHandled(result, queueStart, [step]);
+      }
     }
 
     if (applied > 0) {

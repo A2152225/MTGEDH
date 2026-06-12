@@ -18,6 +18,7 @@ import {
   collectStepsFromIrText,
   enrichAuditStateAndContextForCopySteps,
   enrichAuditStateAndContextForTargets,
+  shouldDeclineOptionalStepsForAudit,
 } from './executor-coverage-audit.ts';
 import {
   getCombinedOracleText,
@@ -83,8 +84,10 @@ for (const card of cards) {
     state = targetEnriched.state;
     ctx = targetEnriched.ctx;
     const selectedModeIds = collectAutoSelectedModeIds(steps);
+    const declineOptional = shouldDeclineOptionalStepsForAudit(steps);
     const result = applyOracleIRStepsToGameState(state, steps, ctx, {
-      allowOptional: true,
+      allowOptional: declineOptional ? false : true,
+      ...(declineOptional ? { declineOptionalSteps: true } : {}),
       ...(selectedModeIds.length > 0 ? { selectedModeIds } : {}),
     });
 

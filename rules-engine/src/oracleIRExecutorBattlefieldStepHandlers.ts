@@ -42,7 +42,13 @@ import {
   resolveSingleCreatureTargetId,
 } from './oracleIRExecutorCreatureStepUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
-import { getCardManaValue, getCardTypeLineLower, quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import {
+  getCardManaValue,
+  getCardTypeLineLower,
+  normalizeOracleText,
+  quantityToNumber,
+  resolvePlayers,
+} from './oracleIRExecutorPlayerUtils';
 import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
 import { canTargetPermanent } from './permanentTargeting';
@@ -686,8 +692,10 @@ function parseSacrificeWhat(what: { readonly kind: string; readonly text?: strin
       readonly type: ReturnType<typeof parseSimplePermanentTypeFromText> extends infer T ? Exclude<T, null> : never;
       readonly types?: readonly (ReturnType<typeof parseSimplePermanentTypeFromText> extends infer T ? Exclude<T, null> : never)[];
       readonly subtype?: string;
+      readonly excludeSubtype?: string;
       readonly tokenOnly?: boolean;
       readonly excludeSource?: boolean;
+      readonly usesVariableCount?: boolean;
     }
   | SacrificeAttachmentReference
   | { readonly mode: 'created_with_source'; readonly plural?: boolean }
@@ -881,10 +889,56 @@ function parseSacrificeWhat(what: { readonly kind: string; readonly text?: strin
   const rest = String(mCount[2] || '').trim();
 
   const parsedCount = parseQuantity(countRaw);
-  if (parsedCount.kind === 'x') return { mode: 'choice_required' };
+  if (parsedCount.kind === 'x') {
+    const mixedTypes = parseMixedTypes(rest);
+    if (mixedTypes) {
+      return { mode: 'count', count: 0, type: mixedTypes[0], types: mixedTypes, usesVariableCount: true };
+    }
+    const type = parseSimplePermanentTypeFromText(rest);
+    if (type) return { mode: 'count', count: 0, type, usesVariableCount: true };
+    const tokenSubtypeMatch = rest.match(/^([a-z][a-z'-]*)\s+tokens?$/i);
+    if (tokenSubtypeMatch) {
+      return {
+        mode: 'count',
+        count: 0,
+        type: 'permanent',
+        subtype: normalizeSubtypeWord(String(tokenSubtypeMatch[1] || '')),
+        tokenOnly: true,
+        usesVariableCount: true,
+      };
+    }
+    return { mode: 'choice_required' };
+  }
   if (parsedCount.kind !== 'number') return null;
   const count = parsedCount.value;
   if (!Number.isFinite(count) || count <= 0) return null;
+
+  const nonSubtypeMatch = rest.match(/^non-([a-z][a-z'-]*)\s+(.+)$/i);
+  if (nonSubtypeMatch) {
+    const excludedSubtype = normalizeSubtypeWord(String(nonSubtypeMatch[1] || ''));
+    const typeRest = String(nonSubtypeMatch[2] || '').trim();
+    const mixedTypes = parseMixedTypes(typeRest);
+    if (mixedTypes) {
+      return {
+        mode: 'count',
+        count: Math.max(1, count | 0),
+        type: mixedTypes[0],
+        types: mixedTypes,
+        excludeSubtype: excludedSubtype,
+        excludeSource: true,
+      };
+    }
+    const type = parseSimplePermanentTypeFromText(typeRest);
+    if (type) {
+      return {
+        mode: 'count',
+        count: Math.max(1, count | 0),
+        type,
+        excludeSubtype: excludedSubtype,
+        excludeSource: true,
+      };
+    }
+  }
 
   const mixedTypes = parseMixedTypes(rest);
   if (mixedTypes) {
@@ -1486,10 +1540,64 @@ function resolveDistributeAmongTargetIds(
   const maxTargets = parseDistributeMaxTargets(targetText);
   const battlefield = ((state.battlefield || []) as BattlefieldPermanent[]);
   const controllerId = String(ctx.controllerId || '').trim();
+  const sourceId = String(ctx.sourceId || '').trim();
 
   const boundIds = collectBoundBattlefieldIds(ctx).filter((id) =>
     battlefield.some((perm: any) => String(perm?.id || '').trim() === id),
   );
+
+  if (/other target creatures you control/i.test(targetText)) {
+    return resolveCreatureTargetIds(state, normalizedTarget as any, ctx);
+  }
+
+  if (/it and any number of commanders/i.test(targetText)) {
+    const compoundIds: string[] = [];
+    if (sourceId && battlefield.some((perm: any) => String(perm?.id || '').trim() === sourceId)) {
+      compoundIds.push(sourceId);
+    }
+    for (const perm of battlefield) {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!permanentId || permanentId === sourceId) continue;
+      if (String((perm as any)?.controller || '').trim() !== controllerId) continue;
+      const isCommander =
+        Boolean((perm as any)?.isCommander) ||
+        /\bcommander\b/i.test(getExecutorTypeLineLower(perm));
+      if (isCommander) compoundIds.push(permanentId);
+    }
+    for (const boundId of boundIds) {
+      if (!compoundIds.includes(boundId)) {
+        const perm = battlefield.find((entry: any) => String(entry?.id || '').trim() === boundId);
+        if (
+          perm &&
+          (Boolean((perm as any)?.isCommander) ||
+            /\bcommander\b/i.test(getExecutorTypeLineLower(perm)))
+        ) {
+          compoundIds.push(boundId);
+        }
+      }
+    }
+    return Array.from(new Set(compoundIds));
+  }
+
+  if (/target elves/i.test(targetText)) {
+    const controlledElfIds = battlefield
+      .filter((perm: any) => String(perm?.controller || '').trim() === controllerId)
+      .filter((perm: any) => typeLineHasSubtype(perm, 'elf'))
+      .map((perm: any) => String(perm?.id || '').trim())
+      .filter(Boolean);
+    const elfPool = boundIds.length > 0 ? boundIds : controlledElfIds;
+    let elfIds = elfPool.filter((id) => {
+      const perm = battlefield.find((entry: any) => String(entry?.id || '').trim() === id);
+      return perm ? typeLineHasSubtype(perm, 'elf') : false;
+    });
+    if (elfIds.length === 0 && boundIds.length > 0) {
+      elfIds = controlledElfIds;
+    }
+    if (Number.isFinite(maxTargets) && (maxTargets as number) > 0) {
+      return Array.from(new Set(elfIds.slice(0, maxTargets as number)));
+    }
+    return Array.from(new Set(elfIds));
+  }
 
   let candidateIds = boundIds.filter((id) => {
     const perm = battlefield.find((entry: any) => String(entry?.id || '').trim() === id);
@@ -1854,7 +1962,7 @@ function parseContextualBattlefieldReference(
   const normalized = normalizeBattlefieldTargetReferenceText(raw);
 
   if (
-    /^(?:it|he|this creature|this artifact|this enchantment|this aura|this land|this planeswalker|this battle|this vehicle|this permanent|this token|this card|this saga)$/i.test(
+    /^(?:it|he|him|her|this creature|this artifact|this enchantment|this aura|this land|this planeswalker|this battle|this vehicle|this permanent|this token|this card|this saga)$/i.test(
       normalized
     )
   ) {
@@ -1980,6 +2088,22 @@ function resolveContextualBattlefieldPermanents(
 
   if (target.kind === 'raw') {
     const rawText = normalizeBattlefieldTargetReferenceText(String((target as any).text || ''));
+    const sourceId = String(ctx.sourceId || '').trim();
+    if (sourceId && rawText) {
+      const sourcePermanent = battlefield.find(
+        (perm: any) => String((perm as any)?.id || '').trim() === sourceId,
+      ) as any;
+      const sourceNames = [
+        String(sourcePermanent?.card?.name || '').trim(),
+        String(sourcePermanent?.name || '').trim(),
+        String(ctx.sourceName || '').trim(),
+      ]
+        .map((name) => normalizeOracleText(name).toLowerCase())
+        .filter(Boolean);
+      if (sourceNames.includes(normalizeOracleText(rawText).toLowerCase())) {
+        return sourcePermanent ? [sourcePermanent] : [];
+      }
+    }
     const directTargetMatch = rawText.match(
       /^(?:each of\s+)?(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?(?:(?:another|other)\s+)?target\s+(.+)$/i
     );
@@ -2769,6 +2893,27 @@ function resolveDirectBattlefieldPermanents(
       : target;
   const targetText = normalizedTarget.kind === 'raw' ? String((normalizedTarget as any).text || '') : '';
 
+  const typedYouControlMatch = targetText.match(
+    /^target (land|creature|artifact|enchantment|planeswalker|battle|vehicle) you control$/i,
+  );
+  if (typedYouControlMatch) {
+    const parsedType = String(typedYouControlMatch[1] || '').trim().toLowerCase();
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    const controllerId = String(ctx.controllerId || '').trim();
+    const fromBound = battlefield.filter((perm: any) => {
+      const permanentId = String(perm?.id || '').trim();
+      if (!boundIds.includes(permanentId)) return false;
+      if (controllerId && String(perm?.controller || '').trim() !== controllerId) return false;
+      return permanentMatchesType(perm, parsedType);
+    });
+    if (fromBound.length > 0) return fromBound.slice(0, 1);
+    const controlledMatches = battlefield.filter((perm: any) => {
+      if (controllerId && String(perm?.controller || '').trim() !== controllerId) return false;
+      return permanentMatchesType(perm, parsedType);
+    });
+    if (controlledMatches.length === 1) return controlledMatches;
+  }
+
   const attachedMatches = resolveAttachedReferenceTargets(battlefield, targetText, ctx);
   if (attachedMatches !== null) return attachedMatches;
 
@@ -3377,6 +3522,11 @@ function resolveAddCounterAmount(
     }
   }
 
+  if (controllerId && ctx) {
+    const resolvedQuantity = resolveOracleQuantity(state, controllerId, step.amount, ctx, { runtime });
+    if (resolvedQuantity !== null) return resolvedQuantity;
+  }
+
   const numericAmount = quantityToNumber(step.amount, ctx);
   if (numericAmount !== null) return numericAmount;
   if (step.amount.kind !== 'x') return null;
@@ -3597,6 +3747,12 @@ export function applyTapOrUntapStep(
     applied: true,
     state: applyTapOrUntapToBattlefield(state, targetIds, choice),
     log: [`${choice === 'tap' ? 'Tapped' : 'Untapped'} ${targetIds.length} permanent(s)`],
+    ...(choice === 'tap'
+      ? {
+          lastTappedMatchingPermanentCount: targetIds.length,
+          lastTappedMatchingPermanentIds: targetIds,
+        }
+      : {}),
   };
 }
 
@@ -8305,6 +8461,54 @@ export function applyAddCounterStep(
     };
   }
 
+  if (/^each of those permanents$/i.test(rawTargetText) || /^each of those permanents$/i.test(normalizedTargetText)) {
+    const antecedentIds = [
+      ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds)
+        ? ctx.lastAntecedentBattlefieldPermanentIds
+        : []),
+      ...(Array.isArray(ctx.selectorContext?.lastAntecedentBattlefieldPermanentIds)
+        ? ctx.selectorContext.lastAntecedentBattlefieldPermanentIds
+        : []),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    if (antecedentIds.length === 0) {
+      return { applied: true, state, log: ['No antecedent permanents for each-of-those counters'] };
+    }
+    const antecedentSet = new Set(antecedentIds);
+    const targets = ((state.battlefield || []) as BattlefieldPermanent[]).filter((perm: any) =>
+      antecedentSet.has(String(perm?.id || '').trim()),
+    );
+    if (targets.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped add counter (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    const counterAmount = resolveAddCounterAmount(state, step, ctx, runtime);
+    if (counterAmount === null || counterAmount <= 0) {
+      return {
+        applied: false,
+        message: `Skipped add counter (unsupported amount): ${step.raw}`,
+        reason: 'unsupported_target',
+      };
+    }
+    const antecedentCounterName = String(step.counter || '+1/+1').trim();
+    const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+      if (!antecedentSet.has(String(perm?.id || '').trim())) return perm;
+      const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+      counters[antecedentCounterName] = (Number(counters[antecedentCounterName] ?? 0) || 0) + counterAmount;
+      return { ...perm, counters };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: [`Added ${counterAmount} ${antecedentCounterName} counter(s) to ${targets.length} permanent(s)`],
+      lastAntecedentBattlefieldPermanentIds: antecedentIds,
+    };
+  }
+
   if (/^each of them$/i.test(rawTargetText) || /^each of them$/i.test(normalizedTargetText)) {
     const contextualCards = Array.isArray(runtime?.lastExiledCards) && runtime.lastExiledCards.length > 0
       ? runtime.lastExiledCards
@@ -9784,28 +9988,68 @@ export function applySacrificeStep(
 
   if (parsed?.mode === 'choice_required') {
     const chosenIds = collectBoundBattlefieldIds(ctx);
-    if (chosenIds.length === 0) {
-      return {
-        applied: false,
-        message: `Skipped sacrifice (requires player choice): ${step.raw}`,
-        reason: 'player_choice_required',
-        options: { classification: 'player_choice' },
-      };
-    }
+    const wantsCreature = /\bcreature\b/i.test(sacrificeWhatText);
+    const pickOneForPlayer = (playerId: string): BattlefieldPermanent | undefined => {
+      const sourceId = String(ctx.sourceId || '').trim();
+      const matchesPlayer = (perm: any) =>
+        String((perm as any)?.controller || '').trim() === playerId &&
+        (!wantsCreature || permanentMatchesType(perm, 'creature'));
 
-    const selected = battlefield.filter((perm: any) => {
-      const permanentId = String((perm as any)?.id || '').trim();
-      return chosenIds.includes(permanentId) && players.includes(String((perm as any)?.controller || '').trim());
-    });
-    if (selected.length === 0) {
-      return {
-        applied: false,
-        message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
-        reason: 'no_deterministic_target',
-      };
-    }
+      const boundMatches = battlefield.filter((perm: any) => {
+        const permanentId = String((perm as any)?.id || '').trim();
+        return chosenIds.length > 0
+          ? chosenIds.includes(permanentId) && matchesPlayer(perm)
+          : matchesPlayer(perm);
+      });
+      const preferNonSource = (matches: BattlefieldPermanent[]) =>
+        matches.find((perm: any) => String((perm as any)?.id || '').trim() !== sourceId) || matches[0];
 
-    toRemove.push(...selected);
+      if (boundMatches.length > 0) return preferNonSource(boundMatches);
+
+      const fallbackMatches = battlefield.filter((perm: any) => matchesPlayer(perm));
+      return preferNonSource(fallbackMatches);
+    };
+
+    if (String((step.who as any)?.kind || '') === 'each_player') {
+      const perPlayer = players
+        .map((playerId) => pickOneForPlayer(String(playerId || '').trim()))
+        .filter((perm): perm is BattlefieldPermanent => Boolean(perm));
+      if (perPlayer.length !== players.length) {
+        return {
+          applied: false,
+          message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
+          reason: 'no_deterministic_target',
+        };
+      }
+      toRemove.push(...perPlayer);
+    } else {
+      if (chosenIds.length === 0) {
+        return {
+          applied: false,
+          message: `Skipped sacrifice (requires player choice): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: { classification: 'player_choice' },
+        };
+      }
+
+      const selected = battlefield.filter((perm: any) => {
+        const permanentId = String((perm as any)?.id || '').trim();
+        return (
+          chosenIds.includes(permanentId) &&
+          players.includes(String((perm as any)?.controller || '').trim()) &&
+          (!wantsCreature || permanentMatchesType(perm, 'creature'))
+        );
+      });
+      if (selected.length === 0) {
+        return {
+          applied: false,
+          message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
+          reason: 'no_deterministic_target',
+        };
+      }
+
+      toRemove.push(...selected);
+    }
   }
 
   if (parsed?.mode === 'contextual') {
@@ -9865,12 +10109,27 @@ export function applySacrificeStep(
     parsed &&
     (parsed.mode === 'count' || parsed.mode === 'all')
   ) {
+    const effectiveCount = (() => {
+      if (!Boolean((parsed as any).usesVariableCount)) return parsed.count;
+      const xValue = Number((ctx as any).xValue);
+      return Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue)) : null;
+    })();
+    if (effectiveCount === null) {
+      return {
+        applied: false,
+        message: `Skipped sacrifice (requires player choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+
     for (const playerId of players) {
       const excludeSource = Boolean((parsed as any).excludeSource);
       const allowedTypes = Array.isArray((parsed as any).types) && (parsed as any).types.length > 0
         ? (parsed as any).types
         : [parsed.type];
       const subtype = String((parsed as any).subtype || '').trim().toLowerCase();
+      const excludeSubtype = String((parsed as any).excludeSubtype || '').trim().toLowerCase();
       const tokenOnly = Boolean((parsed as any).tokenOnly);
       const candidates = battlefield.filter(p => {
         if (p.controller !== playerId) return false;
@@ -9879,6 +10138,12 @@ export function applySacrificeStep(
         if (subtype) {
           const typeLineLower = getExecutorTypeLineLower(p);
           if (!new RegExp(`(^|[^a-z])${subtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:s)?($|[^a-z])`, 'i').test(typeLineLower)) {
+            return false;
+          }
+        }
+        if (excludeSubtype) {
+          const typeLineLower = getExecutorTypeLineLower(p);
+          if (new RegExp(`(^|[^a-z])${excludeSubtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:s)?($|[^a-z])`, 'i').test(typeLineLower)) {
             return false;
           }
         }
@@ -9891,21 +10156,29 @@ export function applySacrificeStep(
         continue;
       }
 
-      if (candidates.length > parsed.count) {
+      if (candidates.length < effectiveCount) {
+        return {
+          applied: false,
+          message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
+          reason: 'no_deterministic_target',
+        };
+      }
+
+      if (candidates.length > effectiveCount) {
         const chosenIds = collectBoundBattlefieldIds(ctx);
         if (chosenIds.length > 0) {
           const selected = candidates.filter((perm: any) =>
             chosenIds.includes(String((perm as any)?.id || '').trim())
           );
-          if (selected.length >= parsed.count) {
-            toRemove.push(...selected.slice(0, parsed.count));
+          if (selected.length >= effectiveCount) {
+            toRemove.push(...selected.slice(0, effectiveCount));
             continue;
           }
         }
         needsChoice = true;
         break;
       }
-      toRemove.push(...candidates);
+      toRemove.push(...candidates.slice(0, effectiveCount));
     }
   }
 

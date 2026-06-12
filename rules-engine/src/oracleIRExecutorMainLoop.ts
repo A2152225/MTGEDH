@@ -642,7 +642,9 @@ export function applyOracleIRStepsToGameStateImpl(
   let lastMovedBattlefieldPermanentIds: string[] = Array.isArray(ctx.lastMovedBattlefieldPermanentIds)
     ? [...ctx.lastMovedBattlefieldPermanentIds]
     : [];
-  let lastCreatedTokenIds: string[] = [];
+  let lastCreatedTokenIds: string[] = Array.isArray((ctx as any).lastCreatedTokenIds)
+    ? (ctx as any).lastCreatedTokenIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+    : [];
   let lastGoadedCreatures: BattlefieldPermanent[] = [];
   let lastSacrificedCreaturesPowerTotal = 0;
   let lastSacrificedPermanents: LastKnownPermanentSnapshot[] = Array.isArray((ctx as any).lastSacrificedPermanents)
@@ -1495,6 +1497,8 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applySearchLibraryStep(nextState, step, currentCtx);
         if (applyHandledStepResult(step, result)) {
           currentCtx = { ...currentCtx, searchedLibraryThisWay: true };
+        } else {
+          currentCtx = { ...currentCtx, searchedLibraryThisWay: false };
         }
         break;
       }
@@ -2385,7 +2389,25 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'tap_or_untap': {
         const result = applyTapOrUntapStep(nextState, step, currentCtx);
-        applyHandledStepResult(step, result);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          if (typeof appliedResult.lastTappedMatchingPermanentCount === 'number') {
+            lastTappedMatchingPermanentCount = Math.max(0, appliedResult.lastTappedMatchingPermanentCount);
+          }
+          const tappedIds = Array.isArray(appliedResult.lastTappedMatchingPermanentIds)
+            ? appliedResult.lastTappedMatchingPermanentIds
+                .map((id: unknown) => String(id || '').trim())
+                .filter(Boolean)
+            : [];
+          if (tappedIds.length > 0) {
+            currentCtx = {
+              ...currentCtx,
+              selectorContext: {
+                ...(currentCtx.selectorContext || {}),
+                chosenObjectIds: tappedIds,
+              },
+            };
+          }
+        });
         break;
       }
       case 'phase_out': {
@@ -2501,6 +2523,8 @@ export function applyOracleIRStepsToGameStateImpl(
           lastMovedBattlefieldPermanentIds,
           lastMovedCards,
           lastReferenceAmount,
+          lastSacrificedPermanents,
+          lastCreatedTokenIds,
         });
         applyHandledStepResult(step, result, (appliedResult) => {
           lastCreatedTokenIds = Array.isArray(appliedResult.createdTokenIds)
@@ -2974,10 +2998,17 @@ export function applyOracleIRStepsToGameStateImpl(
             .replace(/\s+/g, ' ')
             .trim()
             .toLowerCase();
-          if (/^not \((?:you|that player|target player|target opponent|that opponent|an opponent|its controller) pay(?:s)? (?:\{[^}]+\}(?:\{[^}]+\})*|\d+ life)\)$/i.test(normalizedConditionRaw)) {
+          const flatUnlessPayMatch = /^not \((?:you|that player|target player|target opponent|that opponent|an opponent|its controller) pay(?:s)? (?:\{[^}]+\}(?:\{[^}]+\})*|\d+ life)\)$/i.test(
+            normalizedConditionRaw,
+          );
+          const scaledUnlessPayMatch = normalizedConditionRaw.match(
+            /^not \((?:you|that player|target player|target opponent|that opponent|an opponent|its controller) pay(?:s)? (\{[^}]+\}(?:\{[^}]+\})*) for each (.+)\)$/i,
+          );
+          if (flatUnlessPayMatch || scaledUnlessPayMatch) {
             const conditionRaw = String(step.condition.raw || '').trim();
             const manaMatch = conditionRaw.match(/pay(?:s)? (\{[^}]+\}(?:\{[^}]+\})*)/i);
             const lifeMatch = conditionRaw.match(/pay(?:s)? (\d+) life/i);
+            const scalerMatch = conditionRaw.match(/for each (.+?)\)?$/i);
             const nestedChoiceStep = step.steps.length === 1 ? step.steps[0] : step;
             recordSkippedStep(
               nestedChoiceStep,
@@ -2989,6 +3020,7 @@ export function applyOracleIRStepsToGameStateImpl(
                   unlessPayConditionRaw: step.condition.raw,
                   ...(manaMatch ? { unlessPayManaCost: normalizeOracleManaCostString(manaMatch[1]) } : {}),
                   ...(lifeMatch ? { unlessPayLifeAmount: Number(lifeMatch[1]) } : {}),
+                  ...(scalerMatch ? { unlessPayScalerRaw: String(scalerMatch[1] || '').trim() } : {}),
                   unlessPayNestedStepKinds: step.steps.map(inner => inner.kind),
                 },
               }

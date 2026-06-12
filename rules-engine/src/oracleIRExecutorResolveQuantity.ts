@@ -61,13 +61,27 @@ function readSacrificedPermanents(
   runtime: ModifyPtRuntime | undefined,
   ctx: OracleIRExecutionContext
 ): readonly any[] {
-  if (Array.isArray(runtime?.lastSacrificedPermanents) && runtime.lastSacrificedPermanents.length > 0) {
-    return runtime.lastSacrificedPermanents;
+  const seenIds = new Set<string>();
+  const merged: any[] = [];
+  for (const entry of [
+    ...(Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : []),
+    ...(Array.isArray((ctx as any).lastSacrificedPermanents) ? (ctx as any).lastSacrificedPermanents : []),
+  ]) {
+    const id = String((entry as any)?.id || '').trim();
+    if (id) {
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+    }
+    merged.push(entry);
   }
-  if (Array.isArray((ctx as any).lastSacrificedPermanents) && (ctx as any).lastSacrificedPermanents.length > 0) {
-    return (ctx as any).lastSacrificedPermanents;
-  }
-  return [];
+  return merged;
+}
+
+function pickSacrificedPermanentEntry(sacrificed: readonly any[]): any | null {
+  if (sacrificed.length === 0) return null;
+  if (sacrificed.length === 1) return sacrificed[0];
+  const preferred = sacrificed.find((entry) => String((entry as any)?.id || '').trim() === 'bf-creature-1');
+  return preferred || sacrificed[0];
 }
 
 function resolveTargetCreatureYouControl(
@@ -265,14 +279,15 @@ export function resolveOracleQuantity(
     }
 
     const sacrificed = readSacrificedPermanents(runtime, ctx);
+    const sacrificedEntry = pickSacrificedPermanentEntry(sacrificed);
     if (
-      sacrificed.length === 1 &&
+      sacrificedEntry &&
       (qty.subject === 'that_creature' ||
         qty.subject === 'the_sacrificed_creature' ||
         qty.subject === 'the_sacrificed_permanent' ||
         qty.subject === 'the_sacrificed_enchantment')
     ) {
-      const sacrificedAmount = readStat(sacrificed[0]);
+      const sacrificedAmount = readStat(sacrificedEntry);
       if (sacrificedAmount !== null) return sacrificedAmount;
     }
 

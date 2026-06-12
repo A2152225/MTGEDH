@@ -292,6 +292,18 @@ function resolveReferenceScalerScale(
       return /\bcreature\b/i.test(typeLine);
     }).length;
   }
+  if (/^for each goblin you control$/.test(normalized)) {
+    const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+    return battlefield.filter((permanent: any) => {
+      if (String(permanent?.controllerId || permanent?.controller || '').trim() !== String(controllerId || '').trim()) {
+        return false;
+      }
+      const typeLine = String(
+        permanent?.card?.type_line || permanent?.card?.typeLine || permanent?.type_line || permanent?.typeLine || ''
+      ).toLowerCase();
+      return /\bcreature\b/i.test(typeLine) && /\bgoblin\b/i.test(typeLine);
+    }).length;
+  }
   if (/^for each other attacking aurochs$/.test(normalized)) {
     return Math.max(0, countOtherAttackingAurochs(state, targetCreatureId));
   }
@@ -707,9 +719,11 @@ export function applyModifyPtStep(
               ? Math.max(0, countArtifactsYouControl(state, controllerId))
               : step.scaler.kind === 'per_creature_tapped_this_way'
                 ? Math.max(0, runtime.lastTappedMatchingPermanentCount | 0)
-                : step.scaler.kind === 'per_other_attacking_aurochs'
-                  ? Math.max(0, countOtherAttackingAurochs(state, targetCreatureIds[0]))
-                  : 1;
+                : step.scaler.kind === 'per_goblin_you_control'
+                  ? Math.max(0, countControlledCreaturesWithSubtype(state, controllerId, 'goblin'))
+                  : step.scaler.kind === 'per_other_attacking_aurochs'
+                    ? Math.max(0, countOtherAttackingAurochs(state, targetCreatureIds[0]))
+                    : 1;
   }
 
   if ((step.powerUsesX || step.toughnessUsesX) && usesWhereForX && whereXValue === null) {

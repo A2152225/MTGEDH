@@ -244,8 +244,18 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
         ? (controlled as any[]).find((permanent: any) => String(permanent?.id || '').trim() === String(ctx?.sourceId || '').trim())
         : null;
       if (!sourceObj) return null;
-      const explicit = Number((sourceObj as any)?.mutatedTimes);
-      if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+      const candidates: unknown[] = [
+        (sourceObj as any)?.mutationCount,
+        (sourceObj as any)?.timesMutated,
+        (sourceObj as any)?.mutateCount,
+        (sourceObj as any)?.mutatedTimes,
+      ];
+      for (const value of candidates) {
+        const n = Number(value);
+        if (Number.isFinite(n) && n >= 0) return n;
+      }
+      const stack = (sourceObj as any)?.mutatedStack;
+      if (Array.isArray(stack)) return Math.max(0, stack.length - 1);
       return Math.max(0, Number(((sourceObj as any)?.counters || {})?.mutagen) || 0);
     }
   }

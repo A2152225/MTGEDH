@@ -80,6 +80,18 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
   }
 
   {
+    const m = raw.match(/^x is the result minus (\d+)$/i);
+    if (m) {
+      const playerRoll = (state as any)?.lastDieRollByPlayer?.[controllerId];
+      const rollResult = Number.isFinite(Number(playerRoll?.result))
+        ? Number(playerRoll.result)
+        : Number((state as any)?.lastDieRoll?.result);
+      if (!Number.isFinite(rollResult)) return null;
+      return Math.max(0, rollResult - Number(m[1] || 0));
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of other creatures you control$/i);
     if (m) {
       const excludedId = getExcludedId();
@@ -255,6 +267,19 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
           : ((p as any)?.toughness ?? (p as any)?.card?.toughness));
         return sum + (Number.isFinite(n) ? n : 0);
       }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of attacking creatures you control$/i);
+    if (m) {
+      return battlefield.filter((p: any) => {
+        if (!hasExecutorClass(p, 'creature')) return false;
+        if (String((p as any)?.controller || (p as any)?.controllerId || '').trim() !== String(controllerId || '').trim()) {
+          return false;
+        }
+        return isAttackingObject(p);
+      }).length;
     }
   }
 

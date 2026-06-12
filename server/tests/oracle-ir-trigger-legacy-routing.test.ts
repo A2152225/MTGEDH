@@ -621,7 +621,79 @@ describe('oracleIrTriggerLegacyRouting', () => {
       'Generic',
     )).toBe(true);
     expect(isTriggerEffectFullyIrWired(
+      'you may tap any number of untapped creatures you control. this creature gets +1/+1 until end of turn for each creature tapped this way.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'each creature blocking this creature gets -0/-1 until end of turn.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(parseBareTriggerEffectFragmentSteps(
+      'blocking creatures get -1/-1 until end of turn.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(parseBareTriggerEffectFragmentSteps(
+      'nonartifact creatures get -2/-2 until end of turn.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'each of them gets +x/+x until end of turn, where x is this creature\'s power.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'other creatures you control get +x/+x until end of turn, where x is the number of times this creature has mutated.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'this creature gets +x/+0 until end of turn, where x is the number of attacking creatures you control.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'each creature you control gets +1/+1 until end of turn for each goblin you control.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
       'creatures your opponents control get -1/-1 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps('put X +1/+1 counters on it.', 'Generic')[0]?.kind).toBe('add_counter');
+    expect(collectOracleEffectSteps('put X +1/+1 counters on enchanted permanent.', 'Generic')[0]?.kind).toBe('add_counter');
+    expect(collectOracleEffectSteps(
+      'distribute X +1/+1 counters among any number of target elves.',
+      'Generic',
+    )[0]?.kind).toBe('add_counter');
+    expect(isTriggerEffectFullyIrWired(
+      'distribute X +1/+1 counters among any number of other target creatures you control.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'distribute X +1/+1 counters among it and any number of commanders.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      "put a number of +1/+1 counters equal to this permanent's power on another target creature you control.",
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps('put X +1/+1 counters on each of those permanents.', 'Generic')[0]?.kind).toBe('add_counter');
+    expect(isTriggerEffectFullyIrWired(
+      'creatures you control with power 4 or greater get +2/+2 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'each creature you control with a counter on it gets +1/+1 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'sacrifice this creature unless you pay {1} for each card in your hand.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'if you search your library this way, shuffle.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'if a graveyard has twenty or more cards in it, draw three cards instead.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'each opponent discards two cards unless they discard a nonland card.',
       'Generic',
     )).toBe(true);
     expect(parseBareTriggerEffectFragmentSteps(

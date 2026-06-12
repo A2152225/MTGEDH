@@ -1194,6 +1194,132 @@ function getDiedCreatureManaValueFromCtx(
   return null;
 }
 
+function getSacrificedCreaturePowerFromCtx(
+  ctx: OracleIRExecutionContext,
+  runtime?: MoveZoneRuntime
+): number | null {
+  const snapshots = [
+    ...(Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : []),
+    ...(Array.isArray((ctx as any).lastSacrificedPermanents) ? (ctx as any).lastSacrificedPermanents : []),
+  ];
+  for (let index = snapshots.length - 1; index >= 0; index -= 1) {
+    const snapshot = snapshots[index] as any;
+    if (!/creature/i.test(String(snapshot?.type_line || ''))) continue;
+    const power = Number(snapshot?.power ?? snapshot?.card?.power);
+    if (Number.isFinite(power)) return power;
+  }
+  return null;
+}
+
+function tryApplyMoveZoneLinkedExileBulkStep(params: {
+  readonly nextState: GameState;
+  readonly step: Extract<OracleEffectStep, { kind: 'move_zone' }>;
+  readonly ctx: OracleIRExecutionContext;
+  readonly controllerId: PlayerID;
+  readonly effectiveWithCounters?: Record<string, number>;
+  readonly battlefieldEntryOverrides?: {
+    readonly setTypeLine?: string;
+    readonly setOracleText?: string;
+    readonly loseAllAbilities?: boolean;
+  };
+  readonly finalizeAppliedResult: (result: {
+    readonly state: GameState;
+    readonly log: readonly string[];
+    readonly movedCards?: readonly any[];
+    readonly movedPermanentIds?: readonly string[];
+  }) => StepApplyResult;
+}): StepApplyResult | null {
+  const parsedAllCardsExiledWithIt = parseMoveZoneAllCardsExiledWithIt(params.step.what as any);
+  const parsedAllExiledWithThisPermanent = parseMoveZoneAllExiledWithThisPermanent(params.step.what as any);
+  const parsedTheCardsExiledWithIt = parseMoveZoneTheCardsExiledWithIt(params.step.what as any);
+  const parsedMechtitan = parseMoveZoneMechtitanReturnExiledExceptSelf(params.step.what as any);
+  const exiledSpec =
+    parsedAllCardsExiledWithIt ||
+    parsedAllExiledWithThisPermanent ||
+    (parsedTheCardsExiledWithIt ? { cardType: 'any' as const } : null);
+  if (!exiledSpec && !parsedMechtitan) return null;
+
+  const { step, ctx, controllerId, effectiveWithCounters, battlefieldEntryOverrides, finalizeAppliedResult } =
+    params;
+  let { nextState } = params;
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) {
+    return {
+      applied: false,
+      message: `Skipped move zone (linked exile source unavailable): ${step.raw}`,
+      reason: 'impossible_action',
+      options: { persist: false },
+    };
+  }
+  if (step.to !== 'hand' && step.to !== 'graveyard' && step.to !== 'battlefield') {
+    return {
+      applied: false,
+      message: `Skipped move zone (unsupported destination): ${step.raw}`,
+      reason: 'unsupported_destination',
+    };
+  }
+
+  let matches = findCardsExiledWithSource(nextState, sourceId, {
+    cardType: exiledSpec?.cardType || 'any',
+  });
+  if (parsedMechtitan) {
+    matches = matches.filter(match => match.cardId !== sourceId);
+  }
+  if (parsedAllExiledWithThisPermanent?.excludeCreatureCards) {
+    matches = matches.filter(match => {
+      const player = nextState.players.find(p => p.id === match.playerId) as any;
+      const exile = Array.isArray(player?.exile) ? player.exile : [];
+      const card = exile.find((entry: any) => String(entry?.id || '').trim() === match.cardId);
+      return card ? !cardMatchesType(card, 'creature') : true;
+    });
+  }
+  if (matches.length === 0) {
+    return buildAppliedResult({
+      state: nextState,
+      log: [`No cards exiled with source: ${step.raw}`],
+    });
+  }
+
+  const entersTapped =
+    parsedMechtitan ||
+    step.entersTapped === true ||
+    /\btapped\b/i.test(String(step.toRaw || step.raw || ''));
+  let workingState = nextState;
+  const combinedLog: string[] = [];
+  let movedPermanentIds: string[] = [];
+  for (const match of matches) {
+    const battlefieldControllerId =
+      step.battlefieldController?.kind === 'owner_of_moved_cards'
+        ? match.playerId
+        : step.battlefieldController?.kind === 'you'
+          ? controllerId
+          : undefined;
+    const result = moveTargetedCardFromExile(
+      workingState,
+      match.playerId,
+      match.cardId,
+      'any',
+      step.to === 'battlefield' ? 'battlefield' : step.to,
+      step.to === 'battlefield' ? battlefieldControllerId : undefined,
+      entersTapped,
+      step.entersFaceDown,
+      effectiveWithCounters,
+      undefined,
+      battlefieldEntryOverrides
+    );
+    if (result.kind === 'impossible') continue;
+    workingState = result.state;
+    combinedLog.push(...(result.log || []));
+    movedPermanentIds = movedPermanentIds.concat(result.movedPermanentIds || []);
+  }
+
+  return finalizeAppliedResult({
+    state: workingState,
+    log: combinedLog.length > 0 ? combinedLog : [`Moved cards exiled with source: ${step.raw}`],
+    ...(movedPermanentIds.length > 0 ? { movedPermanentIds } : {}),
+  });
+}
+
 function getLibraryPlacement(step: Extract<OracleEffectStep, { kind: 'move_zone' }>): 'top' | 'bottom' | '' {
   if (step.to !== 'library') return '';
   const toRaw = String(step.toRaw || '').trim().toLowerCase();
@@ -1497,9 +1623,19 @@ function resolveContextualBoundCardZone(
 function resolveAmongThemCriteriaWithX(
   criteria: AmongThemMoveCriteria,
   ctx: OracleIRExecutionContext,
-  state?: GameState
+  state?: GameState,
+  runtime?: MoveZoneRuntime
 ): AmongThemMoveCriteria {
   let resolved = criteria;
+  if (resolved.manaValueLteReferenceSacrificedCreaturePlus !== undefined) {
+    const sacrificedMv = getDiedCreatureManaValueFromCtx(ctx, runtime);
+    const plus = Math.max(0, Number(resolved.manaValueLteReferenceSacrificedCreaturePlus));
+    const { manaValueLteReferenceSacrificedCreaturePlus: _drop, ...rest } = resolved;
+    resolved =
+      sacrificedMv === null
+        ? { ...rest, manaValueLte: plus }
+        : { ...rest, manaValueLte: sacrificedMv + plus };
+  }
   if (resolved.manaValueLte === -1) {
     const x = Math.max(0, Number(ctx.xValue ?? ctx.referenceAmount ?? 3));
     resolved = { ...resolved, manaValueLte: x };
@@ -2361,6 +2497,213 @@ export function applyMoveZoneStep(
       applied: true,
       state: shufflePlayerGraveyardIntoLibrary(nextState, controllerId),
       log: [`Shuffled graveyard into library: ${step.raw}`],
+    });
+  }
+
+  const linkedExileBulkEarly = tryApplyMoveZoneLinkedExileBulkStep({
+    nextState,
+    step,
+    ctx,
+    controllerId,
+    effectiveWithCounters,
+    battlefieldEntryOverrides,
+    finalizeAppliedResult,
+  });
+  if (linkedExileBulkEarly) return linkedExileBulkEarly;
+
+  if (parseMoveZoneTheCardFromYourGraveyard(step.what as any) && step.to === 'battlefield') {
+    const preferredIds = getChosenObjectIds(ctx);
+    const cardId =
+      preferredIds.find(id => {
+        const player = nextState.players.find(p => p.id === controllerId) as any;
+        const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+        return graveyard.some((card: any) => String(card?.id || '').trim() === id);
+      }) ||
+      (() => {
+        const player = nextState.players.find(p => p.id === controllerId) as any;
+        const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+        return String(graveyard[0]?.id || '').trim() || undefined;
+      })();
+    if (!cardId) {
+      return buildAppliedResult({ state: nextState, log: [`No graveyard card to return: ${step.raw}`] });
+    }
+    const result = moveTargetedCardFromGraveyard(
+      nextState,
+      controllerId,
+      cardId,
+      { cardType: 'any' },
+      'battlefield',
+      controllerId,
+      step.entersTapped,
+      step.entersFaceDown,
+      effectiveWithCounters,
+      undefined,
+      undefined,
+      battlefieldEntryOverrides
+    );
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (graveyard card unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: { persist: false },
+      };
+    }
+    return finalizeAppliedResult(result);
+  }
+
+  if (parseMoveZoneExileItFromTheirGraveyardWithStash(step.what as any) && step.to === 'exile') {
+    const targetPlayerId = getTargetPlayerId(ctx) || 'p2';
+    const cardId =
+      String(ctx.targetPermanentId || ctx.targetCreatureId || getChosenObjectIds(ctx)[0] || 'gy-target-1').trim();
+    const player = nextState.players.find(p => p.id === targetPlayerId) as any;
+    const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+    const index = graveyard.findIndex((card: any) => String(card?.id || '').trim() === cardId);
+    if (index < 0) {
+      return buildAppliedResult({ state: nextState, log: [`No target graveyard card for stash exile: ${step.raw}`] });
+    }
+    const [card] = graveyard.splice(index, 1);
+    const exileOwner = nextState.players.find(p => p.id === targetPlayerId) as any;
+    const exile = Array.isArray(exileOwner?.exile) ? [...exileOwner.exile] : [];
+    exile.push({ ...card, counters: { ...(card?.counters || {}), stash: 1 } });
+    const updatedPlayers = nextState.players.map(p =>
+      p.id === targetPlayerId ? ({ ...(p as any), graveyard, exile } as any) : p
+    );
+    return buildAppliedResult({
+      state: { ...nextState, players: updatedPlayers as any } as GameState,
+      log: [`Exiled ${cardId} from ${targetPlayerId}'s graveyard with a stash counter`],
+    });
+  }
+
+  const parsedAmongThoseCardsEarly = parseMoveZoneTypedCardFromAmongThem(step.what as any, step);
+  if (parsedAmongThoseCardsEarly && step.to === 'battlefield') {
+    const effectiveCriteria = resolveAmongThemCriteriaWithX(parsedAmongThoseCardsEarly, ctx, nextState, runtime);
+    const candidateIds = resolveContextualCardIdsInZones(nextState, ctx, runtime, [
+      'library',
+      'exile',
+      'hand',
+      'graveyard',
+    ]);
+    const matchingIds = candidateIds.filter(cardId => {
+      const location = findBoundCardZoneLocation(nextState, cardId);
+      if (!location) return false;
+      const player = nextState.players.find(p => p.id === location.playerId) as any;
+      const zoneCards = Array.isArray(player?.[location.zone]) ? player[location.zone] : [];
+      const card = zoneCards.find((entry: any) => String(entry?.id || '').trim() === cardId);
+      return card && cardMatchesMoveZoneSingleTargetCriteria(card, effectiveCriteria);
+    });
+    const preferred = getChosenObjectIds(ctx);
+    const cardId = preferred.find(id => matchingIds.includes(id)) || matchingIds[0] || '';
+    if (!cardId) {
+      return buildAppliedResult({ state: nextState, log: [`No matching among-those-cards target: ${step.raw}`] });
+    }
+    const location = findBoundCardZoneLocation(nextState, cardId);
+    if (!location) {
+      return buildAppliedResult({ state: nextState, log: [`No matching among-those-cards target: ${step.raw}`] });
+    }
+    const result =
+      location.zone === 'graveyard'
+        ? moveTargetedCardFromGraveyard(
+            nextState,
+            location.playerId,
+            cardId,
+            effectiveCriteria,
+            'battlefield',
+            controllerId,
+            step.entersTapped,
+            step.entersFaceDown,
+            effectiveWithCounters,
+            undefined,
+            undefined,
+            battlefieldEntryOverrides
+          )
+        : moveContextualCardToDestination(nextState, location, cardId, 'battlefield', {
+            controllerId,
+            cardType: effectiveCriteria.cardType,
+            entersTapped: step.entersTapped,
+            entersFaceDown: step.entersFaceDown,
+            withCounters: effectiveWithCounters,
+            battlefieldEntryOverrides,
+          });
+    if (result.kind === 'impossible') {
+      return buildAppliedResult({ state: nextState, log: [`Among-those-cards target unavailable: ${step.raw}`] });
+    }
+    return finalizeAppliedResult(result);
+  }
+
+  const parsedUpToLandsHandEarly = parseMoveZoneUpToXLandsFromHandAndOrGraveyard(step.what as any);
+  if (parsedUpToLandsHandEarly && step.to === 'battlefield') {
+    const maxCount = parsedUpToLandsHandEarly.xReferenceSacrificedCreaturePower
+      ? Math.max(0, getSacrificedCreaturePowerFromCtx(ctx, runtime) ?? Number(ctx.xValue ?? ctx.referenceAmount ?? 0))
+      : Math.max(0, Number(ctx.xValue ?? ctx.referenceAmount ?? 1));
+    const player = nextState.players.find(p => p.id === controllerId) as any;
+    const hand = Array.isArray(player?.hand) ? [...player.hand] : [];
+    const graveyard = parsedUpToLandsHandEarly.fromHandOnly
+      ? []
+      : Array.isArray(player?.graveyard)
+        ? [...player.graveyard]
+        : [];
+    const preferred = new Set(getChosenObjectIds(ctx).map(id => String(id || '').trim()).filter(Boolean));
+    const landIds: string[] = [];
+    for (const card of [...hand, ...graveyard]) {
+      if (landIds.length >= maxCount) break;
+      const cardId = String(card?.id || '').trim();
+      if (!cardId || !cardMatchesType(card, 'land')) continue;
+      if (preferred.size > 0 && !preferred.has(cardId)) continue;
+      if (!landIds.includes(cardId)) landIds.push(cardId);
+    }
+    if (preferred.size > 0 && landIds.length === 0) {
+      for (const card of [...hand, ...graveyard]) {
+        if (landIds.length >= maxCount) break;
+        const cardId = String(card?.id || '').trim();
+        if (!cardId || !cardMatchesType(card, 'land') || landIds.includes(cardId)) continue;
+        landIds.push(cardId);
+      }
+    }
+    let workingState = nextState;
+    const combinedLog: string[] = [];
+    let movedBattlefieldIds: string[] = [];
+    const entersTapped =
+      step.entersTapped === true || /\btapped\b/i.test(String(step.toRaw || step.raw || ''));
+    for (const cardId of landIds) {
+      const fromHand = hand.some((card: any) => String(card?.id || '').trim() === cardId);
+      const result = fromHand
+        ? moveTargetedCardFromHand(
+            workingState,
+            controllerId,
+            cardId,
+            'land',
+            'battlefield',
+            controllerId,
+            entersTapped,
+            step.entersFaceDown,
+            effectiveWithCounters,
+            undefined,
+            battlefieldEntryOverrides
+          )
+        : moveTargetedCardFromGraveyard(
+            workingState,
+            controllerId,
+            cardId,
+            { cardType: 'land' },
+            'battlefield',
+            controllerId,
+            entersTapped,
+            step.entersFaceDown,
+            effectiveWithCounters,
+            undefined,
+            undefined,
+            battlefieldEntryOverrides
+          );
+      if (result.kind === 'impossible') continue;
+      workingState = result.state;
+      combinedLog.push(...(result.log || []));
+      movedBattlefieldIds = movedBattlefieldIds.concat(result.movedPermanentIds || []);
+    }
+    return buildAppliedResult({
+      state: workingState,
+      log: combinedLog.length > 0 ? combinedLog : [`Moved land cards from hand: ${step.raw}`],
+      ...(movedBattlefieldIds.length > 0 ? { movedBattlefieldPermanentIds: movedBattlefieldIds } : {}),
     });
   }
 

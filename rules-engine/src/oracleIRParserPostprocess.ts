@@ -3036,6 +3036,19 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
   const direct = parseStructuredTriggerResidualGrant(normalized, sequence);
   if (direct) return direct;
 
+  const eachPlayerSacrificeChoice = normalized.match(
+    /^each\s+player\s+sacrifices\s+a\s+(.+?)(?:\s+of\s+their\s+choice)?\.?$/i
+  );
+  if (eachPlayerSacrificeChoice) {
+    return [{
+      kind: 'sacrifice',
+      who: { kind: 'each_player' },
+      what: parseObjectSelector(`a ${String(eachPlayerSacrificeChoice[1] || '').trim()}`),
+      raw: normalized,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
   const greasefangMatch = normalized.match(
     /^return target vehicle card from your graveyard to the battlefield\.\s*it gains haste\.\s*return it to its owner's hand at the beginning of your next end step\.?$/i
   );
@@ -3115,6 +3128,9 @@ function buildForEachScalerField(forEachPartRaw: string): OracleEffectStep['scal
   }
   if (/^for\s+each\s+creature\s+tapped\s+this\s+way$/i.test(eachRaw)) {
     return { kind: 'per_creature_tapped_this_way' };
+  }
+  if (/^for\s+each\s+goblin\s+you\s+control$/i.test(eachRaw)) {
+    return { kind: 'per_goblin_you_control' };
   }
   if (/^for\s+each\s+other\s+attacking\s+aurochs$/i.test(eachRaw)) {
     return { kind: 'per_other_attacking_aurochs' };
@@ -3578,6 +3594,74 @@ function parseStructuredTriggerResidualGrant(
     } as OracleEffectStep];
   }
 
+  const eachOfThemMassTemporaryPt = raw.match(
+    /^each of them gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachOfThemMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each of them'),
+      power: Number.parseInt(String(eachOfThemMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(eachOfThemMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachOfThemMassTemporaryPtX = raw.match(
+    /^each of them gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (eachOfThemMassTemporaryPtX) {
+    const powerToken = String(eachOfThemMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(eachOfThemMassTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each of them'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(eachOfThemMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachOfThemCompoundTemporaryPt = raw.match(
+    /^each of them gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) and gains? (.+?) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (eachOfThemCompoundTemporaryPt) {
+    const powerToken = String(eachOfThemCompoundTemporaryPt[1] || '').trim().toLowerCase();
+    const toughnessToken = String(eachOfThemCompoundTemporaryPt[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    const grantFields = buildTemporaryGrantStepFields(String(eachOfThemCompoundTemporaryPt[3] || '').trim());
+    return [
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector('each of them'),
+        power: powerToken.startsWith('-') ? -1 : 1,
+        toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+        powerUsesX: true,
+        toughnessUsesX,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: `x is ${String(eachOfThemCompoundTemporaryPt[4] || '').trim()}` },
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('each of them'),
+        ...grantFields,
+        duration: 'end_of_turn',
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
   const referenceCreatureTemporaryPt = raw.match(
     /^(that creature|the creature|equipped creature|enchanted creature) gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
   );
@@ -3645,6 +3729,21 @@ function parseStructuredTriggerResidualGrant(
       toughnessUsesX,
       duration: 'end_of_turn',
       condition: { kind: 'where', raw: `x is ${String(chosenCreatureTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const nonartifactMassTemporaryPt = raw.match(
+    /^nonartifact creatures get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (nonartifactMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('nonartifact creatures'),
+      power: Number.parseInt(String(nonartifactMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(nonartifactMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
       raw,
       ...sequence,
     } as OracleEffectStep];
@@ -4014,12 +4113,13 @@ function parseStructuredTriggerResidualGrant(
   }
 
   const blockingCreatureMassTemporaryPt = raw.match(
-    /^each creature blocking it gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+    /^each creature blocking (?:it|this creature) gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
   );
   if (blockingCreatureMassTemporaryPt) {
+    const targetText = /this creature/i.test(raw) ? 'each creature blocking this creature' : 'each creature blocking it';
     return [{
       kind: 'modify_pt',
-      target: parseObjectSelector('each creature blocking it'),
+      target: parseObjectSelector(targetText),
       power: Number.parseInt(String(blockingCreatureMassTemporaryPt[1] || '0'), 10),
       toughness: Number.parseInt(String(blockingCreatureMassTemporaryPt[2] || '0'), 10),
       duration: 'end_of_turn',
@@ -4029,15 +4129,16 @@ function parseStructuredTriggerResidualGrant(
   }
 
   const blockingCreatureMassTemporaryPtX = raw.match(
-    /^each creature blocking it gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+    /^each creature blocking (?:it|this creature) gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
   );
   if (blockingCreatureMassTemporaryPtX) {
     const powerToken = String(blockingCreatureMassTemporaryPtX[1] || '').trim().toLowerCase();
     const toughnessToken = String(blockingCreatureMassTemporaryPtX[2] || '').trim().toLowerCase();
     const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    const targetText = /this creature/i.test(raw) ? 'each creature blocking this creature' : 'each creature blocking it';
     return [{
       kind: 'modify_pt',
-      target: parseObjectSelector('each creature blocking it'),
+      target: parseObjectSelector(targetText),
       power: powerToken.startsWith('-') ? -1 : 1,
       toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
       powerUsesX: true,
@@ -7417,6 +7518,21 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return staticMetadata('counters', raw);
   }
 
+  const createTokenCopy = raw.match(
+    /^create\s+(?:x\s+)?(?:(?:\d+\/\d+|[a-z]+)\s+)*(?:\d+\/\d+\s+)?(?:[a-z]+\s+)*tokens?\s+that(?:'|\u2019)?s\s+a\s+copy\s+of\s+(.+?)(?:\s+instead)?\.?$/i
+  );
+  if (createTokenCopy) {
+    const usesX = /^create\s+x\s+/i.test(raw);
+    return [{
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: usesX ? { kind: 'x' } : { kind: 'number', value: 1 },
+      token: `copy of ${String(createTokenCopy[1] || '').trim()}`,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
   if (/^create\s+(?:a\s+5x5\s+grid|a\s+character\b|a\s+copy\b|a\s+token\s+from\b|a\s+token\s+of\b|an\s+animated\s+role\b|one\s+resource\b|two\s+(?:copies|tokens)\b|[A-Z][\s\S]+?\s+token\b)/i.test(raw)) {
     return staticMetadata('create residual', raw);
   }
@@ -9154,6 +9270,19 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       kind: 'sacrifice',
       who: { kind: 'you_and_target_player' },
       what: parseObjectSelector(`a ${String(youAndPlayerEachSacrifice[1] || '').trim()}`),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachPlayerSacrificeChoice = raw.match(
+    /^each\s+player\s+sacrifices\s+a\s+(.+?)(?:\s+of\s+their\s+choice)?\.?$/i
+  );
+  if (eachPlayerSacrificeChoice) {
+    return [{
+      kind: 'sacrifice',
+      who: { kind: 'each_player' },
+      what: parseObjectSelector(`a ${String(eachPlayerSacrificeChoice[1] || '').trim()}`),
       raw,
       ...sequence,
     } as OracleEffectStep];
@@ -18708,7 +18837,6 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^choose left or right\.?$/i.test(normalizedText) ||
     /^regenerate all .+ creatures you control\.?$/i.test(normalizedText) ||
     /^exile any number of target creatures and all auras attached to them\.?$/i.test(normalizedText) ||
-    /^each player sacrifices a creature of their choice\.?$/i.test(normalizedText) ||
     /^remove up to five counters from target .+$/i.test(normalizedText) ||
     /^attach target aura you control to target creature\.?$/i.test(normalizedText) ||
     /^then return a creature or planeswalker card with mana value x or less from your graveyard to the battlefield\.?$/i.test(normalizedText) ||
@@ -18733,7 +18861,6 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^destroy it at the beginning of the next end step if it didn'?t attack this turn\.?$/i.test(normalizedText) ||
     /^an opponent separates those cards into two piles\b.+/i.test(normalizedText) ||
     /^an opponent chooses (?:one of those piles|two of those cards)\b.+/i.test(normalizedText) ||
-    /^each player sacrifices a (?:creature|creature or planeswalker) of their choice\b.+/i.test(normalizedText) ||
     /^you may discard a card\. when you do, target creature can'?t block this turn\.?$/i.test(normalizedText) ||
     /^return all islands to their owners'? hands?\.?$/i.test(normalizedText) ||
     /^two target creatures you control that share a creature type can'?t be blocked this turn\.?$/i.test(normalizedText) ||

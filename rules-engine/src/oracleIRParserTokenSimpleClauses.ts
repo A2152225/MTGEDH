@@ -125,6 +125,22 @@ export function tryParseSimpleCreateTokenClause(args: {
     });
   }
 
+  const forEachOtherOpponentCreateCopy = clause.match(
+    /^for each other opponent,\s+create(?:s)?\s+(?:a\s+)?token(?:s)?\s+that(?:'s| is| are)\s+(?:a\s+)?copy\s+of\s+(.+)$/i
+  );
+  if (forEachOtherOpponentCreateCopy) {
+    const tappedAndAttacking = hasTappedAndAttackingClause(clause);
+    return withMeta({
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      token: `copy of ${String(forEachOtherOpponentCreateCopy[1] || '').trim()}`.trim(),
+      entersTapped: tappedAndAttacking || undefined,
+      ...(tappedAndAttacking ? { attacking: 'each_other_opponent' as const } : {}),
+      raw: rawClause,
+    });
+  }
+
   const perOpponentAttackingCreate = clause.match(
     new RegExp(
       `^for each opponent,\\s+create\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?(?:\\s+that(?:'s| is| are)\\s+tapped\\s+and\\s+attacking\\s+that\\s+player(?:\\s+or\\s+a\\s+planeswalker\\s+they\\s+control)?)?$`,

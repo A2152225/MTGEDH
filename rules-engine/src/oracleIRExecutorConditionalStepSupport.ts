@@ -5,7 +5,8 @@ import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
 import { getAmountOfManaSpent, getAmountOfSpecificManaSymbolSpent } from './oracleIRExecutorManaUtils';
 import { evaluateModifyPtCondition } from './oracleIRExecutorModifyPtCondition';
 import { findObjectByIdInState, getCreatureSubtypeKeys } from './oracleIRExecutorModifyPtWhereUtils';
-import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
+import { getProcessedBattlefield, getSourceBattlefieldPermanent } from './oracleIRExecutorCreatureStepUtils';
+import { getCounterCountOnObject } from './oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { checkRolledDoubles } from './dieRoll';
 import { deriveWinningVoteChoice, getCardManaValue } from './oracleIRExecutorPlayerUtils';
@@ -21,10 +22,102 @@ type LastActionOutcome = {
   readonly count?: number;
 } | null;
 
+function readCreaturePowerForUnless(permanent: any): number {
+  for (const candidate of [
+    permanent?.effectivePower,
+    permanent?.power,
+    permanent?.basePower,
+    permanent?.card?.power,
+  ]) {
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return 0;
+}
+
+function resolveUnlessPayScalerMultiplier(
+  scalerPhrase: string,
+  nextState: GameState,
+  controllerId: PlayerID,
+  ctx: OracleIRExecutionContext,
+): number | null {
+  const phrase = String(scalerPhrase || '').trim().toLowerCase();
+  if (phrase === 'card in your hand' || phrase === 'cards in your hand') {
+    return getYourHandCount(nextState, controllerId);
+  }
+  if (phrase === '+1/+1 counter on it' || phrase === '+1/+1 counters on it') {
+    const source = getSourceBattlefieldPermanent(nextState, ctx);
+    if (!source) return 0;
+    return getCounterCountOnObject(source, '+1/+1') ?? 0;
+  }
+  if (phrase === 'other creature you control' || phrase === 'other creatures you control') {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const battlefield = getProcessedBattlefield(nextState);
+    return battlefield.filter((perm: any) => {
+      const permanentId = String(perm?.id || '').trim();
+      if (!permanentId || (sourceId && permanentId === sourceId)) return false;
+      return String(perm?.controller || '').trim() === String(controllerId || '').trim()
+        && getExecutorTypeLineLower(perm).includes('creature');
+    }).length;
+  }
+  return null;
+}
+
+function playerHandHasMatchingDescriptor(
+  nextState: GameState,
+  playerId: string,
+  descriptorRaw: string,
+): boolean {
+  const player = (nextState.players || []).find(
+    (entry: any) => String(entry?.id || '').trim() === String(playerId || '').trim(),
+  ) as any;
+  const hand = Array.isArray(player?.hand) ? player.hand : [];
+  const descriptor = String(descriptorRaw || '').trim().toLowerCase();
+  if (descriptor === 'nonland card' || descriptor === 'a nonland card') {
+    return hand.some((card: any) => !matchesCardTypeDescriptor(card, 'land'));
+  }
+  if (descriptor === 'pirate card' || descriptor === 'a pirate card') {
+    return hand.some((card: any) => matchesCardTypeDescriptor(card, 'pirate'));
+  }
+  if (descriptor === 'artifact card' || descriptor === 'an artifact card') {
+    return hand.some((card: any) => matchesCardTypeDescriptor(card, 'artifact'));
+  }
+  if (
+    descriptor === 'instant or sorcery card or a creature card with flying'
+    || descriptor === 'an instant or sorcery card or a creature card with flying'
+  ) {
+    return hand.some((card: any) =>
+      matchesCardTypeDescriptor(card, 'instant')
+      || matchesCardTypeDescriptor(card, 'sorcery')
+      || (matchesCardTypeDescriptor(card, 'creature') && matchesCardTypeDescriptor(card, 'flying')),
+    );
+  }
+  return hand.some((card: any) => matchesCardTypeDescriptor(card, descriptor.replace(/^(?:a|an)\s+/, '')));
+}
+
 function resolveUnlessPayInnerCondition(
   inner: string,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  nextState?: GameState,
+  controllerId?: PlayerID,
 ): boolean | null | undefined {
+  const scaledPayMatch = inner.match(/^you pay (\{[^}]+\}(?:\{[^}]+\})*) for each (.+)$/i);
+  if (scaledPayMatch && nextState && controllerId) {
+    const multiplier = resolveUnlessPayScalerMultiplier(
+      String(scaledPayMatch[2] || '').trim(),
+      nextState,
+      controllerId,
+      ctx,
+    );
+    if (multiplier === null) return undefined;
+    const choice =
+      ctx.unlessPaysManaChoice ??
+      ctx.selectorContext?.unlessPaysManaChoice;
+    if (choice === 'pay') return true;
+    if (choice === 'decline') return false;
+    return null;
+  }
+
   const manaPayMatch = inner.match(/^you pay (\{[^}]+\}(?:\{[^}]+\})*)$/);
   if (manaPayMatch) {
     const choice =
@@ -43,6 +136,18 @@ function resolveUnlessPayInnerCondition(
     if (choice === 'pay') return true;
     if (choice === 'decline') return false;
     return null;
+  }
+
+  if (/^(?:her|his|its) additional cost was paid$/.test(inner)) {
+    const paid =
+      ctx.waterbendWasPaid ??
+      ctx.optionalAdditionalCostWasPaid ??
+      ctx.teamworkWasPaid ??
+      ctx.selectorContext?.waterbendWasPaid ??
+      ctx.selectorContext?.optionalAdditionalCostWasPaid;
+    if (paid === true) return true;
+    if (paid === false) return false;
+    return false;
   }
 
   const opponentLifePayMatch = inner.match(
@@ -797,7 +902,7 @@ export function evaluateConditionalWrapperCondition(params: {
     const unlessNotMatch = normalizedRaw.match(/^not \((.+)\)$/i);
     if (unlessNotMatch) {
       const inner = String(unlessNotMatch[1] || '').trim().toLowerCase();
-      const unlessPayResolved = resolveUnlessPayInnerCondition(inner, ctx);
+      const unlessPayResolved = resolveUnlessPayInnerCondition(inner, ctx, nextState, controllerId);
       if (unlessPayResolved !== undefined) {
         if (unlessPayResolved === null) return null;
         return !unlessPayResolved;
@@ -843,6 +948,45 @@ export function evaluateConditionalWrapperCondition(params: {
     }
   }
 
+  if (/^(?:her|his|its) additional cost was paid$/.test(normalizedRaw)) {
+    const paid =
+      ctx.waterbendWasPaid ??
+      ctx.optionalAdditionalCostWasPaid ??
+      ctx.teamworkWasPaid ??
+      ctx.selectorContext?.waterbendWasPaid ??
+      ctx.selectorContext?.optionalAdditionalCostWasPaid;
+    if (paid === true) return true;
+    if (paid === false) return false;
+    return false;
+  }
+
+  if (
+    normalizedRaw ===
+    'a permanent entered the battlefield face down under your control this turn or you turned a permanent face up this turn'
+  ) {
+    return Boolean(
+      ctx.faceDownPermanentEnteredThisTurnUnderYourControl ||
+        ctx.turnedPermanentFaceUpThisTurn ||
+        ctx.selectorContext?.faceDownPermanentEnteredThisTurnUnderYourControl ||
+        ctx.selectorContext?.turnedPermanentFaceUpThisTurn
+    );
+  }
+
+  if (normalizedRaw === "that player can't" || normalizedRaw === "that player can't sacrifice") {
+    const targetPlayerId =
+      String(ctx.selectorContext?.targetPlayerId || ctx.selectorContext?.activePlayerId || '').trim() ||
+      controllerId;
+    const battlefield = getProcessedBattlefield(nextState);
+    const hasLegalSacrifice = battlefield.some((perm: any) => {
+      if (String(perm?.controller || '').trim() !== targetPlayerId) return false;
+      const typeLine = getExecutorTypeLineLower(perm);
+      if (typeLine.includes('land')) return false;
+      if (Boolean((perm as any)?.isToken) || /\btoken\b/i.test(typeLine)) return false;
+      return true;
+    });
+    return !hasLegalSacrifice;
+  }
+
   {
     const extended = evaluateExtendedConditionalClause({
       normalizedRaw,
@@ -856,6 +1000,61 @@ export function evaluateConditionalWrapperCondition(params: {
       lastExcessDamageDealtThisWay,
     });
     if (extended !== null) return extended;
+  }
+
+  if (normalizedRaw === 'a graveyard has twenty or more cards in it') {
+    const graveyardCount = ((nextState as any).players || []).reduce((sum: number, player: any) => {
+      const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+      return sum + graveyard.length;
+    }, 0);
+    return graveyardCount >= 20;
+  }
+
+  if (normalizedRaw === 'this creature entered this turn') {
+    const source = getSourceBattlefieldPermanent(nextState, ctx);
+    if (!source) return false;
+    return Boolean((source as any)?.enteredThisTurn);
+  }
+
+  if (normalizedRaw === 'it entered from your library or was cast from your library') {
+    const antecedent = getAffirmativeAntecedentOutcome();
+    if (antecedent?.stepKind === 'draw' && antecedent.kind === 'applied') return true;
+    const movedCards = [
+      ...(Array.isArray(lastMovedCards) ? lastMovedCards : []),
+      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+    ];
+    if (movedCards.length > 0) return true;
+    return false;
+  }
+
+  if (normalizedRaw === 'you control another creature with power 2 or less') {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const battlefield = getProcessedBattlefield(nextState);
+    return battlefield.some((perm: any) => {
+      const permanentId = String(perm?.id || '').trim();
+      if (!permanentId || (sourceId && permanentId === sourceId)) return false;
+      if (String(perm?.controller || '').trim() !== String(controllerId || '').trim()) return false;
+      if (!getExecutorTypeLineLower(perm).includes('creature')) return false;
+      return readCreaturePowerForUnless(perm) <= 2;
+    });
+  }
+
+  {
+    const discardUnlessMatch = normalizedRaw.match(
+      /^(?:they|you) discard (?:a|an) (.+)$/
+    );
+    if (discardUnlessMatch) {
+      const descriptor = String(discardUnlessMatch[1] || '').trim().toLowerCase();
+      if (normalizedRaw.startsWith('they discard')) {
+        const opponentIds = ((nextState as any).players || [])
+          .map((player: any) => String(player?.id || '').trim())
+          .filter((playerId: string) => playerId && playerId !== String(controllerId || '').trim());
+        return opponentIds.some((opponentId) =>
+          playerHandHasMatchingDescriptor(nextState, opponentId, descriptor),
+        );
+      }
+      return playerHandHasMatchingDescriptor(nextState, String(controllerId || '').trim(), descriptor);
+    }
   }
 
   if (normalizedRaw === 'an opponent controls more lands than you') {
@@ -1491,7 +1690,7 @@ export function evaluateConditionalWrapperCondition(params: {
     const antecedent = getAffirmativeAntecedentOutcome();
     if (antecedent?.stepKind === 'search_library' && antecedent.kind === 'applied') return true;
     if (antecedent?.stepKind === 'search_library' || ctx.searchedLibraryThisWay === false) return false;
-    return null;
+    return false;
   }
 
   if (

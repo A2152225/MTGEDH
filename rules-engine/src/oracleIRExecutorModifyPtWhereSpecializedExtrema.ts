@@ -64,6 +64,15 @@ export function tryEvaluateModifyPtWhereSpecializedExtrema(args: {
   } = args;
 
   {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among tapped creatures (?:your opponents control|an opponent controls|you don['']?t control|you do not control)$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
+      const tappedCreatures = (opponentsControlled as any[]).filter(permanent => (permanent as any)?.tapped || (permanent as any)?.isTapped) as BattlefieldPermanent[];
+      return greatestStatAmongCreatures(tappedCreatures, which);
+    }
+  }
+
+  {
     const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among ([\w]+(?:\s+[\w]+)*?)\s+(?:you control|they control|your opponents control|an opponent controls)$/i);
     if (m) {
       const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
@@ -99,15 +108,6 @@ export function tryEvaluateModifyPtWhereSpecializedExtrema(args: {
       const excludedId = getExcludedId();
       const attackingCreatures = (controlled as any[]).filter(permanent => isAttackingObject(permanent)) as BattlefieldPermanent[];
       return greatestStatAmongCreatures(attackingCreatures, which, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among tapped creatures (?:your opponents control|an opponent controls|you don['']?t control|you do not control)$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const tappedCreatures = (opponentsControlled as any[]).filter(permanent => (permanent as any)?.tapped || (permanent as any)?.isTapped) as BattlefieldPermanent[];
-      return greatestStatAmongCreatures(tappedCreatures, which);
     }
   }
 

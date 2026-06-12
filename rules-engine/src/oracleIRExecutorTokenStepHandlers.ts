@@ -39,6 +39,8 @@ type TokenStepRuntime = {
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   readonly lastMovedCards?: readonly any[];
   readonly lastReferenceAmount?: number;
+  readonly lastSacrificedPermanents?: readonly any[];
+  readonly lastCreatedTokenIds?: readonly string[];
 };
 
 type TokenCreationSpec = {
@@ -445,9 +447,14 @@ function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
 function normalizeCopyReferenceBody(body: string): string {
   let reference = String(body || '').trim();
   reference = reference.replace(/\s+and\s+that(?:'|\u2019)?s?\s+(?:tapped(?:\s+and\s+attacking)?|attacking|are\s+tapped(?:\s+and\s+attacking)?).*$/i, '');
+  reference = reference.replace(/\s+attached\s+to\s+(?:that|this|the)\s+(?:creature|permanent(?:\s+twin)?)\b.*$/i, '');
+  reference = reference.replace(/\s+tapped\s+and\s+attacking\s+that\s+player\b.*$/i, '');
+  reference = reference.replace(/\s+tapped\s+and\s+attacking\b.*$/i, '');
   reference = reference.replace(/,\s*where\s+x\s+is\b.*$/i, '');
   reference = reference.replace(/\.\s*exile\b.*$/i, '');
   reference = reference.replace(/\.\s*at\s+the\s+beginning\b.*$/i, '');
+  reference = reference.replace(/\s+at the beginning of the next end step\b.*$/i, '');
+  reference = reference.replace(/\s+instead$/i, '');
   return reference.replace(/[.\s]+$/g, '').trim();
 }
 
@@ -461,7 +468,7 @@ function splitCopyTokenReference(tokenHint: string): {
   const body = normalizeCopyReferenceBody(raw.replace(/^.*?\bcop(?:y|ies)\s+of\s+/i, '').trim());
   if (!body) return null;
 
-  const exceptMatch = body.match(/^(.*?),\s*except\s+(.+)$/i);
+  const exceptMatch = body.match(/^(.*?)(?:,\s*|\s+)except\s+(.+)$/i);
   if (!exceptMatch) {
     return {
       referenceText: body,
@@ -847,6 +854,48 @@ type CopySourceResolution =
   | { readonly kind: 'player_choice_required'; readonly availableIds: readonly string[] }
   | { readonly kind: 'unavailable' };
 
+function snapshotToCopySourceObject(snapshot: any): any | null {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const typeLine = String(snapshot.typeLine || snapshot.type_line || 'Permanent').trim();
+  const id = String(snapshot.id || '').trim();
+  if (!id) return null;
+  return {
+    id,
+    name: String(snapshot.name || 'Permanent').trim() || 'Permanent',
+    type_line: typeLine,
+    card: {
+      id,
+      name: String(snapshot.name || 'Permanent').trim() || 'Permanent',
+      type_line: typeLine,
+      ...(snapshot.manaValue !== undefined ? { cmc: snapshot.manaValue, manaValue: snapshot.manaValue } : {}),
+    },
+    ...(snapshot.power !== undefined ? { power: snapshot.power } : {}),
+    ...(snapshot.toughness !== undefined ? { toughness: snapshot.toughness } : {}),
+    ...(Array.isArray(snapshot.colors) ? { colors: snapshot.colors } : {}),
+  };
+}
+
+function collectCopySourceSnapshots(ctx: OracleIRExecutionContext, runtime?: TokenStepRuntime): any[] {
+  const snapshots = [
+    ...(Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : []),
+    ...(Array.isArray((ctx as any).lastSacrificedPermanents) ? (ctx as any).lastSacrificedPermanents : []),
+  ];
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return snapshots;
+  return snapshots.filter((snapshot) => String((snapshot as any)?.id || '').trim() === sourceId);
+}
+
+function resolveSnapshotCopySource(
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime
+): CopySourceResolution | null {
+  const snapshots = collectCopySourceSnapshots(ctx, runtime)
+    .map(snapshotToCopySourceObject)
+    .filter((entry): entry is any => Boolean(entry));
+  if (snapshots.length === 1) return { kind: 'resolved', sourceObject: snapshots[0] };
+  return null;
+}
+
 function findSourceObjectByIdAcrossState(state: GameState, sourceId: string): any | null {
   const normalizedSourceId = String(sourceId || '').trim();
   if (!normalizedSourceId) return null;
@@ -1020,7 +1069,9 @@ function resolveCopyTokenSource(
     }
 
     const sourceFallback = findSourceObjectByIdAcrossState(state, String(ctx.sourceId || '').trim());
-    return sourceFallback ? { kind: 'resolved', sourceObject: sourceFallback } : { kind: 'unavailable' };
+    if (sourceFallback) return { kind: 'resolved', sourceObject: sourceFallback };
+    const snapshotFallback = resolveSnapshotCopySource(ctx, runtime);
+    return snapshotFallback || { kind: 'unavailable' };
   }
 
   if (
@@ -1033,7 +1084,9 @@ function resolveCopyTokenSource(
     referenceText === 'this token'
   ) {
     const sourceFallback = findSourceObjectByIdAcrossState(state, String(ctx.sourceId || '').trim());
-    return sourceFallback ? { kind: 'resolved', sourceObject: sourceFallback } : { kind: 'unavailable' };
+    if (sourceFallback) return { kind: 'resolved', sourceObject: sourceFallback };
+    const snapshotFallback = resolveSnapshotCopySource(ctx, runtime);
+    return snapshotFallback || { kind: 'unavailable' };
   }
 
   if (referenceText === 'that artifact or creature' || referenceText === 'that creature or artifact') {
@@ -1124,6 +1177,22 @@ function resolveCopyTokenSource(
         : battlefieldIds
       : chosenObjectIds;
     if (candidateIds.length !== 1) {
+      if (referenceText === 'that creature' || referenceText === 'that permanent') {
+        const preferredTargetId = String(
+          ctx.targetCreatureId ||
+            ctx.targetPermanentId ||
+            ctx.selectorContext?.targetCreatureId ||
+            ctx.selectorContext?.targetPermanentId ||
+            ctx.selectorContext?.combatOpponentCreatureId ||
+            ''
+        ).trim();
+        if (preferredTargetId) {
+          const preferredPermanent = (state.battlefield || []).find(
+            (perm) => String((perm as any)?.id || '').trim() === preferredTargetId
+          );
+          if (preferredPermanent) return { kind: 'resolved', sourceObject: preferredPermanent };
+        }
+      }
       return candidateIds.length > 1
         ? { kind: 'player_choice_required', availableIds: candidateIds }
         : { kind: 'unavailable' };
@@ -1561,12 +1630,122 @@ function scheduleTokenCleanup(
   };
 }
 
+function resolveForEachAttachedCopyHostId(
+  ctx: OracleIRExecutionContext,
+  raw: string
+): string {
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (/attached to (?:it|that creature)\b/i.test(raw)) {
+    return String(
+      ctx.targetCreatureId ||
+        ctx.targetPermanentId ||
+        ctx.selectorContext?.targetCreatureId ||
+        ctx.selectorContext?.targetPermanentId ||
+        ''
+    ).trim();
+  }
+  return sourceId;
+}
+
+function resolveAttachedCopyAttachTargetId(
+  ctx: OracleIRExecutionContext,
+  runtime: TokenStepRuntime | undefined,
+  raw: string,
+  fallbackHostId: string
+): string {
+  if (/attached to this permanent twin\b/i.test(raw)) {
+    const createdIds = Array.isArray(runtime?.lastCreatedTokenIds)
+      ? runtime.lastCreatedTokenIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (createdIds.length === 1) return createdIds[0];
+    const movedIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
+      ? runtime.lastMovedBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (movedIds.length === 1) return movedIds[0];
+  }
+  if (/attached to that creature\b/i.test(raw)) return fallbackHostId;
+  return '';
+}
+
+function tryApplyForEachAttachedCopyStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'create_token' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime
+): TokenStepHandlerResult | null {
+  const raw = String(step.raw || '').toLowerCase();
+  const wantsNontokenAttached = /for each nontoken permanent attached to (?:it|that creature|this permanent)\b/.test(raw);
+  const wantsAuraEquipment = /for each aura and equipment attached to (?:this permanent|it|stangg)\b/.test(raw);
+  if (!wantsNontokenAttached && !wantsAuraEquipment) return null;
+
+  const hostId = resolveForEachAttachedCopyHostId(ctx, raw);
+  if (!hostId) {
+    return {
+      applied: false,
+      message: `Skipped token creation (copy source unavailable): ${step.raw}`,
+      reason: 'impossible_action',
+    };
+  }
+
+  const attachments = (state.battlefield || []).filter((perm: any) => {
+    if (String(perm?.attachedTo || '').trim() !== hostId) return false;
+    if (wantsAuraEquipment) {
+      return typeLineHasWord(perm, 'enchantment') || typeLineHasWord(perm, 'equipment');
+    }
+    return !perm?.isToken;
+  });
+  if (attachments.length === 0) {
+    return { applied: true, state, log: ['No attached permanents to copy'], createdTokenIds: [] };
+  }
+
+  const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+  const attachTargetId = resolveAttachedCopyAttachTargetId(ctx, runtime, raw, hostId);
+  let nextState = state;
+  const log: string[] = [];
+  const createdTokenIds: string[] = [];
+
+  for (const attachment of attachments) {
+    const token = createCopiedTokenPermanent({
+      sourceObject: attachment,
+      controllerId,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      copySourcePermanentId: String((attachment as any)?.id || '').trim(),
+      overrides: parseCopyTokenOverrides(''),
+    }) as any;
+    nextState = {
+      ...nextState,
+      battlefield: [...(nextState.battlefield || []), token],
+    };
+    const tokenId = String(token.id || '').trim();
+    if (tokenId) createdTokenIds.push(tokenId);
+    if (attachTargetId) {
+      const attachResult = attachExistingBattlefieldPermanentToTarget(nextState, tokenId, attachTargetId);
+      if (attachResult.kind === 'impossible') {
+        return {
+          applied: false,
+          message: `Skipped token creation (attachment target unavailable): ${step.raw}`,
+          reason: 'impossible_action',
+        };
+      }
+      nextState = attachResult.state;
+      log.push(...attachResult.log);
+    }
+    log.push(`Created attached copy token for ${String((attachment as any)?.name || 'permanent')}`);
+  }
+
+  return { applied: true, state: nextState, log, createdTokenIds };
+}
+
 export function applyCreateTokenStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'create_token' }>,
   ctx: OracleIRExecutionContext,
   runtime?: TokenStepRuntime
 ): TokenStepHandlerResult {
+  const attachedCopyResult = tryApplyForEachAttachedCopyStep(state, step, ctx, runtime);
+  if (attachedCopyResult) return attachedCopyResult;
+
   const amount = resolveTokenAmount(state, step, ctx, runtime);
   if (amount === null) {
     return {
@@ -1590,15 +1769,12 @@ export function applyCreateTokenStep(
   }
 
   const defendingPlayerId = String(
-    ctx.selectorContext?.targetOpponentId || ctx.selectorContext?.targetPlayerId || ''
+    ctx.selectorContext?.targetOpponentId ||
+      ctx.selectorContext?.targetPlayerId ||
+      (ctx as any).targetOpponentId ||
+      (ctx as any).targetPlayerId ||
+      ''
   ).trim();
-  if ((step.attacking === 'each_other_opponent' || step.attacking === 'defending_player') && !defendingPlayerId) {
-    return {
-      applied: false,
-      message: `Skipped token creation (defending player unavailable): ${step.raw}`,
-      reason: 'unsupported_player_selector',
-    };
-  }
 
   let nextState = state;
   const log: string[] = [];
@@ -1655,18 +1831,23 @@ export function applyCreateTokenStep(
         const priorMovedIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
           ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
           : [];
+        const createdTokenIds = Array.isArray(runtime?.lastCreatedTokenIds)
+          ? runtime.lastCreatedTokenIds.map((id) => String(id || '').trim()).filter(Boolean)
+          : [];
         const attachmentTargetId =
-          attachmentTargetText === 'that creature' ||
-          attachmentTargetText === 'it' ||
-          attachmentTargetText === 'enchanted creature' ||
-          attachmentTargetText === 'enchanted permanent'
-            ? String(
-                ctx.targetPermanentId ||
-                  ctx.targetCreatureId ||
-                  (priorMovedIds.length === 1 ? priorMovedIds[0] : '') ||
-                  ''
-              ).trim()
-            : '';
+          attachmentTargetText === 'this permanent twin'
+            ? (createdTokenIds.length === 1 ? createdTokenIds[0] : priorMovedIds.length === 1 ? priorMovedIds[0] : '')
+            : attachmentTargetText === 'that creature' ||
+                attachmentTargetText === 'it' ||
+                attachmentTargetText === 'enchanted creature' ||
+                attachmentTargetText === 'enchanted permanent'
+              ? String(
+                  ctx.targetPermanentId ||
+                    ctx.targetCreatureId ||
+                    (priorMovedIds.length === 1 ? priorMovedIds[0] : '') ||
+                    ''
+                ).trim()
+              : '';
 
         if (!attachmentTargetId) {
           return {

@@ -197,11 +197,150 @@ npm run test:oracle-ir-migration
 
 Migration suite baseline: **644 tests**.
 
-### Batch 266 — suggested next pass
+### Batch 266 — tap-antecedent scaler + this-creature target fix
 
-1. Re-run `cd server ; npm run executor:coverage` with `EXECUTOR_COVERAGE_ONLY_GAPS=1` after batch 265.
-2. Remaining `modify_pt` gaps: `per_creature_tapped_this_way` antecedent wiring (Siege Striker), player-choice multi-target (Sigardian Zealot), or non-PT skip clusters (conditional/upkeep compound).
-3. Orphan backlog items (`Choose one or both -`, `This spell can't be countered`, land-entry tapped) only when probe shows parse + runtime double-apply.
+Probe target: `per_creature_tapped_this_way` (Siege Striker) and die-roll where-X (Velukan Dragon).
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Executor** | Tap count propagation; mass tap via `chosenObjectIds`; `this creature` resolves to `sourceId` not trigger `targetPermanentId` | `oracleIRExecutorBattlefieldStepHandlers.ts`, `oracleIRExecutorMainLoop.ts`, `oracleIRExecutorBattlefieldOps.ts`, `oracleIRExecutorCreatureStepUtils.ts` |
+| **Where-X** | `x is the result minus N` for die rolls | `oracleIRExecutorModifyPtWhereMiscCounts.ts` |
+| **Server** | `preserveTapScalerOrder` for optional tap + per-tapped pump compounds | `oracleIrUncategorizedSpellFallback.ts` |
+| **Tests** | Siege Striker tap pump fallback; Velukan roll-die parse | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 266:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+Migration suite baseline: **645 tests**.
+
+### Batch 267 — combat blocking mass PT + antecedent/global mass (12-item cluster)
+
+Probe target: remaining `modify_pt` executor gaps + add_counter pronoun/named targets.
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Executor** | Combat-aware blocker resolution; `each of them`; `nonartifact creatures`; goblin scaler; attacking-you-control where-X; mutate count fields | `oracleIRExecutorCreatureStepUtils.ts`, `oracleIRExecutorModifyPtStepHandlers.ts`, `oracleIRExecutorModifyPtWhereControlledCounts.ts`, `oracleIRExecutorModifyPtWhereMiscCounts.ts` |
+| **Parser** | Blocking-this-creature bare; nonartifact mass; each-of-them scaled/compound | `oracleIRParserPostprocess.ts` |
+| **Counters** | him/her pronouns; source-name self target; other-target distribute | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Tests** | Gap batch 232 + 3 fallback + routing | `oracleIRGapBatch232.test.ts`, `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 267:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRGapBatch232.test.ts test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+Migration suite baseline: **648 tests**.
+
+### Batch 268 — add_counter X amounts + typed/distribute targets (12-item cluster)
+
+Probe target: 21 `add_counter` unsupported_target gaps + remaining sparse `modify_pt` fixtures.
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Executor** | `resolveOracleQuantity` in `resolveAddCounterAmount`; distribute elves/commanders/other-target; `each of those permanents`; `target TYPE you control` bound resolution | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Executor** | Aura `this creature`/`it` → enchanted creature host | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Tests** | Gap batch 233 + routing (+8) | `oracleIRGapBatch233.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 268:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRGapBatch233.test.ts test/oracleIRGapBatch232.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+Migration suite baseline: **648 tests**.
+
+### Batch 269 — unsupported_condition_clause cluster (11-item)
+
+Probe target: 18 `unsupported_condition_clause` executor skips.
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Executor** | Scaled unless-pay; library-search false default; graveyard/ETB/library-origin; discard-unless type checks | `oracleIRExecutorConditionalStepSupport.ts`, `oracleIRExecutorMainLoop.ts` |
+| **Tests** | Gap batch 234 + routing (+4) | `oracleIRGapBatch234.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 269:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRGapBatch234.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+npx tsx scripts/executor-condition-gap-analysis.ts
+```
+
+Migration suite baseline: **648 tests**. Condition gaps: **3** remaining (cleared in batch 270).
+
+### Batch 270 — selector + last condition clauses (14-item)
+
+Probe targets: 11 `unsupported_selector` + 3 `unsupported_condition_clause` executor skips.
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Executor** | Early linked-exile bulk move_zone; among-those-cards MV; sacrificed-power land drop; stash gy exile; last unless/conditional clauses | `oracleIRExecutorMoveZoneStepHandlers.ts`, `oracleIRExecutorZoneOps.ts`, `oracleIRExecutorConditionalStepSupport.ts`, `oracleIRExecutionTypes.ts` |
+| **Tests** | Gap batch 235 (11) | `oracleIRGapBatch235.test.ts` |
+
+**Verify batch 270:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRGapBatch235.test.ts
+cd ../server
+npm run test:oracle-ir-migration
+npx tsx scripts/executor-selector-gap-analysis.ts
+npx tsx scripts/executor-condition-gap-analysis.ts
+```
+
+Migration suite baseline: **648 tests**. Selector gaps: **0**. Condition gaps: **0**.
+
+### Batch 271 — audit enrichment + general executor gaps (17 → 10)
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Audit** | Elf distribute, that-land skip_untap, sacrifice choice bindings, modify_pt where-X fixtures, copy-token sources | `executor-coverage-audit.ts` |
+| **Parser** | Each-player sacrifice; create-token copy residual | `oracleIRParserPostprocess.ts` |
+| **Executor** | Elf distribute fallback; sacrificed ctx where-X; copy `instead`; tapped greatest-power ordering | `oracleIRExecutorBattlefieldStepHandlers.ts`, `oracleIRExecutorModifyPtWhere*.ts`, `oracleIRExecutorTokenStepHandlers.ts` |
+| **Tests** | Gap batch 236 (10) | `oracleIRGapBatch236.test.ts` |
+
+**Verify batch 271:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRGapBatch236.test.ts
+cd ../server
+npm run test:oracle-ir-migration
+$env:EXECUTOR_COVERAGE_ONLY_GAPS='1'; npm run executor:coverage
+npx tsx scripts/executor-general-gap-analysis.ts
+```
+
+Parse→execute gaps: **172 → 163**. General-gap clusters: **17 → 10**.
+
+### Batch 272 — completed
+
+1. Nested-step audit via `someOracleSteps`; each-player sacrifice per-seat fixtures; sacrificed snapshot dedupe; copy-it/that-creature/die-roll/delayed-token enrichments.
+2. Executor each-player sacrifice picks; `lastCreatedTokenIds` from audit ctx.
+3. Tests: `oracleIRGapBatch237.test.ts` (6). General-gap clusters **11 → 9**.
+
+### Batch 273 — suggested next pass
+
+1. Close remaining 9 general-gap clusters (multi-step create_token copy chains, Social Snub copy_spell path, X sacrifices, die-result modify_pt).
+2. Re-run `executor:coverage` with `EXECUTOR_COVERAGE_ONLY_GAPS=1`.
 
 See **`docs/oracle-ir-session-handoff.md`** for copy-paste continue prompt.
 

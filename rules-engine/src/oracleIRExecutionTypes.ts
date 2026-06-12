@@ -66,6 +66,16 @@ export interface OracleIRSelectorContext {
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Bound pay/decline choice for unless-pays-mana wrappers when already known. */
   readonly unlessPaysManaChoice?: 'pay' | 'decline';
+  /** Whether an optional spell additional cost was paid when casting. */
+  readonly optionalAdditionalCostWasPaid?: boolean;
+  /** Whether a waterbend additional cost was paid when casting. */
+  readonly waterbendWasPaid?: boolean;
+  /** Whether a permanent entered face down under the controller's control this turn. */
+  readonly faceDownPermanentEnteredThisTurnUnderYourControl?: boolean;
+  /** Whether the controller turned a permanent face up this turn. */
+  readonly turnedPermanentFaceUpThisTurn?: boolean;
+  /** Active player for upkeep-style conditions such as Doom Foretold. */
+  readonly activePlayerId?: PlayerID;
   /** Bound explore resolution for nonland reveals (true = mill to graveyard). */
   readonly exploreToGraveyard?: boolean;
   /** Player-chosen counter split for distribute-among steps keyed by permanent id. */
@@ -234,8 +244,16 @@ export interface OracleIRExecutionContext {
   readonly giftPromised?: boolean;
   /** Whether a Teamwork additional cost was paid when casting this spell. */
   readonly teamworkWasPaid?: boolean;
+  /** Whether an optional spell additional cost (e.g. waterbend) was paid when casting. */
+  readonly optionalAdditionalCostWasPaid?: boolean;
+  /** Alias for optional spell additional costs such as waterbend. */
+  readonly waterbendWasPaid?: boolean;
   /** Whether an alternate "rather than pay this spell's mana cost" cost was paid. */
   readonly alternateCostPaid?: boolean;
+  /** Whether a permanent entered face down under the controller's control this turn. */
+  readonly faceDownPermanentEnteredThisTurnUnderYourControl?: boolean;
+  /** Whether the controller turned a permanent face up this turn. */
+  readonly turnedPermanentFaceUpThisTurn?: boolean;
   /** Whether a library search step applied during this resolution. */
   readonly searchedLibraryThisWay?: boolean;
   /** Cards milled by the most recent mill step in this resolution. */

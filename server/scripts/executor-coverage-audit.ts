@@ -187,6 +187,17 @@ export function walkOracleSteps(
   }
 }
 
+export function someOracleSteps(
+  steps: readonly OracleEffectStep[] | undefined,
+  predicate: (step: OracleEffectStep) => boolean
+): boolean {
+  let matched = false;
+  walkOracleSteps(steps, (step) => {
+    if (!matched && predicate(step)) matched = true;
+  });
+  return matched;
+}
+
 export function countOracleSteps(steps: readonly OracleEffectStep[] | undefined): StepCount {
   let total = 0;
   let unknown = 0;
@@ -611,13 +622,65 @@ export function enrichAuditStateAndContextForTargets(
     };
   }
 
+  const needsDistributeAmongElves = steps.some(
+    (step) =>
+      step.kind === 'add_counter' &&
+      ((step as { distribution?: string }).distribution === 'among' || /^distribute\b/i.test(String(step.raw || ''))) &&
+      /target elves/i.test(String((step as any).target?.text || step.raw || '')),
+  );
   const needsDistributeAmongTargets = steps.some(
     (step) =>
       step.kind === 'add_counter' &&
       ((step as { distribution?: string }).distribution === 'among' || /^distribute\b/i.test(String(step.raw || ''))) &&
       /target creatures/i.test(String((step as any).target?.text || step.raw || '')),
   );
-  if (needsDistributeAmongTargets) {
+  if (needsDistributeAmongElves) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    const elfFixtures = [
+      {
+        id: 'bf-elf-1',
+        name: 'Audit Elf One',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Elf',
+        power: 2,
+        toughness: 2,
+        card: { name: 'Audit Elf One', type_line: 'Creature — Elf' },
+      },
+      {
+        id: 'bf-elf-2',
+        name: 'Audit Elf Two',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Elf Warrior',
+        power: 3,
+        toughness: 3,
+        card: { name: 'Audit Elf Two', type_line: 'Creature — Elf Warrior' },
+      },
+    ];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-elf-\d+$/.test(String(perm?.id || ''))),
+        ...elfFixtures,
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-elf-1',
+            'bf-elf-2',
+          ]),
+        ),
+      },
+    } as typeof nextCtx;
+  } else if (needsDistributeAmongTargets) {
     nextCtx = {
       ...nextCtx,
       selectorContext: {
@@ -633,6 +696,435 @@ export function enrichAuditStateAndContextForTargets(
         ),
       },
     } as typeof nextCtx;
+  }
+
+  const needsSkipNextUntapThatLand = steps.some(
+    (step) =>
+      step.kind === 'skip_next_untap' &&
+      /that land/i.test(String((step as any).target?.text || step.raw || '')),
+  );
+  if (needsSkipNextUntapThatLand) {
+    nextCtx = {
+      ...nextCtx,
+      targetPermanentId: 'bf-land-1',
+      lastMovedBattlefieldPermanentIds: ['bf-land-1'],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: 'bf-land-1',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-land-1',
+          ]),
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsEachPlayerSacrificeChoice = someOracleSteps(
+    steps,
+    (step) =>
+      step.kind === 'sacrifice' &&
+      (step as any).who?.kind === 'each_player' &&
+      /of their choice/i.test(String((step as any).what?.text || step.raw || '')),
+  );
+  if (needsEachPlayerSacrificeChoice) {
+    const wantsLand = someOracleSteps(
+      steps,
+      (step) => step.kind === 'sacrifice' && /\bsacrifices a land\b/i.test(String(step.raw || '')),
+    );
+    const wantsPlaneswalker = someOracleSteps(
+      steps,
+      (step) =>
+        step.kind === 'sacrifice' &&
+        /\bcreature or planeswalker\b/i.test(String((step as any).what?.text || step.raw || '')),
+    );
+    const playerIds = (nextState.players || [])
+      .map((player: any) => String(player?.id || '').trim())
+      .filter(Boolean);
+    const chosenIds: string[] = [];
+    const extraBattlefield: any[] = [];
+    for (const playerId of playerIds) {
+      if (playerId === 'p1') {
+        chosenIds.push(wantsLand ? 'bf-land-1' : 'bf-creature-1');
+        continue;
+      }
+      if (playerId === 'p2') {
+        chosenIds.push(wantsLand ? 'bf-opponent-land' : 'bf-opponent-creature');
+        continue;
+      }
+      const fixtureId = wantsLand ? `bf-audit-land-${playerId}` : `bf-audit-creature-${playerId}`;
+      chosenIds.push(fixtureId);
+      extraBattlefield.push(
+        wantsLand
+          ? {
+              id: fixtureId,
+              name: `Audit Land ${playerId}`,
+              controller: playerId,
+              owner: playerId,
+              type_line: 'Basic Land — Forest',
+            }
+          : {
+              id: fixtureId,
+              name: `Audit Creature ${playerId}`,
+              controller: playerId,
+              owner: playerId,
+              type_line: wantsPlaneswalker ? 'Creature — Human' : 'Creature — Human',
+              card: {
+                type_line: wantsPlaneswalker ? 'Creature — Human' : 'Creature — Human',
+                power: '2',
+                toughness: '2',
+              },
+            },
+      );
+    }
+    if (extraBattlefield.length > 0) {
+      nextState = {
+        ...nextState,
+        battlefield: [...((nextState.battlefield || []) as any[]), ...extraBattlefield],
+      } as GameState;
+    }
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: chosenIds,
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsSacrificedPermanentAmount = someOracleSteps(steps, (step) => {
+    const raw = String(step.raw || '');
+    const amountRaw = String((step as any).amount?.raw || '').toLowerCase();
+    const conditionRaw = String((step as any).condition?.raw || '').toLowerCase();
+    return (
+      /sacrificed (?:creature|permanent)/i.test(raw) ||
+      /mana value of the sacrificed permanent/i.test(amountRaw) ||
+      /sacrificed creature's toughness/i.test(amountRaw) ||
+      /sacrificed creature's toughness/i.test(conditionRaw)
+    );
+  });
+  if (needsSacrificedPermanentAmount) {
+    nextCtx = {
+      ...nextCtx,
+      lastSacrificedPermanents: [
+        {
+          id: 'bf-creature-1',
+          name: 'Grizzly Bears',
+          typeLine: 'creature — bear',
+          type_line: 'Creature — Bear',
+          power: 2,
+          toughness: 4,
+          manaValue: 3,
+          cmc: 3,
+          mana_value: 3,
+          colors: ['G'],
+        },
+      ],
+    } as typeof nextCtx;
+  }
+
+  const needsOptionalNonlandSacrifice = someOracleSteps(
+    steps,
+    (step) => step.kind === 'sacrifice' && /you may sacrifice another nonland/i.test(String(step.raw || '')),
+  );
+  if (needsOptionalNonlandSacrifice && needsSacrificedPermanentAmount) {
+    nextCtx = {
+      ...nextCtx,
+      targetPermanentId: 'bf-artifact-1',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: 'bf-artifact-1',
+        chosenObjectIds: ['bf-artifact-1'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCopyThatCreatureReference = someOracleSteps(
+    steps,
+    (step) =>
+      (step.kind === 'create_token' || step.kind === 'conditional') &&
+      /copy of that creature/i.test(String(step.raw || '')),
+  );
+  const needsCopyItReference = someOracleSteps(
+    steps,
+    (step) =>
+      (step.kind === 'create_token' || step.kind === 'conditional') &&
+      /\bcopy of it\b/i.test(String(step.raw || '')),
+  );
+  if (needsCopyThatCreatureReference || needsCopyItReference) {
+    const referenceId = needsCopyThatCreatureReference
+      ? 'bf-opponent-creature'
+      : String(nextCtx.sourceId || 'bf-source').trim();
+    const sourceSnapshot = ((nextState.battlefield || []) as any[]).find(
+      (perm) => String(perm?.id || '').trim() === String(nextCtx.sourceId || 'bf-source').trim(),
+    );
+    const delayedCopyOfIt = someOracleSteps(
+      steps,
+      (step) => step.kind === 'create_token' && /copy of it\b/i.test(String(step.raw || '')) && /next end step/i.test(String(step.raw || '')),
+    );
+    nextCtx = {
+      ...nextCtx,
+      targetPermanentId: referenceId,
+      targetCreatureId: referenceId,
+      lastMovedBattlefieldPermanentIds: [referenceId],
+      ...(delayedCopyOfIt && sourceSnapshot
+        ? {
+            lastSacrificedPermanents: [
+              {
+                id: String(sourceSnapshot.id || '').trim(),
+                name: String(sourceSnapshot.name || sourceSnapshot.card?.name || 'Audit Source'),
+                typeLine: String(sourceSnapshot.type_line || sourceSnapshot.card?.type_line || '').toLowerCase(),
+                power: sourceSnapshot.power,
+                toughness: sourceSnapshot.toughness,
+                manaValue: Number(sourceSnapshot.cmc ?? sourceSnapshot.card?.cmc ?? 0) || 0,
+                colors: Array.isArray(sourceSnapshot.colors) ? sourceSnapshot.colors : [],
+              },
+            ],
+          }
+        : {}),
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: referenceId,
+        targetCreatureId: referenceId,
+        chosenObjectIds: [referenceId],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsEachOtherOpponentAttackingCopy = someOracleSteps(
+    steps,
+    (step) =>
+      step.kind === 'create_token' &&
+      ((step as any).attacking === 'each_other_opponent' ||
+        /for each (?:other opponent|opponent other than)/i.test(String(step.raw || ''))),
+  );
+  if (needsEachOtherOpponentAttackingCopy) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    nextCtx = {
+      ...nextCtx,
+      targetOpponentId: 'p2' as PlayerID,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetOpponentId: 'p2' as PlayerID,
+        targetPermanentId: sourceId,
+        targetCreatureId: sourceId,
+        chosenObjectIds: [sourceId],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsDelayedThoseTokenSacrifice = someOracleSteps(
+    steps,
+    (step) =>
+      (step.kind === 'schedule_delayed_battlefield_action' || step.kind === 'sacrifice') &&
+      /those tokens/i.test(String(step.raw || '')),
+  );
+  if (needsDelayedThoseTokenSacrifice) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    nextState = {
+      ...nextState,
+      battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+        if (String(perm?.id || '').trim() !== 'bf-token-1') return perm;
+        return { ...perm, isToken: true, createdBySourceId: sourceId };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastCreatedTokenIds: ['bf-token-1'],
+    } as typeof nextCtx;
+  }
+
+  const needsDieRollWhereX = someOracleSteps(
+    steps,
+    (step) =>
+      step.kind === 'roll_die' ||
+      (step.kind === 'modify_pt' &&
+        (/result minus/i.test(String((step as any).condition?.raw || step.raw || '')) ||
+          /where x is the result/i.test(String(step.raw || '')))),
+  );
+  if (needsDieRollWhereX) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    const sourcePermanent = ((nextState.battlefield || []) as any[]).find(
+      (perm) => String(perm?.id || '').trim() === sourceId,
+    );
+    const equippedTargetId = String(sourcePermanent?.attachedTo || 'bf-creature-1').trim() || 'bf-creature-1';
+    const wantsThatCreatureAfterRoll = steps.some(
+      (step) => step.kind === 'modify_pt' && /that creature/i.test(String((step as any).target?.text || step.raw || '')),
+    );
+    const rollTargetId = wantsThatCreatureAfterRoll ? equippedTargetId : sourceId;
+    nextState = {
+      ...nextState,
+      lastDieRoll: { result: 4 },
+      lastDieRollByPlayer: { p1: { result: 4 }, p2: { result: 3 } },
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetCreatureId: rollTargetId,
+      targetPermanentId: rollTargetId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetCreatureId: rollTargetId,
+        targetPermanentId: rollTargetId,
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsEachPlayerVariableSacrifice = someOracleSteps(
+    steps,
+    (step) =>
+      step.kind === 'sacrifice' &&
+      (step as any).who?.kind === 'each_player' &&
+      /\bsacrifices?\s+x\s+creatures\b/i.test(String(step.raw || '')),
+  );
+  if (needsEachPlayerVariableSacrifice) {
+    const playerIds = (nextState.players || [])
+      .map((player: any) => String(player?.id || '').trim())
+      .filter(Boolean);
+    const requiredCount = Math.max(1, Number((nextCtx as any).xValue) || 3);
+    const extraBattlefield: any[] = [];
+    for (const playerId of playerIds) {
+      for (let idx = 1; idx <= requiredCount; idx += 1) {
+        const fixtureId =
+          playerId === 'p1'
+            ? idx === 1
+              ? 'bf-creature-1'
+              : idx === 2
+                ? 'bf-creature-2'
+                : `bf-audit-creature-p1-${idx}`
+            : playerId === 'p2'
+              ? idx === 1
+                ? 'bf-opponent-creature'
+                : `bf-audit-creature-p2-${idx}`
+              : `bf-audit-creature-${playerId}-${idx}`;
+        if ((nextState.battlefield || []).some((perm: any) => String(perm?.id || '').trim() === fixtureId)) {
+          continue;
+        }
+        extraBattlefield.push({
+          id: fixtureId,
+          name: `Audit Creature ${playerId}-${idx}`,
+          controller: playerId,
+          owner: playerId,
+          type_line: 'Creature — Human',
+          card: { type_line: 'Creature — Human', power: '2', toughness: '2' },
+        });
+      }
+    }
+    if (extraBattlefield.length > 0) {
+      nextState = {
+        ...nextState,
+        battlefield: [...((nextState.battlefield || []) as any[]), ...extraBattlefield],
+      } as GameState;
+    }
+  }
+
+  const needsAttachedCopyLoop = someOracleSteps(
+    steps,
+    (step) =>
+      step.kind === 'create_token' &&
+      (/for each nontoken permanent attached to it/i.test(String(step.raw || '')) ||
+        /for each aura and equipment attached to this permanent/i.test(String(step.raw || ''))),
+  );
+  if (needsAttachedCopyLoop) {
+    const hostId = someOracleSteps(steps, (step) => /attached to it/i.test(String(step.raw || '')))
+      ? String(nextCtx.targetCreatureId || nextCtx.targetPermanentId || 'bf-creature-1').trim()
+      : String(nextCtx.sourceId || 'bf-source').trim();
+    const existing = (nextState.battlefield || []) as any[];
+    const additions: any[] = [];
+    if (!existing.some((perm) => String(perm?.id || '').trim() === 'bf-audit-aura-host')) {
+      additions.push({
+        id: 'bf-audit-aura-host',
+        name: 'Audit Aura',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Enchantment — Aura',
+        attachedTo: hostId,
+        card: { type_line: 'Enchantment — Aura', mana_cost: '{1}{W}', cmc: 2 },
+      });
+    }
+    if (!existing.some((perm) => String(perm?.id || '').trim() === 'bf-audit-equipment-host')) {
+      additions.push({
+        id: 'bf-audit-equipment-host',
+        name: 'Audit Equipment',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Artifact — Equipment',
+        attachedTo: hostId,
+        card: { type_line: 'Artifact — Equipment', mana_cost: '{2}', cmc: 2 },
+      });
+    }
+    if (additions.length > 0) {
+      nextState = {
+        ...nextState,
+        battlefield: [...existing, ...additions],
+      } as GameState;
+    }
+    nextCtx = {
+      ...nextCtx,
+      targetPermanentId: hostId,
+      targetCreatureId: hostId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: hostId,
+        targetCreatureId: hostId,
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsModifyPtItTarget = steps.some(
+    (step) =>
+      step.kind === 'modify_pt' &&
+      /\bit\b/i.test(String((step as any).target?.text || step.raw || '')),
+  );
+  const needsModifyPtWhereXFixtures = steps.some((step) => {
+    if (step.kind !== 'modify_pt') return false;
+    const raw = String(step.raw || '').toLowerCase();
+    return (
+      /devotion to red/i.test(raw) ||
+      /red mana symbols in the mana costs of permanents you control/i.test(raw) ||
+      /oil counters on them/i.test(raw) ||
+      /times this creature has mutated/i.test(raw) ||
+      /greatest power among tapped creatures your opponents control/i.test(raw)
+    );
+  });
+  if (needsModifyPtItTarget || needsModifyPtWhereXFixtures) {
+    const targetId = String(nextCtx.targetCreatureId || nextCtx.selectorContext?.targetCreatureId || 'bf-source').trim();
+    nextCtx = {
+      ...nextCtx,
+      targetCreatureId: targetId,
+      targetPermanentId: targetId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetCreatureId: targetId,
+        targetPermanentId: targetId,
+      },
+    } as typeof nextCtx;
+    nextState = {
+      ...nextState,
+      battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+        const permId = String(perm?.id || '').trim();
+        if (permId === 'bf-red-creature') {
+          return {
+            ...perm,
+            mana_cost: '{R}{R}{R}',
+            cmc: 3,
+            card: { ...(perm.card || {}), mana_cost: '{R}{R}{R}', cmc: 3 },
+          };
+        }
+        if (permId === 'bf-artifact-1') {
+          return { ...perm, counters: { ...(perm.counters || {}), oil: 2 } };
+        }
+        if (permId === 'bf-source') {
+          return { ...perm, mutatedTimes: 2, mutatedStack: ['bf-source', 'bf-creature-1'] };
+        }
+        if (permId === 'bf-opponent-creature') {
+          return { ...perm, tapped: true, power: 5, toughness: 5 };
+        }
+        return perm;
+      }),
+    } as GameState;
   }
 
   let needsDiedCreatureCounters = false;
@@ -1817,21 +2309,43 @@ export function enrichAuditStateAndContextForTargets(
   const needsEnchantedCreatureRestriction = steps.some((step) =>
     /enchanted creature can't|enchanted permanent doesn't untap|its activated abilities can't be activated/i.test(String(step.raw || ''))
   );
-  const needsCopyTokenSource = steps.some((step) =>
-    step.kind === 'create_token' &&
-    /copy of (?:that artifact or creature|that aura|one of those creatures|(?:it\b|this equipment|this enchantment|that artifact|enchanted creature|one of them|one of those permanents|blighted creature))/i.test(String(step.raw || ''))
+  const matchesCopyTokenRaw = (raw: string): boolean =>
+    /create a token that'?s a copy of|create a token copy of/i.test(raw) &&
+    /copy of (?:that artifact or creature|that aura|one of those creatures|(?:it\b|this creature|this permanent|that creature|that permanent|that wizard|this equipment|this enchantment|that artifact|enchanted creature|one of them|one of those permanents|blighted creature))/i.test(
+      raw,
+    );
+
+  const needsCopyTokenSource = someOracleSteps(
+    steps,
+    (step) =>
+      (step.kind === 'create_token' && matchesCopyTokenRaw(String(step.raw || ''))) ||
+      (step.kind === 'conditional' && matchesCopyTokenRaw(String(step.raw || ''))),
   );
-  const needsStackArtifactCreatureCopy = steps.some((step) =>
-    step.kind === 'create_token' &&
-    /copy of that artifact or creature/i.test(String(step.raw || ''))
+  const needsAttachedPermanentCopy = someOracleSteps(
+    steps,
+    (step) =>
+      (step.kind === 'create_token' &&
+        /for each (?:nontoken permanent|aura and equipment) attached to (?:it|this permanent)/i.test(
+          String(step.raw || '')
+        )) ||
+      (step.kind === 'conditional' &&
+        /for each (?:nontoken permanent|aura and equipment) attached to (?:it|this permanent)/i.test(
+          String(step.raw || '')
+        )),
   );
-  const needsOneOfThoseCreaturesCopy = steps.some((step) =>
-    step.kind === 'create_token' &&
-    /copy of one of those creatures/i.test(String(step.raw || ''))
+  const needsStackArtifactCreatureCopy = someOracleSteps(
+    steps,
+    (step) =>
+      step.kind === 'create_token' && /copy of that artifact or creature/i.test(String(step.raw || '')),
   );
-  const needsThatAuraCopy = steps.some((step) =>
-    step.kind === 'create_token' &&
-    /copy of that aura/i.test(String(step.raw || ''))
+  const needsOneOfThoseCreaturesCopy = someOracleSteps(
+    steps,
+    (step) =>
+      step.kind === 'create_token' && /copy of one of those creatures/i.test(String(step.raw || '')),
+  );
+  const needsThatAuraCopy = someOracleSteps(
+    steps,
+    (step) => step.kind === 'create_token' && /copy of that aura/i.test(String(step.raw || '')),
   );
   const needsExchangeControl = steps.some((step) => step.kind === 'exchange_control');
   const needsPutOnBottom = steps.some((step) => step.kind === 'put_on_bottom');
@@ -1880,21 +2394,62 @@ export function enrichAuditStateAndContextForTargets(
     } as GameState;
   }
 
-  if (needsCopyTokenSource) {
+  if (needsCopyTokenSource || needsAttachedPermanentCopy) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    const wantsThatCreatureCopy = someOracleSteps(
+      steps,
+      (step) =>
+        (step.kind === 'create_token' || step.kind === 'conditional') &&
+        /copy of that creature/i.test(String(step.raw || '')),
+    );
+    const referenceId = wantsThatCreatureCopy ? 'bf-opponent-creature' : sourceId;
     nextCtx = {
       ...nextCtx,
+      targetPermanentId: referenceId,
+      targetCreatureId: wantsThatCreatureCopy ? 'bf-opponent-creature' : sourceId,
       lastMovedBattlefieldPermanentIds: needsOneOfThoseCreaturesCopy
         ? ['bf-opponent-creature', 'bf-creature-2']
-        : ['bf-opponent-artifact'],
+        : needsAttachedPermanentCopy
+          ? [sourceId, 'bf-enchantment-1', 'bf-equipment-1']
+          : wantsThatCreatureCopy
+            ? ['bf-opponent-creature']
+            : ['bf-opponent-artifact'],
       selectorContext: {
         ...(nextCtx.selectorContext || {}),
-        chosenObjectIds: needsOneOfThoseCreaturesCopy
-          ? ['bf-opponent-creature', 'bf-creature-1']
-          : needsThatAuraCopy
-            ? ['bf-creature-1', 'bf-enchantment-1']
-            : ['bf-opponent-artifact', 'bf-creature-1'],
+        targetPermanentId: referenceId,
+        targetCreatureId: wantsThatCreatureCopy ? 'bf-opponent-creature' : sourceId,
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            ...(needsOneOfThoseCreaturesCopy
+              ? ['bf-opponent-creature', 'bf-creature-1']
+              : needsThatAuraCopy
+                ? ['bf-creature-1', 'bf-enchantment-1']
+                : needsAttachedPermanentCopy
+                  ? [sourceId, 'bf-enchantment-1', 'bf-equipment-1', 'bf-creature-1']
+                  : ['bf-opponent-artifact', 'bf-creature-1', sourceId, 'bf-audit-wizard']),
+          ]),
+        ),
       },
     } as typeof nextCtx;
+  }
+
+  if (needsAttachedPermanentCopy) {
+    nextState = {
+      ...nextState,
+      battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+        const permId = String(perm?.id || '').trim();
+        if (permId === 'bf-enchantment-1') {
+          return { ...perm, attachedTo: String(nextCtx.sourceId || 'bf-source').trim() };
+        }
+        if (permId === 'bf-equipment-1') {
+          return { ...perm, attachedTo: String(nextCtx.sourceId || 'bf-source').trim() };
+        }
+        return perm;
+      }),
+    } as GameState;
   }
 
   if (needsThatAuraCopy) {
@@ -2110,11 +2665,13 @@ export function enrichAuditStateAndContextForTargets(
     } as GameState;
   }
 
-  const needsCopyTokenFixtures = steps.some((step) =>
-    step.kind === 'create_token' &&
-    /non-?saga token you control|nonlegendary enchantment you control|enchanted artifact|that wizard|quest counter on it|cursed role token attached to it|sorcerer role token attached to it/i.test(
-      String(step.raw || '')
-    )
+  const needsCopyTokenFixtures = someOracleSteps(
+    steps,
+    (step) =>
+      (step.kind === 'create_token' || step.kind === 'conditional') &&
+      /non-?saga token you control|nonlegendary enchantment you control|enchanted artifact|that wizard|quest counter on it|cursed role token attached to it|sorcerer role token attached to it/i.test(
+        String(step.raw || '')
+      ),
   );
   if (needsCopyTokenFixtures) {
     nextState = {
@@ -2878,6 +3435,33 @@ export function enrichAuditStateAndContextForTargets(
     } as GameState;
   }
 
+  if (needsEachPlayerSacrificeChoice) {
+    const wantsLand = someOracleSteps(
+      steps,
+      (step) => step.kind === 'sacrifice' && /\bsacrifices a land\b/i.test(String(step.raw || '')),
+    );
+    const playerIds = (nextState.players || [])
+      .map((player: any) => String(player?.id || '').trim())
+      .filter(Boolean);
+    const chosenIds: string[] = [];
+    for (const playerId of playerIds) {
+      if (playerId === 'p1') {
+        chosenIds.push(wantsLand ? 'bf-land-1' : 'bf-creature-1');
+      } else if (playerId === 'p2') {
+        chosenIds.push(wantsLand ? 'bf-opponent-land' : 'bf-opponent-creature');
+      } else {
+        chosenIds.push(wantsLand ? `bf-audit-land-${playerId}` : `bf-audit-creature-${playerId}`);
+      }
+    }
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: chosenIds,
+      },
+    } as typeof nextCtx;
+  }
+
   return { state: nextState, ctx: nextCtx };
 }
 
@@ -2886,6 +3470,19 @@ export function shouldDeclineOptionalStepsForAudit(steps: readonly OracleEffectS
   walkOracleSteps(steps, (step) => flat.push(step));
   for (let i = 0; i < flat.length; i += 1) {
     const step = flat[i];
+    if (step.kind === 'copy_spell' && (step as any).optional) {
+      for (let j = i + 1; j < flat.length; j += 1) {
+        const next = flat[j];
+        if (
+          next.kind === 'sacrifice' &&
+          (next as any).who?.kind === 'each_player' &&
+          /of their choice/i.test(String((next as any).what?.text || next.raw || ''))
+        ) {
+          return true;
+        }
+        if (next.kind !== 'copy_spell') break;
+      }
+    }
     if (!(step as any).optional) continue;
     for (let j = i + 1; j < flat.length; j += 1) {
       const next = flat[j];
