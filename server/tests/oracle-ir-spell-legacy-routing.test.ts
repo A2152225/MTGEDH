@@ -387,8 +387,8 @@ describe('oracleIrSpellLegacyRouting', () => {
       'Echo of Eons',
     )).toBe(true);
     expect(isSpellEffectFullyIrWired(
-      'Choose one — • Draw two cards. • Discard your hand, then draw seven cards.',
-      'Chart a Course',
+      'Each player discards their hand, then draws seven cards.',
+      'Windfall',
     )).toBe(true);
     expect(isSpellEffectFullyIrWired(
       'Search your library for a creature card with mana value X or less, put it onto the battlefield, then shuffle.',

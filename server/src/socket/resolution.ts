@@ -122,6 +122,7 @@ import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } f
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, permanentsShareCardType, selectionRequiresSharedCardType, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
 import { checkGraveyardTrigger } from "../state/modules/triggered-abilities.js";
+import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
 import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
@@ -15458,6 +15459,13 @@ async function handleDiscardResponse(
     !isExileFromHandCostActivation &&
     destination === 'graveyard';
   const currentTurn = Number((game.state as any).turnNumber ?? (game.state as any).turn ?? 0) || 0;
+  const discardTrackingCtx = {
+    state: game.state,
+    libraries: (game as any).libraries,
+    bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+    rng: (game as any).rng,
+    gameId,
+  } as any;
   
   for (const cardId of selections) {
     const cardIndex = zones.hand.findIndex((c: any) => c.id === cardId);
@@ -15512,14 +15520,15 @@ async function handleDiscardResponse(
         zones.exile.push(exiledCard);
         movedCardsToExile.push(exiledCard);
       } else {
-        const graveyardCard = {
-          ...card,
-          zone: 'graveyard',
-          discardedByPlayerId: String(pid),
-          discardedOnTurn: currentTurn,
-        };
-        zones.graveyard.push(graveyardCard);
-        movedCardsToGraveyard.push(graveyardCard);
+        const enteredGraveyard = pushCardToPlayerGraveyardWithReplacements(discardTrackingCtx, String(pid), card, zones.graveyard, {
+          extraFields: {
+            discardedByPlayerId: String(pid),
+            discardedOnTurn: currentTurn,
+          },
+        });
+        if (enteredGraveyard) {
+          movedCardsToGraveyard.push(zones.graveyard[zones.graveyard.length - 1]);
+        }
       }
     }
   }
@@ -15529,21 +15538,6 @@ async function handleDiscardResponse(
   zones.graveyardCount = zones.graveyard.length;
   if (zones.exileCount !== undefined) {
     zones.exileCount = zones.exile.length;
-  }
-
-  if (movedCardsToGraveyard.length > 0) {
-    const discardTrackingCtx = {
-      state: game.state,
-      libraries: (game as any).libraries,
-      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-      rng: (game as any).rng,
-      gameId,
-    } as any;
-
-    for (const card of movedCardsToGraveyard) {
-      recordCardPutIntoGraveyardThisTurn(discardTrackingCtx, String(pid), card, { fromBattlefield: false });
-      checkGraveyardTrigger(discardTrackingCtx, card, String(pid));
-    }
   }
 
   if (!isExileFromHandCostActivation && movedCards.length > 0) {

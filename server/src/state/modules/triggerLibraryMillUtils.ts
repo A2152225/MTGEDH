@@ -1,3 +1,5 @@
+import type { GameContext } from '../context.js';
+import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 
 export function getOrCreatePlayerZones(stateAny: any, playerId: PlayerID): any {
@@ -25,7 +27,12 @@ export function getOrCreatePlayerZones(stateAny: any, playerId: PlayerID): any {
   return zones;
 }
 
-export function millCardsFromLibrary(stateAny: any, playerId: PlayerID, count: number): number {
+export function millCardsFromLibrary(
+  stateAny: any,
+  playerId: PlayerID,
+  count: number,
+  ctx?: GameContext,
+): number {
   const zones = getOrCreatePlayerZones(stateAny, playerId);
   let milled = 0;
 
@@ -33,7 +40,11 @@ export function millCardsFromLibrary(stateAny: any, playerId: PlayerID, count: n
     if (zones.library.length === 0) break;
     const card = zones.library.shift();
     if (!card) break;
-    zones.graveyard.push({ ...card, zone: 'graveyard' });
+    if (ctx) {
+      pushCardToPlayerGraveyardWithReplacements(ctx, playerId, card, zones.graveyard);
+    } else {
+      zones.graveyard.push({ ...card, zone: 'graveyard' });
+    }
     milled += 1;
   }
 

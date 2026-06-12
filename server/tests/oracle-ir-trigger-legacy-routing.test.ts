@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  isTriggerEffectFullyIrWired,
   isTriggerEffectOwnedByOracleIrPrimary,
   isTriggerStepKindRetiredUnderOracleIrPrimary,
   ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS,
@@ -174,5 +175,18 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(isTriggerStepKindRetiredUnderOracleIrPrimary('deal_damage')).toBe(true);
     expect(shouldSkipLegacyTriggerBodyHandlers('Draw two cards.', 'Mulldrifter')).toBe(true);
     expect(shouldSkipLegacyTriggerBodyHandlers('Take an extra turn after this one.', 'Time Warp')).toBe(false);
+  });
+
+  it('isTriggerEffectFullyIrWired reports wired trigger clauses independent of primary flag', () => {
+    expect(isTriggerEffectFullyIrWired('Draw two cards.', 'Mulldrifter')).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'choose a creature type. Put a +1/+1 counter on each creature you control of that type.',
+      'Littjara',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      "draw a card. Each player may put a land card from their hand onto the battlefield, then each opponent who didn't draws a card.",
+      'Kynaios and Tiro of Meletis',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired('Do something utterly non-oracular.', 'Creature')).toBe(false);
   });
 });

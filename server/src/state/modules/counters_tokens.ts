@@ -17,6 +17,7 @@ import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
 import { applyShieldCounterDamagePrevention, getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
+import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 import { detectKeywords } from "./keyword-detection.js";
 import { moveRemovedPermanentToExile } from "./zones.js";
@@ -1686,8 +1687,11 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
     (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
     if (zoneCard) {
-      (ownerZone as any).graveyard.push(buildZoneObjectWithRetainedCounters(zoneCard, perm, 'graveyard'));
-      recordCardPutIntoGraveyardThisTurn(ctx, String(owner), zoneCard, { fromBattlefield: true, controllerId: String(controller) });
+      const graveyardCard = buildZoneObjectWithRetainedCounters(zoneCard, perm, 'graveyard');
+      pushCardToPlayerGraveyardWithReplacements(ctx, String(owner), graveyardCard, (ownerZone as any).graveyard, {
+        fromBattlefield: true,
+        controllerId: String(controller),
+      });
       (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
     }
   }

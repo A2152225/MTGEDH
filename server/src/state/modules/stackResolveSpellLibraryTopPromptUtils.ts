@@ -5,7 +5,7 @@ import { debug } from '../../utils/debug.js';
 import { parseManaCost } from '../../socket/util.js';
 import { ResolutionStepType } from '../resolution/index.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
-import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
+import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import {
   detectTopCardsToExileSelectionSpell,
   detectTopCardsToHandSelectionSpell,
@@ -283,8 +283,7 @@ export function applyInstantSorceryLibraryTopCardPromptHandlers(
       z.graveyard = z.graveyard || [];
       
       for (const c of revealed) {
-        z.graveyard.push({ ...c, zone: 'graveyard' });
-        recordCardPutIntoGraveyardThisTurn(ctx, String(controller), c, { fromBattlefield: false });
+        pushCardToPlayerGraveyardWithReplacements(ctx, String(controller), c, z.graveyard);
       }
       z.graveyardCount = z.graveyard.length;
       

@@ -4,6 +4,7 @@ import type { PlayerID } from '../../shared/src/index.js';
 import { createContext, type GameContext } from '../src/state/context.js';
 import { destroyPermanent } from '../src/state/modules/counters_tokens.js';
 import { applySurveil } from '../src/state/modules/zones.js';
+import { pushCardToPlayerGraveyardWithReplacements } from '../src/state/modules/graveyardEntryUtils.js';
 import {
   hasGraveyardMassShuffleIntoLibraryTrigger,
   hasGraveyardSelfShuffleIntoLibraryReplacement,
@@ -89,6 +90,24 @@ describe('graveyard self-shuffle replacement (batch 180)', () => {
     applySurveil(ctx, playerId, ['nexus_lib'], []);
 
     expect((ctx as any).state.zones[playerId].graveyard).toHaveLength(0);
+    expect(ctx.libraries.get(playerId)?.some((card) => card.name === 'Nexus of Fate')).toBe(true);
+  });
+
+  it('self-shuffles Nexus of Fate when discarded from hand', () => {
+    const playerId = 'p1' as PlayerID;
+    const ctx = createSelfShuffleTestCtx(playerId);
+    const nexus = lookupLocalCardByNameSync('Nexus of Fate');
+    expect(nexus).toBeTruthy();
+
+    const hand = [{ ...(nexus as any), id: 'nexus_hand', zone: 'hand' }];
+    (ctx as any).state.zones[playerId].hand = hand;
+    const graveyard = (ctx as any).state.zones[playerId].graveyard as any[];
+
+    pushCardToPlayerGraveyardWithReplacements(ctx, playerId, hand[0], graveyard, {
+      extraFields: { discardedByPlayerId: playerId },
+    });
+
+    expect(graveyard).toHaveLength(0);
     expect(ctx.libraries.get(playerId)?.some((card) => card.name === 'Nexus of Fate')).toBe(true);
   });
 });

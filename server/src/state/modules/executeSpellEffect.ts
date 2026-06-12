@@ -5,14 +5,13 @@ import { uid, triggerLifeGainEffects } from '../utils.js';
 import { processLifeChange, resolveOpponentDirectedDamage, applyMillReplacements } from './game-state-effects.js';
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from './triggers/damage-received.js';
 import { queueBecomesUntappedTriggers } from './triggers/tap-untap.js';
-import { checkGraveyardTrigger } from './triggered-abilities.js';
+import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import { drawCards as drawCardsFromZone, movePermanentToHand, processMillTriggers } from './zones.js';
 import { createToken, destroyPermanent, movePermanentToExile, updateCounters } from './counters_tokens.js';
 import { addExtraCombat } from './turn.js';
 import { applyGoadToCreature } from './goad-effects.js';
 import { shouldExileStackCardInsteadOfGraveyard } from './stack-zone-replacements.js';
 import { cleanupCardLeavingExile } from './playable-from-exile.js';
-import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 import { queueDealsDamageToPlayerTriggersFromPermanent } from './triggerLifeDamageUtils.js';
@@ -734,17 +733,8 @@ export function executeSpellEffect(
         for (let i = 0; i < millCount && lib.length > 0; i++) {
           const milled = lib.shift();
           if (milled) {
-            const graveyardCard = { ...milled, zone: 'graveyard' };
-            z.graveyard.push(graveyardCard);
-            milledCards.push(graveyardCard);
-            recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), milled, { fromBattlefield: false });
-
-            // Check for graveyard triggers (e.g., Eldrazi shuffle).
-            try {
-              checkGraveyardTrigger(ctx, milled, String(playerId));
-            } catch {
-              // best-effort
-            }
+            pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), milled, z.graveyard);
+            milledCards.push({ ...milled, zone: 'graveyard' });
           }
         }
         if (ctxLibraries && typeof ctxLibraries.set === 'function') {

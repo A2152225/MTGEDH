@@ -55,7 +55,7 @@ export function applyRetiredTriggerLegacyChosenTypeTopCardReveal(
     );
   };
   const putIntoGraveyard = async () => {
-    const milled = millCardsFromLibrary(params.state, params.controller, 1);
+    const milled = millCardsFromLibrary(params.state, params.controller, 1, params.ctx);
     debug(
       2,
       `[executeTriggerEffect] ${params.sourceName}: ${params.controller} put ${topCard?.name || 'a card'} into graveyard (${milled} milled)`,
@@ -113,7 +113,7 @@ export function applyRetiredTriggerLegacyRevealTopCreatureOfChosenType(
       `[executeTriggerEffect] ${params.sourceName}: ${params.controller} revealed ${topCard?.name || 'a creature'} (${chosenType}) and put it into hand (${drawn.length} drawn)`,
     );
   } else {
-    const milled = millCardsFromLibrary(params.state, params.controller, 1);
+    const milled = millCardsFromLibrary(params.state, params.controller, 1, params.ctx);
     debug(
       2,
       `[executeTriggerEffect] ${params.sourceName}: ${params.controller} revealed ${topCard?.name || 'a card'} (not ${chosenType}) and put it into graveyard (${milled} milled)`,

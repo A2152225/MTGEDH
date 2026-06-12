@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerID } from '../../shared/src/index.js';
 import { createContext, type GameContext } from '../src/state/context.js';
+import { destroyPermanent } from '../src/state/modules/counters_tokens.js';
 import { checkGraveyardTrigger } from '../src/state/modules/triggered-abilities.js';
 import {
   hasGraveyardMassShuffleIntoLibraryTrigger,
@@ -72,6 +73,25 @@ describe('graveyard mass shuffle triggers (batch 179)', () => {
 
     const handled = checkGraveyardTrigger(ctx, cardInGy, playerId);
     expect(handled).toBe(true);
+    expect((ctx as any).state.zones[playerId].graveyard).toHaveLength(0);
+    expect(ctx.libraries.get(playerId)?.length).toBeGreaterThan(1);
+  });
+
+  it('shuffles graveyard into library when Kozilek is destroyed on the battlefield', () => {
+    const playerId = 'p1' as PlayerID;
+    const ctx = createGraveyardShuffleCtx(playerId);
+    const kozilek = lookupLocalCardByNameSync('Kozilek, Butcher of Truth');
+    expect(kozilek).toBeTruthy();
+
+    (ctx as any).state.battlefield = [{
+      id: 'kozilek_bf',
+      controller: playerId,
+      owner: playerId,
+      card: kozilek,
+    }];
+
+    const destroyed = destroyPermanent(ctx, 'kozilek_bf');
+    expect(destroyed).toBe(true);
     expect((ctx as any).state.zones[playerId].graveyard).toHaveLength(0);
     expect(ctx.libraries.get(playerId)?.length).toBeGreaterThan(1);
   });

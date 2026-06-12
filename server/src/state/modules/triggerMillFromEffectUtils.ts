@@ -1,8 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { applyMillReplacements } from './game-state-effects.js';
-import { checkGraveyardTrigger } from './triggered-abilities.js';
-import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
+import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import { processMillTriggers } from './zones.js';
 import { debug } from '../../utils/debug.js';
 
@@ -45,16 +44,8 @@ export function millPlayerCardsFromTrigger(
     for (let i = 0; i < millCount && lib.length > 0; i++) {
       const milled = lib.shift();
       if (milled) {
-        const graveyardCard = { ...milled, zone: 'graveyard' };
-        z.graveyard.push(graveyardCard);
-        milledCards.push(graveyardCard);
-        recordCardPutIntoGraveyardThisTurn(ctx, String(targetPlayerId), milled, { fromBattlefield: false });
-
-        try {
-          checkGraveyardTrigger(ctx, milled, String(targetPlayerId));
-        } catch {
-          // best-effort
-        }
+        pushCardToPlayerGraveyardWithReplacements(ctx, String(targetPlayerId), milled, z.graveyard);
+        milledCards.push({ ...milled, zone: 'graveyard' });
       }
     }
     if (ctxLibraries && typeof ctxLibraries.set === 'function') {

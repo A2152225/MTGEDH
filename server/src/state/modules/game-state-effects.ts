@@ -48,6 +48,7 @@ import { checkThassasOracleWin } from "../../../../rules-engine/src/winEffectCar
 import { grantTelepathyForPlayer, revokeTelepathyForPlayer } from "./telepathy.js";
 import { getDurableLibraryPermissionForCard } from "./durable-permissions.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
+import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { cardHasCreatureType } from "../creatureTypeNow.js";
 
@@ -2468,9 +2469,7 @@ export function millAllOpponentsForController(
       });
       oppZones.graveyard = oppZones.graveyard || [];
       for (const card of milledCards) {
-        card.zone = 'graveyard';
-        oppZones.graveyard.push(card);
-        recordCardPutIntoGraveyardThisTurn(ctx, opponentId, card, { fromBattlefield: false });
+        pushCardToPlayerGraveyardWithReplacements(ctx, opponentId, card, oppZones.graveyard);
       }
       oppZones.libraryCount = lib.length;
       oppZones.graveyardCount = (oppZones.graveyard || []).length;
@@ -2481,9 +2480,7 @@ export function millAllOpponentsForController(
           const card = zones.library.shift();
           if (!card) break;
           zones.graveyard = zones.graveyard || [];
-          const milledCard = { ...card, zone: 'graveyard' };
-          zones.graveyard.push(milledCard);
-          recordCardPutIntoGraveyardThisTurn(ctx, opponentId, milledCard, { fromBattlefield: false });
+          pushCardToPlayerGraveyardWithReplacements(ctx, opponentId, card, zones.graveyard);
           milled += 1;
         }
         zones.libraryCount = zones.library.length;

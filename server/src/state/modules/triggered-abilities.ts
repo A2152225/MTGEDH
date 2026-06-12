@@ -16401,12 +16401,10 @@ const KNOWN_ELDRAZI_EFFECTS: Record<string, Omit<EldraziEffect, 'permanentId' | 
     indestructible: true,
   },
   "ulamog, the infinite gyre": {
-    castTrigger: "When you cast this spell, destroy target permanent",
     annihilator: 4,
     indestructible: true,
   },
   "kozilek, butcher of truth": {
-    castTrigger: "When you cast this spell, draw four cards",
     annihilator: 4,
   },
   "emrakul, the aeons torn": {

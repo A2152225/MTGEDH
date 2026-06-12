@@ -8,8 +8,7 @@ import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.
 import { isCreatureNow } from '../creatureTypeNow.js';
 import { applyDamageToPermanentWithCounterEffects } from './counter-common-effects.js';
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from './triggers/damage-received.js';
-import { checkGraveyardTrigger } from './triggered-abilities.js';
-import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
+import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import { drawCards as drawCardsFromZone } from './zones.js';
 import { addTemporaryEtbTrigger } from './triggerEtbEntryEffects.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
@@ -338,9 +337,12 @@ export function applyInstantSorceryNibelheimAflameEffect(
   }));
 
   for (const discardedCard of discardedCards) {
-    graveyard.push(discardedCard);
-    recordCardPutIntoGraveyardThisTurn(ctx, String(controller), discardedCard, { fromBattlefield: false });
-    checkGraveyardTrigger(ctx, discardedCard, String(controller));
+    pushCardToPlayerGraveyardWithReplacements(ctx, String(controller), discardedCard, graveyard, {
+      extraFields: {
+        discardedByPlayerId: String(controller),
+        discardedOnTurn: Number(stateAny.turnNumber ?? stateAny.turn ?? 0) || 0,
+      },
+    });
   }
 
   if (zones) {

@@ -14,6 +14,7 @@ import { createContext, type GameContext } from "../context";
 import type { PlayerID, GameEvent } from "../types";
 
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
+import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 
 import {
   importDeckResolved,
@@ -2645,8 +2646,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     for (let i = 0; i < count && lib.length > 0; i++) {
                       const milled = lib.shift();
                       if (milled) {
-                        z.graveyard.push({ ...milled, zone: 'graveyard' });
-                        recordCardPutIntoGraveyardThisTurn(ctx as any, String(playerId), milled, { fromBattlefield: false });
+                        pushCardToPlayerGraveyardWithReplacements(ctx as any, String(playerId), milled, z.graveyard);
                       }
                     }
                     (ctx as any).libraries?.set?.(playerId, lib);
@@ -3977,9 +3977,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const handIndex = hand.findIndex((card: any) => card && String(card.id || '') === cardId);
               if (handIndex === -1) continue;
               const [card] = hand.splice(handIndex, 1);
-              graveyard.push({ ...card, zone: 'graveyard', discardedByPlayerId: playerId });
-              recordCardPutIntoGraveyardThisTurn(ctx as any, playerId, card, { fromBattlefield: false });
-              checkGraveyardTrigger(ctx, card, playerId);
+              pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, card, graveyard, {
+                extraFields: { discardedByPlayerId: playerId },
+              });
               movedCount++;
             }
 
@@ -4173,12 +4173,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
           if (declineDestination === 'graveyard') {
             zones.graveyard = Array.isArray(zones.graveyard) ? zones.graveyard : [];
-            zones.graveyard.push({ ...exiledCard, zone: 'graveyard' });
+            pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, exiledCard, zones.graveyard);
             zones.graveyardCount = zones.graveyard.length;
-            recordCardPutIntoGraveyardThisTurn(ctx as any, playerId, exiledCard, { fromBattlefield: false });
-            if (checkGraveyardTrigger(ctx, exiledCard, playerId)) {
-              debug(2, `[applyEvent:castFromExilePromptResolve] ${exiledCard.name} triggered graveyard shuffle for ${playerId}`);
-            }
           } else if (declineDestination === 'library_bottom_random') {
             zones.library = Array.isArray(zones.library) ? zones.library : [];
             zones.library.push({ ...exiledCard, zone: 'library' });
@@ -6208,14 +6204,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const idx = hand.findIndex((c: any) => c.id === cardId);
             if (idx !== -1) {
               const [card] = hand.splice(idx, 1);
-              graveyard.push({ ...card, zone: "graveyard" });
-              recordCardPutIntoGraveyardThisTurn(ctx as any, String(pid), card, { fromBattlefield: false });
+              pushCardToPlayerGraveyardWithReplacements(ctx as any, String(pid), card, graveyard);
               discardedCount++;
-              
-              // Check for graveyard triggers (Eldrazi shuffle)
-              if (checkGraveyardTrigger(ctx, card, pid)) {
-                debug(2, `[applyEvent:cleanupDiscard] ${card.name} triggered graveyard shuffle for ${pid}`);
-              }
             }
           }
 
@@ -6303,17 +6293,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               continue;
             }
 
-            graveyard.push({
-              ...card,
-              zone: 'graveyard',
-              discardedByPlayerId: pid,
-              discardedOnTurn: currentTurn,
+            pushCardToPlayerGraveyardWithReplacements(ctx as any, pid, card, graveyard, {
+              extraFields: {
+                discardedByPlayerId: pid,
+                discardedOnTurn: currentTurn,
+              },
             });
-            recordCardPutIntoGraveyardThisTurn(ctx as any, pid, card, { fromBattlefield: false });
             movedCount++;
-            if (checkGraveyardTrigger(ctx, card, pid)) {
-              debug(2, `[applyEvent:discardEffect] ${card.name} triggered graveyard shuffle for ${pid}`);
-            }
           }
 
           z.handCount = hand.length;
@@ -6350,13 +6336,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // Mill top N cards
           const milled = lib.splice(0, Math.min(count, lib.length));
           for (const card of milled) {
-            graveyard.push({ ...card, zone: "graveyard" });
-            recordCardPutIntoGraveyardThisTurn(ctx as any, String(pid), card, { fromBattlefield: false });
-            
-            // Check for graveyard triggers (Eldrazi shuffle)
-            if (checkGraveyardTrigger(ctx, card, pid)) {
-              debug(2, `[applyEvent:mill] ${card.name} triggered graveyard shuffle for ${pid}`);
-            }
+            pushCardToPlayerGraveyardWithReplacements(ctx as any, String(pid), card, graveyard);
           }
           
           // Update counts
@@ -13273,9 +13253,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   const milledCard = zones.library.shift();
                   if (milledCard) {
                     zones.graveyard = zones.graveyard || [];
-                    milledCard.zone = 'graveyard';
-                    zones.graveyard.push(milledCard);
-                    recordCardPutIntoGraveyardThisTurn(ctx as any, String(targetId), milledCard, { fromBattlefield: false });
+                    pushCardToPlayerGraveyardWithReplacements(ctx as any, String(targetId), milledCard, zones.graveyard);
                   }
                 }
                 zones.libraryCount = zones.library.length;
