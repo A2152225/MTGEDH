@@ -16,7 +16,7 @@
 
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
-import { parseManaCost, normalizeParsedManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana } from "./mana-check";
+import { parseManaCost, normalizeParsedManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "./mana-check";
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
 import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiveAbilityConditions } from "./game-state-effects";
@@ -3244,6 +3244,23 @@ function hasValidBlockers(ctx: GameContext, playerId: PlayerID): boolean {
   }
 }
 
+/**
+ * True when the player has no legal priority actions (sorcery-speed or instant-speed).
+ * Idle players are auto-passed even when the optional auto-pass preference is off.
+ */
+export function isPlayerIdleForAutoPass(ctx: GameContext, playerId: PlayerID): boolean {
+  try {
+    const turnPlayer = (ctx.state as any).turnPlayer;
+    const isActivePlayer = turnPlayer === playerId;
+    const canTakeAct = isActivePlayer ? canAct(ctx, playerId) : false;
+    const canTakeRespond = canRespond(ctx, playerId);
+    return !canTakeAct && !canTakeRespond;
+  } catch (err) {
+    debugWarn(1, '[isPlayerIdleForAutoPass] Error:', err);
+    return false;
+  }
+}
+
 export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     const currentStep = String((ctx.state as any).step || '').toUpperCase();
@@ -3330,6 +3347,7 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
       }
 
       debug(2, `[canAct] ${playerId}: No sorcery-speed actions available in main phase - returning FALSE`);
+      return false;
     } else {
       debug(1, `[canAct] ${playerId}: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE`);
     }

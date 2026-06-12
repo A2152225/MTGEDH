@@ -2,10 +2,10 @@
 
 **Purpose:** Plan the full supersession of handwritten spell/trigger/ability resolution with Oracle IR execution and the Effect Program orchestrator.
 
-**Last updated:** 2026-06-11 (batch 175 — Inspiring Call antecedent "those creatures" + spell guardrail fix)  
+**Last updated:** 2026-06-12 (batch 279 — G1 Merfolk integration + Thassa library IR)  
 **Owner:** Project maintainers  
 
-> **New session?** Start at [Current status / session handoff](#current-status--session-handoff-2026-06-11) below. Batch 171–175 work is **uncommitted** locally.
+> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then [Current status / session handoff](#current-status--session-handoff-2026-06-12) below. Batches 264–279 are **uncommitted** locally.
 
 **Rules for new work:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — **no card-name routing**, **no new `KNOWN_*` table rows**; extend parser → executor → `applyOracleIRStepsOnServer` → resolution queue.
 
@@ -30,13 +30,49 @@ The project has **three distinct layers**. Layers 1–2 are in strong shape; **L
 
 ---
 
-## Current status / session handoff (2026-06-11)
+## Current status / session handoff (2026-06-12)
 
-**Latest completed work:** Stack refactor **batch 175** — **Inspiring Call spell IR primary** now applies draw + indestructible end-to-end. Fixed `grant_temporary_ability` antecedent resolution (`lastAntecedentBattlefieldPermanentIds` from "for each" draw counts; "Those creatures" no longer mis-routed to static grant via overly broad `until end of turn` regex). Fixed `isOracleIrExecutionHandled` guardrail regression (uses `isOracleIrMandatoryExecutionComplete` + `hasUnqueuedPlayerChoiceGap`).
+**Latest completed work:** **Batch 279** — G1 Merfolk commander live-play integration fixes (see [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)):
 
-**Prior batch 174:** generic `add_counter` distribute execution; Court of Garenbrig upkeep; G1 triage partial.
+- **Roaming Throne** counts as chosen creature type for tribal effects (+1/+1, Deeproot Pilgrimage tap, White Lotus mana).
+- **Tap triggers** fire when creatures are tapped via abilities/costs (`tap-trigger-queue.ts`).
+- **Thassa's Oracle** ETB queues library look/reorder (`look_select_top` → `LIBRARY_SEARCH`); devotion win unchanged (`tryResolveThassasOracleWin`).
+- **Kynaios** land gifts run post-resolution ETB prompts; **Growing Rites** lookup fixed; **Cryptoplasm** reverts on bounce; **Eldrazi Monument** upkeep deduped.
 
-**Git state:** ~60+ files modified, **no commits** unless explicitly requested.
+**Prior batch 278:** trigger `ir_gap` **20 → 0**; migration **649/649**; parse→execute **0**.
+
+**Git state:** 100+ files modified across batches 264–279, **no commits** unless explicitly requested.
+
+### Batch 279 — G1 Merfolk integration (server Layer 3)
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Chosen type** | Shared `permanentHasCreatureType` honors “is the chosen type in addition to its other types” | `shared/src/creatureTypes.ts`, `creatureTypeNow.ts` |
+| **Tap triggers** | Central `queueTapTriggersForTappedPermanents` after tap resolution | `tap-trigger-queue.ts`, `resolution.ts`, `interaction.ts` |
+| **Thassa library** | Parser merge + `look_select_top` `library_top` + devotion `whereX`; server `LIBRARY_SEARCH` top/bottom | `oracleIRParserPostprocess.ts`, `oracleIRExecutorPlayerStepHandlers.ts`, `oracleIrServerZoneSync.ts` |
+| **Kynaios / lookup / copy** | Land ETB prompts; art_series filter; copy revert on hand bounce | `kynaiosChoice.ts`, `localCardLookup.ts`, `permanent-copy.ts` |
+
+**Verify batch 279:**
+
+```powershell
+cd server
+npx vitest run tests/roaming-throne-chosen-type.unit.test.ts tests/g1-card-fixes.unit.test.ts tests/roaming-throne-trigger-doubling.integration.test.ts
+
+cd ../rules-engine
+npx vitest run test/oracleIRParser.test.ts -t "Thassa"
+
+cd ../server
+npm run test:oracle-ir-migration
+```
+
+**Not yet done (batch 279 follow-ups):**
+- Thassa `LIBRARY_SEARCH` socket integration test
+- Roaming Throne + Kumena +1/+1 socket test
+- Eldrazi Monument indestructible cleanup after monument leaves (live retest)
+
+### Batch 278 — trigger ir_gap closure
+
+Keyword reminder grants, Triceraton compound buff, Heartmender `-1/-1` audit seeds. Trigger `ir_gap` **0**; assisted **100%** (15001/15001). Tests: `oracleIRGapBatch243.test.ts`.
 
 ### Batch 175 — Inspiring Call antecedent grants
 
@@ -857,19 +893,27 @@ npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/exe
 npm run test:oracle-ir-migration
 ```
 
-### G1 game-log bugs — verified by integration tests (batch 235)
+### G1 game-log bugs — status (batch 235 + 279)
 
 | Issue | Status | Coverage |
 |-------|--------|----------|
 | **Court of Garenbrig** upkeep counters + Branching Evolution | **Fixed** (batch 174/233/234) | `oracle-ir-court-garenbrig-counter-distribution.socket.integration.test.ts`, `inspiring-call-court-garenbrig.regression.test.ts` |
 | **Inspiring Call** draw + indestructible | **Fixed** (batch 175) | `inspiring-call-court-garenbrig.regression.test.ts` |
 | **Roaming Throne** explore doubling + ETB type | **Verified** | `roaming-throne-trigger-doubling.integration.test.ts`, `creature-type-etb-persistence.integration.test.ts` |
+| **Roaming Throne** chosen type for tribal (+1/+1, Deeproot, mana) | **Fixed** (batch 279) | `roaming-throne-chosen-type.unit.test.ts`, `g1-card-fixes.unit.test.ts` |
+| **Tap triggers** (Kumena → Surge Spanner / Deeproot) | **Fixed** (batch 279) | `g1-card-fixes.unit.test.ts`; live retest recommended |
+| **Thassa's Oracle** library look/reorder | **Fixed** (batch 279) | `oracleIRParser.test.ts` (parse); socket E2E **pending** |
+| **Kynaios** land ETB prompts (e.g. Cavern type choice) | **Fixed** (batch 279) | `kynaios-choice.replay.test.ts` pattern; live retest |
+| **Growing Rites** art_series / empty oracle import | **Fixed** (batch 279) | `growing-rites.transform.regression.test.ts` |
+| **Cryptoplasm** bounce reverts to original card | **Fixed** (batch 279) | `cryptoplasm-copy.integration.test.ts` (upkeep); bounce path unit-level |
+| **Eldrazi Monument** duplicate upkeep | **Fixed** (batch 279) | `upkeep-triggers.ts` dedupe; indestructible cleanup **retest** |
+| **White Lotus Tile** tribal mana counting | **Fixed** (batch 279) | `mana-abilities.ts`; live retest |
 | **Cryptoplasm** optional upkeep copy | **Verified** | `cryptoplasm-copy.integration.test.ts` (accept + decline) |
 | **Cavern / Three Tree City** type badge | **Verified** | `creature-type-etb-persistence.integration.test.ts` |
-| **Gwenna** null priority during mana selection | **Verified** | `gwenna-mana-color-selection.integration.test.ts` (priority null in resolution, restored after completion) |
+| **Gwenna** null priority during mana selection | **Verified** | `gwenna-mana-color-selection.integration.test.ts` |
 | **Door of Destinies** charge counter on cast | **Verified** | `door-of-destinies-spell-cast.integration.test.ts`, `door-of-destinies-ir-primary.integration.test.ts` |
 
-Live-game spot-checks remain optional; no open server-side G1 blockers from the original log triage.
+Restart server + hard-refresh client + re-import deck after batch 279. Live spot-checks still recommended for Thassa UI and tap-trigger chains.
 
 ### Batch 173 — what landed (still relevant)
 
@@ -982,14 +1026,13 @@ npm run test:oracle-ir-migration   # broader migration suite when touching routi
 
 ### Next session priorities (Phase 4 continuation)
 
-1. **G1 verification pass** — re-run scenarios from game log with batch 174 fixes; file issues for Cryptoplasm, creature-type badge persistence, Bighorner/Gwenna priority hang.
-2. **`grant_temporary_ability` wiring** — retire combat evasion legacy handlers; step-kind wiring in `oracleIrStepWiring.ts`.
-3. **`modify_pt` counter-scaled pumps** — IR ownership for Hydra Trainer–style effects (drop description-normalization shim).
-4. **Distribute-counter UI** — resolution queue step for player split when targets bound but split is ambiguous (optional; round-robin is acceptable MVP).
-5. **Continue regex retirement** — grep `applyRetiredTriggerLegacy*`; gut bodies when IR + integration test green. **Never** add card-name rows to `KNOWN_*` tables (see `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc`).
-6. **Inspiring Call spell path** — ensure full multi-step IR applies under `ORACLE_IR_SPELL_PRIMARY=1`; then remove `stackResolveSpellLegacyRegexDrawUtils` draw fallback.
-7. **Run migration suite** after routing/sync edits: `cd server ; npm run test:oracle-ir-migration`
-8. **Uncommitted work** — all batch 171–174 changes are local only; no commits unless explicitly requested.
+1. **Thassa socket E2E** — ETB → `LIBRARY_SEARCH` (devotion X, put 0–1 on top, rest bottom random) → `tryResolveThassasOracleWin`.
+2. **Roaming Throne tribal socket** — Kumena +1/+1 and Deeproot tap token with throne chosen Merfolk.
+3. **G1 live retest** — tap chains, White Lotus mana, Kynaios Cavern, Eldrazi indestructible after monument leaves.
+4. **Resume gap audit** — `EXECUTOR_COVERAGE_SCOPE=full_card` or `npx tsx scripts/_tmp-trigger-gap-clusters.ts` (trigger `ir_gap` already 0).
+5. **Continue regex retirement** — grep `applyRetiredTriggerLegacy*`; gut when IR + integration green. **Never** card-name `KNOWN_*` rows (`.cursor/rules/oracle-ir-no-bespoke-handlers.mdc`).
+6. **Run migration suite** after routing/sync edits: `cd server ; npm run test:oracle-ir-migration` (expect **649/649**).
+7. **Uncommitted work** — batches 264–279 local only; no commits unless explicitly requested.
 
 ### Known invariants (do not break)
 

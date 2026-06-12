@@ -719,9 +719,10 @@ export function App() {
     playerId?: string;
   } | null>(null);
 
-  // Priority Modal state - shows when player receives priority on step changes
+  // Priority Modal state - shows when player receives priority and can respond
   const [priorityModalOpen, setPriorityModalOpen] = useState(false);
   const lastPriorityStep = React.useRef<string | null>(null);
+  const hadPriorityRef = React.useRef(false);
   const lastCanRespond = React.useRef<boolean | null>(null);
   
   // Life Payment Modal state - for spells like Toxic Deluge that require paying X life
@@ -2037,38 +2038,40 @@ export function App() {
     // TODO: If we want to support user preferences for auto-pass, those should be sent
     // to the server and the server should handle auto-passing based on those preferences.
     
-    // For now, just show priority modal when relevant (not in main phases)
-    // BUT also check if player can actually take actions
+    // Show priority modal when you gain priority and can take instant-speed actions.
+    // Suppress only during YOUR main phase when you also have sorcery-speed plays (canAct),
+    // so normal land/spell turns stay uninterrupted. Opponent main phases with flash
+    // use the same popup as upkeep/combat/end steps instead of only Phase Navigator.
     const blockingCombatModalOpen = combatModalOpen && !combatModalReadOnly;
 
+    const isMainPhase = step.includes('main') || step === 'main1' || step === 'main2';
+    const suppressForMainPhasePlay = isMainPhase && isYourTurn && canAct === true;
+
+    const gainedPriority = youHavePriority && !hadPriorityRef.current;
+    const stepChangedWhileYouHavePriority =
+      youHavePriority && lastPriorityStep.current !== step;
+
+    const shouldShowModal =
+      !hasPendingTriggers &&
+      canRespond === true &&
+      !suppressForMainPhasePlay &&
+      (gainedPriority || stepChangedWhileYouHavePriority);
+
     if (youHavePriority && stackLength === 0 && !blockingCombatModalOpen) {
-      const priorityChanged = lastPriorityStep.current !== step;
-      
-      if (priorityChanged) {
+      if (shouldShowModal) {
+        setPriorityModalOpen(true);
+      }
+      if (stepChangedWhileYouHavePriority) {
         lastPriorityStep.current = step;
-        
-        // Show priority modal for non-main-phase steps
-        const isMainPhase = step.includes('main') || step === 'main1' || step === 'main2';
-        
-        // ONLY show modal if:
-        // 1. Not in a main phase (main phases are less disruptive)
-        // 2. No pending triggers to resolve
-        // 3. Player can actually respond (canRespond=true) OR we don't have that info yet
-        //
-        // The canRespond check prevents showing the modal when the player has no instant-speed actions.
-        // If canRespond is undefined, we conservatively show the modal (server hasn't calculated yet).
-        const shouldShowModal = !isMainPhase && !hasPendingTriggers && (canRespond === true || canRespond === undefined);
-        
-        if (shouldShowModal) {
-          setPriorityModalOpen(true);
-        }
       }
     } else {
-      // Close priority modal if we don't have priority or stack is not empty
       setPriorityModalOpen(false);
-      // Reset tracking when we don't have priority
-      lastCanRespond.current = null;
+      if (!youHavePriority) {
+        lastCanRespond.current = null;
+      }
     }
+
+    hadPriorityRef.current = youHavePriority;
   }, [safeView, you, combatModalOpen, combatModalReadOnly, autoPassSteps, autoPassForTurn, phaseNavigatorAdvancing, pendingTriggers]);
 
   // Mulligan bottom selection prompt listener (London Mulligan)
@@ -6087,7 +6090,7 @@ export function App() {
                     });
                   }}
                   onOpenReplacementEffectSettings={() => setReplacementEffectSettingsOpen(true)}
-                  onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
+                  onAdvanceOneStep={() => socket.emit("nextStep", { gameId: safeView.id })}
                   onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
                   onAdvancingChange={setPhaseNavigatorAdvancing}
                   onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
@@ -6294,7 +6297,7 @@ export function App() {
             stackEmpty={!((safeView as any).stack?.length > 0)}
             allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
             phaseAdvanceBlockReason={phaseAdvanceBlockReason}
-            onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
+            onAdvanceOneStep={() => socket.emit("nextStep", { gameId: safeView.id })}
             onSkipToPhase={(targetPhase, targetStep) =>
               socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })
             }
@@ -6329,7 +6332,7 @@ export function App() {
             });
           }}
           onOpenReplacementEffectSettings={() => setReplacementEffectSettingsOpen(true)}
-          onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
+          onAdvanceOneStep={() => socket.emit("nextStep", { gameId: safeView.id })}
           onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
           onAdvancingChange={setPhaseNavigatorAdvancing}
           onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
@@ -8530,7 +8533,7 @@ export function App() {
         you={you || undefined}
       />
 
-      {/* Priority Modal - Shows when you gain priority on step changes */}
+      {/* Priority Modal - Shows when you gain priority and can respond */}
       <PriorityModal
         open={priorityModalOpen}
         step={(safeView as any)?.step || ''}

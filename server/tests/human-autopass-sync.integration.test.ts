@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { games } from '../src/socket/socket.js';
 import { registerPriorityHandlers } from '../src/socket/priority.js';
 import { tryAutoPass } from '../src/state/modules/priority.js';
+import { isPlayerIdleForAutoPass } from '../src/state/modules/can-respond.js';
 import type { GameContext } from '../src/state/context.js';
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
@@ -110,7 +111,18 @@ describe('human auto-pass registration', () => {
         { id: 'p2', name: 'Other', seat: 1 },
       ],
       battlefield: [],
-      stack: [],
+      stack: [
+        {
+          id: 'bolt_on_stack',
+          controller: 'p1',
+          card: {
+            id: 'bolt_card',
+            name: 'Lightning Bolt',
+            type_line: 'Instant',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          },
+        },
+      ],
       priority: 'p1',
       turnPlayer: 'p2',
       phase: 'combat',
@@ -119,14 +131,78 @@ describe('human auto-pass registration', () => {
       autoPassPlayers: new Set<string>(),
       autoPassForTurn: { p1: true },
       landsPlayedThisTurn: {},
-      manaPool: {},
+      manaPool: {
+        p2: { white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      zones: {
+        p1: { hand: [], graveyard: [], exile: [] },
+        p2: {
+          hand: [
+            {
+              id: 'counterspell',
+              name: 'Counterspell',
+              type_line: 'Instant',
+              oracle_text: 'Counter target spell.',
+              mana_cost: '{U}{U}',
+            },
+          ],
+          graveyard: [],
+          exile: [],
+        },
+      },
     };
 
     const ctx = buildCtx(state, gameId);
+    expect(isPlayerIdleForAutoPass(ctx, 'p2')).toBe(false);
+
     const result = tryAutoPass(ctx);
 
     expect(result.allPassed).toBe(false);
     expect(state.priorityPassedBy.has('p1')).toBe(true);
     expect(state.priority).toBe('p2');
+  });
+
+  it('auto-passes idle humans even when autoPassPlayers is empty', () => {
+    const idleGameId = 'autopass_idle_no_pref';
+    const state: any = {
+      players: [
+        { id: 'p1', name: 'Human', seat: 0 },
+        { id: 'p2', name: 'Other', seat: 1 },
+      ],
+      battlefield: [
+        {
+          id: 'tapped_creature',
+          controller: 'p1',
+          tapped: true,
+          card: {
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            oracle_text: '',
+          },
+        },
+      ],
+      stack: [],
+      priority: 'p1',
+      turnPlayer: 'p1',
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      priorityPassedBy: new Set<string>(),
+      autoPassPlayers: new Set<string>(),
+      landsPlayedThisTurn: { p1: 1 },
+      zones: {
+        p1: { hand: [], graveyard: [], exile: [] },
+        p2: { hand: [], graveyard: [], exile: [] },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 0 },
+      },
+    };
+
+    const ctx = buildCtx(state, idleGameId);
+    expect(isPlayerIdleForAutoPass(ctx, 'p1')).toBe(true);
+
+    const result = tryAutoPass(ctx);
+    expect(result.allPassed).toBe(true);
+    expect(result.advanceStep).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import type { PlayerID, PlayerRef } from "../../../../shared/src";
 import type { GameContext } from "../context";
-import { canAct, canRespond } from "./can-respond";
+import { isPlayerIdleForAutoPass } from "./can-respond";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager, ResolutionQueueEvent } from "../resolution/ResolutionQueueManager.js";
 import type { ResolutionStep } from "../resolution/types.js";
@@ -304,13 +304,7 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     
     const autoPassForTurn = stateAny.autoPassForTurn?.[currentPlayer] || false;
     const triggerAutoPassReason = getTopTriggeredAbilityAutoPassReason(state, currentPlayer);
-
-    // Match checkAndTriggerAutoPass: allow auto-pass when globally enabled,
-    // "rest of turn" is active, or a top-stack trigger shortcut applies.
-    if (!autoPassPlayers.has(currentPlayer) && !autoPassForTurn && !triggerAutoPassReason) {
-      debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: auto-pass not enabled`);
-      return { allPassed: false, resolved: false };
-    }
+    const currentStep = String(stateAny.step || '').toUpperCase();
 
     // If player has "Auto-Pass Rest of Turn" enabled, skip all ability checks
     // and auto-pass them through everything
@@ -321,22 +315,6 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       continue;
     }
 
-    // Check if player can take any action
-    // Use different checks for active vs non-active players:
-    // - Active player (turn player): use canAct() which checks ALL actions (instant-speed + sorcery-speed)
-    // - Non-active players: use canRespond() which ONLY checks instant-speed responses
-    // 
-    // This prevents auto-pass false positives where non-active players are prompted for priority
-    // even though they only have lands/sorceries (which they can't play on opponent's turn)
-    const isActivePlayer = currentPlayer === turnPlayer;
-    const currentStep = String(stateAny.step || '').toUpperCase();
-    
-    const playerCanAct = isActivePlayer 
-      ? canAct(ctx, currentPlayer)      // Active player: check all actions (instant + sorcery speed)
-      : canRespond(ctx, currentPlayer);  // Non-active: only check instant-speed responses
-    
-    debug(2, `[priority] autoPassLoop - checking ${currentPlayer} (${isActivePlayer ? 'ACTIVE' : 'non-active'}): canAct=${playerCanAct}, stack.length=${state.stack.length}, step=${currentStep}`);
-    
     // Check if the current player used phase navigator and we're AT the target phase/step
     // If so, give them priority at this specific step (they explicitly navigated here)
     // This only applies at the TARGET phase, not intermediate steps
@@ -366,27 +344,14 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       state.priority = advancePriorityClockwise(ctx, currentPlayer);
       continue;
     }
-    
-    // For the active player during their own turn:
-    // Only auto-pass if canAct() returns false (no legal actions available)
-    // 
-    // This ensures:
-    // 1. Turn player with lands/spells gets priority to act
-    // 2. Turn player with no legal moves is auto-passed (e.g., no lands, all spells too expensive)
-    if (isActivePlayer && playerCanAct) {
-      // Active player can take actions - stop here
-      debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: active player can act`);
+
+    // Idle auto-pass: no legal actions means pass without requiring the auto-pass preference.
+    if (!isPlayerIdleForAutoPass(ctx, currentPlayer)) {
+      debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: player has available actions`);
       return { allPassed: false, resolved: false };
     }
     
-    // For non-active players, check if they can respond
-    if (!isActivePlayer && playerCanAct) {
-      // Non-active player can respond - stop here
-      debug(2, `[priority] autoPassLoop - stopping at ${currentPlayer}: player can act`);
-      return { allPassed: false, resolved: false };
-    }
-    
-    // Player cannot act (or has auto-pass for turn enabled) - auto-pass
+    // Player cannot act - auto-pass
     debug(2, `[priority] Auto-passing for ${currentPlayer} - no available actions`);
     stateAny.priorityPassedBy.add(currentPlayer);
     

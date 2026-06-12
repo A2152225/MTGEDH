@@ -18,7 +18,7 @@ import { GameManager } from "../GameManager.js";
 import type { CardCostAdjustment, GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
-import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isTransformBackFace, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
+import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isPlayerIdleForAutoPass, isTransformBackFace, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool, stripReminderTextFromOracle } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
@@ -2044,9 +2044,7 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
       return;
     }
     
-    // Check if auto-pass is enabled for this player, or if a top-stack trigger
-    // shortcut should auto-pass this priority holder.
-    const autoPassPlayers = stateAny.autoPassPlayers || new Set();
+    // Idle players auto-pass; autoPassForTurn and top-stack trigger shortcuts bypass the idle check.
     const autoPassForTurn = stateAny.autoPassForTurn?.[priority] || false;
     let triggerAutoPassReason = autoPassForTurn ? undefined : getTopTriggeredAbilityAutoPassReason(game.state, priority);
     const pausedForUndoPlayer = String(stateAny._pauseHumanAutoPassUntilActionFor || '').trim();
@@ -2056,46 +2054,30 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
       debug(2, `${ts()} [checkAndTriggerAutoPass] Auto-pass paused for ${priority} until a manual action is taken (ID: ${debugCallId})`);
       return;
     }
-    
-    if (!autoPassPlayers.has(priority) && !autoPassForTurn && !triggerAutoPassReason) {
-      clearScheduledHumanAutoPass(gameId, priorityPlayerId);
-      // Auto-pass not enabled for this player
-      debug(2, `${ts()} [checkAndTriggerAutoPass] Auto-pass not enabled for ${priority}, returning (ID: ${debugCallId})`);
-      return;
-    }
-    
-    // Check if the player is an AI (AI is handled separately in checkAndTriggerAI)
+
     const players = stateAny?.players || [];
     const priorityPlayer = players.find((p: any) => p?.id === priority);
     if (priorityPlayer && priorityPlayer.isAI) {
       clearScheduledHumanAutoPass(gameId, priorityPlayerId);
-      // AI players are handled by checkAndTriggerAI, skip
       debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} is AI, handled separately (ID: ${debugCallId})`);
       return;
     }
-    
-    // Check if player has claimed priority (wants to take action)
+
     if (!stateAny.priorityClaimed) {
       stateAny.priorityClaimed = new Set<string>();
     }
     if (stateAny.priorityClaimed.has(priority)) {
       clearScheduledHumanAutoPass(gameId, priorityPlayerId);
-      // Player has claimed priority, don't auto-pass
       debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} claimed priority, returning (ID: ${debugCallId})`);
       return;
     }
     
-    // CRITICAL: If autoPassForTurn is enabled, skip the canAct check and auto-pass immediately
+    // CRITICAL: If autoPassForTurn is enabled, skip the idle check and auto-pass immediately
     // This fixes the bug where "Auto-Pass Rest of Turn" didn't work properly
     if (!autoPassForTurn && !triggerAutoPassReason) {
-      // Only check if player can act when autoPassForTurn is NOT enabled
-      // Use the imported canAct and canRespond functions
-      // Create a minimal GameContext with required properties
-      // CRITICAL: Use actual game data (libraries, mana pool) for accurate checks
       const ctx: any = {
         gameId,
         state: game.state,
-        // Use actual libraries from game, not an empty map
         libraries: (game as any).libraries || new Map(),
         life: stateAny.life || {},
         poison: {},
@@ -2118,35 +2100,25 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
         landsPlayedThisTurn: stateAny.landsPlayedThisTurn || {},
         maxLandsPerTurn: {},
         additionalDrawsPerTurn: {},
-        // Use actual mana pool from game state
         manaPool: stateAny.manaPool || {},
       };
-      
-      const turnPlayer = stateAny.turnPlayer;
-      const isActivePlayer = priority === turnPlayer;
-      
-      // Check if player can take any actions
-      let playerCanAct = false;
+
+      let playerIdle = false;
       try {
-        playerCanAct = isActivePlayer 
-          ? canAct(ctx, priority)      // Active player: check all actions
-          : canRespond(ctx, priority);  // Non-active: only check instant-speed responses
-        
-        debug(2, `${ts()} [checkAndTriggerAutoPass] canAct check: ${priority} isActive=${isActivePlayer} canAct=${playerCanAct} (ID: ${debugCallId})`);
+        playerIdle = isPlayerIdleForAutoPass(ctx, priority);
+        debug(2, `${ts()} [checkAndTriggerAutoPass] idle check: ${priority} playerIdle=${playerIdle} (ID: ${debugCallId})`);
       } catch (err) {
-        debugWarn(1, `[checkAndTriggerAutoPass] Error checking if player ${priority} can act (ID: ${debugCallId}):`, err);
-        // On error, don't auto-pass to be safe
+        debugWarn(1, `[checkAndTriggerAutoPass] Error checking if player ${priority} is idle (ID: ${debugCallId}):`, err);
         return;
       }
-      
-      // If player can act, don't auto-pass
-      if (playerCanAct) {
+
+      if (!playerIdle) {
         clearScheduledHumanAutoPass(gameId, priorityPlayerId);
-        debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} CAN ACT - returning early, NO auto-pass (ID: ${debugCallId})`);
+        debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} has available actions - returning early, NO auto-pass (ID: ${debugCallId})`);
         return;
       }
-      
-      debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} CANNOT ACT - proceeding with auto-pass (ID: ${debugCallId})`);
+
+      debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} is idle - proceeding with auto-pass (ID: ${debugCallId})`);
     } else if (triggerAutoPassReason) {
       debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} will auto-pass due to top stack trigger shortcut (${triggerAutoPassReason}) (ID: ${debugCallId})`);
     } else {
@@ -2216,31 +2188,39 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
           manaPool: currentState.manaPool || {},
         };
         
-        const turnPlayer = currentState.turnPlayer;
-        const isActivePlayer = priority === turnPlayer;
-        
-        // Re-check if player can take any actions
         try {
-          const playerCanActNow = isActivePlayer 
-            ? canAct(recheckCtx, priority)
-            : canRespond(recheckCtx, priority);
+          const playerStillIdle = isPlayerIdleForAutoPass(recheckCtx, priority);
+          debug(2, `${ts()} [executeAutoPass] Re-check: ${priority} playerIdle=${playerStillIdle} (ID: ${debugCallId})`);
           
-          debug(2, `${ts()} [executeAutoPass] Re-check: ${priority} canAct=${playerCanActNow} (ID: ${debugCallId})`);
-          
-          if (playerCanActNow) {
+          if (!playerStillIdle) {
             debug(2, `${ts()} [executeAutoPass] Player ${priority} CAN NOW ACT - canceling auto-pass (ID: ${debugCallId})`);
             return;
           }
         } catch (err) {
-          debugWarn(1, `${ts()} [executeAutoPass] Error re-checking if player ${priority} can act (ID: ${debugCallId}):`, err);
-          // On error, don't auto-pass to be safe
+          debugWarn(1, `${ts()} [executeAutoPass] Error re-checking if player ${priority} is idle (ID: ${debugCallId}):`, err);
           return;
         }
       } else if (triggerAutoPassReason) {
         debug(2, `${ts()} [executeAutoPass] Re-check confirms top stack trigger shortcut (${triggerAutoPassReason}) for ${priority} (ID: ${debugCallId})`);
       }
+
+      const currentStep = String(currentState?.step || '').toUpperCase();
+      const turnPlayer = currentState?.turnPlayer;
+      const battlefield = game.state?.battlefield || [];
+      const isBeingAttacked = battlefield.some((perm: any) => perm?.attacking === priority);
+      const hasPotentialBlockers = battlefield.some((perm: any) => {
+        if (!perm || perm.controller !== priority) return false;
+        if (perm.tapped) return false;
+        const typeLine = (perm.card?.type_line || '').toLowerCase();
+        return typeLine.includes('creature');
+      });
+      const isDefendingPlayer = isBeingAttacked && hasPotentialBlockers;
+      if ((currentStep === 'DECLARE_BLOCKERS' || currentStep.includes('BLOCKERS')) && isDefendingPlayer) {
+        debug(2, `${ts()} [executeAutoPass] Skipping auto-pass for ${priority} during DECLARE_BLOCKERS - player has potential blockers (ID: ${debugCallId})`);
+        return;
+      }
       
-      // Player cannot act and has auto-pass enabled - auto-pass their priority
+      // Player cannot act - auto-pass their priority
       debug(2, `${ts()} [executeAutoPass] Proceeding with auto-pass for ${priority} (ID: ${debugCallId})`);
       
       // Mark that we're processing auto-pass for this player

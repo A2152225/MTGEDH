@@ -9,7 +9,7 @@ Living document. Update this file as gaps close and audits are re-run.
 ## Quick start for a new session
 
 1. **Read the rules first:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — no card-name handlers, no new `KNOWN_*` rows; parse → execute → server queue.
-2. **Server integration (Layer 3):** read **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** § *Current status / session handoff* — batch **174** added generic `distribute … among …` counter execution; G1 bug table lists what remains.
+2. **Server integration (Layer 3):** read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** and **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** § *Current status* — batch **279** G1 Merfolk fixes (Roaming Throne chosen type, tap triggers, Thassa library IR); batch **278** cleared trigger `ir_gap`.
 3. Read this file for Layer 1–2 metrics and parser/executor priority order.
 4. **Verify batch 174 before new work:**
    ```powershell
@@ -196,7 +196,8 @@ Closed the final 7 singleton gaps (earthbend where-X, Greasefang compound, Azlas
 - [x] Lab Man / Jace draw-win replacement (`checkEmptyLibraryDraw`)
 - [x] Upkeep win cards (Felidar Sovereign, Test of Endurance, etc. in `win-conditions.ts`)
 - [x] Copy zone movement SBA 704.5e (`runSBA` removes `isCopy` from non-stack/non-battlefield zones)
-- [x] Thassa's Oracle ETB devotion win (`tryResolveThassasOracleWin` in `stack.ts` + `checkThassasOracleWin`)
+- [x] Thassa's Oracle ETB devotion win (`tryResolveThassasOracleWin` + `checkThassasOracleWin`)
+- [x] Thassa's Oracle ETB library look/reorder (batch 279: `look_select_top` + `LIBRARY_SEARCH` queue; win tail unchanged)
 - [ ] Same-controller trigger ordering UI (`ORDER_TRIGGERS`)
 - [ ] Replacement-effect choice (`CHOOSE_REPLACEMENT`)
 

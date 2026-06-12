@@ -6,8 +6,8 @@
  * 
  * Features:
  * - Draggable to reposition anywhere on screen
- * - Simplified combat display (just "Combat" with normal step advancement)
- * - End Turn moves to end phase for cleanup/discard
+ * - Click phase labels to jump ahead (e.g. Main 1 → Main 2 skips combat)
+ * - Pass Priority when you want to yield without using the priority popup
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -29,7 +29,8 @@ interface PhaseNavigatorProps {
   damageReplacementMode?: 'minimize' | 'maximize' | 'custom' | 'auto';
   onSetDamageReplacementMode?: (mode: 'minimize' | 'maximize' | 'custom' | 'auto') => void;
   onOpenReplacementEffectSettings?: () => void;
-  onNextStep: () => void;
+  /** Step-by-step advance for phase-button hops (combat/untap/upkeep); not shown as its own control. */
+  onAdvanceOneStep: () => void;
   onPassPriority: () => void;
   onAdvancingChange?: (isAdvancing: boolean) => void;
   onSkipToPhase?: (targetPhase: string, targetStep: string) => void;
@@ -76,7 +77,7 @@ export function PhaseNavigator({
   damageReplacementMode = 'minimize',
   onSetDamageReplacementMode,
   onOpenReplacementEffectSettings,
-  onNextStep,
+  onAdvanceOneStep,
   onPassPriority,
   onAdvancingChange,
   onSkipToPhase,
@@ -198,7 +199,7 @@ export function PhaseNavigator({
     // For these phases, step-by-step is needed because they don't have direct mappings
     try {
       for (let i = 0; i < stepsToAdvance; i++) {
-        onNextStep();
+        onAdvanceOneStep();
         // Wait 0.75 seconds between steps (except after the last one)
         if (i < stepsToAdvance - 1) {
           await new Promise(resolve => setTimeout(resolve, 750));
@@ -209,7 +210,7 @@ export function PhaseNavigator({
       // This helps prevent accidental double-advances
       setTimeout(() => setIsAdvancing(false), 500);
     }
-  }, [canAdvance, currentIndex, isAdvancing, onNextStep, onSkipToPhase]);
+  }, [canAdvance, currentIndex, isAdvancing, onAdvanceOneStep, onSkipToPhase]);
   
   // Drag handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -529,30 +530,13 @@ export function PhaseNavigator({
         </div>
       )}
       
-      {/* Quick action buttons */}
+      {/* Pass priority — step advances via auto-pass or clicking a phase label */}
       <div style={{ 
         display: 'flex', 
         gap: 6,
         paddingTop: 8,
         borderTop: '1px solid rgba(255,255,255,0.1)',
       }}>
-        <button
-          onClick={(e) => { e.stopPropagation(); onNextStep(); }}
-          disabled={!canAdvance}
-          style={{
-            flex: 1,
-            padding: '6px 10px',
-            borderRadius: 6,
-            border: 'none',
-            background: canAdvance ? '#3b82f6' : '#4b5563',
-            color: '#fff',
-            cursor: canAdvance ? 'pointer' : 'not-allowed',
-            fontSize: 11,
-            fontWeight: 500,
-          }}
-        >
-          Next Step
-        </button>
         <button
           onClick={(e) => { e.stopPropagation(); onPassPriority(); }}
           disabled={!hasPriority}
@@ -568,7 +552,7 @@ export function PhaseNavigator({
             fontWeight: 500,
           }}
         >
-          Pass
+          Pass Priority
         </button>
       </div>
       

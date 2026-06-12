@@ -1167,6 +1167,49 @@ function createForwardingGameActionSocket(
   return { socket, handlers };
 }
 
+function didQueuedSpellCastComplete(game: any, playerId: string, cardId: string): boolean {
+  const stack = Array.isArray(game?.state?.stack) ? game.state.stack : [];
+  const onStack = stack.some((item: any) =>
+    String(item?.controller || '') === String(playerId) &&
+    String(item?.card?.id || item?.cardId || '') === String(cardId),
+  );
+  if (onStack) return true;
+
+  const hand = game?.state?.zones?.[playerId]?.hand;
+  if (Array.isArray(hand)) {
+    return !hand.some((card: any) => String(card?.id || '') === String(cardId));
+  }
+
+  return false;
+}
+
+async function withTemporaryCastingPriorityForPaymentCompletion(
+  gameId: string,
+  playerId: string,
+  cardId: string,
+  action: () => Promise<void>,
+): Promise<boolean> {
+  const game = ensureGame(gameId);
+  const priorPriority = game?.state?.priority;
+  const grantedTemporaryPriority = Boolean(game && priorPriority !== playerId);
+
+  if (grantedTemporaryPriority) {
+    (game.state as any).priority = playerId;
+  }
+
+  try {
+    await action();
+  } finally {
+    if (grantedTemporaryPriority && game && (game.state as any).priority === playerId) {
+      if (!didQueuedSpellCastComplete(game, playerId, cardId)) {
+        (game.state as any).priority = priorPriority;
+      }
+    }
+  }
+
+  return Boolean(game && didQueuedSpellCastComplete(game, playerId, cardId));
+}
+
 async function resumeAISpellCastAfterPayment(
   io: Server,
   gameId: string,
@@ -1181,26 +1224,33 @@ async function resumeAISpellCastAfterPayment(
     convokeTappedCreatures?: string[];
     harmonizeTappedCreatureId?: string;
   },
-): Promise<void> {
-  const { socket, handlers } = createSyntheticAIGameActionSocket(gameId, playerId);
-  registerGameActions(io, socket as any);
-
-  const completeCastSpell = handlers.get('completeCastSpell');
-  if (typeof completeCastSpell !== 'function') {
-    throw new Error('Synthetic AI socket missing completeCastSpell handler');
-  }
-
-  await completeCastSpell({
+): Promise<boolean> {
+  return withTemporaryCastingPriorityForPaymentCompletion(
     gameId,
-    cardId: payload.cardId,
-    effectId: payload.effectId,
-    targets: payload.targets,
-    payment: payload.payment,
-    xValue: payload.xValue,
-    alternateCostId: payload.alternateCostId,
-    convokeTappedCreatures: payload.convokeTappedCreatures,
-    harmonizeTappedCreatureId: payload.harmonizeTappedCreatureId,
-  });
+    playerId,
+    payload.cardId,
+    async () => {
+      const { socket, handlers } = createSyntheticAIGameActionSocket(gameId, playerId);
+      registerGameActions(io, socket as any);
+
+      const completeCastSpell = handlers.get('completeCastSpell');
+      if (typeof completeCastSpell !== 'function') {
+        throw new Error('Synthetic AI socket missing completeCastSpell handler');
+      }
+
+      await completeCastSpell({
+        gameId,
+        cardId: payload.cardId,
+        effectId: payload.effectId,
+        targets: payload.targets,
+        payment: payload.payment,
+        xValue: payload.xValue,
+        alternateCostId: payload.alternateCostId,
+        convokeTappedCreatures: payload.convokeTappedCreatures,
+        harmonizeTappedCreatureId: payload.harmonizeTappedCreatureId,
+      });
+    },
+  );
 }
 
 async function resumePlayerSpellCastAfterPayment(
@@ -1217,26 +1267,33 @@ async function resumePlayerSpellCastAfterPayment(
     convokeTappedCreatures?: string[];
     harmonizeTappedCreatureId?: string;
   },
-): Promise<void> {
-  const { socket, handlers } = createForwardingGameActionSocket(io, gameId, playerId);
-  registerGameActions(io, socket as any);
-
-  const completeCastSpell = handlers.get('completeCastSpell');
-  if (typeof completeCastSpell !== 'function') {
-    throw new Error('Synthetic player socket missing completeCastSpell handler');
-  }
-
-  await completeCastSpell({
+): Promise<boolean> {
+  return withTemporaryCastingPriorityForPaymentCompletion(
     gameId,
-    cardId: payload.cardId,
-    effectId: payload.effectId,
-    targets: payload.targets,
-    payment: payload.payment,
-    xValue: payload.xValue,
-    alternateCostId: payload.alternateCostId,
-    convokeTappedCreatures: payload.convokeTappedCreatures,
-    harmonizeTappedCreatureId: payload.harmonizeTappedCreatureId,
-  });
+    playerId,
+    payload.cardId,
+    async () => {
+      const { socket, handlers } = createForwardingGameActionSocket(io, gameId, playerId);
+      registerGameActions(io, socket as any);
+
+      const completeCastSpell = handlers.get('completeCastSpell');
+      if (typeof completeCastSpell !== 'function') {
+        throw new Error('Synthetic player socket missing completeCastSpell handler');
+      }
+
+      await completeCastSpell({
+        gameId,
+        cardId: payload.cardId,
+        effectId: payload.effectId,
+        targets: payload.targets,
+        payment: payload.payment,
+        xValue: payload.xValue,
+        alternateCostId: payload.alternateCostId,
+        convokeTappedCreatures: payload.convokeTappedCreatures,
+        harmonizeTappedCreatureId: payload.harmonizeTappedCreatureId,
+      });
+    },
+  );
 }
 
 async function resumePlayerCastSpellFromHand(
@@ -11941,7 +11998,7 @@ async function handleStepResponse(
           }
           break;
         }
-        await resumePlayerSpellCastAfterPayment(io, gameId, String(pid), {
+        const castCompleted = await resumePlayerSpellCastAfterPayment(io, gameId, String(pid), {
           cardId,
           effectId,
           payment,
@@ -11952,7 +12009,11 @@ async function handleStepResponse(
           harmonizeTappedCreatureId,
         });
 
-        debug(2, `[Resolution] Spell payment complete for ${cardName}; completed cast server-side (effectId='${effectId}')`);
+        if (castCompleted) {
+          debug(2, `[Resolution] Spell payment complete for ${cardName}; completed cast server-side (effectId='${effectId}')`);
+        } else {
+          debugWarn(1, `[Resolution] Spell payment applied for ${cardName} but cast did not complete (effectId='${effectId}')`);
+        }
         break;
       }
 

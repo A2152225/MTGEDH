@@ -8,6 +8,30 @@ Refreshed from `tools/oracle-ir-gap-audit.ts` against `oracle-cards.json` and `A
 - Cards with gaps: 0
 - Gap records: 0
 - Report artifact: `tools/oracle-ir-gap-audit.json`
+- Trigger `ir_gap`: **0** (batch 278)
+- Parse→execute gaps (trigger_effects scope): **0**
+
+## Completed In This Pass (batch 279 — G1 Merfolk integration)
+
+Server integration fixes from live G1 play (not a parser-gap audit batch). See `docs/oracle-ir-session-handoff.md` for full detail.
+
+1. **Roaming Throne chosen type:** `permanentAddsChosenCreatureTypeToSelf` + `permanentHasCreatureType` in shared; tap triggers and IR subtype checks use `permanentHasCreatureTypeNow`; excludes Cavern of Souls-style “as … enters” lands.
+2. **Tap trigger queue:** extracted `queueTapTriggersForTappedPermanents`; wired in resolution tap-other cost path and `interaction.tapPermanent`.
+3. **Thassa's Oracle library effect:** `look_top` + put-one-on-top/rest-random-bottom → `look_select_top` (`destination: library_top`, `whereX` devotion, `chooseMin: 0`); `pruneThassaOracleWinGrantAbilities`; executor + `LIBRARY_SEARCH` (`destination: top`, `remainderRandomOrder`); win via existing `tryResolveThassasOracleWin`.
+4. **Kynaios land ETB:** `runPostResolutionPermanentPromptChecks` after land gift.
+5. **Growing Rites:** skip `art_series` in local card lookup (`schemaVersion` 2).
+6. **Cryptoplasm:** `revertCopyPermanentToOriginal` on bounce to hand.
+7. **Eldrazi Monument:** skip duplicate generic upkeep sacrifice detection when `KNOWN_UPKEEP_CARDS` matched.
+8. **White Lotus Tile:** tribal mana common-type counting via `chosenCreatureType`.
+9. **Tests:** `roaming-throne-chosen-type.unit.test.ts`, `g1-card-fixes.unit.test.ts`, Thassa parser test in `oracleIRParser.test.ts`.
+
+Validation:
+
+1. `npx vitest run tests/roaming-throne-chosen-type.unit.test.ts tests/g1-card-fixes.unit.test.ts` (server)
+2. `npx vitest run test/oracleIRParser.test.ts -t "Thassa"` (rules-engine)
+3. `npm run test:oracle-ir-migration` — **649/649**
+
+**Next:** Thassa socket E2E; Roaming Throne + Kumena tribal socket test; resume `full_card` executor audit or trigger detector gaps.
 
 ## Completed In This Pass (batch 278)
 

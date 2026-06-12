@@ -60,7 +60,7 @@ export interface MobilePlaySheetsProps {
   stackEmpty?: boolean;
   allPlayersReady?: boolean;
   phaseAdvanceBlockReason?: string | null;
-  onNextStep?: () => void;
+  onAdvanceOneStep?: () => void;
   onSkipToPhase?: (targetPhase: string, targetStep?: string) => void;
   onConcede?: () => void;
   onLeaveGame?: () => void;
@@ -100,7 +100,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
     stackEmpty = true,
     allPlayersReady = true,
     phaseAdvanceBlockReason,
-    onNextStep,
+    onAdvanceOneStep,
     onSkipToPhase,
     onConcede,
     onLeaveGame,
@@ -180,7 +180,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
         desktopWidth={480}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
-          {onNextStep && onPassPriority && (
+          {onAdvanceOneStep && onPassPriority && (
             <PhaseNavigator
               docked
               currentPhase={phase}
@@ -192,7 +192,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
               stackEmpty={stackEmpty}
               allPlayersReady={allPlayersReady}
               phaseAdvanceBlockReason={phaseAdvanceBlockReason}
-              onNextStep={onNextStep}
+              onAdvanceOneStep={onAdvanceOneStep}
               onPassPriority={onPassPriority}
               onSkipToPhase={onSkipToPhase}
             />

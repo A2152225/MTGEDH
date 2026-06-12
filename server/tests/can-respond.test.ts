@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates } from '../src/state/modules/can-respond';
+import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates, isPlayerIdleForAutoPass } from '../src/state/modules/can-respond';
 import { buildDurableCommandZonePermission, buildDurableGraveyardPermission, buildDurableLibraryPermission, buildDurablePlayableFromExilePermission } from '../src/state/modules/durable-permissions';
 import { applyPlayableFromGraveyardPermissionFromText, applyTemporaryGraveyardKeywordGrantFromText, clearTemporaryGraveyardKeywordGrants } from '../src/state/modules/graveyard-permissions';
 import type { GameContext } from '../src/state/context';
@@ -2839,6 +2839,48 @@ describe('canRespond', () => {
 });
 
 describe('canAct', () => {
+  it('should return false during declare attackers when tapped out with floating green and no affordable spells', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'expensive_creature',
+              name: 'Primeval Titan',
+              type_line: 'Creature — Giant',
+              mana_cost: '{4}{G}{G}',
+              oracle_text: '',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'forest_1',
+          controller: 'p1',
+          tapped: true,
+          card: {
+            name: 'Forest',
+            type_line: 'Basic Land — Forest',
+            oracle_text: '{T}: Add {G}.',
+          },
+        },
+      ],
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 1 },
+      step: 'DECLARE_ATTACKERS',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(false);
+    expect(isPlayerIdleForAutoPass(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should return false during untap even when the turn player has a castable instant', () => {
     const ctx = createTestContext({
       zones: {
