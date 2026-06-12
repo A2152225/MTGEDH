@@ -19,6 +19,7 @@ interface CreatureTypeSelectModalProps {
   title?: string;
   description?: string;
   cardName?: string;
+  offeredCreatureTypes?: string[];
   onSelect: (creatureType: string) => void;
   onCancel: () => void;
   canCancel?: boolean;
@@ -30,6 +31,7 @@ export function CreatureTypeSelectModal({
   title = 'Choose a Creature Type',
   description,
   cardName,
+  offeredCreatureTypes,
   onSelect,
   onCancel,
   canCancel = true,
@@ -41,10 +43,21 @@ export function CreatureTypeSelectModal({
   const [showCustomInput, setShowCustomInput] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   
-  // Filter creature types based on search
+  const restrictedTypes = useMemo(() => {
+    if (!Array.isArray(offeredCreatureTypes) || offeredCreatureTypes.length === 0) {
+      return null;
+    }
+    return offeredCreatureTypes.map((type) => String(type).trim()).filter(Boolean);
+  }, [offeredCreatureTypes]);
+
+  // Filter creature types based on search (or a finite offered list)
   const filteredTypes = useMemo(() => {
+    if (restrictedTypes) {
+      const query = searchQuery.trim().toLowerCase();
+      return restrictedTypes.filter((type) => !query || type.toLowerCase().includes(query));
+    }
     return searchCreatureTypes(searchQuery);
-  }, [searchQuery]);
+  }, [searchQuery, restrictedTypes]);
   
   // Focus search input when modal opens
   useEffect(() => {

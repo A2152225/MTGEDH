@@ -25,7 +25,8 @@ import {
   getExtraManaProduction, 
   getDevotionManaAmount, 
   getCreatureCountManaAmount,
-  detectManaModifiers
+  detectManaModifiers,
+  getCommanderColorIdentity,
 } from "../state/modules/mana-abilities";
 import {
   buildAnyCombinationManaSelectionFields,
@@ -3204,9 +3205,29 @@ export function resolveManaAbilityActivationShape(
     /\bor\b/i.test(normalizedSelectedAbilityText) ||
     abilityProduces.length > calculatedProduces.length
   );
-  const produces = shouldPreferAbilityProduces
+  let produces = shouldPreferAbilityProduces
     ? abilityProduces
     : (calculatedProduces.length > 0 ? calculatedProduces : abilityProduces);
+
+  const normalizedSelectionText = normalizeManaAbilitySelectionText(
+    selectedAbilityTextRaw || selectedAbilityFullTextRaw,
+  );
+  const commanderRestrictedMana = /commander'?s?\s+color\s+identity/i.test(normalizedSelectionText);
+  if (produces.length === 0 && (manaProduction?.requiresColorChoice === true || commanderRestrictedMana)) {
+    if (abilityProduces.length > 0) {
+      produces = abilityProduces;
+    } else if (commanderRestrictedMana) {
+      const commanderColorKeys = getCommanderColorIdentity(gameState, playerId);
+      const commanderProduces = ['W', 'U', 'B', 'R', 'G'].filter((color) => {
+        const key = ({ W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' } as const)[color as 'W' | 'U' | 'B' | 'R' | 'G'];
+        return commanderColorKeys.has(key);
+      });
+      if (commanderProduces.length > 0) {
+        produces = commanderProduces;
+      }
+    }
+  }
+
   const explicitSelectedChoiceAmount = getExplicitSelectedAnyColorManaAmount(selectedAbilityTextRaw || selectedAbilityFullTextRaw);
   const rawBaseAmount = explicitSelectedChoiceAmount
     ?? explicitSelectedManaProduction?.baseAmount
@@ -8152,8 +8173,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         "native_g": "G",
         "native_c": "C",
         "native_any": "any", // Will need to prompt for color choice
+        "native_commander_any": "any", // Commander color identity restriction resolved in calculateManaProduction
       };
-      manaColor = manaColorMap[abilityId] || "C";
+      manaColor = manaColorMap[abilityId] || (abilityId.startsWith('native_commander_any') ? 'any' : "C");
       
       // Calculate actual mana production (handles multipliers, enchantments, etc.)
       const manaProduction = calculateManaProduction(game.state, permanent, pid, manaColor, abilityId);

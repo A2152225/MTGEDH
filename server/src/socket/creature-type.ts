@@ -134,7 +134,10 @@ export function applyCreatureTypeSelection(
   
   if (permanent) {
     permanent.chosenCreatureType = chosenType;
-    
+    if (permanent.card && typeof permanent.card === 'object') {
+      permanent.card.chosenCreatureType = chosenType;
+    }
+
     // For Morophon, also apply cost reduction tracking
     const permCardName = (permanent.card?.name || "").toLowerCase();
     if (permCardName.includes("morophon")) {
@@ -180,6 +183,7 @@ export function applyCreatureTypeSelection(
 import {
   isCastCreatureTypeChoiceOracle,
   isEtbCreatureTypeChoiceOracle,
+  parseEtbOfferedCreatureTypes,
 } from '../state/modules/chosen-creature-type.js';
 
 /**
@@ -266,11 +270,24 @@ export function requiresCreatureTypeSelection(card: any): { required: boolean; r
     return { required: true, reason: "Choose a creature type for Three Tree City's mana ability" };
   }
   
+  const offeredCreatureTypes = parseEtbOfferedCreatureTypes(card?.oracle_text || '');
+  if (offeredCreatureTypes && offeredCreatureTypes.length > 0) {
+    return {
+      required: true,
+      reason: `Choose one: ${offeredCreatureTypes.join(', ')}`,
+    };
+  }
+
   if (isEtbCreatureTypeChoiceOracle(card?.oracle_text || '')) {
     return { required: true, reason: "Choose a creature type" };
   }
   
   return { required: false, reason: "" };
+}
+
+export function getOfferedCreatureTypesForSelection(card: any): string[] | undefined {
+  const offered = parseEtbOfferedCreatureTypes(card?.oracle_text || '');
+  return offered && offered.length > 0 ? offered : undefined;
 }
 
 /**

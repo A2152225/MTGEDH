@@ -161,4 +161,88 @@ describe('Folio of Fancies X activation (integration)', () => {
 
     expect(emitted.some((entry) => entry.event === 'error')).toBe(false);
   });
+
+  it('mills each opponent for their hand size when the second ability resolves', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 2 },
+      [p2]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    game.importDeckResolved(p1 as any, [
+      { id: 'p1_lib_1', name: 'P1 Card 1', type_line: 'Artifact', oracle_text: '' },
+      { id: 'p1_lib_2', name: 'P1 Card 2', type_line: 'Artifact', oracle_text: '' },
+      { id: 'p1_lib_3', name: 'P1 Card 3', type_line: 'Artifact', oracle_text: '' },
+    ] as any);
+    game.importDeckResolved(p2 as any, [
+      { id: 'p2_lib_1', name: 'P2 Card 1', type_line: 'Artifact', oracle_text: '' },
+      { id: 'p2_lib_2', name: 'P2 Card 2', type_line: 'Artifact', oracle_text: '' },
+      { id: 'p2_lib_3', name: 'P2 Card 3', type_line: 'Artifact', oracle_text: '' },
+    ] as any);
+
+    (game.state as any).zones = {
+      [p1]: { hand: [], library: [], libraryCount: 0, graveyard: [] },
+      [p2]: {
+        hand: [{ id: 'p2_hand_1' }, { id: 'p2_hand_2' }, { id: 'p2_hand_3' }],
+        library: [
+          { id: 'p2_lib_top_1', name: 'P2 Mill 1', type_line: 'Creature' },
+          { id: 'p2_lib_top_2', name: 'P2 Mill 2', type_line: 'Creature' },
+          { id: 'p2_lib_top_3', name: 'P2 Mill 3', type_line: 'Creature' },
+        ],
+        libraryCount: 3,
+        graveyard: [],
+      },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'folio_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'folio_card_1',
+          name: 'Folio of Fancies',
+          type_line: 'Artifact',
+          oracle_text:
+            'Players have no maximum hand size.\n{X}{X}, {T}: Each player draws X cards.\n{2}{U}, {T}: Each opponent mills cards equal to the number of cards in their hand.',
+          image_uris: { small: 'https://example.com/folio.jpg' },
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId,
+      permanentId: 'folio_1',
+      abilityId: 'folio_1-ability-1',
+    });
+
+    const folio = (game.state as any).battlefield.find((perm: any) => perm.id === 'folio_1');
+    expect(Boolean(folio?.tapped)).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+
+    game.resolveTopOfStack();
+
+    expect((game.state as any).zones?.[p2]?.library || []).toHaveLength(0);
+    expect((game.state as any).zones?.[p2]?.graveyard || []).toHaveLength(3);
+    expect(emitted.some((entry) => entry.event === 'error')).toBe(false);
+  });
 });

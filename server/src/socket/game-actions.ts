@@ -15,7 +15,7 @@ import {
   isTriggerShortcutPreferenceAllowed,
 } from "../../../shared/src/index.js";
 
-import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection } from "./creature-type";
+import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection, getOfferedCreatureTypesForSelection } from "./creature-type";
 import { requiresColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
 import { checkAndPromptOpeningHandActions, isOpeningHandBattlefieldCard } from "./opening-hand";
@@ -2228,12 +2228,19 @@ function checkCreatureTypeSelectionForNewPermanents(
       // For AI players, resolve immediately without queueing a step.
       // (The global Resolution Queue AI handler would also handle this, but this path
       // chooses a smarter creature type via deck analysis.)
+      const offeredCreatureTypes = getOfferedCreatureTypesForSelection(permanent.card);
+
       if (isAI) {
-        const chosenType = getDominantCreatureType(game, controller);
+        let chosenType = getDominantCreatureType(game, controller);
+        if (
+          offeredCreatureTypes
+          && !offeredCreatureTypes.some((type) => String(type).toLowerCase() === String(chosenType).toLowerCase())
+        ) {
+          chosenType = offeredCreatureTypes[0];
+        }
         applyCreatureTypeSelection(io, game, gameId, controller, permanentId, cardName, chosenType, true);
         continue;
       }
-
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.CREATURE_TYPE_CHOICE,
         playerId: controller as any,
@@ -2245,6 +2252,7 @@ function checkCreatureTypeSelectionForNewPermanents(
         permanentId,
         cardName,
         reason,
+        ...(offeredCreatureTypes ? { offeredCreatureTypes } : null),
       });
       
       debug(2, `[game-actions] Queued creature type selection for ${cardName} (${permanentId}) from ${controller}`);
@@ -10280,6 +10288,17 @@ export function registerGameActions(io: Server, socket: Socket) {
           });
           return;
         }
+
+        // Explicit payment selects tap/floating sources; mana already floating in the pool
+        // can still pay the remainder (e.g. tap a Swamp for {B} while spending {1} from pool).
+        for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
+          const poolAmount = Number(existingPool[key] || 0);
+          const fromFloatingRef = Number(selectedFloatingMana[key] || 0);
+          const remainder = Math.max(0, poolAmount - fromFloatingRef);
+          if (remainder > 0) {
+            totalAvailable[key] = Number(totalAvailable[key] || 0) + remainder;
+          }
+        }
       }
       
       // Log floating mana if any
@@ -10807,6 +10826,13 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
             debug(2, `[castSpellFromHand] Added ${bonus.amount} ${bonus.color} bonus mana from enchantments/effects`);
           }
+        }
+      }
+
+      if (explicitPaymentSelected) {
+        const poolAfterExplicitPayment = snapshotCastSpellManaPool(getOrInitManaPool(game.state, playerId));
+        for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
+          selectedPaymentAvailableTotals[key] = Number(poolAfterExplicitPayment[key] || 0);
         }
       }
 
@@ -12883,11 +12909,11 @@ export function registerGameActions(io: Server, socket: Socket) {
         allowLibrarySearchCast: Boolean(suspendedLibrarySearchStep),
       });
 
-      if (isSpellAlreadyOnStackForPlayer(game, playerId, cardId) && effectIdStr) {
-        delete (game.state as any).pendingSpellCasts[effectIdStr];
-      }
       } finally {
         clearPlayerCompletingSpellCast(game, playerId, cardId);
+        if (effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]) {
+          delete (game.state as any).pendingSpellCasts[effectIdStr];
+        }
       }
 
       if (suspendedLibrarySearchStep) {

@@ -8,6 +8,8 @@
 import type { PlayerID } from "../../../../shared/src";
 import { parseNumberFromText, parseSacrificeCost, type SacrificeType } from "../../../../shared/src/textUtils";
 import { creatureHasHaste } from "../../socket/game-actions.js";
+import { cardHasCreatureType } from "../creatureTypeNow.js";
+import { getChosenTypeManaSpendRestriction } from "./chosen-creature-type.js";
 import { getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "./mana-abilities.js";
 import { debug } from "../../utils/debug.js";
 
@@ -542,6 +544,7 @@ type ExactManaSourceOption = {
   };
   repeatable?: boolean;
   produced: Record<SimpleManaKey, number>;
+  spendRestriction?: { restriction: string; restrictedTo?: string };
 };
 
 type ExactManaSource = {
@@ -922,9 +925,48 @@ function buildExactHandCandidates(state: any, playerId: PlayerID): ExactHandCand
     .filter((candidate) => Boolean(candidate.id));
 }
 
+type ExactManaSpendPurpose = {
+  isCreature?: boolean;
+  spellCard?: any;
+};
+
 type ExactManaPaymentOptions = {
   excludedHandCardIds?: string[];
+  restrictedSpendPurpose?: ExactManaSpendPurpose;
 };
+
+function attachChosenTypeSpendRestrictionIfNeeded(
+  permanent: any,
+  producedText: string,
+  option: ExactManaSourceOption,
+): ExactManaSourceOption {
+  if (!/one mana of any color|mana of any color/i.test(String(producedText || ''))) {
+    return option;
+  }
+  const spendRestriction = getChosenTypeManaSpendRestriction(permanent);
+  if (!spendRestriction) return option;
+  return { ...option, spendRestriction };
+}
+
+function exactManaSpendRestrictionAllowsPurpose(
+  spendRestriction: { restriction: string; restrictedTo?: string } | undefined,
+  purpose: ExactManaSpendPurpose | undefined,
+): boolean {
+  if (!spendRestriction?.restriction || !purpose) return true;
+
+  switch (spendRestriction.restriction) {
+    case 'chosen_type_creature_spell':
+    case 'chosen_type_creature_source':
+      if (purpose.isCreature !== true) return false;
+      if (!spendRestriction.restrictedTo) return true;
+      return Boolean(purpose.spellCard && cardHasCreatureType(purpose.spellCard, spendRestriction.restrictedTo));
+    case 'chosen_type_spell':
+      if (!spendRestriction.restrictedTo) return true;
+      return Boolean(purpose.spellCard && cardHasCreatureType(purpose.spellCard, spendRestriction.restrictedTo));
+    default:
+      return true;
+  }
+}
 
 function candidateMatchesSacrificeRequirement(
   candidate: ExactSacrificeCandidate,
@@ -1293,16 +1335,18 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
 
     for (const match of costMatches) {
       const activationCost = parseManaCost(`{${match[1]}}`);
-      const producedOptions = buildProducedManaOptions(state, playerId, permanent, String(match[2] || ''));
+      const producedText = String(match[2] || '');
+      const producedOptions = buildProducedManaOptions(state, playerId, permanent, producedText);
       for (const produced of producedOptions) {
-        options.push({ activationCost, produced });
+        options.push(attachChosenTypeSpendRestrictionIfNeeded(permanent, producedText, { activationCost, produced }));
       }
     }
 
     for (const match of noCostMatches) {
-      const producedOptions = buildProducedManaOptions(state, playerId, permanent, String(match[1] || ''));
+      const producedText = String(match[1] || '');
+      const producedOptions = buildProducedManaOptions(state, playerId, permanent, producedText);
       for (const produced of producedOptions) {
-        options.push({ produced });
+        options.push(attachChosenTypeSpendRestrictionIfNeeded(permanent, producedText, { produced }));
       }
     }
 
@@ -1324,7 +1368,11 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
 
       const producedOptions = buildProducedManaOptions(state, playerId, permanent, producedText);
       for (const produced of producedOptions) {
-        options.push({ ...inferredSupportedCost, repeatable, produced });
+        options.push(attachChosenTypeSpendRestrictionIfNeeded(
+          permanent,
+          producedText,
+          { ...inferredSupportedCost, repeatable, produced },
+        ));
       }
     }
 
@@ -2169,6 +2217,7 @@ export function canPayManaCostWithAvailableSources(
     return canPayManaCost(getAvailableMana(state, playerId), parsedCost, effectiveLifeAvailable);
   }
 
+  const restrictedSpendPurpose = options?.restrictedSpendPurpose;
   const memo = new Map<string, boolean>();
   const visiting = new Set<string>();
 
@@ -2305,6 +2354,10 @@ export function canPayManaCostWithAvailableSources(
           }
 
           branchStates = nextBranchStates;
+        }
+
+        if (!exactManaSpendRestrictionAllowsPurpose(option.spendRestriction, restrictedSpendPurpose)) {
+          continue;
         }
 
         for (const branchState of branchStates) {

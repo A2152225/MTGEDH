@@ -447,6 +447,18 @@ function extractCreatureTypes(typeLine: string): string[] {
   return types;
 }
 
+function isOptionalTapTriggerEffect(effectText: string): boolean {
+  const normalized = String(effectText || '').trim();
+  if (!/\byou may\b/i.test(normalized)) {
+    return false;
+  }
+  // "you may pay {cost}. If you do, ..." is still a mandatory trigger; only the cost/effect is optional.
+  if (/^\s*you may pay\b/i.test(normalized)) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Detect tap/untap triggered abilities from a card's oracle text
  */
@@ -463,7 +475,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   if (tribalTapMatch) {
     const tribalType = tribalTapMatch[1].toLowerCase();
     const effectText = timingTriggerEffect(oracleText, tribalTapMatch, 2);
-    const isOptional = effectText.toLowerCase().includes('you may');
+    const isOptional = isOptionalTapTriggerEffect(effectText);
     
     const lifeGainMatch = effectText.match(/gain (\d+) life/i);
     
@@ -485,7 +497,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
   const selfTapMatch = oracleText.match(/whenever (?:~|this creature) becomes tapped,?\s*([^.]+)/i);
   if (selfTapMatch) {
     const effectText = timingTriggerEffect(oracleText, selfTapMatch);
-    const isOptional = effectText.toLowerCase().includes('you may');
+    const isOptional = isOptionalTapTriggerEffect(effectText);
     
     // Check for token creation
     const tokenMatch = effectText.match(/create (?:a |an )?(\d+)\/(\d+)/i);
@@ -533,7 +545,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
         effect: effectText,
         triggerCondition: 'becomes_tapped',
         affectedType: 'creature',
-        mandatory: !effectText.toLowerCase().includes('you may'),
+        mandatory: !isOptionalTapTriggerEffect(effectText),
       });
     }
   }

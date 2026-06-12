@@ -173,6 +173,54 @@ describe('Cryptoplasm upkeep copy', () => {
     expect((targetStep as any)?.mandatory).toBe(false);
   });
 
+  it('skips target selection when Cryptoplasm is the only creature on the battlefield', () => {
+    const gameId = 'cryptoplasm_upkeep_copy_alone';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'cryptoplasm_1',
+        controller: p1,
+        owner: p1,
+        card: {
+          id: 'cryptoplasm_card',
+          name: 'Cryptoplasm',
+          type_line: 'Creature — Shapeshifter',
+          oracle_text:
+            'At the beginning of your upkeep, you may have this creature become a copy of another target creature, except it has this ability.',
+          power: '3',
+          toughness: '3',
+        },
+        power: 3,
+        toughness: 3,
+        basePower: 3,
+        baseToughness: 3,
+      },
+    ];
+
+    ResolutionQueueManager.removeQueue(gameId);
+
+    executeTriggerEffect(
+      game as any,
+      p1,
+      'Cryptoplasm',
+      upkeepCopyText,
+      {
+        type: 'triggered_ability',
+        controller: p1,
+        source: 'cryptoplasm_1',
+        permanentId: 'cryptoplasm_1',
+        id: 'cryptoplasm_trigger',
+      },
+    );
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p1);
+    const targetStep = steps.find(step => step.type === ResolutionStepType.TARGET_SELECTION);
+    expect(targetStep).toBeUndefined();
+  });
+
   it('applies the copy and retains Cryptoplasm upkeep ability text', () => {
     const state: any = {
       battlefield: [

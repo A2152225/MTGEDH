@@ -1076,7 +1076,7 @@ const KEYWORD_ACTION_PATTERNS: KeywordPattern[] = [
   
   // Scry N - Look at top N cards, put any on bottom in any order
   {
-    pattern: /\bscry\s+(\d+)\b/i,
+    pattern: /(?:^|[.!?]\s+|\bwhen\s+(?:~|this\s+(?:land|permanent|artifact|creature|enchantment))\s+enters(?:\s+the\s+battlefield)?,\s*)scry\s+(\d+)\b/i,
     keyword: 'scry',
     category: 'triggered',
     timing: 'etb',

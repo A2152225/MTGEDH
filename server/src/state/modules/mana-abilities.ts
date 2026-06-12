@@ -124,7 +124,7 @@ export function getMoxAmberAvailableColors(gameState: any, playerId: string): st
  * Get commander color identity for a player
  * Returns set of color keys (white, blue, black, red, green) in commander's color identity
  */
-function getCommanderColorIdentity(gameState: any, playerId: string): Set<string> {
+export function getCommanderColorIdentity(gameState: any, playerId: string): Set<string> {
   const commanderColors = new Set<string>();
   const commandZone = gameState?.commandZone?.[playerId];
   
@@ -136,7 +136,7 @@ function getCommanderColorIdentity(gameState: any, playerId: string): Set<string
     if (!commander) continue;
     
     // color_identity is an array like ['W', 'U', 'B', 'R', 'G']
-    const colorIdentity = commander.color_identity || commander.colorIdentity || [];
+    const colorIdentity = commander.color_identity || commander.colorIdentity || commander.colors || [];
     
     for (const color of colorIdentity) {
       const colorUpper = color.toUpperCase();

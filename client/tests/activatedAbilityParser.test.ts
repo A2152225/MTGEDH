@@ -384,6 +384,32 @@ describe('parseActivatedAbilities station parsing', () => {
     expect(abilities[0]?.effect).toBe('Discard this card, then search your library for a Wizard creature card');
   });
 
+  it('parses Folio of Fancies as two activated abilities without a merged duplicate', () => {
+    const card: KnownCardRef = {
+      id: 'folio-card-1',
+      name: 'Folio of Fancies',
+      type_line: 'Artifact',
+      oracle_text:
+        'Players have no maximum hand size.\n' +
+        '{X}{X}, {T}: Each player draws X cards.\n' +
+        '{2}{U}, {T}: Each opponent mills cards equal to the number of cards in their hand.',
+    };
+
+    const abilities = parseActivatedAbilities(card);
+
+    expect(abilities).toHaveLength(2);
+    expect(abilities[0]?.id).toBe('folio-card-1-ability-0');
+    expect(abilities[0]?.hasXCost).toBe(true);
+    expect(abilities[0]?.xCount).toBe(2);
+    expect(abilities[0]?.effect).toBe('Each player draws X cards.');
+    expect(abilities[1]?.id).toBe('folio-card-1-ability-1');
+    expect(abilities[1]?.isMillAbility).toBe(true);
+    expect(abilities[1]?.millTargetType).toBe('opponent');
+    expect(abilities[1]?.effect).toBe(
+      'Each opponent mills cards equal to the number of cards in their hand.',
+    );
+  });
+
   it('keeps ordinary braced battlefield activations on generic -ability- ids', () => {
     const cards: KnownCardRef[] = [
       {

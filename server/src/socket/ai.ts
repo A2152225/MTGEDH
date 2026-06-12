@@ -8606,6 +8606,8 @@ export async function handleAIPriority(
         game.bumpSeq();
       }
       broadcastGame(io, game, gameId);
+      debugWarn(1, '[AI] Orphaned pending spell cast cleaned up — passing priority to avoid cast retry loop');
+      await executePassPriority(io, gameId, playerId);
       return;
     }
     

@@ -7763,6 +7763,117 @@ describe('AI resolution-step integration', () => {
     });
   });
 
+  it('auto-resolves AI spell payment when floating colorless covers generic and a land covers colored mana', async () => {
+    const io = createNoopIo();
+    initializeAIResolutionHandler(io as any);
+
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const bitterblossomCard = {
+      id: 'bitterblossom_1',
+      name: 'Bitterblossom',
+      type_line: 'Kindred Enchantment — Faerie',
+      oracle_text: 'At the beginning of your upkeep, you lose 1 life and create a 1/1 black Faerie Rogue creature token with flying.',
+      mana_cost: '{1}{B}',
+      cmc: 2,
+      colors: ['B'],
+      zone: 'hand',
+    };
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, opp1: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'swamp_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'swamp_card_1',
+          name: 'Swamp',
+          type_line: 'Basic Land — Swamp',
+          oracle_text: '{T}: Add {B}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [{ ...bitterblossomCard }],
+        handCount: 1,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game.state as any).pendingSpellCasts = {
+      effect_bitterblossom: {
+        cardId: 'bitterblossom_1',
+        cardName: 'Bitterblossom',
+        manaCost: '{1}{B}',
+        playerId,
+        validTargetIds: [],
+        targets: [],
+        card: { ...bitterblossomCard },
+      },
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: playerId as any,
+      description: 'Pay mana for Bitterblossom.',
+      mandatory: true,
+      sourceId: 'effect_bitterblossom',
+      sourceName: 'Bitterblossom',
+      cardId: 'bitterblossom_1',
+      cardName: 'Bitterblossom',
+      effectId: 'effect_bitterblossom',
+      spellPaymentRequired: true,
+      manaCost: '{1}{B}',
+      totalManaCost: '{1}{B}',
+      targets: [],
+    } as any);
+
+    await vi.waitFor(() => {
+      const hand = (game.state as any).zones?.[playerId]?.hand || [];
+      const stack = (game.state as any).stack || [];
+      const swamp = ((game.state as any).battlefield || []).find((entry: any) => String(entry.id) === 'swamp_1');
+
+      expect(hand.some((card: any) => String(card?.id || '') === 'bitterblossom_1')).toBe(false);
+      expect(stack.filter((entry: any) => String(entry?.card?.name || '') === 'Bitterblossom')).toHaveLength(1);
+      expect(swamp?.tapped).toBe(true);
+      expect((game.state as any).pendingSpellCasts?.effect_bitterblossom).toBeUndefined();
+    }, { timeout: 5000 });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry?.sourceId || '') === 'effect_bitterblossom');
+    expect(completed?.response?.cancelled).toBe(false);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({
+      white: 0,
+      blue: 0,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+  });
+
   it('uses the selected payment abilityId when duplicate-color mana abilities have different costs', async () => {
     const io = createNoopIo();
     initializeAIResolutionHandler(io as any);

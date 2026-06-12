@@ -321,7 +321,7 @@ export function LandRow(props: {
             {/* ETB Choice Badges - Show selected color, creature type, card name, player, or option */}
             {(() => {
               const badges = [];
-              const itAny = it as any;
+              const itAny = it.perm as any;
               
               if (itAny.chosenColor) {
                 const colorMap: Record<string, { bg: string; name: string }> = {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
+import { lookupLocalCardByNameSync } from '../src/services/localCardLookup.js';
 import { finalizePlayedLand } from '../src/socket/game-actions.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
@@ -171,5 +172,14 @@ describe('Growing Rites of Itlimoc regressions', () => {
     expect(growingRitesPermanent.transformed).toBe(true);
     expect(growingRitesPermanent.card.name).toBe('Itlimoc, Cradle of the Sun');
     expect(growingRitesPermanent.card.type_line).toBe('Legendary Land');
+  });
+
+  it('resolves the playable DFC from local lookup instead of the art-series placeholder', () => {
+    const card = lookupLocalCardByNameSync('Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun');
+    expect(card).toBeTruthy();
+    expect(String(card?.layout || '')).not.toBe('art_series');
+    expect(String(card?.type_line || '').toLowerCase()).toContain('enchantment');
+    expect(String(card?.card_faces?.[0]?.type_line || '').toLowerCase()).toContain('enchantment');
+    expect(String(card?.card_faces?.[0]?.oracle_text || '')).toContain('enters');
   });
 });

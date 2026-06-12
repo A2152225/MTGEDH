@@ -36,6 +36,194 @@ describe('Static effect mana-grant abilities', () => {
     expect(result.permanentAbilities.get('cryptolith_1')?.has('tap_for_any_color')).toBe(false);
   });
 
+  it('does not grant Svyelun indestructible when alone on the battlefield', () => {
+    const battlefield: any[] = [
+      {
+        id: 'svyelun_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: {
+          id: 'svyelun_card',
+          name: 'Svyelun of Sea and Sky',
+          type_line: 'Legendary Creature — Merfolk God',
+          oracle_text:
+            'Svyelun has indestructible as long as you control at least two other Merfolk.\nWhenever Svyelun attacks, draw a card.\nOther Merfolk you control have ward {1}.',
+        },
+      },
+    ];
+
+    const result = computeContinuousEffects({ battlefield } as any);
+    const svyelunEffects = result.perPermanent.get('svyelun_1');
+
+    expect(svyelunEffects?.abilities.has('indestructible')).toBe(false);
+    expect(result.permanentAbilities.get('svyelun_1')?.has('indestructible')).toBe(false);
+  });
+
+  it('does not count ETB chosen creature types on lands toward Svyelun indestructible', () => {
+    const battlefield: any[] = [
+      {
+        id: 'svyelun_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: {
+          id: 'svyelun_card',
+          name: 'Svyelun of Sea and Sky',
+          type_line: 'Legendary Creature — Merfolk God',
+          oracle_text:
+            'Svyelun has indestructible as long as you control at least two other Merfolk.\nWhenever Svyelun attacks, draw a card.\nOther Merfolk you control have ward {1}.',
+        },
+      },
+      {
+        id: 'ut_1',
+        controller: 'p1',
+        owner: 'p1',
+        chosenCreatureType: 'Merfolk',
+        card: {
+          id: 'ut_card',
+          name: 'Unclaimed Territory',
+          type_line: 'Land',
+          oracle_text: 'As Unclaimed Territory enters, choose a creature type.\n{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type.',
+        },
+      },
+      {
+        id: 'eclipsed_1',
+        controller: 'p1',
+        owner: 'p1',
+        chosenCreatureType: 'Merfolk',
+        card: {
+          id: 'eclipsed_card',
+          name: 'Eclipsed Realms',
+          type_line: 'Land',
+          oracle_text: 'As this land enters, choose Elemental, Elf, Faerie, Giant, Goblin, Kithkin, Merfolk, or Treefolk.\n{T}: Add {C}.',
+        },
+      },
+    ];
+
+    const result = computeContinuousEffects({ battlefield } as any);
+
+    expect(result.perPermanent.get('svyelun_1')?.abilities.has('indestructible')).toBe(false);
+    expect(result.permanentAbilities.get('svyelun_1')?.has('indestructible')).toBe(false);
+  });
+
+  it('counts kindred Merfolk permanents toward Svyelun indestructible when the effect does not say creatures', () => {
+    const battlefield: any[] = [
+      {
+        id: 'svyelun_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: {
+          id: 'svyelun_card',
+          name: 'Svyelun of Sea and Sky',
+          type_line: 'Legendary Creature — Merfolk God',
+          oracle_text:
+            'Svyelun has indestructible as long as you control at least two other Merfolk.\nWhenever Svyelun attacks, draw a card.\nOther Merfolk you control have ward {1}.',
+        },
+      },
+      {
+        id: 'merfolk_creature_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: {
+          id: 'tidebinder_card',
+          name: "Tishana's Tidebinder",
+          type_line: 'Creature — Merfolk Wizard',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'merfolk_kindred_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: {
+          id: 'merrow_card',
+          name: 'Merrow Commerce',
+          type_line: 'Kindred Enchantment — Merfolk',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const result = computeContinuousEffects({ battlefield } as any);
+    expect(result.perPermanent.get('svyelun_1')?.abilities.has('indestructible')).toBe(true);
+  });
+
+  it('does not count kindred Merfolk when the condition specifies creatures', () => {
+    const battlefield: any[] = [
+      {
+        id: 'test_legend_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: {
+          id: 'test_legend_card',
+          name: 'Test Legend',
+          type_line: 'Legendary Creature — Merfolk',
+          oracle_text: 'Test Legend has indestructible as long as you control at least two other Merfolk creatures.',
+        },
+      },
+      {
+        id: 'merfolk_creature_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: {
+          id: 'merfolk_creature_card',
+          name: 'Merfolk Scout',
+          type_line: 'Creature — Merfolk',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'merfolk_kindred_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: {
+          id: 'merrow_card',
+          name: 'Merrow Commerce',
+          type_line: 'Kindred Enchantment — Merfolk',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const result = computeContinuousEffects({ battlefield } as any);
+    expect(result.perPermanent.get('test_legend_1')?.abilities.has('indestructible')).toBe(false);
+  });
+
+  it('grants Svyelun indestructible with two other Merfolk creatures', () => {
+    const merfolk = (id: string) => ({
+      id,
+      controller: 'p1',
+      owner: 'p1',
+      card: {
+        id: `${id}_card`,
+        name: `Merfolk ${id}`,
+        type_line: 'Creature — Merfolk',
+        oracle_text: '',
+      },
+    });
+
+    const battlefield: any[] = [
+      {
+        id: 'svyelun_1',
+        controller: 'p1',
+        owner: 'p1',
+        card: {
+          id: 'svyelun_card',
+          name: 'Svyelun of Sea and Sky',
+          type_line: 'Legendary Creature — Merfolk God',
+          oracle_text:
+            'Svyelun has indestructible as long as you control at least two other Merfolk.\nWhenever Svyelun attacks, draw a card.\nOther Merfolk you control have ward {1}.',
+        },
+      },
+      merfolk('merfolk_a'),
+      merfolk('merfolk_b'),
+    ];
+
+    const result = computeContinuousEffects({ battlefield } as any);
+    const svyelunEffects = result.perPermanent.get('svyelun_1');
+
+    expect(svyelunEffects?.abilities.has('indestructible')).toBe(true);
+  });
+
   it('grants Citanul Hierophants mana text to creatures you control', () => {
     const battlefield: any[] = [
       {

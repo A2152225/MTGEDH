@@ -347,6 +347,11 @@ function parseMillEffect(effectText: string): {
     return { isMillAbility: true, millCount: count, millTargetType: 'opponent' };
   }
   
+  // Pattern: "each opponent mills cards equal to the number of cards in their hand"
+  if (/each\s+opponent\s+mills?\s+cards?\s+equal\s+to\s+the\s+number\s+of\s+cards\s+in\s+their\s+hand/i.test(lower)) {
+    return { isMillAbility: true, millTargetType: 'opponent' };
+  }
+
   // Pattern: "each player mills X cards" or "each opponent mills X cards"
   const eachPlayerMillMatch = lower.match(/each\s+(?:player|opponent)\s+mills?\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)/i);
   if (eachPlayerMillMatch) {
@@ -1516,20 +1521,29 @@ export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: r
   // This handles cards like Mite Overseer with token creation abilities
   // Pattern: {cost}{cost}...: effect text
   // Must contain at least one mana symbol or "{T}" and have an effect
-  const genericAbilityPattern = /(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*([^.]+(?:\.[^.]*)?)/gi;
+  const genericAbilityPattern = /(\{[^}]+\}(?:(?:,\s*|\s*)\{[^}]+\})*)\s*:\s*([^.]+(?:\.[^.]*)?)/gi;
   let genericMatch;
   while ((genericMatch = genericAbilityPattern.exec(oracleText)) !== null) {
     const cost = genericMatch[1].trim();
     const effect = genericMatch[2].trim();
+
+    if (/^players have no maximum hand size$/i.test(effect.trim())) {
+      continue;
+    }
     
     // Skip if we already have this ability parsed (by checking if same cost and effect exist)
     // We compare the first part of the effect text (up to 30 chars) to catch variations in wording
     // This threshold balances between avoiding duplicates and not missing genuinely different abilities
     const effectPrefix = effect.toLowerCase().slice(0, Math.min(30, effect.length));
-    const alreadyParsed = abilities.some(a => 
-      a.effect.toLowerCase().startsWith(effectPrefix) ||
-      (a.cost.toLowerCase() === cost.toLowerCase() && a.isManaAbility)
-    );
+    const normalizedCost = cost.toLowerCase().replace(/\s+/g, ' ').trim();
+    const alreadyParsed = abilities.some((a) => {
+      const existingCost = a.cost.toLowerCase().replace(/\s+/g, ' ').trim();
+      return (
+        a.effect.toLowerCase().startsWith(effectPrefix)
+        || existingCost === normalizedCost
+        || (existingCost === normalizedCost && a.isManaAbility)
+      );
+    });
     if (alreadyParsed) continue;
     
     // Skip mana abilities (already handled)

@@ -1550,8 +1550,16 @@ export function getCastableSpellCandidates(
         const payableCost = spendManaAsThoughAnyType
           ? normalizeParsedCostForAnyTypeManaSpending(adjustedCost)
           : adjustedCost;
+        const castTypeLine = String(castCard?.type_line || '').toLowerCase();
+        const restrictedSpendPurpose = {
+          isCreature: castTypeLine.includes('creature'),
+          spellCard: castCard,
+        };
 
-        if (canPayManaCostWithAvailableSources(state, playerId, payableCost, Infinity, manaPaymentOptions)) {
+        if (canPayManaCostWithAvailableSources(state, playerId, payableCost, Infinity, {
+          ...manaPaymentOptions,
+          restrictedSpendPurpose,
+        })) {
           candidates.push({
             card,
             castCard,

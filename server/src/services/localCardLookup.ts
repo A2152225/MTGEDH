@@ -323,9 +323,43 @@ function getCachedLocalCardNamesForChoice(database: DB, criteria: CardNameChoice
 }
 
 function candidateQuality(card: LocalCardLookupRecord): number {
-  return Number(Boolean(card.oracle_text))
-    + Number(Boolean(card.image_uris?.normal || card.image_uris?.small))
-    + Number(Boolean(card.card_faces?.length));
+  const faces = Array.isArray(card.card_faces) ? card.card_faces : [];
+  const faceOracleTexts = faces.map((face) => String(face?.oracle_text || '').trim()).filter(Boolean);
+  const distinctFaceNames = new Set(
+    faces.map((face) => String(face?.name || '').trim().toLowerCase()).filter(Boolean),
+  );
+
+  let quality = 0;
+  if (String(card.oracle_text || '').trim()) {
+    quality += 4;
+  } else if (faceOracleTexts.length > 0) {
+    quality += 3;
+  }
+  if (card.image_uris?.normal || card.image_uris?.small) {
+    quality += 1;
+  }
+  if (faces.length > 0) {
+    quality += 1;
+  }
+  if (card.legalities?.commander === 'legal') {
+    quality += 4;
+  }
+  if (card.legalities?.commander === 'not_legal') {
+    quality -= 8;
+  }
+  if (card.layout === 'art_series' || card.layout === 'token' || card.layout === 'double_faced_token') {
+    quality -= 12;
+  }
+  if (faces.length >= 2 && distinctFaceNames.size < faces.length) {
+    quality -= 6;
+  }
+  if (faces.length >= 2 && faceOracleTexts.length === 0) {
+    quality -= 8;
+  }
+  if (faces.length >= 2 && distinctFaceNames.size >= 2 && faceOracleTexts.length > 0) {
+    quality += 2;
+  }
+  return quality;
 }
 
 function pickBetterCandidate(existing: StoredCandidate | undefined, candidate: StoredCandidate): StoredCandidate {

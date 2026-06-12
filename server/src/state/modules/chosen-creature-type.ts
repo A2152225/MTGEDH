@@ -6,7 +6,36 @@ import type { ManaRestrictionType } from '../../../../shared/src/index.js';
 import { cardHasCreatureType, permanentHasCreatureTypeNow } from '../creatureTypeNow.js';
 
 export function isEtbCreatureTypeChoiceOracle(oracleText: string): boolean {
-  return /as .+? enters(?: the battlefield)?,?\s+choose a creature type/i.test(String(oracleText || ''));
+  const oracle = String(oracleText || '');
+  if (/as .+? enters(?: the battlefield)?,?\s+choose a creature type/i.test(oracle)) {
+    return true;
+  }
+  return parseEtbOfferedCreatureTypes(oracle) != null;
+}
+
+/** ETB finite list: "choose Elemental, Elf, or Treefolk." */
+export function parseEtbOfferedCreatureTypes(oracleText: string): string[] | null {
+  const match = String(oracleText || '').match(
+    /as .+? enters(?: the battlefield)?,?\s+choose\s+([^.]+?)\./i,
+  );
+  if (!match) return null;
+
+  const clause = String(match[1] || '').trim();
+  if (!clause || /\ba creature type\b/i.test(clause)) {
+    return null;
+  }
+
+  const offered = clause
+    .replace(/\s+or\s+/gi, ',')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (offered.length < 2) {
+    return null;
+  }
+
+  return offered;
 }
 
 export function parseChosenTypeCreatureEtbTrigger(oracleText: string): {

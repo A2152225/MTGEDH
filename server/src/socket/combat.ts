@@ -1313,6 +1313,41 @@ export async function executeDeclareAttackers(
       throw Object.assign(new Error('Invalid attacker selection'), { code: 'DECLARE_ATTACKERS_ERROR' });
     }
 
+    if (!isCurrentlyCreature(creature, battlefield, playerId)) {
+      throw Object.assign(
+        new Error(`${(creature as any).card?.name || 'Permanent'} is not a creature and cannot attack`),
+        { code: 'NOT_A_CREATURE' },
+      );
+    }
+
+    const canAttackCheck = canPermanentAttack(creature, battlefield, playerId);
+    if (!canAttackCheck.canAttack) {
+      throw Object.assign(
+        new Error(`${(creature as any).card?.name || 'Creature'} can't attack (${canAttackCheck.reason})`),
+        { code: 'CANT_ATTACK' },
+      );
+    }
+
+    if ((creature as any).tapped) {
+      const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
+      if (!hasVigilance) {
+        throw Object.assign(
+          new Error(`${(creature as any).card?.name || 'Creature'} is tapped and cannot attack`),
+          { code: 'CREATURE_TAPPED' },
+        );
+      }
+    }
+
+    if ((creature as any).summoningSickness) {
+      const hasHaste = creatureHasHaste(creature, battlefield, playerId);
+      if (!hasHaste) {
+        throw Object.assign(
+          new Error(`${(creature as any).card?.name || 'Creature'} has summoning sickness and cannot attack`),
+          { code: 'SUMMONING_SICKNESS' },
+        );
+      }
+    }
+
     attackerIds.push(attacker.creatureId);
 
     const targetPlayerId = attacker.targetPlayerId || attacker.defendingPlayerId;

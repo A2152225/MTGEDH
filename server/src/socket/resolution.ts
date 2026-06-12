@@ -4441,39 +4441,9 @@ async function handleAIResolutionStep(
       // Complete the step with the AI's response
       const success = ResolutionQueueManager.completeStep(gameId, step.id, response);
       if (success) {
-        const shouldResumeSpellCast =
-          step.type === ResolutionStepType.MANA_PAYMENT_CHOICE &&
-          (step as any)?.spellPaymentRequired === true &&
-          response.cancelled !== true;
-
-        // Trigger the response handler
+        // handleStepResponse already resumes spell casts after mana_payment_choice
+        // (resumePlayerSpellCastAfterPayment). Do not call completeCastSpell again here.
         await handleStepResponse(io, game, gameId, step, response);
-
-        if (shouldResumeSpellCast) {
-          const stepData = step as any;
-          const selections = (response.selections || {}) as any;
-          const payment = Array.isArray(selections.payment)
-            ? selections.payment
-            : (Array.isArray(response.selections) ? response.selections : undefined);
-          const targets = Array.isArray(stepData.targets) ? stepData.targets : undefined;
-          const xValue = selections.xValue != null ? Number(selections.xValue) : undefined;
-          const alternateCostId = stepData.forcedAlternateCostId != null
-            ? String(stepData.forcedAlternateCostId)
-            : (selections.alternateCostId != null ? String(selections.alternateCostId) : undefined);
-          const convokeTappedCreatures = Array.isArray(selections.convokeTappedCreatures)
-            ? selections.convokeTappedCreatures.map((entry: any) => String(entry))
-            : undefined;
-
-          await resumeAISpellCastAfterPayment(io, gameId, String(step.playerId), {
-            cardId: String(stepData.cardId || stepData.sourceId || ''),
-            effectId: stepData.effectId != null ? String(stepData.effectId) : undefined,
-            targets,
-            payment,
-            xValue,
-            alternateCostId,
-            convokeTappedCreatures,
-          });
-        }
 
         // NOTE: Don't broadcast here - let the STEP_COMPLETED event handler broadcast
         // after exitResolutionMode has restored priority. This prevents a race condition
@@ -7763,6 +7733,17 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         const selection = Array.isArray(raw) ? raw[0] : raw;
         if (!selection || typeof selection !== 'string' || !String(selection).trim()) {
           socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid creature type selection' });
+          return;
+        }
+
+        const offeredCreatureTypes = Array.isArray(stepAny.offeredCreatureTypes)
+          ? stepAny.offeredCreatureTypes.map((type: any) => String(type || '').trim()).filter(Boolean)
+          : [];
+        if (
+          offeredCreatureTypes.length > 0
+          && !offeredCreatureTypes.some((type: string) => type.toLowerCase() === String(selection).trim().toLowerCase())
+        ) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected creature type is not among the offered choices' });
           return;
         }
 

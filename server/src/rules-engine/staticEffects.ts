@@ -1,4 +1,5 @@
 import type { GameState, BattlefieldPermanent, PlayerID } from '../../../shared/src';
+import { cardHasCreatureType } from '../../../shared/src/creatureTypes.js';
 
 import { getTotalManaFromPool } from '../state/modules/mana-check.js';
 
@@ -213,6 +214,29 @@ function hasCreatureType(permanent: BattlefieldPermanent, creatureType: string):
   // Use word boundary to avoid false positives (e.g., "soldier" shouldn't match "soldiers")
   const typePattern = new RegExp(`\\b${creatureType.toLowerCase()}s?\\b`, 'i');
   return typePattern.test(tl);
+}
+
+/**
+ * Count permanents for "control at least N other [TYPE]" conditions.
+ * Uses printed subtypes (creature/kindred/tribal) — not ETB chosen types on lands.
+ */
+function permanentCountsForControlTypeCondition(
+  permanent: BattlefieldPermanent,
+  requiredType: string,
+  creaturesOnly: boolean,
+): boolean {
+  const typeLine = String((permanent.card as any)?.type_line || '');
+  const oracleText = String((permanent.card as any)?.oracle_text || '');
+
+  if (!cardHasCreatureType(typeLine, oracleText, requiredType)) {
+    return false;
+  }
+
+  if (creaturesOnly) {
+    return /\bcreature\b/i.test(typeLine);
+  }
+
+  return true;
 }
 
 // List of common creature types for pattern matching
@@ -464,10 +488,13 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     // Pattern: "[Card] has indestructible as long as you control at least X other [TYPE]"
     // Examples: 
     // - Svyelun of Sea and Sky: "Svyelun has indestructible as long as you control at least two other Merfolk."
-    const conditionalIndestructibleMatch = oracle.match(/has indestructible as long as you control at least (\w+) other (\w+)/i);
+    const conditionalIndestructibleMatch = oracle.match(
+      /has indestructible as long as you control at least (\w+) other (\w+)(?:\s+(creatures?))?/i,
+    );
     if (conditionalIndestructibleMatch) {
       const countWord = conditionalIndestructibleMatch[1].toLowerCase();
       const requiredType = conditionalIndestructibleMatch[2].toLowerCase();
+      const creaturesOnly = Boolean(conditionalIndestructibleMatch[3]);
       
       // Convert word to number (common number words for MTG card text)
       const requiredCount = parseCardCountWord(countWord);
@@ -477,12 +504,13 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
         continue;
       }
       
-      // Count other permanents of the required type controlled by this player
+      // Count other permanents of the required type controlled by this player.
+      // "Other Merfolk" includes kindred/tribal Merfolk; ETB chosen types on lands do not.
+      // "... other Merfolk creatures" restricts to creature permanents only.
       let typeCount = 0;
       for (const perm of state.battlefield) {
         if (perm.controller === controller && perm.id !== source.id) {
-          const tl = ((perm.card as any)?.type_line || '').toLowerCase();
-          if (tl.includes(requiredType)) {
+          if (permanentCountsForControlTypeCondition(perm, requiredType, creaturesOnly)) {
             typeCount++;
           }
         }

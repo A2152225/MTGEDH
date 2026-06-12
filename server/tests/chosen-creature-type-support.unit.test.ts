@@ -33,10 +33,14 @@ import {
   canUseRestrictedMana,
   payAbilityManaCostFromPool,
   parseFloatingPaymentPermanentId,
+  resolvePaymentManaAbilitySpendRestriction,
   validateAbilityManaCostFromPool,
   validateAndConsumeManaCostFromPool,
   validateSelectedFloatingPoolMana,
 } from '../src/socket/util.js';
+import { canPayManaCostWithAvailableSources } from '../src/state/modules/mana-check.js';
+import { getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
+import { applyCreatureTypeSelection } from '../src/socket/creature-type.js';
 import { cardHasCreatureType, permanentHasCreatureTypeNow } from '../src/state/creatureTypeNow.js';
 import { getManaAbilitiesForPermanent } from '../src/state/modules/mana-abilities.js';
 import {
@@ -491,6 +495,158 @@ describe('chosen creature type infrastructure', () => {
       restriction: 'chosen_type_creature_spell',
       restrictedTo: 'elf',
     });
+  });
+
+  it('resolves client ability ids for chosen-type mana spend restrictions', () => {
+    const gameState = {
+      battlefield: [{
+        id: 'ut_1',
+        controller: 'p1',
+        chosenCreatureType: 'Merfolk',
+        card: {
+          id: 'ut_card',
+          name: 'Unclaimed Territory',
+          type_line: 'Land',
+          oracle_text:
+            'As this land enters, choose a creature type.\n'
+            + '{T}: Add {C}.\n'
+            + '{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type.',
+        },
+      }],
+    };
+    const permanent = gameState.battlefield[0];
+
+    expect(resolvePaymentManaAbilitySpendRestriction(
+      gameState,
+      permanent,
+      'p1',
+      'ut_card-ability-0',
+    )).toBeNull();
+    expect(resolvePaymentManaAbilitySpendRestriction(
+      gameState,
+      permanent,
+      'p1',
+      'ut_card-ability-1',
+    )).toEqual({
+      restriction: 'chosen_type_creature_spell',
+      restrictedTo: 'merfolk',
+    });
+  });
+
+  it('excludes restricted tribal any-color mana when checking enchantment castability', () => {
+    const playerId = 'p1' as PlayerID;
+    const state: any = {
+      turnPlayer: playerId,
+      battlefield: [
+        {
+          id: 'ut_1',
+          controller: playerId,
+          tapped: false,
+          chosenCreatureType: 'Merfolk',
+          card: {
+            name: 'Unclaimed Territory',
+            type_line: 'Land',
+            oracle_text:
+              'As this land enters, choose a creature type.\n'
+              + '{T}: Add {C}.\n'
+              + '{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type.',
+          },
+        },
+        {
+          id: 'forest_1',
+          controller: playerId,
+          tapped: false,
+          card: { name: 'Forest', type_line: 'Basic Land — Forest' },
+        },
+        {
+          id: 'harbor_1',
+          controller: playerId,
+          tapped: false,
+          card: {
+            name: 'Hinterland Harbor',
+            type_line: 'Land',
+            oracle_text: '{T}: Add {G} or {U}.',
+          },
+        },
+      ],
+      zones: {
+        [playerId]: {
+          hand: [
+            {
+              id: 'propaganda_1',
+              name: 'Propaganda',
+              type_line: 'Enchantment',
+              mana_cost: '{2}{U}',
+            },
+            {
+              id: 'merfolk_1',
+              name: 'Merfolk Looter',
+              type_line: 'Creature — Merfolk',
+              mana_cost: '{1}{U}',
+            },
+          ],
+        },
+      },
+      manaPool: {},
+    };
+
+    const propagandaPayable = canPayManaCostWithAvailableSources(
+      state,
+      playerId,
+      { colors: { U: 1 }, generic: 2, hasX: false, hybrid: [], hybrids: [] },
+      Infinity,
+      {
+        excludedHandCardIds: ['propaganda_1'],
+        restrictedSpendPurpose: {
+          isCreature: false,
+          spellCard: state.zones[playerId].hand[0],
+        },
+      },
+    );
+    const merfolkPayable = canPayManaCostWithAvailableSources(
+      state,
+      playerId,
+      { colors: { U: 1 }, generic: 1, hasX: false, hybrid: [], hybrids: [] },
+      Infinity,
+      {
+        excludedHandCardIds: ['merfolk_1'],
+        restrictedSpendPurpose: {
+          isCreature: true,
+          spellCard: state.zones[playerId].hand[1],
+        },
+      },
+    );
+
+    expect(propagandaPayable).toBe(true);
+    expect(merfolkPayable).toBe(true);
+
+    const castable = getCastableSpellCandidates({ state } as any, playerId, { mode: 'main' });
+    const castableIds = castable.map((candidate) => String(candidate.card?.id || ''));
+    expect(castableIds).toContain('propaganda_1');
+    expect(castableIds).toContain('merfolk_1');
+  });
+
+  it('mirrors chosen creature type onto permanent.card for client badges', () => {
+    const gameId = 'creature_type_badge_mirror';
+    const game = createInitialGameState(gameId);
+    const playerId = 'p1' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId, name: 'P1' } as any);
+    (game.state as any).battlefield = [{
+      id: 'ut_1',
+      controller: playerId,
+      card: {
+        id: 'ut_card',
+        name: 'Unclaimed Territory',
+        type_line: 'Land',
+        oracle_text: 'As this land enters, choose a creature type.',
+      },
+    }];
+
+    applyCreatureTypeSelection(null, game, gameId, playerId, 'ut_1', 'Unclaimed Territory', 'Merfolk', false);
+
+    const permanent = (game.state as any).battlefield.find((entry: any) => entry.id === 'ut_1');
+    expect(permanent?.chosenCreatureType).toBe('Merfolk');
+    expect(permanent?.card?.chosenCreatureType).toBe('Merfolk');
   });
 
   it('counts permanents and creatures of the chosen type', () => {

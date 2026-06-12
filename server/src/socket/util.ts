@@ -4190,6 +4190,55 @@ export function resolveClientStyleManaAbilityById(
   };
 }
 
+function resolveManaAbilityForClientAbilityId(
+  gameState: any,
+  permanent: any,
+  playerId: string,
+  abilityId: string,
+): any | undefined {
+  const scopedLine = resolveActivatedAbilityLineById(permanent, abilityId);
+  if (!scopedLine) return undefined;
+
+  let abilities: any[] = [];
+  try {
+    abilities = getManaAbilitiesForPermanent(gameState, permanent, playerId);
+  } catch {
+    return undefined;
+  }
+  if (abilities.length === 0) return undefined;
+
+  const effectText = String(scopedLine.effectText || '').toLowerCase();
+  const producesColorlessOnly = /\badd\s*\{c\}/i.test(effectText) && !/any color/i.test(effectText);
+  if (producesColorlessOnly) {
+    return abilities.find((entry) => {
+      const produces = Array.isArray(entry?.produces) ? entry.produces : [];
+      return produces.length === 1 && String(produces[0] || '').toUpperCase() === 'C';
+    });
+  }
+
+  if (/one mana of any color|mana of any color|any one color/i.test(effectText)) {
+    return abilities.find((entry) => entry?.spendRestriction)
+      || abilities.find((entry) => {
+        const produces = Array.isArray(entry?.produces) ? entry.produces : [];
+        return produces.length >= 2 && String(entry?.id || '') !== 'native_c';
+      })
+      || abilities.find((entry) => ['native_any', 'native_commander_any', 'native_pay_life_any'].includes(String(entry?.id || '')));
+  }
+
+  const abilityIndex = Number(abilityId.match(/-ability-(\d+)$/i)?.[1] ?? -1);
+  if (Number.isInteger(abilityIndex) && abilityIndex >= 0) {
+    const manaProducingAbilities = abilities.filter((entry) => {
+      const produces = Array.isArray(entry?.produces) ? entry.produces : [];
+      return produces.length > 0;
+    });
+    if (abilityIndex < manaProducingAbilities.length) {
+      return manaProducingAbilities[abilityIndex];
+    }
+  }
+
+  return abilities[0];
+}
+
 function resolveLegacyManaAbilityById(
   gameState: any,
   permanent: any,
@@ -4197,8 +4246,12 @@ function resolveLegacyManaAbilityById(
   abilityId?: string | null,
 ): any | undefined {
   const normalizedAbilityId = String(abilityId || '').trim();
-  if (!normalizedAbilityId || /-ability-\d+$/i.test(normalizedAbilityId)) {
+  if (!normalizedAbilityId) {
     return undefined;
+  }
+
+  if (/-ability-\d+$/i.test(normalizedAbilityId)) {
+    return resolveManaAbilityForClientAbilityId(gameState, permanent, playerId, normalizedAbilityId);
   }
 
   const clientStyleAbility = resolveClientStyleManaAbilityById(normalizedAbilityId);

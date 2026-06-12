@@ -455,6 +455,10 @@ export function applyCopyPermanentTriggerStep(
       sourcePermanentId,
       selectorForTargets,
     );
+    if (validTargets.length === 0) {
+      debug(2, `[executeTriggerEffect] ${sourceName}: no valid copy targets for ${selectorForTargets || 'target selection'}`);
+      return 0;
+    }
     const copyTargetPermanentId =
       pattern === 'other_from_target_selection'
         ? (normalizeSelectorText(targetSelectorText).includes('token')

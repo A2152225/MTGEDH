@@ -559,6 +559,7 @@ export function App() {
     reason: string;
      stepId: string;
      mandatory: boolean;
+     offeredCreatureTypes?: string[];
   } | null>(null);
   
   // Ability sacrifice selection modal state (for Ashnod's Altar, Phyrexian Altar, Mondrak, etc.)
@@ -3383,6 +3384,9 @@ export function App() {
           cardName: (step as any).cardName || step.sourceName,
           reason: (step as any).reason || step.description,
           mandatory: isResolutionStepMandatory(step),
+          offeredCreatureTypes: Array.isArray((step as any).offeredCreatureTypes)
+            ? (step as any).offeredCreatureTypes
+            : undefined,
         });
         setCreatureTypeModalOpen(true);
       }
@@ -7529,7 +7533,9 @@ export function App() {
         title={`Choose a Creature Type for ${creatureTypeModalData?.cardName || 'this card'}`}
         description={creatureTypeModalData?.reason}
         cardName={creatureTypeModalData?.cardName}
+        offeredCreatureTypes={creatureTypeModalData?.offeredCreatureTypes}
         canCancel={!creatureTypeModalData?.mandatory}
+        allowCustom={!creatureTypeModalData?.offeredCreatureTypes?.length}
         onSelect={(creatureType) => {
           if (creatureTypeModalData && safeView?.id) {
             socket.emit("submitResolutionResponse", {

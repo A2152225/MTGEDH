@@ -2,6 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { enqueueLibrarySearchStep } from './triggerLibrarySearchUtils.js';
+import { millCardsFromLibrary } from './triggerLibraryMillUtils.js';
 import type { StackActivatedAbilityHandlerContext } from './stackResolveSharedTypes.js';
 
 export type { StackActivatedAbilityHandlerContext } from './stackResolveSharedTypes.js';
@@ -124,6 +125,46 @@ function resolveCyclingAbility(ctx: GameContext, item: any, controller: PlayerID
   debug(2, `[resolveCyclingAbility] Cycling ${sourceName}: ${controller} had no cards to draw`);
 }
 
+function resolveOpponentHandSizeMillAbility(
+  ctx: GameContext,
+  item: any,
+  controller: PlayerID,
+): boolean {
+  const texts = [
+    String(item?.description || ''),
+    String(item?.activatedAbilityText || ''),
+  ].map((text) => text.trim()).filter(Boolean);
+
+  const matchesHandSizeMill = texts.some((text) =>
+    /each\s+opponent\s+mills?\s+cards?\s+equal\s+to\s+the\s+number\s+of\s+cards\s+in\s+their\s+hand/i.test(text),
+  );
+  if (!matchesHandSizeMill) {
+    return false;
+  }
+
+  const state = (ctx as any).state;
+  const players = Array.isArray(state?.players) ? state.players : [];
+  for (const player of players) {
+    const opponentId = String(player?.id || '').trim();
+    if (!opponentId || opponentId === String(controller) || player?.hasLost) {
+      continue;
+    }
+
+    const zones = state?.zones?.[opponentId];
+    const handCount = Array.isArray(zones?.hand)
+      ? zones.hand.length
+      : Math.max(0, Number(zones?.handCount || 0));
+    if (handCount <= 0) {
+      continue;
+    }
+
+    millCardsFromLibrary(state, opponentId as PlayerID, handCount, ctx);
+    debug(2, `[resolveOpponentHandSizeMillAbility] ${item?.sourceName || 'Ability'}: milled ${handCount} card(s) from ${opponentId}`);
+  }
+
+  return true;
+}
+
 export function tryResolveStackActivatedAbilityEarlyHandlers(
   ctx: GameContext,
   options: StackActivatedAbilityHandlerContext,
@@ -140,6 +181,11 @@ export function tryResolveStackActivatedAbilityEarlyHandlers(
 
   if (abilityType === 'cycling' || abilityType === 'typecycling') {
     resolveCyclingAbility(ctx, item, controller);
+    ctx.bumpSeq();
+    return true;
+  }
+
+  if (resolveOpponentHandSizeMillAbility(ctx, item, controller)) {
     ctx.bumpSeq();
     return true;
   }

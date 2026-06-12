@@ -11,6 +11,7 @@ import { buildOpponentMayPayRecordedOutcome } from './opponent-may-pay-utils.js'
 import { applyTriggeredReanimationEntryRiders } from './triggerReanimationRiders.js';
 import { markEchoPaid, sacrificePermanent } from './upkeep-triggers.js';
 import type { ReflexiveTriggerEffectRunner } from './triggerReflexiveWhenYouDoQueueUtils.js';
+import { tryDeferTriggeredAbilityTargetSelection } from './stackResolveTriggeredAbilityTargetPromptUtils.js';
 
 const OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES = new Set([
   'rhystic_study',
@@ -252,7 +253,9 @@ function maybeQueueControllerMayPayTriggeredAbility(
     /\breturn\b[\s\S]*\b(?:that card|it)\b[\s\S]*\bto the battlefield\b/i.test(paidEffect);
   const hasRandomCreatureGraveyardReturn =
     /\breturn\s+a\s+creature\s+card\s+at\s+random\s+from\s+your\s+graveyard\s+to\s+the\s+battlefield\b/i.test(paidEffect);
-  if (!(hasBoundGraveyardReturn || hasRandomCreatureGraveyardReturn)) {
+  const hasReturnTargetPermanentToHand =
+    /\breturn\s+target\s+permanent\s+to\s+its\s+owner'?s?\s+hand\b/i.test(paidEffect);
+  if (!(hasBoundGraveyardReturn || hasRandomCreatureGraveyardReturn || hasReturnTargetPermanentToHand)) {
     return false;
   }
 
@@ -323,6 +326,38 @@ function maybeQueueControllerMayPayTriggeredAbility(
             resolvedTriggerItem.targetDestination = 'battlefield';
           }
         }
+      }
+
+      if (hasReturnTargetPermanentToHand) {
+        resolvedTriggerItem.requiresTarget = true;
+        resolvedTriggerItem.targetType = 'permanent';
+        resolvedTriggerItem.minTargets = 1;
+        resolvedTriggerItem.maxTargets = 1;
+        resolvedTriggerItem.targetDescription = 'target permanent';
+        resolvedTriggerItem.action = 'return_to_hand';
+      }
+
+      const deferredTargetSelection = tryDeferTriggeredAbilityTargetSelection(
+        ctx,
+        resolvedTriggerItem,
+        (ctx as any).state,
+        {
+          triggerController,
+          sourceName,
+          sourceId: String((item as any).source || sourceId || '').trim(),
+          description: paidEffect,
+          triggerType: String((item as any).triggerType || 'tap'),
+        },
+      );
+      if (deferredTargetSelection) {
+        if (typeof (ctx as any).bumpSeq === 'function') {
+          (ctx as any).bumpSeq();
+        }
+        const io = (ctx as any).io;
+        if (io) {
+          broadcastGame(io as any, ctx as any, gameId);
+        }
+        return;
       }
 
       executeTriggerEffect(ctx, triggerController, sourceName, paidEffect, {
