@@ -1,6 +1,6 @@
 import type { BattlefieldPermanent } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
-import { readPermanentPower } from './oracleIRExecutorCreatureStepUtils';
+import { readPermanentPower, readPermanentToughness } from './oracleIRExecutorCreatureStepUtils';
 
 type PlayerLike = {
   readonly life?: number;
@@ -85,6 +85,31 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
   }
 
   {
+    const m = raw.match(/^x is its (power|toughness)$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const refId = String(
+        targetCreatureId ||
+          ctx?.targetCreatureId ||
+          ctx?.selectorContext?.targetCreatureId ||
+          ctx?.targetPermanentId ||
+          ctx?.selectorContext?.targetPermanentId ||
+          ctx?.sourceId ||
+          ''
+      ).trim();
+      if (!refId) return null;
+      const target = findObjectById(refId) ?? battlefield.find((p: any) => p.id === refId) as any;
+      if (!target) return null;
+      if (which === 'power') {
+        const power = readPermanentPower(target);
+        return power === null ? null : power;
+      }
+      const toughness = readPermanentToughness(target);
+      return toughness === null ? null : toughness;
+    }
+  }
+
+  {
     const m = raw.match(/^x is (that|this|its) creature'?s (power|toughness)$/i);
     if (m) {
       const refWord = String(m[1] || '').toLowerCase();
@@ -106,9 +131,8 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
         const power = readPermanentPower(target);
         return power === null ? null : power;
       }
-      const rawValue = target.toughness ?? target.baseToughness ?? target.card?.toughness;
-      const val = Number(rawValue);
-      return Number.isFinite(val) ? val : null;
+      const toughness = readPermanentToughness(target);
+      return toughness === null ? null : toughness;
     }
   }
 

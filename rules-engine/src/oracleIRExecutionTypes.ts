@@ -68,6 +68,8 @@ export interface OracleIRSelectorContext {
   readonly unlessPaysManaChoice?: 'pay' | 'decline';
   /** Bound explore resolution for nonland reveals (true = mill to graveyard). */
   readonly exploreToGraveyard?: boolean;
+  /** Player-chosen counter split for distribute-among steps keyed by permanent id. */
+  readonly counterDistributionByTargetId?: Readonly<Record<string, number>>;
 }
 
 export interface OracleIRExecutionEventHint {

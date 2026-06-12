@@ -51,6 +51,12 @@ describe('ETB creature type choice persistence (G1 regression)', () => {
     '{T}: Add {C}.\n' +
     '{2}, {T}: Choose a color. Add an amount of mana of that color equal to the number of creatures you control of the chosen type.';
 
+  const roamingThroneOracle =
+    'Ward {2}\n' +
+    'As this creature enters, choose a creature type.\n' +
+    'This creature is the chosen type in addition to its other types.\n' +
+    'If a triggered ability of another creature you control of the chosen type triggers, it triggers an additional time.';
+
   async function resetGame() {
     ResolutionQueueManager.removeQueue(gameId);
     games.delete(gameId as any);
@@ -84,7 +90,13 @@ describe('ETB creature type choice persistence (G1 regression)', () => {
     await resetGame();
   });
 
-  async function completeCreatureTypeChoice(permanentId: string, cardName: string, oracleText: string, chosenType: string) {
+  async function completeCreatureTypeChoice(
+    permanentId: string,
+    cardName: string,
+    oracleText: string,
+    chosenType: string,
+    options?: { isCreature?: boolean; typeLine?: string },
+  ) {
     const game = ensureGame(gameId)!;
     (game.state as any).battlefield = [{
       id: permanentId,
@@ -93,7 +105,7 @@ describe('ETB creature type choice persistence (G1 regression)', () => {
       card: {
         id: `${permanentId}_card`,
         name: cardName,
-        type_line: cardName.includes('City') ? 'Land' : 'Land',
+        type_line: options?.typeLine || (cardName.includes('City') ? 'Land' : 'Land'),
         oracle_text: oracleText,
       },
     }];
@@ -106,7 +118,7 @@ describe('ETB creature type choice persistence (G1 regression)', () => {
       },
       newPermanent: (game.state as any).battlefield[0],
       newPermId: permanentId,
-      isCreature: false,
+      isCreature: options?.isCreature === true,
     });
 
     const step = ResolutionQueueManager.getQueue(gameId).steps.find(
@@ -143,6 +155,19 @@ describe('ETB creature type choice persistence (G1 regression)', () => {
     const game = await completeCreatureTypeChoice('three_tree_1', 'Three Tree City', threeTreeOracle, 'Elf');
     const land = (game.state as any).battlefield.find((entry: any) => entry.id === 'three_tree_1');
     expect(land?.chosenCreatureType).toBe('Elf');
+    expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(0);
+  });
+
+  it('persists chosenCreatureType on Roaming Throne after resolution', async () => {
+    const game = await completeCreatureTypeChoice(
+      'throne_1',
+      'Roaming Throne',
+      roamingThroneOracle,
+      'Merfolk',
+      { isCreature: true, typeLine: 'Artifact Creature — Golem' },
+    );
+    const throne = (game.state as any).battlefield.find((entry: any) => entry.id === 'throne_1');
+    expect(throne?.chosenCreatureType).toBe('Merfolk');
     expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(0);
   });
 });

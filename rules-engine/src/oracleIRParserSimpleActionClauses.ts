@@ -2396,6 +2396,27 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const distributeVariableCounters = clause.match(
+      /^(?:you\s+)?(?:may\s+)?distribute\s+(?:up to\s+)?a number of\s+(.+?)\s+counters?\s+(?:equal to\s+(.+?)\s+)?among\s+(.+)$/i
+    );
+    if (distributeVariableCounters) {
+      const equalText = String(distributeVariableCounters[2] || '').trim();
+      const amount = equalText
+        ? parseQuantity(equalText)
+        : { kind: 'reference_amount' as const, raw: 'a number' };
+      return withMeta({
+        kind: 'add_counter',
+        amount: amount.kind === 'unknown' && equalText ? { kind: 'unknown', raw: `equal to ${equalText}` } : amount,
+        counter: normalizeCounterName(String(distributeVariableCounters[1] || '')),
+        target: parseObjectSelector(distributeVariableCounters[3]),
+        distribution: 'among',
+        optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const distributeCounters = clause.match(
       new RegExp(`^(?:${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?)?distribute\\s+(up to\\s+)?(${REFERENCEABLE_COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?\\s+among\\s+(.+)$`, 'i')
     );
@@ -4531,10 +4552,11 @@ export function tryParseSimpleActionClause(args: {
     const doublePowerUntilEot = clause.match(/^double\s+(.+?)(?:'|â€™)?s\s+power\s+until\s+end\s+of\s+turn$/i);
     if (doublePowerUntilEot) {
       return withMeta({
-        kind: 'grant_temporary_ability',
+        kind: 'modify_pt',
         target: parseObjectSelector(String(doublePowerUntilEot[1] || '').trim()),
+        power: 0,
+        toughness: 0,
         duration: 'end_of_turn',
-        effectText: ['double power'],
         raw: rawClause,
       });
     }
@@ -4652,10 +4674,11 @@ export function tryParseSimpleActionClause(args: {
     const doublePowerToughness = clause.match(/^double\s+(.+?)(?:'|â€™)?s\s+power\s+and\s+toughness\s+until\s+end\s+of\s+turn$/i);
     if (doublePowerToughness) {
       return withMeta({
-        kind: 'grant_temporary_ability',
+        kind: 'modify_pt',
         target: parseObjectSelector(String(doublePowerToughness[1] || '').trim()),
+        power: 0,
+        toughness: 0,
         duration: 'end_of_turn',
-        effectText: ['double power and toughness'],
         raw: rawClause,
       });
     }

@@ -41,6 +41,7 @@ import {
 } from './oracleIRExecutorPlayerUtils';
 import { countManaSymbolsInManaCost } from './oracleIRExecutorManaUtils';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
+import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 import {
   resolveOracleQuantity,
   resolveOracleQuantityForPlayer,

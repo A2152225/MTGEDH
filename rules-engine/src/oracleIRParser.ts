@@ -438,10 +438,28 @@ function tryParseVillainousChoiceStep(
   };
 }
 
+function isSimpleSelfEntersTappedReplacementEffect(effect: string): boolean {
+  const normalized = normalizeOracleText(String(effect || ''))
+    .replace(/[.)]+$/g, '')
+    .trim();
+  return /^tapped(?: unless .+)?$/i.test(normalized);
+}
+
 function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): OracleIRAbility {
   let effectText = abilityEffectText(ability);
   if (!effectText && /^you\s+may\s+look\s+at\s+the\s+top\s+/i.test(String(ability.text || '').trim())) {
     effectText = String(ability.text || '').trim();
+  }
+  if (ability.type === AbilityType.REPLACEMENT && isSimpleSelfEntersTappedReplacementEffect(effectText)) {
+    return {
+      type: ability.type,
+      text: ability.text,
+      cost: ability.cost,
+      triggerCondition: ability.triggerCondition,
+      interveningIf: ability.interveningIf,
+      effectText,
+      steps: [],
+    };
   }
   const parseEffectTextToFlatSteps = (text: string): readonly OracleEffectStep[] => {
     const clauses = buildAbilityClauses({ effectText: text, cardName, parseEffectClauseToStep });
@@ -1711,6 +1729,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandCastWithoutPayingFallbackAbilities(abilities, normalizedOracleText);
   abilities = repairQuotedStaticGrantAbilities(abilities);
   abilities = lowerCurrentResidualUnknownAbilities(abilities);
+  abilities = pruneCurrentBatchReminderUnknownAbilities(abilities);
   abilities = lowerAmongThemChoosePlayerChoiceAbilities(abilities);
   abilities = splitCompoundChosenCardsMoveZoneAbilities(abilities);
   abilities = repairSplitChooseModeBulletAbilities(abilities);

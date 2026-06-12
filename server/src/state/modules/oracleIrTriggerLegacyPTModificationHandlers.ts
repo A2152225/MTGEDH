@@ -3,6 +3,7 @@ import { getEffectivePower } from '../../socket/util.js';
 import { debug } from '../../utils/debug.js';
 import { splitGrantedTemporaryAbilities } from './oracleIrSpellLegacyTargetBuffUtils.js';
 import {
+  isTriggerEffectFullyIrWired,
   isTriggerEffectOwnedByOracleIrPrimary,
   skipRetiredTriggerLegacyHandler,
 } from './oracleIrTriggerLegacyRouting.js';
@@ -25,6 +26,15 @@ function pushTemporaryPTMod(
   turnNumber: number,
 ): void {
   permanent.temporaryPTMods = permanent.temporaryPTMods || [];
+  const duplicate = permanent.temporaryPTMods.some((entry: any) =>
+    Number(entry?.power ?? 0) === powerMod
+    && Number(entry?.toughness ?? 0) === toughnessMod
+    && String(entry?.source || '') === String(sourceName)
+    && String(entry?.expiresAt || 'end_of_turn') === 'end_of_turn'
+    && Number(entry?.turnApplied ?? turnNumber) === turnNumber
+  );
+  if (duplicate) return;
+
   permanent.temporaryPTMods.push({
     power: powerMod,
     toughness: toughnessMod,
@@ -95,6 +105,9 @@ export function applyRetiredTriggerLegacyPTModificationBatch(params: {
     return false;
   }
   if (isTriggerEffectOwnedByOracleIrPrimary(params.desc, params.sourceName)) {
+    return false;
+  }
+  if (isTriggerEffectFullyIrWired(params.desc, params.sourceName)) {
     return false;
   }
 

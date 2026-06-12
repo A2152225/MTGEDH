@@ -7,6 +7,7 @@ import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime
 import { tryApplyTriggerEffectLegacyBodyHandlers } from './stackExecuteTriggerEffectLegacyBodyUtils.js';
 import { tryApplyTriggerEffectLegacyTailHandlers } from './stackExecuteTriggerEffectTailUtils.js';
 import { tryResolveTriggerViaOracleIR } from './oracleIrTriggerExecution.js';
+import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
 import { applyRetiredTriggerLegacyKeywordTriggerFallback } from './oracleIrTriggerLegacyKeywordHandlers.js';
 import { applyRetiredTriggerLegacyCreateCreatureToken } from './oracleIrTriggerLegacyTokenHandlers.js';
 import { tryApplyPresetTriggerChosenTypeEffects } from './stackExecuteTriggerChosenTypeUtils.js';
@@ -22,7 +23,10 @@ export function executeTriggerEffect(
   description: string,
   triggerItem: any
 ): void {
-  const normalizedDescription = normalizeTriggerEffectDescriptionForExecution(String(description || ''));
+  const resolvedFromItem = resolveTriggerStackItemEffectText(triggerItem);
+  const normalizedDescription = normalizeTriggerEffectDescriptionForExecution(
+    String(resolvedFromItem || description || '').trim(),
+  );
   const state = (ctx as any).state;
   if (!state) return;
   const triggerCard = (triggerItem as any)?.card || {};

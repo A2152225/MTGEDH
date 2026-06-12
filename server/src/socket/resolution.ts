@@ -93,6 +93,7 @@ import {
 import { returnExiledCardToBattlefield, scheduleExiledCardReturnToBattlefield } from "../state/modules/executeSpellEffect.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { executeTriggerEffect } from "../state/modules/stackExecuteTriggerEffectUtils.js";
+import { resolveTriggerStackItemEffectText } from "../state/modules/stackResolveTriggeredAbilityOrchestratorUtils.js";
 import { applyPermanentBecomeCopyOfTargetPermanent } from "../state/modules/permanent-copy.js";
 import { applyTriggeredReanimationEntryRiders } from "../state/modules/triggerReanimationRiders.js";
 import { queueSelfETBTriggersForPermanent, triggerETBEffectsForToken } from "../state/modules/triggerEtbEntryEffects.js";
@@ -137,7 +138,7 @@ import {
 } from "../state/modules/triggers/targeted.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
-import { resolveOracleIrOptionalPaymentPromptFromResolution } from '../state/modules/oracleIrServerZoneSync.js';
+import { resolveOracleIrOptionalPaymentPromptFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution } from '../state/modules/oracleIrServerZoneSync.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
@@ -8794,6 +8795,15 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('title' in step) fields.title = (step as any).title;
       break;
 
+    case ResolutionStepType.COUNTER_DISTRIBUTION:
+      if ('counterType' in step) fields.counterType = (step as any).counterType;
+      if ('totalAmount' in step) fields.totalAmount = (step as any).totalAmount;
+      if ('minPerTarget' in step) fields.minPerTarget = (step as any).minPerTarget;
+      if ('validTargets' in step) fields.validTargets = (step as any).validTargets;
+      if ('message' in step) fields.message = (step as any).message;
+      if ('title' in step) fields.title = (step as any).title;
+      break;
+
     case ResolutionStepType.STATION_CREATURE_SELECTION:
       if ('station' in step) fields.station = (step as any).station;
       if ('creatures' in step) fields.creatures = (step as any).creatures;
@@ -10610,6 +10620,80 @@ async function handleStepResponse(
       } catch (e) {
         debugWarn(1, '[Resolution] appendEvent(counterTargetChosen) failed:', e);
       }
+
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      break;
+    }
+
+    case ResolutionStepType.COUNTER_DISTRIBUTION: {
+      const stepData = step as any;
+      const distribution = response.selections as any;
+      if (!distribution || typeof distribution !== 'object' || Array.isArray(distribution)) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_SELECTION',
+          message: 'Invalid counter distribution format',
+        });
+        break;
+      }
+
+      const totalAmount = Number(stepData.totalAmount ?? 0);
+      const minPerTarget = Math.max(1, Number(stepData.minPerTarget ?? 1));
+      const counterType = String(stepData.counterType || '+1/+1').trim();
+      const validTargetIds = new Set(
+        (Array.isArray(stepData.validTargets) ? stepData.validTargets : [])
+          .map((entry: any) => String(entry?.id || '').trim())
+          .filter(Boolean),
+      );
+
+      let totalDistributed = 0;
+      for (const [targetId, amountRaw] of Object.entries(distribution)) {
+        const targetKey = String(targetId || '').trim();
+        const amount = Number(amountRaw ?? 0);
+        if (amount <= 0) continue;
+        if (!validTargetIds.has(targetKey)) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_TARGET',
+            message: 'Counter distribution includes an invalid target',
+          });
+          return;
+        }
+        if (amount < minPerTarget) {
+          emitToPlayer(io, pid as any, 'error', {
+            code: 'INVALID_DISTRIBUTION',
+            message: `Each target must receive at least ${minPerTarget} counter(s)`,
+          });
+          return;
+        }
+        totalDistributed += amount;
+      }
+
+      if (totalAmount > 0 && totalDistributed !== totalAmount) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_DISTRIBUTION',
+          message: `Total counters distributed (${totalDistributed}) must equal ${totalAmount}`,
+        });
+        break;
+      }
+
+      const ctx = ((game as any).ctx || game) as any;
+      ctx.gameId = gameId;
+      ctx.state = game.state;
+      const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, response);
+      if (resumed) {
+        maybeResumeOracleIRStepsAfterResolution(ctx, step);
+      }
+
+      const sourceName = String(step.sourceName || stepData.title || 'an ability');
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, pid)} distributed ${totalDistributed} ${counterType} counter(s) with ${sourceName}.`,
+        ts: Date.now(),
+      });
 
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
@@ -17171,7 +17255,9 @@ async function handleTargetSelectionResponse(
       description,
       controller,
       targets: triggerTargets,
+      triggerType: stepAny?.triggerItem?.triggerType || stepAny?.targetedTriggeredAbilityTriggerType,
     };
+    const effectText = resolveTriggerStackItemEffectText(triggerItem);
     const ctx = ((game as any).ctx || game) as any;
     const lowerDescription = description.toLowerCase();
 
@@ -17214,7 +17300,7 @@ async function handleTargetSelectionResponse(
       return;
     }
 
-    executeTriggerEffect(ctx as any, controller as PlayerID, sourceName, description, triggerItem);
+    executeTriggerEffect(ctx as any, controller as PlayerID, sourceName, effectText, triggerItem);
 
     if (typeof (game as any).bumpSeq === 'function') {
       (game as any).bumpSeq();
@@ -20823,6 +20909,19 @@ async function handleTargetSelectionResponse(
     if (typeof game.bumpSeq === 'function') game.bumpSeq();
     broadcastGame(io, game, gameId);
     return;
+  }
+
+  if (String(stepAny?.oracleIrChoiceStepJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, response);
+    if (resumed) {
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
   }
   
   debug(1, `[Resolution] Target selection: ${selections?.join(', ')}`);

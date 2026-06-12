@@ -1,7 +1,7 @@
 import type { OracleEffectStep } from './oracleIR';
 import { normalizeOracleText } from './oracleIRParserUtils';
 
-const MODIFY_PT_TARGET_PATTERN = String.raw`(?:up to one target creature an opponent controls|[a-z][a-z\s,/-]*?\s+you\s+control|target\s+creature\s+or\s+vehicle\s+an\s+opponent\s+controls|target\s+(?:nonattacking,\s+nonblocking\s+)?(?:(?:attacking|blocking)\s+)?(?:[a-z][a-z -]+\s+)?(?:creature|human|vampire|assembly-worker|robot|wall|zombie|shapeshifter)(?:\s+(?:you\s+control|your\s+opponents\s+control|an\s+opponent\s+controls|defending\s+player\s+controls|that\s+player\s+controls|you\s+don(?:'|’)t\s+control|with\s+flying|without\s+flying|that\s+dealt\s+damage\s+this\s+turn|other\s+than\s+the\s+creature\s+tapped\s+this\s+way))*|another\s+target\s+(?:attacking\s+)?(?:[a-z][a-z -]+\s+)?creature(?:\s+you\s+control)?|any\s+number\s+of\s+target\s+creatures|one\s+or\s+two\s+target\s+creatures|target\s+1\/1\s+creature|attacking\s+[a-z][a-z -]+s(?:\s+you\s+control)?|(?:attacking|blocking)\s+(?:[a-z][a-z -]+\s+)?creatures(?:\s+you\s+control)?(?:\s+with\s+[a-z][a-z -]+)?|each\s+(?:non[- ]?[a-z]+\s+)?creature(?:\s+your\s+opponents\s+control)?|each\s+other\s+attacking\s+creature|each\s+attacking\s+creature|other\s+attacking\s+creatures|all\s+attacking\s+creatures(?:\s+with\s+[a-z][a-z -]+)?|all\s+non[- ]?[a-z]+\s+creatures|(?:non[- ]?[a-z]+\s+)?creatures\s+you\s+control|(?:[a-z]+\s+)?creatures\s+your\s+opponents\s+control|(?:[a-z]+\s+)?creatures|all\s+creatures\s+you\s+control|creatures\s+your\s+opponents\s+control|all\s+creatures\s+your\s+opponents\s+control|all\s+creatures(?:\s+of\s+(?:that|the\s+chosen)\s+type)?|creatures\s+that\s+aren't\s+of\s+the\s+chosen\s+type|each\s+creature|each\s+other\s+creature|equipped\s+creature|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)`;
+const MODIFY_PT_TARGET_PATTERN = String.raw`(?:up to (?:one|two|three|four|five|\d+) target creatures?|(?:one|two|three|four|five|\d+) target creatures|creatures target player controls|the chosen creature|each creature blocking it|the creature that attacked|up to one target creature an opponent controls|[a-z][a-z\s,/-]*?\s+you\s+control|target\s+creature\s+or\s+vehicle\s+an\s+opponent\s+controls|target\s+(?:nonattacking,\s+nonblocking\s+)?(?:(?:attacking|blocking)\s+)?(?:[a-z][a-z -]+\s+)?(?:creature|human|vampire|assembly-worker|robot|wall|zombie|shapeshifter)(?:\s+(?:you\s+control|your\s+opponents\s+control|an\s+opponent\s+controls|defending\s+player\s+controls|that\s+player\s+controls|you\s+don(?:'|’)t\s+control|with\s+flying|without\s+flying|that\s+dealt\s+damage\s+this\s+turn|other\s+than\s+the\s+creature\s+tapped\s+this\s+way))*|another\s+target\s+(?:attacking\s+)?(?:[a-z][a-z -]+\s+)?creature(?:\s+you\s+control)?|any\s+number\s+of\s+target\s+creatures|one\s+or\s+two\s+target\s+creatures|target\s+1\/1\s+creature|unblocked\s+attacking\s+creatures|attacking\s+[a-z][a-z -]+s(?:\s+you\s+control)?|(?:attacking|blocking)\s+(?:[a-z][a-z -]+\s+)?creatures(?:\s+you\s+control)?(?:\s+with\s+[a-z][a-z -]+)?|each\s+(?:non[- ]?[a-z]+\s+)?creature(?:\s+your\s+opponents\s+control)?|each\s+other\s+attacking\s+creature|each\s+attacking\s+creature|other\s+attacking\s+creatures|all\s+attacking\s+creatures(?:\s+with\s+[a-z][a-z -]+)?|all\s+non[- ]?[a-z]+\s+creatures|(?:non[- ]?[a-z]+\s+)?creatures\s+you\s+control|(?:[a-z]+\s+)?creatures\s+your\s+opponents\s+control|(?:[a-z]+\s+)?creatures|all\s+creatures\s+you\s+control|creatures\s+your\s+opponents\s+control|all\s+creatures\s+your\s+opponents\s+control|all\s+creatures(?:\s+of\s+(?:that|the\s+chosen)\s+type)?|creatures\s+that\s+aren't\s+of\s+the\s+chosen\s+type|each\s+creature|each\s+other\s+creature|equipped\s+creature|enchanted\s+creature|that\s+creature|the\s+creature|they|this\s+creature|this\s+permanent|it)`;
 
 export function tryParseTemporaryModifyPtClause(params: {
   clause: string;
@@ -40,6 +40,62 @@ export function tryParseTemporaryModifyPtClause(params: {
       target: { kind: 'raw', text: 'unblocked attacking creatures' },
       power: 1,
       toughness: 0,
+      duration: 'end_of_turn',
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
+
+  const eachControlledTemporaryPt = workingClause.match(
+    /^each creature you control gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachControlledTemporaryPt) {
+    return withMeta({
+      kind: 'modify_pt',
+      target: { kind: 'raw', text: 'each creature you control' },
+      power: Number.parseInt(String(eachControlledTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(eachControlledTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
+
+  const chosenTypeTemporaryPt = workingClause.match(
+    /^creatures you control of the chosen type get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (chosenTypeTemporaryPt) {
+    return withMeta({
+      kind: 'modify_pt',
+      target: { kind: 'raw', text: 'creatures you control of the chosen type' },
+      power: Number.parseInt(String(chosenTypeTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(chosenTypeTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
+
+  const targetPlayerTemporaryPt = workingClause.match(
+    /^creatures target player controls get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (targetPlayerTemporaryPt) {
+    return withMeta({
+      kind: 'modify_pt',
+      target: { kind: 'raw', text: 'creatures target player controls' },
+      power: Number.parseInt(String(targetPlayerTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(targetPlayerTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
+
+  const prefixTeamTemporaryPt = workingClause.match(
+    /^until end of turn,\s*creatures you control get ([+-]\d+)\/([+-]\d+)\.?$/i,
+  );
+  if (prefixTeamTemporaryPt) {
+    return withMeta({
+      kind: 'modify_pt',
+      target: { kind: 'raw', text: 'creatures you control' },
+      power: Number.parseInt(String(prefixTeamTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(prefixTeamTemporaryPt[2] || '0'), 10),
       duration: 'end_of_turn',
       raw: rawClause,
     } as OracleEffectStep);
@@ -90,7 +146,10 @@ export function tryParseTemporaryModifyPtClause(params: {
     new RegExp(String.raw`^(?:then\s+)?(${MODIFY_PT_TARGET_PATTERN})\s+(?:each\s+)?get(?:s)?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$`, 'i')
   );
   if (broadTemporaryPtMatch) {
-    const targetRaw = String(broadTemporaryPtMatch[1] || '').trim().toLowerCase();
+    const targetRaw = String(broadTemporaryPtMatch[1] || '')
+      .trim()
+      .toLowerCase()
+      .replace(/^until end of (?:turn|combat),\s*/i, '');
     const powerComponent = parseSignedPtComponent(String(broadTemporaryPtMatch[2] || ''));
     const toughnessComponent = parseSignedPtComponent(String(broadTemporaryPtMatch[3] || ''));
     if (!powerComponent || !toughnessComponent) return null;

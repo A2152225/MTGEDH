@@ -55,6 +55,16 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
   }
 
   {
+    const m = raw.match(/^x is the number of mountains you control$/i);
+    if (m) {
+      return (controlled as any[]).filter((p) => {
+        const tl = typeLineLower(p);
+        return hasExecutorClass(p, 'land') && /\bmountain\b/i.test(tl);
+      }).length;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of basic land types among lands you control$/i);
     if (m) {
       const basicLandTypes = ['plains', 'island', 'swamp', 'mountain', 'forest'];
@@ -194,7 +204,7 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
       const counterName = String(m[1] || '');
       const sourceObj = getSourceRef();
       const targetObj = getTargetRef();
-      const objectToRead = sourceObj || targetObj;
+      const objectToRead = targetObj || sourceObj;
       if (!objectToRead) return null;
       return getCounterCountOnObject(objectToRead, counterName);
     }
@@ -205,9 +215,18 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
     if (m) {
       const sourceObj = getSourceRef();
       const targetObj = getTargetRef();
-      const objectToRead = sourceObj || targetObj;
+      const objectToRead = targetObj || sourceObj;
       if (!objectToRead) return null;
       return getCounterCountOnObject(objectToRead, 'quest');
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) counters? on this permanent$/i);
+    if (m) {
+      const sourceObj = getSourceRef();
+      if (!sourceObj) return null;
+      return getCounterCountOnObject(sourceObj, String(m[1] || ''));
     }
   }
 
@@ -215,10 +234,8 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
     const m = raw.match(/^x is the number of counters on this permanent$/i);
     if (m) {
       const sourceObj = getSourceRef();
-      const targetObj = getTargetRef();
-      const objectToRead = sourceObj || targetObj;
-      if (!objectToRead) return null;
-      const counters = (objectToRead as any)?.counters || {};
+      if (!sourceObj) return null;
+      const counters = (sourceObj as any)?.counters || {};
       return Object.values(counters).reduce<number>(
         (sum, value) => sum + Math.max(0, Number(value) || 0),
         0

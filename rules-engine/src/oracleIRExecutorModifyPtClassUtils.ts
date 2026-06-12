@@ -1,5 +1,9 @@
 import type { BattlefieldPermanent } from '../../shared/src';
-import { normalizeControlledClassKey } from './oracleIRExecutorCreatureStepUtils';
+import {
+  normalizeControlledClassKey,
+  readPermanentPower,
+  readPermanentToughness,
+} from './oracleIRExecutorCreatureStepUtils';
 
 type TypeLineLower = (value: any) => string;
 type NormalizeManaColorCode = (value: unknown) => string | null;
@@ -165,9 +169,9 @@ export function leastStatAmongCreatures(
     const tl = typeLineLower(permanent);
     if (!hasExecutorClass(permanent, 'creature')) continue;
     if (opts?.excludedSubtype && tl.includes(opts.excludedSubtype)) continue;
-    const n = Number(which === 'power' ? permanent?.power : permanent?.toughness);
-    if (!Number.isFinite(n)) continue;
-    least = least === null ? n : Math.min(least, n);
+    const stat = which === 'power' ? readPermanentPower(permanent) : readPermanentToughness(permanent);
+    if (stat === null) continue;
+    least = least === null ? stat : Math.min(least, stat);
   }
   return least ?? 0;
 }
@@ -186,9 +190,9 @@ export function greatestStatAmongCreatures(
     const tl = typeLineLower(permanent);
     if (!hasExecutorClass(permanent, 'creature')) continue;
     if (opts?.excludedSubtype && tl.includes(opts.excludedSubtype)) continue;
-    const n = Number(which === 'power' ? permanent?.power : permanent?.toughness);
-    if (!Number.isFinite(n)) continue;
-    greatest = Math.max(greatest, n);
+    const stat = which === 'power' ? readPermanentPower(permanent) : readPermanentToughness(permanent);
+    if (stat === null) continue;
+    greatest = Math.max(greatest, stat);
   }
   return greatest;
 }

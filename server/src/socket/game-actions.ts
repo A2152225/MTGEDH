@@ -30,6 +30,7 @@ import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferG
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificePermanent } from "../state/modules/upkeep-triggers";
+import { getCurrentGoaders } from "../state/modules/goad-effects.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
 import {
@@ -14402,18 +14403,8 @@ export function registerGameActions(io: Server, socket: Socket) {
             const typeLine = (permanent.card?.type_line || "").toLowerCase();
             if (!typeLine.includes("creature")) continue;
             
-            // Check if creature is goaded
-            const goadedBy = permanent.goadedBy;
-            if (!goadedBy || !Array.isArray(goadedBy) || goadedBy.length === 0) continue;
-            
-            // Check if goad is still active
-            const goadedUntil = permanent.goadedUntil || {};
-            const isGoaded = goadedBy.some((goaderId: string) => {
-              const expiryTurn = goadedUntil[goaderId];
-              return expiryTurn === undefined || expiryTurn > currentTurn;
-            });
-            
-            if (!isGoaded) continue;
+            // Check if creature is goaded (keyword action, static, or attached)
+            if (getCurrentGoaders(permanent, battlefield, currentTurn).length === 0) continue;
             
             // Can't attack if tapped
             if (permanent.tapped) continue;

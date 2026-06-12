@@ -82,21 +82,655 @@ npx vitest run tests/upkeep-trigger-detection.unit.test.ts
 ```
 
 **Not yet done (distribute follow-ups):**
-- Player UI for **choosing how many counters** on each target when multiple legal splits exist (currently auto round-robin when targets are pre-bound on stack)
-- Variable-amount distribute (`distribute a number of +1/+1 counters equal to … among any number of creatures you control`) — parse exists; executor needs reference-amount + unbounded target pool
-- Stun counter / non-+1/+1 distribute families (e.g. Crashing Wave) — extend parser counter normalization + tests
+- Branching Evolution doubling on distribute-among resume path covered by socket integration test (batch 234)
 
-### G1 game-log bugs — remaining for next session
+~~Player UI for choosing counter splits~~ **Done batch 232** (`CounterDistributionModal`, `counterDistributionUtils`, `sanitizeStepForClient` fields)
 
-| Issue | Status | Next step |
-|-------|--------|-----------|
-| **Court of Garenbrig** upkeep counters | **Fixed** (batch 174 IR) | Re-test in live game with Branching Evolution |
-| **Inspiring Call** draw + indestructible | **Fixed** (batch 175 IR primary) | Legacy draw regex still present as fallback when primary OFF |
-| **Roaming Throne** explore doubling | **Wired** (doubler on stack push) | Verify `chosenCreatureType` persisted on Roaming Throne at ETB; re-test explore |
-| **Cryptoplasm** copy | **Investigate** | Optional upkeep was declined in G1 log — re-test on accept; `copy_permanent` IR + server sync |
-| **Cavern / Three Tree City** type badge | **Investigate** | Client shows badge when `chosenCreatureType` set — check server ETB choice persistence (`creature-type.ts`) |
-| **Bighorner Rancher** null priority | **Investigate** | G1 hang during Gwenna mana selection, not clearly Bighorner-specific |
-| **Door of Destinies** partial IR tail | **Open** | All-or-nothing guard may need wiring expansion |
+~~Court upkeep target → distribute queue/resume socket path~~ **Done batch 233** (`queueAddCounterTargetSelectionPromptsFromOracleIRResult`, target-selection IR resume, socket integration test)
+
+~~Stun counter / non-+1/+1 distribute families (e.g. Crashing Wave) — extend parser counter normalization + tests~~ **Done batch 231** (target pool + queue/resume tests)
+
+~~Variable-amount distribute (`distribute a number of +1/+1 counters equal to … among any number of creatures you control`) — parse exists; executor needs reference-amount + unbounded target pool~~ **Done batch 229–230** (auto-apply when total = targets; queue when total > bound targets)
+
+~~`modify_pt` counter-scaled pumps~~ **Done batch 236** — Hydra Trainer exert reward applies via IR fallback + server PT sync; legacy counter-scaled regex skipped when fully wired.
+
+~~Double target power until EOT~~ **Done batch 240** — parses as `modify_pt`; executor doubles via +currentPower/+0; legacy PT batch skipped when fully wired.
+
+~~Other-creatures exert pump / double P&T / target can't block~~ **Done batch 241** — `other creatures you control` target resolution; double P&T via `modify_pt`; `cant_block` in fallback step kinds + prefilter.
+
+~~Compound team `get +N/+N and gain keyword`~~ **Done batch 242** — clause splitter handles plural `get`/`gain`; bare trigger fragments; IR fallback applies both PT and keyword.
+
+~~Each-creature / chosen-type mass pumps~~ **Done batch 243** — target resolution + chosen-type grant/PT; trigger fallback passes `chosenCreatureType`; keyword text cleanup.
+
+~~Prefix team compound / team have / target-player mass pump~~ **Done batch 244** — duration-prefix team split; `have keyword` temporary grants; Velis Vel target-player resolution.
+
+~~Each-other / those-creatures mass PT~~ **Done batch 245** — `each other creature you control` excludes source; `Those creatures` uses antecedent IDs; trigger fallback passes antecedent context.
+
+~~Qualified mass PT / attacking creature pump~~ **Done batch 246** — attacking/subtype/token/qualified/non-color mass targets; `the creature that attacked` self pump; enchanted creature aura attachment.
+
+~~Antecedent pronoun / global / opponent / blocking / chosen mass PT~~ **Done batch 247** — `they` antecedent; `each creature`; opponent creatures; blockers; chosen creature; compound `get + have`; prefix combat team pump.
+
+~~Antecedent X pump / reference creature / mountains-scaled attacking~~ **Done batch 248** — `they get +X/+X where X`; that/equipped/enchanted creature bare parse; blocking fallback; Mountains where-X evaluator.
+
+~~Team X / stampede compound X / global hand-scaled / flanking / counter-per-creature X~~ **Done batch 249** — bare trigger fragments for scaled team/global/each-creature PT; qualified target creature pumps; fallback + routing tests.
+
+~~Per-target counter X / up-to-one target / unblocked attacking mass PT~~ **Done batch 250** — where-X re-eval per creature for "on it"; parse + resolve up-to-one-target and unblocked attacking pumps.
+
+~~Multi-target PT / prefix self compound / asymmetric each +X/+0~~ **Done batch 251** — chosenObjectIds multi-target resolution; prefix self compound bare fragment; opponent hand-scaled -X/-X fallback tests.
+
+~~Target-player mass / exact-count multi-target / scaled target bare fragments~~ **Done batch 252** — two-target chosenObjectIds; target-player +N/+N and +X/+X parse/execute; each-attacking counter X per creature; MODIFY_PT_TARGET_PATTERN target-player fix.
+
+~~Chosen / blocking / another scaled PT / opponent -X/-0~~ **Done batch 253** — bare fragments for chosen creature, blockers, and another-target where-X; asymmetric opponent -X/-0; clause pattern for chosen/blocking selectors.
+
+~~Greatest-power where-X fix / its power-toughness / reference+attacked+opponent scaled bare~~ **Done batch 254** — specialized extrema creatures fix; target its power/toughness eval; that/attacked/opponent where-X bare fragments.
+
+~~Per-target its power/toughness where-X / asymmetric team +X/+0 / grant-keyword bare~~ **Done batch 255** — re-evaluate where-X per creature for `its power/toughness`; team +X/+0 bare fragment; target/team gain keyword bare fragments; readPermanentToughness in reference stats.
+
+~~They/other asymmetric X / prefix-target scaled / expanded grant bare~~ **Done batch 256** — they +X/+0 and other-creatures scaled bare; prefix target +X/+X where-X; other/each/prefix-self grant bare fragments; each-attacking asymmetric X parse.
+
+~~Prefix self scaled X / pronoun grants / qualified each-creature X~~ **Done batch 257** — prefix self +X/+X where-X bare; he/this-creature gain bare; each-with-qualifier counter X bare; full-parser misroute fix.
+
+~~Reference grants / prefix team asymmetric X / opponent mass scaled bare~~ **Done batch 258** — that/enchanted/equipped grant bare; prefix team +X/+0 where-X; self suffix scaled; opponents/tokens/chosen-type mass X; power-qualified and blocking targets.
+
+~~Don't-control mass / prefix-each / qualified fixed mass and grant~~ **Done batch 259** — each creature you don't control bare; prefix each-creature pumps; power-4+ and counter-qualified fixed mass; global flying mass; the creature reference; compound target grant+PT.
+
+~~All don't-control mass / for-each scaler bare / per-target counter scaling~~ **Done batch 260** — all creatures you don't control bare; for-each reference_scaler bare fragments; per-target `on it` scaler re-evaluation.
+
+~~Scaled for-each bare / global each-creature where-X / scaler-only +X execution~~ **Done batch 261** — +X/+X for-each bare fragments; each creature where-X bare; executor treats scaler + usesX without where-clause.
+
+~~Prefix-each for-each / all-creatures for-each / static cost-reduction bare~~ **Done batch 262** — prefix each/team for-each and where-X bare; all creatures for-each bare; spell/activated cost-reduction bare via `grant_static_ability`.
+
+~~Oketra exert `prevent_damage` → creature bridge~~ **Done batch 237** — self-target combat prevention parses as `grant_temporary_ability`; IR fallback + `syncIrTemporaryGrantEffectsToServerTemporaryAbilities` set `temporaryAbilities`; legacy self-prevent regex skips when fully wired.
+
+~~`grant_temporary_ability` wiring~~ **Done batch 236–238** — IR fallback + temp-ability sync cover exert combat evasion (unblockable, scry, low-power, Oketra prevention); legacy combat evasion regex handlers skip when fully wired.
+
+~~`modify_pt` team/target exert pumps~~ **Done batch 239** — bare trigger fragments + fallback prefilter; legacy PT batch skips when fully wired; mana batch skips reminder-text `add {r}` when fully wired.
+
+~~Prefix-each for-each / all-creatures for-each / static cost-reduction bare~~ **Done batch 262** — prefix each/team for-each and where-X bare; all creatures for-each bare; spell/activated cost-reduction bare via `grant_static_ability`.
+
+~~Opponent for-each / prefix-all for-each / extended static cost bare~~ **Done batch 263** — opponent mass/each for-each bare; prefix all/each-other for-each; this spell/ability and tax cost bare; fallback prefilter for cost more.
+
+~~Opponent for-each / prefix-all for-each / extended static cost bare~~ **Done batch 263** — opponent mass/each for-each bare; prefix all/each-other for-each; this spell/ability and tax cost bare; fallback prefilter for cost more.
+
+~~Opponent target/mass debuff / each-other-attacking / keyword grant bare~~ **Done batch 264** — fixed opponent target/mass debuff; each-other-attacking pump; global/all-other/typed team; self blocking for-each; controlled keyword grant bare.
+
+~~Goad / Baeloth static enforcement~~ **Done (parallel track)** — server `getCurrentGoaders` → rules-engine `getGoadedBy`; skip-past-combat; goaded attacking/blocking death → Treasure; see `docs/GOAD_IMPLEMENTATION.md` and `docs/oracle-ir-session-handoff.md`.
+
+### Batch 264 — opponent target/mass debuff, each-other-attacking, keyword grant bare
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Opponent target/mass fixed debuff; each-other-attacking; global/all-other/typed team; self where-X no comma; optional target; controlled keyword grant | `oracleIRParserPostprocess.ts` |
+| **Executor** | `all other creatures` and `other TYPEs you control` selectors | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Tests** | Each-other-attacking, opponent mass debuff, blocking scaler, keyword grant fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 264:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 265 — executor combat mass PT + source where-X
+
+Probe (`executor:coverage` gaps-only) surfaced 13 `modify_pt` executor gaps; highest-impact cluster was combat team pumps with source-referenced X.
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Executor** | `other attacking creatures you control`; `each other creature you control with base power and toughness 1/1`; connive import fix | `oracleIRExecutorCreatureStepUtils.ts`, `oracleIRExecutorPlayerStepHandlers.ts` |
+| **Where-X** | `counters on this permanent` / typed counters on this permanent read **source**, not first mass target | `oracleIRExecutorModifyPtWhereBoardStateCounts.ts` |
+| **Parser** | Bare scaled: other-attacking-you-control, attacking-you-control X, base-1/1 team X | `oracleIRParserPostprocess.ts` |
+| **Tests** | Qala-style counter X, Bess-style base-1/1 team pump | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 265:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+Migration suite baseline: **644 tests**.
+
+### Batch 266 — suggested next pass
+
+1. Re-run `cd server ; npm run executor:coverage` with `EXECUTOR_COVERAGE_ONLY_GAPS=1` after batch 265.
+2. Remaining `modify_pt` gaps: `per_creature_tapped_this_way` antecedent wiring (Siege Striker), player-choice multi-target (Sigardian Zealot), or non-PT skip clusters (conditional/upkeep compound).
+3. Orphan backlog items (`Choose one or both -`, `This spell can't be countered`, land-entry tapped) only when probe shows parse + runtime double-apply.
+
+See **`docs/oracle-ir-session-handoff.md`** for copy-paste continue prompt.
+
+### Batch 263 — opponent for-each, prefix-all for-each, extended static cost bare
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Opponent for-each; prefix-all/each-other for-each; extended static cost bare | `oracleIRParserPostprocess.ts` |
+| **Server** | Fallback prefilter includes cost … more | `trigger-runtime-wiring.ts` |
+| **Tests** | Opponent for-each, hand-scaled debuff, spell cost fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 263:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 262 — prefix-each for-each, all-creatures for-each, static cost-reduction bare
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Prefix-each for-each/where-X; all-creatures for-each; static cost-reduction bare | `oracleIRParserPostprocess.ts` |
+| **Tests** | Prefix-each team pump, all-creatures land-scaled, cost-reduction routing | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 262:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 261 — scaled for-each bare, global each-creature where-X
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Scaled for-each bare; global each-creature where-X | `oracleIRParserPostprocess.ts` |
+| **Executor** | Scaler + usesX without where-clause uses base magnitude | `oracleIRExecutorModifyPtStepHandlers.ts` |
+| **Tests** | Scaled for-each counter, global each-creature team X | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 261:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 260 — all don't-control mass, for-each scaler bare, per-target counter scaling
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | All don't-control mass; for-each scaler bare via shared builder | `oracleIRParserPostprocess.ts` |
+| **Executor** | Per-target reference scalers with `on it` (counters) | `oracleIRExecutorModifyPtStepHandlers.ts` |
+| **Tests** | All-dont-control, for-each team, per-target counter scaler | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 260:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 259 — don't-control mass, prefix-each, qualified fixed mass/grant
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Don't-control mass; prefix-each; qualified fixed mass/grant; the creature; compound target | `oracleIRParserPostprocess.ts` |
+| **Executor** | Don't-control, global qualified each, without-flying selectors | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Tests** | Dont-control hand-scaled, power-4+ team, prefix-each fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 259:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 258 — reference grants, prefix team asymmetric X, opponent mass scaled bare
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Reference grant bare; prefix team asymmetric X; self suffix scaled; opponent/token/chosen-type mass X | `oracleIRParserPostprocess.ts` |
+| **Executor** | Power-qualified targets; each opponent creature; blocking creatures | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Tests** | Reference grant, prefix team hand-scaled, power-qualified team, opponent mass fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 258:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 257 — prefix self scaled X, pronoun grants, qualified each-creature X
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Prefix self scaled PT bare; pronoun/self grant bare; qualified each-creature where-X | `oracleIRParserPostprocess.ts` |
+| **Executor** | Resolve `each creature you control with …` and +1/+1 counter qualifiers | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Tests** | Prefix self counter X, qualified counter-per-creature X, pronoun grant fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 257:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 256 — they/other asymmetric X, prefix-target scaled, expanded grant bare
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Bare fragments for they/other asymmetric X, prefix-target scaled PT, other/each/prefix-self grants | `oracleIRParserPostprocess.ts` |
+| **Parser** | Each-attacking asymmetric +X/+0 or +X/-X where-X | `oracleIRParserPostprocess.ts` |
+| **Tests** | Its-toughness, each-attacking its-power, they/other/prefix fallback, expanded grants | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 256:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 255 — per-target its P/T where-X, asymmetric team X, grant-keyword bare
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Executor** | Per-target where-X for `its power/toughness` (not only `on it`) | `oracleIRExecutorModifyPtStepHandlers.ts` |
+| **Where eval** | `its toughness` uses `readPermanentToughness` | `oracleIRExecutorModifyPtWhereReferenceStats.ts` |
+| **Parser** | Team +X/+0 bare fragment; target/team `gain keyword` bare fragments | `oracleIRParserPostprocess.ts` |
+| **Tests** | Per-creature its-power execution, team +X/+0 fallback, grant menace/hexproof fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 255:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 254 — greatest-power fix, its P/T where-X, reference/attacked/opponent scaled bare
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Where eval** | Plain `creatures` extrema fix; `x is its power/toughness` uses target id | `oracleIRExecutorModifyPtWhereSpecializedExtrema.ts`, `oracleIRExecutorModifyPtWhereReferenceStats.ts` |
+| **Parser** | Bare fragments for that/equipped/enchanted, attacked creature, opponent mass where-X | `oracleIRParserPostprocess.ts` |
+| **Clause pattern** | `the creature that attacked` in modify_pt target pattern | `oracleIRParserModifyPtClauses.ts` |
+| **Tests** | Greatest-power team pump, its-toughness target, attacked/that/opponent fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 254:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 253 — chosen, blocking, another-target scaled PT
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Bare fragments for chosen/blocking/another where-X; opponent asymmetric -X/-0 | `oracleIRParserPostprocess.ts` |
+| **Clause pattern** | `the chosen creature`, `each creature blocking it` in `MODIFY_PT_TARGET_PATTERN` | `oracleIRParserModifyPtClauses.ts` |
+| **Tests** | Chosen, blocking hand-scaled, another-target counter X | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 253:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 252 — target-player mass, exact-count multi-target, scaled target bare fragments
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Target resolution** | Exact-count `N target creatures` uses `chosenObjectIds`; exclude from generic single-target substring match | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Parser** | Bare fragments for target-player mass, exact-count multi-target, scaled target/opponent/each-attacking X | `oracleIRParserPostprocess.ts` |
+| **Clause pattern** | `creatures target player controls` in `MODIFY_PT_TARGET_PATTERN` | `oracleIRParserModifyPtClauses.ts` |
+| **Tests** | Target-player mass, two-target, each-attacking X, scaled target bare parse | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 252:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 251 — multi-target PT, prefix self compound, asymmetric each +X/+0
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Target resolution** | Multi-target `one or two` / `up to N` / `any number of target creatures each` via `chosenObjectIds` | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Parser** | Prefix self compound; multi-target bare fragments; asymmetric `+X/+0` each-creature X | `oracleIRParserPostprocess.ts` |
+| **Tests** | Multi-target, prefix self, opponent hand-scaled, each +X/+0 | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 251:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 250 — per-target counter X, up-to-one target, unblocked attacking
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Executor** | Re-evaluate where-X per target when clause references "on it" | `oracleIRExecutorModifyPtStepHandlers.ts` |
+| **Target resolution** | `unblocked attacking creatures` mass target | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Parser** | `up to one target creature gets`; unblocked attacking bare fragment; broaden modify_pt target pattern | `oracleIRParserPostprocess.ts`, `oracleIRParserModifyPtClauses.ts` |
+| **Tests** | Per-target counter X, up-to-one-target, unblocked attacking, counters-on-permanents fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 250:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 249 — team X, stampede compound X, global/flanking/counter-scaled PT
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Bare fragments for team X, stampede compound X, global hand-scaled, flanking mass, each-creature counter X, qualified target pumps | `oracleIRParserPostprocess.ts` |
+| **Tests** | Bare parse, fallback apply, routing wiring | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 249:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 248 — antecedent X pump, reference targets, mountains where-X
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | `they get +X/+X where X`; that/equipped/enchanted bare fragments; `they` in modify_pt target pattern | `oracleIRParserPostprocess.ts`, `oracleIRParserModifyPtClauses.ts` |
+| **Target resolution** | equipped/that creature reference targets | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Where-X** | `x is the number of mountains you control` | `oracleIRExecutorModifyPtWhereBoardStateCounts.ts` |
+| **Fallback prefilter** | Match `get +X/+X` temporary PT clauses | `trigger-runtime-wiring.ts` |
+| **Tests** | They-X, blocking, attacking X/mountains, reference creature fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 248:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 247 — antecedent pronoun, global/opponent mass PT, compound have
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Target resolution** | `they`/`them`; `each creature`; opponent creatures; blockers; chosen creature; combat prefix strip | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Parser** | Bare fragments + compound `get + have`; prefix combat team pump | `oracleIRParserPostprocess.ts`, `oracleIRParserAbilityClauses.ts` |
+| **Tests** | They/global/opponent/compound-have/chosen fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 247:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 246 — qualified mass PT and attacking creature pump
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Target resolution** | Attacking/subtype/token/qualified/non-color mass PT; attacked creature; enchanted creature | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Parser** | Bare trigger fragments for qualified mass PT and attacked creature | `oracleIRParserPostprocess.ts` |
+| **Tests** | Attacking mass, Zombie mass, attacked creature fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 246:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 245 — each-other and antecedent mass PT
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Target resolution** | `each other creature you control`; `those creatures` antecedent set | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Parser** | Bare trigger fragments for each-other / those-creatures PT | `oracleIRParserPostprocess.ts` |
+| **Fallback ctx** | `lastAntecedentBattlefieldPermanentIds` from `triggerItem` | `oracleIrStackContextUtils.ts`, `stackExecuteTriggerEffectIrFallbackUtils.ts`, `oracleIrUncategorizedSpellFallback.ts` |
+| **Tests** | Each-other pump, those-creatures antecedent fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 245:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 244 — prefix team compound, team have, target-player pump
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Clause split** | Normalized sub-clauses; strip trailing periods from grant text | `oracleIRParserAbilityClauses.ts` |
+| **Parser** | Prefix-duration PT targets; team `have keyword`; target-player compound bare fragments | `oracleIRParserModifyPtClauses.ts`, `oracleIRParserTemporaryAbilityClauses.ts`, `oracleIRParserPostprocess.ts` |
+| **Target resolution** | `creatures target player controls` mass PT/grant | `oracleIRExecutorCreatureStepUtils.ts`, `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Trigger fallback** | Merge `targetPlayerId` into IR ctx from trigger item | `oracleIrUncategorizedSpellFallback.ts` |
+| **Tests** | Prefix trample, team haste, Velis Vel fallback | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 244:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 243 — each-creature and chosen-type mass pumps
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Target resolution** | `each creature you control`; chosen-type mass PT/grant filters | `oracleIRExecutorCreatureStepUtils.ts`, `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Parser** | Chosen-type / each-creature PT clauses; compound keyword strip | `oracleIRParserModifyPtClauses.ts`, `oracleIRParserPostprocess.ts` |
+| **Trigger fallback** | Merge `chosenCreatureType` from trigger item into IR ctx | `oracleIrUncategorizedSpellFallback.ts` |
+| **Tests** | Each-creature pump, chosen-type haste, clean flying grant | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 243:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 242 — compound team PT+keyword split
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Clause split** | Plural `get`/`gain` compound PT+keyword; prefix-duration target hexproof | `oracleIRParserAbilityClauses.ts` |
+| **Parser guard** | Temporary grant clause skips compound PT targets | `oracleIRParserTemporaryAbilityClauses.ts` |
+| **Bare fragments** | Team/self/target compound PT+keyword trigger pairs | `oracleIRParserPostprocess.ts` |
+| **Tests** | Compound team vigilance fallback + routing | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 242:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 241 — other-creatures PT, double P/T, cant_block fallback
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Target resolution** | `other creatures you control` excludes source permanent | `oracleIRExecutorCreatureStepUtils.ts` |
+| **Parser** | Double P&T → `modify_pt`; bare fragments for other-creatures pump, double P&T, target cant block | `oracleIRParserSimpleActionClauses.ts`, `oracleIRParserPostprocess.ts` |
+| **Executor** | Double P&T applies +X/+Y at resolution | `oracleIRExecutorModifyPtStepHandlers.ts` |
+| **Fallback** | `cant_block` step kind + `can't block` prefilter | `trigger-runtime-wiring.ts` |
+| **Tests** | Other-creatures pump, double P&T, cant block fallback + routing | `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts`, `oracleIRTriggerPtBareParse.test.ts` |
+
+**Verify batch 241:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/oracle-ir-trigger-legacy-routing.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 240 — double power + self PT/grant fallback coverage
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Double power → `modify_pt`; self PT + double-power bare fragments | `oracleIRParserSimpleActionClauses.ts`, `oracleIRParserPostprocess.ts` |
+| **Executor** | `applyModifyPtStep` doubles power (+X/+0 at resolution) | `oracleIRExecutorModifyPtStepHandlers.ts` |
+| **Fallback** | `double` prefilter token | `trigger-runtime-wiring.ts` |
+| **Tests** | Self/team PT, double power, flying grant fallback + routing | `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts`, `oracleIRTriggerPtBareParse.test.ts` |
+
+**Verify batch 240:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 239 — PT modification legacy retirement
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Team/target EOT `modify_pt` bare trigger fragments; parse order bare-before-platform-only | `oracleIRParserPostprocess.ts`, `trigger-runtime-wiring.ts` |
+| **Fallback** | `gets? +N/+N` prefilter; reminder `add {mana}` skip when fully wired | `trigger-runtime-wiring.ts`, `oracleIrTriggerLegacyManaAndCombatHandlers.ts` |
+| **Legacy retirement** | PT modification batch skips when `isTriggerEffectFullyIrWired` | `oracleIrTriggerLegacyPTModificationHandlers.ts` |
+| **Tests** | Bare parse unit test; Glory-Bound/Tah-Crop/target PT fallback + routing | `oracleIRTriggerPtBareParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 239:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRTriggerPtBareParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/exert-choice.integration.test.ts tests/stack.generic-library-and-untap.regression.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 238 — combat evasion legacy retirement
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Legacy retirement** | All combat evasion legacy handlers skip when `isTriggerEffectFullyIrWired` | `oracleIrTriggerLegacyCombatEvasionHandlers.ts` |
+| **Tests** | Target + low-power IR fallback; legacy skip assertions; routing wiring | `oracle-ir-trigger-combat-evasion-fallback.test.ts`, `oracle-ir-trigger-legacy-routing.test.ts` |
+
+**Verify batch 238:**
+
+```powershell
+cd server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/exert-choice.integration.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 237 — Oketra self combat prevention
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Parser** | Self-target `prevent all combat damage … to it this turn` → `grant_temporary_ability` | `oracleIRParserLifeAndCombatClauses.ts`, `oracleIRParserPostprocess.ts` |
+| **Legacy retirement** | Self-prevent combat damage regex skips when fully wired | `oracleIrTriggerLegacyCombatEvasionHandlers.ts` |
+| **Tests** | Parse unit test + Oketra IR fallback + routing wiring | `oracleIRSelfCombatPreventParse.test.ts`, `oracle-ir-trigger-combat-evasion-fallback.test.ts` |
+
+**Verify batch 237:**
+
+```powershell
+cd rules-engine
+npx vitest run test/oracleIRSelfCombatPreventParse.test.ts
+cd ../server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/exert-choice.integration.test.ts
+npm run test:oracle-ir-migration
+```
+
+### Batch 236 — counter-scaled modify_pt + fallback fix
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Fallback execution** | Mandatory uncategorized batches force `allowOptional: false` | `oracleIrUncategorizedSpellFallback.ts` |
+| **Server sync** | PT modifier sync always after IR apply | `oracleIrServerZoneSync.ts` |
+| **Legacy retirement** | Counter-scaled +X/+X PT regex skips when fully wired; PT mod dedupe | `oracleIrTriggerLegacyPTModificationHandlers.ts` |
+| **Tests** | Fallback + primary Hydra, migration gate +8 tests | `oracle-ir-trigger-combat-evasion-fallback.test.ts` |
+
+**Verify batch 236:**
+
+```powershell
+cd server
+npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/exert-choice.integration.test.ts
+npm run test:oracle-ir-migration
+```
+
+### G1 game-log bugs — verified by integration tests (batch 235)
+
+| Issue | Status | Coverage |
+|-------|--------|----------|
+| **Court of Garenbrig** upkeep counters + Branching Evolution | **Fixed** (batch 174/233/234) | `oracle-ir-court-garenbrig-counter-distribution.socket.integration.test.ts`, `inspiring-call-court-garenbrig.regression.test.ts` |
+| **Inspiring Call** draw + indestructible | **Fixed** (batch 175) | `inspiring-call-court-garenbrig.regression.test.ts` |
+| **Roaming Throne** explore doubling + ETB type | **Verified** | `roaming-throne-trigger-doubling.integration.test.ts`, `creature-type-etb-persistence.integration.test.ts` |
+| **Cryptoplasm** optional upkeep copy | **Verified** | `cryptoplasm-copy.integration.test.ts` (accept + decline) |
+| **Cavern / Three Tree City** type badge | **Verified** | `creature-type-etb-persistence.integration.test.ts` |
+| **Gwenna** null priority during mana selection | **Verified** | `gwenna-mana-color-selection.integration.test.ts` (priority null in resolution, restored after completion) |
+| **Door of Destinies** charge counter on cast | **Verified** | `door-of-destinies-spell-cast.integration.test.ts`, `door-of-destinies-ir-primary.integration.test.ts` |
+
+Live-game spot-checks remain optional; no open server-side G1 blockers from the original log triage.
 
 ### Batch 173 — what landed (still relevant)
 

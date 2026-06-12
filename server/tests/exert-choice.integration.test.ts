@@ -1393,13 +1393,24 @@ describe('supported exert attack automation (integration)', () => {
 
     expect((((game.state as any).stack || []) as any[])).toHaveLength(1);
 
+    const attackerLibrary = [
+      { id: 'clockwork_lib_1', name: 'Island', zone: 'library' },
+      { id: 'clockwork_lib_2', name: 'Forest', zone: 'library' },
+    ];
+    (game.state as any).zones[attackerId].library = attackerLibrary;
+    (game.state as any).zones[attackerId].libraryCount = attackerLibrary.length;
+    (game as any).libraries = new Map([[attackerId, attackerLibrary.map((card) => ({ ...card }))]]);
+
     game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
     const droid = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'clockwork_droid') as any;
     expect(droid?.temporaryAbilities).toEqual([
       expect.objectContaining({ ability: "can't be blocked", expiresAt: 'end_of_turn' }),
     ]);
-    expect((game.state as any).pendingScry?.[attackerId]).toBe(1);
+    const scrySteps = ResolutionQueueManager.getStepsForPlayer(gameId, attackerId).filter(
+      (step: any) => step?.type === ResolutionStepType.SCRY,
+    );
+    expect(scrySteps.some((step: any) => step?.scryCount === 1)).toBe(true);
 
     (game.state as any).step = 'declareBlockers';
     const emitStart = emitted.length;

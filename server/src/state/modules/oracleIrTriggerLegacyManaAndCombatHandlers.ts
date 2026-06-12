@@ -7,7 +7,7 @@ import { recordCardLeftGraveyardThisTurn } from './turn-tracking.js';
 import { debug } from '../../utils/debug.js';
 import { addExtraCombat } from './turn.js';
 import { modifyTriggerEffectLife } from './triggerLifeDamageUtils.js';
-import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
+import { skipRetiredTriggerLegacyHandler, isTriggerEffectFullyIrWired } from './oracleIrTriggerLegacyRouting.js';
 
 function getOrCreatePlayerZones(stateAny: any, playerId: PlayerID): any {
   stateAny.zones = stateAny.zones || {};
@@ -128,7 +128,7 @@ export function applyRetiredTriggerLegacyManaAndCombatBatch(params: {
   }
 
   const addManaMatch = desc.match(/add (\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-  if (addManaMatch) {
+  if (addManaMatch && !isTriggerEffectFullyIrWired(params.desc, params.sourceName)) {
     const manaString = addManaMatch[1];
     debug(2, `[executeTriggerEffect] ${controller} adds ${manaString} to mana pool`);
     addParsedManaToPool(controller, manaString, temporaryManaRetentionDuration);

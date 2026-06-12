@@ -955,6 +955,19 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
+    const selfCombatPreventThisTurn = clause.match(
+      /^prevent\s+all\s+combat\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+(it|this creature|~)\s+this\s+turn\.?$/i,
+    );
+    if (selfCombatPreventThisTurn) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('this creature'),
+        effectText: ['prevent all combat damage that would be dealt to this creature this turn'],
+        duration: 'end_of_turn',
+        raw: rawClause,
+      });
+    }
+
     const staticPreventTo = clause.match(/^prevent\s+all\s+(combat\s+)?damage\s+that\s+would\s+be\s+dealt\s+to\s+(.+)$/i);
     if (staticPreventTo) {
       return withMeta({

@@ -308,6 +308,61 @@ describe('oracle IR trigger execution', () => {
     ResolutionQueueManager.removeQueue(gameId);
   });
 
+  it('primary mode applies counter-scaled modify_pt for exert-style pumps', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_trigger_hydra_counter_scaled';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'hydra_trainer',
+        controller: p1,
+        counters: { '+1/+1': 2 },
+        card: { name: 'Hydra Trainer', type_line: 'Creature' },
+      },
+      {
+        id: 'counter_target',
+        controller: p1,
+        card: { name: 'Counter Target', type_line: 'Creature — Human' },
+      },
+      {
+        id: 'charge_relic',
+        controller: p1,
+        counters: { charge: 1 },
+        card: { name: 'Charge Relic', type_line: 'Artifact' },
+      },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const effectText =
+      'target creature gets +X/+X until end of turn, where X is the number of counters on permanents you control';
+    expect(isTriggerEffectFullyIrWired(effectText, 'Hydra Trainer')).toBe(true);
+
+    const outcome = tryResolveTriggerViaOracleIR(ctx, {
+      controller: p1,
+      sourceName: 'Hydra Trainer',
+      effectText,
+      triggerItem: {
+        source: 'hydra_trainer',
+        targets: ['counter_target'],
+      },
+    });
+
+    expect(outcome.handled).toBe(true);
+    const target = (game.state as any).battlefield.find((perm: any) => perm.id === 'counter_target');
+    expect(target?.temporaryPTMods).toEqual([
+      expect.objectContaining({ power: 3, toughness: 3, expiresAt: 'end_of_turn' }),
+    ]);
+
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
   it('primary mode queues creature type choice for Littjara chaos without preset type', () => {
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
 

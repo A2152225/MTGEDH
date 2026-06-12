@@ -10,6 +10,8 @@ import {
   skipRetiredTriggerLegacyHandler,
   shouldSkipTriggerUncategorizedFallback,
 } from '../src/state/modules/oracleIrTriggerLegacyRouting.js';
+import { collectOracleEffectSteps } from '../src/state/modules/trigger-runtime-wiring.js';
+import { parseBareTriggerEffectFragmentSteps } from '../../rules-engine/src/oracleIRParserPostprocess.js';
 
 describe('oracleIrTriggerLegacyRouting', () => {
   const previousPrimary = process.env.ORACLE_IR_TRIGGER_PRIMARY;
@@ -193,6 +195,438 @@ describe('oracleIrTriggerLegacyRouting', () => {
       'Choose up to three -\n\u2022 Sell Contraband - You lose 1 life. Create a Treasure token.\n\u2022 Buy Information - You lose 2 life. Draw a card.\n\u2022 Hire a Mercenary - You lose 3 life. Create a 3/2 colorless Shapeshifter creature token with changeling.',
       'Contraband Kingpin',
     )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      "It can't be blocked this turn and you scry 1.",
+      'Clockwork Droid',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'target creature gets +X/+X until end of turn, where X is the number of counters on permanents you control',
+      'Hydra Trainer',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'prevent all combat damage that would be dealt to it this turn.',
+      "Oketra's Avenger",
+    )[0]?.kind).toBe('grant_temporary_ability');
+    expect(isTriggerEffectFullyIrWired(
+      'prevent all combat damage that would be dealt to it this turn.',
+      "Oketra's Avenger",
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      "Up to one target creature can't be blocked this turn.",
+      'Source',
+    )[0]?.kind).toBe('grant_temporary_ability');
+    expect(isTriggerEffectFullyIrWired(
+      "Up to one target creature can't be blocked this turn.",
+      'Source',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      "This creature can't be blocked by creatures with power 2 or less this turn.",
+      'Trueheart Twins',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'it gets +1/+3 and gains lifelink until end of turn.',
+      'Glory-Bound Initiate',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'creatures you control get +1/+1 until end of turn.',
+      'Tah-Crop Elite',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'target creature gets +2/+2 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'creatures you control get +1/+1 until end of turn.',
+      'Tah-Crop Elite',
+    )[0]?.kind).toBe('modify_pt');
+    expect(collectOracleEffectSteps(
+      'target creature gets +2/+2 until end of turn.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'he gains flying until end of turn.',
+      'Themberchaud',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'creatures you control get +1/+0 until end of turn.',
+      'Resolute Survivors',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      "double target creature's power until end of turn.",
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      "double target creature's power until end of turn.",
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      "double target creature's power and toughness until end of turn.",
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'other creatures you control get +1/+1 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      "target creature can't block this turn.",
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'creatures you control get +1/+1 and gain vigilance until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'creatures you control get +1/+1 and gain vigilance until end of turn.',
+      'Generic',
+    ).map((step) => step.kind)).toEqual(['modify_pt', 'grant_temporary_ability']);
+    expect(isTriggerEffectFullyIrWired(
+      'each creature you control gets +1/+1 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'creatures you control of the chosen type get +1/+0 and gain haste until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'until end of turn, creatures you control get +1/+1 and gain trample.',
+      'Generic',
+    ).map((step) => step.kind)).toEqual(['modify_pt', 'grant_temporary_ability']);
+    expect(collectOracleEffectSteps(
+      "double target creature's power and toughness until end of turn.",
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(collectOracleEffectSteps(
+      'other creatures you control get +1/+1 until end of turn.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(collectOracleEffectSteps(
+      "target creature can't block this turn.",
+      'Generic',
+    )[0]?.kind).toBe('cant_block');
+    expect(collectOracleEffectSteps(
+      'each other creature you control gets +1/+1 until end of turn.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(collectOracleEffectSteps(
+      'Those creatures get +1/+1 until end of turn.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(collectOracleEffectSteps(
+      'attacking creatures you control get +1/+1 until end of turn.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(collectOracleEffectSteps(
+      'the creature that attacked gets +2/+2 until end of turn.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(collectOracleEffectSteps(
+      'they get +2/+2 until end of turn.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(collectOracleEffectSteps(
+      'each creature gets +1/+1 until end of turn.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(collectOracleEffectSteps(
+      'creatures you control get +1/+1 and have trample until end of turn.',
+      'Generic',
+    ).map((step) => step.kind)).toEqual(['modify_pt', 'grant_temporary_ability']);
+    expect(collectOracleEffectSteps(
+      'they get +X/+X until end of turn, where X is the number of creatures you control.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'creatures you control get +X/+X until end of turn, where X is the number of creatures you control.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'Until end of turn, creatures you control gain trample and get +X/+X, where X is the greatest power among creatures you control.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'Until end of turn, creatures you control gain trample and get +X/+X, where X is the greatest power among creatures you control.',
+      'Generic',
+    ).map((step) => step.kind)).toEqual(['grant_temporary_ability', 'modify_pt']);
+    expect(isTriggerEffectFullyIrWired(
+      'all creatures get -X/-0 until end of turn, where X is the number of cards in your hand.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'all attacking creatures with flanking get +1/+1 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'each creature you control gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'another target creature gets +2/+2 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'target creature you control gets +2/+2 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'creatures you control get +X/+X until end of turn, where X is the greatest power among creatures you control.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'up to one target creature gets +2/+2 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'up to one target creature gets +2/+2 until end of turn.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'unblocked attacking creatures get +1/+0 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'target creature gets +X/+X until end of turn, where X is the number of counters on permanents you control.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'until end of turn, target creature gets +2/+2 and gains flying.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'one or two target creatures get +2/+2 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'one or two target creatures get +2/+2 until end of turn.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'until end of turn, it gets +2/+2 and gains flying.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'each creature you control gets +X/+0 until end of turn, where X is the number of +1/+1 counters on it.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'target creature an opponent controls gets -X/-X until end of turn, where X is the number of cards in your hand.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'any number of target creatures each get +1/+1 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'creatures target player controls get +1/+1 until end of turn.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'creatures target player controls get +1/+1 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'two target creatures get +2/+2 until end of turn.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'two target creatures get +2/+2 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'target creature gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'each attacking creature you control gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'creatures target player controls get +X/+X until end of turn, where X is the number of Mountains you control.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'creatures target player controls get +X/+X until end of turn, where X is the number of Mountains you control.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'the chosen creature gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'the chosen creature gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'each creature blocking it gets -X/-X until end of turn, where X is the number of cards in your hand.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'each creature blocking it gets -X/-X until end of turn, where X is the number of cards in your hand.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'another target creature gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'target creature an opponent controls gets -X/-0 until end of turn, where X is the number of cards in your hand.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'the creature that attacked gets +X/+X until end of turn, where X is the number of Mountains you control.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'the creature that attacked gets +X/+X until end of turn, where X is the number of Mountains you control.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'that creature gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'each opponent\'s creatures get -X/-X until end of turn, where X is the number of cards in your hand.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'target creature gets +X/+X until end of turn, where X is its toughness.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'creatures you control get +X/+0 until end of turn, where X is the number of cards in your hand.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'each creature you control gets +X/+X until end of turn, where X is its power.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'creatures you control gain menace until end of turn.',
+    )?.[0]?.kind).toBe('grant_temporary_ability');
+    expect(isTriggerEffectFullyIrWired(
+      'target creature gains hexproof until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'they get +X/+0 until end of turn, where X is the number of +1/+1 counters on it.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(parseBareTriggerEffectFragmentSteps(
+      'other creatures you control get +X/+X until end of turn, where X is the number of creatures you control.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(parseBareTriggerEffectFragmentSteps(
+      'until end of turn, target creature gets +X/+X, where X is its power.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'each creature you control gets +X/+X until end of turn, where X is its toughness.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'other creatures you control gain flying until end of turn.',
+    )?.[0]?.kind).toBe('grant_temporary_ability');
+    expect(parseBareTriggerEffectFragmentSteps(
+      'until end of turn, it gains hexproof.',
+    )?.[0]?.kind).toBe('grant_temporary_ability');
+    expect(parseBareTriggerEffectFragmentSteps(
+      'until end of turn, it gets +X/+X, where X is the number of +1/+1 counters on it.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(collectOracleEffectSteps(
+      'until end of turn, it gets +X/+X, where X is the number of +1/+1 counters on it.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'until end of turn, it gets +X/+X, where X is the number of +1/+1 counters on it.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'this creature gains lifelink until end of turn.',
+    )?.[0]?.kind).toBe('grant_temporary_ability');
+    expect(isTriggerEffectFullyIrWired(
+      'this creature gains lifelink until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'each creature you control with a +1/+1 counter on it gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'each creature you control with a +1/+1 counter on it gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'that creature gains hexproof until end of turn.',
+    )?.[0]?.kind).toBe('grant_temporary_ability');
+    expect(collectOracleEffectSteps(
+      'until end of turn, creatures you control get +X/+0, where X is the number of cards in your hand.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'creatures you control of the chosen type get +X/+X until end of turn, where X is the number of Mountains you control.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'it gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(parseBareTriggerEffectFragmentSteps(
+      'creatures your opponents control get -X/-X until end of turn, where X is the number of cards in your hand.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(parseBareTriggerEffectFragmentSteps(
+      "each creature you don't control gets -1/-1 until end of turn.",
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'each creature you control with power 4 or greater gets +1/+1 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'until end of turn, each creature you control gets +1/+1.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(parseBareTriggerEffectFragmentSteps(
+      'each creature with flying gets +1/+1 until end of turn.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(parseBareTriggerEffectFragmentSteps(
+      "all creatures you don't control get -1/-1 until end of turn.",
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'each creature gets +1/+1 until end of turn for each creature you control.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      "all creatures you don't control get -1/-1 until end of turn.",
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'each creature you control gets +X/+X until end of turn for each +1/+1 counter on it.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'each creature gets +X/+X until end of turn, where X is the number of creatures you control.',
+      'Generic',
+    )[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'noncreature spells you control cost {1} less to cast.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'until end of turn, each creature gets +1/+1 for each creature you control.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(parseBareTriggerEffectFragmentSteps(
+      "each opponent's creatures get +1/+1 until end of turn for each creature you control.",
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      "each opponent's creatures get +1/+1 until end of turn for each creature you control.",
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'this spell costs {1} less to cast for each creature you control.',
+      'Generic',
+    )[0]?.kind).toBe('grant_static_ability');
+    expect(parseBareTriggerEffectFragmentSteps(
+      'each other attacking creature gets +1/+0 until end of turn.',
+    )?.[0]?.kind).toBe('modify_pt');
+    expect(isTriggerEffectFullyIrWired(
+      'other attacking creatures you control get +X/+0 until end of turn, where X is the number of counters on this permanent.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'each other creature you control with base power and toughness 1/1 gets +X/+X until end of turn, where X is the number of +1/+1 counters on this permanent.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'creatures your opponents control get -1/-1 until end of turn.',
+      'Generic',
+    )).toBe(true);
+    expect(parseBareTriggerEffectFragmentSteps(
+      'another target creature you control gains deathtouch until end of turn.',
+    )?.[0]?.kind).toBe('grant_temporary_ability');
     expect(isTriggerEffectFullyIrWired('Do something utterly non-oracular.', 'Creature')).toBe(false);
   });
 });

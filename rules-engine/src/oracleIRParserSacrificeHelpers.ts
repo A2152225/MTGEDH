@@ -137,7 +137,7 @@ export function normalizeLeadingConditionalCondition(rawText: string, cardName?:
 
 export function abilityEffectText(ability: ParsedAbility): string {
   if (ability.type === AbilityType.REPLACEMENT) {
-    return String(ability.text ?? ability.effect ?? '').trim();
+    return String(ability.effect ?? ability.text ?? '').trim();
   }
   return String(ability.effect ?? ability.text ?? '').trim();
 }

@@ -44,7 +44,20 @@ Updated `makeBasicAttackDecision()` to:
 - Respect normal attack restrictions (tapped, summoning sickness, defender)
 
 ### 4. Server-Side Helpers (`server/src/state/modules/goad-effects.ts`)
-Provides helper functions for applying goad effects:
+Provides helper functions for applying goad effects and **unified goad detection**:
+
+#### Goad Detection (delegates to rules-engine)
+```typescript
+getCurrentGoaders(creature, battlefield, currentTurn?)
+isCreatureGoaded(creature, battlefield, currentTurn?)
+```
+These wrap `getGoadedBy()` from `rules-engine/src/actions/combat.ts`, which handles:
+- Keyword-action goad (`goadedBy` / `goadedUntil`)
+- Static conditional goad (Baeloth Barrityl: power comparison via `applyStaticAbilitiesToBattlefield`)
+- Attached aura/equipment that grant "equipped/enchanted creature … is goaded"
+- Legacy `{ goaded: { [playerId]: true } }` replay shape (server-only merge)
+
+Server combat, `can-respond`, and `skipToPhase` goad enforcement all use `getCurrentGoaders`.
 
 #### Single/Multiple Creature Goad
 ```typescript
@@ -117,22 +130,28 @@ const updatedBattlefield = applyConditionalGoad(
 
 ## Test Coverage
 
-### Unit Tests (`rules-engine/test/goad.test.ts`) - 19 tests
+### Unit Tests (`rules-engine/test/goad.test.ts`) - 25 tests
 - Basic goad detection
 - Multiple goaders support
 - Expiration tracking
 - Valid target determination
 - Attack validation with goad restrictions
+- Static Baeloth goad via battlefield scan
 - Edge cases (goader as only option)
 
-### AI Integration Tests (`rules-engine/test/goad-ai-integration.test.ts`) - 4 tests  
+### AI Integration Tests (`rules-engine/test/goad-ai-integration.test.ts`) - 5 tests  
 - AI forces goaded creatures to attack
 - AI selects valid non-goader targets
 - AI attacks goader when only option
 - AI handles multiple goaded creatures
 - AI respects tapped/summoning sickness
 
-**All 23 tests passing ✅**
+### Server Tests
+- `server/tests/goad-static-death.unit.test.ts` — static goad detection, death clause matching (6 tests)
+- `server/tests/goad-baeloth.integration.test.ts` — skipToPhase block, non-goaded skip allowed, Treasure on stack resolve (3 tests)
+- Existing: `can-respond.test.ts` (Bloodthirsty Blade equipped goad), Oracle IR goad trigger/spell tests
+
+**All goad-focused tests passing ✅**
 
 ## Verification
 
@@ -152,18 +171,16 @@ const updatedBattlefield = applyConditionalGoad(
 ## Known Limitations & Future Work
 
 ### Current Scope
-This implementation provides the **core goad infrastructure** and **enforcement mechanism**. Individual goad cards still need to be implemented using the provided helper functions.
+This implementation provides **full goad rule enforcement** including keyword-action goad (Oracle IR `kind: 'goad'`), static conditional goad (Baeloth), attached equipment/aura goad, skip-past-combat blocking, and Baeloth's death trigger.
 
-### Not Yet Implemented
-- Specific goad card implementations (Disrupt Decorum, Karazikar, etc.)
-- Aura/equipment that grant goad status (will need modifier support)
-- Continuous conditional goad effects (Baeloth Barrityl) - framework exists but needs card-specific trigger
+### Remaining gaps
+- Client UI may not show static goad badge when only `staticGoadedBy` applies (no `goadedBy` array)
+- Replay event coverage for Baeloth death trigger + skipToPhase goad block not yet added
 
 ### Recommended Next Steps
-1. Implement specific goad cards using the helper functions
-2. Add goad-granting auras/equipment (may need `grantedAbilities` extension)
-3. Implement continuous conditional goad effects with state-based checks
-4. Add more UI indicators for why a creature must attack (goaded tooltip on creature card)
+1. Client goad indicator for static/attached goad (read `getCurrentGoaders` or sync `staticGoadedBy` to view)
+2. Replay integration tests for skipToPhase goad block and Baeloth treasure death
+3. Continue Oracle IR migration batch 265 — see `docs/oracle-ir-session-handoff.md`
 
 ## Card Examples to Implement
 

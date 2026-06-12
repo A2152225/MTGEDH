@@ -10,6 +10,7 @@
  */
 
 import type { BattlefieldPermanent, PlayerID } from '../../../../shared/src/types';
+import { getGoadedBy } from '../../../../rules-engine/src/actions/combat.js';
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /**
@@ -173,28 +174,14 @@ export function getCurrentGoaders(
 ): PlayerID[] {
   if (!creature) return [];
 
-  const goaders = new Set<PlayerID>();
-  const goadedUntil = (creature as any).goadedUntil || {};
+  const goaders = new Set<PlayerID>(
+    getGoadedBy(creature, currentTurn, battlefield).map((goaderId) => String(goaderId).trim() as PlayerID)
+  );
 
-  const trackedGoaders = Array.isArray((creature as any).goadedBy)
-    ? (creature as any).goadedBy
-    : [];
-  for (const trackedGoader of trackedGoaders) {
-    const goaderId = String(trackedGoader || '').trim() as PlayerID;
-    if (!goaderId) continue;
-
-    if (currentTurn !== undefined) {
-      const expiryTurn = Number(goadedUntil[goaderId]);
-      if (Number.isFinite(expiryTurn) && expiryTurn <= currentTurn) {
-        continue;
-      }
-    }
-
-    goaders.add(goaderId);
-  }
-
+  // Legacy replay/state shape: { [goaderId]: true }
   if ((creature as any).goaded && typeof (creature as any).goaded === 'object') {
-    for (const legacyGoader of Object.keys((creature as any).goaded)) {
+    for (const [legacyGoader, active] of Object.entries((creature as any).goaded)) {
+      if (!active) continue;
       const goaderId = String(legacyGoader || '').trim() as PlayerID;
       if (goaderId) {
         goaders.add(goaderId);
@@ -202,32 +189,15 @@ export function getCurrentGoaders(
     }
   }
 
-  const staticGoadedBy = Array.isArray((creature as any).staticGoadedBy)
-    ? (creature as any).staticGoadedBy
-    : [];
-  for (const staticGoader of staticGoadedBy) {
-    const goaderId = String(staticGoader || '').trim() as PlayerID;
-    if (goaderId) {
-      goaders.add(goaderId);
-    }
-  }
+  return Array.from(goaders).filter(Boolean);
+}
 
-  if (Array.isArray(battlefield)) {
-    for (const permanent of battlefield) {
-      if (!permanent || !permanent.card) continue;
-      if (String((permanent as any).attachedTo || '') !== String((creature as any).id || '')) continue;
-
-      const oracleText = String((permanent as any).card?.oracle_text || '');
-      if (!/(?:enchanted|equipped) creature\b[^.]*\bis goaded\b/i.test(oracleText)) continue;
-
-      const goaderId = String((permanent as any).controller || '').trim() as PlayerID;
-      if (goaderId) {
-        goaders.add(goaderId);
-      }
-    }
-  }
-
-  return Array.from(goaders);
+export function isCreatureGoaded(
+  creature: BattlefieldPermanent | any,
+  battlefield: BattlefieldPermanent[] | any[] = [],
+  currentTurn?: number
+): boolean {
+  return getCurrentGoaders(creature, battlefield, currentTurn).length > 0;
 }
 
 /**

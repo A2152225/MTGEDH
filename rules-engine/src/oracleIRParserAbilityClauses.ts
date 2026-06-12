@@ -109,21 +109,27 @@ function splitConservativeModifyPtTemporaryAbilityClause(args: {
 }): string[] | null {
   const { rawClause, parseEffectClauseToStep } = args;
   const normalized = normalizeOracleText(rawClause).trim();
-  if (!normalized || !/\bgets\b/i.test(normalized) || !/\band gains?\b/i.test(normalized)) return null;
+  if (!normalized || !/\bget(?:s)?\b/i.test(normalized) || !/\band (?:gains?|have)\b/i.test(normalized)) return null;
 
   const match = normalized.match(
-    /^(until end of turn,\s+)?(.+?)\s+gets\s+([+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x))\s+and\s+gains?\s+(.+?)\s+until end of turn$/i
+    /^(until end of turn,\s+)?(.+?)\s+(get(?:s)?)\s+([+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x))\s+and\s+(gain(?:s)?|have)\s+(.+?)(?:\s+until end of turn)?$/i
   );
   if (!match) return null;
 
   const durationPrefix = String(match[1] || '');
   const targetText = String(match[2] || '').trim();
-  const modifyText = String(match[3] || '').trim();
-  const gainsText = String(match[4] || '').trim();
-  if (!targetText || !modifyText || !gainsText) return null;
+  const getVerb = String(match[3] || 'gets').trim();
+  const modifyText = String(match[4] || '').trim();
+  const grantKind = String(match[5] || 'gains').trim().toLowerCase();
+  const grantText = String(match[6] || '').trim().replace(/[.]+$/g, '');
+  if (!targetText || !modifyText || !grantText) return null;
+  if (!durationPrefix && !/\buntil\s+end\s+of\s+turn\b/i.test(normalized)) return null;
 
-  const first = `${targetText} gets ${modifyText} until end of turn`;
-  const second = `${durationPrefix}${targetText} gains ${gainsText} until end of turn`.trim();
+  const durationSuffix = ' until end of turn';
+  const first = `${targetText} ${getVerb} ${modifyText}${durationSuffix}`.trim();
+  const second = grantKind === 'have'
+    ? `${targetText} have ${grantText}${durationSuffix}`.trim()
+    : `${targetText} ${grantKind.startsWith('gain') ? grantKind : 'gains'} ${grantText}${durationSuffix}`.trim();
   const firstStep = parseEffectClauseToStep(first);
   const secondStep = parseEffectClauseToStep(second);
   if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;

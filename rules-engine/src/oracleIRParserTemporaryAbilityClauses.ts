@@ -85,8 +85,30 @@ export function tryParseTemporaryAbilityClause(args: {
   }
 
   {
+    const haveUntilEot = workingClause.match(
+      /^(creatures you control|each creature you control|other creatures you control|creatures target player controls) have (.+?) until end of turn\.?$/i,
+    );
+    if (haveUntilEot) {
+      const abilities = parseKeywordAbilityList(String(haveUntilEot[2] || '').trim());
+      if (abilities) {
+        return withMeta({
+          kind: 'grant_temporary_ability',
+          target: parseObjectSelector(String(haveUntilEot[1] || '').trim()),
+          duration: 'end_of_turn',
+          abilities,
+          raw: rawClause,
+        });
+      }
+    }
+  }
+
+  {
     const m = workingClause.match(/^(?:until end of turn,\s+)?(.+?)\s+gains?\s+(.+?)\s+until end of turn$/i);
     if (m) {
+      const targetText = String(m[1] || '').trim();
+      if (/\bget(?:s)?\s+[+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\b/i.test(targetText)) {
+        return null;
+      }
       const abilities = parseKeywordAbilityList(String(m[2] || '').trim());
       if (abilities) {
         return withMeta({

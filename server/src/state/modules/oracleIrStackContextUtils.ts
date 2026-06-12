@@ -14,8 +14,12 @@ export function buildStackOracleIRContext(
     targetPermanentId?: string;
     chosenObjectIds?: readonly string[];
     referenceAmount?: number;
+    lastAntecedentBattlefieldPermanentIds?: readonly string[];
   },
 ): OracleIRExecutionContext {
+  const antecedentIds = Array.isArray(options?.lastAntecedentBattlefieldPermanentIds)
+    ? options.lastAntecedentBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
   return {
     controllerId: caster,
     sourceId: options?.sourceId,
@@ -24,11 +28,13 @@ export function buildStackOracleIRContext(
     ...(typeof options?.referenceAmount === 'number' && Number.isFinite(options.referenceAmount)
       ? { referenceAmount: Math.max(0, Math.floor(options.referenceAmount)) }
       : {}),
+    ...(antecedentIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: antecedentIds } : {}),
     selectorContext: {
       ...(options?.targetPlayerId ? { targetPlayerId: options.targetPlayerId } : {}),
       ...(options?.targetOpponentId ? { targetOpponentId: options.targetOpponentId } : {}),
       ...(options?.targetPermanentId ? { targetPermanentId: options.targetPermanentId } : {}),
       ...(options?.chosenObjectIds?.length ? { chosenObjectIds: options.chosenObjectIds } : {}),
+      ...(antecedentIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: antecedentIds } : {}),
     },
   };
 }

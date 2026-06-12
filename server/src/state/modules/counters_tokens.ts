@@ -821,7 +821,12 @@ export function applyCounterModifications(
   return ((replacement.metadata as any)?.modifiedDeltas as Record<string, number> | undefined) || modified;
 }
 
-export function updateCounters(ctx: GameContext, permanentId: string, deltas: Record<string, number>) {
+export function updateCounters(
+  ctx: GameContext,
+  permanentId: string,
+  deltas: Record<string, number>,
+  options?: { deferRunSBA?: boolean; skipCounterModifications?: boolean },
+) {
   const { state, bumpSeq } = ctx;
   const p = state.battlefield.find(b => b.id === permanentId);
   if (!p) return;
@@ -833,7 +838,9 @@ export function updateCounters(ctx: GameContext, permanentId: string, deltas: Re
   };
   
   // Apply counter modification effects (Vorinclex, Doubling Season, Hardened Scales, etc.)
-  const modifiedDeltas = applyCounterModifications(state, permanentId, deltas);
+  const modifiedDeltas = options?.skipCounterModifications
+    ? deltas
+    : applyCounterModifications(state, permanentId, deltas);
 
   trackCountersPlacedThisTurn(state, p, permanentId, modifiedDeltas);
   
@@ -855,7 +862,9 @@ export function updateCounters(ctx: GameContext, permanentId: string, deltas: Re
   queueCounterPlacedTriggers(ctx, p, permanentId, modifiedDeltas);
   queueCounterRemovedTriggers(ctx, p, permanentId, removedDeltas);
   bumpSeq();
-  runSBA(ctx);
+  if (!options?.deferRunSBA) {
+    runSBA(ctx);
+  }
 }
 
 export function trackCountersPlacedThisTurn(

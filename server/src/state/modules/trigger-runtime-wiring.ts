@@ -64,6 +64,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'attach',
   'fight',
   'modify_pt',
+  'cant_block',
   'remove_counter',
   'regenerate',
   'grant_graveyard_permission',
@@ -143,6 +144,9 @@ export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean
     lower.includes('surveils') ||
     lower.includes('surveil') ||
     lower.includes('gain') ||
+    /\bhave .+ until end of turn\b/.test(lower) ||
+    /\b(?:gets?|get) [+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\b/.test(lower) ||
+    lower.includes('double') ||
     lower.includes('lose') ||
     lower.includes('discard') ||
     lower.includes('mill') ||
@@ -153,6 +157,7 @@ export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean
     lower.includes('damage') ||
     lower.includes('prevent') ||
     lower.includes('blocked') ||
+    /\bcan'?t block\b/.test(lower) ||
     lower.includes('deal') ||
     lower.includes('counter') ||
     lower.includes('sacrifice') ||
@@ -170,7 +175,8 @@ export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean
     lower.includes('blight') ||
     lower.includes('explore') ||
     lower.includes('connive') ||
-    lower.includes('search your library')
+    lower.includes('search your library') ||
+    (lower.includes('cost') && (lower.includes('less') || lower.includes('more')))
   );
 }
 
@@ -215,12 +221,14 @@ export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
 
 export function parseTriggerEffectSteps(effectText: string, cardName: string): OracleEffectStep[] {
   const rawText = String(effectText || '').trim();
-  if (!rawText || isExternallyHandledOracleFragmentText(rawText)) return [];
+  if (!rawText) return [];
 
   const bareFragment = parseBareTriggerEffectFragmentSteps(rawText);
   if (bareFragment && bareFragment.length > 0) {
     return [...bareFragment];
   }
+
+  if (isExternallyHandledOracleFragmentText(rawText)) return [];
 
   const parsed = parseOracleTextToIR(normalizeTriggerEffectForIrAudit(effectText), cardName);
   const repairedAbilities = repairRandomChooseModeSagaAbilities(

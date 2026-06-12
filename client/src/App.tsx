@@ -42,6 +42,7 @@ import { ColorChoiceModal } from "./components/ColorChoiceModal";
 import { CardNameChoiceModal } from "./components/CardNameChoiceModal";
 import { AnyColorManaModal } from "./components/AnyColorManaModal";
 import { ManaDistributionModal } from "./components/ManaDistributionModal";
+import { CounterDistributionModal } from "./components/CounterDistributionModal";
 import { AdditionalCostModal } from "./components/AdditionalCostModal";
 import { SquadCostModal } from "./components/SquadCostModal";
 import { PhyrexianManaChoiceModal } from "./components/PhyrexianManaChoiceModal";
@@ -985,6 +986,20 @@ export function App() {
     cardImageUrl?: string;
     totalAmount: number;
     availableColors: string[];
+    message?: string;
+  } | null>(null);
+
+  const [counterDistributionModalOpen, setCounterDistributionModalOpen] = useState(false);
+  const [counterDistributionModalData, setCounterDistributionModalData] = useState<{
+    stepId?: string;
+    mandatory?: boolean;
+    gameId: string;
+    cardName: string;
+    cardImageUrl?: string;
+    counterType: string;
+    totalAmount: number;
+    minPerTarget?: number;
+    targets: Array<{ id: string; label: string }>;
     message?: string;
   } | null>(null);
   
@@ -2743,6 +2758,28 @@ export function App() {
           });
           setAnyColorManaModalOpen(true);
         }
+      }
+
+      else if (step.type === 'counter_distribution') {
+        const validTargets = Array.isArray(step.validTargets)
+          ? step.validTargets.map((entry: any) => ({
+              id: String(entry?.id || '').trim(),
+              label: String(entry?.label || entry?.name || entry?.id || 'Target').trim(),
+            })).filter((entry: { id: string }) => entry.id)
+          : [];
+        setCounterDistributionModalData({
+          gameId: payload.gameId,
+          stepId: String(step.id),
+          mandatory: isResolutionStepMandatory(step),
+          cardName: String(step.sourceName || step.cardName || 'Ability'),
+          cardImageUrl: step.sourceImage,
+          counterType: String(step.counterType || '+1/+1'),
+          totalAmount: Number(step.totalAmount ?? 0),
+          minPerTarget: Number(step.minPerTarget ?? 1),
+          targets: validTargets,
+          message: typeof step.message === 'string' ? step.message : step.description,
+        });
+        setCounterDistributionModalOpen(true);
       }
 
       else if (step.type === 'x_value_selection') {
@@ -7746,6 +7783,41 @@ export function App() {
           }
           setManaDistributionModalOpen(false);
           setManaDistributionModalData(null);
+        }}
+      />
+
+      <CounterDistributionModal
+        open={resolutionPromptOpen(counterDistributionModalOpen, counterDistributionModalData?.stepId)}
+        cardName={counterDistributionModalData?.cardName || ''}
+        cardImageUrl={counterDistributionModalData?.cardImageUrl}
+        counterType={counterDistributionModalData?.counterType || '+1/+1'}
+        totalAmount={counterDistributionModalData?.totalAmount || 0}
+        minPerTarget={counterDistributionModalData?.minPerTarget ?? 1}
+        targets={counterDistributionModalData?.targets || []}
+        message={counterDistributionModalData?.message}
+        canCancel={counterDistributionModalData?.mandatory === false}
+        onConfirm={(distribution) => {
+          if (safeView?.id && counterDistributionModalData?.stepId) {
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: counterDistributionModalData.stepId,
+              selections: distribution,
+              cancelled: false,
+            });
+          }
+          setCounterDistributionModalOpen(false);
+          setCounterDistributionModalData(null);
+        }}
+        onCancel={() => {
+          if (counterDistributionModalData?.mandatory !== false) return;
+          if (safeView?.id && counterDistributionModalData?.stepId) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: counterDistributionModalData.stepId,
+            });
+          }
+          setCounterDistributionModalOpen(false);
+          setCounterDistributionModalData(null);
         }}
       />
 

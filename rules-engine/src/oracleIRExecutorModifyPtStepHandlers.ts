@@ -3,11 +3,15 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { OracleEffectStep } from './oracleIR';
 import type { LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
+import { getCounterCountOnObject } from './oracleIRExecutorModifyPtWhereUtils';
 import { tryResolveForEachReferenceAmount } from './oracleIRExecutorForEachQuantity';
 import {
   applyTemporaryPowerToughnessModifier,
   applyTemporarySetBasePowerToughness,
   applyTemporarySwitchPowerToughness,
+  getProcessedBattlefield,
+  readPermanentPower,
+  readPermanentToughness,
   resolveCreatureTargetIds,
   resolveSingleCreatureTargetId,
   resolveTrepanationBoostTargetCreatureId,
@@ -264,6 +268,30 @@ function resolveReferenceScalerScale(
   if (/^for each basic land type among lands you control$/.test(normalized)) {
     return Math.max(0, countBasicLandTypesAmongLandsYouControl(state, controllerId));
   }
+  if (/^for each land you control$/.test(normalized)) {
+    const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+    return battlefield.filter((permanent: any) => {
+      if (String(permanent?.controllerId || permanent?.controller || '').trim() !== String(controllerId || '').trim()) {
+        return false;
+      }
+      const typeLine = String(
+        permanent?.card?.type_line || permanent?.card?.typeLine || permanent?.type_line || permanent?.typeLine || ''
+      ).toLowerCase();
+      return /\bland\b/i.test(typeLine);
+    }).length;
+  }
+  if (/^for each creature you control$/.test(normalized)) {
+    const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+    return battlefield.filter((permanent: any) => {
+      if (String(permanent?.controllerId || permanent?.controller || '').trim() !== String(controllerId || '').trim()) {
+        return false;
+      }
+      const typeLine = String(
+        permanent?.card?.type_line || permanent?.card?.typeLine || permanent?.type_line || permanent?.typeLine || ''
+      ).toLowerCase();
+      return /\bcreature\b/i.test(typeLine);
+    }).length;
+  }
   if (/^for each other attacking aurochs$/.test(normalized)) {
     return Math.max(0, countOtherAttackingAurochs(state, targetCreatureId));
   }
@@ -327,6 +355,26 @@ function resolveReferenceScalerScale(
         0
     );
     return Number.isFinite(poison) ? Math.max(0, poison) : 0;
+  }
+
+  if (/^for each \+1\/\+1 counters? on it$/i.test(normalized)) {
+    const targetPermanent = ((state.battlefield || []) as any[]).find(
+      (perm: any) => String(perm?.id || '').trim() === String(targetCreatureId || '').trim(),
+    );
+    return Math.max(0, getCounterCountOnObject(targetPermanent, '+1/+1') ?? 0);
+  }
+
+  if (/^for each counters? on it$/i.test(normalized)) {
+    const targetPermanent = ((state.battlefield || []) as any[]).find(
+      (perm: any) => String(perm?.id || '').trim() === String(targetCreatureId || '').trim(),
+    );
+    const counters = (targetPermanent as any)?.counters;
+    if (!counters || typeof counters !== 'object') return 0;
+    if (Array.isArray(counters)) return counters.length;
+    return Object.values(counters as Record<string, number>).reduce(
+      (sum, count) => sum + (Number(count) > 0 ? Number(count) : 0),
+      0,
+    );
   }
 
   if (/^for each \{b\} or \{r\} spent this way$/.test(normalized)) {
@@ -488,24 +536,75 @@ export function applyModifyPtStep(
     };
   }
 
+  const doublePowerUntilEot = /^double\s+/i.test(String(step.raw || ''))
+    && /\bpower until end of turn/i.test(String(step.raw || ''))
+    && !/\bpower and toughness\b/i.test(String(step.raw || ''));
+  const doublePowerToughnessUntilEot = /^double\s+/i.test(String(step.raw || ''))
+    && /\bpower and toughness until end of turn/i.test(String(step.raw || ''));
+  if (doublePowerUntilEot || doublePowerToughnessUntilEot) {
+    let nextState: GameState | null = state;
+    const battlefield = getProcessedBattlefield(state);
+    const appliedLogs: string[] = [];
+    for (const targetCreatureId of targetCreatureIds) {
+      const permanent = battlefield.find((entry) => String((entry as any)?.id || '').trim() === targetCreatureId);
+      const currentPower = Math.max(0, readPermanentPower(permanent) ?? 0);
+      const currentToughness = doublePowerToughnessUntilEot
+        ? Math.max(0, readPermanentToughness(permanent) ?? 0)
+        : 0;
+      nextState = applyTemporaryPowerToughnessModifier(
+        nextState,
+        targetCreatureId,
+        ctx,
+        currentPower,
+        currentToughness,
+        false,
+      );
+      if (!nextState) {
+        return {
+          kind: 'recorded_skip',
+          message: `Skipped P/T modifier (target not on battlefield): ${step.raw}`,
+          reason: 'target_not_on_battlefield',
+        };
+      }
+      appliedLogs.push(
+        doublePowerToughnessUntilEot
+          ? `${targetCreatureId} gets +${currentPower}/+${currentToughness} until end of turn`
+          : `${targetCreatureId} gets +${currentPower}/+0 until end of turn`,
+      );
+    }
+    return {
+      kind: 'applied',
+      state: nextState,
+      log: appliedLogs,
+    };
+  }
+
   let whereXValue: number | null = null;
+  const conditionRaw = step.condition?.kind === 'where' ? String(step.condition.raw || '') : '';
+  const perTargetWhereX =
+    step.condition?.kind === 'where' &&
+    (/\bon it\b/i.test(conditionRaw) ||
+      /\bits (?:power|toughness)\b/i.test(conditionRaw));
+  const usesWhereForX = step.condition?.kind === 'where';
 
   if (step.condition) {
     if (step.condition.kind === 'where') {
-      whereXValue = evaluateWhereX(
-        state,
-        controllerId,
-        step.condition.raw,
-        targetCreatureIds[0],
-        ctx,
-        runtime
-      );
-      if (whereXValue === null) {
-        return {
-          kind: 'recorded_skip',
-          message: `Skipped P/T modifier (unsupported where-clause): ${step.raw}`,
-          reason: 'unsupported_where_clause',
-        };
+      if (!perTargetWhereX) {
+        whereXValue = evaluateWhereX(
+          state,
+          controllerId,
+          step.condition.raw,
+          targetCreatureIds[0],
+          ctx,
+          runtime
+        );
+        if (whereXValue === null) {
+          return {
+            kind: 'recorded_skip',
+            message: `Skipped P/T modifier (unsupported where-clause): ${step.raw}`,
+            reason: 'unsupported_where_clause',
+          };
+        }
       }
     } else {
       const condition = evaluateCondition(state, controllerId, step.condition.raw);
@@ -538,8 +637,12 @@ export function applyModifyPtStep(
         ctx
       );
       if (inferredScale !== null) {
-        const basePower = step.powerUsesX ? ((step.power | 0) * (whereXValue ?? 0)) : (step.power | 0);
-        const baseToughness = step.toughnessUsesX ? ((step.toughness | 0) * (whereXValue ?? 0)) : (step.toughness | 0);
+        const basePower = step.powerUsesX
+          ? (usesWhereForX ? ((step.power | 0) * (whereXValue ?? 0)) : (step.power | 0))
+          : (step.power | 0);
+        const baseToughness = step.toughnessUsesX
+          ? (usesWhereForX ? ((step.toughness | 0) * (whereXValue ?? 0)) : (step.toughness | 0))
+          : (step.toughness | 0);
         const powerBonus = basePower * inferredScale;
         const toughnessBonus = baseToughness * inferredScale;
         let nextState: GameState | null = state;
@@ -609,7 +712,7 @@ export function applyModifyPtStep(
                   : 1;
   }
 
-  if ((step.powerUsesX || step.toughnessUsesX) && whereXValue === null) {
+  if ((step.powerUsesX || step.toughnessUsesX) && usesWhereForX && whereXValue === null) {
     const inferredWhereRaw = String(step.raw || '').match(/\bwhere x is (.+?)(?:[.,]|$)/i)?.[1]?.trim();
     if (inferredWhereRaw) {
       whereXValue = evaluateWhereX(
@@ -623,12 +726,12 @@ export function applyModifyPtStep(
     }
   }
 
-  if ((step.powerUsesX || step.toughnessUsesX) && whereXValue === null) {
+  if ((step.powerUsesX || step.toughnessUsesX) && usesWhereForX && whereXValue === null) {
     const xValue = Number.isFinite(ctx.xValue) ? Math.max(0, Math.floor(ctx.xValue as number)) : null;
     if (xValue !== null) whereXValue = xValue;
   }
 
-  if ((step.powerUsesX || step.toughnessUsesX) && whereXValue === null) {
+  if ((step.powerUsesX || step.toughnessUsesX) && usesWhereForX && whereXValue === null && !perTargetWhereX) {
     return {
       kind: 'recorded_skip',
       message: `Skipped P/T modifier (X used without supported where-clause): ${step.raw}`,
@@ -636,15 +739,36 @@ export function applyModifyPtStep(
     };
   }
 
-  const basePower = step.powerUsesX ? ((step.power | 0) * (whereXValue ?? 0)) : (step.power | 0);
-  const baseToughness = step.toughnessUsesX ? ((step.toughness | 0) * (whereXValue ?? 0)) : (step.toughness | 0);
   const perTargetScaler =
     step.scaler?.kind === 'reference_scaler' &&
-    /^for each poison counter its controller has$/i.test(String(step.scaler.raw || '').trim());
+    (
+      /^for each poison counter its controller has$/i.test(String(step.scaler.raw || '').trim()) ||
+      /\bon it\b/i.test(String(step.scaler.raw || ''))
+    );
 
   let nextState: GameState | null = state;
   const logLines: string[] = [];
+  let appliedCount = 0;
   for (const targetCreatureId of targetCreatureIds) {
+    let targetWhereX = whereXValue;
+    if (perTargetWhereX && step.condition?.kind === 'where') {
+      targetWhereX = evaluateWhereX(
+        state,
+        controllerId,
+        step.condition.raw,
+        targetCreatureId,
+        ctx,
+        runtime
+      );
+      if (targetWhereX === null) continue;
+    }
+
+    const basePower = step.powerUsesX
+      ? (usesWhereForX ? ((step.power | 0) * (targetWhereX ?? 0)) : (step.power | 0))
+      : (step.power | 0);
+    const baseToughness = step.toughnessUsesX
+      ? (usesWhereForX ? ((step.toughness | 0) * (targetWhereX ?? 0)) : (step.toughness | 0))
+      : (step.toughness | 0);
     const effectiveScale = perTargetScaler
       ? (resolveReferenceScalerScale(
           state,
@@ -657,6 +781,8 @@ export function applyModifyPtStep(
       : scale;
     const powerBonus = basePower * effectiveScale;
     const toughnessBonus = baseToughness * effectiveScale;
+    if (powerBonus === 0 && toughnessBonus === 0) continue;
+
     nextState = applyTemporaryPowerToughnessModifier(
       nextState,
       targetCreatureId,
@@ -673,14 +799,23 @@ export function applyModifyPtStep(
         reason: 'target_not_on_battlefield',
       };
     }
+    appliedCount += 1;
     logLines.push(`1 creature gets ${powerBonus >= 0 ? '+' : ''}${powerBonus}/${toughnessBonus >= 0 ? '+' : ''}${toughnessBonus}`);
+  }
+
+  if (appliedCount === 0) {
+    return {
+      kind: 'recorded_skip',
+      message: `Skipped P/T modifier (no applicable targets): ${step.raw}`,
+      reason: 'no_applicable_targets',
+    };
   }
 
   return {
     kind: 'applied',
     state: nextState,
     log: [
-      `${targetCreatureIds.length} creature(s) get ${basePower >= 0 ? '+' : ''}${basePower}/${baseToughness >= 0 ? '+' : ''}${baseToughness} per poison counter until end of turn`,
+      `${appliedCount} creature(s) get modified until end of turn`,
       ...logLines,
     ],
   };

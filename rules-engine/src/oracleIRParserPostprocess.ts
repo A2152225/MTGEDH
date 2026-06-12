@@ -3075,6 +3075,260 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
   return null;
 }
 
+function parseTemporaryKeywordAbilityParts(gainsRaw: string): string[] {
+  return String(gainsRaw || '')
+    .replace(/\s+until end of turn$/i, '')
+    .replace(/[.]+$/g, '')
+    .trim()
+    .split(/\s+and\s+/i)
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function buildTemporaryGrantStepFields(
+  gainsRaw: string,
+): { abilities?: string[]; effectText?: string[] } {
+  const parts = parseTemporaryKeywordAbilityParts(gainsRaw);
+  const keywordParts = parts.filter((part) =>
+    /^(flying|trample|vigilance|lifelink|deathtouch|reach|menace|shroud|hexproof|indestructible|fear|intimidate|shadow|horsemanship|first strike|double strike|haste|ward|myriad|infect)$/.test(part),
+  );
+  if (keywordParts.length === parts.length && keywordParts.length > 0) {
+    return { abilities: keywordParts };
+  }
+  const text = parts.join(' and ');
+  return text ? { effectText: [text] } : {};
+}
+
+function buildForEachScalerField(forEachPartRaw: string): OracleEffectStep['scaler'] {
+  const eachRaw = `for each ${String(forEachPartRaw || '').trim()}`.trim();
+  if (/^for\s+each\s+card\s+revealed\s+this\s+way$/i.test(eachRaw)) {
+    return { kind: 'per_revealed_this_way' };
+  }
+  if (/^for\s+each\s+creature\s+blocking\s+it$/i.test(eachRaw)) {
+    return { kind: 'per_creature_blocking_it' };
+  }
+  if (/^for\s+each\s+basic\s+land\s+type\s+among\s+lands\s+you\s+control$/i.test(eachRaw)) {
+    return { kind: 'per_basic_land_type_among_lands_you_control' };
+  }
+  if (/^for\s+each\s+artifact\s+you\s+control$/i.test(eachRaw)) {
+    return { kind: 'per_artifact_you_control' };
+  }
+  if (/^for\s+each\s+creature\s+tapped\s+this\s+way$/i.test(eachRaw)) {
+    return { kind: 'per_creature_tapped_this_way' };
+  }
+  if (/^for\s+each\s+other\s+attacking\s+aurochs$/i.test(eachRaw)) {
+    return { kind: 'per_other_attacking_aurochs' };
+  }
+  return { kind: 'reference_scaler', raw: eachRaw };
+}
+
+function buildForEachTemporaryPtStep(
+  targetRaw: string,
+  power: number,
+  toughness: number,
+  forEachPartRaw: string,
+  raw: string,
+  sequence: { sequence?: 'then' },
+): OracleEffectStep {
+  return {
+    kind: 'modify_pt',
+    target: parseObjectSelector(targetRaw),
+    power,
+    toughness,
+    scaler: buildForEachScalerField(forEachPartRaw),
+    duration: 'end_of_turn',
+    raw,
+    ...sequence,
+  } as OracleEffectStep;
+}
+
+function parseBareScaledPtComponents(
+  powerToken: string,
+  toughnessToken: string,
+): {
+  power: number;
+  toughness: number;
+  powerUsesX: boolean;
+  toughnessUsesX: boolean;
+} {
+  const powerRaw = String(powerToken || '').trim().toLowerCase();
+  const toughnessRaw = String(toughnessToken || '').trim().toLowerCase();
+  const powerUsesX = powerRaw === 'x' || powerRaw === '+x' || powerRaw === '-x';
+  const toughnessUsesX = toughnessRaw === 'x' || toughnessRaw === '+x' || toughnessRaw === '-x';
+  return {
+    power: powerUsesX ? (powerRaw.startsWith('-') ? -1 : 1) : Number.parseInt(powerRaw, 10) || 0,
+    toughness: toughnessUsesX ? (toughnessRaw.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessRaw, 10) || 0,
+    powerUsesX,
+    toughnessUsesX,
+  };
+}
+
+function buildForEachScaledTemporaryPtStep(
+  targetRaw: string,
+  powerToken: string,
+  toughnessToken: string,
+  forEachPartRaw: string,
+  raw: string,
+  sequence: { sequence?: 'then' },
+): OracleEffectStep {
+  const scaled = parseBareScaledPtComponents(powerToken, toughnessToken);
+  return {
+    kind: 'modify_pt',
+    target: parseObjectSelector(targetRaw),
+    ...scaled,
+    scaler: buildForEachScalerField(forEachPartRaw),
+    duration: 'end_of_turn',
+    raw,
+    ...sequence,
+  } as OracleEffectStep;
+}
+
+function buildStaticGrantMetadataStep(
+  targetRaw: string,
+  effectText: string,
+  raw: string,
+  sequence: { sequence?: 'then' },
+): OracleEffectStep {
+  return {
+    kind: 'grant_static_ability',
+    target: parseObjectSelector(targetRaw),
+    effectText: [effectText],
+    duration: 'static',
+    raw,
+    ...sequence,
+  } as OracleEffectStep;
+}
+
+function tryParseBareStaticCostReductionSteps(
+  raw: string,
+  sequence: { sequence?: 'then' },
+): readonly OracleEffectStep[] | null {
+  const spellsYouCastCostLess = raw.match(
+    /^(.+?\bspells\s+you\s+cast(?:\s+this\s+turn)?)\s+cost\s+(.+?)\s+less\s+to\s+cast(?:,?\s+(.+))?$/i,
+  );
+  if (spellsYouCastCostLess) {
+    const tail = String(spellsYouCastCostLess[3] || '').trim();
+    return [buildStaticGrantMetadataStep(
+      String(spellsYouCastCostLess[1] || '').trim(),
+      `cost ${String(spellsYouCastCostLess[2] || '').trim()} less to cast${tail ? ` ${tail}` : ''}`,
+      raw,
+      sequence,
+    )];
+  }
+
+  const spellsYouControlCostLess = raw.match(
+    /^(.+?\bspells\s+you\s+control)\s+cost\s+(.+?)\s+less\s+to\s+cast(?:,?\s+(.+))?$/i,
+  );
+  if (spellsYouControlCostLess) {
+    const tail = String(spellsYouControlCostLess[3] || '').trim();
+    return [buildStaticGrantMetadataStep(
+      String(spellsYouControlCostLess[1] || '').trim(),
+      `cost ${String(spellsYouControlCostLess[2] || '').trim()} less to cast${tail ? ` ${tail}` : ''}`,
+      raw,
+      sequence,
+    )];
+  }
+
+  const abilitiesYouActivateCostLess = raw.match(
+    /^(.+?\babilities\s+you\s+activate)\s+cost\s+(.+?)\s+less\s+to\s+activate(?:,?\s+(.+))?$/i,
+  );
+  if (abilitiesYouActivateCostLess) {
+    const tail = String(abilitiesYouActivateCostLess[3] || '').trim();
+    return [buildStaticGrantMetadataStep(
+      String(abilitiesYouActivateCostLess[1] || '').trim(),
+      `cost ${String(abilitiesYouActivateCostLess[2] || '').trim()} less to activate${tail ? ` ${tail}` : ''}`,
+      raw,
+      sequence,
+    )];
+  }
+
+  const activatedAbilitiesCostLess = raw.match(
+    /^activated\s+abilities\s+of\s+(.+?)\s+cost\s+(.+?)\s+less\s+to\s+activate(?:,?\s+(.+))?$/i,
+  );
+  if (activatedAbilitiesCostLess) {
+    const tail = String(activatedAbilitiesCostLess[3] || '').trim();
+    return [buildStaticGrantMetadataStep(
+      String(activatedAbilitiesCostLess[1] || '').trim(),
+      `cost ${String(activatedAbilitiesCostLess[2] || '').trim()} less to activate${tail ? ` ${tail}` : ''}`,
+      raw,
+      sequence,
+    )];
+  }
+
+  const genericSpellsCostMoreCast = raw.match(/^(.+?)\s+cost\s+(.+?)\s+more\s+to\s+cast(?:,?\s+(.+))?$/i);
+  if (genericSpellsCostMoreCast && /\bspells\b/i.test(String(genericSpellsCostMoreCast[1] || ''))) {
+    const tail = String(genericSpellsCostMoreCast[3] || '').trim();
+    return [buildStaticGrantMetadataStep(
+      String(genericSpellsCostMoreCast[1] || '').trim(),
+      `cost ${String(genericSpellsCostMoreCast[2] || '').trim()} more to cast${tail ? ` ${tail}` : ''}`,
+      raw,
+      sequence,
+    )];
+  }
+
+  const thisSpellCostsLess = raw.match(/^this\s+spell\s+costs\s+(.+?)\s+less\s+to\s+cast(?:,?\s+(.+))?$/i);
+  if (thisSpellCostsLess) {
+    const tail = String(thisSpellCostsLess[2] || '').trim();
+    return [buildStaticGrantMetadataStep(
+      'this spell',
+      `costs ${String(thisSpellCostsLess[1] || '').trim()} less to cast${tail ? ` ${tail}` : ''}`,
+      raw,
+      sequence,
+    )];
+  }
+
+  const thisAbilityCostsLess = raw.match(/^this\s+ability\s+costs\s+(.+?)\s+less\s+to\s+activate(?:,?\s+(.+))?$/i);
+  if (thisAbilityCostsLess) {
+    const tail = String(thisAbilityCostsLess[2] || '').trim();
+    return [buildStaticGrantMetadataStep(
+      'this ability',
+      `costs ${String(thisAbilityCostsLess[1] || '').trim()} less to activate${tail ? ` ${tail}` : ''}`,
+      raw,
+      sequence,
+    )];
+  }
+
+  const firstInstantSorceryCostLess = raw.match(
+    /^the\s+first\s+instant\s+or\s+sorcery\s+spell\s+you\s+cast\s+each\s+turn\s+costs\s+(.+?)\s+less\s+to\s+cast(?:,?\s+(.+))?$/i,
+  );
+  if (firstInstantSorceryCostLess) {
+    const tail = String(firstInstantSorceryCostLess[2] || '').trim();
+    return [buildStaticGrantMetadataStep(
+      'the first instant or sorcery spell you cast each turn',
+      `costs ${String(firstInstantSorceryCostLess[1] || '').trim()} less to cast${tail ? ` ${tail}` : ''}`,
+      raw,
+      sequence,
+    )];
+  }
+
+  if (/^dash\s+costs\s+you\s+pay\s+cost\s+(.+?)\s+less\b/i.test(raw)) {
+    return [buildStaticGrantMetadataStep('dash costs you pay', raw.replace(/^dash\s+costs\s+you\s+pay\s+/i, ''), raw, sequence)];
+  }
+
+  if (/^equip\s+costs\s+you\s+pay\s+cost\s+(.+?)\s+less\.?$/i.test(raw)) {
+    return [buildStaticGrantMetadataStep('equip costs you pay', raw.replace(/^equip\s+costs\s+you\s+pay\s+/i, ''), raw, sequence)];
+  }
+
+  if (/^power-up abilities of other creatures you control cost .+ less to activate\.?$/i.test(raw)) {
+    return [buildStaticGrantMetadataStep('other creatures you control', raw, raw, sequence)];
+  }
+
+  const activatedAbilitiesCostMore = raw.match(
+    /^activated\s+abilities\s+cost\s+(.+?)\s+more\s+to\s+activate(?:,?\s+(.+))?$/i,
+  );
+  if (activatedAbilitiesCostMore) {
+    const tail = String(activatedAbilitiesCostMore[2] || '').trim();
+    return [buildStaticGrantMetadataStep(
+      'activated abilities',
+      `cost ${String(activatedAbilitiesCostMore[1] || '').trim()} more to activate${tail ? ` ${tail}` : ''}`,
+      raw,
+      sequence,
+    )];
+  }
+
+  return null;
+}
+
 function parseStructuredTriggerResidualGrant(
   raw: string,
   sequence: { sequence?: 'then' }
@@ -3120,6 +3374,2205 @@ function parseStructuredTriggerResidualGrant(
     return [{
       kind: 'flip_coin',
       who: { kind: 'you' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^prevent\s+all\s+combat\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+(it|this creature|~)\s+this\s+turn\.?$/i.test(raw)) {
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('this creature'),
+      effectText: ['prevent all combat damage that would be dealt to this creature this turn'],
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const massTemporaryPt = raw.match(
+    /^creatures you control get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (massTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creatures you control'),
+      power: Number.parseInt(String(massTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(massTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const teamMassTemporaryPtX = raw.match(
+    /^creatures you control get ([+-]?x)\s*\/\s*([+-]?x) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (teamMassTemporaryPtX) {
+    const powerToken = String(teamMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(teamMassTemporaryPtX[2] || '').trim().toLowerCase();
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creatures you control'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessToken.startsWith('-') ? -1 : 1,
+      powerUsesX: true,
+      toughnessUsesX: true,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(teamMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const teamMassAsymmetricTemporaryPtX = raw.match(
+    /^creatures you control get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (teamMassAsymmetricTemporaryPtX) {
+    const powerToken = String(teamMassAsymmetricTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(teamMassAsymmetricTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creatures you control'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(teamMassAsymmetricTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const otherMassTemporaryPt = raw.match(
+    /^other creatures you control get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (otherMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('other creatures you control'),
+      power: Number.parseInt(String(otherMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(otherMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const otherMassTemporaryPtX = raw.match(
+    /^other creatures you control get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (otherMassTemporaryPtX) {
+    const powerToken = String(otherMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(otherMassTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('other creatures you control'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(otherMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const otherTypedTeamMassTemporaryPt = raw.match(
+    /^other ([a-z][a-z -]*?) you control get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (otherTypedTeamMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(`other ${String(otherTypedTeamMassTemporaryPt[1] || '').trim()} you control`),
+      power: Number.parseInt(String(otherTypedTeamMassTemporaryPt[2] || '0'), 10),
+      toughness: Number.parseInt(String(otherTypedTeamMassTemporaryPt[3] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachOtherMassTemporaryPt = raw.match(
+    /^each other creature you control gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachOtherMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each other creature you control'),
+      power: Number.parseInt(String(eachOtherMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(eachOtherMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const thoseCreaturesMassTemporaryPt = raw.match(
+    /^those creatures get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (thoseCreaturesMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('those creatures'),
+      power: Number.parseInt(String(thoseCreaturesMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(thoseCreaturesMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachOtherCreatureMassTemporaryPt = raw.match(
+    /^each other creature gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachOtherCreatureMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each other creature'),
+      power: Number.parseInt(String(eachOtherCreatureMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(eachOtherCreatureMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const theyMassTemporaryPt = raw.match(
+    /^they get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (theyMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('they'),
+      power: Number.parseInt(String(theyMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(theyMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const theyMassTemporaryPtX = raw.match(
+    /^they get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (theyMassTemporaryPtX) {
+    const powerToken = String(theyMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(theyMassTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('they'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(theyMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const referenceCreatureTemporaryPt = raw.match(
+    /^(that creature|the creature|equipped creature|enchanted creature) gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (referenceCreatureTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(String(referenceCreatureTemporaryPt[1] || '').trim().toLowerCase()),
+      power: Number.parseInt(String(referenceCreatureTemporaryPt[2] || '0'), 10),
+      toughness: Number.parseInt(String(referenceCreatureTemporaryPt[3] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const referenceCreatureTemporaryPtX = raw.match(
+    /^(that creature|the creature|equipped creature|enchanted creature) gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (referenceCreatureTemporaryPtX) {
+    const powerToken = String(referenceCreatureTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessToken = String(referenceCreatureTemporaryPtX[3] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(String(referenceCreatureTemporaryPtX[1] || '').trim().toLowerCase()),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(referenceCreatureTemporaryPtX[4] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const chosenCreatureTemporaryPt = raw.match(
+    /^the chosen creature gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (chosenCreatureTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('the chosen creature'),
+      power: Number.parseInt(String(chosenCreatureTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(chosenCreatureTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const chosenCreatureTemporaryPtX = raw.match(
+    /^the chosen creature gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (chosenCreatureTemporaryPtX) {
+    const powerToken = String(chosenCreatureTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(chosenCreatureTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('the chosen creature'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(chosenCreatureTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachCreatureMassTemporaryPt = raw.match(
+    /^each creature gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachCreatureMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature'),
+      power: Number.parseInt(String(eachCreatureMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(eachCreatureMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachGlobalWithQualifierMassTemporaryPt = raw.match(
+    /^each creature with (.+?) gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachGlobalWithQualifierMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(`each creature with ${String(eachGlobalWithQualifierMassTemporaryPt[1] || '').trim()}`),
+      power: Number.parseInt(String(eachGlobalWithQualifierMassTemporaryPt[2] || '0'), 10),
+      toughness: Number.parseInt(String(eachGlobalWithQualifierMassTemporaryPt[3] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachCreatureMassTemporaryPtX = raw.match(
+    /^each creature gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (eachCreatureMassTemporaryPtX) {
+    const scaled = parseBareScaledPtComponents(
+      String(eachCreatureMassTemporaryPtX[1] || ''),
+      String(eachCreatureMassTemporaryPtX[2] || ''),
+    );
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature'),
+      ...scaled,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(eachCreatureMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const allCreaturesMassTemporaryPtX = raw.match(
+    /^all creatures get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (allCreaturesMassTemporaryPtX) {
+    const powerToken = String(allCreaturesMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(allCreaturesMassTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('all creatures'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(allCreaturesMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const allCreaturesMassTemporaryPt = raw.match(
+    /^all creatures get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (allCreaturesMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('all creatures'),
+      power: Number.parseInt(String(allCreaturesMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(allCreaturesMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const allOtherCreaturesMassTemporaryPt = raw.match(
+    /^all other creatures get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (allOtherCreaturesMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('all other creatures'),
+      power: Number.parseInt(String(allOtherCreaturesMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(allOtherCreaturesMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachOpponentCreaturesMassTemporaryPt = raw.match(
+    /^each opponent(?:'|')?s creatures get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachOpponentCreaturesMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector("each opponent's creatures"),
+      power: Number.parseInt(String(eachOpponentCreaturesMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(eachOpponentCreaturesMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachOpponentCreaturesForEachFixed = raw.match(
+    /^each opponent(?:'|')?s creatures get ([+-]\d+)\/([+-]\d+) until end of turn for each (.+?)\.?$/i,
+  );
+  if (eachOpponentCreaturesForEachFixed) {
+    return [buildForEachTemporaryPtStep(
+      "each opponent's creatures",
+      Number.parseInt(String(eachOpponentCreaturesForEachFixed[1] || '0'), 10),
+      Number.parseInt(String(eachOpponentCreaturesForEachFixed[2] || '0'), 10),
+      String(eachOpponentCreaturesForEachFixed[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const eachOpponentCreaturesForEachScaled = raw.match(
+    /^each opponent(?:'|')?s creatures get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn for each (.+?)\.?$/i,
+  );
+  if (eachOpponentCreaturesForEachScaled) {
+    return [buildForEachScaledTemporaryPtStep(
+      "each opponent's creatures",
+      String(eachOpponentCreaturesForEachScaled[1] || ''),
+      String(eachOpponentCreaturesForEachScaled[2] || ''),
+      String(eachOpponentCreaturesForEachScaled[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const eachOpponentCreatureForEachFixed = raw.match(
+    /^each creature an opponent controls gets ([+-]\d+)\/([+-]\d+) until end of turn for each (.+?)\.?$/i,
+  );
+  if (eachOpponentCreatureForEachFixed) {
+    return [buildForEachTemporaryPtStep(
+      'each creature an opponent controls',
+      Number.parseInt(String(eachOpponentCreatureForEachFixed[1] || '0'), 10),
+      Number.parseInt(String(eachOpponentCreatureForEachFixed[2] || '0'), 10),
+      String(eachOpponentCreatureForEachFixed[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const eachOpponentCreatureForEachScaled = raw.match(
+    /^each creature an opponent controls gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn for each (.+?)\.?$/i,
+  );
+  if (eachOpponentCreatureForEachScaled) {
+    return [buildForEachScaledTemporaryPtStep(
+      'each creature an opponent controls',
+      String(eachOpponentCreatureForEachScaled[1] || ''),
+      String(eachOpponentCreatureForEachScaled[2] || ''),
+      String(eachOpponentCreatureForEachScaled[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const eachOpponentCreaturesMassTemporaryPtX = raw.match(
+    /^each opponent(?:'|')?s creatures get ([+-]?x)\s*\/\s*([+-]?x) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (eachOpponentCreaturesMassTemporaryPtX) {
+    const powerToken = String(eachOpponentCreaturesMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(eachOpponentCreaturesMassTemporaryPtX[2] || '').trim().toLowerCase();
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector("each opponent's creatures"),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessToken.startsWith('-') ? -1 : 1,
+      powerUsesX: true,
+      toughnessUsesX: true,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(eachOpponentCreaturesMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const opponentsMassTemporaryPtX = raw.match(
+    /^creatures your opponents control get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (opponentsMassTemporaryPtX) {
+    const powerToken = String(opponentsMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(opponentsMassTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creatures your opponents control'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(opponentsMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const opponentsMassTemporaryPt = raw.match(
+    /^creatures your opponents control get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (opponentsMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creatures your opponents control'),
+      power: Number.parseInt(String(opponentsMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(opponentsMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachOpponentCreatureMassTemporaryPtX = raw.match(
+    /^each creature an opponent controls gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (eachOpponentCreatureMassTemporaryPtX) {
+    const powerToken = String(eachOpponentCreatureMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(eachOpponentCreatureMassTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature an opponent controls'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(eachOpponentCreatureMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachOpponentCreatureMassTemporaryPt = raw.match(
+    /^each creature an opponent controls gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachOpponentCreatureMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature an opponent controls'),
+      power: Number.parseInt(String(eachOpponentCreatureMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(eachOpponentCreatureMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachDontControlMassTemporaryPt = raw.match(
+    /^each creature you don(?:'|')t control gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachDontControlMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector("each creature you don't control"),
+      power: Number.parseInt(String(eachDontControlMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(eachDontControlMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachDontControlMassTemporaryPtX = raw.match(
+    /^each creature you don(?:'|')t control gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (eachDontControlMassTemporaryPtX) {
+    const powerToken = String(eachDontControlMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(eachDontControlMassTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector("each creature you don't control"),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(eachDontControlMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const allDontControlMassTemporaryPt = raw.match(
+    /^all creatures you don(?:'|')t control get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (allDontControlMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector("all creatures you don't control"),
+      power: Number.parseInt(String(allDontControlMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(allDontControlMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const allDontControlMassTemporaryPtX = raw.match(
+    /^all creatures you don(?:'|')t control get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (allDontControlMassTemporaryPtX) {
+    const powerToken = String(allDontControlMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(allDontControlMassTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector("all creatures you don't control"),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(allDontControlMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const allCreaturesForEachFixed = raw.match(
+    /^all creatures get ([+-]\d+)\/([+-]\d+) until end of turn for each (.+?)\.?$/i,
+  );
+  if (allCreaturesForEachFixed) {
+    return [buildForEachTemporaryPtStep(
+      'all creatures',
+      Number.parseInt(String(allCreaturesForEachFixed[1] || '0'), 10),
+      Number.parseInt(String(allCreaturesForEachFixed[2] || '0'), 10),
+      String(allCreaturesForEachFixed[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const allCreaturesForEachScaled = raw.match(
+    /^all creatures get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn for each (.+?)\.?$/i,
+  );
+  if (allCreaturesForEachScaled) {
+    return [buildForEachScaledTemporaryPtStep(
+      'all creatures',
+      String(allCreaturesForEachScaled[1] || ''),
+      String(allCreaturesForEachScaled[2] || ''),
+      String(allCreaturesForEachScaled[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const blockingCreatureMassTemporaryPt = raw.match(
+    /^each creature blocking it gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (blockingCreatureMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature blocking it'),
+      power: Number.parseInt(String(blockingCreatureMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(blockingCreatureMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const blockingCreatureMassTemporaryPtX = raw.match(
+    /^each creature blocking it gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (blockingCreatureMassTemporaryPtX) {
+    const powerToken = String(blockingCreatureMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(blockingCreatureMassTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature blocking it'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(blockingCreatureMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const blockingCreaturesMassTemporaryPt = raw.match(
+    /^blocking creatures get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (blockingCreaturesMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('blocking creatures'),
+      power: Number.parseInt(String(blockingCreaturesMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(blockingCreaturesMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const attackedCreatureTemporaryPt = raw.match(
+    /^the creature that attacked gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (attackedCreatureTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('the creature that attacked'),
+      power: Number.parseInt(String(attackedCreatureTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(attackedCreatureTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const attackedCreatureTemporaryPtX = raw.match(
+    /^the creature that attacked gets ([+-]?x)\s*\/\s*([+-]?x) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (attackedCreatureTemporaryPtX) {
+    const powerToken = String(attackedCreatureTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(attackedCreatureTemporaryPtX[2] || '').trim().toLowerCase();
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('the creature that attacked'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessToken.startsWith('-') ? -1 : 1,
+      powerUsesX: true,
+      toughnessUsesX: true,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(attackedCreatureTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const attackingMassTemporaryPt = raw.match(
+    /^(?:each attacking creature|attacking creatures) you control gets? ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (attackingMassTemporaryPt) {
+    const target = /^each attacking creature/i.test(raw)
+      ? 'each attacking creature you control'
+      : 'attacking creatures you control';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(target),
+      power: Number.parseInt(String(attackingMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(attackingMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const flankingAttackingMassTemporaryPt = raw.match(
+    /^all attacking creatures with flanking get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (flankingAttackingMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('all attacking creatures with flanking'),
+      power: Number.parseInt(String(flankingAttackingMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(flankingAttackingMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const unblockedAttackingMassTemporaryPt = raw.match(
+    /^unblocked attacking creatures get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (unblockedAttackingMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('unblocked attacking creatures'),
+      power: Number.parseInt(String(unblockedAttackingMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(unblockedAttackingMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const tokenMassTemporaryPt = raw.match(
+    /^creature tokens you control get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (tokenMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creature tokens you control'),
+      power: Number.parseInt(String(tokenMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(tokenMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const tokenMassTemporaryPtX = raw.match(
+    /^creature tokens you control get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (tokenMassTemporaryPtX) {
+    const powerToken = String(tokenMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(tokenMassTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creature tokens you control'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(tokenMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const qualifiedMassTemporaryPt = raw.match(
+    /^creatures you control with (.+?) get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (qualifiedMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(`creatures you control with ${String(qualifiedMassTemporaryPt[1] || '').trim()}`),
+      power: Number.parseInt(String(qualifiedMassTemporaryPt[2] || '0'), 10),
+      toughness: Number.parseInt(String(qualifiedMassTemporaryPt[3] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const reorderedQualifiedMassTemporaryPt = raw.match(
+    /^creatures with (.+?) you control get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (reorderedQualifiedMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(`creatures you control with ${String(reorderedQualifiedMassTemporaryPt[1] || '').trim()}`),
+      power: Number.parseInt(String(reorderedQualifiedMassTemporaryPt[2] || '0'), 10),
+      toughness: Number.parseInt(String(reorderedQualifiedMassTemporaryPt[3] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const withoutFlyingMassTemporaryPt = raw.match(
+    /^creatures you control without flying get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (withoutFlyingMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creatures you control without flying'),
+      power: Number.parseInt(String(withoutFlyingMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(withoutFlyingMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const nonColorMassTemporaryPt = raw.match(
+    /^non-(white|blue|black|red|green) creatures you control get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (nonColorMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(`non-${String(nonColorMassTemporaryPt[1] || '').trim().toLowerCase()} creatures you control`),
+      power: Number.parseInt(String(nonColorMassTemporaryPt[2] || '0'), 10),
+      toughness: Number.parseInt(String(nonColorMassTemporaryPt[3] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const subtypeMassTemporaryPt = raw.match(
+    /^([a-z][a-z -]+) creatures you control get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (subtypeMassTemporaryPt) {
+    const subtype = String(subtypeMassTemporaryPt[1] || '').trim();
+    if (!/^(?:creature|each|other|those|all|non-(?:white|blue|black|red|green))$/i.test(subtype)) {
+      return [{
+        kind: 'modify_pt',
+        target: parseObjectSelector(`${subtype.toLowerCase()} creatures you control`),
+        power: Number.parseInt(String(subtypeMassTemporaryPt[2] || '0'), 10),
+        toughness: Number.parseInt(String(subtypeMassTemporaryPt[3] || '0'), 10),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as OracleEffectStep];
+    }
+  }
+
+  const compoundTeamPtAndKeyword = raw.match(
+    /^(?:(other) )?creatures you control get ([+-]\d+)\/([+-]\d+) and (?:gain|have) (.+?) until end of turn\.?$/i,
+  );
+  if (compoundTeamPtAndKeyword) {
+    const target = compoundTeamPtAndKeyword[1]
+      ? 'other creatures you control'
+      : 'creatures you control';
+    const grantFields = buildTemporaryGrantStepFields(String(compoundTeamPtAndKeyword[4] || ''));
+    return [
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector(target),
+        power: Number.parseInt(String(compoundTeamPtAndKeyword[2] || '0'), 10),
+        toughness: Number.parseInt(String(compoundTeamPtAndKeyword[3] || '0'), 10),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(target),
+        duration: 'end_of_turn',
+        ...grantFields,
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const prefixTeamCombatTemporaryPt = raw.match(
+    /^until end of combat,\s*creatures you control get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (prefixTeamCombatTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creatures you control'),
+      power: Number.parseInt(String(prefixTeamCombatTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(prefixTeamCombatTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const prefixEachControlledTemporaryPt = raw.match(
+    /^until end of turn,\s*each creature you control gets ([+-]\d+)\/([+-]\d+)\.?$/i,
+  );
+  if (prefixEachControlledTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature you control'),
+      power: Number.parseInt(String(prefixEachControlledTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(prefixEachControlledTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const prefixEachGlobalTemporaryPt = raw.match(
+    /^until end of turn,\s*each creature gets ([+-]\d+)\/([+-]\d+)\.?$/i,
+  );
+  if (prefixEachGlobalTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature'),
+      power: Number.parseInt(String(prefixEachGlobalTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(prefixEachGlobalTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const prefixEachGlobalTemporaryPtX = raw.match(
+    /^until end of turn,\s*each creature gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)), where x is (.+?)\.?$/i,
+  );
+  if (prefixEachGlobalTemporaryPtX) {
+    const scaled = parseBareScaledPtComponents(
+      String(prefixEachGlobalTemporaryPtX[1] || ''),
+      String(prefixEachGlobalTemporaryPtX[2] || ''),
+    );
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature'),
+      ...scaled,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(prefixEachGlobalTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const prefixEachControlledTemporaryPtX = raw.match(
+    /^until end of turn,\s*each creature you control gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)), where x is (.+?)\.?$/i,
+  );
+  if (prefixEachControlledTemporaryPtX) {
+    const scaled = parseBareScaledPtComponents(
+      String(prefixEachControlledTemporaryPtX[1] || ''),
+      String(prefixEachControlledTemporaryPtX[2] || ''),
+    );
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature you control'),
+      ...scaled,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(prefixEachControlledTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const prefixEachGlobalForEachFixed = raw.match(
+    /^until end of turn,\s*each creature gets ([+-]\d+)\/([+-]\d+) for each (.+?)\.?$/i,
+  );
+  if (prefixEachGlobalForEachFixed) {
+    return [buildForEachTemporaryPtStep(
+      'each creature',
+      Number.parseInt(String(prefixEachGlobalForEachFixed[1] || '0'), 10),
+      Number.parseInt(String(prefixEachGlobalForEachFixed[2] || '0'), 10),
+      String(prefixEachGlobalForEachFixed[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const prefixEachGlobalForEachScaled = raw.match(
+    /^until end of turn,\s*each creature gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) for each (.+?)\.?$/i,
+  );
+  if (prefixEachGlobalForEachScaled) {
+    return [buildForEachScaledTemporaryPtStep(
+      'each creature',
+      String(prefixEachGlobalForEachScaled[1] || ''),
+      String(prefixEachGlobalForEachScaled[2] || ''),
+      String(prefixEachGlobalForEachScaled[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const prefixEachControlledForEachFixed = raw.match(
+    /^until end of turn,\s*each creature you control gets ([+-]\d+)\/([+-]\d+) for each (.+?)\.?$/i,
+  );
+  if (prefixEachControlledForEachFixed) {
+    return [buildForEachTemporaryPtStep(
+      'each creature you control',
+      Number.parseInt(String(prefixEachControlledForEachFixed[1] || '0'), 10),
+      Number.parseInt(String(prefixEachControlledForEachFixed[2] || '0'), 10),
+      String(prefixEachControlledForEachFixed[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const prefixEachControlledForEachScaled = raw.match(
+    /^until end of turn,\s*each creature you control gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) for each (.+?)\.?$/i,
+  );
+  if (prefixEachControlledForEachScaled) {
+    return [buildForEachScaledTemporaryPtStep(
+      'each creature you control',
+      String(prefixEachControlledForEachScaled[1] || ''),
+      String(prefixEachControlledForEachScaled[2] || ''),
+      String(prefixEachControlledForEachScaled[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const prefixTeamForEachFixed = raw.match(
+    /^until end of turn,\s*creatures you control get ([+-]\d+)\/([+-]\d+) for each (.+?)\.?$/i,
+  );
+  if (prefixTeamForEachFixed) {
+    return [buildForEachTemporaryPtStep(
+      'creatures you control',
+      Number.parseInt(String(prefixTeamForEachFixed[1] || '0'), 10),
+      Number.parseInt(String(prefixTeamForEachFixed[2] || '0'), 10),
+      String(prefixTeamForEachFixed[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const prefixTeamForEachScaled = raw.match(
+    /^until end of turn,\s*creatures you control get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) for each (.+?)\.?$/i,
+  );
+  if (prefixTeamForEachScaled) {
+    return [buildForEachScaledTemporaryPtStep(
+      'creatures you control',
+      String(prefixTeamForEachScaled[1] || ''),
+      String(prefixTeamForEachScaled[2] || ''),
+      String(prefixTeamForEachScaled[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const prefixAllForEachFixed = raw.match(
+    /^until end of turn,\s*all creatures get ([+-]\d+)\/([+-]\d+) for each (.+?)\.?$/i,
+  );
+  if (prefixAllForEachFixed) {
+    return [buildForEachTemporaryPtStep(
+      'all creatures',
+      Number.parseInt(String(prefixAllForEachFixed[1] || '0'), 10),
+      Number.parseInt(String(prefixAllForEachFixed[2] || '0'), 10),
+      String(prefixAllForEachFixed[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const prefixAllForEachScaled = raw.match(
+    /^until end of turn,\s*all creatures get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) for each (.+?)\.?$/i,
+  );
+  if (prefixAllForEachScaled) {
+    return [buildForEachScaledTemporaryPtStep(
+      'all creatures',
+      String(prefixAllForEachScaled[1] || ''),
+      String(prefixAllForEachScaled[2] || ''),
+      String(prefixAllForEachScaled[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const prefixEachOtherForEachFixed = raw.match(
+    /^until end of turn,\s*each other creature you control gets ([+-]\d+)\/([+-]\d+) for each (.+?)\.?$/i,
+  );
+  if (prefixEachOtherForEachFixed) {
+    return [buildForEachTemporaryPtStep(
+      'each other creature you control',
+      Number.parseInt(String(prefixEachOtherForEachFixed[1] || '0'), 10),
+      Number.parseInt(String(prefixEachOtherForEachFixed[2] || '0'), 10),
+      String(prefixEachOtherForEachFixed[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const prefixEachOtherForEachScaled = raw.match(
+    /^until end of turn,\s*each other creature you control gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) for each (.+?)\.?$/i,
+  );
+  if (prefixEachOtherForEachScaled) {
+    return [buildForEachScaledTemporaryPtStep(
+      'each other creature you control',
+      String(prefixEachOtherForEachScaled[1] || ''),
+      String(prefixEachOtherForEachScaled[2] || ''),
+      String(prefixEachOtherForEachScaled[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const prefixTeamAsymmetricTemporaryPtX = raw.match(
+    /^until end of turn,\s*creatures you control get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)), where x is (.+?)\.?$/i,
+  );
+  if (prefixTeamAsymmetricTemporaryPtX) {
+    const powerToken = String(prefixTeamAsymmetricTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(prefixTeamAsymmetricTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creatures you control'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(prefixTeamAsymmetricTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const prefixTeamCompound = raw.match(
+    /^until end of turn,\s*creatures you control get ([+-]\d+)\/([+-]\d+) and gain (.+?)\.?$/i,
+  );
+  if (prefixTeamCompound) {
+    const grantFields = buildTemporaryGrantStepFields(String(prefixTeamCompound[3] || ''));
+    return [
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector('creatures you control'),
+        power: Number.parseInt(String(prefixTeamCompound[1] || '0'), 10),
+        toughness: Number.parseInt(String(prefixTeamCompound[2] || '0'), 10),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('creatures you control'),
+        duration: 'end_of_turn',
+        ...grantFields,
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const prefixTeamCompoundGainFirstX = raw.match(
+    /^until end of turn,\s*creatures you control gain (.+?) and get ([+-]?x)\s*\/\s*([+-]?x), where x is (.+?)\.?$/i,
+  );
+  if (prefixTeamCompoundGainFirstX) {
+    const grantFields = buildTemporaryGrantStepFields(String(prefixTeamCompoundGainFirstX[1] || ''));
+    const powerToken = String(prefixTeamCompoundGainFirstX[2] || '').trim().toLowerCase();
+    const toughnessToken = String(prefixTeamCompoundGainFirstX[3] || '').trim().toLowerCase();
+    return [
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('creatures you control'),
+        duration: 'end_of_turn',
+        ...grantFields,
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector('creatures you control'),
+        power: powerToken.startsWith('-') ? -1 : 1,
+        toughness: toughnessToken.startsWith('-') ? -1 : 1,
+        powerUsesX: true,
+        toughnessUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: `x is ${String(prefixTeamCompoundGainFirstX[4] || '').trim()}` },
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const teamHaveKeywordUntilEot = raw.match(
+    /^creatures you control have (.+?) until end of turn\.?$/i,
+  );
+  if (teamHaveKeywordUntilEot) {
+    const grantFields = buildTemporaryGrantStepFields(String(teamHaveKeywordUntilEot[1] || ''));
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('creatures you control'),
+      duration: 'end_of_turn',
+      ...grantFields,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const teamGainKeywordUntilEot = raw.match(
+    /^creatures you control gain (.+?) until end of turn\.?$/i,
+  );
+  if (teamGainKeywordUntilEot && !/\band get\b/i.test(raw)) {
+    const grantFields = buildTemporaryGrantStepFields(String(teamGainKeywordUntilEot[1] || ''));
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('creatures you control'),
+      duration: 'end_of_turn',
+      ...grantFields,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetGainKeywordUntilEot = raw.match(
+    /^target creature gains? (.+?) until end of turn\.?$/i,
+  );
+  if (targetGainKeywordUntilEot && !/\bgets?\s+[+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\b/i.test(raw)) {
+    const grantFields = buildTemporaryGrantStepFields(String(targetGainKeywordUntilEot[1] || ''));
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('target creature'),
+      duration: 'end_of_turn',
+      ...grantFields,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const controlledTargetGainKeywordUntilEot = raw.match(
+    /^target creature you control gains? (.+?) until end of turn\.?$/i,
+  );
+  if (controlledTargetGainKeywordUntilEot && !/\bgets?\s+[+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\b/i.test(raw)) {
+    const grantFields = buildTemporaryGrantStepFields(String(controlledTargetGainKeywordUntilEot[1] || ''));
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('target creature you control'),
+      duration: 'end_of_turn',
+      ...grantFields,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const anotherControlledTargetGainKeywordUntilEot = raw.match(
+    /^another target creature you control gains? (.+?) until end of turn\.?$/i,
+  );
+  if (anotherControlledTargetGainKeywordUntilEot && !/\bgets?\s+[+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\b/i.test(raw)) {
+    const grantFields = buildTemporaryGrantStepFields(String(anotherControlledTargetGainKeywordUntilEot[1] || ''));
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('another target creature you control'),
+      duration: 'end_of_turn',
+      ...grantFields,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const referenceGainKeywordUntilEot = raw.match(
+    /^(that creature|enchanted creature|equipped creature) gains? (.+?) until end of turn\.?$/i,
+  );
+  if (referenceGainKeywordUntilEot && !/\bgets?\s+[+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\b/i.test(raw)) {
+    const grantFields = buildTemporaryGrantStepFields(String(referenceGainKeywordUntilEot[2] || ''));
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector(String(referenceGainKeywordUntilEot[1] || '').trim().toLowerCase()),
+      duration: 'end_of_turn',
+      ...grantFields,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const otherGainKeywordUntilEot = raw.match(
+    /^other creatures you control gain (.+?) until end of turn\.?$/i,
+  );
+  if (otherGainKeywordUntilEot && !/\band get\b/i.test(raw)) {
+    const grantFields = buildTemporaryGrantStepFields(String(otherGainKeywordUntilEot[1] || ''));
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('other creatures you control'),
+      duration: 'end_of_turn',
+      ...grantFields,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachControlledGainKeywordUntilEot = raw.match(
+    /^each creature you control gains? (.+?) until end of turn\.?$/i,
+  );
+  if (eachControlledGainKeywordUntilEot && !/\band get\b/i.test(raw)) {
+    const grantFields = buildTemporaryGrantStepFields(String(eachControlledGainKeywordUntilEot[1] || ''));
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('each creature you control'),
+      duration: 'end_of_turn',
+      ...grantFields,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const prefixSelfScaledTemporaryPtX = raw.match(
+    /^until end of turn,\s*(?:it|this creature|he|she|~|this) gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)), where x is (.+?)\.?$/i,
+  );
+  if (prefixSelfScaledTemporaryPtX) {
+    const powerToken = String(prefixSelfScaledTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(prefixSelfScaledTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('this creature'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(prefixSelfScaledTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachWithQualifierGrantKeywordUntilEot = raw.match(
+    /^each creature you control with (.+?) gains? (.+?) until end of turn\.?$/i,
+  );
+  if (eachWithQualifierGrantKeywordUntilEot && !/\bgets?\s+[+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\b/i.test(raw)) {
+    const grantFields = buildTemporaryGrantStepFields(String(eachWithQualifierGrantKeywordUntilEot[2] || ''));
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector(`each creature you control with ${String(eachWithQualifierGrantKeywordUntilEot[1] || '').trim()}`),
+      duration: 'end_of_turn',
+      ...grantFields,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const prefixSelfGainKeywordUntilEot = raw.match(
+    /^until end of turn,\s*(?:it|this creature|he|she|~|this) gains? (.+?)\.?$/i,
+  );
+  if (prefixSelfGainKeywordUntilEot) {
+    const grantFields = buildTemporaryGrantStepFields(String(prefixSelfGainKeywordUntilEot[1] || ''));
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('this creature'),
+      duration: 'end_of_turn',
+      ...grantFields,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const selfGainKeywordUntilEot = raw.match(
+    /^(?:he|she|it|this creature|~|this) gains? (.+?) until end of turn\.?$/i,
+  );
+  if (selfGainKeywordUntilEot && !/\bgets?\s+[+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\b/i.test(raw)) {
+    const grantFields = buildTemporaryGrantStepFields(String(selfGainKeywordUntilEot[1] || ''));
+    return [{
+      kind: 'grant_temporary_ability',
+      target: parseObjectSelector('this creature'),
+      duration: 'end_of_turn',
+      ...grantFields,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const prefixTargetScaledTemporaryPtX = raw.match(
+    /^until end of turn,\s*target creature gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)), where x is (.+?)\.?$/i,
+  );
+  if (prefixTargetScaledTemporaryPtX) {
+    const powerToken = String(prefixTargetScaledTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(prefixTargetScaledTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('target creature'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(prefixTargetScaledTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetPlayerCompound = raw.match(
+    /^creatures target player controls get ([+-]\d+)\/([+-]\d+) and gain (.+?) until end of turn\.?$/i,
+  );
+  if (targetPlayerCompound) {
+    const grantFields = buildTemporaryGrantStepFields(String(targetPlayerCompound[3] || ''));
+    return [
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector('creatures target player controls'),
+        power: Number.parseInt(String(targetPlayerCompound[1] || '0'), 10),
+        toughness: Number.parseInt(String(targetPlayerCompound[2] || '0'), 10),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('creatures target player controls'),
+        duration: 'end_of_turn',
+        ...grantFields,
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const compoundSelfPtAndKeyword = raw.match(
+    /^(?:it|this creature|he|she|~|this) gets ([+-]\d+)\/([+-]\d+) and gains? (.+?) until end of turn\.?$/i,
+  );
+  if (compoundSelfPtAndKeyword) {
+    const grantFields = buildTemporaryGrantStepFields(String(compoundSelfPtAndKeyword[3] || ''));
+    return [
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector('this creature'),
+        power: Number.parseInt(String(compoundSelfPtAndKeyword[1] || '0'), 10),
+        toughness: Number.parseInt(String(compoundSelfPtAndKeyword[2] || '0'), 10),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('this creature'),
+        duration: 'end_of_turn',
+        ...grantFields,
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const prefixSelfCompoundPtAndKeyword = raw.match(
+    /^until end of turn,\s*(?:it|this creature|he|she|~|this) gets ([+-]\d+)\/([+-]\d+) and gains? (.+?)\.?$/i,
+  );
+  if (prefixSelfCompoundPtAndKeyword) {
+    const grantFields = buildTemporaryGrantStepFields(String(prefixSelfCompoundPtAndKeyword[3] || ''));
+    return [
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector('this creature'),
+        power: Number.parseInt(String(prefixSelfCompoundPtAndKeyword[1] || '0'), 10),
+        toughness: Number.parseInt(String(prefixSelfCompoundPtAndKeyword[2] || '0'), 10),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('this creature'),
+        duration: 'end_of_turn',
+        ...grantFields,
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const selfScaledTemporaryPtX = raw.match(
+    /^(?:it|this creature|he|she|~|this) gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (selfScaledTemporaryPtX) {
+    const powerToken = String(selfScaledTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(selfScaledTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('this creature'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(selfScaledTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const selfScaledTemporaryPtNoCommaWhere = raw.match(
+    /^(?:it|this creature|he|she|~|this) gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn where x is (.+?)\.?$/i,
+  );
+  if (selfScaledTemporaryPtNoCommaWhere) {
+    const powerToken = String(selfScaledTemporaryPtNoCommaWhere[1] || '').trim().toLowerCase();
+    const toughnessToken = String(selfScaledTemporaryPtNoCommaWhere[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('this creature'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(selfScaledTemporaryPtNoCommaWhere[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const compoundTargetGrantFirstPt = raw.match(
+    /^target creature gains? (.+?) and gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (compoundTargetGrantFirstPt) {
+    const grantFields = buildTemporaryGrantStepFields(String(compoundTargetGrantFirstPt[1] || ''));
+    return [
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('target creature'),
+        duration: 'end_of_turn',
+        ...grantFields,
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector('target creature'),
+        power: Number.parseInt(String(compoundTargetGrantFirstPt[2] || '0'), 10),
+        toughness: Number.parseInt(String(compoundTargetGrantFirstPt[3] || '0'), 10),
+        duration: 'end_of_turn',
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const compoundTargetPtAndKeyword = raw.match(
+    /^(?:until end of turn,\s+)?target creature gets ([+-]\d+)\/([+-]\d+) and gains? (.+?)\.?$/i,
+  );
+  if (compoundTargetPtAndKeyword) {
+    const grantFields = buildTemporaryGrantStepFields(String(compoundTargetPtAndKeyword[3] || ''));
+    return [
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector('target creature'),
+        power: Number.parseInt(String(compoundTargetPtAndKeyword[1] || '0'), 10),
+        toughness: Number.parseInt(String(compoundTargetPtAndKeyword[2] || '0'), 10),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('target creature'),
+        duration: 'end_of_turn',
+        ...grantFields,
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const eachControlledWithQualifierFixedTemporaryPt = raw.match(
+    /^each creature you control with (.+?) gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachControlledWithQualifierFixedTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(`each creature you control with ${String(eachControlledWithQualifierFixedTemporaryPt[1] || '').trim()}`),
+      power: Number.parseInt(String(eachControlledWithQualifierFixedTemporaryPt[2] || '0'), 10),
+      toughness: Number.parseInt(String(eachControlledWithQualifierFixedTemporaryPt[3] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const forEachTeamTemporaryPt = raw.match(
+    /^creatures you control get ([+-]\d+)\/([+-]\d+) until end of turn for each (.+?)\.?$/i,
+  );
+  if (forEachTeamTemporaryPt) {
+    return [buildForEachTemporaryPtStep(
+      'creatures you control',
+      Number.parseInt(String(forEachTeamTemporaryPt[1] || '0'), 10),
+      Number.parseInt(String(forEachTeamTemporaryPt[2] || '0'), 10),
+      String(forEachTeamTemporaryPt[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const forEachSingularTemporaryPt = raw.match(
+    /^(each creature|each creature you control|each other creature you control|target creature) gets ([+-]\d+)\/([+-]\d+) until end of turn for each (.+?)\.?$/i,
+  );
+  if (forEachSingularTemporaryPt) {
+    return [buildForEachTemporaryPtStep(
+      String(forEachSingularTemporaryPt[1] || '').trim().toLowerCase(),
+      Number.parseInt(String(forEachSingularTemporaryPt[2] || '0'), 10),
+      Number.parseInt(String(forEachSingularTemporaryPt[3] || '0'), 10),
+      String(forEachSingularTemporaryPt[4] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const forEachTeamScaledTemporaryPt = raw.match(
+    /^creatures you control get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn for each (.+?)\.?$/i,
+  );
+  if (forEachTeamScaledTemporaryPt) {
+    return [buildForEachScaledTemporaryPtStep(
+      'creatures you control',
+      String(forEachTeamScaledTemporaryPt[1] || ''),
+      String(forEachTeamScaledTemporaryPt[2] || ''),
+      String(forEachTeamScaledTemporaryPt[3] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const forEachSingularScaledTemporaryPt = raw.match(
+    /^(each creature|each creature you control|each other creature you control|target creature) gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn for each (.+?)\.?$/i,
+  );
+  if (forEachSingularScaledTemporaryPt) {
+    return [buildForEachScaledTemporaryPtStep(
+      String(forEachSingularScaledTemporaryPt[1] || '').trim().toLowerCase(),
+      String(forEachSingularScaledTemporaryPt[2] || ''),
+      String(forEachSingularScaledTemporaryPt[3] || ''),
+      String(forEachSingularScaledTemporaryPt[4] || '').trim(),
+      raw,
+      sequence,
+    )];
+  }
+
+  const eachControlledWithQualifierTemporaryPtX = raw.match(
+    /^each creature you control with (.+?) gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (eachControlledWithQualifierTemporaryPtX) {
+    const powerToken = String(eachControlledWithQualifierTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessToken = String(eachControlledWithQualifierTemporaryPtX[3] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(`each creature you control with ${String(eachControlledWithQualifierTemporaryPtX[1] || '').trim()}`),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(eachControlledWithQualifierTemporaryPtX[4] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachControlledTemporaryPt = raw.match(
+    /^each creature you control gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachControlledTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature you control'),
+      power: Number.parseInt(String(eachControlledTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(eachControlledTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachControlledTemporaryPtX = raw.match(
+    /^each creature you control gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (eachControlledTemporaryPtX) {
+    const powerToken = String(eachControlledTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(eachControlledTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each creature you control'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(eachControlledTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const compoundChosenTypePtAndKeyword = raw.match(
+    /^creatures you control of the chosen type get ([+-]\d+)\/([+-]\d+) and gain (.+?) until end of turn\.?$/i,
+  );
+  if (compoundChosenTypePtAndKeyword) {
+    const grantFields = buildTemporaryGrantStepFields(String(compoundChosenTypePtAndKeyword[3] || ''));
+    return [
+      {
+        kind: 'modify_pt',
+        target: parseObjectSelector('creatures you control of the chosen type'),
+        power: Number.parseInt(String(compoundChosenTypePtAndKeyword[1] || '0'), 10),
+        toughness: Number.parseInt(String(compoundChosenTypePtAndKeyword[2] || '0'), 10),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('creatures you control of the chosen type'),
+        duration: 'end_of_turn',
+        ...grantFields,
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const chosenTypeMassTemporaryPtX = raw.match(
+    /^creatures you control of the chosen type get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (chosenTypeMassTemporaryPtX) {
+    const powerToken = String(chosenTypeMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(chosenTypeMassTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creatures you control of the chosen type'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(chosenTypeMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const optionalTargetTemporaryPt = raw.match(
+    /^you may have target creature get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (optionalTargetTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('target creature'),
+      power: Number.parseInt(String(optionalTargetTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(optionalTargetTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      optional: true,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetTemporaryPt = raw.match(
+    /^target creature gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (targetTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('target creature'),
+      power: Number.parseInt(String(targetTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(targetTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const anotherTargetTemporaryPt = raw.match(
+    /^another target creature gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (anotherTargetTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('another target creature'),
+      power: Number.parseInt(String(anotherTargetTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(anotherTargetTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const anotherTargetTemporaryPtX = raw.match(
+    /^another target creature gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (anotherTargetTemporaryPtX) {
+    const powerToken = String(anotherTargetTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(anotherTargetTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('another target creature'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(anotherTargetTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const controlledTargetTemporaryPt = raw.match(
+    /^target creature you control gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (controlledTargetTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('target creature you control'),
+      power: Number.parseInt(String(controlledTargetTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(controlledTargetTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const upToOneTargetTemporaryPt = raw.match(
+    /^up to one target creature gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (upToOneTargetTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('up to one target creature'),
+      power: Number.parseInt(String(upToOneTargetTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(upToOneTargetTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const multiTargetTemporaryPt = raw.match(
+    /^(one or two target creatures|up to (?:one|two|three|four|five|\d+) target creatures|any number of target creatures(?: each)?) get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (multiTargetTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(String(multiTargetTemporaryPt[1] || '').trim().toLowerCase()),
+      power: Number.parseInt(String(multiTargetTemporaryPt[2] || '0'), 10),
+      toughness: Number.parseInt(String(multiTargetTemporaryPt[3] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const exactCountMultiTargetTemporaryPt = raw.match(
+    /^(one|two|three|four|five|\d+) target creatures get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (exactCountMultiTargetTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(`${String(exactCountMultiTargetTemporaryPt[1] || '').trim().toLowerCase()} target creatures`),
+      power: Number.parseInt(String(exactCountMultiTargetTemporaryPt[2] || '0'), 10),
+      toughness: Number.parseInt(String(exactCountMultiTargetTemporaryPt[3] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetPlayerMassTemporaryPt = raw.match(
+    /^creatures target player controls get ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (targetPlayerMassTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creatures target player controls'),
+      power: Number.parseInt(String(targetPlayerMassTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(targetPlayerMassTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetPlayerMassTemporaryPtX = raw.match(
+    /^creatures target player controls get ([+-]?x)\s*\/\s*([+-]?x) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (targetPlayerMassTemporaryPtX) {
+    const powerToken = String(targetPlayerMassTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(targetPlayerMassTemporaryPtX[2] || '').trim().toLowerCase();
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('creatures target player controls'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessToken.startsWith('-') ? -1 : 1,
+      powerUsesX: true,
+      toughnessUsesX: true,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(targetPlayerMassTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetTemporaryPtX = raw.match(
+    /^target creature gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (targetTemporaryPtX) {
+    const powerToken = String(targetTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(targetTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('target creature'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(targetTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const controlledTargetTemporaryPtX = raw.match(
+    /^target creature you control gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (controlledTargetTemporaryPtX) {
+    const powerToken = String(controlledTargetTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(controlledTargetTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('target creature you control'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(controlledTargetTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const opponentTargetTemporaryPtX = raw.match(
+    /^target creature an opponent controls gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (opponentTargetTemporaryPtX) {
+    const powerToken = String(opponentTargetTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(opponentTargetTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('target creature an opponent controls'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(opponentTargetTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const opponentTargetTemporaryPt = raw.match(
+    /^target creature an opponent controls gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (opponentTargetTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('target creature an opponent controls'),
+      power: Number.parseInt(String(opponentTargetTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(opponentTargetTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetDontControlTemporaryPtX = raw.match(
+    /^target creature you don(?:'|')t control gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (targetDontControlTemporaryPtX) {
+    const powerToken = String(targetDontControlTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(targetDontControlTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector("target creature you don't control"),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(targetDontControlTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachAttackingControlledTemporaryPtX = raw.match(
+    /^each attacking creature you control gets ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (eachAttackingControlledTemporaryPtX) {
+    const powerToken = String(eachAttackingControlledTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(eachAttackingControlledTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each attacking creature you control'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(eachAttackingControlledTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const otherAttackingControlledTemporaryPtX = raw.match(
+    /^other attacking creatures you control get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (otherAttackingControlledTemporaryPtX) {
+    const powerToken = String(otherAttackingControlledTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(otherAttackingControlledTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('other attacking creatures you control'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(otherAttackingControlledTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const attackingControlledTemporaryPtX = raw.match(
+    /^attacking creatures you control get ([+-]?x)\s*\/\s*([+-]?(?:\d+|x)) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (attackingControlledTemporaryPtX) {
+    const powerToken = String(attackingControlledTemporaryPtX[1] || '').trim().toLowerCase();
+    const toughnessToken = String(attackingControlledTemporaryPtX[2] || '').trim().toLowerCase();
+    const toughnessUsesX = toughnessToken === 'x' || toughnessToken === '+x' || toughnessToken === '-x';
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('attacking creatures you control'),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessUsesX ? (toughnessToken.startsWith('-') ? -1 : 1) : Number.parseInt(toughnessToken, 10) || 0,
+      powerUsesX: true,
+      toughnessUsesX,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(attackingControlledTemporaryPtX[3] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachOtherBasePtTeamTemporaryPtX = raw.match(
+    /^each other creature you control with base power and toughness (\d+)\/(\d+) gets ([+-]?x)\s*\/\s*([+-]?x) until end of turn, where x is (.+?)\.?$/i,
+  );
+  if (eachOtherBasePtTeamTemporaryPtX) {
+    const powerToken = String(eachOtherBasePtTeamTemporaryPtX[3] || '').trim().toLowerCase();
+    const toughnessToken = String(eachOtherBasePtTeamTemporaryPtX[4] || '').trim().toLowerCase();
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector(
+        `each other creature you control with base power and toughness ${String(eachOtherBasePtTeamTemporaryPtX[1] || '').trim()}/${String(eachOtherBasePtTeamTemporaryPtX[2] || '').trim()}`,
+      ),
+      power: powerToken.startsWith('-') ? -1 : 1,
+      toughness: toughnessToken.startsWith('-') ? -1 : 1,
+      powerUsesX: true,
+      toughnessUsesX: true,
+      duration: 'end_of_turn',
+      condition: { kind: 'where', raw: `x is ${String(eachOtherBasePtTeamTemporaryPtX[5] || '').trim()}` },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const eachOtherAttackingTemporaryPt = raw.match(
+    /^each other attacking creature gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (eachOtherAttackingTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('each other attacking creature'),
+      power: Number.parseInt(String(eachOtherAttackingTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(eachOtherAttackingTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const selfTemporaryPt = raw.match(
+    /^(?:it|this creature|he|she|~|this) gets ([+-]\d+)\/([+-]\d+) until end of turn\.?$/i,
+  );
+  if (selfTemporaryPt) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('this creature'),
+      power: Number.parseInt(String(selfTemporaryPt[1] || '0'), 10),
+      toughness: Number.parseInt(String(selfTemporaryPt[2] || '0'), 10),
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const selfForEachBlockingTemporaryPt = raw.match(
+    /^(?:it|this creature|he|she|~|this) gets ([+-]\d+)\/([+-]\d+) until end of turn for each creature blocking it\.?$/i,
+  );
+  if (selfForEachBlockingTemporaryPt) {
+    return [buildForEachTemporaryPtStep(
+      'this creature',
+      Number.parseInt(String(selfForEachBlockingTemporaryPt[1] || '0'), 10),
+      Number.parseInt(String(selfForEachBlockingTemporaryPt[2] || '0'), 10),
+      'creature blocking it',
+      raw,
+      sequence,
+    )];
+  }
+
+  const doubleTargetPower = raw.match(
+    /^double (?:up to one )?target creature(?: you control)?'s power until end of turn\.?$/i,
+  );
+  if (doubleTargetPower) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('target creature'),
+      power: 0,
+      toughness: 0,
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const doubleTargetPowerToughness = raw.match(
+    /^double (?:up to one )?target creature(?: you control)?'s power and toughness until end of turn\.?$/i,
+  );
+  if (doubleTargetPowerToughness) {
+    return [{
+      kind: 'modify_pt',
+      target: parseObjectSelector('target creature'),
+      power: 0,
+      toughness: 0,
+      duration: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const targetCantBlockThisTurn = raw.match(
+    /^(?:up to one )?target creature can't block this turn\.?$/i,
+  );
+  if (targetCantBlockThisTurn) {
+    return [{
+      kind: 'cant_block',
+      target: parseObjectSelector('target creature'),
+      duration: 'end_of_turn',
       raw,
       ...sequence,
     } as OracleEffectStep];
@@ -3312,11 +5765,11 @@ function parseStructuredTriggerResidualGrant(
   }
 
   if (/^you may choose new targets for the copies?\.?$/i.test(raw)) {
-    return [createSemanticStaticGrantStep('the copy', raw, raw, sequence)];
+    return [];
   }
 
   if (/^this ability triggers only once each turn\.?$/i.test(raw)) {
-    return [createSemanticStaticGrantStep('this permanent', raw, raw, sequence)];
+    return [];
   }
 
   if (/^you get an experience counter$/i.test(raw)) {
@@ -3560,6 +6013,9 @@ function parseStructuredTriggerResidualGrant(
       ...sequence,
     } as OracleEffectStep];
   }
+
+  const bareStaticCostReduction = tryParseBareStaticCostReductionSteps(raw, sequence);
+  if (bareStaticCostReduction) return bareStaticCostReduction;
 
   return null;
 }
@@ -5141,6 +7597,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     } as OracleEffectStep];
   }
 
+  if (CONVOKE_DELVE_INNER_REMINDER_PATTERN.test(raw)) {
+    return [];
+  }
+
   if (/^each\b/i.test(raw)) {
     if (/\binvestigates?$/i.test(raw)) {
       return [step];
@@ -5323,6 +7783,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^(?:it(?:'|’)s\b|it\s+(?:becomes|can\b|can(?:'|’)t\b|connives|deals|doesn(?:'|’)t\b|endures|enters|escapes|explores|gains|gets|has|just\b|loses|phases|puts|replaces|still\b|stops|triggers)\b|its\b)/i.test(raw)) {
     return staticMetadata('pass38 residual', raw);
+  }
+
+  if (/^put the rest on the bottom of your library in a random order\.?$/i.test(raw)) {
+    return [];
+  }
+
+  if (/^put the rest on the bottom of your library in any order\.?$/i.test(raw)) {
+    return [];
   }
 
   if (/^(?:unleash\b|then\s+puts\s+one\s+onto\s+the\s+battlefield\s+face\s+down|(?:iv|v)\s+-\s+|jin-gitaxias\b|judge\b|jump\b|just\b|keyword\s*[→-]|kicker\b|kithkin\b|knights\b|kodama(?:'|’)s\s+reach\b|koh\b|kumena\b|land\b|landfall\b|lands\b|leave\b|legacy\b|legendary\s+partner\b|let(?:'|’)s\s+go\b|lethal\b|level\s+up\b|leviathan,\s+octopus,\s+or\s+serpent\b|life\s+and\s+limb\b|lifelink\b|lightning\s+bolt\b|liliana\b|look\b|lord\s+of\s+atlantis\b|loyalty\b|make\b|mana\b|manifest\b|mayhem\b|megalegendary\b|memory\s+lapse\b|menace\b|merchant\s+scroll\b|merfolk\b|merrow\b|mill\s+cards\s+equal\b|mobilize\b|modular-sunburst\b|monstrosity\b|moonfolk\s+offering\b|morph-|motivate\b|move\b|multicleave\b|multikicker\b|multiple\s+instances\b|myriad\b|nagas\b|name\b|negamorph\b|nice\s+try\b|ninjutsu\b|no\b|non-|noncreature\b|nonland\b|nontoken\b|note\b|offer\b|oil\b|oildying\b|oko\s+becomes\b|on\s+any\s+other\s+date\b|once\b|one\s+at\s+a\s+time\b|one\s+or\s+two\b|onionfect\b|only\b|opalescence\b|open\b|opponent\s+dredge\b|opponents\b|or\b|other\b|otherwise\b)/i.test(raw)) {
@@ -6527,6 +8995,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     } as OracleEffectStep];
   }
 
+  if (/^prevent\s+all\s+combat\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+(it|this creature|~)\s+this\s+turn\.?$/i.test(raw)) {
+    return temporaryMetadata(
+      'this creature',
+      'prevent all combat damage that would be dealt to this creature this turn',
+      'end_of_turn',
+    );
+  }
+
   const nextDamageToTarget = raw.match(/^prevent\s+the\s+next\s+(.+?)\s+damage\s+that\s+would\s+be\s+dealt\s+to\s+(.+?)\s+this\s+turn$/i);
   if (nextDamageToTarget) {
     return [{
@@ -7673,11 +10149,11 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   }
 
   if (/^when you do, cast it for its madness cost or put it into your graveyard\.\)?$/i.test(raw)) {
-    return staticMetadata('it', 'cast for madness cost or put into graveyard');
+    return [];
   }
 
   if (/^cast it for its madness cost or put it into your graveyard\.\)?$/i.test(raw)) {
-    return staticMetadata('it', 'cast for madness cost or put into graveyard');
+    return [];
   }
 
   if (/^draft a card from this permanent's spellbook and put it onto the battlefield$/i.test(raw)) {
@@ -14351,18 +16827,33 @@ export function pruneRedundantFaceDownReminderUnknownAbilities(
   });
 }
 
+const CONVOKE_DELVE_INNER_REMINDER_PATTERN =
+  /^each creature you tap while casting(?: this spell| a noncreature spell from exile)? pays for \{1\} or one mana of that creature(?:'|')s color\.?\)?$/i;
+
 export function pruneConvokeReminderAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
   return abilities.filter((ability) => {
-    if (ability.type !== 'static' || ability.steps.length === 0 || !ability.steps.every((step) => step.kind === 'unknown')) {
-      return true;
-    }
-
     const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
+
+    if (CONVOKE_DELVE_INNER_REMINDER_PATTERN.test(normalizedText)) {
+      return false;
+    }
+
+    if (
+      ability.steps.length > 0 &&
+      ability.steps.every((step) => step.kind === 'grant_static_ability') &&
+      CONVOKE_DELVE_INNER_REMINDER_PATTERN.test(normalizedText)
+    ) {
+      return false;
+    }
+
+    if (ability.type !== 'static' || ability.steps.length === 0 || !ability.steps.every((step) => step.kind === 'unknown')) {
+      return true;
+    }
 
     return !/^convoke(?:\s*\([^)]*\))?[.)]*$/i.test(normalizedText);
   });
@@ -15721,8 +18212,6 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^do this only once each turn\.?$/i.test(normalizedText) ||
     /^as a siege enters,.+$/i.test(normalizedText) ||
     /^threshold\s*[-—]\s*as long as there are (?:seven|\d+) or more cards in your graveyard,.+$/i.test(normalizedText) ||
-    /^this land enters tapped unless\b.+/i.test(normalizedText) ||
-    /^this permanent enters tapped unless\b.+/i.test(normalizedText) ||
     /^return this card transformed under its owner's control(?:\.\s*craft only as a sorcery\.?)?$/i.test(normalizedText) ||
     /^spell mastery\s*[-—]\s*if there are two or more instant and\/or sorcery cards in your graveyard,.+$/i.test(normalizedText) ||
     /^gift a card\s*\(.+$/i.test(normalizedText) ||
@@ -15770,7 +18259,7 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^x can't be 0\b/i.test(normalizedText) ||
     /^hideaway\s+\d+\b/i.test(normalizedText) ||
     /^as long as this permanent is paired with another creature,.+$/i.test(normalizedText) ||
-    /^if you cast a spell this way, you still pay its costs$/i.test(normalizedText) ||
+    /^if you cast a (?:card|spell) this way, you still pay its costs$/i.test(normalizedText) ||
     /^you can play a land this way only if you have an available land play remaining$/i.test(normalizedText) ||
     /^if you cast this permanent this way, you can(?:'|â€™)?t play the other card$/i.test(normalizedText) ||
     /^you may discard .+ rather than pay this spell(?:'|â€™)?s mana cost$/i.test(normalizedText) ||
@@ -15783,6 +18272,7 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
     /^\{c\}\s+represents\s+colorless\s+mana$/i.test(normalizedText) ||
     /^a\s+player\s+with\s+ten\s+or\s+more\s+poison\s+counters\s+loses\s+the\s+game$/i.test(normalizedText) ||
     /^spend this mana only on costs that contain \{x\}$/i.test(normalizedText) ||
+    /^spend this mana only to cast spells?\.?$/i.test(normalizedText) ||
     /^spend this mana only to cast .+ spells?$/i.test(normalizedText) ||
     /^spend this mana only to cast .+ spell or activate an ability of .+ source$/i.test(normalizedText) ||
     /^the next time you would draw a card this turn, .+ instead$/i.test(normalizedText) ||
@@ -16379,6 +18869,68 @@ function isCurrentBatchReminderOrPlatformOnlyText(raw: string): boolean {
   );
 }
 
+function isOrphanReminderOnlyAbilityText(raw: string): boolean {
+  const rawNormalized = normalizeOracleText(String(raw || ''))
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (/^you may cast it without paying its mana cost\.?\)$/i.test(rawNormalized)) {
+    return true;
+  }
+  const normalizedText = rawNormalized
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  return (
+    CONVOKE_DELVE_INNER_REMINDER_PATTERN.test(normalizedText) ||
+    /^\(look at the top card of your library\.?$/i.test(normalizedText) ||
+    /^put the rest of the cards on the bottom of your library in a random order\.?$/i.test(normalizedText) ||
+    /^put the rest on the bottom of your library in a random order\.?$/i.test(normalizedText) ||
+    /^put the revealed cards on the bottom of your library in any order\.?$/i.test(normalizedText) ||
+    /^if you control a commander, you may cast this spell without paying its mana cost\.?$/i.test(normalizedText) ||
+    /^cast it as a sorcery on a later turn without paying its mana cost\.?$/i.test(normalizedText) ||
+    /^protection from black and from red\.?$/i.test(normalizedText) ||
+    /^this ability triggers only once each turn\.?$/i.test(normalizedText) ||
+    /^it(?:'|')s still a land\.?$/i.test(normalizedText) ||
+    /^when you do, cast it for its madness cost or put it into your graveyard\.?$/i.test(normalizedText) ||
+    /^cast it for its madness cost or put it into your graveyard\.?$/i.test(normalizedText) ||
+    /^it(?:'|')s an artifact with "\{2\}, sacrifice this token: draw a card\.?$/i.test(normalizedText) ||
+    /^this vehicle becomes an artifact creature until end of turn\.?$/i.test(normalizedText) ||
+    /^then put any number of them on the bottom and the rest on top in any order\.?$/i.test(normalizedText) ||
+    /^then shuffle\.?$/i.test(normalizedText) ||
+    /^then give each another counter of each kind already there\.?$/i.test(normalizedText) ||
+    /^you may choose new targets for the copies?\.?$/i.test(normalizedText) ||
+    /^that much\.?$/i.test(normalizedText) ||
+    /^otherwise,?\s*(?:you may )?put it into your (?:hand|graveyard)\.?$/i.test(normalizedText) ||
+    /^if you cast a (?:card|spell) this way, you still pay its costs\.?$/i.test(normalizedText) ||
+    /^spend this mana only to cast spells?\.?$/i.test(normalizedText) ||
+    /^to mill a card, put the top card of your library into your graveyard\.?$/i.test(normalizedText) ||
+    /^damage causes loss of life\.?$/i.test(normalizedText) ||
+    /^you may cast this card from your graveyard for its (?:flashback|escape|retrace|jump-start|harmonize) cost(?: this turn)?(?:\. then exile it)?\.?$/i.test(normalizedText) ||
+    /^then exile it\.?$/i.test(normalizedText) ||
+    /^partner with \[name\]\.?$/i.test(normalizedText)
+  );
+}
+
+function isReminderGrantStaticAbilityStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'grant_static_ability') return false;
+  const targetText = String((step.target as { text?: string } | undefined)?.text || '').trim();
+  return /^reminder text$/i.test(targetText);
+}
+
+function isPlatformReminderOnlyExecutableStep(step: OracleEffectStep): boolean {
+  return (
+    step.kind === 'grant_static_ability' ||
+    step.kind === 'grant_exile_permission' ||
+    step.kind === 'grant_graveyard_permission' ||
+    step.kind === 'modify_graveyard_permissions' ||
+    step.kind === 'conditional' ||
+    step.kind === 'draw' ||
+    step.kind === 'unknown'
+  );
+}
+
 function isStrictReminderOrPlatformOnlyTextForPruning(raw: string): boolean {
   if (!isCurrentBatchReminderOrPlatformOnlyText(raw)) return false;
   const normalizedText = normalizeOracleText(String(raw || ''))
@@ -16493,6 +19045,35 @@ export function pruneCurrentBatchReminderUnknownAbilities(
       return [];
     }
 
+    if (
+      ability.steps.length === 1 &&
+      ability.steps[0]?.kind === 'choose_mode' &&
+      (!Array.isArray((ability.steps[0] as { modes?: unknown[] }).modes) ||
+        ((ability.steps[0] as { modes?: unknown[] }).modes?.length || 0) === 0)
+    ) {
+      return [];
+    }
+
+    if (isOrphanReminderOnlyAbilityText(normalizedAbilityText)) {
+      return [];
+    }
+
+    if (
+      isCurrentBatchReminderOrPlatformOnlyText(normalizedAbilityText) &&
+      ability.steps.length > 0 &&
+      ability.steps.every(isPlatformReminderOnlyExecutableStep)
+    ) {
+      return [];
+    }
+
+    if (
+      ability.steps.length === 1 &&
+      ability.steps[0]?.kind === 'look_top' &&
+      /^\(look at the top card of your library\.?$/i.test(normalizedAbilityText.toLowerCase())
+    ) {
+      return [];
+    }
+
     if (/^this\s+vehicle\s+becomes\s+an\s+artifact\s+creature[.)]*$/i.test(normalizedAbilityText)) {
       return [];
     }
@@ -16516,6 +19097,11 @@ export function pruneCurrentBatchReminderUnknownAbilities(
     let changed = false;
     for (const step of ability.steps) {
       if (isClueArtifactReminderTailText(String(step.raw || ''))) {
+        changed = true;
+        continue;
+      }
+
+      if (isReminderGrantStaticAbilityStep(step)) {
         changed = true;
         continue;
       }
@@ -16824,6 +19410,13 @@ export function pruneExternallyHandledStaticUnknownAbilities(
       /^put the revealed cards on the bottom of your library in any order$/i.test(normalizedText) ||
       /^crew\s+\d+\s*\(tap any number of creatures you control with total power \d+ or more:\s*this vehicle becomes an artifact creature until end of turn\. creatures can't be attached to other permanents\.\)$/i.test(normalizedText)
     ) {
+      return [];
+    }
+
+    const isGrantStaticOnlyAbility =
+      ability.steps.length > 0 && ability.steps.every((step) => step.kind === 'grant_static_ability');
+
+    if (isGrantStaticOnlyAbility && isStandaloneHandledKeywordList(normalizedText)) {
       return [];
     }
 
@@ -24008,17 +26601,63 @@ function repairFightDamageSourceSteps(steps: readonly OracleEffectStep[]): Oracl
   });
 }
 
+function repairCopyRetargetTailSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  if (steps.length < 2) return [...steps];
+
+  const repaired: OracleEffectStep[] = [];
+  for (let index = 0; index < steps.length; index += 1) {
+    const current = steps[index];
+    const next = steps[index + 1];
+    const retargetTail = parseCopySpellRetargetTail(next);
+    if (
+      current
+      && retargetTail
+      && (
+        current.kind === 'copy_spell'
+        || current.kind === 'copy_ability'
+        || (current.kind === 'unknown' && isCopyAbilityUnknownStep(current))
+      )
+    ) {
+      if (current.kind === 'copy_spell' || current.kind === 'copy_ability') {
+        repaired.push({
+          ...current,
+          allowNewTargets: true,
+          raw: appendFollowupSentence(String(current.raw || '').trim(), retargetTail),
+        } as OracleEffectStep);
+      } else {
+        const parsed = parseCopySpellUnknownStep(
+          current as Extract<OracleEffectStep, { kind: 'unknown' }>,
+          next,
+        );
+        if (parsed) {
+          repaired.push(parsed);
+        } else {
+          repaired.push(current);
+        }
+      }
+      index += 1;
+      continue;
+    }
+    repaired.push(current);
+  }
+  return repaired;
+}
+
 function repairAbilityExecutionSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
   return repairFightDamageSourceSteps(
     repairFroghemothCounterAndLifeSteps(
       repairEmblemWithNestedConditionalSteps(
         repairEventideDrawLoseLifeSteps(
           repairCompoundExileLookSteps(
-            repairGraveyardChooseThenReturnSteps(repairMoveZoneSelectorSteps(steps))
-          )
-        )
-      )
-    )
+            repairGraveyardChooseThenReturnSteps(
+              repairCopyRetargetTailSteps(
+                repairMoveZoneSelectorSteps(steps),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 }
 

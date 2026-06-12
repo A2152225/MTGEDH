@@ -1075,13 +1075,22 @@ describe('exertChoice replay coverage', () => {
       card: { ...((game.state as any).battlefield[0] as any).card },
     } as any);
 
+    const attackerLibrary = [
+      { id: 'clockwork_lib_1', name: 'Island', zone: 'library' },
+      { id: 'clockwork_lib_2', name: 'Forest', zone: 'library' },
+    ];
+    (game as any).libraries = new Map([[attackerId, attackerLibrary.map((card) => ({ ...card }))]]);
+
     game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
     const droid = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'clockwork_droid') as any;
     expect(droid?.temporaryAbilities).toEqual([
       expect.objectContaining({ ability: "can't be blocked", expiresAt: 'end_of_turn' }),
     ]);
-    expect((game.state as any).pendingScry?.[attackerId]).toBe(1);
+    const scrySteps = ResolutionQueueManager.getStepsForPlayer(gameId, attackerId).filter(
+      (step: any) => step?.type === ResolutionStepType.SCRY,
+    );
+    expect(scrySteps.some((step: any) => step?.scryCount === 1)).toBe(true);
   });
 
   it('replays graveyard-return exert triggers with persisted bound targets', () => {

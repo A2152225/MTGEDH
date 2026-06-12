@@ -1423,6 +1423,59 @@ function splitCountersAcrossTargets(totalCounters: number, targetCount: number):
   return counts;
 }
 
+function distributeCountersNeedsPlayerChoice(totalCounters: number, targetCount: number): boolean {
+  return targetCount > 1 && totalCounters > targetCount;
+}
+
+function applyCounterDistributionToBattlefield(
+  state: GameState,
+  targetIds: readonly string[],
+  perTargetCounts: readonly number[],
+  counterName: string,
+): { state: GameState; log: string } {
+  const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+    const permanentId = String(perm?.id || '').trim();
+    const targetIndex = targetIds.indexOf(permanentId);
+    if (targetIndex < 0) return perm;
+    const addAmount = perTargetCounts[targetIndex] ?? 0;
+    if (addAmount <= 0) return perm;
+    const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+    const currentCount = Number(counters[counterName] ?? 0);
+    counters[counterName] = (Number.isFinite(currentCount) ? currentCount : 0) + addAmount;
+    return { ...perm, counters };
+  });
+
+  const totalApplied = perTargetCounts.reduce((sum, value) => sum + value, 0);
+  return {
+    state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+    log: [`Distributed ${totalApplied} ${counterName} counter(s) among ${targetIds.length} permanent(s)`],
+  };
+}
+
+function resolveCounterDistributionCounts(
+  totalCounters: number,
+  targetIds: readonly string[],
+  ctx: OracleIRExecutionContext,
+): number[] | null {
+  const rawDistribution = (ctx.selectorContext as any)?.counterDistributionByTargetId;
+  if (!rawDistribution || typeof rawDistribution !== 'object' || Array.isArray(rawDistribution)) {
+    return null;
+  }
+
+  const counts = targetIds.map((targetId) => {
+    const amount = Number((rawDistribution as Record<string, unknown>)[targetId] ?? 0);
+    return Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0;
+  });
+  const totalDistributed = counts.reduce((sum, value) => sum + value, 0);
+  if (totalDistributed !== totalCounters) {
+    return null;
+  }
+  if (counts.some((value) => value <= 0)) {
+    return null;
+  }
+  return counts;
+}
+
 function resolveDistributeAmongTargetIds(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
@@ -1447,6 +1500,18 @@ function resolveDistributeAmongTargetIds(
     candidateIds = battlefield
       .filter((perm: any) => String(perm?.controller || '').trim() === controllerId)
       .filter((perm: any) => permanentMatchesType(perm, 'creature'))
+      .map((perm: any) => String(perm?.id || '').trim())
+      .filter(Boolean);
+  }
+
+  if (
+    candidateIds.length === 0 &&
+    /tapped creatures(?: your)? opponents control/i.test(targetText)
+  ) {
+    candidateIds = battlefield
+      .filter((perm: any) => String(perm?.controller || '').trim() !== controllerId)
+      .filter((perm: any) => permanentMatchesType(perm, 'creature'))
+      .filter((perm: any) => Boolean((perm as any)?.tapped))
       .map((perm: any) => String(perm?.id || '').trim())
       .filter(Boolean);
   }
@@ -1501,23 +1566,43 @@ function tryApplyDistributeCountersAmong(
     };
   }
 
-  const perTargetCounts = splitCountersAcrossTargets(amountValue, targetIds.length);
-  const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
-    const permanentId = String(perm?.id || '').trim();
-    const targetIndex = targetIds.indexOf(permanentId);
-    if (targetIndex < 0) return perm;
-    const addAmount = perTargetCounts[targetIndex] ?? 0;
-    if (addAmount <= 0) return perm;
-    const counters = { ...((perm?.counters || {}) as Record<string, number>) };
-    const currentCount = Number(counters[counterName] ?? 0);
-    counters[counterName] = (Number.isFinite(currentCount) ? currentCount : 0) + addAmount;
-    return { ...perm, counters };
-  });
+  const preselectedCounts = resolveCounterDistributionCounts(amountValue, targetIds, ctx);
+  if (preselectedCounts) {
+    const applied = applyCounterDistributionToBattlefield(state, targetIds, preselectedCounts, counterName);
+    return {
+      applied: true,
+      state: applied.state,
+      log: [applied.log],
+      lastMovedBattlefieldPermanentIds: targetIds,
+    };
+  }
 
+  if (
+    distributeCountersNeedsPlayerChoice(amountValue, targetIds.length)
+    && ctx.interactivePlayerChoices !== false
+  ) {
+    return {
+      applied: false,
+      message: `Counter distribution choice required: ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: {
+          distributionTargetIds: targetIds,
+          distributionTotalAmount: amountValue,
+          distributionCounterName: counterName,
+          distributionMinPerTarget: 1,
+        },
+      },
+    };
+  }
+
+  const perTargetCounts = splitCountersAcrossTargets(amountValue, targetIds.length);
+  const applied = applyCounterDistributionToBattlefield(state, targetIds, perTargetCounts, counterName);
   return {
     applied: true,
-    state: { ...(state as any), battlefield: nextBattlefield } as GameState,
-    log: [`Distributed ${amountValue} ${counterName} counter(s) among ${targetIds.length} permanent(s)`],
+    state: applied.state,
+    log: [applied.log],
     lastMovedBattlefieldPermanentIds: targetIds,
   };
 }
@@ -3220,6 +3305,18 @@ function resolveAddCounterAmount(
       const exiledCount = Number(runtime?.lastExiledCardCount);
       if (Number.isFinite(exiledCount) && exiledCount > 0) return Math.max(0, Math.floor(exiledCount));
     }
+
+    const controllerIdForReference = String(ctx?.controllerId || '').trim() as PlayerID;
+    if (controllerIdForReference && ctx) {
+      const resolvedReferenceAmount = resolveOracleQuantity(
+        state,
+        controllerIdForReference,
+        step.amount,
+        ctx,
+        { runtime },
+      );
+      if (resolvedReferenceAmount !== null) return resolvedReferenceAmount;
+    }
   }
 
   const rawLower = String(step.raw || '').toLowerCase();
@@ -4239,11 +4336,15 @@ export function applyGrantTemporaryAbilityStep(
 
   if (
     /creatures of the (?:chosen )?creature type of your choice/i.test(stepRaw) ||
-    /^creatures of the chosen creature type you control$/i.test(normalizedTargetText)
+    /^creatures of the chosen creature type you control$/i.test(normalizedTargetText) ||
+    /^creatures you control of the chosen type$/i.test(normalizedTargetText)
   ) {
+    const massTargetText = /^creatures you control of the chosen type$/i.test(normalizedTargetText)
+      ? 'creatures you control of the chosen type'
+      : 'creatures of the chosen creature type you control';
     const massTargets = resolveGrantTemporaryMassTargets(
       battlefield,
-      'creatures of the chosen creature type you control',
+      massTargetText,
       stepRaw,
       ctx
     );
@@ -6698,6 +6799,31 @@ function resolveGrantTemporaryMassTargets(
           { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
           ctx
         ) && typeLineHasSubtype(perm, chosenType)
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^creatures you control of the chosen type$/i.test(effectiveTargetText)) {
+    const chosenType = String(ctx.selectorContext?.chosenCreatureType || '').trim().toLowerCase();
+    if (!chosenType) return null;
+    const matches = battlefield.filter(
+      perm =>
+        permanentMatchesSelector(
+          perm,
+          { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+          ctx
+        ) && typeLineHasSubtype(perm, chosenType)
+    );
+    return matches.length > 0 ? matches : null;
+  }
+
+  if (/^creatures target player controls$/i.test(effectiveTargetText)) {
+    const targetPlayerId = String(ctx.selectorContext?.targetPlayerId || ctx.targetPlayerId || '').trim();
+    if (!targetPlayerId) return null;
+    const matches = battlefield.filter(
+      (perm) =>
+        permanentMatchesSelector(perm, { kind: 'battlefield_selector', types: ['creature'] }, ctx)
+        && String((perm as any)?.controller || '').trim() === targetPlayerId,
     );
     return matches.length > 0 ? matches : null;
   }

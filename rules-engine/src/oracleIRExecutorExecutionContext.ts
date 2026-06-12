@@ -220,6 +220,9 @@ export function buildOracleIRExecutionContext(
       ? { chosenDungeonRoomId: hintChosenDungeonRoomId ?? baseChosenDungeonRoomId }
       : {}),
     ...(hintChosenMana || baseChosenMana ? { chosenMana: hintChosenMana ?? baseChosenMana } : {}),
+    ...(baseSel?.counterDistributionByTargetId && typeof baseSel.counterDistributionByTargetId === 'object'
+      ? { counterDistributionByTargetId: { ...baseSel.counterDistributionByTargetId } }
+      : {}),
     ...(hintChosenCreatureType || baseChosenCreatureType
       ? { chosenCreatureType: hintChosenCreatureType ?? baseChosenCreatureType }
       : {}),

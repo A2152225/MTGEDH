@@ -3,6 +3,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import { debug } from '../../utils/debug.js';
 
 import {
+  isTriggerEffectFullyIrWired,
   isTriggerEffectOwnedByOracleIrPrimary,
   skipRetiredTriggerLegacyHandler,
 } from './oracleIrTriggerLegacyRouting.js';
@@ -135,6 +136,12 @@ export function applyRetiredTriggerLegacyTargetCreatureCantBeBlocked(
 
   }
 
+  if (isTriggerEffectFullyIrWired(params.desc, params.sourceName)) {
+
+    return false;
+
+  }
+
 
 
   const targets = Array.isArray(params.triggerItem?.targets) ? params.triggerItem.targets : [];
@@ -202,6 +209,12 @@ export function applyRetiredTriggerLegacySelfCantBeBlocked(
   const hasSelfUnblockable = /(?:it|this creature) can't be blocked this turn/i.test(params.desc);
 
   if (!selfCantBeBlockedMatch && !hasSelfUnblockable) {
+
+    return false;
+
+  }
+
+  if (isTriggerEffectFullyIrWired(params.desc, params.sourceName)) {
 
     return false;
 
@@ -309,6 +322,12 @@ export function applyRetiredTriggerLegacySelfPreventCombatDamage(
 
   }
 
+  if (isTriggerEffectFullyIrWired(params.desc, params.sourceName)) {
+
+    return false;
+
+  }
+
 
 
   const preventionSourceId = params.triggerItem.source || params.triggerItem.permanentId;
@@ -372,6 +391,12 @@ export function applyRetiredTriggerLegacySelfCantBeBlockedByLowPower(
   const selfCantBeBlockedByLowPowerMatch = params.desc.match(/(?:it|this creature) can't be blocked by creatures with power 2 or less this turn\.?$/i);
 
   if (!selfCantBeBlockedByLowPowerMatch) {
+
+    return false;
+
+  }
+
+  if (isTriggerEffectFullyIrWired(params.desc, params.sourceName)) {
 
     return false;
 

@@ -60,6 +60,7 @@ import {
   buildRoomUnlockDoorRegisteredTrigger,
   detectRoomUnlockDoorTriggers,
 } from './triggers/room.js';
+import { getCurrentGoaders } from './goad-effects.js';
 
 function buildCardNameRegexAlternatives(cardName: string): string[] {
   const names = new Set<string>();
@@ -11736,6 +11737,25 @@ function equippedCreatureDamagedDyingCreatureThisTurn(ctx: GameContext, sourcePe
   return sourcePermanentIdDamagedDyingCreatureThisTurn(ctx, equippedCreatureId, dyingCreature);
 }
 
+function deathTriggerDyingCreatureWasAttackingOrBlocking(dyingCreature: any): boolean {
+  if (!dyingCreature) return false;
+
+  const wasAttacking =
+    (typeof dyingCreature.attacking === 'string' && dyingCreature.attacking.trim() !== '') ||
+    dyingCreature.attacking === true ||
+    dyingCreature.isAttacking === true ||
+    dyingCreature.attackedThisTurn === true;
+
+  const blocking = dyingCreature.blocking;
+  const wasBlocking =
+    (Array.isArray(blocking) && blocking.length > 0) ||
+    (typeof blocking === 'string' && blocking.trim() !== '') ||
+    blocking === true ||
+    dyingCreature.blockedThisTurn === true;
+
+  return wasAttacking || wasBlocking;
+}
+
 function deathTriggerClauseMatchesDyingCreature(
   ctx: GameContext,
   clauseText: string,
@@ -11786,6 +11806,16 @@ function deathTriggerClauseMatchesDyingCreature(
     const chosenType = String(sourcePermanent?.chosenCreatureType || '').trim();
     if (!chosenType) return false;
     return permanentHasCreatureTypeNow(dyingCreature, chosenType);
+  }
+
+  if (clause.includes('goaded')) {
+    const battlefield = ctx.state?.battlefield || [];
+    const currentTurn = ctx.state?.turn;
+    if (getCurrentGoaders(dyingCreature, battlefield, currentTurn).length === 0) return false;
+  }
+
+  if (clause.includes('attacking or blocking')) {
+    if (!deathTriggerDyingCreatureWasAttackingOrBlocking(dyingCreature)) return false;
   }
 
   return true;

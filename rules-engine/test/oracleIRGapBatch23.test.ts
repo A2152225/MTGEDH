@@ -160,6 +160,10 @@ describe('Oracle IR gap batch 23 support', () => {
       '(Until your next turn, that creature attacks each combat if able and attacks a player other than you if able.)',
       'Gap Probe'
     );
+    const convokeInnerReminder = parseOracleTextToIR(
+      "Each creature you tap while casting this spell pays for {1} or one mana of that creature's color.)",
+      'Gap Probe'
+    );
 
     const reminders = [
       modalHeader,
@@ -173,6 +177,7 @@ describe('Oracle IR gap batch 23 support', () => {
       plotReminder,
       goadReminder,
       goadUntilReminder,
+      convokeInnerReminder,
     ];
 
     expect(collectUnknowns(reminders)).toEqual([]);

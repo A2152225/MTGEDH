@@ -72,6 +72,12 @@ export function tryEvaluateModifyPtWhereSpecializedExtrema(args: {
       const pool = /they control|your opponents control|an opponent controls/.test(controllerClause)
         ? opponentsControlled
         : controlled;
+      if (subtypeRaw === 'creatures' || subtypeRaw === 'creature') {
+        return greatestStatAmongCreatures(
+          (pool as any[]).filter((permanent: any) => hasExecutorClass(permanent, 'creature')) as BattlefieldPermanent[],
+          which,
+        );
+      }
       const matching = (pool as any[]).filter((permanent: any) => {
         if (!hasExecutorClass(permanent, 'creature')) return false;
         const subtypes = getCreatureSubtypeKeys(permanent);

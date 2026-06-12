@@ -147,10 +147,53 @@ export function applyOracleIRUncategorizedSpellFallback(
     const chosenCreatureType = String(
       sourceItem?.chosenCreatureType
       || sourceItem?.card?.chosenCreatureType
+      || irCtx?.selectorContext?.chosenCreatureType
+      || irCtx?.chosenCreatureType
       || '',
     ).trim();
+    const targetPlayerId = String(
+      sourceItem?.targetPlayerId
+      || sourceItem?.defendingPlayer
+      || irCtx?.selectorContext?.targetPlayerId
+      || irCtx?.targetPlayerId
+      || '',
+    ).trim() as PlayerID | undefined;
+    const lastAntecedentBattlefieldPermanentIds = (
+      Array.isArray(sourceItem?.lastAntecedentBattlefieldPermanentIds)
+        ? sourceItem.lastAntecedentBattlefieldPermanentIds
+        : Array.isArray(sourceItem?.antecedentPermanentIds)
+          ? sourceItem.antecedentPermanentIds
+          : Array.isArray(irCtx?.lastAntecedentBattlefieldPermanentIds)
+            ? irCtx.lastAntecedentBattlefieldPermanentIds
+            : Array.isArray(irCtx?.selectorContext?.lastAntecedentBattlefieldPermanentIds)
+              ? irCtx.selectorContext.lastAntecedentBattlefieldPermanentIds
+              : []
+    )
+      .map((id: unknown) => String(id || '').trim())
+      .filter(Boolean);
 
-    const executionCtx = irCtx || buildOracleIRExecutionContext({
+    const executionCtx = irCtx
+      ? {
+          ...irCtx,
+          ...(chosenCreatureType || targetPlayerId || lastAntecedentBattlefieldPermanentIds.length > 0
+            ? {
+                ...(chosenCreatureType ? { chosenCreatureType } : {}),
+                ...(targetPlayerId ? { targetPlayerId } : {}),
+                ...(lastAntecedentBattlefieldPermanentIds.length > 0
+                  ? { lastAntecedentBattlefieldPermanentIds }
+                  : {}),
+                selectorContext: {
+                  ...(irCtx.selectorContext || {}),
+                  ...(chosenCreatureType ? { chosenCreatureType } : {}),
+                  ...(targetPlayerId ? { targetPlayerId } : {}),
+                  ...(lastAntecedentBattlefieldPermanentIds.length > 0
+                    ? { lastAntecedentBattlefieldPermanentIds }
+                    : {}),
+                },
+              }
+            : {}),
+        }
+      : buildOracleIRExecutionContext({
       controllerId: caster,
       sourceId: sourcePermanentId || sourceId,
       sourceName: spellName,
@@ -193,10 +236,6 @@ export function applyOracleIRUncategorizedSpellFallback(
       }
     };
 
-    const targetPlayerId = (
-      executionCtx.selectorContext?.targetPlayerId
-      || executionCtx.targetPlayerId
-    ) as PlayerID | undefined;
     const serverParams = {
       controller: caster,
       ...(targetPlayerId ? { targetPlayerId } : {}),
@@ -204,9 +243,12 @@ export function applyOracleIRUncategorizedSpellFallback(
       ...(sourceItem ? { sourceItem } : {}),
     };
 
-    const resolvedExecutionOptions: OracleIRExecutionOptions = {
-      allowOptional: false,
+    const baseExecutionOptions: OracleIRExecutionOptions = {
       ...(executionOptions || {}),
+    };
+    const mandatoryExecutionOptions: OracleIRExecutionOptions = {
+      ...baseExecutionOptions,
+      allowOptional: false,
     };
 
     if (mandatorySteps.length > 0) {
@@ -220,7 +262,7 @@ export function applyOracleIRUncategorizedSpellFallback(
           sourceName: spellName,
           sourceId: sourcePermanentId || sourceId,
         },
-        resolvedExecutionOptions,
+        mandatoryExecutionOptions,
         serverParams,
       );
       countHandled(result, queueBefore, mandatorySteps);
@@ -241,7 +283,7 @@ export function applyOracleIRUncategorizedSpellFallback(
           sourceId: sourcePermanentId || sourceId,
         },
         {
-          ...resolvedExecutionOptions,
+          ...baseExecutionOptions,
           allowOptional: true,
         },
         serverParams,

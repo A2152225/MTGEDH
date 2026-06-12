@@ -83,6 +83,7 @@ export enum ResolutionStepType {
   COUNTER_MOVEMENT = 'counter_movement',
   // Legacy interactive: choose a target to receive counters
   COUNTER_TARGET = 'counter_target',
+  COUNTER_DISTRIBUTION = 'counter_distribution',
   // Legacy interactive: Station creature selection (Spacecraft)
   STATION_CREATURE_SELECTION = 'station_creature_selection',
   // Legacy interactive: pay X life as part of casting a spell (Toxic Deluge, Hatred, etc.)
@@ -390,6 +391,20 @@ export interface CounterTargetStep extends BaseResolutionStep {
   readonly minTargets: number;
   readonly maxTargets: number;
   readonly targetDescription: string;
+  readonly title?: string;
+}
+
+/**
+ * Counter distribution resolution step
+ * Used when distributing counters among multiple pre-selected targets (e.g. Court of Garenbrig).
+ */
+export interface CounterDistributionStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.COUNTER_DISTRIBUTION;
+  readonly counterType: string;
+  readonly totalAmount: number;
+  readonly minPerTarget?: number;
+  readonly validTargets: readonly ChoiceOption[];
+  readonly message?: string;
   readonly title?: string;
 }
 
@@ -921,6 +936,7 @@ export type ResolutionStep =
   | TapUntapTargetStep
   | CounterMovementStep
   | CounterTargetStep
+  | CounterDistributionStep
   | StationCreatureSelectionStep
   | LifePaymentStep
   | AdditionalCostPaymentStep

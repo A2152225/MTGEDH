@@ -115,10 +115,14 @@ export function calculateEffectivePT(
 
   let power = typeof permanent.basePower === 'number'
     ? permanent.basePower
-    : (parseInt(String(card.power || '0')) || 0);
+    : (typeof (permanent as any).power === 'number'
+      ? (permanent as any).power
+      : (parseInt(String(card.power || '0')) || 0));
   let toughness = typeof permanent.baseToughness === 'number'
     ? permanent.baseToughness
-    : (parseInt(String(card.toughness || '0')) || 0);
+    : (typeof (permanent as any).toughness === 'number'
+      ? (permanent as any).toughness
+      : (parseInt(String(card.toughness || '0')) || 0));
 
   const ptSetters = Array.isArray(permanent.modifiers)
     ? permanent.modifiers.filter(mod => String((mod as any)?.type || '') === 'setPowerToughness')
