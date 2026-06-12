@@ -16589,9 +16589,26 @@ export function repairSubjectlessDrawAfterZoneShuffleAbilities(
       const previous = ability.steps[index - 1];
       if (
         step.kind === 'draw' &&
-        previous?.kind === 'shuffle_zones_into_library' &&
         (step.who as any)?.kind === 'you' &&
-        /^draws\b/i.test(String(step.raw || '').trim())
+        /^(?:then\s+)?draws\b/i.test(String(step.raw || '').trim()) &&
+        previous &&
+        (
+          (
+            previous.kind === 'shuffle_zones_into_library' &&
+            (previous.who as any)?.kind !== 'you'
+          ) ||
+          (
+            previous.kind === 'discard' &&
+            (previous.who as any)?.kind === 'each_player' &&
+            (
+              (
+                (previous.amount as any)?.kind === 'number' &&
+                Number((previous.amount as any)?.value) >= 9999
+              ) ||
+              /\b(?:their|your)\s+hand\b/i.test(String(previous.raw || ''))
+            )
+          )
+        )
       ) {
         changed = true;
         return { ...step, who: previous.who } as OracleEffectStep;

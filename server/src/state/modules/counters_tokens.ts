@@ -20,6 +20,10 @@ import { applyShieldCounterDamagePrevention, getCounterLeaveBattlefieldReplaceme
 import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 import { detectKeywords } from "./keyword-detection.js";
 import { moveRemovedPermanentToExile } from "./zones.js";
+import {
+  hasGraveyardSelfShuffleIntoLibraryReplacement,
+  shuffleRemovedPermanentIntoOwnerLibrary,
+} from "./zone-manipulation.js";
 import { registerLinkedExile } from "./triggers/linked-exile.js";
 import { queueCounterPlacedTriggers, queueCounterRemovedTriggers } from "./triggers/counters.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
@@ -1313,6 +1317,16 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   const isCreature = (card?.type_line || '').toLowerCase().includes('creature');
 
   clearPreparedStateOnBattlefieldExit(state, perm);
+
+  if (hasGraveyardSelfShuffleIntoLibraryReplacement(zoneCard || card)) {
+    shuffleRemovedPermanentIntoOwnerLibrary(ctx, perm, String(owner || ''));
+    try {
+      recalculatePlayerEffects(ctx);
+    } catch (err) {
+      debugWarn(1, '[movePermanentToGraveyard] Failed to recalculate player effects after self-shuffle replacement:', err);
+    }
+    return true;
+  }
 
   // Per-turn tracking for morbid/revolt-style conditions
   try {

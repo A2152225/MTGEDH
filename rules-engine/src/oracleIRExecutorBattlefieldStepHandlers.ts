@@ -8099,6 +8099,38 @@ export function applyAddCounterStep(
   const distributeResult = tryApplyDistributeCountersAmong(state, step, ctx, runtime);
   if (distributeResult) return distributeResult;
 
+  if (/^each creature you control of (?:that|the chosen) type$/i.test(normalizedTargetText)) {
+    const chosenType = String(ctx.selectorContext?.chosenCreatureType || '').trim().toLowerCase();
+    if (!chosenType) {
+      return {
+        applied: false,
+        message: `Skipped add counter (requires chosen creature type): ${step.raw}`,
+        reason: 'player_choice_required',
+      };
+    }
+    const counterName = String(step.counter || '+1/+1').trim();
+    const amountValue = resolveAddCounterAmount(state, step, ctx, runtime) ?? 1;
+    const targets = ((state.battlefield || []) as BattlefieldPermanent[]).filter((perm: any) =>
+      permanentMatchesSelector(
+        perm,
+        { kind: 'battlefield_selector', types: ['creature'], controllerFilter: 'you' },
+        ctx,
+      ) && typeLineHasSubtype(perm, chosenType),
+    );
+    const targetIds = new Set(targets.map((target: any) => String(target?.id || '').trim()).filter(Boolean));
+    const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+      if (!targetIds.has(String(perm?.id || '').trim())) return perm;
+      const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+      counters[counterName] = (Number(counters[counterName] ?? 0) || 0) + amountValue;
+      return { ...perm, counters };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: [`Added ${amountValue} ${counterName} counter(s) to ${targets.length} creature(s) of type ${chosenType}`],
+    };
+  }
+
   const special = trySpecialAddCounterStep(state, step, ctx);
   if (special) return special;
 

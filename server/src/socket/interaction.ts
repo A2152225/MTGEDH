@@ -26,6 +26,10 @@ import {
   getCreatureCountManaAmount,
   detectManaModifiers
 } from "../state/modules/mana-abilities";
+import {
+  buildAnyCombinationManaSelectionFields,
+  hasPendingManaColorSelectionForPermanent,
+} from "../state/modules/manaColorSelectionStepUtils.js";
 import { canPayManaCost, canPayManaCostWithAvailableSources, getAvailableMana } from "../state/modules/mana-check.js";
 import { cardManaValue, exchangePermanentOracleText, parsePT, parseWordNumber } from "../state/utils";
 import { buildEmbalmOrEternalizeTokenPermanent } from "../state/modules/graveyard-tokens.js";
@@ -4711,6 +4715,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (creatureCountMana.color === 'any_combination' || 
             creatureCountMana.color === 'any_one_color' ||
             creatureCountMana.color.startsWith('combination:')) {
+          const combinationFields = buildAnyCombinationManaSelectionFields({
+            totalAmount,
+            cardName,
+            allowedColors: ['W', 'U', 'B', 'R', 'G'],
+          });
           // Resolution Queue: request a color choice from player
           ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.MANA_COLOR_SELECTION,
@@ -4718,14 +4727,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             sourceId: permanentId,
             sourceName: cardName,
             sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-            description: `Choose a color for ${cardName}'s mana.`,
+            description: combinationFields.description,
             mandatory: true,
-            selectionKind: 'any_color',
+            selectionKind: combinationFields.selectionKind,
             permanentId,
             cardName,
-            amount: totalAmount,
-            allowedColors: ['W', 'U', 'B', 'R', 'G'],
-            singleColor: true,
+            ...(combinationFields.amount != null ? { amount: combinationFields.amount } : null),
+            ...(combinationFields.totalAmount != null ? { totalAmount: combinationFields.totalAmount } : null),
+            ...(combinationFields.availableColors ? { availableColors: combinationFields.availableColors } : null),
+            allowedColors: combinationFields.allowedColors,
+            singleColor: combinationFields.selectionKind === 'any_color',
             dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
             manaMultiplier: effectiveMultiplier,
           } as any);
@@ -9001,6 +9012,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
+    if (hasPendingManaColorSelectionForPermanent(gameId, String(permanentId), String(pid))) {
+      socket.emit("error", {
+        code: "RESOLUTION_PENDING",
+        message: `${cardName} already has a pending mana color choice. Finish that prompt before activating again.`,
+      });
+      return;
+    }
+
     // Validate: if ability requires untap ({Q}), permanent must currently be tapped
     // (the {Q} symbol pays the cost by untapping the source)
     if (requiresUntap && !(permanent as any).tapped) {
@@ -12621,6 +12640,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               creatureCountMana.color === 'any_one_color' ||
               creatureCountMana.color.startsWith('combination:')
             ) {
+          const combinationFields = buildAnyCombinationManaSelectionFields({
+            totalAmount,
+            cardName,
+            allowedColors: ['W', 'U', 'B', 'R', 'G'],
+          });
           // Resolution Queue: request a color choice from player
           const queuedManaChoiceStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.MANA_COLOR_SELECTION,
@@ -12628,16 +12652,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             sourceId: permanentId,
             sourceName: cardName,
             sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-            description: `Choose a color for ${cardName}'s mana.`,
+            description: combinationFields.description,
             mandatory: true,
-            selectionKind: 'any_color',
+            selectionKind: combinationFields.selectionKind,
             permanentId,
             abilityId,
             cardName,
             abilityText: String(resolvedAbilityText || '').trim() || String(abilityText || '').trim(),
             activatedAbilityText: String(resolvedActivatedAbilityText || '').trim(),
-            amount: totalAmount,
-            allowedColors: ['W', 'U', 'B', 'R', 'G'],
+            ...(combinationFields.amount != null ? { amount: combinationFields.amount } : null),
+            ...(combinationFields.totalAmount != null ? { totalAmount: combinationFields.totalAmount } : null),
+            ...(combinationFields.availableColors ? { availableColors: combinationFields.availableColors } : null),
+            allowedColors: combinationFields.allowedColors,
             dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
             manaMultiplier: effectiveMultiplier,
             // Activation-cost evidence (for deterministic replay) and deferred costs

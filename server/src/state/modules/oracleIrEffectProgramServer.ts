@@ -1,9 +1,11 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions } from '../../../../rules-engine/src/oracleIRExecutor.js';
+import type { ChoiceResponse } from '../../../../rules-engine/src/choiceEventsTypes.js';
 import {
   buildEffectProgramFromOracleIR,
   createEffectProgramRuntime,
+  type EffectProgram,
 } from '../../../../rules-engine/src/effectProgram.js';
 import {
   createOracleIREffectProgramHandlers,
@@ -98,7 +100,41 @@ export function requiresEffectProgramOrchestration(
     return true;
   }
 
+  const chooseCreatureTypeIndex = steps.findIndex((step) => step.kind === 'choose_creature_type');
+  if (
+    chooseCreatureTypeIndex >= 0
+    && steps.slice(chooseCreatureTypeIndex + 1).some((step) => step.kind !== 'unknown')
+  ) {
+    return true;
+  }
+
   return countSequentialChoiceSteps(steps) >= 2;
+}
+
+function buildPresetEffectProgramBindings(
+  program: EffectProgram,
+  irCtx: OracleIRExecutionContext,
+): Record<string, ChoiceResponse> {
+  const bindings: Record<string, ChoiceResponse> = {};
+  const presetCreatureType = String(
+    irCtx.selectorContext?.chosenCreatureType || (irCtx as { chosenCreatureType?: string }).chosenCreatureType || '',
+  ).trim();
+  if (!presetCreatureType) return bindings;
+
+  for (const step of program.steps) {
+    if (step.kind !== 'choice') continue;
+    const oracleStepKind = String((step.choiceRequest?.payload as any)?.oracleStepKind || '');
+    if (oracleStepKind !== 'choose_creature_type') continue;
+    bindings[step.bindingKey] = {
+      eventId: step.bindingKey,
+      playerId: irCtx.controllerId,
+      selections: [presetCreatureType],
+      cancelled: false,
+      timestamp: Date.now(),
+    };
+  }
+
+  return bindings;
 }
 
 export interface StartOracleEffectProgramOnServerParams {
@@ -146,7 +182,8 @@ export function probeOracleEffectProgramShadow(
       steps: params.steps,
       metadata: params.metadata,
     });
-    const runtime = createEffectProgramRuntime({ program, state });
+    const initialBindings = buildPresetEffectProgramBindings(program, params.irCtx);
+    const runtime = createEffectProgramRuntime({ program, state, bindings: initialBindings });
     const runResult = runOracleEffectProgram(
       runtime,
       params.irCtx,
@@ -182,6 +219,7 @@ export function startOracleEffectProgramOnServer(
       steps: params.steps,
       metadata: params.metadata,
     });
+    const initialBindings = buildPresetEffectProgramBindings(program, params.irCtx);
 
     const handlers = createOracleIREffectProgramHandlers(
       params.irCtx,
@@ -194,6 +232,7 @@ export function startOracleEffectProgramOnServer(
       program,
       handlers: handlers as any,
       persistPrompt: true,
+      initialBindings,
       queueExtraConfig: {
         sourceId: params.sourceId,
         sourceName: params.sourceName,

@@ -122,11 +122,13 @@ export function tryApplyInstantSorceryLegacyBodyHandlers(
     targets,
   });
 
-  applyLegacySpellRegexDrawHandlers(ctx, {
-    controller,
-    effectiveCard,
-    oracleTextLower,
-  });
+  if (uncategorizedSpellFallbackApplied <= 0) {
+    applyLegacySpellRegexDrawHandlers(ctx, {
+      controller,
+      effectiveCard,
+      oracleTextLower,
+    });
+  }
 
   applyInstantSorceryTokenForEachCreatureHandler(ctx, {
     controller,

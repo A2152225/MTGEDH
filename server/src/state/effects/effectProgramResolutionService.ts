@@ -31,6 +31,7 @@ export interface StartEffectProgramResolutionArgs {
   readonly state?: GameState;
   readonly persistPrompt?: boolean;
   readonly queueExtraConfig?: EffectProgramQueueExtraConfig;
+  readonly initialBindings?: Readonly<Record<string, unknown>>;
 }
 
 export interface ResumeEffectProgramResolutionArgs {
@@ -55,6 +56,7 @@ export function startEffectProgramResolution(args: StartEffectProgramResolutionA
   const runtime = createEffectProgramRuntime({
     program: args.program,
     state: hydrateEffectProgramStateFromGame(args.game, args.state || (args.game as any)?.state),
+    bindings: args.initialBindings ?? {},
   });
 
   return continueEffectProgramResolution({

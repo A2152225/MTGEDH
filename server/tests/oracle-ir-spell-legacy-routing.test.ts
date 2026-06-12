@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   isCategorizeOpcodeRetiredUnderOracleIrPrimary,
+  isSpellEffectFullyIrWired,
   isSpellEffectOwnedByOracleIrPrimary,
   isSpellStepKindRetiredUnderOracleIrPrimary,
   ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS,
@@ -378,5 +379,21 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(isSpellEffectOwnedByOracleIrPrimary('', 'Spell')).toBe(false);
     expect(shouldSkipLegacySpellRegexHandlers('Do something utterly non-oracular.', 'Spell')).toBe(false);
     expect(shouldSkipLegacySpellCategorizeExecution('Do something utterly non-oracular.', 'Spell')).toBe(false);
+  });
+
+  it('isSpellEffectFullyIrWired reports wired compound wheel and tutor spells independent of primary flag', () => {
+    expect(isSpellEffectFullyIrWired(
+      'Each player shuffles their hand and graveyard into their library, then draws seven cards.',
+      'Echo of Eons',
+    )).toBe(true);
+    expect(isSpellEffectFullyIrWired(
+      'Choose one — • Draw two cards. • Discard your hand, then draw seven cards.',
+      'Chart a Course',
+    )).toBe(true);
+    expect(isSpellEffectFullyIrWired(
+      'Search your library for a creature card with mana value X or less, put it onto the battlefield, then shuffle.',
+      'Celestial Reunion',
+    )).toBe(true);
+    expect(isSpellEffectFullyIrWired('Do something utterly non-oracular.', 'Spell')).toBe(false);
   });
 });

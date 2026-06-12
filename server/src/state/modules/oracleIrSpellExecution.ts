@@ -143,9 +143,10 @@ export function isOracleIrExecutionHandled(
   resolutionQueueStepsBefore: number,
   resolutionQueueStepsAfter: number,
   parsedSteps?: readonly OracleEffectStep[],
+  state?: any,
 ): boolean {
   const queueBridged = resolutionQueueStepsAfter > resolutionQueueStepsBefore;
-  if (hasUnqueuedPlayerChoiceGap(result, queueBridged)) return false;
+  if (hasUnqueuedPlayerChoiceGap(result, queueBridged, state)) return false;
 
   const pendingContinuation = (result.pendingContinuationSteps || []).length;
   if (pendingContinuation > 0 && !queueBridged) return false;
@@ -165,6 +166,7 @@ export function isOracleIrExecutionHandled(
     return isOracleIrMandatoryExecutionComplete(parsedSteps, result, {
       resolutionQueueStepsBefore,
       resolutionQueueStepsAfter,
+      state,
     });
   }
 
@@ -350,13 +352,14 @@ export function tryResolveSpellViaOracleIR(
         controller: params.controller,
         targetPlayerId: targetBinding.targetPlayerId,
         applyMillReplacements: true,
+        sourceItem: params.sourceItem,
       },
     );
 
     const queueAfter = gameId !== 'unknown'
       ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
       : queueBefore;
-    const handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter, steps);
+    const handled = isOracleIrExecutionHandled(result, queueBefore, queueAfter, steps, state);
     const applied = result.appliedSteps.length;
 
     applyOracleIrSpellStructuralSupplements(ctx, params);
@@ -376,7 +379,7 @@ export function tryResolveSpellViaOracleIR(
       logOracleIrAllOrNothingFailure(
         'spell',
         params.spellName,
-        describeOracleIrExecutionHandledIncomplete(result, queueBefore, queueAfter, steps),
+        describeOracleIrExecutionHandledIncomplete(result, queueBefore, queueAfter, steps, state),
         { applied, parsed: steps.length },
       );
     }

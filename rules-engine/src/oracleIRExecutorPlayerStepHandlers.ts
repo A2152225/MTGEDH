@@ -60,6 +60,7 @@ type StepApplyResult = {
   readonly lastVisitedAttractions?: readonly any[];
   readonly lastScryLookedAtCount?: number;
   readonly lastDiscardedCardCount?: number;
+  readonly lastGreatestDiscardedCardCount?: number;
   readonly lastDiscardedCards?: readonly any[];
   readonly lastMovedCards?: readonly any[];
   readonly lastRevealedCardCount?: number;
@@ -4517,6 +4518,7 @@ export function applyDiscardStep(
       state: result.state,
       log: result.log,
       lastDiscardedCardCount: result.discardedCount,
+      lastGreatestDiscardedCardCount: result.discardedCount,
       lastDiscardedCards: result.discardedCards,
       lastMovedCards: result.discardedCards,
     };
@@ -4602,6 +4604,7 @@ export function applyDiscardStep(
         state: result.state,
         log: result.log,
         lastDiscardedCardCount: result.discardedCount,
+        lastGreatestDiscardedCardCount: result.discardedCount,
         lastDiscardedCards: result.discardedCards,
         lastMovedCards: result.discardedCards,
       };
@@ -4673,6 +4676,7 @@ export function applyDiscardStep(
       state: result.state,
       log: result.log,
       lastDiscardedCardCount: result.discardedCount,
+      lastGreatestDiscardedCardCount: result.discardedCount,
       lastDiscardedCards: result.discardedCards,
       lastMovedCards: result.discardedCards,
     };
@@ -4712,6 +4716,7 @@ export function applyDiscardStep(
       state: result.state,
       log: result.log,
       lastDiscardedCardCount: result.discardedCount,
+      lastGreatestDiscardedCardCount: result.discardedCount,
       lastDiscardedCards: result.discardedCards,
       lastMovedCards: result.discardedCards,
     };
@@ -4735,11 +4740,14 @@ export function applyDiscardStep(
   let nextState = state;
   const log: string[] = [];
   let totalDiscarded = 0;
+  let greatestDiscarded = 0;
   const discardedCards: any[] = [];
   for (const playerId of players) {
     const result = discardCardsForPlayer(nextState, playerId, amount);
     nextState = result.state;
-    totalDiscarded += Math.max(0, Number(result.discardedCount) || 0);
+    const discardedCount = Math.max(0, Number(result.discardedCount) || 0);
+    totalDiscarded += discardedCount;
+    greatestDiscarded = Math.max(greatestDiscarded, discardedCount);
     if (Array.isArray(result.discardedCards)) discardedCards.push(...result.discardedCards);
     log.push(...result.log);
   }
@@ -4749,6 +4757,7 @@ export function applyDiscardStep(
     state: nextState,
     log,
     lastDiscardedCardCount: totalDiscarded,
+    lastGreatestDiscardedCardCount: greatestDiscarded,
     lastDiscardedCards: discardedCards,
     lastMovedCards: discardedCards,
   };

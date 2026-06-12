@@ -16,6 +16,7 @@ import {
 export type ModifyPtRuntime = {
   readonly lastRevealedCardCount?: number;
   readonly lastDiscardedCardCount?: number;
+  readonly lastGreatestDiscardedCardCount?: number;
   readonly lastDiscardedCards?: readonly any[];
   readonly lastExiledCardCount?: number;
   readonly lastExiledCards?: readonly any[];

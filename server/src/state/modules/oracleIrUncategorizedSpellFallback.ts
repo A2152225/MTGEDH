@@ -23,6 +23,7 @@ import { debug, debugWarn } from '../../utils/debug.js';
 import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
 import { detectInstantSorcerySpellShapeFlags } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { applyInstantSorceryNibelheimAflameEffect } from './stackResolveSpellSpecialCaseUtils.js';
+import { isCelestialReunionOracle } from './chosen-creature-type.js';
 
 const EFFECT_PROGRAM_ONLY_KINDS = new Set<string>([
   'choose_mode',
@@ -73,6 +74,19 @@ function collectSpellSteps(oracleText: string, spellName: string): OracleEffectS
   return steps;
 }
 
+/** Celestial X-search + shuffle stay on legacy tutor bridge until IR queue parity is complete. */
+function isCelestialLegacyLibrarySearchStep(step: OracleEffectStep): boolean {
+  return step.kind === 'search_library' || step.kind === 'shuffle_library';
+}
+
+function excludeCelestialLegacyOwnedSteps(
+  steps: readonly OracleEffectStep[],
+  oracleText: string,
+): OracleEffectStep[] {
+  if (!isCelestialReunionOracle(oracleText)) return [...steps];
+  return steps.filter((step) => !isCelestialLegacyLibrarySearchStep(step));
+}
+
 /**
  * Best-effort Oracle IR resolution for spells that did not match categorizeSpell.
  * Delegates to applyOracleIRStepsOnServer instead of duplicating per-step handlers.
@@ -116,9 +130,10 @@ export function applyOracleIRUncategorizedSpellFallback(
     if (isNibelheimShape) {
       fallbackSteps = fallbackSteps.filter((step) => step.kind !== 'deal_damage');
     }
+    fallbackSteps = excludeCelestialLegacyOwnedSteps(fallbackSteps, text);
     if (fallbackSteps.length === 0) return 0;
 
-    const mandatoryAll = mandatoryStepsFrom(allSteps);
+    const mandatoryAll = mandatoryStepsFrom(excludeCelestialLegacyOwnedSteps(allSteps, text));
     const mandatoryIncluded = mandatoryStepsFrom(fallbackSteps);
     if (mandatoryAll.length > 0 && mandatoryIncluded.length < mandatoryAll.length) {
       logOracleIrAllOrNothingFailure(
@@ -134,6 +149,12 @@ export function applyOracleIRUncategorizedSpellFallback(
       return 0;
     }
 
+    const chosenCreatureType = String(
+      sourceItem?.chosenCreatureType
+      || sourceItem?.card?.chosenCreatureType
+      || '',
+    ).trim();
+
     const executionCtx = irCtx || buildOracleIRExecutionContext({
       controllerId: caster,
       sourceId: sourcePermanentId || sourceId,
@@ -141,9 +162,16 @@ export function applyOracleIRUncategorizedSpellFallback(
       sourceObjectType,
       xValue,
       ...(castFromGraveyard ? { castFromZone: 'graveyard' as const } : {}),
+      ...(chosenCreatureType
+        ? {
+            selectorContext: { chosenCreatureType },
+            chosenCreatureType,
+          }
+        : {}),
     }, {
       sourceObjectType,
       castFromZone: castFromGraveyard ? 'graveyard' : undefined,
+      ...(chosenCreatureType ? { chosenCreatureType } : {}),
     });
 
     const gameId = String((ctx as any).gameId || 'unknown');
@@ -178,6 +206,7 @@ export function applyOracleIRUncategorizedSpellFallback(
       controller: caster,
       ...(targetPlayerId ? { targetPlayerId } : {}),
       applyMillReplacements: true,
+      ...(sourceItem ? { sourceItem } : {}),
     };
 
     const resolvedExecutionOptions: OracleIRExecutionOptions = {

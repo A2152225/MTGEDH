@@ -3,6 +3,9 @@ import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { tryDeferTriggeredAbilityBeforeExecution } from './stackResolveTriggeredAbilityDeferralUtils.js';
 import type { TriggeredAbilityStackResolveOptions } from './stackResolveSharedTypes.js';
+import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
+
+export { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
 
 /**
  * Resolves a triggered-ability stack item. Returns true when resolveTopOfStack
@@ -25,7 +28,7 @@ export function resolveTriggeredAbilityStackItem(
   const triggerController = (item as any).controller || controller;
   const triggerType = (item as any).triggerType;
   const sourceId = (item as any).id;
-  const effectText = String((item as any).effect || description || '').trim();
+  const effectText = resolveTriggerStackItemEffectText(item);
   const optionalTriggeredAbilityDecisionApplied = (item as any).optionalTriggeredAbilityDecisionApplied === true;
 
   debug(2, `[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);
@@ -47,7 +50,7 @@ export function resolveTriggeredAbilityStackItem(
   }
 
   debug(2, `[resolveTopOfStack] Executing trigger effect: controller=${triggerController}, sourceName=${sourceName}, triggerType=${triggerType}`);
-  executeTriggerEffect(ctx, triggerController, sourceName, effectText || description, item);
+  executeTriggerEffect(ctx, triggerController, sourceName, effectText, item);
   bumpSeq();
   return true;
 }

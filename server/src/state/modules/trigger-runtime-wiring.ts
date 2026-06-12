@@ -50,6 +50,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'conditional',
   'search_library',
   'shuffle_library',
+  'shuffle_zones_into_library',
   'look_choose_from_top',
   'look_select_top',
   'choose_pile',
@@ -165,8 +166,21 @@ function isOptionalTriggerStep(step: OracleEffectStep): boolean {
   return /^you may\b/i.test(String(step.raw || '').trim());
 }
 
+const TRIGGER_CHOICE_STEP_KINDS = new Set<string>([
+  'choose_creature_type',
+  'choose_color',
+  'choose_card_name',
+  'choose_basic_land_type',
+  'choose_opponent',
+  'choose_target_creature',
+]);
+
 export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
   if (step.kind === 'unknown') return true;
+
+  if (TRIGGER_CHOICE_STEP_KINDS.has(String(step.kind))) {
+    return true;
+  }
 
   if (step.kind === 'copy_permanent') {
     return isSupportedCopyPermanentTriggerPattern(step);

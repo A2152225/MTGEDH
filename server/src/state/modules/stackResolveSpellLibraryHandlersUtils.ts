@@ -22,8 +22,7 @@ import {
 import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 
-function hasOracleIrQueuedLibrarySearch(ctx: GameContext, spellName: string): boolean {
-  if (!isOracleIrSpellPrimaryEnabled()) return false;
+function hasIrBridgedLibrarySearchForSpell(ctx: GameContext, spellName: string): boolean {
   const gameId = String((ctx as any).gameId || '').trim();
   if (!gameId || gameId === 'unknown') return false;
   const normalizedName = String(spellName || '').trim();
@@ -32,6 +31,11 @@ function hasOracleIrQueuedLibrarySearch(ctx: GameContext, spellName: string): bo
       && Boolean((step as any).oracleIrChoiceStepJson)
       && String((step as any).sourceName || '').trim() === normalizedName,
   );
+}
+
+function hasOracleIrQueuedLibrarySearch(ctx: GameContext, spellName: string): boolean {
+  if (!isOracleIrSpellPrimaryEnabled()) return false;
+  return hasIrBridgedLibrarySearchForSpell(ctx, spellName);
 }
 
 function computeGreatestControlledCreaturePower(state: any, controller: PlayerID): number {

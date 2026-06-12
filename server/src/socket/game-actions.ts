@@ -20,6 +20,7 @@ import { requiresColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
 import { checkAndPromptOpeningHandActions, isOpeningHandBattlefieldCard } from "./opening-hand";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
+import { resolveOnCastSpellTriggerDescription } from "../state/modules/onCastSpellTriggerUtils.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferGenericTriggeredAbilityTargetMetadata } from "../state/modules/triggers/index.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
@@ -12202,14 +12203,15 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Check for "When you cast this spell" triggers on the spell itself (Kozilek, Ulamog, etc.)
       try {
         const eldraziEffect = detectEldraziEffect(cardInHand, { id: cardId, controller: playerId });
-        if (eldraziEffect && eldraziEffect.castTrigger) {
-          debug(2, `[castSpellFromHand] On-cast trigger matching: ${cardInHand.name} - ${eldraziEffect.castTrigger}`);
-          
-          const triggerLower = eldraziEffect.castTrigger.toLowerCase();
-          const description = eldraziEffect.castTrigger;
+        const onCastTrigger = resolveOnCastSpellTriggerDescription(cardInHand, eldraziEffect);
+        if (onCastTrigger) {
+          debug(2, `[castSpellFromHand] On-cast trigger matching: ${cardInHand.name} - ${onCastTrigger.description}`);
+
+          const triggerLower = onCastTrigger.description.toLowerCase();
+          const description = onCastTrigger.description;
           const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(description);
           const triggerId = uid('trigger');
-          
+
           const triggerPayload: any = {
             id: triggerId,
             type: 'triggered_ability',
@@ -12218,7 +12220,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             sourceName: cardInHand.name,
             description,
             triggerType: 'triggered_ability',
-            effect: description,
+            effect: onCastTrigger.effect,
             mandatory: true,
             card: {
               ...cardInHand,

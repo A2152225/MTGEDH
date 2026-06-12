@@ -19,12 +19,13 @@ import {
   buildSearchLibrarySelectionOptions,
 } from '../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
 import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions, collectBlightTargetSelectionConfigs } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
-import type { GameContext } from '../context.js';
+import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import {
   detectTutorSpell,
   parseLibrarySearchFilter,
 } from './oracleIrSpellLegacyTutorUtils.js';
+import { isCelestialReunionOracle } from './chosen-creature-type.js';
 import { applyMillReplacements } from './game-state-effects.js';
 import { processMillTriggers } from './zones.js';
 import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
@@ -1156,6 +1157,7 @@ function queueSearchLibraryChoicePromptsFromOracleIRResult(
     sourceName?: string;
     sourceId?: string;
     irCtx: OracleIRExecutionContext;
+    sourceItem?: any;
   },
 ): void {
   const gameId = String((ctx as any).gameId || '').trim();
@@ -1172,6 +1174,8 @@ function queueSearchLibraryChoicePromptsFromOracleIRResult(
     const step = findSkippedOracleStep(result, gap);
     if (!step || step.kind !== 'search_library') continue;
 
+    const stepRaw = String((step as any).raw || 'Search your library');
+
     const built = buildSearchLibrarySelectionOptions(
       state,
       step as Extract<OracleEffectStep, { kind: 'search_library' }>,
@@ -1183,7 +1187,6 @@ function queueSearchLibraryChoicePromptsFromOracleIRResult(
     if (queuedKeys.has(queueKey)) continue;
     queuedKeys.add(queueKey);
 
-    const stepRaw = String((step as any).raw || 'Search your library');
     const tutorInfo = detectTutorSpell(stepRaw);
     const splitDestination = tutorInfo.splitDestination === true;
     const destination = splitDestination
@@ -1201,6 +1204,37 @@ function queueSearchLibraryChoicePromptsFromOracleIRResult(
                 : 'hand';
     const criteriaText = String((step as any).criteria?.text || tutorInfo.searchCriteria || '');
     const filter = parseLibrarySearchFilter(criteriaText);
+    const criteriaLower = criteriaText.toLowerCase();
+    if (
+      typeof filter.maxCmc !== 'number'
+      && /(?:mana value|converted mana cost|cmc)\s+x\s+or\s+less/.test(criteriaLower)
+    ) {
+      const xValue = Number(params.irCtx.xValue);
+      if (Number.isFinite(xValue)) {
+        filter.maxCmc = Math.max(0, Math.floor(xValue));
+      }
+    }
+
+    const sourceItem = params.sourceItem;
+    const chosenType = String(
+      params.irCtx.selectorContext?.chosenCreatureType
+      || (params.irCtx as any).chosenCreatureType
+      || sourceItem?.chosenCreatureType
+      || sourceItem?.card?.chosenCreatureType
+      || '',
+    ).trim();
+    const beholdPaid = Boolean(
+      sourceItem?.additionalCostPaid ?? sourceItem?.card?.additionalCostPaid,
+    );
+    const chosenTypeBattlefieldIfPaid =
+      beholdPaid
+      && chosenType
+      && (
+        isCelestialReunionOracle(stepRaw)
+        || /creature card with mana value x or less/i.test(stepRaw)
+      )
+        ? { chosenType, additionalCostPaid: true as const }
+        : undefined;
 
     ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
       type: ResolutionStepType.LIBRARY_SEARCH,
@@ -1219,6 +1253,7 @@ function queueSearchLibraryChoicePromptsFromOracleIRResult(
       availableCards: built.matches.map(normalizeTopLibraryPromptCard),
       persistLibrarySearchResolve: true,
       persistLibrarySearchResolveReason: 'stack_resolution',
+      ...(chosenTypeBattlefieldIfPaid ? { chosenTypeBattlefieldIfPaid } : {}),
       ...(splitDestination
         ? {
             splitDestination: true,
@@ -1956,6 +1991,52 @@ function queuePlayerChoicePromptsFromOracleIRResult(
   }
 }
 
+function syncIrPendingDiscardFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  const sourceName = String(params.sourceName || 'Spell').trim() || 'Spell';
+
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (String(gap.stepKind || '') !== 'discard') continue;
+
+    const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'discard' }> | undefined;
+    if (!step) continue;
+
+    const builtPrompts = collectDiscardSelectionOptionsForStep(state, step, params.irCtx);
+    for (const built of builtPrompts) {
+      if (!built) continue;
+      if (!built.anyNumberDiscard && built.discardCount <= 0) continue;
+
+      if (gameId && gameId !== 'unknown') {
+        try {
+          const alreadyQueued = ResolutionQueueManager
+            .getStepsForPlayer(gameId, built.playerId)
+            .some((candidate) => candidate.type === ResolutionStepType.DISCARD_SELECTION);
+          if (alreadyQueued) continue;
+        } catch {
+          // ignore
+        }
+      }
+
+      state.pendingDiscard = state.pendingDiscard || {};
+      state.pendingDiscard[built.playerId] = {
+        count: built.discardCount,
+        source: sourceName,
+        reason: 'spell_effect',
+      };
+    }
+  }
+}
+
 function findSkippedOracleStep(
   result: OracleIRExecutionResult,
   gap: { readonly stepKind?: string; readonly raw?: string }
@@ -2567,6 +2648,7 @@ export function applyOracleIRStepsOnServer(
     targetPlayerId?: PlayerID;
     applyMillReplacements?: boolean;
     triggerItem?: any;
+    sourceItem?: any;
   },
 ): OracleIRExecutionResult {
   hydrateOracleIRPlayerZonesFromContext(ctx, state);
@@ -2622,6 +2704,11 @@ export function applyOracleIRStepsOnServer(
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  syncIrPendingDiscardFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     irCtx,
   });
   queueConniveChoicePromptsFromOracleIRResult(ctx, state, result, {
@@ -2688,6 +2775,7 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
+    sourceItem: (params as any)?.sourceItem,
   });
   queueChoosePileChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
@@ -2717,6 +2805,12 @@ export function applyOracleIRStepsOnServer(
     state,
     String(irCtx.sourceName || '').trim() || 'Ability',
   );
+  if (isOracleIrTriggerPrimaryEnabled()) {
+    syncIrPowerToughnessModifiersToTemporaryPTMods(
+      state,
+      String(irCtx.sourceName || '').trim() || 'Ability',
+    );
+  }
   syncIrImpulseExileToPendingImpulseDraws(
     state,
     result,
@@ -2940,6 +3034,37 @@ function syncIrImpulseExileToPendingImpulseDraws(
   }
 }
 
+function normalizeTemporaryAbilityKeyForSync(ability: string): string {
+  return String(ability || '')
+    .toLowerCase()
+    .replace(/\s+this turn/g, '')
+    .trim();
+}
+
+function preferTemporaryAbilityText(existing: string, candidate: string): string {
+  const left = String(existing || '').trim();
+  const right = String(candidate || '').trim();
+  if (!left) return right;
+  if (!right) return left;
+  if (/\bthis turn\b/i.test(left) && !/\bthis turn\b/i.test(right)) return left;
+  if (/\bthis turn\b/i.test(right) && !/\bthis turn\b/i.test(left)) return right;
+  return left.length >= right.length ? left : right;
+}
+
+function canonicalizeTemporaryAbilityForServer(abilityText: string, expiresAt: string): string {
+  const text = String(abilityText || '').trim();
+  if (!text) return text;
+  if (expiresAt !== 'end_of_turn' && expiresAt !== 'end_of_combat') return text;
+  if (/\bthis turn\b/i.test(text)) return text;
+  if (/can't be blocked by creatures with power \d+ or less$/i.test(text)) {
+    return `${text} this turn`;
+  }
+  if (/^prevent all combat damage that would be dealt to this creature$/i.test(text)) {
+    return `${text} this turn`;
+  }
+  return text;
+}
+
 function syncIrTemporaryGrantEffectsToServerTemporaryAbilities(
   state: any,
   sourceName: string,
@@ -2958,7 +3083,10 @@ function syncIrTemporaryGrantEffectsToServerTemporaryAbilities(
       if (expiresAt && expiresAt !== 'end_of_turn' && expiresAt !== 'end_of_combat') continue;
 
       const description = String(effect.description || '').trim();
-      if (description) pendingAbilities.push(description);
+      if (description) {
+        pendingAbilities.push(description);
+        continue;
+      }
 
       const effectGranted = Array.isArray(effect.grantedAbilities) ? effect.grantedAbilities : [];
       for (const ability of effectGranted) {
@@ -2971,17 +3099,67 @@ function syncIrTemporaryGrantEffectsToServerTemporaryAbilities(
 
     perm.temporaryAbilities = Array.isArray(perm.temporaryAbilities) ? perm.temporaryAbilities : [];
     for (const abilityText of pendingAbilities) {
-      const normalized = abilityText.toLowerCase();
-      const alreadyPresent = perm.temporaryAbilities.some((entry: any) => {
-        const existing = typeof entry === 'string'
-          ? String(entry || '').trim().toLowerCase()
-          : String(entry?.ability || '').trim().toLowerCase();
-        return existing === normalized || existing.includes(normalized) || normalized.includes(existing);
-      });
-      if (alreadyPresent) continue;
+      const canonicalAbility = canonicalizeTemporaryAbilityForServer(abilityText, 'end_of_turn');
+      const key = normalizeTemporaryAbilityKeyForSync(canonicalAbility);
+      const existingIndex = perm.temporaryAbilities.findIndex((entry: any) =>
+        normalizeTemporaryAbilityKeyForSync(String(entry?.ability || entry || '')) === key
+        && String(entry?.source || sourceName) === String(sourceName)
+        && String(entry?.expiresAt || 'end_of_turn') === 'end_of_turn'
+      );
+      if (existingIndex >= 0) {
+        const existingAbility = String(perm.temporaryAbilities[existingIndex]?.ability || '').trim();
+        const merged = preferTemporaryAbilityText(existingAbility, canonicalAbility);
+        if (merged !== existingAbility) {
+          perm.temporaryAbilities[existingIndex] = {
+            ...perm.temporaryAbilities[existingIndex],
+            ability: merged,
+          };
+        }
+        continue;
+      }
 
       perm.temporaryAbilities.push({
-        ability: abilityText,
+        ability: canonicalAbility,
+        source: sourceName,
+        expiresAt: 'end_of_turn',
+        turnApplied: turnNumber,
+      });
+    }
+  }
+}
+
+function syncIrPowerToughnessModifiersToTemporaryPTMods(
+  state: any,
+  sourceName: string,
+): void {
+  const turnNumber = Number(state?.turnNumber || 0);
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+
+  for (const perm of battlefield) {
+    if (!perm || typeof perm !== 'object') continue;
+    const modifiers = Array.isArray(perm.modifiers) ? perm.modifiers : [];
+    if (modifiers.length === 0) continue;
+
+    perm.temporaryPTMods = Array.isArray(perm.temporaryPTMods) ? perm.temporaryPTMods : [];
+    for (const modifier of modifiers) {
+      if (String(modifier?.type || '').trim() !== 'powerToughness') continue;
+      const duration = String(modifier?.duration || 'end_of_turn').trim();
+      if (duration !== 'end_of_turn') continue;
+
+      const power = Number(modifier?.power ?? 0);
+      const toughness = Number(modifier?.toughness ?? 0);
+      const duplicate = perm.temporaryPTMods.some((entry: any) =>
+        Number(entry?.power ?? 0) === power
+        && Number(entry?.toughness ?? 0) === toughness
+        && String(entry?.source || '') === String(sourceName)
+        && String(entry?.expiresAt || 'end_of_turn') === 'end_of_turn'
+        && Number(entry?.turnApplied ?? turnNumber) === turnNumber
+      );
+      if (duplicate) continue;
+
+      perm.temporaryPTMods.push({
+        power,
+        toughness,
         source: sourceName,
         expiresAt: 'end_of_turn',
         turnApplied: turnNumber,

@@ -256,6 +256,11 @@ function buildTriggerIrContext(
   const defendingOpponentId = binding.targetPlayerId && String(binding.targetPlayerId) !== String(params.controller)
     ? binding.targetPlayerId
     : undefined;
+  const chosenCreatureType = String(
+    params.triggerItem?.chosenCreatureType
+    || params.triggerItem?.card?.chosenCreatureType
+    || '',
+  ).trim();
 
   return buildOracleIRExecutionContext(
     {
@@ -270,6 +275,7 @@ function buildTriggerIrContext(
         ...(binding.targetPlayerId ? { targetPlayerId: binding.targetPlayerId } : {}),
         ...(defendingOpponentId ? { targetOpponentId: defendingOpponentId } : {}),
         ...(binding.targetSpellId ? { targetSpellId: binding.targetSpellId } : {}),
+        ...(chosenCreatureType ? { chosenCreatureType } : {}),
       },
       ...(binding.targetPermanentId ? { targetPermanentId: binding.targetPermanentId } : {}),
     },
@@ -281,6 +287,7 @@ function buildTriggerIrContext(
       chosenObjectIds: binding.chosenObjectIds,
       sourceObjectType: 'ability',
       referenceAmount: binding.referenceAmount,
+      ...(chosenCreatureType ? { chosenCreatureType } : {}),
     },
   );
 }

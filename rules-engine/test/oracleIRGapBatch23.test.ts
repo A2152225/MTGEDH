@@ -260,6 +260,7 @@ describe('Oracle IR gap batch 23 support', () => {
     ])).toEqual([]);
     expect(windfall.abilities[0]?.steps[1]).toMatchObject({
       kind: 'draw',
+      who: { kind: 'each_player' },
       amount: { kind: 'reference_amount', raw: 'greatest_number_discarded_this_way' },
     });
     expect(permanentControl.abilities[0]?.steps[0]).toMatchObject({ kind: 'gain_control', duration: 'indefinite' });

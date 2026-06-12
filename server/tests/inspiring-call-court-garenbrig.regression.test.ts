@@ -3,6 +3,7 @@ import type { PlayerID } from '../../shared/src/index.js';
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutorExecutionContext.js';
 import { createContext, type GameContext } from '../src/state/context.js';
+import { applyOracleIRUncategorizedSpellFallback } from '../src/state/modules/oracleIrUncategorizedSpellFallback.js';
 import { applyLegacySpellRegexDrawHandlers } from '../src/state/modules/stackResolveSpellLegacyRegexDrawUtils.js';
 import { applyOracleIRStepsOnServer } from '../src/state/modules/oracleIrServerZoneSync.js';
 import { tryResolveSpellViaOracleIR } from '../src/state/modules/oracleIrSpellExecution.js';
@@ -99,8 +100,10 @@ describe('Inspiring Call Oracle IR spell primary', () => {
   });
 });
 
-describe('Inspiring Call legacy draw fallback', () => {
-  it('draws one card per controlled creature with a +1/+1 counter and grants indestructible', () => {
+describe('Inspiring Call uncategorized IR fallback (primary OFF)', () => {
+  it('draws and grants indestructible via uncategorized fallback without legacy regex', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '0';
+
     const playerId = 'p1' as PlayerID;
     const ctx = createBaseCtx(playerId);
     const state = (ctx as any).state;
@@ -129,6 +132,31 @@ describe('Inspiring Call legacy draw fallback', () => {
     const oracleText =
       'Draw a card for each creature you control with a +1/+1 counter on it. Those creatures gain indestructible until end of turn. (Damage and effects that say "destroy" don\'t destroy them.)';
 
+    const applied = applyOracleIRUncategorizedSpellFallback(
+      ctx,
+      oracleText,
+      playerId,
+      'Inspiring Call',
+      undefined,
+      undefined,
+      'inspiring-call-legacy-off',
+    );
+
+    expect(applied).toBe(2);
+    expect(state.zones[playerId].hand.length).toBe(2);
+
+    const hasIndestructible = (perm: any) =>
+      (perm?.temporaryAbilities || []).some((entry: any) =>
+        String(typeof entry === 'string' ? entry : entry?.ability || '').toLowerCase().includes('indestructible'),
+      )
+      || (perm?.temporaryEffects || []).some((effect: any) =>
+        (effect.grantedAbilities || []).includes('indestructible'),
+      );
+
+    expect(hasIndestructible(state.battlefield.find((perm: any) => perm.id === 'c1'))).toBe(true);
+    expect(hasIndestructible(state.battlefield.find((perm: any) => perm.id === 'c2'))).toBe(true);
+    expect(hasIndestructible(state.battlefield.find((perm: any) => perm.id === 'c3'))).toBe(false);
+
     applyLegacySpellRegexDrawHandlers(ctx, {
       controller: playerId,
       effectiveCard: { name: 'Inspiring Call' },
@@ -136,9 +164,6 @@ describe('Inspiring Call legacy draw fallback', () => {
     });
 
     expect(state.zones[playerId].hand.length).toBe(2);
-    expect(state.battlefield.find((perm: any) => perm.id === 'c1')?.temporaryAbilities).toContain('indestructible');
-    expect(state.battlefield.find((perm: any) => perm.id === 'c2')?.temporaryAbilities).toContain('indestructible');
-    expect(state.battlefield.find((perm: any) => perm.id === 'c3')?.temporaryAbilities || []).not.toContain('indestructible');
   });
 });
 

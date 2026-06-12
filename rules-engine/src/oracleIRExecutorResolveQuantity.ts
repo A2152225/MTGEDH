@@ -183,6 +183,13 @@ export function resolveOracleQuantity(
       }
     }
 
+    if (normalized === 'greatest_number_discarded_this_way') {
+      const ctxGreatest = Number((ctx as any).lastGreatestDiscardedCardCount);
+      if (Number.isFinite(ctxGreatest)) return Math.max(0, ctxGreatest);
+      const runtimeGreatest = Number(runtime?.lastGreatestDiscardedCardCount);
+      if (Number.isFinite(runtimeGreatest)) return Math.max(0, runtimeGreatest);
+    }
+
     const runtimeAmount = Number(runtime?.lastReferenceAmount);
     if (Number.isFinite(runtimeAmount)) return Math.max(0, runtimeAmount);
 

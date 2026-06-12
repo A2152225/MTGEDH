@@ -17,6 +17,7 @@ import { recordCardPutIntoGraveyardThisTurn, recordPermanentPutIntoHandFromBattl
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
 import { getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
+import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { processLinkedExileReturns } from "./triggers/linked-exile.js";
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
 import { getCardDrawTriggers } from "./triggers/card-draw.js";
@@ -634,8 +635,7 @@ export function applyDredgeDrawReplacementChoice(ctx: GameContext, event: {
 
   const milledCards = library.splice(0, dredgeAmount).map((card: any) => ({ ...card, zone: 'graveyard' }));
   for (const milledCard of milledCards) {
-    graveyard.push(milledCard);
-    recordCardPutIntoGraveyardThisTurn(ctx as any, String(playerId), milledCard, { fromBattlefield: false });
+    pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), milledCard, graveyard);
   }
 
   const [returnedCard] = graveyard.splice(dredgeIndex, 1);
@@ -1275,9 +1275,9 @@ export function selectFromLibrary(ctx: GameContext, playerId: PlayerID, cardIds:
       moved.push(c);
     } else if (moveTo === 'graveyard') {
       (z as any).graveyard = (z as any).graveyard || [];
-      (z as any).graveyard.push({ ...c, zone: 'graveyard', faceDown: false });
-      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), c, { fromBattlefield: false });
-      moved.push(c);
+      if (pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), c, (z as any).graveyard)) {
+        moved.push(c);
+      }
     } else if (moveTo === 'exile') {
       (z as any).exile = (z as any).exile || [];
       (z as any).exile.push({ ...c, zone: 'exile', faceDown: false });
@@ -1385,8 +1385,9 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
   for (const id of toGraveyard) {
     const c = byId.get(id);
     if (c) {
-      (z as any).graveyard.push({ ...c, zone: "graveyard", faceDown: false });
-      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), c, { fromBattlefield: false });
+      pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), c, (z as any).graveyard, {
+        extraFields: { faceDown: false },
+      });
     }
   }
   (z as any).graveyardCount = ((z as any).graveyard || []).length;
@@ -1451,10 +1452,10 @@ export function applyExplore(
     }
     
     if (toGraveyard) {
-      // Put revealed card in graveyard
       (z as any).graveyard = (z as any).graveyard || [];
-      (z as any).graveyard.push({ ...topCard, zone: "graveyard", faceDown: false });
-      recordCardPutIntoGraveyardThisTurn(ctx, String(playerId), topCard, { fromBattlefield: false });
+      pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), topCard, (z as any).graveyard, {
+        extraFields: { faceDown: false },
+      });
       (z as any).graveyardCount = ((z as any).graveyard || []).length;
     }
     // If not toGraveyard, card is already removed from library top and we just

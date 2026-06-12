@@ -630,6 +630,7 @@ export function applyOracleIRStepsToGameStateImpl(
   let currentCtx = ctx;
   let lastRevealedCardCount = 0;
   let lastDiscardedCardCount = 0;
+  let lastGreatestDiscardedCardCount = Math.max(0, Number((ctx as any).lastGreatestDiscardedCardCount) || 0);
   let lastDiscardedCards: any[] = Array.isArray(ctx.lastDiscardedCards) ? [...ctx.lastDiscardedCards] : [];
   let lastExiledCardCount = 0;
   let lastExiledCards: any[] = Array.isArray(ctx.lastExiledCards) ? [...ctx.lastExiledCards] : [];
@@ -1168,6 +1169,7 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyDrawStep(nextState, step, currentCtx, {
           lastRevealedCardCount,
           lastDiscardedCardCount,
+          lastGreatestDiscardedCardCount,
           lastDiscardedCards,
           lastExiledCardCount,
           lastExiledCards,
@@ -2221,6 +2223,10 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyDiscardStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
           lastDiscardedCardCount = Math.max(0, Number(appliedResult.lastDiscardedCardCount) || 0);
+          lastGreatestDiscardedCardCount = Math.max(
+            0,
+            Number(appliedResult.lastGreatestDiscardedCardCount ?? appliedResult.lastDiscardedCardCount) || 0,
+          );
           lastDiscardedCards = Array.isArray(appliedResult.lastDiscardedCards)
             ? [...appliedResult.lastDiscardedCards]
             : [];
@@ -2233,6 +2239,7 @@ export function applyOracleIRStepsToGameStateImpl(
             lastDiscardedCards,
             lastMovedCards,
             referenceAmount: lastReferenceAmount,
+            lastGreatestDiscardedCardCount,
           };
         });
         break;

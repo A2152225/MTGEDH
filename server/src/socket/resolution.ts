@@ -141,6 +141,7 @@ import {
   getExtraManaProduction,
   getManaMultiplier,
 } from "../state/modules/mana-abilities.js";
+import { buildAnyCombinationManaSelectionFields } from "../state/modules/manaColorSelectionStepUtils.js";
 import { continueCastFromGraveyardAbility, resolveManaAbilityActivationShape } from "./interaction.js";
 import {
   advanceDungeonProgress,
@@ -11605,20 +11606,27 @@ async function handleStepResponse(
               creatureCountMana.color === 'any_one_color' ||
               creatureCountMana.color.startsWith('combination:')
             ) {
+              const combinationFields = buildAnyCombinationManaSelectionFields({
+                totalAmount,
+                cardName,
+                allowedColors: ['W', 'U', 'B', 'R', 'G'],
+              });
               ResolutionQueueManager.addStep(gameId, {
                 type: ResolutionStepType.MANA_COLOR_SELECTION,
                 playerId: pid as PlayerID,
                 sourceId: permanentId,
                 sourceName: cardName,
                 sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-                description: `Choose a color for ${cardName}'s mana.`,
+                description: combinationFields.description,
                 mandatory: true,
-                selectionKind: 'any_color',
+                selectionKind: combinationFields.selectionKind,
                 permanentId,
                 abilityId,
                 cardName,
-                amount: totalAmount,
-                allowedColors: ['W', 'U', 'B', 'R', 'G'],
+                ...(combinationFields.amount != null ? { amount: combinationFields.amount } : null),
+                ...(combinationFields.totalAmount != null ? { totalAmount: combinationFields.totalAmount } : null),
+                ...(combinationFields.availableColors ? { availableColors: combinationFields.availableColors } : null),
+                allowedColors: combinationFields.allowedColors,
                 dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
                 manaMultiplier: effectiveMultiplier,
                 tappedPermanentsForCost: requiresTap ? [permanentId] : [],

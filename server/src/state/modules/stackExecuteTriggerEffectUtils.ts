@@ -9,6 +9,7 @@ import { tryApplyTriggerEffectLegacyTailHandlers } from './stackExecuteTriggerEf
 import { tryResolveTriggerViaOracleIR } from './oracleIrTriggerExecution.js';
 import { applyRetiredTriggerLegacyKeywordTriggerFallback } from './oracleIrTriggerLegacyKeywordHandlers.js';
 import { applyRetiredTriggerLegacyCreateCreatureToken } from './oracleIrTriggerLegacyTokenHandlers.js';
+import { tryApplyPresetTriggerChosenTypeEffects } from './stackExecuteTriggerChosenTypeUtils.js';
 
 function isCreateCreatureTokenTriggerText(text: string): boolean {
   return /create (?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+).*?\s+tokens?/i.test(String(text || ''));
@@ -28,6 +29,10 @@ export function executeTriggerEffect(
   const battlefield = state.battlefield || [];
 
   if (tryApplyTriggerEffectPrefaceHandlers(ctx, controller, sourceName, normalizedDescription, triggerItem, state, battlefield)) {
+    return;
+  }
+
+  if (tryApplyPresetTriggerChosenTypeEffects(ctx, controller, sourceName, normalizedDescription, triggerItem)) {
     return;
   }
 

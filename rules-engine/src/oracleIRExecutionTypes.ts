@@ -121,6 +121,8 @@ export interface OracleIRExecutionEventHint {
   readonly opponentsDealtDamageIds?: readonly PlayerID[];
   /** Numeric amount referenced by text like "that much" when the triggering event defines it. */
   readonly referenceAmount?: number;
+  /** Greatest per-player discard count from the immediately preceding discard-this-way step. */
+  readonly lastGreatestDiscardedCardCount?: number;
   /** Spell type context used by some exile-until templates (for example, Possibility Storm). */
   readonly spellType?: string;
   /** Number of spells the triggering player has cast this turn when relevant. */

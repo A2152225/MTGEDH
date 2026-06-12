@@ -161,6 +161,73 @@ describe('Eldrazi on-cast triggers (integration)', () => {
     expect((game.state as any).stack).toHaveLength(1); // Only Kozilek spell left on stack
   });
 
+  it('queues on-cast draw trigger from oracle text when card name is not in Eldrazi table', async () => {
+    const persistentGameId = trackGameId(`${gameId}_kozilek_oracle_generic`);
+    createGameIfNotExists(persistentGameId, 'commander', 40);
+    const game = ensureGame(persistentGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'generic_eldrazi_id',
+            name: 'Not In Eldrazi Table',
+            type_line: 'Legendary Creature — Eldrazi',
+            oracle_text: 'When you cast this spell, draw four cards.',
+            mana_cost: '{10}',
+          },
+        ],
+        handCount: 1,
+        library: [
+          { id: 'card_1', name: 'Plains', zone: 'library' },
+          { id: 'card_2', name: 'Plains', zone: 'library' },
+          { id: 'card_3', name: 'Plains', zone: 'library' },
+          { id: 'card_4', name: 'Plains', zone: 'library' },
+        ],
+        libraryCount: 4,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 10, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).stack = [];
+    (game as any).libraries = (game as any).libraries || new Map();
+    (game as any).libraries.set(playerId, [
+      { id: 'card_1', name: 'Plains', zone: 'library' },
+      { id: 'card_2', name: 'Plains', zone: 'library' },
+      { id: 'card_3', name: 'Plains', zone: 'library' },
+      { id: 'card_4', name: 'Plains', zone: 'library' },
+    ]);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, persistentGameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['castSpellFromHand']({ gameId: persistentGameId, cardId: 'generic_eldrazi_id' });
+
+    const trigger = ((game.state as any).stack || []).find((item: any) => item.type === 'triggered_ability');
+    expect(trigger).toBeDefined();
+    expect(trigger.description).toContain('draw four cards');
+
+    game.resolveTopOfStack();
+    expect((game.state as any).zones[playerId].hand).toHaveLength(4);
+  });
+
   it('queues Ulamog on-cast trigger on the stack and requires target selection for destroy', async () => {
     const persistentGameId = trackGameId(`${gameId}_ulamog_gyre`);
     createGameIfNotExists(persistentGameId, 'commander', 40);

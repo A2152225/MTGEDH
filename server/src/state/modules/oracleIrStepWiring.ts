@@ -93,11 +93,22 @@ export function isActivatedAbilityEffectFullyWired(steps: readonly OracleEffectS
 export function hasUnqueuedPlayerChoiceGap(
   result: OracleIRExecutionResult,
   queueBridged: boolean,
+  state?: any,
 ): boolean {
   if (queueBridged) return false;
-  return (result.automationGaps || []).some(
-    (gap) => gap.reasonCode === 'player_choice_required',
-  );
+  return (result.automationGaps || []).some((gap) => {
+    if (gap.reasonCode !== 'player_choice_required') return false;
+    if (String(gap.stepKind || '') === 'discard' && hasPendingDiscardBridge(state)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function hasPendingDiscardBridge(state: any): boolean {
+  const pending = state?.pendingDiscard;
+  if (!pending || typeof pending !== 'object') return false;
+  return Object.values(pending).some((entry: any) => Number(entry?.count || 0) > 0);
 }
 
 export type OracleIrAllOrNothingScope = 'spell' | 'trigger' | 'activated' | 'fallback';
@@ -114,8 +125,9 @@ function appendUnqueuedPlayerChoiceReasons(
   reasons: string[],
   result: OracleIRExecutionResult,
   queueBridged: boolean,
+  state?: any,
 ): void {
-  if (!hasUnqueuedPlayerChoiceGap(result, queueBridged)) return;
+  if (!hasUnqueuedPlayerChoiceGap(result, queueBridged, state)) return;
   for (const gap of result.automationGaps || []) {
     if (gap.reasonCode !== 'player_choice_required') continue;
     const stepHint = gap.stepKind
@@ -137,12 +149,14 @@ export function describeOracleIrMandatoryExecutionIncomplete(
   options?: {
     resolutionQueueStepsBefore?: number;
     resolutionQueueStepsAfter?: number;
+    state?: any;
   },
 ): readonly string[] {
   const reasons: string[] = [];
   const queueBefore = Number(options?.resolutionQueueStepsBefore ?? 0);
   const queueAfter = Number(options?.resolutionQueueStepsAfter ?? 0);
   const queueBridged = queueAfter > queueBefore;
+  const discardBridged = hasPendingDiscardBridge(options?.state);
 
   const mandatoryParsed = parsedSteps.filter((step) => !isOptionalOracleEffectStep(step));
   if (mandatoryParsed.length === 0) {
@@ -161,6 +175,8 @@ export function describeOracleIrMandatoryExecutionIncomplete(
     (step) => !isOptionalOracleEffectStep(step),
   );
   for (const step of skippedMandatory) {
+    if (queueBridged) continue;
+    if (discardBridged && step.kind === 'discard') continue;
     reasons.push(`skipped_mandatory_step: ${summarizeOracleIrStep(step)}`);
   }
 
@@ -176,6 +192,7 @@ export function describeOracleIrMandatoryExecutionIncomplete(
     if (appliedFingerprints.has(fingerprint)) continue;
     if (continuationFingerprints.has(fingerprint)) continue;
     if (queueBridged) continue;
+    if (discardBridged && step.kind === 'discard') continue;
     reasons.push(`unapplied_mandatory_step: ${summarizeOracleIrStep(step)}`);
   }
 
@@ -202,6 +219,7 @@ export function describeOracleIrExecutionHandledIncomplete(
   resolutionQueueStepsBefore: number,
   resolutionQueueStepsAfter: number,
   parsedSteps?: readonly OracleEffectStep[],
+  state?: any,
 ): readonly string[] {
   const reasons: string[] = [];
   const queueBridged = resolutionQueueStepsAfter > resolutionQueueStepsBefore;
@@ -216,7 +234,7 @@ export function describeOracleIrExecutionHandledIncomplete(
     );
   }
 
-  appendUnqueuedPlayerChoiceReasons(reasons, result, queueBridged);
+  appendUnqueuedPlayerChoiceReasons(reasons, result, queueBridged, state);
 
   const applied = result.appliedSteps.length;
   const pendingOptional = (result.pendingOptionalSteps || []).length;
@@ -235,6 +253,7 @@ export function describeOracleIrExecutionHandledIncomplete(
     for (const reason of describeOracleIrMandatoryExecutionIncomplete(parsedSteps, result, {
       resolutionQueueStepsBefore,
       resolutionQueueStepsAfter,
+      state,
     })) {
       reasons.push(reason);
     }
@@ -315,6 +334,7 @@ export function isOracleIrMandatoryExecutionComplete(
   options?: {
     resolutionQueueStepsBefore?: number;
     resolutionQueueStepsAfter?: number;
+    state?: any;
   },
 ): boolean {
   return describeOracleIrMandatoryExecutionIncomplete(parsedSteps, result, options).length === 0;

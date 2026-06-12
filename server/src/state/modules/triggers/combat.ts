@@ -242,7 +242,7 @@ export function pushTriggerDoublerCopies(
       ...stackItem,
       id: `${String(stackItem.id || 'trigger')}_double_${i}`,
       description: copy.description,
-      effect: copy.description,
+      effect: String(stackItem.effect || stackItem.description || copy.description || '').trim(),
       isDoubledTriggerCopy: true,
     });
   }

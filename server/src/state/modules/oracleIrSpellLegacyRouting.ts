@@ -104,6 +104,14 @@ export function isSpellEffectOwnedByOracleIrPrimary(
   const text = String(oracleText || '').trim();
   if (!text) return false;
 
+  return isSpellEffectFullyIrWired(text, spellName);
+}
+
+/** Parsed spell steps are fully runtime-wired (independent of ORACLE_IR_SPELL_PRIMARY). */
+export function isSpellEffectFullyIrWired(oracleText: string, spellName: string): boolean {
+  const text = String(oracleText || '').trim();
+  if (!text) return false;
+
   const steps = collectSpellEffectSteps(text, spellName);
   if (steps.length === 0) return false;
   if (steps.some((step) => step.kind === 'unknown')) return false;

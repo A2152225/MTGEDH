@@ -4,6 +4,7 @@ import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { detectSpellCastTriggers } from '../src/state/modules/triggered-abilities.js';
 import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
+import { resolveTriggerStackItemEffectText } from '../src/state/modules/triggerStackItemEffectText.js';
 
 describe('Door of Destinies spell-cast charge counters', () => {
   const doorOracle =
@@ -32,6 +33,25 @@ describe('Door of Destinies spell-cast charge counters', () => {
         effect: 'put a charge counter on Door of Destinies',
       }),
     ]);
+  });
+
+  it('does not merge the static lord line into the spell-cast trigger effect (G1 regression)', () => {
+    const permanent = {
+      id: 'door_1',
+      controller: 'p1',
+      chosenCreatureType: 'Merfolk',
+      card: {
+        name: 'Door of Destinies',
+        type_line: 'Artifact',
+        oracle_text: doorOracle,
+      },
+    };
+
+    const triggers = detectSpellCastTriggers(permanent.card, permanent);
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0]?.effect).toBe('put a charge counter on Door of Destinies');
+    expect(String(triggers[0]?.description || '')).not.toContain('get +1/+1 for each charge counter');
+    expect(String(triggers[0]?.effect || '')).not.toMatch(/^of the chosen type/i);
   });
 
   it('puts a charge counter on Door of Destinies when the trigger resolves', () => {
@@ -68,6 +88,46 @@ describe('Door of Destinies spell-cast charge counters', () => {
         triggerType: 'cast_creature_type',
       },
     );
+
+    const door = ((game.state as any).battlefield || []).find((perm: any) => perm.id === doorId);
+    expect(door?.counters?.charge).toBe(1);
+  });
+
+  it('resolves charge counters from malformed stack description via effect-text fallback', () => {
+    const gameId = 't_door_malformed_stack';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    game.applyEvent({ type: 'join', playerId: p1, name: 'P1' } as any);
+
+    const doorId = 'door_1';
+    (game.state as any).battlefield = [
+      {
+        id: doorId,
+        controller: p1,
+        owner: p1,
+        chosenCreatureType: 'Merfolk',
+        counters: {},
+        card: {
+          id: 'card_door',
+          name: 'Door of Destinies',
+          type_line: 'Artifact',
+          oracle_text: doorOracle,
+        },
+      },
+    ];
+
+    const malformedItem = {
+      source: doorId,
+      permanentId: doorId,
+      triggerType: 'cast_creature_type',
+      description:
+        'Whenever you cast a spell of the chosen type, put a charge counter on Door of Destinies. Creatures you control of the chosen type get +1/+1 for each charge counter on Door of Destinies.',
+    };
+
+    const effectText = resolveTriggerStackItemEffectText(malformedItem);
+    expect(effectText).toBe('put a charge counter on Door of Destinies');
+
+    executeTriggerEffect(game as any, p1, 'Door of Destinies', effectText, malformedItem);
 
     const door = ((game.state as any).battlefield || []).find((perm: any) => perm.id === doorId);
     expect(door?.counters?.charge).toBe(1);

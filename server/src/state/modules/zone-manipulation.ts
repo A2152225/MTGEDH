@@ -222,23 +222,38 @@ export function handleEldraziShuffle(
  */
 export function hasGraveyardShuffleTrigger(card: any): boolean {
   if (!card) return false;
-  
-  const name = (card.name || '').toLowerCase();
-  const oracleText = (card.oracle_text || '').toLowerCase();
-  
-  // Known cards with graveyard shuffle
+
+  const oracleText = String(card.oracle_text || '').toLowerCase();
+
+  if (
+    oracleText
+    && /(?:when|whenever)\b[^.]*\bis put into a graveyard from anywhere\b/.test(oracleText)
+    && /shuffles? (?:their )?graveyard into (?:their )?library/.test(oracleText)
+  ) {
+    return true;
+  }
+
+  const name = String(card.name || '').toLowerCase();
+
+  if (hasGraveyardSelfShuffleIntoLibraryReplacement(card)) {
+    return false;
+  }
+
+  if (hasGraveyardMassShuffleIntoLibraryTrigger(card)) {
+    return true;
+  }
+
+  // Known cards with graveyard shuffle triggers (non-oracle fallbacks)
   const knownShufflers = [
     'ulamog, the infinite gyre',
     'kozilek, butcher of truth',
     'emrakul, the aeons torn',
-    'blightsteel colossus',
-    'nexus of fate',
   ];
-  
+
   if (knownShufflers.includes(name)) {
     return true;
   }
-  
+
   // Pattern matching
   if (oracleText.includes('shuffle') && oracleText.includes('graveyard') && oracleText.includes('library')) {
     // Check it's a trigger, not just mentioning the effect
@@ -246,8 +261,98 @@ export function hasGraveyardShuffleTrigger(card: any): boolean {
       return true;
     }
   }
-  
+
   return false;
+}
+
+/** Eldrazi-style GY trigger: shuffle entire graveyard into library (not Blightsteel self-shuffle). */
+export function hasGraveyardMassShuffleIntoLibraryTrigger(card: any): boolean {
+  const oracleText = String(card?.oracle_text || card?.card?.oracle_text || '').toLowerCase();
+  if (!oracleText) return false;
+  return /shuffles? (?:their )?graveyard into (?:their )?library/.test(oracleText);
+}
+
+/**
+ * Replacement-style self shuffle: "If X would be put into a graveyard from anywhere,
+ * reveal X and shuffle it into its owner's library instead." (Blightsteel Colossus, Nexus of Fate)
+ */
+export function hasGraveyardSelfShuffleIntoLibraryReplacement(card: any): boolean {
+  const oracleText = String(card?.oracle_text || card?.card?.oracle_text || '').trim().toLowerCase();
+  if (!oracleText) return false;
+
+  if (hasGraveyardMassShuffleIntoLibraryTrigger(card)) {
+    return false;
+  }
+
+  if (!/\bwould be put into a graveyard from anywhere\b/.test(oracleText)) {
+    return false;
+  }
+
+  return (
+    /\bshuffle (?:it|this(?: card| permanent)?)\b/.test(oracleText)
+    && /\binto (?:its|their|the) owner(?:'|'|')s library\b/.test(oracleText)
+  );
+}
+
+function shuffleCardCopyIntoOwnerLibrary(ctx: GameContext, card: any, ownerId: string): boolean {
+  const owner = String(ownerId || '').trim();
+  if (!owner || !card) return false;
+
+  const state = (ctx as any).state;
+  const libraries = ctx.libraries;
+  if (!libraries) return false;
+
+  const lib = libraries.get(owner) || [];
+  const cardCopy = { ...(card as any), zone: 'library' };
+  lib.push(cardCopy);
+
+  const rng = (ctx.rng && typeof ctx.rng === 'function') ? ctx.rng : Math.random;
+  for (let i = lib.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [lib[i], lib[j]] = [lib[j], lib[i]];
+  }
+
+  libraries.set(owner, lib);
+
+  const zones = state.zones = state.zones || {};
+  const z = zones[owner] || (zones[owner] = {
+    hand: [],
+    handCount: 0,
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+  } as any);
+  z.libraryCount = lib.length;
+
+  debug(
+    1,
+    `[shuffleCardCopyIntoOwnerLibrary] ${String(cardCopy.name || 'Card')} shuffled into ${owner}'s library (self-shuffle replacement)`,
+  );
+  ctx.bumpSeq();
+  return true;
+}
+
+export function shuffleRemovedPermanentIntoOwnerLibrary(
+  ctx: GameContext,
+  perm: any,
+  ownerId: string,
+): boolean {
+  const zoneCard = ((perm as any)?.isFaceDown === true && (perm as any)?.faceUpCard)
+    ? (perm as any).faceUpCard
+    : ((perm as any)?.card || perm);
+  const owner = String(ownerId || (perm as any)?.owner || (perm as any)?.controller || '').trim();
+  return shuffleCardCopyIntoOwnerLibrary(ctx, zoneCard, owner);
+}
+
+export function tryApplyGraveyardSelfShuffleReplacementForCard(
+  ctx: GameContext,
+  card: any,
+  ownerId: string,
+): boolean {
+  if (!hasGraveyardSelfShuffleIntoLibraryReplacement(card)) {
+    return false;
+  }
+  return shuffleCardCopyIntoOwnerLibrary(ctx, card, ownerId);
 }
 
 /**

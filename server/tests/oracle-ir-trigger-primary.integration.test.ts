@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
+import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
 import {
   isOracleIrTriggerPrimaryEnabled,
   tryResolveTriggerViaOracleIR,
@@ -256,5 +257,130 @@ describe('oracle IR trigger execution', () => {
     expect(landChoiceSteps.length).toBeGreaterThanOrEqual(2);
 
     ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('primary mode applies chosen-type +1/+1 counters via effect program (Littjara chaos)', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_trigger_littjara_chaos';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'elf_1',
+        controller: p1,
+        card: { name: 'Elvish Mystic', type_line: 'Creature — Elf Druid', power: '1', toughness: '1' },
+      },
+      {
+        id: 'gob_1',
+        controller: p1,
+        card: { name: 'Goblin Guide', type_line: 'Creature — Goblin Scout', power: '2', toughness: '2' },
+      },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const effectText =
+      'choose a creature type. Put a +1/+1 counter on each creature you control of that type.';
+    expect(isTriggerEffectFullyIrWired(effectText, 'Littjara')).toBe(true);
+
+    const outcome = tryResolveTriggerViaOracleIR(ctx, {
+      controller: p1,
+      sourceName: 'Littjara',
+      effectText,
+      triggerItem: {
+        id: 'littjara_chaos_1',
+        source: 'plane_littjara',
+        chosenCreatureType: 'Elf',
+      },
+    });
+
+    expect(outcome.handled).toBe(true);
+    const elf = (game.state as any).battlefield.find((perm: any) => perm.id === 'elf_1');
+    const gob = (game.state as any).battlefield.find((perm: any) => perm.id === 'gob_1');
+    expect(elf?.counters?.['+1/+1']).toBe(1);
+    expect(gob?.counters?.['+1/+1']).toBeUndefined();
+
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('primary mode queues creature type choice for Littjara chaos without preset type', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_trigger_littjara_choice';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'elf_1',
+        controller: p1,
+        card: { name: 'Elvish Mystic', type_line: 'Creature — Elf Druid' },
+      },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const effectText =
+      'choose a creature type. Put a +1/+1 counter on each creature you control of that type.';
+
+    const outcome = tryResolveTriggerViaOracleIR(ctx, {
+      controller: p1,
+      sourceName: 'Littjara',
+      effectText,
+      triggerItem: { id: 'littjara_chaos_2', source: 'plane_littjara' },
+    });
+
+    expect(outcome.handled).toBe(false);
+    const typeStep = ResolutionQueueManager
+      .getStepsForPlayer(gameId, p1)
+      .find((step: any) => step?.type === ResolutionStepType.CREATURE_TYPE_CHOICE);
+    expect(typeStep).toBeTruthy();
+
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('executeTriggerEffect applies Littjara chaos via IR when primary owns preset chosen type', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_trigger_littjara_execute';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'elf_1',
+        controller: p1,
+        card: { name: 'Elvish Mystic', type_line: 'Creature — Elf Druid', power: '1', toughness: '1' },
+      },
+      {
+        id: 'gob_1',
+        controller: p1,
+        card: { name: 'Goblin Guide', type_line: 'Creature — Goblin Scout', power: '2', toughness: '2' },
+      },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+
+    const chaosText =
+      'choose a creature type. Put a +1/+1 counter on each creature you control of that type.';
+    executeTriggerEffect(ctx, p1, 'Littjara', chaosText, {
+      source: 'plane_littjara',
+      chosenCreatureType: 'Elf',
+    });
+
+    const elf = (game.state as any).battlefield.find((perm: any) => perm.id === 'elf_1');
+    const gob = (game.state as any).battlefield.find((perm: any) => perm.id === 'gob_1');
+    expect(elf?.counters?.['+1/+1']).toBe(1);
+    expect(gob?.counters?.['+1/+1']).toBeUndefined();
   });
 });

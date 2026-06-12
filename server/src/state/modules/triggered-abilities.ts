@@ -34,7 +34,7 @@
 
 import type { GameContext } from "../context.js";
 import { calculateVariablePT, getActualPowerToughness, normalizeCardNameForOracleText } from "../utils.js";
-import { handleEldraziShuffle } from "./zone-manipulation.js";
+import { handleEldraziShuffle, hasGraveyardMassShuffleIntoLibraryTrigger } from "./zone-manipulation.js";
 
 // Import card data tables from modularized submodule
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
@@ -16404,17 +16404,15 @@ const KNOWN_ELDRAZI_EFFECTS: Record<string, Omit<EldraziEffect, 'permanentId' | 
     castTrigger: "When you cast this spell, destroy target permanent",
     annihilator: 4,
     indestructible: true,
-    specialAbility: "When put into graveyard from anywhere, shuffle graveyard into library",
   },
   "kozilek, butcher of truth": {
     castTrigger: "When you cast this spell, draw four cards",
     annihilator: 4,
-    specialAbility: "When put into graveyard from anywhere, shuffle graveyard into library",
   },
   "emrakul, the aeons torn": {
     castTrigger: "This spell can't be countered. Take an extra turn after this one",
     annihilator: 6,
-    specialAbility: "Flying, protection from spells that are one or more colors. When put into graveyard from anywhere, shuffle graveyard into library",
+    specialAbility: "Flying, protection from spells that are one or more colors",
   },
   "emrakul, the promised end": {
     castTrigger: "When you cast this spell, you gain control of target opponent during that player's next turn",
@@ -16443,28 +16441,20 @@ export function detectEldraziEffect(card: any, permanent: any): EldraziEffect | 
  * Returns true if a trigger was processed (like shuffling graveyard into library)
  */
 export function checkGraveyardTrigger(ctx: any, card: any, ownerId: string): boolean {
-  const cardName = (card?.name || "").toLowerCase();
-  
-  // Check for Eldrazi graveyard shuffle trigger
-  const eldraziEffect = detectEldraziEffect(card, { id: card?.id });
-  if (eldraziEffect && eldraziEffect.specialAbility) {
-    const specialLower = eldraziEffect.specialAbility.toLowerCase();
-    
-    // "When put into graveyard from anywhere, shuffle graveyard into library"
-    if (specialLower.includes('graveyard') && specialLower.includes('shuffle')) {
-      // Use the centralized utility for graveyard shuffling
-      const shuffledCount = handleEldraziShuffle(ctx, ownerId, card);
-      
-      if (shuffledCount > 0) {
-        if (ctx.bumpSeq && typeof ctx.bumpSeq === 'function') {
-          ctx.bumpSeq();
-        }
-        
-        return true;
-      }
-    }
+  if (!hasGraveyardMassShuffleIntoLibraryTrigger(card)) {
+    return false;
   }
-  
+
+  const shuffledCount = handleEldraziShuffle(ctx, ownerId, card);
+
+  if (shuffledCount > 0) {
+    if (ctx.bumpSeq && typeof ctx.bumpSeq === 'function') {
+      ctx.bumpSeq();
+    }
+
+    return true;
+  }
+
   return false;
 }
 

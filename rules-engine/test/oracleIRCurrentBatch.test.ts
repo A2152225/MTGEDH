@@ -2492,6 +2492,45 @@ describe('Oracle IR current audit batch support', () => {
     }
   });
 
+  it('repairs subjectless draw after each-player discard-hand wheels (Windfall)', () => {
+    const ir = parseOracleTextToIR(
+      'Each player discards their hand, then draws cards equal to the greatest number of cards a player discarded this way.',
+      'Windfall',
+    );
+    const steps = ir.abilities?.[0]?.steps || [];
+    expect(steps).toEqual([
+      expect.objectContaining({
+        kind: 'discard',
+        who: { kind: 'each_player' },
+      }),
+      expect.objectContaining({
+        kind: 'draw',
+        who: { kind: 'each_player' },
+        amount: { kind: 'reference_amount', raw: 'greatest_number_discarded_this_way' },
+      }),
+    ]);
+  });
+
+  it('repairs subjectless draw after each-player hand+graveyard shuffle (Echo wheel)', () => {
+    const ir = parseOracleTextToIR(
+      'Each player shuffles their hand and graveyard into their library, then draws seven cards.',
+      'Echo of Eons',
+    );
+    const steps = ir.abilities?.[0]?.steps || [];
+    expect(steps).toEqual([
+      expect.objectContaining({
+        kind: 'shuffle_zones_into_library',
+        who: { kind: 'each_player' },
+        zones: ['hand', 'graveyard'],
+      }),
+      expect.objectContaining({
+        kind: 'draw',
+        who: { kind: 'each_player' },
+        amount: { kind: 'number', value: 7 },
+      }),
+    ]);
+  });
+
   it('cleans after15 activation limitation residual rows', () => {
     const noUnknownCases = [
       ['Magitek Scythe', 'A Test of Your Reflexes!'],

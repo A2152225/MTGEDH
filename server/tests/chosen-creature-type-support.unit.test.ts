@@ -1063,6 +1063,64 @@ describe('cast-time chosen-type spell resolution', () => {
     ResolutionQueueManager.removeQueue(gameId);
   });
 
+  it('queues Celestial Reunion library search without behold battlefield metadata when additional cost unpaid', () => {
+    const gameId = 'celestial_reunion_resolve_unpaid';
+    ResolutionQueueManager.removeQueue(gameId);
+    const oracle =
+      'As an additional cost to cast this spell, you may choose a creature type and behold two creatures of that type.\n'
+      + "Search your library for a creature card with mana value X or less, reveal it, put it into your hand, then shuffle. If this spell's additional cost was paid and the revealed card is the chosen type, put that card onto the battlefield instead of putting it into your hand.";
+    const game = createInitialGameState(gameId);
+    (game as any).gameId = gameId;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    (game.state as any).battlefield = [];
+    (game.state as any).stack = [{
+      id: 'spell_2',
+      type: 'spell',
+      controller: p1,
+      xValue: 2,
+      additionalCostPaid: false,
+      card: {
+        id: 'card_2',
+        name: 'Celestial Reunion',
+        type_line: 'Sorcery',
+        oracle_text: oracle,
+        additionalCostPaid: false,
+      },
+    }];
+    game.libraries.set(p1, [
+      {
+        id: 'gob_1',
+        name: 'Goblin Guide',
+        type_line: 'Creature — Goblin Scout',
+        cmc: 1,
+        power: '2',
+        toughness: '2',
+      },
+    ] as any);
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        graveyard: [],
+        exile: [],
+        library: game.libraries.get(p1) || [],
+        handCount: 0,
+        graveyardCount: 0,
+        exileCount: 0,
+        libraryCount: 1,
+      },
+    };
+
+    resolveTopOfStack(game as any);
+
+    const searchStep = ResolutionQueueManager
+      .getStepsForPlayer(gameId, p1)
+      .find((step: any) => step?.type === ResolutionStepType.LIBRARY_SEARCH);
+    expect(searchStep).toBeTruthy();
+    expect((searchStep as any).filter?.maxCmc).toBe(2);
+    expect((searchStep as any).chosenTypeBattlefieldIfPaid).toBeUndefined();
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
   it('queues creature type choice when Bloodline Shaman ability resolves without a chosen type', () => {
     const gameId = 'bloodline_shaman_stack';
     ResolutionQueueManager.removeQueue(gameId);
