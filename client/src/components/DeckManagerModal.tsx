@@ -8,6 +8,14 @@ import type { GameID } from '../../../shared/src/types';
 import { PreconBrowser } from './PreconBrowser';
 import { useIsTouch } from '../hooks/useIsTouch';
 import { colors, fontSize, radii, safeArea, spacing, touch, z } from '../theme';
+import {
+  deleteServerDeckViaApi,
+  fetchServerDeckDetail,
+  fetchServerDeckSummaries,
+  renameServerDeckViaApi,
+  saveServerDeckViaApi,
+  updateServerDeckViaApi,
+} from '../utils/serverDeckApi';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
 
@@ -35,6 +43,8 @@ export interface DeckManagerModalProps {
   onClose: () => void;
   onImportText: (text: string, name?: string, cacheCards?: boolean) => void;
   gameId?: GameID;
+  playerId?: string;
+  playerName?: string;
   canServer?: boolean;
   anchorEl?: HTMLElement | null; // button to tether under
   wide?: boolean;
@@ -48,6 +58,8 @@ export function DeckManagerModal({
   onClose,
   onImportText,
   gameId,
+  playerId,
+  playerName,
   canServer,
   anchorEl,
   wide,
@@ -73,6 +85,26 @@ export function DeckManagerModal({
   const [detail, setDetail] = useState<SavedDeckDetail | null>(null);
   const [serverErr, setServerErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [updatingServer, setUpdatingServer] = useState(false);
+  const [editingLocalId, setEditingLocalId] = useState<string | null>(null);
+  const [editingServerDeckId, setEditingServerDeckId] = useState<string | null>(null);
+  const [pendingServerEditId, setPendingServerEditId] = useState<string | null>(null);
+  const pendingServerEditIdRef = useRef<string | null>(null);
+  pendingServerEditIdRef.current = pendingServerEditId;
+
+  const isLocalClient = typeof window !== 'undefined'
+    && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  const useRestServer = !!(canServer && !gameId);
+
+  const canEditServerDeck = (deck: SavedDeckSummary) =>
+    isLocalClient || (!!playerId && deck.created_by_id === playerId);
+
+  const clearEditMode = () => {
+    setEditingLocalId(null);
+    setEditingServerDeckId(null);
+    setPendingServerEditId(null);
+  };
 
   // Folder navigation
   const [folders, setFolders] = useState<DeckFolder[]>([]);
@@ -85,12 +117,41 @@ export function DeckManagerModal({
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const rafRef = useRef<number | null>(null);
 
+  const refreshRestServerDecks = React.useCallback(async () => {
+    try {
+      const decks = await fetchServerDeckSummaries();
+      setServerDecks(decks);
+      setServerErr(null);
+    } catch (err) {
+      setServerErr(err instanceof Error ? err.message : 'Failed to load server decks');
+    }
+  }, []);
+
+  const applyServerDeckDetail = (deck: SavedDeckDetail) => {
+    const pendingEditId = pendingServerEditIdRef.current;
+    if (pendingEditId && deck.id === pendingEditId) {
+      setLocalName(deck.name);
+      setLocalText(deck.text);
+      setEditingServerDeckId(deck.id);
+      setEditingLocalId(null);
+      setPendingServerEditId(null);
+      setLocalErr(null);
+      setServerErr(null);
+      setTab('local');
+      setDetail(deck);
+      return;
+    }
+    setDetail(deck);
+    setTab('preview');
+  };
+
   // Init
   useEffect(() => {
     if (!open) return;
     setLocalList(loadLocal());
     if (canServer && gameId) socket.emit('listSavedDecks', { gameId });
-  }, [open, canServer, gameId]);
+    if (useRestServer) void refreshRestServerDecks();
+  }, [open, canServer, gameId, useRestServer, refreshRestServerDecks]);
 
   // Socket listeners
   useEffect(() => {
@@ -99,8 +160,17 @@ export function DeckManagerModal({
       setServerDecks(decks);
       if (folderTree) setFolders(folderTree);
     };
-    const onDetail = ({ deck }: { deck: SavedDeckDetail }) => { setDetail(deck); setTab('preview'); };
+    const onDetail = ({ deck }: { deck: SavedDeckDetail }) => {
+      applyServerDeckDetail(deck);
+    };
     const onSaved = () => { setSaving(false); gameId && socket.emit('listSavedDecks', { gameId }); };
+    const onUpdated = () => {
+      setUpdatingServer(false);
+      clearEditMode();
+      setLocalName('');
+      setLocalText('');
+      gameId && socket.emit('listSavedDecks', { gameId });
+    };
     const onRenamed = ({ deck }: { deck: SavedDeckSummary }) =>
       setServerDecks(prev => prev.map(d => (d.id === deck.id ? deck : d)));
     const onDeleted = ({ deckId }: { deckId: string }) => {
@@ -125,6 +195,7 @@ export function DeckManagerModal({
     socket.on('savedDecksList', onList);
     socket.on('savedDeckDetail', onDetail);
     socket.on('deckSaved', onSaved);
+    socket.on('deckUpdated', onUpdated);
     socket.on('deckRenamed', onRenamed);
     socket.on('deckDeleted', onDeleted);
     socket.on('deckError', onError);
@@ -135,6 +206,7 @@ export function DeckManagerModal({
       socket.off('savedDecksList', onList);
       socket.off('savedDeckDetail', onDetail);
       socket.off('deckSaved', onSaved);
+      socket.off('deckUpdated', onUpdated);
       socket.off('deckRenamed', onRenamed);
       socket.off('deckDeleted', onDeleted);
       socket.off('deckError', onError);
@@ -232,6 +304,20 @@ export function DeckManagerModal({
   const saveLocal = () => {
     if (!localText.trim()) { setLocalErr('Empty list'); return; }
     if (!localName.trim()) { setLocalErr('Name required'); return; }
+    if (editingLocalId) {
+      const next = localList.map((entry) => (
+        entry.id === editingLocalId
+          ? { ...entry, name: localName.trim(), text: localText, savedAt: Date.now() }
+          : entry
+      ));
+      saveLocalAll(next);
+      setLocalList(next);
+      clearEditMode();
+      setLocalName('');
+      setLocalText('');
+      setLocalErr(null);
+      return;
+    }
     const deck: SavedLocalDeck = { id: uid('l'), name: localName.trim(), text: localText, savedAt: Date.now() };
     const next = [deck, ...localList].slice(0, 200);
     saveLocalAll(next);
@@ -241,10 +327,52 @@ export function DeckManagerModal({
     setLocalErr(null);
   };
 
+  const beginEditLocal = (deck: SavedLocalDeck) => {
+    setLocalName(deck.name);
+    setLocalText(deck.text);
+    setEditingLocalId(deck.id);
+    setEditingServerDeckId(null);
+    setPendingServerEditId(null);
+    setLocalErr(null);
+    setTab('local');
+  };
+
+  const beginEditServer = (deckId: string) => {
+    setPendingServerEditId(deckId);
+    setEditingLocalId(null);
+    setServerErr(null);
+    requestDetail(deckId);
+  };
+
+  const saveLocalDeckToServer = async (name: string, text: string) => {
+    if (!canServer) return;
+    if (gameId) {
+      socket.emit('saveDeck', { gameId, name, list: text, cacheCards });
+      return;
+    }
+    if (!useRestServer) return;
+    setSaving(true);
+    try {
+      await saveServerDeckViaApi({
+        name,
+        text,
+        playerId,
+        playerName,
+        cacheCards,
+      });
+      await refreshRestServerDecks();
+      setServerErr(null);
+    } catch (err) {
+      setServerErr(err instanceof Error ? err.message : 'Failed to save deck');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const importLocal = (d: SavedLocalDeck) => {
     onImportText(d.text, d.name, cacheCards);
-    if (alsoSaveToServer && canServer && gameId) {
-      socket.emit('saveDeck', { gameId, name: d.name || 'Deck', list: d.text, cacheCards });
+    if (alsoSaveToServer && canServer) {
+      void saveLocalDeckToServer(d.name || 'Deck', d.text);
     }
   };
 
@@ -252,8 +380,8 @@ export function DeckManagerModal({
     if (!localText.trim()) { setLocalErr('Paste a decklist first'); return; }
     setLocalErr(null);
     onImportText(localText, localName.trim() || undefined, cacheCards);
-    if (alsoSaveToServer && canServer && gameId && localName.trim()) {
-      socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText, cacheCards });
+    if (alsoSaveToServer && canServer && localName.trim()) {
+      void saveLocalDeckToServer(localName.trim(), localText);
     }
   };
 
@@ -265,12 +393,114 @@ export function DeckManagerModal({
       if (gameId) socket.emit('useSavedDeck', { gameId, deckId });
     }
   };
-  const requestDetail = (deckId: string) => gameId && socket.emit('getSavedDeck', { gameId, deckId });
+  const requestDetail = (deckId: string) => {
+    if (gameId) {
+      socket.emit('getSavedDeck', { gameId, deckId });
+      return;
+    }
+    if (!useRestServer) return;
+    void (async () => {
+      try {
+        const deck = await fetchServerDeckDetail(deckId);
+        applyServerDeckDetail(deck);
+        setServerErr(null);
+      } catch (err) {
+        setServerErr(err instanceof Error ? err.message : 'Failed to load deck');
+        setPendingServerEditId(null);
+      }
+    })();
+  };
   const saveServer = () => {
-    if (!canServer || !gameId) return;
+    if (!canServer) return;
     if (!localText.trim() || !localName.trim()) { setServerErr('Name & text required'); return; }
-    setSaving(true);
-    socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText, cacheCards });
+    if (gameId) {
+      setSaving(true);
+      socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText, cacheCards });
+      return;
+    }
+    if (!useRestServer) {
+      setServerErr('Join a game or use localhost to save server decks.');
+      return;
+    }
+    void saveLocalDeckToServer(localName.trim(), localText);
+  };
+  const updateServerDeck = () => {
+    if (!canServer || !editingServerDeckId) return;
+    if (!localText.trim() || !localName.trim()) { setServerErr('Name & text required'); return; }
+    if (gameId) {
+      setUpdatingServer(true);
+      socket.emit('updateSavedDeck', {
+        gameId,
+        deckId: editingServerDeckId,
+        name: localName.trim(),
+        list: localText,
+        cacheCards,
+      });
+      return;
+    }
+    if (!useRestServer) {
+      setServerErr('Join a game or use localhost to edit server decks.');
+      return;
+    }
+    setUpdatingServer(true);
+    void (async () => {
+      try {
+        await updateServerDeckViaApi(editingServerDeckId, {
+          name: localName.trim(),
+          text: localText,
+          playerId,
+          cacheCards,
+        });
+        clearEditMode();
+        setLocalName('');
+        setLocalText('');
+        await refreshRestServerDecks();
+        setServerErr(null);
+      } catch (err) {
+        setServerErr(err instanceof Error ? err.message : 'Failed to update deck');
+      } finally {
+        setUpdatingServer(false);
+      }
+    })();
+  };
+  const renameServerDeck = (deck: SavedDeckSummary) => {
+    const newName = prompt('Rename deck', deck.name) || deck.name;
+    if (gameId) {
+      socket.emit('renameSavedDeck', { gameId, deckId: deck.id, name: newName });
+      return;
+    }
+    if (!useRestServer) return;
+    void (async () => {
+      try {
+        const updated = await renameServerDeckViaApi(deck.id, newName, playerId);
+        setServerDecks(prev => prev.map(d => (d.id === updated.id ? updated : d)));
+        if (detail?.id === updated.id) {
+          setDetail(prev => (prev ? { ...prev, name: updated.name } : prev));
+        }
+        setServerErr(null);
+      } catch (err) {
+        setServerErr(err instanceof Error ? err.message : 'Failed to rename deck');
+      }
+    })();
+  };
+  const deleteServerDeck = (deck: SavedDeckSummary) => {
+    if (!confirm(`Delete server deck "${deck.name}"?`)) return;
+    if (gameId) {
+      socket.emit('deleteSavedDeck', { gameId, deckId: deck.id });
+      return;
+    }
+    if (!useRestServer) return;
+    void (async () => {
+      try {
+        await deleteServerDeckViaApi(deck.id, playerId);
+        setServerDecks(prev => prev.filter(d => d.id !== deck.id));
+        if (detail?.id === deck.id) setDetail(null);
+        if (editingServerDeckId === deck.id) clearEditMode();
+        setServerErr(null);
+      } catch (err) {
+        setServerErr(err instanceof Error ? err.message : 'Failed to delete deck');
+      }
+    })();
   };
   const cacheDeck = (deckId: string) => {
     if (!gameId) return;
@@ -394,6 +624,22 @@ export function DeckManagerModal({
           {tab === 'local' && (
             <div style={{ display: 'grid', gridTemplateColumns: stackColumns, gap: 16 }}>
               <div>
+                {(editingLocalId || editingServerDeckId) && (
+                  <div style={{ fontSize: 12, marginBottom: 6, color: '#fbbf24' }}>
+                    Editing {editingServerDeckId ? 'server' : 'local'} deck
+                    <button
+                      type="button"
+                      onClick={() => {
+                        clearEditMode();
+                        setLocalName('');
+                        setLocalText('');
+                      }}
+                      style={{ ...actionButtonStyle, marginLeft: 8 }}
+                    >
+                      Cancel edit
+                    </button>
+                  </div>
+                )}
                 <div style={{ fontSize: 12, marginBottom: 6 }}>Paste decklist</div>
                 <textarea
                   value={localText}
@@ -426,9 +672,19 @@ export function DeckManagerModal({
                     Import Deck
                   </button>
                   <button type="button" onClick={saveLocal} disabled={!localText.trim() || !localName.trim()} style={actionButtonStyle}>
-                    Save Locally
+                    {editingLocalId ? 'Save Changes' : 'Save Locally'}
                   </button>
-                  {canServer && (
+                  {canServer && editingServerDeckId && (
+                    <button
+                      type="button"
+                      onClick={updateServerDeck}
+                      disabled={!localText.trim() || !localName.trim() || updatingServer}
+                      style={actionButtonStyle}
+                    >
+                      {updatingServer ? 'Saving…' : 'Save Server Changes'}
+                    </button>
+                  )}
+                  {canServer && !editingServerDeckId && (
                     <button type="button" onClick={saveServer} disabled={!localText.trim() || !localName.trim() || saving} style={actionButtonStyle}>
                       {saving ? 'Saving…' : 'Save to Server'}
                     </button>
@@ -448,12 +704,13 @@ export function DeckManagerModal({
                   </div>
                   {filteredLocal.length === 0 && <div style={{ fontSize: 12, color: '#888' }}>No decks</div>}
                   {filteredLocal.map(d => (
-                    <div key={d.id} style={{ borderBottom: '1px solid #222', padding: '6px 4px', display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center' }}>
-                      <div style={{ minWidth: 0 }}>
+                    <div key={d.id} style={{ borderBottom: '1px solid #222', padding: '6px 4px', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                      <div style={{ minWidth: 0, flex: '1 1 140px' }}>
                         <div style={{ fontSize: 12, color: '#eee', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</div>
                         <div style={{ fontSize: 10, color: '#999' }}>{new Date(d.savedAt).toLocaleString()}</div>
                       </div>
                       <button type="button" onClick={() => importLocal(d)} style={actionButtonStyle}>Import</button>
+                      <button type="button" onClick={() => beginEditLocal(d)} style={actionButtonStyle}>Edit</button>
                       <button
                         type="button"
                         onClick={() => {
@@ -461,6 +718,7 @@ export function DeckManagerModal({
                           const next = localList.filter(x => x.id !== d.id);
                           saveLocalAll(next);
                           setLocalList(next);
+                          if (editingLocalId === d.id) clearEditMode();
                         }}
                         style={{ ...actionButtonStyle, color: '#f87171' }}
                       >
@@ -509,7 +767,10 @@ export function DeckManagerModal({
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <button type="button" onClick={() => requestDetail(d.id)} style={actionButtonStyle}>View</button>
                         <button type="button" onClick={() => importServer(d.id)} style={actionButtonStyle}>Use</button>
-                        {!d.has_cached_cards && (
+                        {canEditServerDeck(d) && (
+                          <button type="button" onClick={() => beginEditServer(d.id)} style={actionButtonStyle}>Edit</button>
+                        )}
+                        {!d.has_cached_cards && !useRestServer && (
                           <button
                             type="button"
                             onClick={() => cacheDeck(d.id)}
@@ -520,20 +781,24 @@ export function DeckManagerModal({
                             {cachingDeckId === d.id ? '…' : 'Cache'}
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => { gameId && socket.emit('renameSavedDeck', { gameId, deckId: d.id, name: prompt('Rename deck', d.name) || d.name }); }}
-                          style={actionButtonStyle}
-                        >
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { gameId && socket.emit('deleteSavedDeck', { gameId, deckId: d.id }); }}
-                          style={{ ...actionButtonStyle, color: '#f87171' }}
-                        >
-                          Delete
-                        </button>
+                        {canEditServerDeck(d) && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => renameServerDeck(d)}
+                              style={actionButtonStyle}
+                            >
+                              Rename
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteServerDeck(d)}
+                              style={{ ...actionButtonStyle, color: '#f87171' }}
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -586,6 +851,9 @@ export function DeckManagerModal({
               </div>
               <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button type="button" onClick={() => importServer(detail.id)} style={actionButtonStyle}>Use This Deck</button>
+                {canEditServerDeck(detail) && (
+                  <button type="button" onClick={() => beginEditServer(detail.id)} style={actionButtonStyle}>Edit Deck</button>
+                )}
                 <button type="button" onClick={() => setTab('server')} style={actionButtonStyle}>Back</button>
               </div>
             </div>

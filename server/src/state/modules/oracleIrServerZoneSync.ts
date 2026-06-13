@@ -21,6 +21,7 @@ import {
 } from '../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
 import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions, collectBlightTargetSelectionConfigs } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
+import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 import {
   detectTutorSpell,
   parseLibrarySearchFilter,
@@ -671,7 +672,7 @@ function queueTopLibraryChoicePromptsFromOracleIRResult(
       const cards = library.slice(0, actualCount).map(normalizeTopLibraryPromptCard);
 
       if (kind === 'scry') {
-        ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        const queuedStep = ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
           type: ResolutionStepType.SCRY,
           playerId,
           description: `${sourceName}: Scry ${actualCount}`,
@@ -687,10 +688,15 @@ function queueTopLibraryChoicePromptsFromOracleIRResult(
           oracleIrSourceId: sourceId,
           oracleIrSourceName: sourceName,
         } as any, result, params) as any);
+        appendQueuedResolutionPromptEvent(ctx, {
+          playerId,
+          sourceId,
+          queuedResolutionStep: queuedStep,
+        });
         continue;
       }
 
-      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      const queuedStep = ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
         type: ResolutionStepType.SURVEIL,
         playerId,
         description: `${sourceName}: Surveil ${actualCount}`,
@@ -706,6 +712,11 @@ function queueTopLibraryChoicePromptsFromOracleIRResult(
         oracleIrSourceId: sourceId,
         oracleIrSourceName: sourceName,
       } as any, result, params) as any);
+      appendQueuedResolutionPromptEvent(ctx, {
+        playerId,
+        sourceId,
+        queuedResolutionStep: queuedStep,
+      });
     }
   }
 }
@@ -839,7 +850,7 @@ function queueDiscardChoicePromptsFromOracleIRResult(
         // ignore
       }
 
-      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      const queuedStep = ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
         type: ResolutionStepType.DISCARD_SELECTION,
         playerId: built.playerId,
         description: `${sourceName}: ${String((step as any).raw || 'Discard')}`,
@@ -855,6 +866,11 @@ function queueDiscardChoicePromptsFromOracleIRResult(
         maxHandSize: built.maxHandSize,
         reason: 'effect',
       } as any, result, params) as any);
+      appendQueuedResolutionPromptEvent(ctx, {
+        playerId: built.playerId,
+        sourceId,
+        queuedResolutionStep: queuedStep,
+      });
     }
   }
 }

@@ -22705,7 +22705,7 @@ function handleScryResponse(
       );
       compoundDrawResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
       persistOracleIrLedger = scryStep.persistOracleIrScryResolve === true;
-      if (compoundDrawResult && persistOracleIrLedger) {
+      if (compoundDrawResult) {
         persistOracleIrCompoundDrawAfterResolution(ctx, {
           controller: pid,
           result: compoundDrawResult,
@@ -22966,7 +22966,7 @@ function handleSurveilResponse(
       );
       const compoundDrawResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
       persistOracleIrLedger = surveilStep.persistOracleIrSurveilResolve === true;
-      if (compoundDrawResult && persistOracleIrLedger) {
+      if (compoundDrawResult) {
         persistOracleIrCompoundDrawAfterResolution(ctx, {
           controller: pid,
           result: compoundDrawResult,
@@ -24055,8 +24055,26 @@ async function handleLibrarySearchResponse(
       splitAssignments,
     });
     if (oracleIrLibrarySearchResumeApplied(resumed)) {
+      const compoundResumePersistFields = readOracleIrCompoundResumePersistFields(searchStep);
       const ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
-      maybeResumeOracleIRStepsAfterResolution(ctx, step);
+      const handIdsBefore = new Set(
+        ((game.state as any).zones?.[searchOwnerId]?.hand || [])
+          .map((card: any) => String(card?.id || '').trim())
+          .filter(Boolean),
+      );
+      const libraryAfterSearchBeforeCompoundDraw = cloneLibraryStateForEvent(
+        (game as any).libraries?.get(searchOwnerId) || [],
+      );
+      const compoundDrawResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
+      if (compoundDrawResult) {
+        persistOracleIrCompoundDrawAfterResolution(ctx, {
+          controller: searchOwnerId,
+          result: compoundDrawResult,
+          sourceId: searchStep.oracleIrSourceId,
+          sourceName: searchStep.oracleIrSourceName,
+          handIdsBefore,
+        });
+      }
 
       if ((searchStep as any).persistLibrarySearchResolve === true) {
         const selectedIds = Array.isArray(selections) ? selections : [];
@@ -24066,7 +24084,6 @@ async function handleLibrarySearchResponse(
         const selectedCards = selectedIds
           .map((cardId: string) => cardMap.get(cardId))
           .filter(Boolean);
-        const lib = (game as any).libraries?.get(searchOwnerId) || [];
         const battlefieldRef = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
         const createdPermanentIds = (splitAssignments?.toBattlefield || []).length > 0
           ? (splitAssignments?.toBattlefield || [])
@@ -24110,9 +24127,10 @@ async function handleLibrarySearchResponse(
             grantPlayableFromExileControllerId,
             grantPlayableFromExileSpendManaAsThoughAnyType,
             playableFromExileTypeKey,
-            libraryAfter: cloneLibraryStateForEvent(lib),
+            libraryAfter: libraryAfterSearchBeforeCompoundDraw,
             lifeLoss: Number(lifeLoss || 0),
             ...ledgerPersistFields,
+            ...compoundResumePersistFields,
           });
         } catch {
           // Ignore persistence failures.

@@ -20,6 +20,7 @@ import {
   renameDeck as renameDeckDB,
   deleteDeck as deleteDeckDB,
   updateDeckResolvedCards,
+  updateDeckContent as updateDeckContentDB,
   moveDeckToFolder,
   buildFolderTree,
 } from "../db/decks";
@@ -114,7 +115,7 @@ function createDeckResolutionStatusReporter(
  * - per-game per-player import buffer (_lastImportedDecks)
  * - unanimous import-wipe confirmation workflow (timeout => cancel)
  * - getImportedDeckCandidates read-only accessor
- * - saved deck CRUD (saveDeck, listSavedDecks, getSavedDeck, renameSavedDeck, deleteSavedDeck)
+ * - saved deck CRUD (saveDeck, updateSavedDeck, listSavedDecks, getSavedDeck, renameSavedDeck, deleteSavedDeck)
  *
  * Behavior:
  * - Single-player / PRE_GAME imports auto-apply for the importer only (no room wipe).
@@ -168,6 +169,24 @@ function isSocketInGameRoom(socket: Socket, gameId: string): boolean {
   } catch {
     return false;
   }
+}
+
+function getSocketRemoteAddress(socket: Socket): string {
+  return String(socket.handshake?.address || (socket as any).conn?.remoteAddress || '')
+    .replace(/^::ffff:/, '');
+}
+
+function isLocalhostSocket(socket: Socket): boolean {
+  const remote = getSocketRemoteAddress(socket);
+  return remote === '127.0.0.1' || remote === '::1' || remote === 'localhost';
+}
+
+function canModifySavedDeck(
+  socket: Socket,
+  deck: { created_by_id: string },
+  playerId: PlayerID,
+): boolean {
+  return deck.created_by_id === playerId || isLocalhostSocket(socket);
 }
 
 function cancelImportWipeConfirmResolutionSteps(gameId: string, confirmId: string) {
@@ -2309,6 +2328,135 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
     }
   );
 
+  // updateSavedDeck - update an existing deck's name and list (owner or localhost admin)
+  socket.on(
+    "updateSavedDeck",
+    (payload?: {
+      gameId?: string;
+      deckId?: string;
+      name?: string;
+      list?: string;
+      cacheCards?: boolean;
+    }) => {
+      const gameId = payload?.gameId;
+      const deckId = payload?.deckId;
+      const name = payload?.name;
+      const list = payload?.list;
+      const cacheCards = payload?.cacheCards;
+      (async () => {
+        try {
+          if (!gameId || typeof gameId !== "string") {
+            socket.emit("deckError", { gameId, message: "GameId required." });
+            return;
+          }
+
+          if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !isSocketInGameRoom(socket, gameId)) {
+            socket.emit("deckError", { gameId, message: "Not in game." });
+            return;
+          }
+
+          const pid = socket.data.playerId as PlayerID | undefined;
+          const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
+          if (!pid || socketIsSpectator) {
+            socket.emit("deckError", { gameId, message: "Spectators cannot edit decks." });
+            return;
+          }
+
+          if (!deckId || typeof deckId !== "string") {
+            socket.emit("deckError", { gameId, message: "DeckId required." });
+            return;
+          }
+
+          if (!name || typeof name !== "string" || !name.trim()) {
+            socket.emit("deckError", { gameId, message: "Deck name required." });
+            return;
+          }
+
+          if (!list || typeof list !== "string" || !list.trim()) {
+            socket.emit("deckError", { gameId, message: "Deck list required." });
+            return;
+          }
+
+          const game = ensureGame(gameId);
+          if (!game) {
+            socket.emit("deckError", { gameId, message: "Game not found." });
+            return;
+          }
+
+          const players = (game.state as any)?.players;
+          const seated = Array.isArray(players) ? players.find((p: any) => p && p.id === pid) : undefined;
+          if (!seated || seated.spectator || seated.isSpectator) {
+            socket.emit("deckError", { gameId, message: "Not authorized." });
+            return;
+          }
+
+          const existing = getDeckDB(deckId);
+          if (!existing) {
+            socket.emit("deckError", { gameId, message: "Deck not found." });
+            return;
+          }
+
+          if (!canModifySavedDeck(socket, existing, pid)) {
+            socket.emit("deckError", { gameId, message: "You can only edit decks you created." });
+            return;
+          }
+
+          let cardCount = 0;
+          let parsed: Array<{ name: string; count: number }> = [];
+          try {
+            parsed = parseDecklist(list);
+            cardCount = parsed.reduce((sum, p) => sum + (p.count || 0), 0);
+          } catch (e) {
+            debugWarn(1, "updateSavedDeck: parseDecklist failed, using line count estimate", e);
+            const lines = list.split(/\r?\n/).filter((l) => !shouldSkipDeckLine(l));
+            cardCount = lines.length;
+          }
+
+          let resolvedCardsJson: string | null = null;
+          if (cacheCards && parsed.length > 0) {
+            try {
+              const resolution = await resolveDeckList(parsed, {
+                uniqueInstanceIds: false,
+                onStatus: createDeckResolutionStatusReporter(io, socket, gameId, "updateSavedDeck cacheCards", {
+                  playerId: pid,
+                  slowFallbackNotice: "none",
+                }),
+              });
+              if (resolution.resolvedCards.length > 0) {
+                resolvedCardsJson = JSON.stringify(resolution.resolvedCards);
+              }
+            } catch (e) {
+              debugWarn(1, "updateSavedDeck: failed to resolve cards for caching", e);
+            }
+          }
+
+          const updated = updateDeckContentDB(deckId, {
+            name: name.trim(),
+            text: list,
+            card_count: cardCount,
+            resolved_cards: resolvedCardsJson,
+          });
+          if (!updated) {
+            socket.emit("deckError", { gameId, message: "Failed to update deck." });
+            return;
+          }
+
+          socket.emit("deckUpdated", { gameId, deck: updated });
+
+          const allDecks = listDecks();
+          io.to(gameId).emit("savedDecksList", {
+            gameId,
+            decks: allDecks,
+            folders: buildFolderTree(allDecks),
+          });
+        } catch (err) {
+          debugError(1, "updateSavedDeck handler failed:", err);
+          socket.emit("deckError", { gameId, message: "Failed to update deck." });
+        }
+      })();
+    }
+  );
+
   // listSavedDecks - get all saved decks
   socket.on(
     "listSavedDecks",
@@ -2503,6 +2651,17 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
+        const existing = getDeckDB(deckId);
+        if (!existing) {
+          socket.emit("deckError", { gameId, message: "Deck not found." });
+          return;
+        }
+
+        if (!canModifySavedDeck(socket, existing, pid)) {
+          socket.emit("deckError", { gameId, message: "You can only rename decks you created." });
+          return;
+        }
+
         const deck = renameDeckDB(deckId, name.trim());
         if (!deck) {
           socket.emit("deckError", { gameId, message: "Deck not found." });
@@ -2573,6 +2732,17 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         if (!deckId || typeof deckId !== "string") {
           socket.emit("deckError", { gameId, message: "DeckId required." });
+          return;
+        }
+
+        const existing = getDeckDB(deckId);
+        if (!existing) {
+          socket.emit("deckError", { gameId, message: "Deck not found." });
+          return;
+        }
+
+        if (!canModifySavedDeck(socket, existing, pid)) {
+          socket.emit("deckError", { gameId, message: "You can only delete decks you created." });
           return;
         }
 

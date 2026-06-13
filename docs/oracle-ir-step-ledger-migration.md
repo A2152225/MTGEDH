@@ -1,7 +1,7 @@
 # Oracle IR Step Ledger & Pre-Commit Transition Migration
 
 **Version:** 2026-06-13  
-**Status:** Complete (Phases A–Z). Post-Z hardening through Phase AO (live socket `drawCards` persist with `drawnCardIds`, deterministic replay by card id, trigger surveil compound socket E2E).
+**Status:** Complete (Phases A–Z). **Post-Z compound-spell hardening complete** (Phases AA–BB).
 **Audience:** Contributors eliminating Layer 2/3 legacy fallbacks for "this way" memory, replacement effects, and static ETB rules
 
 **Companion docs:**
@@ -227,6 +227,42 @@ Dry-run / audit callers omit `serverBridge`; ledger still populated via direct s
 - **Live socket drawCards persist (Phase AO):** `handleScryResponse` / `handleSurveilResponse` append `drawCards` with `oracleIrCompoundResume: true` and `drawnCardIds` immediately after compound `maybeResumeOracleIRStepsAfterResolution` when `persistOracleIrScryResolve` / `persistOracleIrSurveilResolve` is set (mirrors reconnect auto-resume path).
 - **drawnCardIds replay (Phase AO):** `drawCardsByIds` in `applyEvent(drawCards)` honors optional `drawnCardIds` for library-order-independent compound draw replay. `collectOracleIrCompoundDrawnCardIds` snapshots new hand cards after compound resume.
 - **Trigger surveil compound socket E2E (Phase AO):** Trigger `Surveil 1. Draw a card.` live socket persists `surveilResolve` + `drawCards` with `drawnCardIds`; full replay restores hand/graveyard deterministically.
+- **Unconditional compound drawCards persist (Phase AP):** `handleScryResponse` / `handleSurveilResponse` append `drawCards` whenever compound `maybeResumeOracleIRStepsAfterResolution` applies a draw — not only when `persistOracleIrScryResolve` / `persistOracleIrSurveilResolve` ledger flags are set.
+- **Consider stack replay E2E (Phase AP):** Consider stack resolve persists live `drawCards` + `drawnCardIds`; full `surveilResolve` + `drawCards` replay uses id-based draw with shuffled library order.
+- **Resolution queue replay suppression (Phase AP):** `ResolutionQueueManager.beginReplay` / `endReplay` suppress step enqueue during `replay()`; `finalizeGameStateAfterReplay` clears replay-transient queue state.
+- **Opt stack shuffled-library replay (Phase AQ):** Opt stack socket persists live `scryResolve` + `drawCards` with `drawnCardIds`; full replay with reversed library order uses id-based draw.
+- **Auto-resume drawnCardIds parity (Phase AQ):** `processPendingOracleIrCompoundResume` and `replay()` auto-resume append `drawCards` with `drawnCardIds` matching live socket compound resolve.
+- **Replay cleanup in migration suite (Phase AQ):** `replay-resume-prompt-cleanup.unit.test.ts` wired into `npm run test:oracle-ir-migration`.
+- **Chart a Course stack E2E (Phase AR):** `resolveTopOfStack` on Chart a Course under `ORACLE_IR_SPELL_PRIMARY` draws two cards synchronously, queues `DISCARD_SELECTION` when controller did not attack (`attackedPlayersThisTurnByPlayer` empty), and skips discard when controller attacked this turn; socket discard response completes the spell.
+- **Architecture guide sync (Phase AR):** `oracle-ir-architecture-guide.md` Post-Z section updated through Phase AQ + Chart a Course stack coverage.
+- **Library-search compound draw persist (Phase AS):** `handleLibrarySearchResponse` mirrors scry/surveil compound path — `persistOracleIrCompoundDrawAfterResolution`, `oracleIrResumeStepsJson` on `librarySearchResolve`, `libraryAfter` snapshot before compound resume; `applyEvent(librarySearchResolve)` restores pending compound resume.
+- **Library-search compound draw stack E2E (Phase AS):** Stack spell (`search_library` + `If you searched your library this way, draw a card.`) completes via socket; `librarySearchResolve` + `drawCards` replay uses `drawnCardIds`.
+- **Chart a Course discard prompt replay (Phase AS):** IR-bridged `DISCARD_SELECTION` steps emit `resolveTopOfStackPrompt`; replay restores queued discard with post-draw hand snapshot.
+- **Library-search compound reconnect (Phase AT):** `librarySearchResolve` persists `oracleIrResumeStepsJson`; `applyEvent` + `resumeOracleIrPendingCompoundStepsFromState` / `replay()` auto-resume complete conditional draw after reconnect (parity with Opt/Consider scry/surveil).
+- **Big Score stack E2E (Phase AT):** `resolveTopOfStack` on Big Score under IR primary draws three synchronously and creates two Treasure tokens.
+- **joinGame compound resume (Phase AU):** `joinGame` calls `processPendingOracleIrCompoundResume` to finish library-search conditional draw after `librarySearchResolve` reconnect state (parity with Consider `processPendingOracleIrCompoundResume` path).
+- **Wheel stack E2E (Phase AU):** `resolveTopOfStack` on Reforge the Soul and Windfall under IR primary discards each hand and draws the correct number of cards per player.
+- **joinGame scry compound resume (Phase AV):** `joinGame` finishes Opt compound draw from `scryResolve` pending resume state (parity with library-search join path).
+- **Echo of Eons stack E2E (Phase AV):** `resolveTopOfStack` shuffles each player's hand and graveyard into their library, then draws seven.
+- **joinGame surveil compound resume (Phase AW):** `joinGame` finishes Consider compound draw from `surveilResolve` pending resume state (parity with Opt scry and library-search join paths).
+- **Inspiring Call stack E2E (Phase AW):** `resolveTopOfStack` draws per +1/+1 creature and grants indestructible until end of turn under IR primary.
+- **Chart a Course joinGame discard reconnect (Phase AX):** `resolveTopOfStackPrompt` replay restores IR-bridged `DISCARD_SELECTION`; `joinGame` re-emits `resolutionStepPrompt` and socket discard completes the spell.
+- **Scry-2 compound stack E2E (Phase AY):** Preordain `resolveTopOfStack` queues IR scry 2 with compound draw resume; socket scry response completes via `drawCards` + `drawnCardIds`.
+- **Draw-then-scry stack E2E (Phase AY):** Serum Visions (oracle: draw first, scry 2) draws synchronously then queues trailing IR scry without compound draw resume on the scry step.
+- **joinGame scry-2 compound resume (Phase AZ):** `joinGame` finishes Preordain compound draw from `scryResolve` pending resume state (parity with Opt scry-1 join path).
+- **Serum Visions joinGame scry reconnect (Phase BA):** `resolveTopOfStackPrompt` replay restores trailing scry after synchronous draw; `joinGame` re-emits `resolutionStepPrompt` and socket scry completes the spell.
+- **Compound-spell E2E matrix (Phase BA):** `oracle-ir-architecture-guide.md` §12 documents stack/replay/reconnect/join coverage per spell pattern and remaining gaps.
+- **IR scry/surveil prompt persist (Phase BA):** `queueTopLibraryChoicePromptsFromOracleIRResult` appends `resolveTopOfStackPrompt` for IR-bridged scry/surveil (parity with discard); enables Serum Visions joinGame reconnect and full replay of trailing library-top prompts.
+- **Opt/Consider prompt replay E2E (Phase BB):** `resolveTopOfStackPrompt` replay restores queued IR scry/surveil with compound `oracleIrResumeStepsJson` before socket response.
+- **Post-Z wrap-up (Phase BB):** compound-spell reconnect matrix in architecture guide §12; non-blocking gaps limited to wheel/token reconnect E2E.
+
+---
+
+## Post-Z compound-spell hardening (Phases AA–BB) — complete
+
+Post-Z work hardened **compound spell** stack resolve, event-log persistence, replay, reconnect, and `joinGame` resume for IR-bridged scry/surveil/library-search/discard prompts. Primary integration coverage lives in `server/tests/oracle-ir-scry-surveil.integration.test.ts` (43 tests in that file; 701 in `npm run test:oracle-ir-migration`). See `docs/oracle-ir-architecture-guide.md` §12 for the spell-pattern matrix.
+
+**Non-blocking follow-ups (outside Post-Z scope):** wheel/token compound reconnect E2E; broader executor/trigger coverage audits per `npm run executor:coverage` / `npm run trigger:coverage`.
 
 ---
 

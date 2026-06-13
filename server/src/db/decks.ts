@@ -54,6 +54,7 @@ const listStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created
 const listByFolderStmt = db.prepare(`SELECT id, name, created_at, created_by_id, created_by_name, card_count, folder, CASE WHEN resolved_cards IS NOT NULL AND resolved_cards != '' THEN 1 ELSE 0 END as has_cached_cards FROM decks WHERE folder = ? ORDER BY created_at DESC`);
 const getStmt = db.prepare(`SELECT * FROM decks WHERE id = ?`);
 const renameStmt = db.prepare(`UPDATE decks SET name = ? WHERE id = ?`);
+const updateDeckContentStmt = db.prepare(`UPDATE decks SET name = ?, text = ?, card_count = ?, resolved_cards = ? WHERE id = ?`);
 const deleteStmt = db.prepare(`DELETE FROM decks WHERE id = ?`);
 const updateResolvedCardsStmt = db.prepare(`UPDATE decks SET resolved_cards = ? WHERE id = ?`);
 const updateFolderStmt = db.prepare(`UPDATE decks SET folder = ? WHERE id = ?`);
@@ -239,6 +240,28 @@ export function getDeck(id: string): SavedDeckDetail | null {
 
 export function renameDeck(id: string, name: string): SavedDeckSummary | null {
   renameStmt.run(name, id);
+  const d = getDeck(id);
+  if (!d) return null;
+  const { text, entries, cached_cards, ...summary } = d;
+  return summary;
+}
+
+export function updateDeckContent(
+  id: string,
+  updates: {
+    name: string;
+    text: string;
+    card_count: number;
+    resolved_cards?: string | null;
+  },
+): SavedDeckSummary | null {
+  updateDeckContentStmt.run(
+    updates.name,
+    updates.text,
+    updates.card_count,
+    updates.resolved_cards ?? null,
+    id,
+  );
   const d = getDeck(id);
   if (!d) return null;
   const { text, entries, cached_cards, ...summary } = d;

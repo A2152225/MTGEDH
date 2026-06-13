@@ -450,6 +450,7 @@ export interface ServerToClientEvents {
   savedDecksList: (payload: { gameId: GameID; decks: any[] }) => void;
   savedDeckDetail: (payload: { gameId: GameID; deck: any }) => void;
   deckSaved: (payload: { gameId: GameID; deckId: string }) => void;
+  deckUpdated: (payload: { gameId: GameID; deck: any }) => void;
   deckRenamed: (payload: { gameId: GameID; deck: any }) => void;
   deckDeleted: (payload: { gameId: GameID; deckId: string }) => void;
 

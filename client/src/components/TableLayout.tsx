@@ -2118,6 +2118,7 @@ export function TableLayout(props: {
               onClose={() => setDeckMgrOpen(false)}
               onImportText={(txt, nm) => handleRequestImportText(txt, nm)}
               gameId={gameId}
+              playerId={you}
               canServer={!!isYouPlayer}
               anchorEl={externalDeckMgrAnchorEl ?? decksBtnRef.current}
               wide

@@ -5643,19 +5643,33 @@ export function App() {
         {/* IMPORT WARNINGS */}
         {missingImport && missingImport.length > 0 && (
           <div
+            role="alert"
             style={{
-              background: "#fff6d5",
-              padding: 10,
-              border: "1px solid #f1c40f",
+              background: "rgba(69, 26, 3, 0.96)",
+              color: "#fef3c7",
+              padding: "10px 12px",
+              border: "1px solid #f59e0b",
               borderRadius: 6,
+              lineHeight: 1.45,
             }}
           >
-            <strong>Import warning</strong>: Could not resolve these names:{" "}
-            {missingImport.slice(0, 10).join(", ")}
-            {missingImport.length > 10 ? ", …" : ""}.
+            <strong style={{ color: "#fde68a" }}>Import warning</strong>: Could not resolve these names:{" "}
+            <span style={{ color: "#fff7ed" }}>
+              {missingImport.slice(0, 10).join(", ")}
+              {missingImport.length > 10 ? ", …" : ""}.
+            </span>
             <button
+              type="button"
               onClick={() => setMissingImport(null)}
-              style={{ marginLeft: 12 }}
+              style={{
+                marginLeft: 12,
+                padding: "4px 10px",
+                borderRadius: 4,
+                border: "1px solid #fbbf24",
+                background: "rgba(245, 158, 11, 0.2)",
+                color: "#fffbeb",
+                cursor: "pointer",
+              }}
             >
               Dismiss
             </button>
@@ -7186,8 +7200,10 @@ export function App() {
           // The deck is saved locally or to server within the modal
           setDeckBuilderOpen(false);
         }}
-        gameId={undefined}
-        canServer={false}
+        gameId={safeView?.id}
+        playerId={you ?? undefined}
+        playerName={nameInput || undefined}
+        canServer={true}
         wide
       />
 

@@ -70,6 +70,29 @@ class ResolutionQueueManagerClass {
   private queues: Map<string, ResolutionQueue> = new Map();
   private eventHandlers: Set<ResolutionQueueEventHandler> = new Set();
   private contextMap: WeakMap<GameContext, ResolutionQueue> = new WeakMap();
+  private replayingGames: Set<string> = new Set();
+  
+  /**
+   * Suppress resolution step enqueue while rebuilding state from the event log.
+   */
+  beginReplay(gameId: string): void {
+    const normalizedGameId = String(gameId || '').trim();
+    if (!normalizedGameId) return;
+    this.replayingGames.add(normalizedGameId);
+  }
+
+  /**
+   * End replay suppression and drop any steps that were created during replay.
+   */
+  endReplay(gameId: string): void {
+    const normalizedGameId = String(gameId || '').trim();
+    if (!normalizedGameId) return;
+    this.replayingGames.delete(normalizedGameId);
+  }
+
+  isReplaying(gameId: string): boolean {
+    return this.replayingGames.has(String(gameId || '').trim());
+  }
   
   /**
    * Get or create a resolution queue for a game
@@ -99,6 +122,7 @@ class ResolutionQueueManagerClass {
    * Remove a game's queue (for cleanup when game ends)
    */
   removeQueue(gameId: string): boolean {
+    this.replayingGames.delete(gameId);
     return this.queues.delete(gameId);
   }
 
@@ -137,9 +161,16 @@ class ResolutionQueueManagerClass {
   /**
    * Add a resolution step to a game's queue
    */
-  addStep(gameId: string, config: CreateResolutionStepConfig): ResolutionStep {
+  addStep(
+    gameId: string,
+    config: CreateResolutionStepConfig,
+    options?: { allowDuringReplay?: boolean },
+  ): ResolutionStep {
     const queue = this.getQueue(gameId);
     const step = createResolutionStep(config);
+    if (this.replayingGames.has(gameId) && options?.allowDuringReplay !== true) {
+      return step;
+    }
     addStep(queue, step);
     this.emit(ResolutionQueueEvent.STEP_ADDED, gameId, step);
     this.emit(ResolutionQueueEvent.QUEUE_CHANGED, gameId);
@@ -159,6 +190,9 @@ class ResolutionQueueManagerClass {
       ...(choiceEventToStep(choiceEvent) as any),
       ...(extraConfig || {}),
     });
+    if (this.replayingGames.has(gameId)) {
+      return step;
+    }
     addStep(queue, step);
     this.emit(ResolutionQueueEvent.STEP_ADDED, gameId, step);
     this.emit(ResolutionQueueEvent.QUEUE_CHANGED, gameId);
@@ -177,6 +211,9 @@ class ResolutionQueueManagerClass {
     const queue = this.getQueue(gameId);
     const steps = configs.map(c => createResolutionStep(c));
     const orderedSteps = orderByAPNAP(steps, turnOrder, activePlayerId);
+    if (this.replayingGames.has(gameId)) {
+      return orderedSteps;
+    }
     
     addSteps(queue, orderedSteps);
     

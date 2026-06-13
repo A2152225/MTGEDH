@@ -1,6 +1,6 @@
 # MTGEDH Oracle IR Architecture & Execution Loop
 
-**Version:** 2026-06-13 (step ledger Phases A–Z)  
+**Version:** 2026-06-13 (step ledger Phases A–Z, Post-Z through AV)  
 **Repository:** MTGEDH  
 **Audience:** Contributors working on card behavior, server integration, or migration off legacy handlers
 
@@ -219,7 +219,7 @@ Step handler → build*Transitions() / lastMovedCards flush
 
 Later steps, `modify_pt` where-X, and conditionals read antecedents via `resolveThisWayTrait` / `oracleIRLedgerCardAccess.ts`, not runtime carry-over arrays.
 
-**Post-Z (Phases AA–AN):** IR `LIBRARY_SEARCH` steps with `oracleIrChoiceStepJson` always resume through Oracle IR on `submitResolutionResponse` (split and single-destination). `librarySearchResolve` replay events emit when `persistLibrarySearchResolve` is set (split and non-split), including serialized step ledger for reconnect/replay. Cultivate-style `search_library` + `revealFound` binds and ledger-reads "revealed this way" antecedents for conditionals and where-X even after shuffle resume overwrites `appliedStepKinds`. "Searched library this way" conditionals use the same ledger fallback. Legacy tutor handlers skip when an IR-bridged library search is already queued. IR-bridged `SCRY` / `SURVEIL` steps attach `oracleIrChoiceStepJson`, resume IR after zone apply, continue compound steps, and persist ledger fields on `scryResolve` / `surveilResolve` replay events. Compound `scry` + `draw` spells (e.g. Opt) resume the draw through `oracleIrResumeStepsJson` after scry resolves; `resolveTopOfStack` on Opt queues the same IR scry path. Surveil compound + replay parity matches scry; Consider stack-resolve E2E completes the same way. Opt stack resolve persists `scryResolve` ledger for replay and scry-this-way where-X reads. Compound resume preserves absolute step indices (`scry` at 0, `draw` at 1) via `currentStepIndex` base offset and `resolveOracleIrChoiceStepIndex` / `resolveOracleIrContinuationStepIndex`; ledger snapshots for scry/surveil resolve events are taken before compound continuation runs. Consider `surveilResolve` ledger replay supports revealed-this-way reads; `oracleIrResumeStepsJson` is persisted on compound resolve events and restored as `oracleIrPendingResumeStepsJson` for `resumeOracleIrPendingCompoundStepsFromState` after reconnect. `processPendingOracleIrCompoundResume` auto-finishes pending compound steps after replay and on reconnect (join / stack resolve / resolution-step request). Auto-resume appends `drawCards` events (`oracleIrCompoundResume`) for event-log determinism; `drawCards` replay clears pending resume to avoid double-draw.
+**Post-Z (Phases AA–BB):** Post-Z compound-spell hardening **complete**. IR `LIBRARY_SEARCH` steps with `oracleIrChoiceStepJson` always resume through Oracle IR on `submitResolutionResponse` (split and single-destination). `librarySearchResolve` replay events emit when `persistLibrarySearchResolve` is set (split and non-split), including serialized step ledger for reconnect/replay. Cultivate-style `search_library` + `revealFound` binds and ledger-reads "revealed this way" antecedents for conditionals and where-X even after shuffle resume overwrites `appliedStepKinds`. "Searched library this way" conditionals use the same ledger fallback. Legacy tutor handlers skip when an IR-bridged library search is already queued. IR-bridged `SCRY` / `SURVEIL` steps attach `oracleIrChoiceStepJson`, resume IR after zone apply, continue compound steps, and persist ledger fields on `scryResolve` / `surveilResolve` replay events. Compound `scry` + `draw` spells (e.g. Opt) resume the draw through `oracleIrResumeStepsJson` after scry resolves; `resolveTopOfStack` on Opt queues the same IR scry path. Surveil compound + replay parity matches scry; Consider stack-resolve E2E completes the same way. Opt stack resolve persists `scryResolve` ledger for replay and scry-this-way where-X reads. Compound resume preserves absolute step indices (`scry` at 0, `draw` at 1) via `currentStepIndex` base offset and `resolveOracleIrChoiceStepIndex` / `resolveOracleIrContinuationStepIndex`; ledger snapshots for scry/surveil resolve events are taken before compound continuation runs. Consider `surveilResolve` ledger replay supports revealed-this-way reads; `oracleIrResumeStepsJson` is persisted on compound resolve events and restored as `oracleIrPendingResumeStepsJson` for `resumeOracleIrPendingCompoundStepsFromState` after reconnect. `processPendingOracleIrCompoundResume` auto-finishes pending compound steps after replay and on reconnect (join / stack resolve / resolution-step request). Auto-resume and live socket compound resolve append `drawCards` events (`oracleIrCompoundResume: true`, optional `drawnCardIds`) for event-log determinism; `drawCardsByIds` in `applyEvent(drawCards)` honors `drawnCardIds` for shuffled-library replay; `applyEvent(drawCards)` clears pending resume to avoid double-draw. `ResolutionQueueManager.beginReplay` / `endReplay` suppress transient queue enqueue during `replay()`; retarget prompts use `allowDuringReplay`. Chart a Course stack E2E (Phase AR): `resolveTopOfStack` under IR primary draws two synchronously, then queues `DISCARD_SELECTION` unless `attackedPlayersThisTurnByPlayer` is non-empty for the controller; discard prompts persist via `resolveTopOfStackPrompt` (Phase AS). Library-search compound draw (Phase AS): `handleLibrarySearchResponse` persists `drawCards` + `oracleIrResumeStepsJson` on `librarySearchResolve` with `libraryAfter` captured before compound resume; `applyEvent(librarySearchResolve)` restores pending compound resume for reconnect. Library-search compound reconnect (Phase AT): `resumeOracleIrPendingCompoundStepsFromState` and `replay()` auto-resume after `librarySearchResolve` mirror Opt/Consider scry/surveil paths. Big Score stack E2E (Phase AT): draw-then-create-token compound spells complete synchronously on `resolveTopOfStack`. joinGame compound resume (Phase AU): `processPendingOracleIrCompoundResume` on reconnect finishes pending library-search conditional draw. Wheel stack E2E (Phase AU): Reforge the Soul and Windfall resolve via IR primary on `resolveTopOfStack`. joinGame compound resume (Phase AU–AW): `processPendingOracleIrCompoundResume` on reconnect finishes pending library-search conditional draw, Opt `scryResolve` compound draw, and Consider `surveilResolve` compound draw. Echo of Eons stack E2E (Phase AV): shuffle-hand-graveyard-then-draw wheel completes on `resolveTopOfStack`. Inspiring Call stack E2E (Phase AW): draw-per-counter + indestructible grant completes on `resolveTopOfStack`. Chart a Course joinGame discard reconnect (Phase AX): `applyEvent(resolveTopOfStackPrompt)` restores queued discard; `joinGame` re-emits `resolutionStepPrompt` for socket completion. Scry-2 compound stack E2E (Phase AY): Preordain completes scry-then-draw on `resolveTopOfStack` with compound `drawCards` resume. Draw-then-scry stack E2E (Phase AY): Serum Visions draws synchronously then queues trailing scry 2. joinGame scry-2 compound resume (Phase AZ): Preordain compound draw finishes from `scryResolve` pending resume on reconnect. Serum Visions joinGame scry reconnect (Phase BA): trailing scry after draw-then-scry spell completes via `resolveTopOfStackPrompt` + `joinGame`. IR scry/surveil prompt persist (Phase BA): all IR-bridged scry/surveil queue steps append `resolveTopOfStackPrompt`. Opt/Consider prompt replay E2E (Phase BB): pre-response scry/surveil prompts replay from event log. Compound-spell matrix: architecture guide §12.
 
 ### Phase D — Resolution queue bridge
 
@@ -357,11 +357,36 @@ Cast instant/sorcery → stack
 
 ---
 
-## 12. Verification
+## 12. Post-Z compound spell E2E matrix
+
+Primary integration file: `server/tests/oracle-ir-scry-surveil.integration.test.ts` (migration suite). **43 tests** in that file; **701** in `npm run test:oracle-ir-migration`. Legend: **S** stack + socket, **R** replay / `applyEvent`, **C** reconnect / `processPendingOracleIrCompoundResume`, **J** `joinGame`.
+
+| Spell / pattern | Steps | S | R | C | J |
+|-----------------|-------|---|---|---|---|
+| Opt | scry 1 → draw | ✓ | ✓ (prompt + scryResolve) | ✓ | ✓ |
+| Consider | surveil 1 → draw | ✓ | ✓ (prompt + surveilResolve) | ✓ | ✓ |
+| Preordain | scry 2 → draw | ✓ | ✓ (scryResolve) | — | ✓ |
+| Serum Visions | draw → scry 2 | ✓ | ✓ (prompt) | — | ✓ |
+| Chart a Course | draw 2 → unless-attack discard | ✓ | ✓ (prompt) | — | ✓ |
+| Library-search conditional | search → if searched, draw | ✓ | ✓ | ✓ | ✓ |
+| Big Score | draw 3 → create Treasures | ✓ | — | — | — |
+| Inspiring Call | draw per +1/+1 → indestructible | ✓ | — | — | — |
+| Reforge / Windfall / Echo | wheel (discard/shuffle/draw) | ✓ | — | — | — |
+| Trigger compound scry/surveil | ETB-style clause + draw | ✓ (socket) | ✓ | — | — |
+
+**Reconnect paths:** compound scry/surveil/library-search draws use `oracleIrPendingResumeStepsJson` + `processPendingOracleIrCompoundResume` on `joinGame`. Trailing prompts (discard, draw-then-scry) use `resolveTopOfStackPrompt` replay + `joinGame` `resolutionStepPrompt` re-emit.
+
+**Remaining gaps (non-blocking):** wheel and token compound spells reconnect E2E.
+
+**Post-Z status:** compound-spell hardening **complete** (Phases AA–BB). See `oracle-ir-step-ledger-migration.md` Post-Z section.
+
+---
+
+## 13. Verification
 
 ```powershell
 cd server
-npm run test:oracle-ir-migration    # 651 tests, production defaults
+npm run test:oracle-ir-migration    # 701 tests, production defaults
 
 cd ../rules-engine
 npx vitest run test/oracleIRStepLedger.test.ts test/oracleIRLedgerReferenceConvergence.test.ts test/oracleIRScrySurveilLedger.test.ts  # ledger smoke

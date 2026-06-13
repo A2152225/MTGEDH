@@ -3524,7 +3524,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   playerId: String((queuedStep as any).playerId || playerId || '') as any,
                   description: String((queuedStep as any).description || ''),
                   mandatory: (queuedStep as any).mandatory !== false,
-                } as any);
+                } as any, { allowDuringReplay: true });
                 stateMutated = true;
               }
             }
@@ -11279,6 +11279,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (e as any).oracleIrStepLedger,
             (e as any).oracleIrAppliedStepKinds,
           );
+          restoreOracleIrPendingCompoundResumeOnState(ctx.state, e);
 
           ctx.bumpSeq();
         } catch (err) {
@@ -14903,6 +14904,7 @@ export function replay(
     try {
       if (ctx?.gameId) {
         ResolutionQueueManager.clearAllSteps(ctx.gameId);
+        ResolutionQueueManager.beginReplay(ctx.gameId);
       }
     } catch {
       // best-effort only

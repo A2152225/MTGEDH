@@ -59,7 +59,6 @@ export function finalizeGameStateAfterReplay(ctx: GameContext): void {
 
   try {
     ResolutionQueueManager.endReplay(gameId);
-    ResolutionQueueManager.clearAllSteps(gameId);
     clearOptionalPaymentCallbacks(gameId);
   } catch {
     // best-effort only
