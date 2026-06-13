@@ -1184,7 +1184,7 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
   const battlefield = getActivePermanents(ctx);
   const checkedPermanentIds = new Set<string>(); // Avoid double-counting
   
-  debug(2, `[calculateMaxLandsPerTurn] Calculating for player ${playerId}, battlefield has ${battlefield.length} permanents`);
+  debug(3, `[calculateMaxLandsPerTurn] Calculating for player ${playerId}, battlefield has ${battlefield.length} permanents`);
   
   for (const perm of battlefield) {
     if (checkedPermanentIds.has(perm.id)) continue;
@@ -1203,7 +1203,7 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
           maxLands += effect.lands;
           checkedPermanentIds.add(perm.id);
           foundInKnownList = true;
-          debug(2, `[calculateMaxLandsPerTurn] ${perm.card?.name} grants +${effect.lands} lands to ${playerId} (controller: ${perm.controller}, affectsAll: ${effect.affectsAll})`);
+          debug(3, `[calculateMaxLandsPerTurn] ${perm.card?.name} grants +${effect.lands} lands to ${playerId} (controller: ${perm.controller}, affectsAll: ${effect.affectsAll})`);
           break; // Only count once per permanent
         }
       }
@@ -1218,7 +1218,7 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
         if (isController || dynamicResult.affectsAll) {
           maxLands += dynamicResult.lands;
           checkedPermanentIds.add(perm.id);
-          debug(2, `[calculateMaxLandsPerTurn] Detected +${dynamicResult.lands} lands from ${perm.card?.name} via oracle text (controller: ${perm.controller}, affectsAll: ${dynamicResult.affectsAll})`);
+          debug(3, `[calculateMaxLandsPerTurn] Detected +${dynamicResult.lands} lands from ${perm.card?.name} via oracle text (controller: ${perm.controller}, affectsAll: ${dynamicResult.affectsAll})`);
         }
       }
     }
@@ -1236,7 +1236,7 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
       maxLands = Number.isFinite(dynamicResult.lands)
         ? maxLands + dynamicResult.lands
         : Number.POSITIVE_INFINITY;
-      debug(2, `[calculateMaxLandsPerTurn] ${planeName} grants ${Number.isFinite(dynamicResult.lands) ? `+${dynamicResult.lands}` : 'unlimited'} lands to ${playerId}`);
+      debug(3, `[calculateMaxLandsPerTurn] ${planeName} grants ${Number.isFinite(dynamicResult.lands) ? `+${dynamicResult.lands}` : 'unlimited'} lands to ${playerId}`);
     }
   }
   
@@ -1245,10 +1245,10 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
   const temporaryBonus = (ctx.state as any)?.additionalLandsThisTurn?.[playerId] || 0;
   if (temporaryBonus > 0) {
     maxLands += temporaryBonus;
-    debug(2, `[calculateMaxLandsPerTurn] Added +${temporaryBonus} temporary lands for ${playerId} (spell effect)`);
+    debug(3, `[calculateMaxLandsPerTurn] Added +${temporaryBonus} temporary lands for ${playerId} (spell effect)`);
   }
   
-  debug(2, `[calculateMaxLandsPerTurn] Final result for ${playerId}: ${maxLands} lands per turn`);
+  debug(3, `[calculateMaxLandsPerTurn] Final result for ${playerId}: ${maxLands} lands per turn`);
   return maxLands;
 }
 

@@ -406,6 +406,7 @@ function toOracleRecord(raw: any): LocalCardLookupRecord | null {
     loyalty: raw?.loyalty,
     layout: raw?.layout,
     colors: raw?.colors,
+    color_identity: raw?.color_identity ?? raw?.colorIdentity,
     card_faces: Array.isArray(raw?.card_faces)
       ? raw.card_faces.map((face: any) => ({
           name: face?.name,

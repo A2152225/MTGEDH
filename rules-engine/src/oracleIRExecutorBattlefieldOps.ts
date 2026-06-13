@@ -4,6 +4,10 @@ import { getLeaveBattlefieldDestination } from '../../shared/src/leaveBattlefiel
 import type { OracleObjectSelector } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import {
+  buildZoneChangeTransitionsFromPermanents,
+  mapTransitionsToExplicitDestinations,
+} from './oracleIRExecutorZoneTransitionBuilders';
+import {
   parseSimplePermanentTypeFromText,
   type SimpleBattlefieldSelector,
   type SimplePermanentType,
@@ -238,18 +242,14 @@ function isAttractionPermanent(perm: BattlefieldPermanent): boolean {
   return typeLine.includes('attraction');
 }
 
-function moveRemovedPermanentToOwnerZone(params: {
+function placeRemovedPermanentInOwnerZone(params: {
   state: GameState;
   player: any;
   perm: BattlefieldPermanent;
-  destination: 'graveyard' | 'exile' | 'hand' | 'library';
+  adjustedDestination: 'graveyard' | 'exile' | 'hand' | 'library';
   libraryPlacement?: 'top' | 'bottom';
 }): 'graveyard' | 'exile' | 'hand' | 'library' | 'command' {
-  const { state, player, perm, destination, libraryPlacement } = params;
-  const adjustedDestination =
-    destination === 'library'
-      ? (getLeaveBattlefieldDestination(perm, 'hand') === 'exile' ? 'exile' : 'library')
-      : getLeaveBattlefieldDestination(perm, destination);
+  const { state, player, perm, adjustedDestination, libraryPlacement } = params;
 
   if (adjustedDestination !== 'exile' && isAttractionPermanent(perm) && shouldAttractionGoToCommandZone(adjustedDestination)) {
     const commandZone = Array.isArray(player.commandZone) ? [...player.commandZone] : [];
@@ -292,6 +292,39 @@ function moveRemovedPermanentToOwnerZone(params: {
   exile.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
   player.exile = exile;
   return 'exile';
+}
+
+function moveRemovedPermanentToOwnerZoneExplicit(params: {
+  state: GameState;
+  player: any;
+  perm: BattlefieldPermanent;
+  destination: 'graveyard' | 'exile' | 'hand' | 'library';
+  libraryPlacement?: 'top' | 'bottom';
+}): 'graveyard' | 'exile' | 'hand' | 'library' | 'command' {
+  return placeRemovedPermanentInOwnerZone({
+    ...params,
+    adjustedDestination: params.destination,
+  });
+}
+
+function moveRemovedPermanentToOwnerZone(params: {
+  state: GameState;
+  player: any;
+  perm: BattlefieldPermanent;
+  destination: 'graveyard' | 'exile' | 'hand' | 'library';
+  libraryPlacement?: 'top' | 'bottom';
+}): 'graveyard' | 'exile' | 'hand' | 'library' | 'command' {
+  const { perm, destination, libraryPlacement } = params;
+  const adjustedDestination =
+    destination === 'library'
+      ? (getLeaveBattlefieldDestination(perm, 'hand') === 'exile' ? 'exile' : 'library')
+      : getLeaveBattlefieldDestination(perm, destination);
+
+  return placeRemovedPermanentInOwnerZone({
+    ...params,
+    adjustedDestination,
+    libraryPlacement,
+  });
 }
 
 export function permanentMatchesSelector(
@@ -394,13 +427,149 @@ export function permanentMatchesType(perm: BattlefieldPermanent, type: SimplePer
   }
 }
 
+export type FinalizeBattlefieldRemovalOptions = {
+  readonly ctx?: OracleIRExecutionContext;
+  readonly stepIndex?: number;
+  readonly stepKind?: string;
+  readonly cause?: string;
+};
+
+function finalizeBattlefieldRemovalWithExplicitDestinations(
+  state: GameState,
+  removed: readonly BattlefieldPermanent[],
+  removedIds: ReadonlySet<string>,
+  kept: readonly BattlefieldPermanent[],
+  destinationByPermId: ReadonlyMap<string, 'graveyard' | 'exile' | 'hand' | 'library' | 'cease_to_exist'>,
+  verbPastTense: string,
+): { state: GameState; log: string[] } {
+  const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
+  const players = state.players.map((p) => ({ ...p } as any));
+  let redirectedToExile = 0;
+  let redirectedToCommand = 0;
+  let ceasedToExist = 0;
+
+  for (const perm of removed) {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if ((perm as any).isToken) {
+      ceasedToExist += 1;
+      continue;
+    }
+
+    const explicitDestination = destinationByPermId.get(permanentId) ?? 'graveyard';
+    if (explicitDestination === 'cease_to_exist') {
+      ceasedToExist += 1;
+      continue;
+    }
+
+    const ownerId = perm.owner;
+    const player = players.find((pp) => pp.id === ownerId);
+    if (!player) continue;
+
+    const actualDestination = moveRemovedPermanentToOwnerZoneExplicit({
+      state,
+      player,
+      perm,
+      destination: explicitDestination,
+    });
+    if (actualDestination === 'exile' && explicitDestination !== 'exile') redirectedToExile += 1;
+    if (actualDestination === 'command') redirectedToCommand += 1;
+  }
+
+  const log =
+    removed.length > 0
+      ? [
+          `${verbPastTense} ${removed.length} permanent(s) from battlefield${
+            redirectedToExile > 0 || redirectedToCommand > 0 || ceasedToExist > 0
+              ? ` (${[
+                  redirectedToExile > 0 ? `${redirectedToExile} exiled instead` : '',
+                  redirectedToCommand > 0 ? `${redirectedToCommand} moved to the junkyard instead` : '',
+                  ceasedToExist > 0 ? `${ceasedToExist} ceased to exist` : '',
+                ].filter(Boolean).join(', ')})`
+              : ''
+          }`,
+        ]
+      : [];
+
+  return { state: { ...state, battlefield: cleanedKept as any, players: players as any } as any, log };
+}
+
+function finalizeBattlefieldRemovalViaServerBridge(
+  state: GameState,
+  removed: readonly BattlefieldPermanent[],
+  removedIds: ReadonlySet<string>,
+  kept: readonly BattlefieldPermanent[],
+  destination: 'graveyard' | 'exile',
+  verbPastTense: string,
+  options: FinalizeBattlefieldRemovalOptions,
+): { state: GameState; log: string[] } {
+  const bridge = options.ctx?.serverBridge;
+  const stepIndex = Number(options.stepIndex);
+  if (!bridge || !Number.isFinite(stepIndex)) {
+    return finalizeBattlefieldRemovalDirect(state, removed, removedIds, kept, destination, verbPastTense);
+  }
+
+  const transitions = buildZoneChangeTransitionsFromPermanents({
+    state,
+    permanents: removed,
+    stepIndex,
+    stepKind: String(options.stepKind || destination),
+    intendedDestination: destination,
+    cause: String(options.cause || `oracle_ir:${options.stepKind || destination}`),
+    ctx: options.ctx,
+  });
+
+  const bridgeResult = bridge.proposeTransitions(transitions);
+  if (bridgeResult.halt) {
+    if (options.ctx?.transitionHaltState) {
+      options.ctx.transitionHaltState.halted = true;
+      options.ctx.transitionHaltState.deferred = [...(bridgeResult.deferred || [])];
+    }
+    return { state, log: [] };
+  }
+
+  const ready = bridgeResult.ready ?? transitions;
+  const destinationByPermId = mapTransitionsToExplicitDestinations(ready, destination);
+  return finalizeBattlefieldRemovalWithExplicitDestinations(
+    state,
+    removed,
+    removedIds,
+    kept,
+    destinationByPermId,
+    verbPastTense,
+  );
+}
+
 export function finalizeBattlefieldRemoval(
   state: GameState,
   removed: readonly BattlefieldPermanent[],
   removedIds: ReadonlySet<string>,
   kept: readonly BattlefieldPermanent[],
   destination: 'graveyard' | 'exile',
-  verbPastTense: string
+  verbPastTense: string,
+  options?: FinalizeBattlefieldRemovalOptions,
+): { state: GameState; log: string[] } {
+  if (options?.ctx?.serverBridge) {
+    return finalizeBattlefieldRemovalViaServerBridge(
+      state,
+      removed,
+      removedIds,
+      kept,
+      destination,
+      verbPastTense,
+      options,
+    );
+  }
+
+  return finalizeBattlefieldRemovalDirect(state, removed, removedIds, kept, destination, verbPastTense);
+}
+
+function finalizeBattlefieldRemovalDirect(
+  state: GameState,
+  removed: readonly BattlefieldPermanent[],
+  removedIds: ReadonlySet<string>,
+  kept: readonly BattlefieldPermanent[],
+  destination: 'graveyard' | 'exile',
+  verbPastTense: string,
 ): { state: GameState; log: string[] } {
   const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
 

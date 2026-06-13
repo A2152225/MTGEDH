@@ -11,6 +11,11 @@ import {
   registerDamagePreventionEffect,
 } from './oracleIRDamagePrevention';
 
+import {
+  collectContextualCardsLedgerFirst,
+  collectExiledCardsLedgerFirst,
+} from './oracleIRLedgerCardAccess';
+
 export type SpecialTargetStepResult =
   | {
       readonly applied: true;
@@ -28,6 +33,31 @@ export type SpecialTargetStepResult =
         readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
       };
     };
+
+function readContextualCardsFromCtx(ctx: OracleIRExecutionContext): any[] {
+  return collectContextualCardsLedgerFirst(ctx) as any[];
+}
+
+function readContextualAndExiledCardsFromCtx(ctx: OracleIRExecutionContext): any[] {
+  const fromLedger = collectContextualCardsLedgerFirst(ctx);
+  if (fromLedger.length > 0) return fromLedger as any[];
+  return [
+    ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+    ...(Array.isArray(ctx.lastExiledCards) ? ctx.lastExiledCards : []),
+  ];
+}
+
+function readContextualCardsFromRuntime(
+  ctx: OracleIRExecutionContext,
+  runtime?: { lastMovedCards?: readonly any[]; lastExiledCards?: readonly any[] },
+): any[] {
+  const fromLedger = collectContextualCardsLedgerFirst(ctx, runtime);
+  if (fromLedger.length > 0) return fromLedger as any[];
+  return [
+    ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+    ...(Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : []),
+  ];
+}
 
 function normalizeClause(value: string): string {
   return String(value || '')
@@ -126,7 +156,7 @@ function exileOneContextualFaceDownRestToLibraryBottom(
   ctx: OracleIRExecutionContext,
   logLabel: string
 ): SpecialTargetStepResult {
-  const contextualCards = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+  const contextualCards = readContextualCardsFromCtx(ctx);
   if (contextualCards.length === 0) {
     return { applied: true, state, log: [`No contextual cards for exile split (${logLabel})`] };
   }
@@ -174,7 +204,7 @@ function exileOneContextualRestToLibraryTop(
   ctx: OracleIRExecutionContext,
   logLabel: string
 ): SpecialTargetStepResult {
-  const contextualCards = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+  const contextualCards = readContextualCardsFromCtx(ctx);
   if (contextualCards.length === 0) {
     return { applied: true, state, log: [`No contextual cards for exile split (${logLabel})`] };
   }
@@ -224,10 +254,7 @@ function exileContextualCardsFromCtx(
   ctx: OracleIRExecutionContext,
   logLabel: string
 ): SpecialTargetStepResult {
-  const contextualCards = [
-    ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
-    ...(Array.isArray(ctx.lastExiledCards) ? ctx.lastExiledCards : []),
-  ];
+  const contextualCards = readContextualAndExiledCardsFromCtx(ctx);
   if (contextualCards.length > 0) {
     const controllerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
     const updatedPlayers = (state.players || []).map((player: any) => {
@@ -272,10 +299,7 @@ function exileSourceWithCounter(
   if (source) {
     return exileBattlefieldPermanents(state, [source], ctx, `with ${counterName} counter`);
   }
-  const contextual = [
-    ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
-    ...(Array.isArray(ctx.lastExiledCards) ? ctx.lastExiledCards : []),
-  ];
+  const contextual = readContextualAndExiledCardsFromCtx(ctx);
   if (contextual.length === 1) {
     const card = { ...contextual[0], counters: { ...((contextual[0] as any)?.counters || {}), [counterName]: 1 } };
     const controllerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
@@ -345,10 +369,7 @@ export function trySpecialExileStep(
     )
   ) {
     const faceDown = /\bface\s+down\b/i.test(target) || /\bface\s+down\b/i.test(raw);
-    const contextual = [
-      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
-      ...(Array.isArray(ctx.lastExiledCards) ? ctx.lastExiledCards : []),
-    ];
+    const contextual = readContextualAndExiledCardsFromCtx(ctx);
     if (contextual.length === 0) {
       const opponentId = String(ctx.selectorContext?.targetOpponentId || ctx.selectorContext?.targetPlayerId || 'p2').trim();
       const opponent = (state.players || []).find((player: any) => String(player?.id || '').trim() === opponentId) as any;
@@ -398,7 +419,7 @@ export function trySpecialExileStep(
     /^one of them face down with a hatching counter on it$/i.test(target) ||
     /^one of them face down with a hatching counter on it$/i.test(normalizedExileTarget)
   ) {
-    const contextual = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+    const contextual = readContextualCardsFromCtx(ctx);
     if (contextual.length === 0) {
       return { applied: true, state, log: ['No contextual cards to exile with hatching counter'] };
     }
@@ -439,7 +460,7 @@ export function trySpecialExileStep(
   }
 
   if (target === 'one of them' || normalizedExileTarget === 'one of them') {
-    const contextual = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+    const contextual = readContextualCardsFromCtx(ctx);
     if (contextual.length === 0) {
       return { applied: true, state, log: ['No contextual cards to exile'] };
     }
@@ -524,7 +545,7 @@ export function trySpecialExileStep(
     /that card and put the rest on the bottom of your library/i.test(target) ||
     /that card and put the rest on the bottom of your library/i.test(raw)
   ) {
-    const contextual = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+    const contextual = readContextualCardsFromCtx(ctx);
     if (contextual.length === 0) {
       return { applied: true, state, log: ['No contextual cards for that-card exile split'] };
     }
@@ -997,7 +1018,7 @@ export function trySpecialExileStep(
     const countToken = String(randomAmongMatch[1] || '').trim().toLowerCase();
     const count = countByWord[countToken] ?? Number.parseInt(countToken, 10);
     if (!Number.isFinite(count) || count <= 0) return null;
-    const contextual = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+    const contextual = readContextualCardsFromCtx(ctx);
     if (contextual.length === 0) {
       return { applied: true, state, log: ['No contextual cards to exile at random'] };
     }
@@ -1352,7 +1373,7 @@ export function trySpecialAddCounterStep(
 
   if (/mana value minus 4/.test(raw)) {
     const movedCards = [
-      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+      ...readContextualCardsFromCtx(ctx),
       ...(Array.isArray((ctx as any).lastCreatedTokens) ? (ctx as any).lastCreatedTokens : []),
     ];
     const creatureCard = movedCards.find((card: any) =>
@@ -2211,10 +2232,7 @@ export function trySpecialCopyPermanentStep(
   }
 
   if (/this enchantment becomes a copy of that card/.test(raw)) {
-    const contextualCards = [
-      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
-      ...(Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : []),
-    ];
+    const contextualCards = readContextualCardsFromRuntime(ctx, runtime);
     const sourceCard = contextualCards[0];
     if (!sourceCard || !sourceId) return null;
     return applyCopyToTargets([sourceId], sourceCard);
@@ -2222,7 +2240,7 @@ export function trySpecialCopyPermanentStep(
 
   if (/that creature becomes a copy of a creature card exiled with this equipment/.test(raw)) {
     const host = resolveEnchantedHost(battlefield, ctx);
-    const exiledCards = Array.isArray((ctx as any).lastExiledCards) ? (ctx as any).lastExiledCards : [];
+    const exiledCards = collectExiledCardsLedgerFirst(ctx) as any[];
     const sourceCard = exiledCards.find((card: any) => /\bcreature\b/i.test(String(card?.type_line || ''))) || exiledCards[0];
     if (!host || !sourceCard) return null;
     return applyCopyToTargets([String((host as any)?.id || '').trim()], sourceCard);

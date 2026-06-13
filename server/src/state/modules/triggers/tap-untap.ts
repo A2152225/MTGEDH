@@ -47,6 +47,8 @@ export interface TapTrigger {
   affectedType: 'any' | 'creature' | 'tribal_type' | 'self';
   tribalType?: string;
   nontokenOnly?: boolean;
+  /** "Whenever one or more … become tapped" fires once per tap event, not per permanent. */
+  oneOrMoreBatch?: boolean;
   mandatory: boolean;
   lifeGain?: number;
   createsToken?: boolean;
@@ -491,6 +493,7 @@ export function detectTapTriggers(card: any, permanent: any): TapTrigger[] {
       affectedType: 'tribal_type',
       tribalType,
       nontokenOnly: true,
+      oneOrMoreBatch: true,
       mandatory: !isOptional,
     });
   }
@@ -681,6 +684,58 @@ export function getTapTriggers(
   }
   
   return triggers;
+}
+
+export type TapTriggerEventEntry = {
+  trigger: TapTrigger;
+  tappedPermanentId: string;
+};
+
+function tapTriggerBatchKey(trigger: TapTrigger): string {
+  return [
+    String(trigger.permanentId || ''),
+    String(trigger.tribalType || ''),
+    trigger.nontokenOnly ? 'nontoken' : 'any',
+    trigger.oneOrMoreBatch ? 'batch' : 'single',
+  ].join('|');
+}
+
+/**
+ * Collect tap triggers for a single tap event (one or more permanents tapped together).
+ * "Whenever one or more … become tapped" abilities fire once per event, not per permanent.
+ */
+export function collectTapTriggersForTapEvent(
+  ctx: GameContext,
+  tappedPermanentIds: string[],
+  tappedByPlayerId: string,
+): TapTriggerEventEntry[] {
+  const battlefield = ctx.state?.battlefield || [];
+  const uniqueTappedIds = Array.from(new Set(tappedPermanentIds.map((id) => String(id).trim()).filter(Boolean)));
+  if (uniqueTappedIds.length === 0) return [];
+
+  const rawEntries: TapTriggerEventEntry[] = [];
+  for (const tappedPermanentId of uniqueTappedIds) {
+    const tappedPermanent = battlefield.find((perm: any) => perm && String(perm.id) === tappedPermanentId);
+    if (!tappedPermanent) continue;
+
+    const tappedPermanentController = String(tappedPermanent.controller || tappedByPlayerId || '').trim();
+    const triggers = getTapTriggers(ctx, tappedPermanent, tappedPermanentController);
+    for (const trigger of triggers) {
+      rawEntries.push({ trigger, tappedPermanentId });
+    }
+  }
+
+  const seenBatchKeys = new Set<string>();
+  const result: TapTriggerEventEntry[] = [];
+  for (const entry of rawEntries) {
+    if (entry.trigger.oneOrMoreBatch) {
+      const batchKey = tapTriggerBatchKey(entry.trigger);
+      if (seenBatchKeys.has(batchKey)) continue;
+      seenBatchKeys.add(batchKey);
+    }
+    result.push(entry);
+  }
+  return result;
 }
 
 export function getBecomesUntappedTriggers(

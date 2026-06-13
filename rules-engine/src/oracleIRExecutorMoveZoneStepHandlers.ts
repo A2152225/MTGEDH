@@ -13,6 +13,7 @@ import {
   permanentMatchesSelector,
   permanentMatchesType,
 } from './oracleIRExecutorBattlefieldOps';
+import type { OracleIrBattlefieldEntryContext } from './oracleIRExecutorBattlefieldEntryCommit';
 import {
   exileExactMatchingFromGraveyard,
   exileAllMatchingFromGraveyard,
@@ -301,13 +302,18 @@ type BoundCardZoneLocation = {
   readonly zone: 'graveyard' | 'hand' | 'exile' | 'library';
 };
 
-function buildAppliedResult(result: {
-  readonly state: GameState;
-  readonly log: readonly string[];
-  readonly movedCards?: readonly any[];
-  readonly movedPermanentIds?: readonly string[];
-}): StepApplyResult {
-  return {
+import { bridgedZoneStepResult } from './oracleIRStepLedgerRuntime';
+
+function buildAppliedResult(
+  result: {
+    readonly state: GameState;
+    readonly log: readonly string[];
+    readonly movedCards?: readonly any[];
+    readonly movedPermanentIds?: readonly string[];
+  },
+  ctx?: OracleIRExecutionContext,
+): StepApplyResult {
+  return bridgedZoneStepResult(ctx, {
     applied: true,
     state: result.state,
     log: result.log,
@@ -315,7 +321,7 @@ function buildAppliedResult(result: {
     ...(Array.isArray(result.movedPermanentIds)
       ? { lastMovedBattlefieldPermanentIds: [...result.movedPermanentIds] }
       : {}),
-  };
+  });
 }
 
 function annotateExiledCardsWithSource(params: {
@@ -1420,9 +1426,27 @@ function moveContextualCardToDestination(
     entersFaceDown?: boolean;
     withCounters?: any;
     battlefieldEntryOverrides?: any;
+    ctx?: OracleIRExecutionContext;
+    stepKind?: string;
   }
-): { kind: 'applied'; state: GameState; log: string[] } | { kind: 'impossible' } {
+): { kind: 'applied'; state: GameState; log: string[] } | { kind: 'impossible' } | { kind: 'halted' } {
   const cardType = options.cardType || 'any';
+  const oracleIrEntry: OracleIrBattlefieldEntryContext | undefined =
+    destination === 'battlefield' && options.ctx
+      ? { ctx: options.ctx, stepKind: options.stepKind || 'move_zone' }
+      : undefined;
+
+  const normalizeZoneMoveResult = (
+    result:
+      | { kind: 'applied'; state: GameState; log: readonly string[] | string[] }
+      | { kind: 'impossible' }
+      | { kind: 'halted' },
+  ): { kind: 'applied'; state: GameState; log: string[] } | { kind: 'impossible' } | { kind: 'halted' } => {
+    if (result.kind === 'applied') {
+      return { kind: 'applied', state: result.state, log: [...(result.log || [])] };
+    }
+    return result;
+  };
   if (location.zone === 'library') {
     const player = state.players.find(p => p.id === location.playerId) as any;
     const library = Array.isArray(player?.library) ? [...player.library] : [];
@@ -1477,9 +1501,10 @@ function moveContextualCardToDestination(
         options.entersFaceDown,
         options.withCounters,
         undefined,
-        options.battlefieldEntryOverrides
+        options.battlefieldEntryOverrides,
+        oracleIrEntry
       );
-      return handResult.kind === 'applied' ? handResult : { kind: 'impossible' };
+      return normalizeZoneMoveResult(handResult);
     }
     return { kind: 'impossible' };
   }
@@ -1496,9 +1521,11 @@ function moveContextualCardToDestination(
       options.withCounters,
       undefined,
       undefined,
-      options.battlefieldEntryOverrides
+      options.battlefieldEntryOverrides,
+      undefined,
+      oracleIrEntry
     );
-    return result.kind === 'applied' ? result : { kind: 'impossible' };
+    return normalizeZoneMoveResult(result);
   }
   if (location.zone === 'hand') {
     const result = moveTargetedCardFromHand(
@@ -1512,9 +1539,10 @@ function moveContextualCardToDestination(
       options.entersFaceDown,
       options.withCounters,
       undefined,
-      options.battlefieldEntryOverrides
+      options.battlefieldEntryOverrides,
+      oracleIrEntry
     );
-    return result.kind === 'applied' ? result : { kind: 'impossible' };
+    return normalizeZoneMoveResult(result);
   }
   const result = moveTargetedCardFromExile(
     state,
@@ -1527,9 +1555,10 @@ function moveContextualCardToDestination(
     options.entersFaceDown,
     options.withCounters,
     undefined,
-    options.battlefieldEntryOverrides
+    options.battlefieldEntryOverrides,
+    oracleIrEntry
   );
-  return result.kind === 'applied' ? result : { kind: 'impossible' };
+  return normalizeZoneMoveResult(result);
 }
 
 function getOneOfThemSplitKind(step: Extract<OracleEffectStep, { kind: 'move_zone' }>): OneOfThemSplitKind | null {
@@ -2048,7 +2077,7 @@ export function applyMoveZoneStep(
       });
     }
 
-    return buildAppliedResult({ ...result, state: nextState, movedCards: nextMovedCards });
+    return buildAppliedResult({ ...result, state: nextState, movedCards: nextMovedCards }, ctx);
   };
 
   const attachmentResolution = resolveBattlefieldAttachment(nextState, step, ctx);
@@ -2615,16 +2644,22 @@ export function applyMoveZoneStep(
             effectiveWithCounters,
             undefined,
             undefined,
-            battlefieldEntryOverrides
+            battlefieldEntryOverrides,
+            undefined,
+            { ctx, stepKind: 'move_zone' }
           )
         : moveContextualCardToDestination(nextState, location, cardId, 'battlefield', {
             controllerId,
+            ctx,
             cardType: effectiveCriteria.cardType,
             entersTapped: step.entersTapped,
             entersFaceDown: step.entersFaceDown,
             withCounters: effectiveWithCounters,
             battlefieldEntryOverrides,
           });
+    if (result.kind === 'halted') {
+      return { applied: true, state: nextState, log: [] };
+    }
     if (result.kind === 'impossible') {
       return buildAppliedResult({ state: nextState, log: [`Among-those-cards target unavailable: ${step.raw}`] });
     }
@@ -3791,6 +3826,7 @@ export function applyMoveZoneStep(
         location.zone === 'library'
           ? moveContextualCardToDestination(workingState, location, cardId, step.to, {
               controllerId,
+              ctx,
               cardType: 'any',
               entersTapped: step.entersTapped,
               entersFaceDown: step.entersFaceDown,
@@ -4117,6 +4153,7 @@ export function applyMoveZoneStep(
         : location.zone === 'library'
           ? moveContextualCardToDestination(nextState, location, cardId, 'battlefield', {
               controllerId: bfController,
+              ctx,
               cardType: 'any',
               entersTapped: step.entersTapped,
               entersFaceDown: step.entersFaceDown,
@@ -7296,6 +7333,7 @@ export function applyMoveZoneStep(
         ? location.zone === 'library'
           ? moveContextualCardToDestination(workingState, location, cardId, 'battlefield', {
               controllerId,
+              ctx,
               cardType: 'creature',
               entersTapped: step.entersTapped,
               entersFaceDown: step.entersFaceDown,
@@ -7567,6 +7605,7 @@ export function applyMoveZoneStep(
           )
         : moveContextualCardToDestination(nextState, location, cardId, 'battlefield', {
             controllerId,
+            ctx,
             cardType: 'any',
             entersTapped: step.entersTapped,
             entersFaceDown: step.entersFaceDown,
@@ -7685,6 +7724,7 @@ export function applyMoveZoneStep(
         location.zone === 'library'
           ? moveContextualCardToDestination(workingState, location, cardId, step.to, {
               controllerId,
+              ctx,
               cardType: effectiveCriteria.cardType,
               entersTapped: step.entersTapped,
               entersFaceDown: step.entersFaceDown,
@@ -7858,6 +7898,7 @@ export function applyMoveZoneStep(
           location.zone === 'library'
             ? moveContextualCardToDestination(workingState, location, cardId, 'battlefield', {
                 controllerId,
+                ctx,
                 cardType: effectiveCriteria.cardType,
                 entersTapped,
                 entersFaceDown: step.entersFaceDown,
@@ -7982,6 +8023,7 @@ export function applyMoveZoneStep(
           location.zone === 'library'
             ? moveContextualCardToDestination(workingState, location, cardId, 'battlefield', {
                 controllerId,
+                ctx,
                 cardType: effectiveCriteria.cardType,
                 entersTapped,
                 entersFaceDown: step.entersFaceDown,
@@ -8448,6 +8490,7 @@ export function applyMoveZoneStep(
               )
             : moveContextualCardToDestination(nextState, location, cardId, 'battlefield', {
                 controllerId: bfController,
+                ctx,
                 cardType: 'any',
                 entersTapped: step.entersTapped,
                 entersFaceDown: step.entersFaceDown,

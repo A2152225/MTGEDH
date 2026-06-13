@@ -223,6 +223,9 @@ export function buildOracleIRExecutionContext(
     ...(baseSel?.counterDistributionByTargetId && typeof baseSel.counterDistributionByTargetId === 'object'
       ? { counterDistributionByTargetId: { ...baseSel.counterDistributionByTargetId } }
       : {}),
+    ...(baseSel?.splitAssignments && typeof baseSel.splitAssignments === 'object'
+      ? { splitAssignments: baseSel.splitAssignments }
+      : {}),
     ...(hintChosenCreatureType || baseChosenCreatureType
       ? { chosenCreatureType: hintChosenCreatureType ?? baseChosenCreatureType }
       : {}),

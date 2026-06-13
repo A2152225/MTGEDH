@@ -1,6 +1,7 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { collectMostRecentLedgerCards } from './oracleIRLedgerCardAccess';
 import { createDamageSourceFromPermanent } from './damageProcessing';
 import {
   createGlobalCombatDamagePreventionEffect,
@@ -30,6 +31,7 @@ import {
 } from './oracleIRExecutorPermanentUtils';
 import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import { adjustLife, adjustPlayerCounter, getCardManaValue, getCardTypeLineLower, quantityToNumber, resolvePlayers, resolvePlayersFromDamageTarget } from './oracleIRExecutorPlayerUtils';
+import { buildEffectBridgeOptions, interceptDamageViaBridge } from './oracleIRExecutorDamageTransitionCommit';
 import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
 import { getStackItems } from './stackOperations';
 
@@ -190,7 +192,10 @@ function resolveDamageAmountSourceObjects(
   ctx: OracleIRExecutionContext,
   runtime?: DamageRuntime
 ): any[] {
-  const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+  const ledgerMoved = collectMostRecentLedgerCards(ctx);
+  const moved = ledgerMoved.length > 0
+    ? ledgerMoved
+    : (Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []);
   if (!source || (source as any).kind !== 'raw') {
     const directSource = findSourceObject(state, String(ctx.sourceId || '').trim());
     return directSource ? [directSource] : [];
@@ -365,7 +370,8 @@ function applyDamageToMatchingBattlefield(
   amount: number,
   ctx: OracleIRExecutionContext,
   matcher: (permanent: any) => boolean,
-  sourceKeywords?: DamageSourceKeywords | null
+  sourceKeywords?: DamageSourceKeywords | null,
+  skipPrevention = false,
 ): { state: GameState; excessDamageDealtThisWay: number; damageDealt: number; log: readonly string[] } {
   let excessDamageThisStep = 0;
   let damageDealt = 0;
@@ -376,11 +382,13 @@ function applyDamageToMatchingBattlefield(
   const updatedBattlefield = (state.battlefield || []).map(permanent => {
     if (!matcher(permanent)) return permanent as any;
     const targetPermanentId = String((permanent as any)?.id || '').trim() || undefined;
-    const prevention = previewPreventedDamage(preventionState, amount, sourcePermanentId, { targetPermanentId });
-    preventionState = prevention.state ?? preventionState;
-    log.push(...prevention.log);
-
-    const finalAmount = prevention.remainingDamage;
+    let finalAmount = amount;
+    if (!skipPrevention) {
+      const prevention = previewPreventedDamage(preventionState, amount, sourcePermanentId, { targetPermanentId });
+      preventionState = prevention.state ?? preventionState;
+      log.push(...prevention.log);
+      finalAmount = prevention.remainingDamage;
+    }
     if (finalAmount <= 0) {
       return permanent as any;
     }
@@ -500,6 +508,40 @@ function resolveMixedDamagePlayers(
   return [...playerIds];
 }
 
+function resolveBridgedDamageAmount(
+  state: GameState,
+  amount: number,
+  ctx: OracleIRExecutionContext,
+  target: {
+    targetPlayerId?: PlayerID;
+    targetPermanentId?: string;
+    targetPermanent?: unknown;
+  },
+): { amount: number; halted: boolean; usesBridge: boolean } {
+  const bridgeOptions = buildEffectBridgeOptions(ctx, 'deal_damage');
+  if (!bridgeOptions) {
+    return { amount, halted: false, usesBridge: false };
+  }
+
+  const intercepted = interceptDamageViaBridge({
+    state,
+    amount,
+    stepIndex: Number(bridgeOptions.stepIndex),
+    stepKind: 'deal_damage',
+    cause: 'oracle_ir:deal_damage',
+    ctx: bridgeOptions.ctx,
+    targetPlayerId: target.targetPlayerId,
+    targetPermanentId: target.targetPermanentId,
+    targetPermanent: target.targetPermanent,
+  });
+
+  return {
+    amount: intercepted.effectiveAmount,
+    halted: intercepted.halted,
+    usesBridge: true,
+  };
+}
+
 export function applyDealDamageStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'deal_damage' }>,
@@ -528,10 +570,19 @@ export function applyDealDamageStep(
   if (players.length > 0) {
     let totalDamageDealt = 0;
     for (const playerId of players) {
-      const prevention = previewPreventedDamage(nextState, amount, damageSourceId, { targetPlayerId: playerId });
-      nextState = prevention.state ?? nextState;
-      log.push(...prevention.log);
-      const finalAmount = prevention.remainingDamage;
+      const bridged = resolveBridgedDamageAmount(nextState, amount, ctx, { targetPlayerId: playerId });
+      if (bridged.halted) {
+        return { applied: true, state: nextState, log, count: 0, excessDamageDealtThisWay: 0 };
+      }
+
+      let finalAmount = bridged.amount;
+      if (!bridged.usesBridge) {
+        const prevention = previewPreventedDamage(nextState, amount, damageSourceId, { targetPlayerId: playerId });
+        nextState = prevention.state ?? nextState;
+        log.push(...prevention.log);
+        finalAmount = prevention.remainingDamage;
+      }
+
       if (finalAmount <= 0) {
         log.push(`All damage to ${playerId} was prevented: ${step.raw}`);
         continue;
@@ -562,12 +613,24 @@ export function applyDealDamageStep(
 
   const singlePermanentId = resolveSinglePermanentDamageTargetId(nextState, step.target, ctx);
   if (singlePermanentId) {
+    const targetPermanent = (nextState.battlefield || []).find(
+      (permanent: any) => String(permanent?.id || '').trim() === singlePermanentId,
+    );
+    const bridged = resolveBridgedDamageAmount(nextState, amount, ctx, {
+      targetPermanentId: singlePermanentId,
+      targetPermanent,
+    });
+    if (bridged.halted) {
+      return { applied: true, state: nextState, log, count: 0, excessDamageDealtThisWay: 0 };
+    }
+
     const result = applyDamageToMatchingBattlefield(
       nextState,
-      amount,
+      bridged.amount,
       ctx,
       permanent => String((permanent as any)?.id || '').trim() === singlePermanentId,
-      sourceKeywords
+      sourceKeywords,
+      bridged.usesBridge,
     );
     nextState = result.state;
     log.push(...result.log);
@@ -594,12 +657,24 @@ export function applyDealDamageStep(
     const rawText = String(((step.target as any).text || '') as any).trim();
     const singleCreatureId = resolveSingleCreatureTargetId(nextState, step.target as any, ctx);
     if (singleCreatureId) {
+      const targetPermanent = (nextState.battlefield || []).find(
+        (permanent: any) => String(permanent?.id || '').trim() === singleCreatureId,
+      );
+      const bridged = resolveBridgedDamageAmount(nextState, amount, ctx, {
+        targetPermanentId: singleCreatureId,
+        targetPermanent,
+      });
+      if (bridged.halted) {
+        return { applied: true, state: nextState, log, count: 0, excessDamageDealtThisWay: 0 };
+      }
+
       const result = applyDamageToMatchingBattlefield(
         nextState,
-        amount,
+        bridged.amount,
         ctx,
         permanent => String((permanent as any)?.id || '').trim() === singleCreatureId,
-        sourceKeywords
+        sourceKeywords,
+        bridged.usesBridge,
       );
       nextState = result.state;
       log.push(...result.log);

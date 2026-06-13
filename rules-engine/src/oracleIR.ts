@@ -933,6 +933,9 @@ export type OracleEffectStep =
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
+      /** Parser-bound antecedent for "this way" clauses (step ledger index). */
+      readonly thisWayAntecedentStepIndex?: number;
+      readonly thisWayAntecedentStepKind?: string;
     }
   | {
       readonly kind: 'modify_pt_per_revealed';

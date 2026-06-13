@@ -4816,12 +4816,13 @@ export function nextStep(ctx: GameContext) {
       turnPlayer: (ctx as any).state?.turnPlayer,
       stackTrace: new Error().stack?.split('\n').slice(2, 6).join('\n    ') || 'no stack'
     };
+    const nextStepLogLevel = String(debugInfo.gameId).startsWith('undo_probe_') ? 3 : 2;
     
-    debug(2, `${ts()} [nextStep] ========== CALLED ==========`);
-    debug(2, `${ts()} [nextStep] Game: ${debugInfo.gameId}`);
-    debug(2, `${ts()} [nextStep] Current: ${debugInfo.currentPhase}/${debugInfo.currentStep}`);
-    debug(2, `${ts()} [nextStep] Priority: ${debugInfo.priority}, Turn: ${debugInfo.turnPlayer}`);
-    debug(2, `${ts()} [nextStep] Call stack:\n    ${debugInfo.stackTrace}`);
+    debug(nextStepLogLevel, `${ts()} [nextStep] ========== CALLED ==========`);
+    debug(nextStepLogLevel, `${ts()} [nextStep] Game: ${debugInfo.gameId}`);
+    debug(nextStepLogLevel, `${ts()} [nextStep] Current: ${debugInfo.currentPhase}/${debugInfo.currentStep}`);
+    debug(nextStepLogLevel, `${ts()} [nextStep] Priority: ${debugInfo.priority}, Turn: ${debugInfo.turnPlayer}`);
+    debug(nextStepLogLevel, `${ts()} [nextStep] Call stack:\n    ${debugInfo.stackTrace}`);
     // ========================================================================
     
     (ctx as any).state = (ctx as any).state || {};
@@ -4911,11 +4912,16 @@ export function nextStep(ctx: GameContext) {
     } else if (currentPhase === "combat") {
       if (currentStep === "beginCombat" || currentStep === "BEGIN_COMBAT") {
         nextStep = "DECLARE_ATTACKERS";
+        (ctx as any).state.attackersDeclaredBy = [];
+        debug(2, `${ts()} [nextStep] Entering DECLARE_ATTACKERS, initialized attackersDeclaredBy array`);
       } else if (currentStep === "declareAttackers" || currentStep === "DECLARE_ATTACKERS") {
         nextStep = "DECLARE_BLOCKERS";
         // Initialize blockersDeclaredBy array when entering DECLARE_BLOCKERS step
         // This ensures a fresh start for each blocker declaration phase
         (ctx as any).state.blockersDeclaredBy = [];
+        if ((ctx as any).state.attackersDeclaredBy) {
+          delete (ctx as any).state.attackersDeclaredBy;
+        }
         debug(2, `${ts()} [nextStep] Entering DECLARE_BLOCKERS, initialized blockersDeclaredBy array`);
       } else if (currentStep === "declareBlockers" || currentStep === "DECLARE_BLOCKERS") {
         // Clear the blockersDeclaredBy tracking as we're leaving the step

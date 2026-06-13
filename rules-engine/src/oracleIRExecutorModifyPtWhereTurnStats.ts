@@ -1,5 +1,45 @@
 import type { GameState } from '../../shared/src';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
+import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import type { OracleEffectStep } from './oracleIR';
+import { findAntecedentStepIndex } from './oracleIRStepLedger';
+import { resolveThisWayAntecedentStepIndex, REVEALED_THIS_WAY_ANTECEDENT_KINDS } from './oracleIRThisWayBinding';
+import {
+  resolveCardCountDiscardedThisWay,
+  resolveNonlandCountDiscardedThisWay,
+  resolveSnapshotCountAtAntecedent,
+  resolveTotalPowerExiledThisWay,
+} from './oracleIRThisWayResolver';
+import { resolveLedgerAntecedentStepIndex } from './oracleIRLedgerCardAccess';
+
+const EXILE_ANTECEDENT_KINDS = [
+  'exile',
+  'exile_top',
+  'impulse_exile_top',
+  'exile_named_cards_from_zones',
+  'destroy',
+  'move_zone',
+] as const;
+
+function resolveDiscardedAntecedentStepIndex(
+  ctx: OracleIRExecutionContext | undefined,
+  step?: OracleEffectStep,
+): number | null {
+  if (!ctx) return null;
+  if (step) {
+    const fromStep = resolveThisWayAntecedentStepIndex(ctx, step as OracleEffectStep, 'discard');
+    if (fromStep !== null) return fromStep;
+  }
+  if (ctx.currentStepIndex == null) return null;
+  return findAntecedentStepIndex(ctx.appliedStepKinds, 'discard', ctx.currentStepIndex);
+}
+
+function resolveExileAntecedentStepIndex(
+  ctx: OracleIRExecutionContext | undefined,
+  step?: OracleEffectStep,
+): number | null {
+  return resolveLedgerAntecedentStepIndex(ctx, step, EXILE_ANTECEDENT_KINDS);
+}
 
 function getCardTypesLower(card: any): string {
   return String(card?.type_line || card?.cardType || card?.card?.type_line || card?.card?.cardType || '')
@@ -58,8 +98,10 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
   controllerId: string;
   raw: string;
   runtime?: ModifyPtRuntime;
+  ctx?: OracleIRExecutionContext;
+  step?: OracleEffectStep;
 }): number | null {
-  const { state, controllerId, raw, runtime } = args;
+  const { state, controllerId, raw, runtime, ctx, step } = args;
   const stateAny: any = state as any;
 
   {
@@ -219,6 +261,10 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
   {
     const m = raw.match(/^x is the number of cards? revealed this way$/i);
     if (m) {
+      const antecedentStepIndex = resolveLedgerAntecedentStepIndex(ctx, step, REVEALED_THIS_WAY_ANTECEDENT_KINDS);
+      if (antecedentStepIndex != null && ctx?.stepLedger?.has(antecedentStepIndex)) {
+        return resolveSnapshotCountAtAntecedent(ctx, antecedentStepIndex);
+      }
       const revealed = Number(runtime?.lastRevealedCardCount ?? 0);
       return Number.isFinite(revealed) ? Math.max(0, revealed) : 0;
     }
@@ -227,6 +273,12 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
   {
     const m = raw.match(/^x is the number of cards? discarded this way$/i);
     if (m) {
+      if (ctx?.stepLedger?.size) {
+        const antecedentStepIndex = resolveDiscardedAntecedentStepIndex(ctx, step);
+        if (antecedentStepIndex != null && ctx.stepLedger.has(antecedentStepIndex)) {
+          return resolveCardCountDiscardedThisWay(ctx, antecedentStepIndex);
+        }
+      }
       const discarded = Number(runtime?.lastDiscardedCardCount ?? 0);
       return Number.isFinite(discarded) ? Math.max(0, discarded) : 0;
     }
@@ -235,6 +287,12 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
   {
     const m = raw.match(/^x is the number of nonland cards? discarded this way$/i);
     if (m) {
+      if (ctx?.stepLedger?.size) {
+        const antecedentStepIndex = resolveDiscardedAntecedentStepIndex(ctx, step);
+        if (antecedentStepIndex != null && ctx.stepLedger.has(antecedentStepIndex)) {
+          return resolveNonlandCountDiscardedThisWay(ctx, antecedentStepIndex);
+        }
+      }
       const discardedCards = Array.isArray(runtime?.lastDiscardedCards) ? runtime.lastDiscardedCards : [];
       return discardedCards.reduce((count: number, card: any) => {
         return count + (getCardTypesLower(card).includes('land') ? 0 : 1);
@@ -245,6 +303,12 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
   {
     const m = raw.match(/^x is the number of cards? exiled this way$/i);
     if (m) {
+      if (ctx?.stepLedger?.size) {
+        const antecedentStepIndex = resolveExileAntecedentStepIndex(ctx, step);
+        if (antecedentStepIndex != null && ctx.stepLedger.has(antecedentStepIndex)) {
+          return resolveSnapshotCountAtAntecedent(ctx, antecedentStepIndex);
+        }
+      }
       const exiled = Number(runtime?.lastExiledCardCount ?? 0);
       return Number.isFinite(exiled) ? Math.max(0, exiled) : 0;
     }
@@ -253,6 +317,13 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
   {
     const m = raw.match(/^x is the total power of (?:the )?cards? exiled this way$/i);
     if (m) {
+      if (ctx?.stepLedger?.size) {
+        const antecedentStepIndex = resolveExileAntecedentStepIndex(ctx, step);
+        if (antecedentStepIndex != null && ctx.stepLedger.has(antecedentStepIndex)) {
+          const total = resolveTotalPowerExiledThisWay(ctx, antecedentStepIndex);
+          if (total !== null) return total;
+        }
+      }
       const exiledCards = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
       return exiledCards.reduce((sum: number, card: any) => {
         const n = Number((card as any)?.power ?? (card as any)?.card?.power);
@@ -291,6 +362,10 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
   {
     const m = raw.match(/^x is the number of cards? looked at while scrying this way$/i);
     if (m) {
+      const antecedentStepIndex = resolveLedgerAntecedentStepIndex(ctx, step, ['scry']);
+      if (antecedentStepIndex != null && ctx?.stepLedger?.has(antecedentStepIndex)) {
+        return resolveSnapshotCountAtAntecedent(ctx, antecedentStepIndex);
+      }
       const looked = Number(runtime?.lastScryLookedAtCount ?? 0);
       return Number.isFinite(looked) ? Math.max(0, looked) : 0;
     }

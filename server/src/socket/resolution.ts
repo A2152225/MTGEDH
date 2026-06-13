@@ -140,6 +140,7 @@ import {
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { resolveOracleIrOptionalPaymentPromptFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution } from '../state/modules/oracleIrServerZoneSync.js';
+import { readOracleIrLedgerPersistFields } from '../state/modules/oracleIrTransitionPipeline.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
@@ -22683,6 +22684,22 @@ function handleScryResponse(
       bottomOrder,
     });
   }
+
+  let ledgerPersistFields: ReturnType<typeof readOracleIrLedgerPersistFields> = {};
+  let persistOracleIrLedger = false;
+  if (String(scryStep.oracleIrChoiceStepJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, response);
+    if (oracleIrTopLibraryChoiceResumeApplied(resumed, 'scry')) {
+      ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
+      ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
+      persistOracleIrLedger = scryStep.persistOracleIrScryResolve === true;
+      broadcastGame(io, game, gameId);
+    }
+  }
   
   // Log to event history
   try {
@@ -22690,7 +22707,8 @@ function handleScryResponse(
       playerId: pid, 
       resolvedStepId: String((step as any).id || ''),
       keepTopOrder, 
-      bottomOrder 
+      bottomOrder,
+      ...(persistOracleIrLedger ? ledgerPersistFields : {}),
     });
   } catch {
     // Ignore persistence failures
@@ -22911,6 +22929,22 @@ function handleSurveilResponse(
       toGraveyard,
     });
   }
+
+  let ledgerPersistFields: ReturnType<typeof readOracleIrLedgerPersistFields> = {};
+  let persistOracleIrLedger = false;
+  if (String(surveilStep.oracleIrChoiceStepJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, response);
+    if (oracleIrTopLibraryChoiceResumeApplied(resumed, 'surveil')) {
+      ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
+      ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
+      persistOracleIrLedger = surveilStep.persistOracleIrSurveilResolve === true;
+      broadcastGame(io, game, gameId);
+    }
+  }
   
   // Log to event history
   try {
@@ -22918,7 +22952,8 @@ function handleSurveilResponse(
       playerId: pid, 
       resolvedStepId: String((step as any).id || ''),
       keepTopOrder, 
-      toGraveyard 
+      toGraveyard,
+      ...(persistOracleIrLedger ? ledgerPersistFields : {}),
     });
   } catch {
     // Ignore persistence failures
@@ -23907,6 +23942,23 @@ function handleDanceWithCalamityCastSelectionResponse(
  * - Where unselected cards go (remainderDestination)
  * - Whether to shuffle after (shuffleAfter)
  */
+function oracleIrLibrarySearchResumeApplied(resumed: unknown): boolean {
+  if (!resumed || typeof resumed !== 'object') return false;
+  const appliedSteps = (resumed as { appliedSteps?: unknown }).appliedSteps;
+  if (!Array.isArray(appliedSteps) || appliedSteps.length === 0) return false;
+  return appliedSteps.some((step) => String((step as { kind?: string })?.kind || '') === 'search_library');
+}
+
+function oracleIrTopLibraryChoiceResumeApplied(
+  resumed: unknown,
+  expectedKind: 'scry' | 'surveil',
+): boolean {
+  if (!resumed || typeof resumed !== 'object') return false;
+  const appliedSteps = (resumed as { appliedSteps?: unknown }).appliedSteps;
+  if (!Array.isArray(appliedSteps) || appliedSteps.length === 0) return false;
+  return appliedSteps.some((step) => String((step as { kind?: string })?.kind || '') === expectedKind);
+}
+
 async function handleLibrarySearchResponse(
   io: Server,
   game: any,
@@ -23959,6 +24011,87 @@ async function handleLibrarySearchResponse(
   
   // Check if this is a split destination effect (Cultivate, Kodama's Reach)
   const isSplitDestination = searchStep.splitDestination || destination === 'split';
+
+  if (String(searchStep.oracleIrChoiceStepJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, {
+      ...response,
+      splitAssignments,
+    });
+    if (oracleIrLibrarySearchResumeApplied(resumed)) {
+      const ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
+
+      if ((searchStep as any).persistLibrarySearchResolve === true) {
+        const selectedIds = Array.isArray(selections) ? selections : [];
+        const cardMap = new Map(
+          [...availableCards, ...nonSelectableCards].map((card: any) => [card.id, card]),
+        );
+        const selectedCards = selectedIds
+          .map((cardId: string) => cardMap.get(cardId))
+          .filter(Boolean);
+        const lib = (game as any).libraries?.get(searchOwnerId) || [];
+        const battlefieldRef = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+        const createdPermanentIds = (splitAssignments?.toBattlefield || []).length > 0
+          ? (splitAssignments?.toBattlefield || [])
+              .map((cardId: string) => {
+                const perm = battlefieldRef.find(
+                  (entry: any) => String(entry?.card?.id || '').trim() === String(cardId || '').trim(),
+                );
+                return perm ? String(perm.id || '').trim() : '';
+              })
+              .filter(Boolean)
+          : (destination === 'battlefield' && selectedCards.length > 0)
+            ? selectedCards
+                .map((card: any) => {
+                  const perm = battlefieldRef.find(
+                    (entry: any) => String(entry?.card?.id || '').trim() === String(card?.id || '').trim(),
+                  );
+                  return perm ? String(perm.id || '').trim() : '';
+                })
+                .filter(Boolean)
+            : undefined;
+
+        try {
+          appendEvent(gameId, game.seq ?? 0, 'librarySearchResolve', {
+            playerId: pid,
+            resolvedStepId: String((step as any).id || '').trim(),
+            searchOwnerId,
+            sourceId: String((step as any).sourceId || ''),
+            sourceName,
+            reason: String((searchStep as any).persistLibrarySearchResolveReason || ''),
+            abilityId: String((searchStep as any).persistLibrarySearchResolveAbilityId || ''),
+            selectedCardIds: selectedCards.map((card: any) => String(card?.id || '')).filter(Boolean),
+            selectedCards: selectedCards.map((card: any) => ({ ...card })),
+            createdPermanentIds: createdPermanentIds && createdPermanentIds.length > 0
+              ? [...createdPermanentIds]
+              : undefined,
+            destination,
+            splitAssignments: splitAssignments || undefined,
+            entersTapped,
+            destinationFaceDown,
+            grantPlayableFromExileToController,
+            grantPlayableFromExileControllerId,
+            grantPlayableFromExileSpendManaAsThoughAnyType,
+            playableFromExileTypeKey,
+            libraryAfter: cloneLibraryStateForEvent(lib),
+            lifeLoss: Number(lifeLoss || 0),
+            ...ledgerPersistFields,
+          });
+        } catch {
+          // Ignore persistence failures.
+        }
+      }
+
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      return;
+    }
+  }
   
   debug(2, `[Resolution] Library search response: player=${pid}, selected ${Array.isArray(selections) ? selections.length : 0} from ${availableCards.length} available, destination=${destination}, remainder=${remainderDestination}, isSplit=${isSplitDestination}`);
   
@@ -24420,6 +24553,7 @@ async function handleLibrarySearchResponse(
           : undefined,
         libraryAfter: lib.map((card: any) => ({ ...card, zone: 'library' })),
         lifeLoss: Number(lifeLoss || 0),
+        ...readOracleIrLedgerPersistFields(game.state),
       });
     } catch {
       // Ignore persistence failures.

@@ -44,6 +44,7 @@ export interface KnownCardRef {
   card_faces?: CardFace[]; // for double-faced/transform/split cards
   layout?: string; // card layout type (e.g., 'transform', 'modal_dfc', 'split')
   colors?: readonly string[]; // color identifiers ('W', 'U', 'B', 'R', 'G')
+  color_identity?: readonly string[]; // commander legality color identity
   cmc?: number; // converted mana cost
   putIntoGraveyardTurn?: number;
 }

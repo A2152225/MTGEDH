@@ -8,8 +8,10 @@
 
 import React, { useState, useMemo } from 'react';
 import type { BattlefieldPermanent, PlayerRef, PlayerID, KnownCardRef } from '../../../shared/src';
+import { getLandwalkUnblockableReason } from '../../../shared/src/combatLandwalk';
 import { getBlockerCapacity } from '../utils/blockerCapacity';
 import { getCombinedPermanentText } from '../utils/permanentText';
+import { canBlockAttacker } from '../utils/combatBlocking';
 
 export interface DefenderAttackInfo {
   untappedCreatureCount: number;
@@ -21,6 +23,8 @@ export interface CombatSelectionModalProps {
   mode: 'attackers' | 'blockers';
   availableCreatures: BattlefieldPermanent[];
   attackingCreatures?: BattlefieldPermanent[]; // For blocker mode: which creatures are attacking
+  /** Full battlefield (includes lands) for landwalk and evasion checks during blocking */
+  battlefield?: BattlefieldPermanent[];
   defenders?: PlayerRef[]; // For attacker mode: which players/planeswalkers can be attacked
   /** Per-opponent untapped blockers and attack tax (Propaganda, Ghostly Prison, etc.) */
   defenderInfoMap?: Record<string, DefenderAttackInfo>;
@@ -414,6 +418,7 @@ export function CombatSelectionModal({
   mode,
   availableCreatures,
   attackingCreatures = [],
+  battlefield = [],
   defenders = [],
   defenderInfoMap,
   initialAttackTargets,
@@ -501,6 +506,25 @@ export function CombatSelectionModal({
   const availableForBlock = useMemo(() => {
     return availableCreatures.filter(c => !c.tapped);
   }, [availableCreatures]);
+
+  const battlefieldForBlocking = useMemo(() => {
+    if (battlefield.length > 0) return battlefield;
+    const byId = new Map<string, BattlefieldPermanent>();
+    for (const perm of [...availableForBlock, ...attackingCreatures]) {
+      if (perm?.id) byId.set(perm.id, perm);
+    }
+    return Array.from(byId.values());
+  }, [battlefield, availableForBlock, attackingCreatures]);
+
+  const unblockableAttackers = useMemo(() => {
+    const reasons = new Map<string, string>();
+    const defendingPlayerId = availableForBlock[0]?.controller;
+    for (const attacker of attackingCreatures) {
+      const reason = getLandwalkUnblockableReason(attacker, defendingPlayerId, battlefieldForBlocking);
+      if (reason) reasons.set(attacker.id, reason);
+    }
+    return reasons;
+  }, [attackingCreatures, availableForBlock, battlefieldForBlocking]);
   
   // Group creatures for display
   const creatureGroups = useMemo(() => {
@@ -627,6 +651,7 @@ export function CombatSelectionModal({
       // Check if any available blocker is NOT blocking this attacker
       // (In a full implementation, we'd also check for "can't block" effects)
       const unassignedBlockers = availableForBlock.filter(b => {
+        if (!canBlockAttacker(b, attacker, battlefieldForBlocking).canBlock) return false;
         const currentAssignments = selectedBlockers.get(b.id);
         if (!currentAssignments || currentAssignments.has(attacker.id)) {
           return true;
@@ -642,7 +667,7 @@ export function CombatSelectionModal({
     }
     
     return violations;
-  }, [attackingCreatures, selectedBlockers, availableForBlock]);
+  }, [attackingCreatures, selectedBlockers, availableForBlock, battlefieldForBlocking]);
   
   // Auto-assign blockers to Lure creatures
   const handleAutoBlockLure = () => {
@@ -662,6 +687,7 @@ export function CombatSelectionModal({
       // For each Lure attacker, assign all able blockers
       for (const attacker of attackersWithLure) {
         for (const blocker of availableForBlock) {
+          if (!canBlockAttacker(blocker, attacker, battlefieldForBlocking).canBlock) continue;
           const currentAssignments = next.get(blocker.id) || new Set<string>();
           if (currentAssignments.has(attacker.id)) continue;
           if (currentAssignments.size < getBlockerCapacity(blocker)) {
@@ -710,7 +736,10 @@ export function CombatSelectionModal({
   };
 
   const handleToggleBlocker = (blocker: BattlefieldPermanent, attackerId: string) => {
-    if (!isInteractive) return; // Don't allow interaction if read-only
+    if (!isInteractive) return;
+    const attacker = attackingCreatures.find((perm) => perm.id === attackerId);
+    if (!attacker) return;
+
     setSelectedBlockers(prev => {
       const next = cloneSelectedBlockers(prev);
       const blockerId = blocker.id;
@@ -722,9 +751,13 @@ export function CombatSelectionModal({
         } else {
           next.set(blockerId, assignments);
         }
-      } else if (assignments.size < getBlockerCapacity(blocker)) {
-        assignments.add(attackerId);
-        next.set(blockerId, assignments);
+      } else {
+        const { canBlock } = canBlockAttacker(blocker, attacker, battlefieldForBlocking);
+        if (!canBlock) return prev;
+        if (assignments.size < getBlockerCapacity(blocker)) {
+          assignments.add(attackerId);
+          next.set(blockerId, assignments);
+        }
       }
       return next;
     });
@@ -963,8 +996,8 @@ export function CombatSelectionModal({
                 {/* Attack All buttons - one per defender */}
                 {defenders.map(d => {
                   const attackTax = defenderInfoMap?.[d.id]?.attackTaxPerCreature ?? 0;
-                  const selectedCount = selectedAttackers.size;
-                  const totalTax = attackTax * selectedCount;
+                  const attackersTargetingDefender = Array.from(selectedAttackers.values()).filter((target) => target === d.id).length;
+                  const totalTax = attackTax * attackersTargetingDefender;
                   return (
                   <button
                     key={`attack-all-${d.id}`}
@@ -1462,6 +1495,7 @@ export function CombatSelectionModal({
                       .map(([blockerId]) => blockerId);
                     const menaceViolation = menaceViolations.get(attacker.id);
                     const lureViolation = lureViolations.get(attacker.id);
+                    const landwalkReason = unblockableAttackers.get(attacker.id);
                     const hasViolation = menaceViolation || lureViolation;
                     
                     return (
@@ -1471,8 +1505,8 @@ export function CombatSelectionModal({
                           width: 130,
                           padding: 8,
                           borderRadius: 8,
-                          border: lureViolation ? '2px solid #f472b6' : menaceViolation ? '2px solid #f59e0b' : '2px solid #ef4444',
-                          background: lureViolation ? 'rgba(244,114,182,0.2)' : menaceViolation ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.15)',
+                          border: landwalkReason ? '2px solid #22c55e' : lureViolation ? '2px solid #f472b6' : menaceViolation ? '2px solid #f59e0b' : '2px solid #ef4444',
+                          background: landwalkReason ? 'rgba(34,197,94,0.15)' : lureViolation ? 'rgba(244,114,182,0.2)' : menaceViolation ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.15)',
                         }}
                       >
                         {imageUrl ? (
@@ -1533,6 +1567,11 @@ export function CombatSelectionModal({
                           {menaceViolation && (
                             <div style={{ color: '#f59e0b', marginTop: 2, fontSize: 9 }}>
                               ⚠️ {menaceViolation}
+                            </div>
+                          )}
+                          {landwalkReason && (
+                            <div style={{ color: '#86efac', marginTop: 2, fontSize: 9 }}>
+                              🌲 Unblockable — {landwalkReason}
                             </div>
                           )}
                         </div>
@@ -1640,6 +1679,9 @@ export function CombatSelectionModal({
                               
                               // Count current blockers from this group for this attacker
                               const currentCount = group.creatures.filter(c => selectedBlockers.get(c.id)?.has(attacker.id)).length;
+                              const groupCanBlock = group.creatures.some((creature) =>
+                                canBlockAttacker(creature, attacker, battlefieldForBlocking).canBlock,
+                              );
                               
                               return (
                                 <div key={attacker.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1681,14 +1723,14 @@ export function CombatSelectionModal({
                                   </span>
                                   <button
                                     onClick={() => {
-                                      // Add one blocker to this attacker
                                       const assignableBlocker = group.creatures.find(c => {
+                                        if (!canBlockAttacker(c, attacker, battlefieldForBlocking).canBlock) return false;
                                         const assignments = selectedBlockers.get(c.id) || new Set<string>();
                                         return !assignments.has(attacker.id) && assignments.size < getBlockerCapacity(c);
                                       });
                                       if (assignableBlocker) handleToggleBlocker(assignableBlocker, attacker.id);
                                     }}
-                                    disabled={availableInGroup === 0}
+                                    disabled={availableInGroup === 0 || !groupCanBlock}
                                     style={{
                                       padding: '2px 6px',
                                       fontSize: 10,
@@ -1821,7 +1863,8 @@ export function CombatSelectionModal({
                           {attackingCreatures.map(attacker => {
                             const attackerInfo = getCreatureInfo(attacker);
                             const isAssignedToAttacker = blockerAssignments.includes(attacker.id);
-                            const canAssignMore = isAssignedToAttacker || blockerAssignments.length < blockerCapacity;
+                            const blockCheck = canBlockAttacker(blocker, attacker, battlefieldForBlocking);
+                            const canAssignMore = isAssignedToAttacker || (blockCheck.canBlock && blockerAssignments.length < blockerCapacity);
                             const dangerText = [];
                             if (attackerInfo.dangers.deathtouch) dangerText.push('DT');
                             if (attackerInfo.dangers.infect) dangerText.push('INF');
@@ -1833,6 +1876,7 @@ export function CombatSelectionModal({
                                 key={attacker.id}
                                 onClick={() => handleToggleBlocker(blocker, attacker.id)}
                                 disabled={!canAssignMore}
+                                title={!blockCheck.canBlock ? blockCheck.reason : undefined}
                                 style={{
                                   width: '100%',
                                   padding: '4px 6px',
@@ -1844,7 +1888,7 @@ export function CombatSelectionModal({
                                   cursor: canAssignMore ? 'pointer' : 'not-allowed',
                                 }}
                               >
-                                {isAssignedToAttacker ? 'Unblock' : 'Block'} {attackerInfo.name} ({attackerInfo.pt}){dangerStr}
+                                {isAssignedToAttacker ? 'Unblock' : blockCheck.canBlock ? 'Block' : "Can't block"} {attackerInfo.name} ({attackerInfo.pt}){dangerStr}
                               </button>
                             );
                           })}

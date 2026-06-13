@@ -18,10 +18,22 @@ import {
 } from './oracleIRExecutorCreatureStepUtils';
 import { tryResolveForEachReferenceAmount } from './oracleIRExecutorForEachQuantity';
 
+import type { OracleEffectStep } from './oracleIR';
+import { findAntecedentStepIndex } from './oracleIRStepLedger';
+import { resolveThisWayAntecedentStepIndex } from './oracleIRThisWayBinding';
+import {
+  resolveGreatestPerPlayerDiscardCountThisWay,
+} from './oracleIRThisWayResolver';
+import {
+  collectContextualCardsLedgerFirst,
+  collectSacrificedPermanentsLedgerFirst,
+} from './oracleIRLedgerCardAccess';
+
 export type ResolveOracleQuantityOptions = {
   readonly runtime?: ModifyPtRuntime;
   readonly targetCreatureId?: string;
   readonly whereX?: OracleClauseCondition;
+  readonly step?: OracleEffectStep;
 };
 
 export function resolveOracleQuantityForPlayer(
@@ -61,12 +73,10 @@ function readSacrificedPermanents(
   runtime: ModifyPtRuntime | undefined,
   ctx: OracleIRExecutionContext
 ): readonly any[] {
+  const ledgerFirst = collectSacrificedPermanentsLedgerFirst(ctx, runtime);
   const seenIds = new Set<string>();
   const merged: any[] = [];
-  for (const entry of [
-    ...(Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : []),
-    ...(Array.isArray((ctx as any).lastSacrificedPermanents) ? (ctx as any).lastSacrificedPermanents : []),
-  ]) {
+  for (const entry of ledgerFirst) {
     const id = String((entry as any)?.id || '').trim();
     if (id) {
       if (seenIds.has(id)) continue;
@@ -118,7 +128,7 @@ export function resolveOracleQuantity(
   ctx: OracleIRExecutionContext,
   options: ResolveOracleQuantityOptions = {}
 ): number | null {
-  const { runtime, targetCreatureId, whereX } = options;
+  const { runtime, targetCreatureId, whereX, step } = options;
 
   const evaluateWhereExpr = (exprRaw: string): number | null => {
     const raw = normalizeOracleText(String(exprRaw || ''));
@@ -129,7 +139,9 @@ export function resolveOracleQuantity(
       raw.startsWith('x is ') ? raw : `X is ${raw}`,
       targetCreatureId,
       ctx,
-      runtime
+      runtime,
+      0,
+      step,
     );
     return evaluated === null ? null : Math.max(0, evaluated);
   };
@@ -159,10 +171,7 @@ export function resolveOracleQuantity(
       if (power !== null) return power;
     }
 
-    const moved = [
-      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
-      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
-    ];
+    const moved = collectContextualCardsLedgerFirst(ctx, runtime);
     if (moved.length === 1) {
       const power = readFiniteStat((moved[0] as any)?.power ?? (moved[0] as any)?.card?.power);
       if (power !== null) return power;
@@ -198,6 +207,16 @@ export function resolveOracleQuantity(
     }
 
     if (normalized === 'greatest_number_discarded_this_way') {
+      if (ctx.stepLedger?.size) {
+        const antecedentStepIndex = step
+          ? resolveThisWayAntecedentStepIndex(ctx, step as OracleEffectStep, 'discard')
+          : (ctx.currentStepIndex != null
+            ? findAntecedentStepIndex(ctx.appliedStepKinds, 'discard', ctx.currentStepIndex)
+            : null);
+        if (antecedentStepIndex != null && ctx.stepLedger.has(antecedentStepIndex)) {
+          return resolveGreatestPerPlayerDiscardCountThisWay(ctx, antecedentStepIndex);
+        }
+      }
       const ctxGreatest = Number((ctx as any).lastGreatestDiscardedCardCount);
       if (Number.isFinite(ctxGreatest)) return Math.max(0, ctxGreatest);
       const runtimeGreatest = Number(runtime?.lastGreatestDiscardedCardCount);
@@ -256,14 +275,7 @@ export function resolveOracleQuantity(
       return value === null ? null : Math.max(0, value * multiplier);
     };
 
-    const contextualCards = [
-      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
-      ...(Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : []),
-      ...(Array.isArray(runtime?.lastDiscardedCards) ? runtime.lastDiscardedCards : []),
-      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
-      ...(Array.isArray(ctx.lastExiledCards) ? ctx.lastExiledCards : []),
-      ...(Array.isArray((ctx as any).lastDiscardedCards) ? (ctx as any).lastDiscardedCards : []),
-    ];
+    const contextualCards = collectContextualCardsLedgerFirst(ctx, runtime);
     if (
       contextualCards.length > 0 &&
       (qty.subject === 'it' || qty.subject === 'that_card' || qty.subject === 'that_creature')

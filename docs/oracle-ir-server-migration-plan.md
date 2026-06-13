@@ -2,7 +2,7 @@
 
 **Purpose:** Plan the full supersession of handwritten spell/trigger/ability resolution with Oracle IR execution and the Effect Program orchestrator.
 
-**Last updated:** 2026-06-12 (batch 279 — G1 Merfolk integration + Thassa library IR)  
+**Last updated:** 2026-06-13 (step ledger Phases A–Z)  
 **Owner:** Project maintainers  
 
 > **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then [Current status / session handoff](#current-status--session-handoff-2026-06-12) below. Batches 264–279 are **uncommitted** locally.
@@ -13,6 +13,7 @@
 - [oracle-automation-remaining-work.md](./oracle-automation-remaining-work.md) — rules-engine parser/executor gap closure (mostly complete)
 - [oracle-automation-roadmap.md](./oracle-automation-roadmap.md) — historical milestone log
 - [oracle-ir-gap-backlog.md](./oracle-ir-gap-backlog.md) — static parser backlog clusters
+- [oracle-ir-step-ledger-migration.md](./oracle-ir-step-ledger-migration.md) — step ledger, pre-commit transitions, "this way" memory
 
 ---
 
@@ -39,7 +40,9 @@ The project has **three distinct layers**. Layers 1–2 are in strong shape; **L
 - **Thassa's Oracle** ETB queues library look/reorder (`look_select_top` → `LIBRARY_SEARCH`); devotion win unchanged (`tryResolveThassasOracleWin`).
 - **Kynaios** land gifts run post-resolution ETB prompts; **Growing Rites** lookup fixed; **Cryptoplasm** reverts on bounce; **Eldrazi Monument** upkeep deduped.
 
-**Prior batch 278:** trigger `ir_gap` **20 → 0**; migration **649/649**; parse→execute **0**.
+**Prior batch 278:** trigger `ir_gap` **20 → 0**; migration **651/651**; parse→execute **0**.
+
+**Step ledger (Phases A–Z):** Zone-affecting IR steps on the server path use pre-commit transitions + indexed `stepLedger`. See [oracle-ir-step-ledger-migration.md](./oracle-ir-step-ledger-migration.md).
 
 **Git state:** 100+ files modified across batches 264–279, **no commits** unless explicitly requested.
 

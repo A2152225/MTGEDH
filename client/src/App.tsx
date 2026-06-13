@@ -1737,6 +1737,11 @@ export function App() {
       }
 
       if (isYourTurn) {
+        const attackersDeclaredBy: string[] = Array.isArray((safeView as any).attackersDeclaredBy)
+          ? (safeView as any).attackersDeclaredBy
+          : [];
+        const youAlreadyDeclaredAttackers = !!you && attackersDeclaredBy.includes(you);
+
         // Check if there are any valid creatures that can attack
         const validAttackers = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
           if (!you) return false;
@@ -1757,6 +1762,11 @@ export function App() {
           }
           // Don't show the modal either way
           setCombatModalOpen(false);
+          setCombatModalReadOnly(false);
+        } else if (youAlreadyDeclaredAttackers) {
+          setCombatModalOpen(false);
+          setCombatModalMinimized(false);
+          setCombatModalError(null);
           setCombatModalReadOnly(false);
         } else {
           setCombatMode('attackers');
@@ -5119,31 +5129,62 @@ export function App() {
   // The tax is parsed from pillow-fort enchantments (Ghostly Prison, Propaganda, etc.)
   const defenderInfoMap = useMemo(() => {
     if (!safeView || !you) return undefined;
+
+    const KNOWN_ATTACK_TAX_BY_NAME: Record<string, number> = {
+      'windborn muse': 2,
+      'ghostly prison': 2,
+      'propaganda': 2,
+      'baird, steward of argive': 1,
+    };
+
+    const getAttackTaxPerCreature = (perm: BattlefieldPermanent): number => {
+      const oracle = ((perm.card as any)?.oracle_text || '').toLowerCase();
+      const name = ((perm.card as any)?.name || '').toLowerCase();
+
+      const strictMatch = oracle.match(
+        /creatures can't attack you (?:or a planeswalker you control )?unless their controller pays \{(\d+)\}/i,
+      );
+      if (strictMatch) return parseInt(strictMatch[1], 10);
+
+      const genericMatch = oracle.match(
+        /creatures?\s+can't\s+attack\s+you\s+unless\s+.*pays?\s+\{(\d+)\}/i,
+      );
+      if (genericMatch) return parseInt(genericMatch[1], 10);
+
+      for (const [knownName, cost] of Object.entries(KNOWN_ATTACK_TAX_BY_NAME)) {
+        if (name.includes(knownName)) return cost;
+      }
+      return 0;
+    };
+
+    const resolveDefendingPlayerId = (defenderId: string): string => {
+      const battlefield: BattlefieldPermanent[] = safeView.battlefield || [];
+      const players = safeView.players || [];
+      const playerIds = new Set(players.map((player: any) => String(player.id)));
+      if (playerIds.has(defenderId)) return defenderId;
+      const targetPerm = battlefield.find((perm) => String(perm.id) === defenderId);
+      return targetPerm?.controller ? String(targetPerm.controller) : defenderId;
+    };
+
     const result: Record<string, { untappedCreatureCount: number; attackTaxPerCreature: number }> = {};
     const battlefield: BattlefieldPermanent[] = safeView.battlefield || [];
     for (const defender of defenders) {
       const defId = String(defender.id);
+      const defendingPlayerId = resolveDefendingPlayerId(defId);
+
       // Count untapped creatures controlled by this opponent
       const untappedCreatureCount = battlefield.filter((p: BattlefieldPermanent) => {
-        if (p.controller !== defId) return false;
+        if (p.controller !== defendingPlayerId) return false;
         if (p.tapped) return false;
         const tl = ((p.card as any)?.type_line || '').toLowerCase();
         return /\bcreature\b/.test(tl);
       }).length;
 
-      // Compute attack tax from pillow-fort permanents (Ghostly Prison, Propaganda, etc.)
+      // Compute attack tax from pillow-fort permanents controlled by the defending player
       let attackTaxPerCreature = 0;
       for (const perm of battlefield) {
-        if (perm.controller !== defId) continue;
-        const oracle = ((perm.card as any)?.oracle_text || '').toLowerCase();
-        const taxMatch = oracle.match(/creatures? (?:can't|cannot) attack(?:[^.]*?unless[^.]*?pays?\s*)?\{(\d+)\}/i);
-        if (taxMatch) {
-          attackTaxPerCreature = Math.max(attackTaxPerCreature, parseInt(taxMatch[1], 10));
-        }
-        const simpleTax = oracle.match(/unless[^.{]*\{(\d+)\}[^.]*(?:attack|per creature)/i);
-        if (simpleTax) {
-          attackTaxPerCreature = Math.max(attackTaxPerCreature, parseInt(simpleTax[1], 10));
-        }
+        if (perm.controller !== defendingPlayerId) continue;
+        attackTaxPerCreature = Math.max(attackTaxPerCreature, getAttackTaxPerCreature(perm));
       }
 
       result[defId] = { untappedCreatureCount, attackTaxPerCreature };
@@ -5760,6 +5801,7 @@ export function App() {
               commandZone={safeView.commandZone as any}
               format={String(safeView.format || "")}
               life={safeView.life}
+              commanderDamage={(safeView as any).commanderDamage}
               poisonCounters={(safeView as any).poisonCounters}
               experienceCounters={(safeView as any).experienceCounters}
               energyCounters={(safeView as any).energyCounters}
@@ -7160,6 +7202,7 @@ export function App() {
             : (combatModalReadOnly ? [] : myBlockerCreatures)
         }
         attackingCreatures={attackingCreatures}
+        battlefield={(safeView.battlefield || []) as BattlefieldPermanent[]}
         defenders={combatMode === 'attackers' && combatModalReadOnly ? combatModalAttackersDefenders : defenders}
         initialAttackTargets={
           combatMode === 'attackers' && combatModalReadOnly

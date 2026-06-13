@@ -13,6 +13,22 @@ import { deriveWinningVoteChoice, getCardManaValue } from './oracleIRExecutorPla
 import { cardMatchesType, parseSimpleCardTypeFromText } from './oracleIRExecutorZoneOps';
 import { splitCardMatchesName } from './splitCards';
 import { evaluateExtendedConditionalClause } from './oracleIRExecutorConditionalStepSupportExtended';
+import { collectContextualCardsLedgerFirst, isSearchedLibraryThisWayLedgerFirst, resolveAntecedentDiscardedCards, resolveAntecedentMilledCards } from './oracleIRLedgerCardAccess';
+
+const EXILE_THIS_WAY_STEP_KINDS = new Set<OracleEffectStep['kind']>([
+  'exile',
+  'exile_top',
+  'impulse_exile_top',
+  'move_zone',
+]);
+
+function movedCardsFromCtx(ctx: OracleIRExecutionContext, lastMovedCards?: readonly any[]): any[] {
+  return collectContextualCardsLedgerFirst(ctx, { lastMovedCards }) as any[];
+}
+
+function hasRecentExileOutcome(outcome: LastActionOutcome, movedCards: readonly any[]): boolean {
+  return Boolean(outcome?.stepKind && EXILE_THIS_WAY_STEP_KINDS.has(outcome.stepKind)) || movedCards.length > 0;
+}
 
 type ConditionalCondition = Extract<OracleEffectStep, { kind: 'conditional' }>['condition'];
 
@@ -358,16 +374,20 @@ function countYourGraveyardCards(params: {
   controllerId: PlayerID;
   typeName?: string;
   pendingSteps?: readonly OracleEffectStep[];
+  ctx?: OracleIRExecutionContext;
   lastMovedCards?: readonly any[];
 }): number {
-  const { nextState, controllerId, typeName, pendingSteps, lastMovedCards } = params;
+  const { nextState, controllerId, typeName, pendingSteps, ctx, lastMovedCards } = params;
   const graveyard = getYourGraveyardCards(nextState, controllerId);
   const normalizedTypeName = String(typeName || '').trim().toLowerCase();
   const baseCount = normalizedTypeName
     ? graveyard.filter((card: any) => cardHasType(card, normalizedTypeName)).length
     : graveyard.length;
 
-  if (!Array.isArray(lastMovedCards) || lastMovedCards.length === 0) return baseCount;
+  const movedForAdjustment = ctx
+    ? movedCardsFromCtx(ctx, lastMovedCards)
+    : (Array.isArray(lastMovedCards) ? lastMovedCards : []);
+  if (movedForAdjustment.length === 0) return baseCount;
   if (!Array.isArray(pendingSteps) || !pendingSteps.some(isContextualGraveyardMoveReference)) return baseCount;
 
   const graveyardIds = new Set(
@@ -376,7 +396,7 @@ function countYourGraveyardCards(params: {
       .filter(Boolean)
   );
 
-  const adjustment = lastMovedCards.filter((card: any) => {
+  const adjustment = movedForAdjustment.filter((card: any) => {
     const cardId = String(card?.id || '').trim();
     if (!cardId || graveyardIds.has(cardId)) return false;
     return normalizedTypeName ? cardHasType(card, normalizedTypeName) : true;
@@ -743,6 +763,7 @@ export function evaluateConditionalWrapperCondition(params: {
   lastDiscardedCards?: readonly any[];
   lastCreatedTokenIds?: readonly string[];
   lastExcessDamageDealtThisWay?: number;
+  step?: OracleEffectStep;
 }): boolean | null {
   const {
     condition,
@@ -794,8 +815,10 @@ export function evaluateConditionalWrapperCondition(params: {
           : Array.isArray(lastMovedCards)
             ? lastMovedCards
             : [];
-      const movedFromCtx = Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : [];
-      const movedCards = movedFromOutcome.length > 0 ? movedFromOutcome : movedFromCtx;
+      const movedCards = collectContextualCardsLedgerFirst(ctx, {
+        lastMovedCards: movedFromOutcome,
+        lastDiscardedCards,
+      });
       if (movedCards.length > 0) {
         return movedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
       }
@@ -820,8 +843,8 @@ export function evaluateConditionalWrapperCondition(params: {
 
       const descriptor = String(movedCardTypeNegatedMatch[1] || '').trim().toLowerCase();
       const movedCards = lastActionOutcome?.stepKind === 'discard'
-        ? (Array.isArray(lastDiscardedCards) ? lastDiscardedCards : [])
-        : (Array.isArray(lastMovedCards) ? lastMovedCards : []);
+        ? resolveAntecedentDiscardedCards(ctx, { lastDiscardedCards }) as any[]
+        : collectContextualCardsLedgerFirst(ctx, { lastMovedCards }) as any[];
       return movedCards.length > 0 && movedCards.every((card: any) => !matchesCardTypeDescriptor(card, descriptor));
     }
   }
@@ -831,10 +854,7 @@ export function evaluateConditionalWrapperCondition(params: {
     if (discardedThisWayMatch) {
       if (lastActionOutcome?.kind === 'impossible') return false;
       const descriptor = String(discardedThisWayMatch[1] || '').trim().toLowerCase();
-      const discardedCards = [
-        ...(Array.isArray(lastDiscardedCards) ? lastDiscardedCards : []),
-        ...(Array.isArray(ctx.lastDiscardedCards) ? ctx.lastDiscardedCards : []),
-      ];
+      const discardedCards = resolveAntecedentDiscardedCards(ctx, { lastDiscardedCards }) as any[];
       if (discardedCards.length > 0) {
         return discardedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
       }
@@ -850,7 +870,7 @@ export function evaluateConditionalWrapperCondition(params: {
       if (lastActionOutcome?.stepKind !== 'discard') return null;
 
       const descriptor = String(youDiscardThisWayMatch[1] || '').trim().toLowerCase();
-      const discardedCards = Array.isArray(lastDiscardedCards) ? lastDiscardedCards : [];
+      const discardedCards = resolveAntecedentDiscardedCards(ctx, { lastDiscardedCards }) as any[];
       return discardedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
     }
   }
@@ -859,11 +879,8 @@ export function evaluateConditionalWrapperCondition(params: {
     const putIntoExileThisWayMatch = normalizedRaw.match(/^(?:a|an)\s+(.+?)\s+is put into exile this way$/i);
     if (putIntoExileThisWayMatch) {
       if (lastActionOutcome?.kind === 'impossible') return false;
-      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
-      const hasRecentExile =
-        lastActionOutcome?.stepKind === 'move_zone' ||
-        lastActionOutcome?.stepKind === 'exile' ||
-        movedCards.length > 0;
+      const movedCards = movedCardsFromCtx(ctx, lastMovedCards);
+      const hasRecentExile = hasRecentExileOutcome(lastActionOutcome, movedCards);
       if (!hasRecentExile) return null;
 
       const descriptor = String(putIntoExileThisWayMatch[1] || '').trim().toLowerCase();
@@ -875,11 +892,8 @@ export function evaluateConditionalWrapperCondition(params: {
     const exiledThisWayMatch = normalizedRaw.match(/^(.*?)\s+card\s+(?:was exiled|is exiled|is put into exile)\s+this way$/i);
     if (exiledThisWayMatch) {
       if (lastActionOutcome?.kind === 'impossible') return false;
-      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
-      const hasRecentExile =
-        lastActionOutcome?.stepKind === 'move_zone' ||
-        lastActionOutcome?.stepKind === 'exile' ||
-        movedCards.length > 0;
+      const movedCards = movedCardsFromCtx(ctx, lastMovedCards);
+      const hasRecentExile = hasRecentExileOutcome(lastActionOutcome, movedCards);
       if (!hasRecentExile) return null;
 
       const rawDescriptor = String(exiledThisWayMatch[1] || '').trim().toLowerCase();
@@ -893,7 +907,7 @@ export function evaluateConditionalWrapperCondition(params: {
     const milledThisWayMatch = normalizedRaw.match(/^(?:a|an)\s+(.+?)\s+card\s+was\s+milled\s+this\s+way$/i);
     if (milledThisWayMatch) {
       const descriptor = String(milledThisWayMatch[1] || '').trim().toLowerCase();
-      const milledCards = Array.isArray(ctx.lastMilledCards) ? ctx.lastMilledCards : [];
+      const milledCards = resolveAntecedentMilledCards(ctx) as any[];
       return milledCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
     }
   }
@@ -940,6 +954,7 @@ export function evaluateConditionalWrapperCondition(params: {
           lastMovedCards,
           lastDiscardedCards,
           lastExcessDamageDealtThisWay,
+          step: params.step,
         });
         if (extendedNegated !== null) return extendedNegated;
         return null;
@@ -998,6 +1013,7 @@ export function evaluateConditionalWrapperCondition(params: {
       lastMovedCards,
       lastDiscardedCards,
       lastExcessDamageDealtThisWay,
+      step: params.step,
     });
     if (extended !== null) return extended;
   }
@@ -1019,10 +1035,7 @@ export function evaluateConditionalWrapperCondition(params: {
   if (normalizedRaw === 'it entered from your library or was cast from your library') {
     const antecedent = getAffirmativeAntecedentOutcome();
     if (antecedent?.stepKind === 'draw' && antecedent.kind === 'applied') return true;
-    const movedCards = [
-      ...(Array.isArray(lastMovedCards) ? lastMovedCards : []),
-      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
-    ];
+    const movedCards = movedCardsFromCtx(ctx, lastMovedCards);
     if (movedCards.length > 0) return true;
     return false;
   }
@@ -1160,7 +1173,7 @@ export function evaluateConditionalWrapperCondition(params: {
       lastActionOutcome?.stepKind === 'search_library'
     ) {
       if (lastActionOutcome.kind === 'applied') {
-        const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+        const movedCards = movedCardsFromCtx(ctx, lastMovedCards);
         return movedCards.length === 0;
       }
       if (lastActionOutcome.kind === 'impossible') return true;
@@ -1400,7 +1413,7 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   if (normalizedRaw === 'that creature was a token' || normalizedRaw === 'that permanent was a token') {
-    const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+    const movedCards = movedCardsFromCtx(ctx, lastMovedCards);
     if (movedCards.length > 0) return movedCards.some(cardWasToken);
     if (lastActionOutcome?.kind === 'impossible') return false;
     if (
@@ -1436,7 +1449,7 @@ export function evaluateConditionalWrapperCondition(params: {
   ) {
     if (lastActionOutcome?.kind === 'impossible') return true;
     if (lastActionOutcome?.stepKind === 'move_zone' && lastActionOutcome.kind === 'applied') {
-      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+      const movedCards = movedCardsFromCtx(ctx, lastMovedCards);
       return movedCards.length === 0;
     }
     if (lastActionOutcome?.stepKind === 'move_zone') return true;
@@ -1698,6 +1711,7 @@ export function evaluateConditionalWrapperCondition(params: {
     normalizedRaw === 'an opponent searches their library this way' ||
     normalizedRaw === 'you searched your library this way'
   ) {
+    if (isSearchedLibraryThisWayLedgerFirst(ctx, params.step)) return true;
     if (ctx.searchedLibraryThisWay === true) return true;
     const antecedent = getAffirmativeAntecedentOutcome();
     if (antecedent?.stepKind === 'search_library' && antecedent.kind === 'applied') return true;
@@ -1897,9 +1911,7 @@ export function evaluateConditionalWrapperCondition(params: {
       const typeName = String(thatLandIsTypeMatch[1] || '').trim().toLowerCase();
       if (!typeName) return null;
 
-      const movedLand = Array.isArray(lastMovedCards)
-        ? lastMovedCards.find((card: any) => cardHasType(card, 'land'))
-        : null;
+      const movedLand = movedCardsFromCtx(ctx, lastMovedCards).find((card: any) => cardHasType(card, 'land')) ?? null;
       if (movedLand) return matchesCardTypeDescriptor(movedLand, typeName);
 
       const referencedId =
@@ -1997,6 +2009,7 @@ export function evaluateConditionalWrapperCondition(params: {
           controllerId,
           typeName,
           pendingSteps,
+          ctx,
           lastMovedCards,
         });
         return count >= threshold;
@@ -2015,6 +2028,7 @@ export function evaluateConditionalWrapperCondition(params: {
           controllerId,
           typeName,
           pendingSteps,
+          ctx,
           lastMovedCards,
         });
         return count >= threshold;
@@ -2043,6 +2057,7 @@ export function evaluateConditionalWrapperCondition(params: {
           controllerId,
           typeName,
           pendingSteps,
+          ctx,
           lastMovedCards,
         });
         return count >= threshold;

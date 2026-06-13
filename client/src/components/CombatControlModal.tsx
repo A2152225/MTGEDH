@@ -15,8 +15,8 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { BattlefieldPermanent, PlayerRef, PlayerID, KnownCardRef, CombatControlEffect } from '../../../shared/src';
-import { getLandwalkUnblockableReason } from '../../../shared/src/combatLandwalk';
 import { canCreatureAttackNow, hasCurrentKeyword, isCurrentlyCreature } from '../utils/creatureUtils';
+import { canBlockAttacker } from '../utils/combatBlocking';
 import { getBlockerCapacity } from '../utils/blockerCapacity';
 import { getCombinedPermanentText } from '../utils/permanentText';
 
@@ -168,43 +168,6 @@ function getCreatureInfo(
     attackReason,
     blockReason,
   };
-}
-
-/**
- * Check if a blocker can legally block an attacker
- */
-function canBlockAttacker(
-  blocker: BattlefieldPermanent,
-  attacker: BattlefieldPermanent,
-  battlefield: BattlefieldPermanent[],
-): { canBlock: boolean; reason?: string } {
-  const landwalkReason = getLandwalkUnblockableReason(attacker, blocker.controller, battlefield);
-  if (landwalkReason) {
-    return { canBlock: false, reason: landwalkReason };
-  }
-
-  // Flying - need flying or reach
-  if (hasCurrentKeyword(attacker, 'flying', battlefield)) {
-    if (!hasCurrentKeyword(blocker, 'flying', battlefield) && !hasCurrentKeyword(blocker, 'reach', battlefield)) {
-      return { canBlock: false, reason: "Can't block flying" };
-    }
-  }
-  
-  // Shadow - need shadow
-  if (hasCurrentKeyword(attacker, 'shadow', battlefield)) {
-    if (!hasCurrentKeyword(blocker, 'shadow', battlefield)) {
-      return { canBlock: false, reason: "Can't block shadow" };
-    }
-  }
-  
-  // Horsemanship - need horsemanship
-  if (hasCurrentKeyword(attacker, 'horsemanship', battlefield)) {
-    if (!hasCurrentKeyword(blocker, 'horsemanship', battlefield)) {
-      return { canBlock: false, reason: "Can't block horsemanship" };
-    }
-  }
-  
-  return { canBlock: true };
 }
 
 export function CombatControlModal({

@@ -3,6 +3,7 @@ import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
 import type { OracleEffectStep, OracleObjectSelector } from './oracleIR';
 import { createCustomEmblem } from './emblemSupport';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions } from './oracleIRExecutionTypes';
+import { omitBridgedStepCarryOver, usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import {
@@ -31,8 +32,11 @@ import {
   getCardTypeLineLower,
   millCardsForPlayer,
   lookSelectTopCardsForPlayer,
+  collectTopLibraryObservationForPlayers,
   quantityToNumber,
+  readPlayerZoneCards,
   resolvePlayers,
+  writePlayerZoneCards,
   getPlayableUntilTurnForImpulseDuration,
   resolveUnknownMillUntilAmountForPlayer,
   resolveRevealUntilReferenceAmountForPlayer,
@@ -51,6 +55,35 @@ import {
 import type { OracleClauseCondition } from './oracleIR';
 import { collectForEachReferenceBattlefieldPermanentIds } from './oracleIRExecutorForEachQuantity';
 import { evaluateOracleStepUnlessCondition } from './oracleIRExecutorConditionalStepSupport';
+import {
+  commitCardZoneChanges,
+  commitLibraryTopObservation,
+  commitLookSelectRestZoneChanges,
+  type PlayerZoneChangeBridgeContext,
+} from './oracleIRExecutorCardZoneTransitionCommit';
+import { buildEffectBridgeOptions } from './oracleIRExecutorDamageTransitionCommit';
+import { resolveBattlefieldEntryFromOracleIrContext } from './oracleIRExecutorBattlefieldEntryCommit';
+import { inferSplitLibrarySearchPlan } from './oracleIRSplitLibrarySearch';
+
+function buildPlayerZoneBridgeOptions(
+  ctx: OracleIRExecutionContext,
+  stepKind: 'discard' | 'mill',
+): PlayerZoneChangeBridgeContext | undefined {
+  if (!ctx.serverBridge) return undefined;
+  if (ctx.currentStepIndex == null) return undefined;
+  return {
+    ctx,
+    stepIndex: ctx.currentStepIndex,
+    stepKind,
+  };
+}
+
+function withDiscardLedgerFlags<T extends Record<string, unknown>>(
+  result: T,
+  ledgerRecordedViaBridge?: boolean,
+): T & { skipLedgerFlush?: boolean } {
+  return omitBridgedStepCarryOver(result, { ledgerRecordedViaBridge });
+}
 
 type StepApplyResult = {
   readonly applied: true;
@@ -74,6 +107,7 @@ type StepApplyResult = {
   readonly lastDungeonName?: string;
   readonly lastSetInMotionScheme?: any;
   readonly lastAntecedentBattlefieldPermanentIds?: readonly string[];
+  readonly skipLedgerFlush?: boolean;
 };
 
 function sanitizeGrantedGraveyardPermissionIdPart(value: unknown): string {
@@ -787,85 +821,6 @@ function lookSelectTopRequiresPlayerChoice(
   if (built.chooseMin < built.chooseCount) return true;
   if (step.destination === 'library_top') return built.lookedCount > 0;
   return built.lookedCount > built.chooseCount;
-}
-
-function applyLookSelectTopForPlayerWithChoice(
-  state: GameState,
-  playerId: PlayerID,
-  amount: number,
-  choose: number,
-  destination: 'hand' | 'graveyard' | 'library_top',
-  restDestination: 'graveyard' | 'library',
-  restToTop: boolean,
-  chosenObjectIds: readonly string[],
-  restRandomOrder = false
-): { state: GameState; log: string[]; chosen: any[]; rest: any[]; lookedAtCount: number } {
-  const player = state.players.find(entry => entry.id === playerId) as any;
-  if (!player) {
-    return { state, log: [`Player not found: ${playerId}`], chosen: [], rest: [], lookedAtCount: 0 };
-  }
-
-  const library = [...(Array.isArray(player.library) ? player.library : [])];
-  const hand = [...(Array.isArray(player.hand) ? player.hand : [])];
-  const graveyard = [...(Array.isArray(player.graveyard) ? player.graveyard : [])];
-  const actualLookCount = Math.max(0, Math.min(library.length, amount | 0));
-  const chooseActual = Math.max(0, Math.min(actualLookCount, choose | 0));
-  const looked = library.splice(0, actualLookCount);
-  const chosenIdSet = new Set(chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean));
-  const chosen = chosenIdSet.size > 0
-    ? looked.filter(card => chosenIdSet.has(String(card?.id || '').trim())).slice(0, chooseActual)
-    : looked.slice(0, chooseActual);
-  const chosenIds = new Set(chosen.map(card => String(card?.id || '').trim()).filter(Boolean));
-  const rest = looked.filter(card => !chosenIds.has(String(card?.id || '').trim()));
-
-  if (destination === 'hand') {
-    hand.push(...chosen);
-  } else if (destination === 'graveyard') {
-    graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, chosen));
-  } else if (destination === 'library_top' && chosen.length > 0) {
-    for (let index = chosen.length - 1; index >= 0; index -= 1) {
-      library.unshift(chosen[index]);
-    }
-  }
-
-  if (restDestination === 'graveyard') {
-    graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, rest));
-  } else if (rest.length > 0) {
-    if (destination === 'library_top') {
-      const bottomRest = restRandomOrder ? shuffleArray(rest) : rest;
-      library.push(...bottomRest);
-    } else {
-      const reorderedRest = restToTop ? rest : [...rest].reverse();
-      library.unshift(...reorderedRest);
-    }
-  }
-
-  const updatedPlayers = state.players.map(entry =>
-    entry.id === playerId ? ({ ...(entry as any), library, hand, graveyard } as any) : entry
-  );
-
-  const destinationLabel = destination === 'hand'
-    ? 'their hand'
-    : destination === 'graveyard'
-      ? 'their graveyard'
-      : 'the top of their library';
-  const restLabel = restDestination === 'graveyard'
-    ? 'their graveyard'
-    : restRandomOrder
-      ? 'the bottom of their library in a random order'
-      : restToTop
-        ? 'the top of their library'
-        : 'the bottom of their library';
-
-  return {
-    state: { ...state, players: updatedPlayers as any },
-    log: [
-      `${playerId} looks at ${actualLookCount} card(s), puts ${chosen.length} into ${destinationLabel}, and moves ${rest.length} to ${restLabel}`,
-    ],
-    chosen,
-    rest,
-    lookedAtCount: actualLookCount,
-  };
 }
 
 function chooseCollectEvidenceCardIds(
@@ -2059,7 +2014,8 @@ export function buildSearchLibrarySelectionOptions(
 
   const maxResults = Math.max(1, Number(step.maxResults || 1) || 1);
   const isOptional = Boolean((step as { optional?: boolean }).optional);
-  if (matches.length <= maxResults && !isOptional) return null;
+  const splitPlan = inferSplitLibrarySearchPlan(String(step.raw || ''));
+  if (matches.length <= maxResults && !isOptional && !splitPlan) return null;
 
   return {
     playerId,
@@ -3119,6 +3075,32 @@ export function applyScryStep(
     };
   }
 
+  if (ctx.selectorContext?.scryResolutionComplete === true) {
+    const keepTopOrder = Array.isArray(ctx.selectorContext?.keepTopOrder)
+      ? ctx.selectorContext.keepTopOrder
+      : [];
+    const bottomOrder = Array.isArray(ctx.selectorContext?.bottomOrder)
+      ? ctx.selectorContext.bottomOrder
+      : [];
+    const lookedCount = keepTopOrder.length + bottomOrder.length;
+    return {
+      applied: true,
+      state,
+      log: [`Scry ${lookedCount} (resolution applied): ${step.raw}`],
+      lastScryLookedAtCount: lookedCount,
+      skipLedgerFlush: true,
+    };
+  }
+
+  const { cards: observedCards, lookedCount } = collectTopLibraryObservationForPlayers(state, players, amount);
+  const observationCarryOver = observedCards.length > 0
+    ? { lastMovedCards: observedCards, lastScryLookedAtCount: lookedCount }
+    : { lastScryLookedAtCount: 0 };
+  let ledgerRecordedViaBridge = false;
+  const bridgeOptions = usedOracleIrServerBridge(ctx)
+    ? { ctx, stepIndex: Number(ctx.currentStepIndex), stepKind: step.kind }
+    : undefined;
+
   const wouldNeedChoice = players.some(playerId => {
     const player = state.players.find(p => p.id === playerId) as any;
     const libraryLength = Array.isArray(player?.library) ? player.library.length : 0;
@@ -3126,12 +3108,34 @@ export function applyScryStep(
   });
 
   if (wouldNeedChoice) {
-    return {
+    if (bridgeOptions && observedCards.length > 0 && Number.isFinite(bridgeOptions.stepIndex)) {
+      const observation = commitLibraryTopObservation({
+        playerId: ctx.controllerId,
+        cards: observedCards,
+        stepIndex: Number(bridgeOptions.stepIndex),
+        stepKind: String(bridgeOptions.stepKind || 'scry'),
+        cause: 'oracle_ir:scry',
+        ctx: bridgeOptions.ctx,
+      });
+      if (observation.halted) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state,
+          log: [`Scry ${amount} halted for replacement: ${step.raw}`],
+          lastScryLookedAtCount: lookedCount,
+        }, ledgerRecordedViaBridge);
+      }
+      if (observation.ledgerRecordedViaBridge) {
+        ledgerRecordedViaBridge = true;
+      }
+    }
+    return withDiscardLedgerFlags({
       applied: false,
       message: `Skipped scry (requires player choice): ${step.raw}`,
       reason: 'player_choice_required',
       options: { classification: 'player_choice' },
-    };
+      ...observationCarryOver,
+    }, ledgerRecordedViaBridge);
   }
 
   return {
@@ -3393,6 +3397,9 @@ export function applySearchLibraryStep(
 
   let nextState = state;
   const log: string[] = [];
+  const allMovedCards: any[] = [];
+  let ledgerRecordedViaBridge = false;
+  const bridgeActive = usedOracleIrServerBridge(ctx);
 
   for (const playerId of players) {
     const player = nextState.players.find(p => p.id === playerId) as any;
@@ -3437,6 +3444,258 @@ export function applySearchLibraryStep(
     }
 
     const selectedIds = new Set(selected.map(card => String(card?.id || card?.cardId || '').trim()).filter(Boolean));
+    const splitPlan = inferSplitLibrarySearchPlan(step.raw);
+    const splitAssignmentsRaw = (ctx.selectorContext as {
+      splitAssignments?: { toBattlefield?: string[]; toHand?: string[] };
+    } | undefined)?.splitAssignments;
+
+    if (splitPlan && selected.length > 0 && !splitAssignmentsRaw) {
+      return {
+        applied: false,
+        message: `Skipped library search (requires split destination choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+
+    const canBridgeSplit = bridgeActive
+      && splitPlan
+      && splitAssignmentsRaw
+      && Number.isFinite(ctx.currentStepIndex)
+      && selected.length > 0;
+
+    if (canBridgeSplit) {
+      const battlefieldIdSet = new Set(
+        (splitAssignmentsRaw.toBattlefield || []).map((id) => String(id || '').trim()).filter(Boolean),
+      );
+      const handIdSet = new Set(
+        (splitAssignmentsRaw.toHand || []).map((id) => String(id || '').trim()).filter(Boolean),
+      );
+      const battlefieldCards = selected.filter((card) =>
+        battlefieldIdSet.has(String(card?.id || card?.cardId || '').trim()),
+      );
+      const handCards = selected.filter((card) =>
+        handIdSet.has(String(card?.id || card?.cardId || '').trim()),
+      );
+
+      if (handCards.length > 0) {
+        const handCommit = commitCardZoneChanges({
+          state: nextState,
+          playerId,
+          cards: handCards.map((card) => ({ ...card, ownerId: playerId, owner: playerId })),
+          sourceZone: 'library',
+          intendedDestination: 'hand',
+          stepIndex: Number(ctx.currentStepIndex),
+          stepKind: step.kind,
+          cause: 'oracle_ir:search_library_split',
+          ctx,
+        });
+        if (handCommit.halted) {
+          return withDiscardLedgerFlags({
+            applied: true,
+            state: nextState,
+            log,
+            ...(allMovedCards.length > 0 ? { lastMovedCards: allMovedCards } : {}),
+          }, ledgerRecordedViaBridge);
+        }
+        nextState = handCommit.state;
+        allMovedCards.push(...handCommit.movedCards);
+        if (handCommit.ledgerRecordedViaBridge) {
+          ledgerRecordedViaBridge = true;
+        }
+      }
+
+      const playerAfterHand = nextState.players.find((entry) => entry.id === playerId) as any;
+      let remainingLibrary = readPlayerZoneCards(nextState, playerId, playerAfterHand, 'library');
+      remainingLibrary = remainingLibrary.filter(
+        (card) => !battlefieldIdSet.has(String(card?.id || card?.cardId || '').trim()),
+      );
+      const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
+      writePlayerZoneCards(nextState, playerId, playerAfterHand, 'library', shuffledLibrary);
+
+      const entersTapped = Boolean(splitPlan.entersTapped || step.entersTapped);
+      const enteredBattlefield: any[] = [];
+      for (const card of battlefieldCards) {
+        const resolved = resolveBattlefieldEntryFromOracleIrContext(
+          nextState,
+          card,
+          playerId,
+          { entersTapped },
+          { ctx, stepKind: step.kind, cause: 'oracle_ir:search_library_split' },
+        );
+        if ('halted' in resolved && resolved.halted) {
+          return withDiscardLedgerFlags({
+            applied: true,
+            state: nextState,
+            log,
+            ...(allMovedCards.length > 0 ? { lastMovedCards: allMovedCards } : {}),
+          }, ledgerRecordedViaBridge);
+        }
+
+        enteredBattlefield.push(
+          ...createBattlefieldPermanentsFromCards(
+            [{ ...card, ownerId: playerId, owner: playerId }],
+            playerId,
+            playerId,
+            resolved.entersTapped,
+            resolved.entersFaceDown,
+            resolved.withCounters,
+            'library',
+          ),
+        );
+      }
+
+      if (enteredBattlefield.length > 0) {
+        nextState = {
+          ...nextState,
+          battlefield: [...(nextState.battlefield || []), ...enteredBattlefield],
+        } as GameState;
+        allMovedCards.push(...battlefieldCards);
+        ledgerRecordedViaBridge = true;
+      }
+
+      if (step.revealFound && selected.length > 0) {
+        log.push(`${playerId} revealed ${selected.map(card => String(card?.name || 'card')).join(', ')}`);
+      }
+      log.push(
+        `${playerId} searched their library and put ${battlefieldCards.length} card(s) onto the battlefield and ${handCards.length} card(s) into their hand`,
+      );
+      if (step.shuffle !== false) {
+        log.push(`${playerId} shuffled their library`);
+      }
+      continue;
+    }
+
+    const canBridgeBattlefield = bridgeActive
+      && selected.length > 0
+      && step.destination === 'battlefield'
+      && Number.isFinite(ctx.currentStepIndex);
+
+    if (canBridgeBattlefield) {
+      const remainingLibrary = library.filter(
+        (card) => !selectedIds.has(String(card?.id || card?.cardId || '').trim()),
+      );
+      const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
+      writePlayerZoneCards(nextState, playerId, player, 'library', shuffledLibrary);
+
+      const enteredBattlefield: any[] = [];
+      for (const card of selected) {
+        const resolved = resolveBattlefieldEntryFromOracleIrContext(
+          nextState,
+          card,
+          playerId,
+          { entersTapped: Boolean(step.entersTapped) },
+          { ctx, stepKind: step.kind, cause: 'oracle_ir:search_library' },
+        );
+        if ('halted' in resolved && resolved.halted) {
+          return withDiscardLedgerFlags({
+            applied: true,
+            state: nextState,
+            log,
+            ...(allMovedCards.length > 0 ? { lastMovedCards: allMovedCards } : {}),
+          }, ledgerRecordedViaBridge);
+        }
+
+        enteredBattlefield.push(
+          ...createBattlefieldPermanentsFromCards(
+            [{ ...card, ownerId: playerId, owner: playerId }],
+            playerId,
+            playerId,
+            resolved.entersTapped,
+            resolved.entersFaceDown,
+            resolved.withCounters,
+            'library',
+          ),
+        );
+      }
+
+      nextState = {
+        ...nextState,
+        battlefield: [...(nextState.battlefield || []), ...enteredBattlefield],
+      } as GameState;
+      allMovedCards.push(...selected);
+      ledgerRecordedViaBridge = true;
+
+      if (step.revealFound && selected.length > 0) {
+        log.push(`${playerId} revealed ${selected.map(card => String(card?.name || 'card')).join(', ')}`);
+      }
+      log.push(`${playerId} searched their library and put ${selected.length} card(s) into ${step.destination}`);
+      if (step.shuffle !== false) {
+        log.push(`${playerId} shuffled their library`);
+      }
+      continue;
+    }
+
+    const canBridgeSearch = bridgeActive
+      && selected.length > 0
+      && step.destination !== 'battlefield'
+      && Number.isFinite(ctx.currentStepIndex);
+
+    if (canBridgeSearch) {
+      const intendedDestination = step.destination === 'hand'
+        ? 'hand'
+        : step.destination === 'graveyard'
+          ? 'graveyard'
+          : step.destination === 'exile'
+            ? 'exile'
+            : 'library';
+      const libraryPlacement = step.destination === 'top'
+        ? 'top' as const
+        : step.destination === 'bottom'
+          ? 'bottom' as const
+          : undefined;
+      const cardsToCommit = (step.destination === 'graveyard'
+        ? stampCardsPutIntoGraveyardThisTurn(nextState, selected)
+        : step.destination === 'top'
+          ? [...selected].reverse()
+          : selected
+      ).map((card: any) => ({ ...card, ownerId: playerId, owner: playerId }));
+
+      const commitResult = commitCardZoneChanges({
+        state: nextState,
+        playerId,
+        cards: cardsToCommit,
+        sourceZone: 'library',
+        intendedDestination,
+        stepIndex: Number(ctx.currentStepIndex),
+        stepKind: step.kind,
+        cause: 'oracle_ir:search_library',
+        ctx,
+        libraryPlacement,
+      });
+      if (commitResult.halted) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state: nextState,
+          log,
+          ...(allMovedCards.length > 0 ? { lastMovedCards: allMovedCards } : {}),
+        }, ledgerRecordedViaBridge);
+      }
+
+      const playerAfterCommit = nextState.players.find((entry) => entry.id === playerId) as any;
+      const remainingLibrary = readPlayerZoneCards(nextState, playerId, playerAfterCommit, 'library');
+      const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
+      writePlayerZoneCards(nextState, playerId, playerAfterCommit, 'library', shuffledLibrary);
+
+      allMovedCards.push(...commitResult.movedCards);
+      if (commitResult.ledgerRecordedViaBridge) {
+        ledgerRecordedViaBridge = true;
+      }
+
+      if (step.revealFound && selected.length > 0) {
+        log.push(`${playerId} revealed ${selected.map(card => String(card?.name || 'card')).join(', ')}`);
+      }
+      if (selected.length > 0) {
+        log.push(`${playerId} searched their library and put ${selected.length} card(s) into ${step.destination}`);
+      } else {
+        log.push(`${playerId} searched their library and found no card`);
+      }
+      if (step.shuffle !== false) {
+        log.push(`${playerId} shuffled their library`);
+      }
+      continue;
+    }
+
     const remainingLibrary = library.filter(card => !selectedIds.has(String(card?.id || card?.cardId || '').trim()));
     const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
     const movedCards = selected.map((card: any) => ({
@@ -3501,9 +3760,15 @@ export function applySearchLibraryStep(
     if (step.shuffle !== false) {
       log.push(`${playerId} shuffled their library`);
     }
+    allMovedCards.push(...movedCards);
   }
 
-  return { applied: true, state: nextState, log };
+  return withDiscardLedgerFlags({
+    applied: true,
+    state: nextState,
+    log,
+    ...(allMovedCards.length > 0 ? { lastMovedCards: allMovedCards } : {}),
+  }, ledgerRecordedViaBridge);
 }
 
 export function applyExileNamedCardsFromZonesStep(
@@ -3536,6 +3801,9 @@ export function applyExileNamedCardsFromZonesStep(
     : Math.max(1, Number(step.maxResults || Number.POSITIVE_INFINITY) || Number.POSITIVE_INFINITY);
   let nextState = state;
   const log: string[] = [];
+  const allExiledCards: any[] = [];
+  let ledgerRecordedViaBridge = false;
+  const bridgeActive = usedOracleIrServerBridge(ctx);
 
   for (const playerId of players) {
     const player = nextState.players.find(p => p.id === playerId) as any;
@@ -3549,24 +3817,63 @@ export function applyExileNamedCardsFromZonesStep(
 
     let remainingSlots = maxResults;
     const selectedByZone = new Map<string, Set<number>>();
+    const selectionsByZone = new Map<string, any[]>();
     const selectedCards: any[] = [];
     for (const zone of step.zones) {
       if (remainingSlots <= 0) break;
       const cards = Array.isArray(player[zone]) ? player[zone] : [];
       const selectedIndexes = new Set<number>();
+      const zoneSelections: any[] = [];
       for (let index = 0; index < cards.length && remainingSlots > 0; index += 1) {
         const card = cards[index] as any;
         const name = String(card?.name || card?.card?.name || '').trim().toLowerCase();
         if (name !== normalizedName) continue;
         selectedIndexes.add(index);
-        selectedCards.push({ ...card, zone: 'exile' });
+        const exiledCard = { ...card, zone: 'exile' };
+        zoneSelections.push(card);
+        selectedCards.push(exiledCard);
         remainingSlots -= 1;
       }
-      if (selectedIndexes.size > 0) selectedByZone.set(zone, selectedIndexes);
+      if (selectedIndexes.size > 0) {
+        selectedByZone.set(zone, selectedIndexes);
+        selectionsByZone.set(zone, zoneSelections);
+      }
     }
 
     if (selectedCards.length === 0) {
       log.push(`${playerId} searched graveyard, hand, and library and found no ${chosenCardName}`);
+      continue;
+    }
+
+    if (bridgeActive && Number.isFinite(ctx.currentStepIndex)) {
+      for (const zone of step.zones) {
+        const cards = selectionsByZone.get(zone) ?? [];
+        if (cards.length === 0) continue;
+        const commitResult = commitCardZoneChanges({
+          state: nextState,
+          playerId,
+          cards: cards.map((card: any) => ({ ...card, ownerId: playerId, owner: playerId })),
+          sourceZone: zone as 'hand' | 'graveyard' | 'library',
+          intendedDestination: 'exile',
+          stepIndex: Number(ctx.currentStepIndex),
+          stepKind: step.kind,
+          cause: 'oracle_ir:exile_named_cards_from_zones',
+          ctx,
+        });
+        if (commitResult.halted) {
+          return withDiscardLedgerFlags({
+            applied: true,
+            state: nextState,
+            log,
+            ...(allExiledCards.length > 0 ? { lastExiledCards: allExiledCards } : {}),
+          }, ledgerRecordedViaBridge);
+        }
+        allExiledCards.push(...commitResult.movedCards);
+        if (commitResult.ledgerRecordedViaBridge) {
+          ledgerRecordedViaBridge = true;
+        }
+      }
+      log.push(`${playerId} exiled ${selectedCards.length} card(s) named ${chosenCardName}`);
       continue;
     }
 
@@ -3586,9 +3893,15 @@ export function applyExileNamedCardsFromZonesStep(
       }),
     } as GameState;
     log.push(`${playerId} exiled ${selectedCards.length} card(s) named ${chosenCardName}`);
+    allExiledCards.push(...selectedCards);
   }
 
-  return { applied: true, state: nextState, log };
+  return withDiscardLedgerFlags({
+    applied: true,
+    state: nextState,
+    log,
+    ...(allExiledCards.length > 0 ? { lastExiledCards: allExiledCards } : {}),
+  }, ledgerRecordedViaBridge);
 }
 
 export function applyShuffleLibraryStep(
@@ -3901,6 +4214,29 @@ export function applySurveilStep(
     };
   }
 
+  if (ctx.selectorContext?.surveilResolutionComplete === true) {
+    const keepTopOrder = Array.isArray(ctx.selectorContext?.keepTopOrder)
+      ? ctx.selectorContext.keepTopOrder
+      : [];
+    const toGraveyard = Array.isArray(ctx.selectorContext?.toGraveyard)
+      ? ctx.selectorContext.toGraveyard
+      : [];
+    const lookedCount = keepTopOrder.length + toGraveyard.length;
+    return {
+      applied: true,
+      state,
+      log: [`Surveil ${lookedCount} (resolution applied): ${step.raw}`],
+      skipLedgerFlush: true,
+    };
+  }
+
+  const { cards: observedCards } = collectTopLibraryObservationForPlayers(state, players, amount);
+  const observationCarryOver = observedCards.length > 0 ? { lastMovedCards: observedCards } : {};
+  let ledgerRecordedViaBridge = false;
+  const bridgeOptions = usedOracleIrServerBridge(ctx)
+    ? { ctx, stepIndex: Number(ctx.currentStepIndex), stepKind: step.kind }
+    : undefined;
+
   const wouldNeedChoice = players.some(playerId => {
     const player = state.players.find(p => p.id === playerId) as any;
     const libraryLength = Array.isArray(player?.library) ? player.library.length : 0;
@@ -3908,12 +4244,33 @@ export function applySurveilStep(
   });
 
   if (wouldNeedChoice) {
-    return {
+    if (bridgeOptions && observedCards.length > 0 && Number.isFinite(bridgeOptions.stepIndex)) {
+      const observation = commitLibraryTopObservation({
+        playerId: ctx.controllerId,
+        cards: observedCards,
+        stepIndex: Number(bridgeOptions.stepIndex),
+        stepKind: String(bridgeOptions.stepKind || 'surveil'),
+        cause: 'oracle_ir:surveil',
+        ctx: bridgeOptions.ctx,
+      });
+      if (observation.halted) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state,
+          log: [`Surveil ${amount} halted for replacement: ${step.raw}`],
+        }, ledgerRecordedViaBridge);
+      }
+      if (observation.ledgerRecordedViaBridge) {
+        ledgerRecordedViaBridge = true;
+      }
+    }
+    return withDiscardLedgerFlags({
       applied: false,
       message: `Skipped surveil (requires player choice): ${step.raw}`,
       reason: 'player_choice_required',
       options: { classification: 'player_choice' },
-    };
+      ...observationCarryOver,
+    }, ledgerRecordedViaBridge);
   }
 
   return {
@@ -3961,38 +4318,49 @@ export function applyLookSelectTopStep(
   const chosenObjectIds = getNormalizedChosenIds(ctx);
   let nextState = state;
   const log: string[] = [];
+  const chosenCards: any[] = [];
+  let ledgerRecordedViaBridge = false;
+  const bridgeOptions = usedOracleIrServerBridge(ctx)
+    ? { ctx, stepIndex: Number(ctx.currentStepIndex), stepKind: step.kind }
+    : undefined;
+
   for (const playerId of players) {
-    const result = chosenObjectIds.length > 0
-      ? applyLookSelectTopForPlayerWithChoice(
-          nextState,
-          playerId,
-          amount,
-          choose,
-          step.destination,
-          step.restDestination,
-          Boolean(step.restToTop),
-          chosenObjectIds,
-          Boolean(step.restRandomOrder)
-        )
-      : lookSelectTopCardsForPlayer(
-          nextState,
-          playerId,
-          amount,
-          choose,
-          step.destination,
-          step.restDestination,
-          Boolean(step.restToTop),
-          Boolean(step.restRandomOrder)
-        );
+    const result = lookSelectTopCardsForPlayer(
+      nextState,
+      playerId,
+      amount,
+      choose,
+      step.destination,
+      step.restDestination,
+      Boolean(step.restToTop),
+      Boolean(step.restRandomOrder),
+      bridgeOptions,
+      chosenObjectIds,
+    );
+    if ((result as { halted?: boolean }).halted) {
+      return withDiscardLedgerFlags({
+        applied: true,
+        state: nextState,
+        log,
+        ...(chosenCards.length > 0 ? { lastMovedCards: chosenCards } : {}),
+      }, ledgerRecordedViaBridge);
+    }
     nextState = result.state;
     log.push(...result.log);
+    if (Array.isArray(result.chosen) && result.chosen.length > 0) {
+      chosenCards.push(...result.chosen);
+    }
+    if ((result as { ledgerRecordedViaBridge?: boolean }).ledgerRecordedViaBridge) {
+      ledgerRecordedViaBridge = true;
+    }
   }
 
-  return {
+  return withDiscardLedgerFlags({
     applied: true,
     state: nextState,
     log,
-  };
+    ...(chosenCards.length > 0 ? { lastMovedCards: chosenCards } : {}),
+  }, ledgerRecordedViaBridge);
 }
 
 export function applyLookTopStep(
@@ -4023,6 +4391,11 @@ export function applyLookTopStep(
 
   const log: string[] = [];
   const lastMovedCards: any[] = [];
+  let ledgerRecordedViaBridge = false;
+  const bridgeOptions = usedOracleIrServerBridge(ctx)
+    ? { ctx, stepIndex: Number(ctx.currentStepIndex), stepKind: step.kind }
+    : undefined;
+
   for (const playerId of players) {
     const player = state.players.find(entry => entry.id === playerId) as any;
     const library = Array.isArray(player?.library) ? player.library : [];
@@ -4033,13 +4406,35 @@ export function applyLookTopStep(
     log.push(`${playerId} looks at the top ${looked} card(s) of their library`);
   }
 
-  return {
+  if (bridgeOptions && lastMovedCards.length > 0 && Number.isFinite(bridgeOptions.stepIndex)) {
+    const observation = commitLibraryTopObservation({
+      playerId: ctx.controllerId,
+      cards: lastMovedCards,
+      stepIndex: Number(bridgeOptions.stepIndex),
+      stepKind: String(bridgeOptions.stepKind || 'look_top'),
+      cause: 'oracle_ir:look_top',
+      ctx: bridgeOptions.ctx,
+    });
+    if (observation.halted) {
+      return withDiscardLedgerFlags({
+        applied: true,
+        state,
+        log,
+        ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
+      }, ledgerRecordedViaBridge);
+    }
+    if (observation.ledgerRecordedViaBridge) {
+      ledgerRecordedViaBridge = true;
+    }
+  }
+
+  return withDiscardLedgerFlags({
     applied: true,
     state,
     log,
     ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
     ...(lastMovedCards.length > 0 ? { lastMovedCards } : {}),
-  };
+  }, ledgerRecordedViaBridge);
 }
 
 export function applyRevealTopStep(
@@ -4059,6 +4454,11 @@ export function applyRevealTopStep(
   const log: string[] = [];
   let totalRevealed = 0;
   const revealedCards: any[] = [];
+  let ledgerRecordedViaBridge = false;
+  const bridgeOptions = usedOracleIrServerBridge(ctx)
+    ? { ctx, stepIndex: Number(ctx.currentStepIndex), stepKind: step.kind }
+    : undefined;
+
   for (const playerId of players) {
     const untilReveal = resolveRevealUntilReferenceAmountForPlayer(state, playerId, step.amount);
     if (untilReveal) {
@@ -4103,14 +4503,37 @@ export function applyRevealTopStep(
     );
   }
 
-  return {
+  if (bridgeOptions && revealedCards.length > 0 && Number.isFinite(bridgeOptions.stepIndex)) {
+    const observation = commitLibraryTopObservation({
+      playerId: ctx.controllerId,
+      cards: revealedCards,
+      stepIndex: Number(bridgeOptions.stepIndex),
+      stepKind: String(bridgeOptions.stepKind || 'reveal_top'),
+      cause: 'oracle_ir:reveal_top',
+      ctx: bridgeOptions.ctx,
+    });
+    if (observation.halted) {
+      return withDiscardLedgerFlags({
+        applied: true,
+        state,
+        log,
+        lastRevealedCardCount: totalRevealed,
+        ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
+      }, ledgerRecordedViaBridge);
+    }
+    if (observation.ledgerRecordedViaBridge) {
+      ledgerRecordedViaBridge = true;
+    }
+  }
+
+  return withDiscardLedgerFlags({
     applied: true,
     state,
     log,
     lastRevealedCardCount: totalRevealed,
     ...(revealedCards.length > 0 ? { lastMovedCards: revealedCards } : {}),
     ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
-  };
+  }, ledgerRecordedViaBridge);
 }
 
 function resolveLookChooseAmount(
@@ -4177,6 +4600,10 @@ export function applyLookChooseFromTopStep(
   let nextState = state;
   const log: string[] = [];
   const movedCards: any[] = [];
+  let ledgerRecordedViaBridge = false;
+  const bridgeOptions = usedOracleIrServerBridge(ctx)
+    ? { ctx, stepIndex: Number(ctx.currentStepIndex), stepKind: step.kind }
+    : undefined;
 
   for (const playerId of players) {
     const player = nextState.players.find(entry => entry.id === playerId) as any;
@@ -4188,11 +4615,9 @@ export function applyLookChooseFromTopStep(
       };
     }
 
-    const library = Array.isArray(player.library) ? [...player.library] : [];
-    const hand = Array.isArray(player.hand) ? [...player.hand] : [];
-    const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+    const library = readPlayerZoneCards(nextState, playerId, player, 'library');
     const lookedCount = Math.max(0, Math.min(library.length, amount | 0));
-    let lookedCards = library.splice(0, lookedCount);
+    let lookedCards = library.slice(0, lookedCount);
     const chosenCards: any[] = [];
 
     if (chosenIds.size > 0) {
@@ -4211,26 +4636,116 @@ export function applyLookChooseFromTopStep(
       }
     }
 
+    const restCards = [...lookedCards];
+    const bottomedRest = step.restOrder === 'any' ? restCards : shuffleArray(restCards);
+    const stepIndex = bridgeOptions?.stepIndex;
+    const canBridgeZone = (step.destination === 'hand' || step.destination === 'exile')
+      && bridgeOptions?.ctx?.serverBridge
+      && Number.isFinite(stepIndex);
+    const canBridgeChosen = canBridgeZone && chosenCards.length > 0;
+
+    const bridgeLookChooseRest = (): boolean => {
+      if (!canBridgeZone || restCards.length === 0) return false;
+      const restCommit = commitLookSelectRestZoneChanges({
+        state: nextState,
+        playerId,
+        rest: restCards,
+        destination: step.destination === 'hand' ? 'hand' : 'exile',
+        restDestination: 'library',
+        restLibraryPlacement: 'bottom',
+        restRandomOrder: step.restOrder !== 'any',
+        stepIndex: Number(stepIndex),
+        stepKind: String(bridgeOptions?.stepKind || 'look_choose_from_top'),
+        cause: 'oracle_ir:look_choose_from_top_rest',
+        ctx: bridgeOptions?.ctx,
+      });
+      if (restCommit.halted) return true;
+      nextState = restCommit.state;
+      if (restCommit.ledgerRecordedViaBridge) {
+        ledgerRecordedViaBridge = true;
+      }
+      return false;
+    };
+
+    if (canBridgeChosen) {
+      const commitResult = commitCardZoneChanges({
+        state: nextState,
+        playerId,
+        cards: chosenCards.map((card: any) => ({ ...card, ownerId: playerId, owner: playerId })),
+        sourceZone: 'library',
+        intendedDestination: step.destination === 'hand' ? 'hand' : 'exile',
+        stepIndex: Number(stepIndex),
+        stepKind: String(bridgeOptions?.stepKind || 'look_choose_from_top'),
+        cause: 'oracle_ir:look_choose_from_top',
+        ctx: bridgeOptions?.ctx,
+      });
+      if (commitResult.halted) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state: nextState,
+          log,
+          ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+        }, ledgerRecordedViaBridge);
+      }
+
+      nextState = commitResult.state;
+      movedCards.push(...commitResult.movedCards);
+      if (commitResult.ledgerRecordedViaBridge) {
+        ledgerRecordedViaBridge = true;
+      }
+
+      if (bridgeLookChooseRest()) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state: nextState,
+          log,
+          ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+        }, ledgerRecordedViaBridge);
+      }
+
+      const actionText = commitResult.movedCards.length > 0
+        ? `${step.destination === 'hand' ? `puts ${commitResult.movedCards.length} matching card(s) into their hand` : `exiles ${commitResult.movedCards.length} matching card(s)`}`
+        : 'does not find a matching card';
+      log.push(
+        `${playerId} looks at ${lookedCount} card(s), ${actionText}, and puts ${bottomedRest.length} on the bottom of their library in ${step.restOrder === 'any' ? 'any' : 'a random'} order`
+      );
+      continue;
+    }
+
+    if (canBridgeZone && chosenCards.length === 0 && restCards.length > 0) {
+      if (bridgeLookChooseRest()) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state: nextState,
+          log,
+        }, ledgerRecordedViaBridge);
+      }
+
+      log.push(
+        `${playerId} looks at ${lookedCount} card(s), does not find a matching card, and puts ${bottomedRest.length} on the bottom of their library in ${step.restOrder === 'any' ? 'any' : 'a random'} order`
+      );
+      continue;
+    }
+
+    const hand = readPlayerZoneCards(nextState, playerId, player, 'hand');
+    const exile = readPlayerZoneCards(nextState, playerId, player, 'exile');
+    let nextHand = [...hand];
+    let nextExile = [...exile];
+    let nextLibrary = library.slice(lookedCount);
+
     for (const chosenCard of chosenCards) {
       movedCards.push(chosenCard);
       if (step.destination === 'hand') {
-        hand.push(chosenCard);
+        nextHand.push(chosenCard);
       } else {
-        exile.push(chosenCard);
+        nextExile.push(chosenCard);
       }
     }
 
-    const bottomedRest = step.restOrder === 'any' ? lookedCards : shuffleArray(lookedCards);
-    const updatedPlayers = nextState.players.map(entry => {
-      if (entry.id !== playerId) return entry;
-      return {
-        ...(entry as any),
-        library: [...library, ...bottomedRest],
-        hand,
-        exile,
-      } as any;
-    });
-    nextState = { ...nextState, players: updatedPlayers as any };
+    nextLibrary = [...nextLibrary, ...bottomedRest];
+    writePlayerZoneCards(nextState, playerId, player, 'library', nextLibrary);
+    writePlayerZoneCards(nextState, playerId, player, 'hand', nextHand);
+    writePlayerZoneCards(nextState, playerId, player, 'exile', nextExile);
 
     const actionText = chosenCards.length > 0
       ? `${step.destination === 'hand' ? `puts ${chosenCards.length} matching card(s) into their hand` : `exiles ${chosenCards.length} matching card(s)`}`
@@ -4240,12 +4755,12 @@ export function applyLookChooseFromTopStep(
     );
   }
 
-  return {
+  return withDiscardLedgerFlags({
     applied: true,
     state: nextState,
     log,
     ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
-  };
+  }, ledgerRecordedViaBridge);
 }
 
 export function applyPutOnBottomStep(
@@ -4366,9 +4881,21 @@ export function applyMillStep(
   let nextState = state;
   const log: string[] = [];
   const lastMilledCards: any[] = [];
+  const bridgeOptions = buildPlayerZoneBridgeOptions(ctx, 'mill');
+  let ledgerRecordedViaBridge = false;
   for (const playerId of players) {
     const amount = millCountByPlayer.get(playerId) ?? 0;
-    const result = millCardsForPlayer(nextState, playerId, amount);
+    const result = millCardsForPlayer(nextState, playerId, amount, bridgeOptions);
+    if (result.halted) {
+      return withDiscardLedgerFlags({
+        applied: true,
+        state: nextState,
+        log,
+      });
+    }
+    nextState = result.state;
+    log.push(...result.log);
+    if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
     nextState = result.state;
     log.push(...result.log);
     if (Array.isArray(result.milledCards) && result.milledCards.length > 0) {
@@ -4384,13 +4911,13 @@ export function applyMillStep(
     ? Array.from(millCountByPlayer.values()).reduce((sum, count) => sum + (Number(count) || 0), 0)
     : undefined;
 
-  return {
+  return withDiscardLedgerFlags({
     applied: true,
     state: nextState,
     log,
     lastRevealedCardCount,
     ...(lastMilledCards.length > 0 ? { lastMilledCards } : {}),
-  };
+  }, ledgerRecordedViaBridge);
 }
 
 export function discardSelectorRequiresPlayerChoice(
@@ -4534,6 +5061,7 @@ export function applyDiscardStep(
   step: Extract<OracleEffectStep, { kind: 'discard' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
+  const bridgeOptions = buildPlayerZoneBridgeOptions(ctx, 'discard');
   const unlessCondition = step.unlessCondition;
   if (unlessCondition) {
     const unlessResult = evaluateOracleStepUnlessCondition(unlessCondition, state, ctx);
@@ -4612,7 +5140,7 @@ export function applyDiscardStep(
     );
     const filteredChosenIds = chosenIds.filter(id => validIds.has(id));
 
-    const result = discardSpecificCardsForPlayer(state, players[0], filteredChosenIds);
+    const result = discardSpecificCardsForPlayer(state, players[0], filteredChosenIds, bridgeOptions);
     if (!result.applied) {
       return {
         applied: false,
@@ -4621,8 +5149,17 @@ export function applyDiscardStep(
         options: { persist: false },
       };
     }
+    if (result.halted) {
+      return withDiscardLedgerFlags({
+        applied: true,
+        state,
+        log: [],
+        lastDiscardedCardCount: 0,
+        lastDiscardedCards: [],
+      });
+    }
 
-    return {
+    return withDiscardLedgerFlags({
       applied: true,
       state: result.state,
       log: result.log,
@@ -4630,7 +5167,7 @@ export function applyDiscardStep(
       lastGreatestDiscardedCardCount: result.discardedCount,
       lastDiscardedCards: result.discardedCards,
       lastMovedCards: result.discardedCards,
-    };
+    }, result.ledgerRecordedViaBridge);
   }
 
   const players = resolvePlayers(state, step.who, ctx);
@@ -4699,7 +5236,7 @@ export function applyDiscardStep(
     if (nameMatches.length === 1) {
       const result = discardSpecificCardsForPlayer(state, players[0], [
         String(nameMatches[0]?.id || '').trim(),
-      ].filter(Boolean));
+      ].filter(Boolean), bridgeOptions);
       if (!result.applied) {
         return {
           applied: false,
@@ -4708,7 +5245,16 @@ export function applyDiscardStep(
           options: { persist: false },
         };
       }
-      return {
+      if (result.halted) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state,
+          log: [],
+          lastDiscardedCardCount: 0,
+          lastDiscardedCards: [],
+        });
+      }
+      return withDiscardLedgerFlags({
         applied: true,
         state: result.state,
         log: result.log,
@@ -4716,7 +5262,7 @@ export function applyDiscardStep(
         lastGreatestDiscardedCardCount: result.discardedCount,
         lastDiscardedCards: result.discardedCards,
         lastMovedCards: result.discardedCards,
-      };
+      }, result.ledgerRecordedViaBridge);
     }
 
     return {
@@ -4765,7 +5311,7 @@ export function applyDiscardStep(
       };
     }
 
-    const result = discardSpecificCardsForPlayer(state, players[0], chosenIds);
+    const result = discardSpecificCardsForPlayer(state, players[0], chosenIds, bridgeOptions);
     if (!result.applied) {
       return {
         applied: false,
@@ -4779,8 +5325,17 @@ export function applyDiscardStep(
         },
       };
     }
+    if (result.halted) {
+      return withDiscardLedgerFlags({
+        applied: true,
+        state,
+        log: [],
+        lastDiscardedCardCount: 0,
+        lastDiscardedCards: [],
+      });
+    }
 
-    return {
+    return withDiscardLedgerFlags({
       applied: true,
       state: result.state,
       log: result.log,
@@ -4788,7 +5343,7 @@ export function applyDiscardStep(
       lastGreatestDiscardedCardCount: result.discardedCount,
       lastDiscardedCards: result.discardedCards,
       lastMovedCards: result.discardedCards,
-    };
+    }, result.ledgerRecordedViaBridge);
   }
 
   let chosenIds = getNormalizedChosenIds(ctx);
@@ -4805,7 +5360,7 @@ export function applyDiscardStep(
       };
     }
 
-    const result = discardSpecificCardsForPlayer(state, players[0], chosenIds);
+    const result = discardSpecificCardsForPlayer(state, players[0], chosenIds, bridgeOptions);
     if (!result.applied) {
       return {
         applied: false,
@@ -4819,8 +5374,17 @@ export function applyDiscardStep(
         },
       };
     }
+    if (result.halted) {
+      return withDiscardLedgerFlags({
+        applied: true,
+        state,
+        log: [],
+        lastDiscardedCardCount: 0,
+        lastDiscardedCards: [],
+      });
+    }
 
-    return {
+    return withDiscardLedgerFlags({
       applied: true,
       state: result.state,
       log: result.log,
@@ -4828,7 +5392,7 @@ export function applyDiscardStep(
       lastGreatestDiscardedCardCount: result.discardedCount,
       lastDiscardedCards: result.discardedCards,
       lastMovedCards: result.discardedCards,
-    };
+    }, result.ledgerRecordedViaBridge);
   }
 
   const wouldNeedChoice = players.some(playerId => {
@@ -4851,17 +5415,28 @@ export function applyDiscardStep(
   let totalDiscarded = 0;
   let greatestDiscarded = 0;
   const discardedCards: any[] = [];
+  let ledgerRecordedViaBridge = false;
   for (const playerId of players) {
-    const result = discardCardsForPlayer(nextState, playerId, amount);
+    const result = discardCardsForPlayer(nextState, playerId, amount, bridgeOptions);
+    if (result.halted) {
+      return withDiscardLedgerFlags({
+        applied: true,
+        state: nextState,
+        log,
+        lastDiscardedCardCount: 0,
+        lastDiscardedCards: [],
+      });
+    }
     nextState = result.state;
     const discardedCount = Math.max(0, Number(result.discardedCount) || 0);
     totalDiscarded += discardedCount;
     greatestDiscarded = Math.max(greatestDiscarded, discardedCount);
+    if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
     if (Array.isArray(result.discardedCards)) discardedCards.push(...result.discardedCards);
     log.push(...result.log);
   }
 
-  return {
+  return withDiscardLedgerFlags({
     applied: true,
     state: nextState,
     log,
@@ -4869,7 +5444,7 @@ export function applyDiscardStep(
     lastGreatestDiscardedCardCount: greatestDiscarded,
     lastDiscardedCards: discardedCards,
     lastMovedCards: discardedCards,
-  };
+  }, ledgerRecordedViaBridge);
 }
 
 export function applyRevealHandStep(
@@ -5676,6 +6251,8 @@ export function applyDrawStep(
   const log: string[] = [];
   let lastCount = 0;
   let lastAntecedentBattlefieldPermanentIds: string[] | undefined;
+  const bridgeOptions = buildEffectBridgeOptions(ctx, 'draw');
+  let ledgerRecordedViaBridge = false;
   for (const playerId of players) {
     const amount =
       resolveStepAmountForPlayer(state, ctx.controllerId, step.amount, ctx, playerId, {
@@ -5706,12 +6283,21 @@ export function applyDrawStep(
       }
     }
     lastCount = amount;
-    const result = drawCardsForPlayer(nextState, playerId, amount);
+    const result = drawCardsForPlayer(nextState, playerId, amount, bridgeOptions);
+    if (result.halted) {
+      return withDiscardLedgerFlags({
+        applied: true,
+        state: nextState,
+        log,
+        count: 0,
+      }, ledgerRecordedViaBridge);
+    }
     nextState = result.state;
     log.push(...result.log);
+    if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
   }
 
-  return {
+  return withDiscardLedgerFlags({
     applied: true,
     state: nextState,
     log,
@@ -5719,7 +6305,7 @@ export function applyDrawStep(
     ...(lastAntecedentBattlefieldPermanentIds
       ? { lastAntecedentBattlefieldPermanentIds }
       : {}),
-  };
+  }, ledgerRecordedViaBridge);
 }
 
 export function applyAddManaStep(

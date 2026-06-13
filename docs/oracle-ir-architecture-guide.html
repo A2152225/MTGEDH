@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MTGEDH Oracle IR Architecture &amp; Execution Loop</title>
+  <style>
+    @page { margin: 18mm 16mm; size: A4; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Calibri, Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+      color: #1a1a2e;
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 12mm;
+    }
+    h1 { font-size: 20pt; color: #0f3460; border-bottom: 3px solid #e94560; padding-bottom: 8px; margin-top: 0; }
+    h2 { font-size: 14pt; color: #16213e; margin-top: 22px; page-break-after: avoid; }
+    h3 { font-size: 11.5pt; color: #0f3460; margin-top: 16px; page-break-after: avoid; }
+    p, li { margin: 6px 0; }
+    .meta { color: #555; font-size: 9.5pt; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 9.5pt; }
+    th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: top; }
+    th { background: #e8eef5; font-weight: 600; }
+    tr:nth-child(even) td { background: #f8f9fb; }
+    pre, code { font-family: Consolas, "Courier New", monospace; font-size: 8.5pt; }
+    pre {
+      background: #f4f6f8;
+      border: 1px solid #dde3ea;
+      border-left: 4px solid #e94560;
+      padding: 10px 12px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      page-break-inside: avoid;
+    }
+    .diagram { font-size: 8pt; line-height: 1.3; }
+    .note { background: #fff8e6; border-left: 4px solid #f0a500; padding: 8px 12px; margin: 12px 0; font-size: 9.5pt; }
+    .forbidden { background: #fde8e8; border-left: 4px solid #e94560; padding: 8px 12px; margin: 12px 0; font-size: 9.5pt; }
+    ul { padding-left: 20px; }
+    .page-break { page-break-before: always; }
+    footer { margin-top: 24px; font-size: 8.5pt; color: #888; text-align: center; border-top: 1px solid #ddd; padding-top: 8px; }
+  </style>
+</head>
+<body>
+
+<h1>MTGEDH Oracle IR Architecture &amp; Execution Loop</h1>
+<p class="meta"><strong>Version:</strong> 2026-06-12 (batch 279) &nbsp;|&nbsp; <strong>Repository:</strong> MTGEDH &nbsp;|&nbsp; <strong>Audience:</strong> Contributors working on card behavior and server integration</p>
+
+<h2>1. Purpose</h2>
+<p>Oracle IR (Intermediate Representation) is the canonical pipeline for turning <strong>oracle text</strong> into <strong>game state changes</strong>. The end goal is a single path:</p>
+<pre>oracle text → parse → OracleEffectStep[] → execute → server sync → resolution UI → resume</pre>
+<p>Layers 1–2 (parse + dry-run execute) are complete for Commander scope. Layer 3 (live server integration) is partial: production runs IR-primary, but legacy fallbacks still run when IR returns incomplete.</p>
+
+<h2>2. Three Layers</h2>
+<table>
+  <tr><th>Layer</th><th>Location</th><th>Responsibility</th><th>Status</th></tr>
+  <tr><td><strong>1 — Parse</strong></td><td><code>rules-engine/src/oracleIRParser.ts</code></td><td><code>parseOracleTextToIR()</code> → steps</td><td>Green (~30k cards)</td></tr>
+  <tr><td><strong>2 — Execute</strong></td><td><code>rules-engine/src/oracleIRExecutor.ts</code></td><td><code>applyOracleIRStepsToGameState()</code></td><td>Green (triggers 100% assisted)</td></tr>
+  <tr><td><strong>3 — Integrate</strong></td><td><code>server/src/state/modules/oracleIr*.ts</code></td><td>Live state, queue, resume</td><td><strong>Partial</strong></td></tr>
+</table>
+<div class="note"><strong>Rule:</strong> Never call <code>applyOracleIRStepsToGameState</code> on live server state. Always use <code>applyOracleIRStepsOnServer</code>.</div>
+
+<h2>3. Core Data Types</h2>
+<h3>OracleEffectStep</h3>
+<p>Typed instructions in <code>rules-engine/src/oracleIR.ts</code>: <code>draw</code>, <code>mill</code>, <code>create_token</code>, <code>add_counter</code>, <code>tap_or_untap</code>, <code>conditional</code>, <code>choose_mode</code>, <code>unknown</code> (gap — must not return <code>handled: true</code>).</p>
+<h3>OracleIRExecutionContext</h3>
+<p>Built via <code>buildOracleIRExecutionContext()</code>: controller, source, targets, <code>chosenObjectIds</code>, <code>xValue</code>.</p>
+<h3>OracleIRExecutionResult</h3>
+<p><code>appliedSteps</code>, <code>skippedSteps</code> (with reason codes), <code>pendingOptionalSteps</code>, <code>pendingContinuationSteps</code>, mutated <code>state</code>.</p>
+
+<h2>4. Architecture Diagram</h2>
+<pre class="diagram">┌─────────────────────────────────────────────────────────────────────────┐
+│                         ORACLE TEXT (card)                               │
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │
+                    parseOracleTextToIR()  [rules-engine]
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    OracleEffectStep[] (IR program)                       │
+└───────────────────────────────────┬─────────────────────────────────────┘
+          ┌─────────────────────────┼─────────────────────────┐
+          ▼                         ▼                         ▼
+   [Activated]              [Triggered]                 [Spell]
+          │                         │                         │
+          ▼                         ▼                         ▼
+ tryApplyOracleIRTo      tryResolveTriggerViaOracleIR   tryResolveSpellViaOracleIR
+ ActivatedAbility        oracleIrTriggerExecution.ts    oracleIrSpellExecution.ts
+          └─────────────────────────┼─────────────────────────┘
+                                    ▼
+                    applyOracleIRStepsOnServer()  [oracleIrServerZoneSync.ts]
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │ hydrate zones → execute IR    │
+                    │ sync zones → queue prompts    │
+                    │ sync counters/tokens/delayed  │
+                    └───────────────┬───────────────┘
+                                    │
+              player_choice_required? ──yes──► ResolutionQueueManager
+                                    │              → Client (App.tsx)
+                                    │              → submitResolutionResponse
+                                    │              → maybeResumeOracleIRSteps
+                                    no
+                                    ▼
+                            Stack advances / SBA / broadcast</pre>
+
+<div class="page-break"></div>
+
+<h2>5. Production Feature Flags</h2>
+<p>File: <code>server/src/state/modules/oracleIrFeatureFlags.ts</code></p>
+<table>
+  <tr><th>Flag</th><th>Production</th><th>Meaning</th></tr>
+  <tr><td><code>ORACLE_IR_TRIGGER_PRIMARY</code></td><td><strong>ON</strong></td><td>Try IR before trigger regex</td></tr>
+  <tr><td><code>ORACLE_IR_SPELL_PRIMARY</code></td><td><strong>ON</strong></td><td>Try IR before categorizeSpell</td></tr>
+  <tr><td><code>ORACLE_IR_*_LEGACY=1</code></td><td>off</td><td>Force legacy path</td></tr>
+</table>
+<p>Vitest defaults primary <strong>OFF</strong> (<code>server/tests/vitest.setup.ts</code>). Migration suite tests production defaults.</p>
+
+<h2>6. Execution Loop (Phases)</h2>
+
+<h3>Phase A — Stack entry</h3>
+<ol>
+  <li><strong>Activated</strong> → <code>tryApplyOracleIRToActivatedAbility</code> (<code>oracleIrAbilityExecution.ts</code>)</li>
+  <li><strong>Triggered</strong> → <code>tryResolveTriggerViaOracleIR</code> (<code>oracleIrTriggerExecution.ts</code>)</li>
+  <li><strong>Spell</strong> → <code>tryResolveSpellViaOracleIR</code> (<code>oracleIrSpellExecution.ts</code>)</li>
+</ol>
+<p>Each: extract effect text → <code>parseOracleTextToIR</code> → collect steps → check <code>oracleIrStepWiring.ts</code> runtime wiring.</p>
+
+<h3>Phase B — All-or-nothing gate</h3>
+<p><strong>Invariant:</strong> Multi-step effects must complete mandatory steps or return <code>handled: false</code>. Partial IR + legacy fallback = double tokens/effects (primary bug class).</p>
+
+<h3>Phase C — Server apply</h3>
+<p><code>applyOracleIRStepsOnServer</code> in <code>oracleIrServerZoneSync.ts</code>:</p>
+<ol>
+  <li><code>hydrateOracleIRPlayerZonesFromContext</code></li>
+  <li><code>applyOracleIRStepsToGameState</code> with <code>haltOnPlayerChoiceRequired: true</code></li>
+  <li>Sync zones, counters, tokens, delayed flicker returns</li>
+  <li><code>queue*ChoicePromptsFromOracleIRResult</code> per paused step kind</li>
+</ol>
+
+<h3>Phase D — Resolution queue bridge</h3>
+<table>
+  <tr><th>IR step</th><th>Resolution type</th></tr>
+  <tr><td><code>scry</code>, <code>surveil</code></td><td><code>SCRY</code> / <code>SURVEIL</code></td></tr>
+  <tr><td><code>unless_pays_mana/life</code></td><td><code>UNLESS_PAY</code></td></tr>
+  <tr><td><code>discard</code></td><td><code>DISCARD_SELECTION</code></td></tr>
+  <tr><td><code>sacrifice</code></td><td><code>TARGET_SELECTION</code></td></tr>
+  <tr><td><code>look_select_top</code></td><td><code>LIBRARY_SEARCH</code></td></tr>
+  <tr><td><code>add_mana</code></td><td><code>MANA_COLOR_SELECTION</code></td></tr>
+  <tr><td><code>player_choice</code></td><td><code>OPTION_CHOICE</code></td></tr>
+  <tr><td><code>copy_permanent</code></td><td><code>TARGET_SELECTION</code></td></tr>
+  <tr><td><code>fateseal</code>, <code>clash</code></td><td>Effect Program → <code>PLAYER_CHOICE</code></td></tr>
+</table>
+<p>Client: <code>resolutionStepPrompt</code> → modal in <code>App.tsx</code> → <code>submitResolutionResponse</code> → <code>maybeResumeOracleIRStepsAfterResolution</code>.</p>
+
+<h3>Phase E — Effect Program</h3>
+<p>For multi-choice chains: <code>rules-engine/src/effectProgram.ts</code>, <code>startOracleEffectProgramOnServer</code>, <code>resumeEffectProgramResolution</code>. Production for optional trigger yes/no and fateseal/clash; <strong>not yet default</strong> for modal <code>choose_mode</code> spells.</p>
+
+<h3>Phase F — Legacy fallback (migration debt)</h3>
+<table>
+  <tr><th>Path</th><th>File</th></tr>
+  <tr><td>Trigger regex</td><td><code>oracleIrTriggerLegacy*.ts</code> (31 modules)</td></tr>
+  <tr><td>Spell categorize</td><td><code>targeting.ts</code> → <code>executeSpellEffect</code></td></tr>
+  <tr><td>Uncategorized spell</td><td><code>oracleIrUncategorizedSpellFallback.ts</code></td></tr>
+  <tr><td>Trigger IR tail</td><td><code>stackExecuteTriggerEffectIrFallbackUtils.ts</code></td></tr>
+</table>
+
+<div class="page-break"></div>
+
+<h2>7. Ability-Type Loops</h2>
+
+<h3>Triggered abilities</h3>
+<pre>Game event → detect*Triggers() → stack (APNAP)
+  → tryResolveTriggerViaOracleIR()
+       ├─ Effect Program? → startOracleEffectProgramOnServer
+       ├─ applyOracleIRStepsOnServer()
+       └─ handled? done : executeTriggerEffect() legacy
+  → resolution prompts → resume → broadcast</pre>
+<p>Tap batching: <code>collectTapTriggersForTapEvent()</code> — "one or more X become tapped" fires once per event.</p>
+
+<h3>Activated abilities</h3>
+<pre>interaction.ts → costs paid → stack
+  → tryApplyOracleIRToActivatedAbility()
+       → collectActivatedAbilitySteps() (text after "{cost}:")
+       → applyOracleIRStepsOnServer()
+  → queue + resume</pre>
+<p><strong>Most complete</strong> IR integration path.</p>
+
+<h3>Spells</h3>
+<pre>stack → tryResolveSpellViaOracleIR() [SPELL_PRIMARY]
+  → handled? done
+  → else categorizeSpell() → executeSpellEffect()
+  → else oracleIrUncategorizedSpellFallback</pre>
+
+<h2>8. Key Files</h2>
+<table>
+  <tr><th>Concern</th><th>Path</th></tr>
+  <tr><td>Parse</td><td><code>rules-engine/src/oracleIRParser.ts</code></td></tr>
+  <tr><td>IR types</td><td><code>rules-engine/src/oracleIR.ts</code></td></tr>
+  <tr><td>Execute</td><td><code>rules-engine/src/oracleIRExecutor.ts</code></td></tr>
+  <tr><td>Server apply + queue</td><td><code>server/src/state/modules/oracleIrServerZoneSync.ts</code></td></tr>
+  <tr><td>All-or-nothing wiring</td><td><code>server/src/state/modules/oracleIrStepWiring.ts</code></td></tr>
+  <tr><td>Trigger entry</td><td><code>server/src/state/modules/oracleIrTriggerExecution.ts</code></td></tr>
+  <tr><td>Spell entry</td><td><code>server/src/state/modules/oracleIrSpellExecution.ts</code></td></tr>
+  <tr><td>Activated entry</td><td><code>server/src/state/modules/oracleIrAbilityExecution.ts</code></td></tr>
+  <tr><td>Resolution socket</td><td><code>server/src/socket/resolution.ts</code></td></tr>
+  <tr><td>Feature flags</td><td><code>server/src/state/modules/oracleIrFeatureFlags.ts</code></td></tr>
+</table>
+
+<h2>9. Adding New Behavior</h2>
+<ol>
+  <li><strong>Parser</strong> — <code>oracleIRParser*.ts</code> + rules-engine test</li>
+  <li><strong>Executor</strong> — <code>oracleIRExecutor*StepHandlers.ts</code></li>
+  <li><strong>Wiring</strong> — <code>trigger-runtime-wiring.ts</code> step kind sets</li>
+  <li><strong>Server queue</strong> — <code>queue*FromOracleIRResult</code> + <code>resolution.ts</code> resume</li>
+  <li><strong>Integration test</strong> — <code>server/tests/oracle-ir-*.ts</code> with PRIMARY=1</li>
+  <li><strong>Retire</strong> — legacy regex if superseded</li>
+</ol>
+<div class="forbidden"><strong>Forbidden:</strong> card-name routing, new <code>KNOWN_*</code> table rows, bespoke <code>executeTriggerEffect</code> branches. See <code>.cursor/rules/oracle-ir-no-bespoke-handlers.mdc</code>.</div>
+
+<h2>10. Verification</h2>
+<pre>cd server
+npm run test:oracle-ir-migration    # 649 tests, production defaults
+npm run trigger:coverage
+npm run executor:coverage</pre>
+
+<footer>MTGEDH Oracle IR Architecture Guide — 2026-06-12</footer>
+</body>
+</html>

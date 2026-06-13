@@ -348,7 +348,7 @@ export function viewFor(
     })
   );
 
-  debug(2, "[VIEW_FOR_DEBUG]", {
+  debug(3, "[VIEW_FOR_DEBUG]", {
     viewer,
     stackLength: state.stack?.length || 0,
     stackItems: state.stack?.slice(0, 3).map((s: any) => s?.card?.name || s?.id) || [],

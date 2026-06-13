@@ -3,7 +3,7 @@ import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
 import { broadcastGame, getPlayerName } from '../../socket/util.js';
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
-import { buildTapTriggeredStackItem, getTapTriggers, serializeTapTriggeredStackItem } from './triggers/tap-untap.js';
+import { buildTapTriggeredStackItem, collectTapTriggersForTapEvent, serializeTapTriggeredStackItem } from './triggers/tap-untap.js';
 import { orderTriggersByAPNAP } from './triggers/ordering.js';
 
 function pushTapTriggerOntoStack(
@@ -58,17 +58,11 @@ export function queueTapTriggersForTappedPermanents(
 
   const orderedTapTriggerEntries = orderTriggersByAPNAP(
     ctx,
-    uniqueTappedIds.flatMap((tappedPermanentId) => {
-      const tappedPermanent = battlefield.find((perm: any) => perm && String(perm.id) === tappedPermanentId);
-      if (!tappedPermanent) return [];
-
-      const tappedPermanentController = String(tappedPermanent.controller || tappedByPlayerId || '').trim();
-      return getTapTriggers(ctx, tappedPermanent, tappedPermanentController).map((trigger) => ({
-        controllerId: String(trigger.controllerId || tappedPermanentController),
-        trigger,
-        tappedPermanentId,
-      }));
-    }),
+    collectTapTriggersForTapEvent(ctx, uniqueTappedIds, tappedByPlayerId).map((entry) => ({
+      controllerId: String(entry.trigger.controllerId || tappedByPlayerId),
+      trigger: entry.trigger,
+      tappedPermanentId: entry.tappedPermanentId,
+    })),
   );
 
   let addedStackTrigger = false;

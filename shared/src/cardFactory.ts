@@ -53,6 +53,7 @@ export interface ScryfallCardInput {
     loyalty?: string; // For MDFC planeswalkers
   }>;
   colors?: readonly string[];
+  color_identity?: readonly string[];
 }
 
 /**
@@ -141,6 +142,7 @@ export function createCardFromScryfall(
     layout: scryfallCard.layout,
     cmc: scryfallCard.cmc,
     colors: scryfallCard.colors,
+    color_identity: scryfallCard.color_identity,
   };
   
   // Add zone if specified

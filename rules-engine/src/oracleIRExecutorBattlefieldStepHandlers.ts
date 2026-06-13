@@ -21,7 +21,9 @@ import {
   moveMatchingBattlefieldPermanents,
   permanentMatchesType,
   resolveTapOrUntapTargetIds,
+  type FinalizeBattlefieldRemovalOptions,
 } from './oracleIRExecutorBattlefieldOps';
+import { applyCounterDeltasToBattlefieldTargets } from './oracleIRExecutorCounterPlacementCommit';
 import {
   createRegenerationShield,
   getAvailableShields,
@@ -50,6 +52,12 @@ import {
   resolvePlayers,
 } from './oracleIRExecutorPlayerUtils';
 import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
+import { findAntecedentStepIndex } from './oracleIRStepLedger';
+import { resolveThisWayAntecedentStepIndex } from './oracleIRThisWayBinding';
+import {
+  resolveCreatureCountExiledThisWay,
+  resolveNonlandCountDiscardedThisWay,
+} from './oracleIRThisWayResolver';
 import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
 import { canTargetPermanent } from './permanentTargeting';
 import {
@@ -79,6 +87,21 @@ import {
 import { AIRBEND_ALTERNATE_COST } from './keywordActions/airbend';
 import { EARTHBENDED_PROPERTIES } from './keywordActions/earthbend';
 
+import { bridgedZoneStepResult } from './oracleIRStepLedgerRuntime';
+
+function oracleIrBattlefieldRemovalOptions(
+  ctx: OracleIRExecutionContext,
+  stepKind: string,
+): FinalizeBattlefieldRemovalOptions | undefined {
+  if (!ctx.serverBridge || ctx.currentStepIndex === undefined) return undefined;
+  return {
+    ctx,
+    stepIndex: ctx.currentStepIndex,
+    stepKind,
+    cause: `oracle_ir:${stepKind}`,
+  };
+}
+
 function buildPermanentCardWithStats(perm: any, zone: string): any {
   const base = buildZoneObjectWithRetainedCounters((perm as any)?.card, perm, zone);
   const power = (perm as any)?.effectivePower ?? (perm as any)?.power ?? (perm as any)?.basePower ?? (perm as any)?.card?.power;
@@ -101,6 +124,7 @@ type StepApplyResult = {
   readonly lastMovedCards?: readonly any[];
   readonly lastTappedMatchingPermanentCount?: number;
   readonly lastTappedMatchingPermanentIds?: readonly string[];
+  readonly skipLedgerFlush?: boolean;
 };
 
 type StepSkipResult = {
@@ -3406,6 +3430,55 @@ function resolveRecentlyCreatedTokenPermanents(
   return singular ? matches.slice(0, 1) : matches;
 }
 
+function resolveExiledCreatureCountThisWay(
+  ctx: OracleIRExecutionContext | undefined,
+  step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
+  runtime?: RecentBattlefieldRuntime,
+): number | null {
+  if (ctx?.stepLedger?.size) {
+    const antecedentStepIndex = resolveThisWayAntecedentStepIndex(ctx, step, 'exile');
+    if (antecedentStepIndex != null && ctx.stepLedger.has(antecedentStepIndex)) {
+      return resolveCreatureCountExiledThisWay(ctx, antecedentStepIndex);
+    }
+    if (ctx.currentStepIndex != null) {
+      const fallbackAntecedent = findAntecedentStepIndex(ctx.appliedStepKinds, 'exile', ctx.currentStepIndex);
+      if (fallbackAntecedent != null && ctx.stepLedger.has(fallbackAntecedent)) {
+        return resolveCreatureCountExiledThisWay(ctx, fallbackAntecedent);
+      }
+    }
+  }
+  const exiledCards = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
+  const creatureCount = exiledCards.filter((card: any) => getCardTypeLineLower(card).includes('creature')).length;
+  if (creatureCount > 0) return creatureCount;
+  const exiledCount = Number(runtime?.lastExiledCardCount);
+  if (Number.isFinite(exiledCount) && exiledCount > 0) return Math.max(0, Math.floor(exiledCount));
+  return null;
+}
+
+function resolveNonlandDiscardedCountThisWay(
+  ctx: OracleIRExecutionContext | undefined,
+  step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
+  runtime?: RecentBattlefieldRuntime,
+): number | null {
+  if (ctx?.stepLedger?.size) {
+    const antecedentStepIndex = resolveThisWayAntecedentStepIndex(ctx, step, 'discard');
+    if (antecedentStepIndex != null && ctx.stepLedger.has(antecedentStepIndex)) {
+      return resolveNonlandCountDiscardedThisWay(ctx, antecedentStepIndex);
+    }
+    if (ctx.currentStepIndex != null) {
+      const fallbackAntecedent = findAntecedentStepIndex(ctx.appliedStepKinds, 'discard', ctx.currentStepIndex);
+      if (fallbackAntecedent != null && ctx.stepLedger.has(fallbackAntecedent)) {
+        return resolveNonlandCountDiscardedThisWay(ctx, fallbackAntecedent);
+      }
+    }
+  }
+  const discardedCards = Array.isArray(runtime?.lastDiscardedCards) ? runtime.lastDiscardedCards : [];
+  if (discardedCards.length > 0) {
+    return discardedCards.filter((card: any) => !getCardTypeLineLower(card).includes('land')).length;
+  }
+  return null;
+}
+
 function resolveAddCounterAmount(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
@@ -3413,11 +3486,8 @@ function resolveAddCounterAmount(
   runtime?: RecentBattlefieldRuntime
 ): number | null {
   if (/\bfor each creature card exiled this way\b/i.test(String(step.raw || ''))) {
-    const exiledCards = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
-    const creatureCount = exiledCards.filter((card: any) => getCardTypeLineLower(card).includes('creature')).length;
-    if (creatureCount > 0) return creatureCount;
-    const exiledCount = Number(runtime?.lastExiledCardCount);
-    if (Number.isFinite(exiledCount) && exiledCount > 0) return Math.max(0, Math.floor(exiledCount));
+    const creatureCount = resolveExiledCreatureCountThisWay(ctx, step, runtime);
+    if (creatureCount !== null) return creatureCount;
   }
 
   if (step.amount.kind === 'greatest_power_among_other_creatures_you_control') {
@@ -3460,6 +3530,7 @@ function resolveAddCounterAmount(
       const resolvedQuantity = resolveOracleQuantity(state, controllerId, step.amount, ctx, {
         runtime,
         whereX,
+        step,
       });
       if (resolvedQuantity !== null) return resolvedQuantity;
     }
@@ -3468,11 +3539,8 @@ function resolveAddCounterAmount(
   if (step.amount.kind === 'reference_amount') {
     const referenceRaw = String(step.amount.raw || '').toLowerCase();
     if (/creature cards? exiled this way/.test(referenceRaw)) {
-      const exiledCards = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
-      const creatureCount = exiledCards.filter((card: any) => getCardTypeLineLower(card).includes('creature')).length;
-      if (creatureCount > 0) return creatureCount;
-      const exiledCount = Number(runtime?.lastExiledCardCount);
-      if (Number.isFinite(exiledCount) && exiledCount > 0) return Math.max(0, Math.floor(exiledCount));
+      const creatureCount = resolveExiledCreatureCountThisWay(ctx, step, runtime);
+      if (creatureCount !== null) return creatureCount;
     }
 
     const controllerIdForReference = String(ctx?.controllerId || '').trim() as PlayerID;
@@ -3482,7 +3550,7 @@ function resolveAddCounterAmount(
         controllerIdForReference,
         step.amount,
         ctx,
-        { runtime },
+        { runtime, step },
       );
       if (resolvedReferenceAmount !== null) return resolvedReferenceAmount;
     }
@@ -3538,16 +3606,13 @@ function resolveAddCounterAmount(
   if (step.amount.kind === 'number' && step.amount.value === 1) {
     const raw = rawLower;
     if (/for each creature card exiled this way/.test(raw)) {
-      const exiledCards = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
-      const creatureCount = exiledCards.filter((card: any) => getCardTypeLineLower(card).includes('creature')).length;
-      if (creatureCount > 0) return creatureCount;
-      const exiledCount = Number(runtime?.lastExiledCardCount);
-      if (Number.isFinite(exiledCount) && exiledCount > 0) return Math.max(0, Math.floor(exiledCount));
+      const creatureCount = resolveExiledCreatureCountThisWay(ctx, step, runtime);
+      if (creatureCount !== null) return creatureCount;
     }
   }
 
   if (controllerId && ctx) {
-    const resolvedQuantity = resolveOracleQuantity(state, controllerId, step.amount, ctx, { runtime });
+    const resolvedQuantity = resolveOracleQuantity(state, controllerId, step.amount, ctx, { runtime, step });
     if (resolvedQuantity !== null) return resolvedQuantity;
   }
 
@@ -3577,10 +3642,8 @@ function resolveAddCounterAmount(
   }
 
   if (/\bwhere x is the number of nonland cards discarded this way\b/.test(raw)) {
-    return Math.max(
-      0,
-      discardedCards.filter((card: any) => !getCardTypeLineLower(card).includes('land')).length
-    );
+    const nonlandCount = resolveNonlandDiscardedCountThisWay(ctx, step, runtime);
+    if (nonlandCount !== null) return Math.max(0, nonlandCount);
   }
 
   return Math.max(
@@ -5527,7 +5590,7 @@ export function applyAirbendStep(
   if (permanentTargets.length > 0) {
     const removedIds = new Set<string>(permanentTargets.map((perm) => String((perm as any)?.id || '').trim()).filter(Boolean));
     const kept = battlefield.filter((perm) => !removedIds.has(String((perm as any)?.id || '').trim()));
-    const result = finalizeBattlefieldRemoval(nextState, permanentTargets, removedIds, kept, 'exile', 'exiled');
+    const result = finalizeBattlefieldRemoval(nextState, permanentTargets, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     nextState = annotateBattlefieldExilesWithSource(result.state, permanentTargets, ctx);
     movedCards.push(
       ...permanentTargets
@@ -8717,27 +8780,28 @@ export function applyAddCounterStep(
     };
   }
 
-  const targetIds = new Set(resolvedTargets.map((target: any) => String(target?.id || '').trim()).filter(Boolean));
+  const targetIds = Array.from(
+    new Set(resolvedTargets.map((target: any) => String(target?.id || '').trim()).filter(Boolean)),
+  );
 
-  const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
-    if (!targetIds.has(String(perm?.id || '').trim())) return perm;
-    const counters = { ...((perm?.counters || {}) as Record<string, number>) };
-    const currentCount = Number(counters[counterName] ?? 0);
-    counters[counterName] = (Number.isFinite(currentCount) ? currentCount : 0) + amountValue;
-    return {
-      ...perm,
-      counters,
-    };
-  });
+  const counterResult = applyCounterDeltasToBattlefieldTargets(
+    state,
+    targetIds,
+    counterName,
+    amountValue,
+    ctx,
+    'add_counter',
+  );
+  if (counterResult.halted) {
+    return { applied: true, state, log: counterResult.log };
+  }
 
   return {
     applied: true,
-    state: {
-      ...(state as any),
-      battlefield: nextBattlefield,
-    } as GameState,
-    log: [`Added ${amountValue} ${counterName} counter(s) to ${resolvedTargets.length} permanent(s)`],
-    lastMovedBattlefieldPermanentIds: Array.from(targetIds),
+    state: counterResult.state,
+    log: counterResult.log,
+    lastMovedBattlefieldPermanentIds: targetIds,
+    ...(counterResult.skipLedgerFlush ? { skipLedgerFlush: true } : {}),
   };
 }
 
@@ -8908,16 +8972,16 @@ export function applyDestroyStep(
     };
   }
 
-  const result = finalizeBattlefieldRemoval(stateWithShields, removed, removedIds, kept, 'graveyard', 'destroyed');
+  const result = finalizeBattlefieldRemoval(stateWithShields, removed, removedIds, kept, 'graveyard', 'destroyed', oracleIrBattlefieldRemovalOptions(ctx, 'destroy'));
   const movedCards = removed
     .filter(perm => !(perm as any).isToken)
     .map(perm => buildPermanentCardWithStats(perm, 'graveyard'));
-  return {
+  return bridgedZoneStepResult(ctx, {
     applied: true,
     state: result.state,
     log: [...log, ...result.log],
     ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
-  };
+  });
 }
 
 export function applyRegenerateStep(
@@ -9087,7 +9151,7 @@ export function applyExileStep(
     }
     const removedIds = new Set<string>(toRemove.map(perm => perm.id));
     const kept = battlefield.filter(perm => !removedIds.has(perm.id));
-    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     const movedCards = toRemove
       .filter(perm => !(perm as any).isToken)
       .map(perm => buildPermanentCardWithStats(perm, 'exile'));
@@ -9119,7 +9183,7 @@ export function applyExileStep(
     }
     const removedIds = new Set<string>(toRemove.map(perm => perm.id));
     const kept = battlefield.filter(perm => !removedIds.has(perm.id));
-    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     return { applied: true, state: result.state, log: result.log };
   }
 
@@ -9142,7 +9206,7 @@ export function applyExileStep(
     const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
     const removedIds = new Set<string>([String((equipped as any)?.id || '').trim()]);
     const kept = battlefield.filter(perm => !removedIds.has(String(perm.id || '').trim()));
-    const result = finalizeBattlefieldRemoval(state, [equipped], removedIds, kept, 'exile', 'exiled');
+    const result = finalizeBattlefieldRemoval(state, [equipped], removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     return { applied: true, state: result.state, log: result.log };
   }
 
@@ -9197,7 +9261,7 @@ export function applyExileStep(
     }
     const removedIds = new Set<string>([String((candidate as any)?.id || '').trim()]);
     const kept = battlefield.filter(perm => !removedIds.has(String(perm.id || '').trim()));
-    const result = finalizeBattlefieldRemoval(state, [candidate], removedIds, kept, 'exile', 'exiled');
+    const result = finalizeBattlefieldRemoval(state, [candidate], removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     return { applied: true, state: result.state, log: result.log };
   }
 
@@ -9214,7 +9278,7 @@ export function applyExileStep(
     }
     const removedIds = new Set<string>([String((candidate as any)?.id || '').trim()]);
     const kept = battlefield.filter(perm => !removedIds.has(String(perm.id || '').trim()));
-    const result = finalizeBattlefieldRemoval(state, [candidate], removedIds, kept, 'exile', 'exiled');
+    const result = finalizeBattlefieldRemoval(state, [candidate], removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     return { applied: true, state: result.state, log: result.log };
   }
 
@@ -9233,7 +9297,7 @@ export function applyExileStep(
     }
     const removedIds = new Set<string>(toRemove.map(perm => perm.id));
     const kept = battlefield.filter(perm => !removedIds.has(perm.id));
-    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     return { applied: true, state: result.state, log: result.log };
   }
 
@@ -9255,7 +9319,7 @@ export function applyExileStep(
     }
     const removedIds = new Set<string>(toRemove.map(perm => perm.id));
     const kept = battlefield.filter(perm => !removedIds.has(perm.id));
-    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     const movedCards = toRemove
       .filter(perm => !(perm as any).isToken)
       .map(perm => buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
@@ -9280,7 +9344,7 @@ export function applyExileStep(
     }
     const removedIds = new Set<string>(toRemove.map(perm => perm.id));
     const kept = battlefield.filter(perm => !removedIds.has(perm.id));
-    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     return { applied: true, state: result.state, log: result.log };
   }
 
@@ -9308,7 +9372,7 @@ export function applyExileStep(
     if (toRemove.length > 0) {
       const removedIds = new Set<string>(toRemove.map(perm => perm.id));
       const kept = battlefield.filter(perm => !removedIds.has(perm.id));
-      const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
+      const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
       const movedCards = toRemove
         .filter(perm => !(perm as any).isToken)
         .map(perm => buildPermanentCardWithStats(perm, 'exile'));
@@ -9345,7 +9409,7 @@ export function applyExileStep(
     }
     const removedIds = new Set<string>(toRemove.map(perm => perm.id));
     const kept = battlefield.filter(perm => !removedIds.has(perm.id));
-    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     const movedCards = toRemove
       .filter(perm => !(perm as any).isToken)
       .map(perm => buildPermanentCardWithStats(perm, 'exile'));
@@ -9369,7 +9433,7 @@ export function applyExileStep(
     }
     const removedIds = new Set<string>(subtypeMassTargets.map(perm => perm.id));
     const kept = battlefield.filter(perm => !removedIds.has(perm.id));
-    const result = finalizeBattlefieldRemoval(state, subtypeMassTargets, removedIds, kept, 'exile', 'exiled');
+    const result = finalizeBattlefieldRemoval(state, subtypeMassTargets, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
     const movedCards = subtypeMassTargets
       .filter(perm => !(perm as any).isToken)
       .map(perm => buildPermanentCardWithStats(perm, 'exile'));
@@ -9422,16 +9486,16 @@ export function applyExileStep(
 
   const removedIds = new Set<string>(toRemove.map(perm => perm.id));
   const kept = battlefield.filter(perm => !removedIds.has(perm.id));
-  const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
+  const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
   const movedCards = toRemove
     .filter(perm => !(perm as any).isToken)
     .map(perm => buildPermanentCardWithStats(perm, 'exile'));
-  return {
+  return bridgedZoneStepResult(ctx, {
     applied: true,
     state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx),
     log: result.log,
     ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
-  };
+  });
 }
 
 export function applyScheduleDelayedBattlefieldActionStep(
@@ -9783,6 +9847,13 @@ export function applyScheduleDelayedBattlefieldActionStep(
   return { applied: true, state: scheduled.state, log: scheduled.log };
 }
 
+function sacrificeStepResult(
+  ctx: OracleIRExecutionContext,
+  result: StepApplyResult,
+): StepApplyResult {
+  return bridgedZoneStepResult(ctx, result);
+}
+
 export function applySacrificeStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'sacrifice' }>,
@@ -9815,13 +9886,13 @@ export function applySacrificeStep(
     }
     const removedIds = new Set<string>([String((enchantedPermanent as any)?.id || '').trim()].filter(Boolean));
     const kept = battlefield.filter(perm => !removedIds.has(String((perm as any)?.id || '').trim()));
-    const result = finalizeBattlefieldRemoval(state, [enchantedPermanent], removedIds, kept, 'graveyard', 'sacrificed');
-    return {
+    const result = finalizeBattlefieldRemoval(state, [enchantedPermanent], removedIds, kept, 'graveyard', 'sacrificed', oracleIrBattlefieldRemovalOptions(ctx, 'sacrifice'));
+    return sacrificeStepResult(ctx, {
       applied: true,
       state: result.state,
       log: result.log,
       lastSacrificedPermanents: [enchantedPermanent],
-    };
+    });
   }
 
   const controllerSacrificesMatch = String(step.raw || '').match(
@@ -9843,13 +9914,13 @@ export function applySacrificeStep(
 
     const removedIds = new Set<string>([String((creature as any)?.id || '').trim()].filter(Boolean));
     const kept = battlefield.filter(perm => !removedIds.has(String((perm as any)?.id || '').trim()));
-    const result = finalizeBattlefieldRemoval(state, [creature], removedIds, kept, 'graveyard', 'sacrificed');
-    return {
+    const result = finalizeBattlefieldRemoval(state, [creature], removedIds, kept, 'graveyard', 'sacrificed', oracleIrBattlefieldRemovalOptions(ctx, 'sacrifice'));
+    return sacrificeStepResult(ctx, {
       applied: true,
       state: result.state,
       log: result.log,
       lastSacrificedPermanents: [creature],
-    };
+    });
   }
 
   const sacrificeWhatTextEarly = extractSacrificeWhatText(step);
@@ -9888,13 +9959,13 @@ export function applySacrificeStep(
       selected.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean),
     );
     const kept = battlefield.filter(perm => !removedIds.has(String((perm as any)?.id || '').trim()));
-    const result = finalizeBattlefieldRemoval(state, selected, removedIds, kept, 'graveyard', 'sacrificed');
-    return {
+    const result = finalizeBattlefieldRemoval(state, selected, removedIds, kept, 'graveyard', 'sacrificed', oracleIrBattlefieldRemovalOptions(ctx, 'sacrifice'));
+    return sacrificeStepResult(ctx, {
       applied: true,
       state: result.state,
       log: result.log,
       lastSacrificedPermanents: selected,
-    };
+    });
   }
 
   const players = resolvePlayers(state, step.who, ctx);
@@ -9937,13 +10008,13 @@ export function applySacrificeStep(
       toSacrifice.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean)
     );
     const kept = battlefield.filter(perm => !removedIds.has(String((perm as any)?.id || '').trim()));
-    const result = finalizeBattlefieldRemoval(state, toSacrifice, removedIds, kept, 'graveyard', 'sacrificed');
-    return {
+    const result = finalizeBattlefieldRemoval(state, toSacrifice, removedIds, kept, 'graveyard', 'sacrificed', oracleIrBattlefieldRemovalOptions(ctx, 'sacrifice'));
+    return sacrificeStepResult(ctx, {
       applied: true,
       state: result.state,
       log: result.log,
       lastSacrificedPermanents: toSacrifice,
-    };
+    });
   }
 
   const parsed = parseSacrificeWhat(sacrificeWhat);
@@ -10264,13 +10335,13 @@ export function applySacrificeStep(
 
   const removedIds = new Set<string>(toRemove.map(p => p.id));
   const kept = battlefield.filter(p => !removedIds.has(p.id));
-  const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'graveyard', 'sacrificed');
+  const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'graveyard', 'sacrificed', oracleIrBattlefieldRemovalOptions(ctx, 'sacrifice'));
 
-  return {
+  return sacrificeStepResult(ctx, {
     applied: true,
     state: result.state,
     log: result.log,
     lastSacrificedCreaturesPowerTotal: Math.max(0, sacrificedCreaturesPowerTotal),
     lastSacrificedPermanents,
-  };
+  });
 }

@@ -1,5 +1,14 @@
 import type { GameState, PlayerID, OracleAutomationGap } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
+import type { OracleIRServerExecutionBridge } from './oracleIRServerBridge';
+import type { RuntimeObjectSnapshot } from './oracleIRTransitionTypes';
+import type { OracleIRPendingTransition } from './oracleIRTransitionTypes';
+
+/** Mutable halt carrier shared between server bridge and executor main loop. */
+export interface OracleIRTransitionHaltState {
+  halted: boolean;
+  deferred: OracleIRPendingTransition[];
+}
 
 export interface OracleIRExecutionOptions {
   /**
@@ -80,6 +89,11 @@ export interface OracleIRSelectorContext {
   readonly exploreToGraveyard?: boolean;
   /** Player-chosen counter split for distribute-among steps keyed by permanent id. */
   readonly counterDistributionByTargetId?: Readonly<Record<string, number>>;
+  /** Split-destination library search assignments (battlefield vs hand). */
+  readonly splitAssignments?: {
+    readonly toBattlefield?: readonly string[];
+    readonly toHand?: readonly string[];
+  };
 }
 
 export interface OracleIRExecutionEventHint {
@@ -276,6 +290,19 @@ export interface OracleIRExecutionContext {
    * inline replay (push copied spells onto the stack + optional retarget prompts).
    */
   readonly deferStackSpellCopiesToServer?: boolean;
+  /**
+   * Step-indexed memory: traits of objects affected by each prior step in this resolution.
+   * Populated by transition commit or interim recordCardsToStepLedger bridge.
+   */
+  readonly stepLedger?: ReadonlyMap<number, readonly RuntimeObjectSnapshot[]>;
+  /** Set by the main loop during step execution. */
+  readonly currentStepIndex?: number;
+  /** Tracks which step kinds were applied at each index (antecedent lookup). */
+  readonly appliedStepKinds?: ReadonlyMap<number, string>;
+  /** Server pre-commit pipeline; omitted in dry-run/audit callers. */
+  readonly serverBridge?: OracleIRServerExecutionBridge;
+  /** Mutable halt state for deferred replacement choices (server only). */
+  readonly transitionHaltState?: OracleIRTransitionHaltState;
 }
 
 export interface OracleIRExecutionResult {

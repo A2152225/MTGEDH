@@ -6,7 +6,7 @@ import { resolveManaAbilityActivationShape } from '../src/socket/interaction.js'
 import { permanentHasSummoningSickness } from '../src/socket/game-actions.js';
 import { sanitizeStepForClient } from '../src/socket/resolution.js';
 import { ResolutionStepType } from '../src/state/resolution/index.js';
-import { detectTapTriggers } from '../src/state/modules/triggers/tap-untap.js';
+import { detectTapTriggers, collectTapTriggersForTapEvent } from '../src/state/modules/triggers/tap-untap.js';
 import { getTapTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectKeywords } from '../src/state/modules/keyword-detection.js';
 
@@ -35,6 +35,68 @@ describe('G1 card regression helpers', () => {
       reason: 'Choose one: Elemental, Elf, Faerie, Giant, Goblin, Kithkin, Merfolk, Treefolk',
     });
     expect(getOfferedCreatureTypesForSelection(card)).toEqual(offered);
+  });
+
+  it('resolves Path of Ancestry commander-restricted mana from imported commander colors field', () => {
+    const oracle =
+      'This land enters tapped.\n' +
+      "{T}: Add one mana of any color in your commander's color identity. When that mana is spent to cast a creature spell that shares a creature type with your commander, scry 1.";
+
+    const gameState = {
+      commandZone: {
+        p1: {
+          commanderCards: [{ name: 'Adrix and Nev, Twincasters', colors: ['G', 'U'] }],
+        },
+      },
+      battlefield: [],
+    };
+    const permanent = {
+      id: 'path_perm',
+      card: { name: 'Path of Ancestry', type_line: 'Land', oracle_text: oracle },
+    };
+
+    const shape = resolveManaAbilityActivationShape(
+      gameState,
+      permanent,
+      'p1',
+      'path-ability-0',
+      "{T}: Add one mana of any color in your commander's color identity.",
+      "Add one mana of any color in your commander's color identity.",
+      '{T}',
+    );
+
+    expect(shape.produces.sort()).toEqual(['G', 'U']);
+  });
+
+  it('resolves Path of Ancestry commander-restricted mana from commander mana cost when colors missing', () => {
+    const oracle =
+      'This land enters tapped.\n' +
+      "{T}: Add one mana of any color in your commander's color identity. When that mana is spent to cast a creature spell that shares a creature type with your commander, scry 1.";
+
+    const gameState = {
+      commandZone: {
+        p1: {
+          commanderCards: [{ name: 'Adrix and Nev, Twincasters', mana_cost: '{2}{G}{U}' }],
+        },
+      },
+      battlefield: [],
+    };
+    const permanent = {
+      id: 'path_perm',
+      card: { name: 'Path of Ancestry', type_line: 'Land', oracle_text: oracle },
+    };
+
+    const shape = resolveManaAbilityActivationShape(
+      gameState,
+      permanent,
+      'p1',
+      'path-ability-0',
+      "{T}: Add one mana of any color in your commander's color identity.",
+      "Add one mana of any color in your commander's color identity.",
+      '{T}',
+    );
+
+    expect(shape.produces.sort()).toEqual(['G', 'U']);
   });
 
   it('resolves Path of Ancestry commander-restricted mana into choosable colors', () => {
@@ -204,6 +266,81 @@ describe('G1 card regression helpers', () => {
     const tappedPermanent = ctx.state.battlefield[1];
     const triggers = getTapTriggers(ctx as any, tappedPermanent, 'p1');
     expect(triggers.some((trigger) => trigger.cardName === 'Deeproot Pilgrimage')).toBe(false);
+  });
+
+  it('batches Deeproot Pilgrimage to one trigger when multiple merfolk tap together', () => {
+    const deeprootOracle =
+      'Whenever one or more nontoken Merfolk you control become tapped, create a 1/1 blue Merfolk creature token with hexproof.';
+    const ctx = {
+      state: {
+        battlefield: [
+          {
+            id: 'deeproot',
+            controller: 'p1',
+            card: {
+              name: 'Deeproot Pilgrimage',
+              type_line: 'Enchantment',
+              oracle_text: deeprootOracle,
+            },
+          },
+          {
+            id: 'merfolk_1',
+            controller: 'p1',
+            card: { name: 'Merfolk Looter', type_line: 'Creature — Merfolk' },
+          },
+          {
+            id: 'merfolk_2',
+            controller: 'p1',
+            card: { name: 'Master of the Pearl Trident', type_line: 'Creature — Merfolk' },
+          },
+          {
+            id: 'merfolk_3',
+            controller: 'p1',
+            card: { name: 'Lord of Atlantis', type_line: 'Creature — Merfolk' },
+          },
+        ],
+      },
+    };
+
+    const entries = collectTapTriggersForTapEvent(ctx as any, ['merfolk_1', 'merfolk_2', 'merfolk_3'], 'p1');
+    const deeprootEntries = entries.filter((entry) => entry.trigger.cardName === 'Deeproot Pilgrimage');
+    expect(deeprootEntries).toHaveLength(1);
+    expect(deeprootEntries[0].trigger.oneOrMoreBatch).toBe(true);
+  });
+
+  it('still fires Deeproot Pilgrimage separately for distinct tap events', () => {
+    const deeprootOracle =
+      'Whenever one or more nontoken Merfolk you control become tapped, create a 1/1 blue Merfolk creature token with hexproof.';
+    const ctx = {
+      state: {
+        battlefield: [
+          {
+            id: 'deeproot',
+            controller: 'p1',
+            card: {
+              name: 'Deeproot Pilgrimage',
+              type_line: 'Enchantment',
+              oracle_text: deeprootOracle,
+            },
+          },
+          {
+            id: 'merfolk_1',
+            controller: 'p1',
+            card: { name: 'Merfolk Looter', type_line: 'Creature — Merfolk' },
+          },
+          {
+            id: 'merfolk_2',
+            controller: 'p1',
+            card: { name: 'Master of the Pearl Trident', type_line: 'Creature — Merfolk' },
+          },
+        ],
+      },
+    };
+
+    const firstEvent = collectTapTriggersForTapEvent(ctx as any, ['merfolk_1'], 'p1');
+    const secondEvent = collectTapTriggersForTapEvent(ctx as any, ['merfolk_2'], 'p1');
+    expect(firstEvent.filter((entry) => entry.trigger.cardName === 'Deeproot Pilgrimage')).toHaveLength(1);
+    expect(secondEvent.filter((entry) => entry.trigger.cardName === 'Deeproot Pilgrimage')).toHaveLength(1);
   });
 
   it('treats enteredThisTurn as summoning sickness until cleared', () => {

@@ -8,12 +8,28 @@ import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPe
 import { getAmountOfSpecificManaSymbolSpent } from './oracleIRExecutorManaUtils';
 import { getCardManaValue, isCardExiledWithSource } from './oracleIRExecutorPlayerUtils';
 import { cardMatchesType } from './oracleIRExecutorZoneOps';
+import {
+  collectRevealedThisWayCardsLedgerFirst,
+  isRevealedThisWayLedgerFirst,
+  isSearchedLibraryThisWayLedgerFirst,
+  resolveAntecedentContextualCards,
+  resolveAntecedentDiscardedCards,
+  resolveAntecedentMilledCards,
+  resolveAntecedentMovedCards,
+} from './oracleIRLedgerCardAccess';
 
 type LastActionOutcome = {
   readonly kind: 'applied' | 'choice_required' | 'impossible' | 'unsupported';
   readonly stepKind: OracleEffectStep['kind'];
   readonly count?: number;
 } | null;
+
+const EXILE_THIS_WAY_STEP_KINDS: readonly OracleEffectStep['kind'][] = [
+  'exile',
+  'exile_top',
+  'impulse_exile_top',
+  'move_zone',
+];
 
 export type ExtendedConditionalParams = {
   readonly normalizedRaw: string;
@@ -25,6 +41,7 @@ export type ExtendedConditionalParams = {
   readonly lastMovedCards?: readonly any[];
   readonly lastDiscardedCards?: readonly any[];
   readonly lastExcessDamageDealtThisWay?: number;
+  readonly step?: OracleEffectStep;
 };
 
 function evaluateAlternateCostPaidCondition(
@@ -236,8 +253,29 @@ function getDieRollResult(nextState: GameState, controllerId: PlayerID): number 
   return null;
 }
 
+function movedCardsFrom(params: ExtendedConditionalParams): any[] {
+  return resolveAntecedentMovedCards(params.ctx, { lastMovedCards: params.lastMovedCards }) as any[];
+}
+
+function discardedCardsFrom(params: ExtendedConditionalParams): any[] {
+  return resolveAntecedentDiscardedCards(params.ctx, {
+    lastDiscardedCards: params.lastDiscardedCards,
+  }) as any[];
+}
+
+function milledCardsFrom(ctx: OracleIRExecutionContext): any[] {
+  return resolveAntecedentMilledCards(ctx) as any[];
+}
+
+function contextualCardsFrom(params: ExtendedConditionalParams): any[] {
+  return resolveAntecedentContextualCards(params.ctx, {
+    lastMovedCards: params.lastMovedCards,
+    lastDiscardedCards: params.lastDiscardedCards,
+  }) as any[];
+}
+
 function getConditionalSubjectCard(params: ExtendedConditionalParams): any | null {
-  const moved = params.lastMovedCards;
+  const moved = movedCardsFrom(params);
   if (Array.isArray(moved) && moved.length > 0) return moved[moved.length - 1];
   return getReferencedObject(params.nextState, params.ctx);
 }
@@ -330,7 +368,7 @@ function getSourceCounterCount(nextState: GameState, ctx: OracleIRExecutionConte
 }
 
 function getLastAntecedentCreaturePower(params: ExtendedConditionalParams): number | null {
-  const moved = Array.isArray(params.lastMovedCards) ? params.lastMovedCards : [];
+  const moved = movedCardsFrom(params);
   const card = moved.find(entry => objectHasType(entry, 'creature')) ?? moved[0];
   if (!card) return null;
   if (Number.isFinite(Number((card as any)?.power))) return Number((card as any).power);
@@ -339,17 +377,14 @@ function getLastAntecedentCreaturePower(params: ExtendedConditionalParams): numb
 }
 
 function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | null {
-  const { normalizedRaw, lastActionOutcome, lastMovedCards, lastDiscardedCards, ctx } = params;
+  const { normalizedRaw, lastActionOutcome, ctx } = params;
   if (!normalizedRaw.includes(' this way')) return null;
 
   if (lastActionOutcome?.kind === 'impossible') return false;
 
-  const moved = Array.isArray(lastMovedCards) ? lastMovedCards : [];
-  const discarded = [
-    ...(Array.isArray(lastDiscardedCards) ? lastDiscardedCards : []),
-    ...(Array.isArray(ctx.lastDiscardedCards) ? ctx.lastDiscardedCards : []),
-  ];
-  const milled = Array.isArray(ctx.lastMilledCards) ? ctx.lastMilledCards : [];
+  const moved = movedCardsFrom(params);
+  const discarded = discardedCardsFrom(params);
+  const milled = milledCardsFrom(ctx);
 
   if (/^you don't copy a spell this way$/.test(normalizedRaw)) {
     return lastActionOutcome?.stepKind === 'copy_spell' ? lastActionOutcome.kind !== 'applied' : false;
@@ -379,11 +414,11 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
   const youExiledMatch = normalizedRaw.match(/^you exiled (?:a|an) ([a-z0-9' -]+?) card this way$/);
   if (youExiledMatch) {
     const descriptor = String(youExiledMatch[1] || '').trim();
-    if (antecedentApplied(lastActionOutcome, ['exile', 'move_zone'])) return cardsMatchDescriptor(moved, descriptor);
+    if (antecedentApplied(lastActionOutcome, EXILE_THIS_WAY_STEP_KINDS)) return cardsMatchDescriptor(moved, descriptor);
     return false;
   }
   if (normalizedRaw === 'you exiled a card this way') {
-    return antecedentApplied(lastActionOutcome, ['exile', 'move_zone']) ? moved.length > 0 : false;
+    return antecedentApplied(lastActionOutcome, EXILE_THIS_WAY_STEP_KINDS) ? moved.length > 0 : false;
   }
 
   const putOntoBfMatch = normalizedRaw.match(/^you put (?:a|an) ([a-z0-9' -]+?) onto the battlefield this way$/);
@@ -404,12 +439,12 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
     return antecedentApplied(lastActionOutcome, ['discard']) ? discarded.length > 0 : false;
   }
   if (/^a creature card (?:is|was) exiled this way$/.test(normalizedRaw)) {
-    return antecedentApplied(lastActionOutcome, ['exile', 'move_zone'])
+    return antecedentApplied(lastActionOutcome, EXILE_THIS_WAY_STEP_KINDS)
       ? moved.some((card) => objectHasType(card, 'creature'))
       : false;
   }
   if (/^a noncreature card (?:is|was) exiled this way$/.test(normalizedRaw)) {
-    return antecedentApplied(lastActionOutcome, ['exile', 'move_zone'])
+    return antecedentApplied(lastActionOutcome, EXILE_THIS_WAY_STEP_KINDS)
       ? moved.some((card) => !objectHasType(card, 'creature'))
       : false;
   }
@@ -443,15 +478,20 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
 
   if (normalizedRaw === 'you reveal a creature card this way') {
     if (!antecedentApplied(lastActionOutcome, ['reveal_top'])) return false;
-    const revealed = Array.isArray(params.lastMovedCards) ? params.lastMovedCards : [];
+    const revealed = movedCardsFrom(params);
     return cardsMatchDescriptor(revealed, 'creature');
   }
 
   const revealedMatch = normalizedRaw.match(/^(?:a|an|all cards|you reveal a?) ([a-z0-9' -]*?)(?:cards? )?(?:is|are) revealed this way$/);
   if (revealedMatch || /revealed this way/.test(normalizedRaw)) {
     if (/all cards revealed this way are creature cards/.test(normalizedRaw)) {
+      const revealedCards = collectRevealedThisWayCardsLedgerFirst(params.ctx, params.step);
+      if (revealedCards.length > 0) {
+        return revealedCards.every((card) => cardsMatchDescriptor(card, 'creature'));
+      }
       return antecedentApplied(lastActionOutcome, ['look_choose_from_top', 'reveal', 'search_library']);
     }
+    if (isRevealedThisWayLedgerFirst(params.ctx, params.step)) return true;
     return antecedentApplied(lastActionOutcome, ['look_choose_from_top', 'reveal', 'search_library', 'scry']);
   }
 
@@ -893,11 +933,11 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     return hasExecutorClass(perm, 'trample');
   }
   if (normalizedRaw === 'a pirate was exiled this way') {
-    const moved = Array.isArray(params.lastMovedCards) ? params.lastMovedCards : [];
+    const moved = movedCardsFrom(params);
     if (moved.length > 0) {
       return moved.some((card: any) => objectHasType(card, 'pirate'));
     }
-    return antecedentApplied(params.lastActionOutcome, ['exile', 'move_zone']);
+    return antecedentApplied(params.lastActionOutcome, EXILE_THIS_WAY_STEP_KINDS);
   }
   if (normalizedRaw === 'an opponent controls more creatures than you') {
     const yours = controlledCreatures(nextState, controllerId).length;
@@ -928,11 +968,11 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
   {
     const wasTypeMatch = normalizedRaw.match(/^that creature was (?:a|an) ([a-z0-9' -]+)$/i);
     if (wasTypeMatch) {
-      const moved = Array.isArray(params.lastMovedCards) ? params.lastMovedCards : [];
+      const moved = movedCardsFrom(params);
       const typeName = String(wasTypeMatch[1] || '').trim();
       return moved.length > 0
         ? moved.some(card => objectHasType(card, typeName))
-        : antecedentApplied(lastActionOutcome, ['destroy', 'exile', 'move_zone', 'sacrifice']);
+        : antecedentApplied(lastActionOutcome, ['destroy', 'exile', 'exile_top', 'impulse_exile_top', 'move_zone', 'sacrifice']);
     }
   }
 
@@ -1159,7 +1199,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
   }
 
   if (normalizedRaw === 'a noncreature, nonland card is milled this way') {
-    const milled = Array.isArray(ctx.lastMilledCards) ? ctx.lastMilledCards : [];
+    const milled = milledCardsFrom(ctx);
     return milled.some(
       (card: any) => !objectHasType(card, 'creature') && !objectHasType(card, 'land')
     );
@@ -1264,7 +1304,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     normalizedRaw ===
     'each opponent who discarded a card that shares a card type with the card you discarded'
   ) {
-    return Array.isArray(ctx.lastDiscardedCards) && ctx.lastDiscardedCards.length > 0;
+    return discardedCardsFrom(params).length > 0;
   }
 
   if (normalizedRaw === 'you are one of those players') {
@@ -1272,6 +1312,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
   }
 
   if (/^you searched for a creature card that doesn't have that name$/.test(normalizedRaw)) {
+    if (isSearchedLibraryThisWayLedgerFirst(params.ctx)) return true;
     if (params.ctx.searchedLibraryThisWay === true) return true;
     return antecedentApplied(lastActionOutcome, ['search_library']);
   }
@@ -1304,10 +1345,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
 
   if (normalizedRaw === 'any of those cards shares a card type with that spell') {
     const spell = getStackSpellCard(nextState, ctx);
-    const cards = [
-      ...(Array.isArray(params.lastMovedCards) ? params.lastMovedCards : []),
-      ...(Array.isArray(ctx.lastMilledCards) ? ctx.lastMilledCards : []),
-    ];
+    const cards = contextualCardsFrom(params);
     if (!spell || cards.length === 0) return false;
     return cards.some(card => cardsShareCardType(card, spell));
   }
@@ -1345,10 +1383,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
   if (normalizedRaw === 'you reveal a card named hammer of this permanent this way') {
     const sourceName = String(ctx.sourceName || '').trim().toLowerCase();
     const hammerName = sourceName ? `hammer of ${sourceName}` : '';
-    const revealed = [
-      ...(Array.isArray(params.lastMovedCards) ? params.lastMovedCards : []),
-      ...(Array.isArray(ctx.lastMilledCards) ? ctx.lastMilledCards : []),
-    ];
+    const revealed = contextualCardsFrom(params);
     return hammerName
       ? revealed.some(
           card => String(card?.name || card?.card?.name || '').trim().toLowerCase() === hammerName
@@ -1373,7 +1408,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
   }
 
   if (normalizedRaw === 'a dinosaur is dealt damage this way') {
-    const damaged = (ctx as any)?.lastDamagedCards ?? params.lastMovedCards;
+    const damaged = (ctx as any)?.lastDamagedCards ?? movedCardsFrom(params);
     const cards = Array.isArray(damaged) ? damaged : [];
     return cards.some(card => objectHasType(card, 'dinosaur'));
   }
@@ -1505,7 +1540,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
   }
 
   if (normalizedRaw === 'the player mills at least one creature card this way') {
-    const milled = Array.isArray(ctx.lastMilledCards) ? ctx.lastMilledCards : [];
+    const milled = milledCardsFrom(ctx);
     return milled.some(card => objectHasType(card, 'creature'));
   }
 
@@ -1514,18 +1549,12 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
   }
 
   if (normalizedRaw === 'a creature card was discarded this way') {
-    const discarded = [
-      ...(Array.isArray(params.lastDiscardedCards) ? params.lastDiscardedCards : []),
-      ...(Array.isArray(ctx.lastDiscardedCards) ? ctx.lastDiscardedCards : []),
-    ];
+    const discarded = discardedCardsFrom(params);
     return discarded.some(card => objectHasType(card, 'creature'));
   }
 
   if (normalizedRaw === 'a noncreature card was discarded this way') {
-    const discarded = [
-      ...(Array.isArray(params.lastDiscardedCards) ? params.lastDiscardedCards : []),
-      ...(Array.isArray(ctx.lastDiscardedCards) ? ctx.lastDiscardedCards : []),
-    ];
+    const discarded = discardedCardsFrom(params);
     return discarded.some(card => !objectHasType(card, 'creature'));
   }
 
@@ -1566,9 +1595,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
 
   if (normalizedRaw === 'the card a player revealed has the name they chose') {
     const chosen = String(ctx.selectorContext?.chosenCardName || '').trim().toLowerCase();
-    const revealed = [
-      ...(Array.isArray(params.lastMovedCards) ? params.lastMovedCards : []),
-    ];
+    const revealed = movedCardsFrom(params);
     return chosen
       ? revealed.some(card => String(card?.name || card?.card?.name || '').trim().toLowerCase() === chosen)
       : false;
@@ -1582,7 +1609,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
   }
 
   if (normalizedRaw === 'two creatures are put onto the battlefield this way') {
-    const moved = Array.isArray(params.lastMovedCards) ? params.lastMovedCards : [];
+    const moved = movedCardsFrom(params);
     const creatureCount = moved.filter(card => objectHasType(card, 'creature')).length;
     return antecedentApplied(lastActionOutcome, ['move_zone', 'create_token'])
       ? creatureCount >= 2 || Number(lastActionOutcome?.count || 0) >= 2
@@ -1634,10 +1661,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
         ctx.selectorContext?.chosenNumber ?? (ctx as any)?.chosenNumber
       );
       if (!chosenName || !Number.isFinite(chosenNumber)) return null;
-      const revealed = [
-        ...(Array.isArray(params.lastMovedCards) ? params.lastMovedCards : []),
-        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
-      ];
+      const revealed = movedCardsFrom(params);
       if (revealed.length === 0) return null;
       const normalizedChosenName = chosenName.toLowerCase();
       const matchingCount = revealed.filter((card: any) => {
@@ -1666,10 +1690,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
         ctx.selectorContext?.chosenNumber ?? (ctx as any)?.chosenNumber
       );
       if (!chosenColor || !Number.isFinite(chosenNumber)) return null;
-      const revealed = [
-        ...(Array.isArray(params.lastMovedCards) ? params.lastMovedCards : []),
-        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
-      ];
+      const revealed = movedCardsFrom(params);
       if (revealed.length === 0) return null;
       const matchingCount = revealed.filter((card: any) => cardMatchesChosenColor(card, chosenColor)).length;
       return matchingCount === Math.max(0, Math.floor(chosenNumber));

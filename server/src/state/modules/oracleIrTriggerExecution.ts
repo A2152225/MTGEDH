@@ -337,6 +337,36 @@ function probeOracleIrTriggerShadow(
   }
 }
 
+function libraryCountForPlayer(ctx: GameContext, controller: PlayerID): number {
+  const fromMap = (ctx as any).libraries?.get?.(controller);
+  if (Array.isArray(fromMap)) return fromMap.length;
+  const player = ((ctx as any).state?.players || []).find(
+    (entry: any) => String(entry?.id || '') === String(controller),
+  );
+  if (Array.isArray(player?.library)) return player.library.length;
+  const zonesLibraryCount = (ctx as any).state?.zones?.[controller]?.libraryCount;
+  if (typeof zonesLibraryCount === 'number') return zonesLibraryCount;
+  return 0;
+}
+
+function drawEffectSynced(
+  ctx: GameContext,
+  controller: PlayerID,
+  effectText: string,
+  libraryCountBefore: number,
+): boolean {
+  if (!/draw (?:a card|(\d+) cards?)/i.test(String(effectText || ''))) {
+    return true;
+  }
+  const drawMatch = String(effectText || '').match(/draw (?:a card|(\d+) cards?)/i);
+  const expectedDrawn = drawMatch?.[1] ? parseInt(drawMatch[1], 10) : 1;
+  if (!Number.isFinite(expectedDrawn) || expectedDrawn <= 0) {
+    return true;
+  }
+  const libraryCountAfter = libraryCountForPlayer(ctx, controller);
+  return libraryCountAfter <= libraryCountBefore - expectedDrawn;
+}
+
 export function tryResolveTriggerViaOracleIR(
   ctx: GameContext,
   params: TryResolveTriggerViaOracleIRParams,
@@ -404,7 +434,8 @@ export function tryResolveTriggerViaOracleIR(
     const effectProgramResult = startOracleEffectProgramOnServer(ctx, effectProgramParams);
     if (effectProgramResult.handled) {
       if (effectProgramResult.waitingForChoice && !effectProgramResult.completed) {
-        return { handled: false, applied: 0, shadowWouldHandle: false };
+        // Choice is queued on the resolution queue — do not fall through to legacy handlers.
+        return { handled: true, applied: 0, shadowWouldHandle: false };
       }
       return {
         handled: true,
@@ -423,6 +454,7 @@ export function tryResolveTriggerViaOracleIR(
     const queueBefore = gameId !== 'unknown'
       ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
       : 0;
+    const libraryCountBefore = libraryCountForPlayer(ctx, params.controller);
 
     const result = applyOracleIRStepsOnServer(
       ctx,
@@ -495,6 +527,16 @@ export function tryResolveTriggerViaOracleIR(
       && !canApplyPreselectedChooseMode
     ) {
       handled = false;
+    }
+
+    if (handled && !drawEffectSynced(ctx, params.controller, effectText, libraryCountBefore)) {
+      handled = false;
+      logOracleIrAllOrNothingFailure(
+        'trigger',
+        params.sourceName,
+        `Oracle IR reported handled but library did not decrease for draw effect: ${effectText}`,
+        { applied, parsed: steps.length },
+      );
     }
 
     if (handled) {

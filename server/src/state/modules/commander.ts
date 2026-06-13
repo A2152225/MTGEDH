@@ -19,8 +19,46 @@ type CommanderCardSnapshot = {
   loyalty?: string;
   card_faces?: any[];
   layout?: string;
+  colors?: string[];
   color_identity?: string[];
 };
+
+const COLOR_SYMBOLS = ['W', 'U', 'B', 'R', 'G'] as const;
+
+function normalizeColorIdentitySymbols(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const out = new Set<string>();
+  for (const raw of values) {
+    const color = String(raw || '').trim().toUpperCase();
+    if ((COLOR_SYMBOLS as readonly string[]).includes(color)) {
+      out.add(color);
+    }
+  }
+  return COLOR_SYMBOLS.filter((color) => out.has(color));
+}
+
+function deriveColorIdentityFromManaCost(manaCost: string | undefined): string[] {
+  const symbols = new Set<string>();
+  const normalized = String(manaCost || '');
+  for (const match of normalized.matchAll(/\{([wubrg])\}/gi)) {
+    symbols.add(String(match[1] || '').toUpperCase());
+  }
+  return COLOR_SYMBOLS.filter((color) => symbols.has(color));
+}
+
+/** Resolve WUBRG color identity from card fields commonly present on imported commanders. */
+export function deriveCardColorIdentity(src: any): string[] {
+  const explicit = normalizeColorIdentitySymbols(
+    src?.color_identity ?? src?.colorIdentity ?? src?.scryfall?.color_identity,
+  );
+  if (explicit.length > 0) return explicit;
+
+  const fromColors = normalizeColorIdentitySymbols(src?.colors);
+  if (fromColors.length > 0) return fromColors;
+
+  const manaCost = getFrontFaceValue<string>(src, 'mana_cost') ?? src?.mana_cost;
+  return deriveColorIdentityFromManaCost(manaCost);
+}
 
 function getFrontFaceValue<T = unknown>(src: any, key: string): T | undefined {
   if (!src || typeof src !== "object") return undefined;
@@ -51,6 +89,9 @@ export function buildCommanderCardSnapshot(src: any, fallbackName?: string): Com
     : (Array.isArray(src?.scryfall?.card_faces) ? src.scryfall.card_faces : undefined);
   const layout = src?.layout ?? src?.scryfall?.layout;
 
+  const colorIdentity = deriveCardColorIdentity(src);
+  const colors = normalizeColorIdentitySymbols(src?.colors);
+
   return {
     id: src?.id,
     name: src?.name ?? getFrontFaceValue<string>(src, "name") ?? fallbackName ?? src?.id,
@@ -63,7 +104,8 @@ export function buildCommanderCardSnapshot(src: any, fallbackName?: string): Com
     loyalty: getFrontFaceValue<string>(src, "loyalty"),
     card_faces: cardFaces,
     layout,
-    color_identity: src?.color_identity ?? src?.scryfall?.color_identity,
+    colors: colors.length > 0 ? colors : (colorIdentity.length > 0 ? colorIdentity : undefined),
+    color_identity: colorIdentity.length > 0 ? colorIdentity : undefined,
   };
 }
 
@@ -161,8 +203,24 @@ export function setCommander(
     if (src) {
       built.push(buildCommanderCardSnapshot(src, commanderNames?.[index] ?? cid));
     } else {
-      // placeholder minimal snapshot if we have only id
-      built.push({ id: cid, name: commanderNames?.[index] ?? cid });
+      const placeholderName = commanderNames?.[index] ?? cid;
+      const placeholder: CommanderCardSnapshot = { id: cid, name: placeholderName };
+      const fromParam = normalizeColorIdentitySymbols(colorIdentity);
+      if (fromParam.length > 0) {
+        placeholder.color_identity = fromParam;
+        placeholder.colors = fromParam;
+      }
+      built.push(placeholder);
+    }
+  }
+
+  if (Array.isArray(colorIdentity) && colorIdentity.length > 0) {
+    const fromParam = normalizeColorIdentitySymbols(colorIdentity);
+    for (const card of built) {
+      if (!card.color_identity?.length) {
+        card.color_identity = fromParam;
+        card.colors = card.colors?.length ? card.colors : fromParam;
+      }
     }
   }
 

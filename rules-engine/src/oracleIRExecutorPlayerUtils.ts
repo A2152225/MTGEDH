@@ -1,4 +1,9 @@
-import type { GameState, PlayerID } from '../../shared/src';
+import {
+  commitCardZoneChanges,
+  commitLookSelectRestZoneChanges,
+  type PlayerZoneChangeBridgeContext,
+} from './oracleIRExecutorCardZoneTransitionCommit';
+import { commitCardDraws } from './oracleIRExecutorDrawTransitionCommit';
 import type { OraclePlayerSelector, OracleQuantity } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
@@ -13,7 +18,7 @@ function getAttachedServerLibraries(state: GameState): Map<PlayerID, any[]> | un
   return libs && typeof libs.get === 'function' ? libs : undefined;
 }
 
-function readPlayerZoneCards(
+export function readPlayerZoneCards(
   state: GameState,
   playerId: PlayerID,
   player: any,
@@ -26,7 +31,7 @@ function readPlayerZoneCards(
   return Array.isArray(external) ? [...external] : fromPlayer;
 }
 
-function writePlayerZoneCards(
+export function writePlayerZoneCards(
   state: GameState,
   playerId: PlayerID,
   player: any,
@@ -987,7 +992,30 @@ export function isThoseOpponentsSelector(raw: string | undefined): boolean {
   return s === 'each of those opponents' || s === 'those opponents' || s === 'all of those opponents' || s === 'all those opponents';
 }
 
-export function drawCardsForPlayer(state: GameState, playerId: PlayerID, count: number): { state: GameState; log: string[] } {
+export function drawCardsForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  count: number,
+  bridgeOptions?: PlayerZoneChangeBridgeContext,
+): { state: GameState; log: string[]; halted?: boolean; ledgerRecordedViaBridge?: boolean } {
+  if (bridgeOptions?.ctx?.serverBridge && Number.isFinite(bridgeOptions.stepIndex)) {
+    const result = commitCardDraws({
+      state,
+      playerId,
+      count,
+      stepIndex: Number(bridgeOptions.stepIndex),
+      stepKind: String(bridgeOptions.stepKind || 'draw'),
+      cause: 'oracle_ir:draw',
+      ctx: bridgeOptions.ctx,
+    });
+    return {
+      state: result.state,
+      log: result.log,
+      halted: result.halted,
+      ledgerRecordedViaBridge: result.ledgerRecordedViaBridge,
+    };
+  }
+
   const log: string[] = [];
   const player = state.players.find(p => p.id === playerId);
   if (!player) return { state, log: [`Player not found: ${playerId}`] };
@@ -1018,34 +1046,98 @@ export function drawCardsForPlayer(state: GameState, playerId: PlayerID, count: 
 export function exileTopCardsForPlayer(
   state: GameState,
   playerId: PlayerID,
-  count: number
-): { state: GameState; log: string[]; exiled: any[] } {
+  count: number,
+  bridgeOptions?: PlayerZoneChangeBridgeContext,
+): {
+  state: GameState;
+  log: string[];
+  exiled: any[];
+  ledgerRecordedViaBridge?: boolean;
+  halted?: boolean;
+} {
   const log: string[] = [];
   const player = state.players.find(p => p.id === playerId);
   if (!player) return { state, log: [`Player not found: ${playerId}`], exiled: [] };
 
-  const library = readPlayerZoneCards(state, playerId, player, 'library');
-  const exile = readPlayerZoneCards(state, playerId, player, 'exile');
+  const n = Math.max(0, count | 0);
+  if (n === 0) return { state, log, exiled: [] };
 
+  const library = readPlayerZoneCards(state, playerId, player, 'library');
+  const actual = Math.min(n, library.length);
+  const toExile = library.slice(0, actual).map((card: any) => ({
+    ...card,
+    ownerId: playerId,
+    owner: playerId,
+  }));
+
+  const stepIndex = bridgeOptions?.stepIndex;
+  if (bridgeOptions?.ctx?.serverBridge && Number.isFinite(stepIndex)) {
+    const commitResult = commitCardZoneChanges({
+      state,
+      playerId,
+      cards: toExile,
+      sourceZone: 'library',
+      intendedDestination: 'exile',
+      stepIndex: Number(stepIndex),
+      stepKind: String(bridgeOptions.stepKind || 'exile_top'),
+      cause: 'oracle_ir:exile_top',
+      ctx: bridgeOptions.ctx,
+    });
+    if (commitResult.halted) {
+      return { state, log: [], exiled: [], halted: true };
+    }
+    if (commitResult.movedCards.length > 0) {
+      log.push(`${playerId} exiles ${commitResult.movedCards.length} card(s) from the top of their library`);
+    }
+    return {
+      state: commitResult.state,
+      log,
+      exiled: commitResult.movedCards,
+      ledgerRecordedViaBridge: commitResult.ledgerRecordedViaBridge,
+    };
+  }
+
+  const exile = readPlayerZoneCards(state, playerId, player, 'exile');
   const exiled: any[] = [];
-  for (let i = 0; i < Math.max(0, count | 0); i++) {
-    if (library.length === 0) {
+  let nextLibrary = [...library];
+  for (let i = 0; i < actual; i += 1) {
+    if (nextLibrary.length === 0) {
       log.push(`${playerId} cannot exile from library (empty library)`);
       break;
     }
-    const [card] = library.splice(0, 1);
+    const [card] = nextLibrary.splice(0, 1);
     exile.push(card);
     exiled.push(card);
   }
 
-  writePlayerZoneCards(state, playerId, player, 'library', library);
-  writePlayerZoneCards(state, playerId, player, 'exile', exile);
+  writePlayerZoneCards(state, playerId, player, 'library', nextLibrary);
+  writePlayerZoneCards(state, playerId, player, 'exile', [...exile, ...exiled]);
   const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...player } : p));
   return {
     state: { ...state, players: updatedPlayers as any },
     log: exiled.length > 0 ? [`${playerId} exiles ${exiled.length} card(s) from the top of their library`] : log,
     exiled,
   };
+}
+
+export function collectTopLibraryObservationForPlayers(
+  state: GameState,
+  playerIds: readonly PlayerID[],
+  amount: number,
+): { cards: any[]; lookedCount: number } {
+  const cards: any[] = [];
+  let lookedCount = 0;
+  const perAmount = Math.max(0, amount | 0);
+  for (const playerId of playerIds) {
+    const player = state.players.find((entry) => entry.id === playerId) as any;
+    const library = Array.isArray(player?.library) ? player.library : [];
+    const looked = Math.max(0, Math.min(library.length, perAmount));
+    if (looked > 0) {
+      cards.push(...library.slice(0, looked));
+      lookedCount += looked;
+    }
+  }
+  return { cards, lookedCount };
 }
 
 export function lookSelectTopCardsForPlayer(
@@ -1056,8 +1148,18 @@ export function lookSelectTopCardsForPlayer(
   destination: 'hand' | 'graveyard' | 'library_top',
   restDestination: 'graveyard' | 'library',
   restToTop = false,
-  restRandomOrder = false
-): { state: GameState; log: string[]; chosen: any[]; rest: any[]; lookedAtCount: number } {
+  restRandomOrder = false,
+  bridgeOptions?: PlayerZoneChangeBridgeContext,
+  chosenObjectIds?: readonly string[],
+): {
+  state: GameState;
+  log: string[];
+  chosen: any[];
+  rest: any[];
+  lookedAtCount: number;
+  ledgerRecordedViaBridge?: boolean;
+  halted?: boolean;
+} {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) {
     return {
@@ -1069,42 +1171,207 @@ export function lookSelectTopCardsForPlayer(
     };
   }
 
-  const library = [...(Array.isArray(player.library) ? player.library : [])];
-  const hand = [...(Array.isArray(player.hand) ? player.hand : [])];
-  const graveyard = [...(Array.isArray(player.graveyard) ? player.graveyard : [])];
+  const library = readPlayerZoneCards(state, playerId, player, 'library');
   const actualLookCount = Math.max(0, Math.min(library.length, lookCount | 0));
   const chooseActual = Math.max(0, Math.min(actualLookCount, chooseCount | 0));
-  const looked = library.splice(0, actualLookCount);
-  const chosen = looked.slice(0, chooseActual);
-  const rest = looked.slice(chooseActual);
+  const looked = library.slice(0, actualLookCount);
+  let chosen: any[];
+  let rest: any[];
+  const normalizedChosenIds = (Array.isArray(chosenObjectIds) ? chosenObjectIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  if (normalizedChosenIds.length > 0) {
+    const chosenIdSet = new Set(normalizedChosenIds);
+    chosen = looked
+      .filter((card) => chosenIdSet.has(String((card as { id?: string })?.id || '').trim()))
+      .slice(0, chooseActual);
+    const chosenIds = new Set(
+      chosen.map((card) => String((card as { id?: string })?.id || '').trim()).filter(Boolean),
+    );
+    rest = looked.filter((card) => !chosenIds.has(String((card as { id?: string })?.id || '').trim()));
+  } else {
+    chosen = looked.slice(0, chooseActual);
+    rest = looked.slice(chooseActual);
+  }
+
+  const stepIndex = bridgeOptions?.stepIndex;
+  const canBridge = bridgeOptions?.ctx?.serverBridge && Number.isFinite(stepIndex);
+  const canBridgeChosen = canBridge
+    && (destination === 'hand' || destination === 'graveyard' || destination === 'library_top')
+    && chosen.length > 0;
+
+  if (canBridgeChosen) {
+    const intendedDestination = destination === 'hand'
+      ? 'hand'
+      : destination === 'graveyard'
+        ? 'graveyard'
+        : 'library';
+    const libraryPlacement = destination === 'library_top' ? 'top' as const : undefined;
+    const cardsToCommit = (destination === 'graveyard'
+      ? stampCardsPutIntoGraveyardThisTurn(state, chosen)
+      : destination === 'library_top'
+        ? [...chosen].reverse()
+        : chosen
+    ).map((card: any) => ({ ...card, ownerId: playerId, owner: playerId }));
+
+    const commitResult = commitCardZoneChanges({
+      state,
+      playerId,
+      cards: cardsToCommit,
+      sourceZone: 'library',
+      intendedDestination,
+      stepIndex: Number(stepIndex),
+      stepKind: String(bridgeOptions?.stepKind || 'look_select_top'),
+      cause: 'oracle_ir:look_select_top',
+      ctx: bridgeOptions?.ctx,
+      libraryPlacement,
+    });
+    if (commitResult.halted) {
+      return {
+        state,
+        log: [],
+        chosen: [],
+        rest: [],
+        lookedAtCount: 0,
+        halted: true,
+      };
+    }
+
+    let ledgerRecordedViaBridge = Boolean(commitResult.ledgerRecordedViaBridge);
+    if (rest.length > 0) {
+      const restCommit = commitLookSelectRestZoneChanges({
+        state,
+        playerId,
+        rest,
+        destination,
+        restDestination,
+        restToTop,
+        restRandomOrder,
+        stepIndex: Number(stepIndex),
+        stepKind: String(bridgeOptions?.stepKind || 'look_select_top'),
+        ctx: bridgeOptions?.ctx,
+      });
+      if (restCommit.halted) {
+        return {
+          state,
+          log: [],
+          chosen: [],
+          rest: [],
+          lookedAtCount: 0,
+          halted: true,
+        };
+      }
+      if (restCommit.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
+    }
+
+    const destinationLabel = destination === 'hand'
+      ? 'their hand'
+      : destination === 'graveyard'
+        ? 'their graveyard'
+        : 'the top of their library';
+    const restLabel = restDestination === 'graveyard'
+      ? 'their graveyard'
+      : restRandomOrder
+        ? 'the bottom of their library in a random order'
+        : restToTop
+          ? 'the top of their library'
+          : 'the bottom of their library';
+
+    return {
+      state,
+      log: [
+        `${playerId} looks at ${actualLookCount} card(s), puts ${commitResult.movedCards.length} into ${destinationLabel}, and moves ${rest.length} to ${restLabel}`,
+      ],
+      chosen: commitResult.movedCards,
+      rest,
+      lookedAtCount: actualLookCount,
+      ledgerRecordedViaBridge,
+    };
+  }
+
+  if (canBridge && chosen.length === 0 && rest.length > 0) {
+    const restCommit = commitLookSelectRestZoneChanges({
+      state,
+      playerId,
+      rest,
+      destination,
+      restDestination,
+      restToTop,
+      restRandomOrder,
+      stepIndex: Number(stepIndex),
+      stepKind: String(bridgeOptions?.stepKind || 'look_select_top'),
+      ctx: bridgeOptions?.ctx,
+    });
+    if (restCommit.halted) {
+      return {
+        state,
+        log: [],
+        chosen: [],
+        rest: [],
+        lookedAtCount: 0,
+        halted: true,
+      };
+    }
+
+    const destinationLabel = destination === 'hand'
+      ? 'their hand'
+      : destination === 'graveyard'
+        ? 'their graveyard'
+        : 'the top of their library';
+    const restLabel = restDestination === 'graveyard'
+      ? 'their graveyard'
+      : restRandomOrder
+        ? 'the bottom of their library in a random order'
+        : restToTop
+          ? 'the top of their library'
+          : 'the bottom of their library';
+
+    return {
+      state: restCommit.state,
+      log: [
+        `${playerId} looks at ${actualLookCount} card(s), puts 0 into ${destinationLabel}, and moves ${rest.length} to ${restLabel}`,
+      ],
+      chosen: [],
+      rest,
+      lookedAtCount: actualLookCount,
+      ledgerRecordedViaBridge: restCommit.ledgerRecordedViaBridge,
+    };
+  }
+
+  const hand = readPlayerZoneCards(state, playerId, player, 'hand');
+  const graveyard = readPlayerZoneCards(state, playerId, player, 'graveyard');
+  let nextLibrary = [...library];
+  let nextHand = [...hand];
+  let nextGraveyard = [...graveyard];
+  nextLibrary.splice(0, actualLookCount);
 
   if (destination === 'hand') {
-    hand.push(...chosen);
+    nextHand.push(...chosen);
   } else if (destination === 'graveyard') {
-    graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, chosen));
+    nextGraveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, chosen));
   } else if (destination === 'library_top' && chosen.length > 0) {
     for (let index = chosen.length - 1; index >= 0; index -= 1) {
-      library.unshift(chosen[index]);
+      nextLibrary.unshift(chosen[index]);
     }
   }
 
   if (restDestination === 'graveyard') {
-    graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, rest));
+    nextGraveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, rest));
   } else if (rest.length > 0) {
     if (destination === 'library_top') {
       const bottomRest = restRandomOrder
         ? [...rest].sort(() => Math.random() - 0.5)
         : rest;
-      library.push(...bottomRest);
+      nextLibrary.push(...bottomRest);
     } else {
       const reorderedRest = restToTop ? rest : [...rest].reverse();
-      library.unshift(...reorderedRest);
+      nextLibrary.unshift(...reorderedRest);
     }
   }
 
-  const updatedPlayers = state.players.map(p =>
-    p.id === playerId ? ({ ...(p as any), library, hand, graveyard } as any) : p
-  );
+  writePlayerZoneCards(state, playerId, player, 'library', nextLibrary);
+  writePlayerZoneCards(state, playerId, player, 'hand', nextHand);
+  writePlayerZoneCards(state, playerId, player, 'graveyard', nextGraveyard);
 
   const destinationLabel = destination === 'hand'
     ? 'their hand'
@@ -1120,7 +1387,7 @@ export function lookSelectTopCardsForPlayer(
         : 'the bottom of their library';
 
   return {
-    state: { ...state, players: updatedPlayers as any },
+    state,
     log: [
       `${playerId} looks at ${actualLookCount} card(s), puts ${chosen.length} into ${destinationLabel}, and moves ${rest.length} to ${restLabel}`,
     ],
@@ -1396,8 +1663,9 @@ export function adjustPlayerCounter(
 export function discardCardsForPlayer(
   state: GameState,
   playerId: PlayerID,
-  count: number
-): { state: GameState; log: string[]; applied: boolean; needsChoice: boolean; discardedCount: number; discardedCards: any[] } {
+  count: number,
+  bridgeOptions?: PlayerZoneChangeBridgeContext,
+): { state: GameState; log: string[]; applied: boolean; needsChoice: boolean; discardedCount: number; discardedCards: any[]; ledgerRecordedViaBridge?: boolean; halted?: boolean } {
   const log: string[] = [];
   const player = state.players.find(p => p.id === playerId);
   if (!player) return { state, log: [`Player not found: ${playerId}`], applied: false, needsChoice: false, discardedCount: 0, discardedCards: [] };
@@ -1413,7 +1681,49 @@ export function discardCardsForPlayer(
   }
 
   const discarded = hand.splice(0, hand.length);
-  const stampedDiscarded = stampCardsPutIntoGraveyardThisTurn(state, discarded);
+  const stampedDiscarded = stampCardsPutIntoGraveyardThisTurn(state, discarded).map((card: any) => ({
+    ...card,
+    ownerId: playerId,
+    owner: playerId,
+  }));
+
+  const stepIndex = bridgeOptions?.stepIndex;
+  if (bridgeOptions?.ctx?.serverBridge && Number.isFinite(stepIndex)) {
+    const commitResult = commitCardZoneChanges({
+      state,
+      playerId,
+      cards: stampedDiscarded,
+      sourceZone: 'hand',
+      intendedDestination: 'graveyard',
+      stepIndex: Number(stepIndex),
+      stepKind: String(bridgeOptions.stepKind || 'discard'),
+      cause: 'oracle_ir:discard',
+      ctx: bridgeOptions.ctx,
+    });
+    if (commitResult.halted) {
+      return {
+        state,
+        log: [],
+        applied: true,
+        needsChoice: false,
+        discardedCount: 0,
+        discardedCards: [],
+        halted: true,
+      };
+    }
+    const actualCount = commitResult.movedCards.length;
+    log.push(`${playerId} discards ${actualCount} card(s)`);
+    return {
+      state: commitResult.state,
+      log,
+      applied: true,
+      needsChoice: false,
+      discardedCount: actualCount,
+      discardedCards: commitResult.movedCards,
+      ledgerRecordedViaBridge: commitResult.ledgerRecordedViaBridge,
+    };
+  }
+
   graveyard.push(...stampedDiscarded);
 
   const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, hand, graveyard } : p));
@@ -1431,7 +1741,8 @@ export function discardCardsForPlayer(
 export function discardSpecificCardsForPlayer(
   state: GameState,
   playerId: PlayerID,
-  cardIds: readonly string[]
+  cardIds: readonly string[],
+  bridgeOptions?: PlayerZoneChangeBridgeContext,
 ): {
   state: GameState;
   log: string[];
@@ -1439,6 +1750,8 @@ export function discardSpecificCardsForPlayer(
   discardedCount: number;
   discardedCards: any[];
   missingCardIds: readonly string[];
+  ledgerRecordedViaBridge?: boolean;
+  halted?: boolean;
 } {
   const log: string[] = [];
   const player = state.players.find(p => p.id === playerId);
@@ -1461,10 +1774,52 @@ export function discardSpecificCardsForPlayer(
   }
 
   const remainingHand = hand.filter((card: any) => !wantedIdSet.has(String(card?.id || '').trim()));
-  const stampedDiscarded = stampCardsPutIntoGraveyardThisTurn(state, discarded);
-  graveyard.push(...stampedDiscarded);
+  const stampedDiscarded = stampCardsPutIntoGraveyardThisTurn(state, discarded).map((card: any) => ({
+    ...card,
+    ownerId: playerId,
+    owner: playerId,
+  }));
 
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, hand: remainingHand, graveyard } : p));
+  const stepIndex = bridgeOptions?.stepIndex;
+  if (bridgeOptions?.ctx?.serverBridge && Number.isFinite(stepIndex)) {
+    const commitResult = commitCardZoneChanges({
+      state,
+      playerId,
+      cards: stampedDiscarded,
+      sourceZone: 'hand',
+      intendedDestination: 'graveyard',
+      stepIndex: Number(stepIndex),
+      stepKind: String(bridgeOptions.stepKind || 'discard'),
+      cause: 'oracle_ir:discard',
+      ctx: bridgeOptions.ctx,
+    });
+    if (commitResult.halted) {
+      return {
+        state,
+        log: [],
+        applied: true,
+        discardedCount: 0,
+        discardedCards: [],
+        missingCardIds: [],
+        halted: true,
+      };
+    }
+    log.push(`${playerId} discards ${commitResult.movedCards.length} chosen card(s)`);
+    return {
+      state: commitResult.state,
+      log,
+      applied: true,
+      discardedCount: commitResult.movedCards.length,
+      discardedCards: commitResult.movedCards,
+      missingCardIds: [],
+      ledgerRecordedViaBridge: commitResult.ledgerRecordedViaBridge,
+    };
+  }
+
+  graveyard.push(...stampedDiscarded);
+  const updatedPlayers = state.players.map((p) => (
+    p.id === playerId ? { ...p, hand: remainingHand, graveyard } : p
+  ));
   log.push(`${playerId} discards ${discarded.length} chosen card(s)`);
   return {
     state: { ...state, players: updatedPlayers as any },
@@ -1479,8 +1834,9 @@ export function discardSpecificCardsForPlayer(
 export function millCardsForPlayer(
   state: GameState,
   playerId: PlayerID,
-  count: number
-): { state: GameState; log: string[]; milledCards: any[] } {
+  count: number,
+  bridgeOptions?: PlayerZoneChangeBridgeContext,
+): { state: GameState; log: string[]; milledCards: any[]; ledgerRecordedViaBridge?: boolean; halted?: boolean } {
   const log: string[] = [];
   const player = state.players.find(p => p.id === playerId);
   if (!player) return { state, log: [`Player not found: ${playerId}`], milledCards: [] };
@@ -1493,13 +1849,44 @@ export function millCardsForPlayer(
 
   const actual = Math.min(n, library.length);
   const milled = library.splice(0, actual);
-  graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, milled));
+  const stampedMilled = stampCardsPutIntoGraveyardThisTurn(state, milled).map((card: any) => ({
+    ...card,
+    ownerId: playerId,
+    owner: playerId,
+  }));
+
+  const stepIndex = bridgeOptions?.stepIndex;
+  if (bridgeOptions?.ctx?.serverBridge && Number.isFinite(stepIndex)) {
+    const commitResult = commitCardZoneChanges({
+      state,
+      playerId,
+      cards: stampedMilled,
+      sourceZone: 'library',
+      intendedDestination: 'graveyard',
+      stepIndex: Number(stepIndex),
+      stepKind: String(bridgeOptions.stepKind || 'mill'),
+      cause: 'oracle_ir:mill',
+      ctx: bridgeOptions.ctx,
+    });
+    if (commitResult.halted) {
+      return { state, log: [], milledCards: [], halted: true };
+    }
+    log.push(`${playerId} mills ${commitResult.movedCards.length} card(s)`);
+    return {
+      state: commitResult.state,
+      log,
+      milledCards: commitResult.movedCards,
+      ledgerRecordedViaBridge: commitResult.ledgerRecordedViaBridge,
+    };
+  }
+
+  graveyard.push(...stampedMilled);
 
   writePlayerZoneCards(state, playerId, player, 'library', library);
   writePlayerZoneCards(state, playerId, player, 'graveyard', graveyard);
   const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...player } : p));
   log.push(`${playerId} mills ${actual} card(s)`);
-  return { state: { ...state, players: updatedPlayers as any }, log, milledCards: milled };
+  return { state: { ...state, players: updatedPlayers as any }, log, milledCards: stampedMilled };
 }
 
 export function addManaToPoolForPlayer(

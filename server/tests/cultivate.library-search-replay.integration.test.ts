@@ -1,12 +1,20 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
+import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutor.js';
+import { evaluateConditionalWrapperCondition } from '../../rules-engine/src/oracleIRExecutorConditionalStepSupport.js';
+import { evaluateModifyPtWhereX } from '../../rules-engine/src/oracleIRExecutorModifyPtWhereEvaluator.js';
+import { isRevealedThisWayLedgerFirst, isSearchedLibraryThisWayLedgerFirst } from '../../rules-engine/src/oracleIRLedgerCardAccess.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { resolveTopOfStack } from '../src/state/modules/stackResolveTopOfStackUtils.js';
+import {
+  readAppliedStepKindsFromState,
+  readStepLedgerFromState,
+} from '../src/state/modules/oracleIrTransitionPipeline.js';
 import { games } from '../src/socket/socket.js';
 import '../src/state/modules/priority.js';
 
@@ -121,10 +129,16 @@ describe('Cultivate library search replay', () => {
 
     resolveTopOfStack(game as any);
 
-    const step = ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find((entry) => entry.type === ResolutionStepType.LIBRARY_SEARCH) as any;
-    expect(step).toBeDefined();
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId).filter(
+      (entry) => entry.type === ResolutionStepType.LIBRARY_SEARCH,
+    ) as any[];
+    expect(steps).toHaveLength(1);
+    const step = steps[0];
     expect(step.splitDestination).toBe(true);
     expect(step.persistLibrarySearchResolve).toBe(true);
+    expect(step.oracleIrChoiceStepJson).toBeTruthy();
+    expect(step.maxSelections).toBe(2);
+    expect((step.availableCards || []).map((card: any) => card.id)).toEqual(['forest_a', 'plains_b']);
 
     await handlers['submitResolutionResponse']({
       gameId,
@@ -138,6 +152,9 @@ describe('Cultivate library search replay', () => {
 
     const resolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'librarySearchResolve') as any;
     expect(resolvedEvent).toBeDefined();
+    expect(Array.isArray(resolvedEvent.payload?.oracleIrStepLedger)).toBe(true);
+    expect((resolvedEvent.payload?.oracleIrStepLedger || []).length).toBeGreaterThan(0);
+    expect(resolvedEvent.payload?.oracleIrAppliedStepKinds?.some((entry: [number, string]) => entry[1] === 'search_library')).toBe(true);
     expect(resolvedEvent.payload?.splitAssignments).toEqual({
       toBattlefield: ['forest_a'],
       toHand: ['plains_b'],
@@ -148,6 +165,48 @@ describe('Cultivate library search replay', () => {
     const liveBattlefield = (game.state as any).battlefield || [];
     expect((liveZones?.hand || []).map((card: any) => card.id)).toEqual(['plains_b']);
     expect(liveBattlefield.some((permanent: any) => permanent?.card?.id === 'forest_a' && permanent?.tapped === true)).toBe(true);
+
+    const liveIrCtx = buildOracleIRExecutionContext({
+      controllerId: playerId as PlayerID,
+      sourceId: 'cultivate_1',
+      sourceName: 'Cultivate',
+      stepLedger: readStepLedgerFromState(game.state),
+      appliedStepKinds: readAppliedStepKindsFromState(game.state),
+      currentStepIndex: 1,
+    });
+    const searchedConditionalStep = {
+      kind: 'conditional',
+      raw: 'If you searched your library this way, draw a card.',
+      condition: { kind: 'if', raw: 'you searched your library this way' },
+      thisWayAntecedentStepIndex: 0,
+      thisWayAntecedentStepKind: 'search_library',
+    } as const;
+    const revealedModifyStep = {
+      kind: 'modify_pt',
+      raw: 'where X is the number of cards revealed this way',
+      thisWayAntecedentStepIndex: 0,
+      thisWayAntecedentStepKind: 'search_library',
+    } as const;
+    expect(isSearchedLibraryThisWayLedgerFirst(liveIrCtx, searchedConditionalStep as any)).toBe(true);
+    expect(evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'you searched your library this way' },
+      nextState: game.state as any,
+      controllerId: playerId as PlayerID,
+      ctx: liveIrCtx,
+      lastActionOutcome: { kind: 'applied', stepKind: 'shuffle_library' },
+      step: searchedConditionalStep as any,
+    })).toBe(true);
+    expect(isRevealedThisWayLedgerFirst(liveIrCtx, revealedModifyStep as any)).toBe(true);
+    expect(evaluateModifyPtWhereX(
+      game.state as any,
+      playerId,
+      'X is the number of cards revealed this way',
+      undefined,
+      liveIrCtx,
+      undefined,
+      0,
+      revealedModifyStep as any,
+    )).toBe(2);
 
     const replayGame = createInitialGameState('test_cultivate_library_search_replay_apply');
     const replayPlayerId = playerId as PlayerID;
@@ -180,5 +239,36 @@ describe('Cultivate library search replay', () => {
     expect(replayGame.peekTopN(replayPlayerId, 10).map((card: any) => card.id)).toEqual(
       ((resolvedEvent.payload?.libraryAfter || []) as any[]).map((card: any) => card.id),
     );
+    expect((replayGame.state as any).oracleIrStepLedger?.size).toBeGreaterThan(0);
+    expect([...((replayGame.state as any).oracleIrAppliedStepKinds?.values() || [])]).toContain('search_library');
+
+    const replayIrCtx = buildOracleIRExecutionContext({
+      controllerId: replayPlayerId,
+      sourceId: 'cultivate_1',
+      sourceName: 'Cultivate',
+      stepLedger: readStepLedgerFromState(replayGame.state),
+      appliedStepKinds: readAppliedStepKindsFromState(replayGame.state),
+      currentStepIndex: 1,
+    });
+    expect(isSearchedLibraryThisWayLedgerFirst(replayIrCtx, searchedConditionalStep as any)).toBe(true);
+    expect(evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'you searched your library this way' },
+      nextState: replayGame.state as any,
+      controllerId: replayPlayerId,
+      ctx: replayIrCtx,
+      lastActionOutcome: null,
+      step: searchedConditionalStep as any,
+    })).toBe(true);
+    expect(isRevealedThisWayLedgerFirst(replayIrCtx, revealedModifyStep as any)).toBe(true);
+    expect(evaluateModifyPtWhereX(
+      replayGame.state as any,
+      replayPlayerId,
+      'X is the number of cards revealed this way',
+      undefined,
+      replayIrCtx,
+      undefined,
+      0,
+      revealedModifyStep as any,
+    )).toBe(2);
   });
 });

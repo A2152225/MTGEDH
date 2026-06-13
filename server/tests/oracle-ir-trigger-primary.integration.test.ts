@@ -393,7 +393,8 @@ describe('oracle IR trigger execution', () => {
       triggerItem: { id: 'littjara_chaos_2', source: 'plane_littjara' },
     });
 
-    expect(outcome.handled).toBe(false);
+    expect(outcome.handled).toBe(true);
+    expect(outcome.applied).toBe(0);
     const typeStep = ResolutionQueueManager
       .getStepsForPlayer(gameId, p1)
       .find((step: any) => step?.type === ResolutionStepType.CREATURE_TYPE_CHOICE);

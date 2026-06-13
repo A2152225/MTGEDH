@@ -1,3 +1,4 @@
+import { bindThisWayAntecedentOnAbilities } from './oracleIRThisWayBinding';
 import {
   type ParsedAbility,
   type OracleTextParseResult,
@@ -1778,6 +1779,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandBlightPrefixAbilities(abilities);
   abilities = annotateCounterMetadataAbilities(abilities);
   abilities = annotateSacrificeMetadataAbilities(abilities);
+  abilities = bindThisWayAntecedentOnAbilities(abilities);
   abilities = abilities.map(wrapTriggeredInterveningIfAbility);
 
   return {

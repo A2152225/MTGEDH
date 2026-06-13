@@ -1,4 +1,6 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
+import type { OracleEffectStep } from './oracleIR';
+import { resolveThisWayAntecedentStepIndex } from './oracleIRThisWayBinding';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import {
@@ -43,7 +45,8 @@ export function evaluateModifyPtWhereX(
   targetCreatureId?: string,
   ctx?: OracleIRExecutionContext,
   runtime?: ModifyPtRuntime,
-  depth = 0
+  depth = 0,
+  step?: OracleEffectStep,
 ): number | null {
   if (depth > 3) return null;
 
@@ -91,7 +94,7 @@ export function evaluateModifyPtWhereX(
   } = createModifyPtWhereEvaluatorContext(state, controllerId, whereRaw, targetCreatureId, ctx, runtime);
 
   const evaluateInner = (expr: string): number | null => {
-    return evaluateModifyPtWhereX(state, controllerId, `x is ${expr}`, targetCreatureId, ctx, runtime, depth + 1);
+    return evaluateModifyPtWhereX(state, controllerId, `x is ${expr}`, targetCreatureId, ctx, runtime, depth + 1, step);
   };
 
   {
@@ -194,7 +197,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const turnStats = tryEvaluateModifyPtWhereTurnStats({ state, controllerId, raw, runtime });
+    const turnStats = tryEvaluateModifyPtWhereTurnStats({ state, controllerId, raw, runtime, ctx, step });
     if (turnStats !== null) return turnStats;
   }
 
@@ -317,7 +320,8 @@ export function evaluateModifyPtWhereX(
       battlefield,
       controllerId,
       ctx,
-      runtime,
+      antecedentStepIndex: step ? resolveThisWayAntecedentStepIndex(ctx, step as OracleEffectStep, 'exile') : null,
+      step,
       countCardsExiledWithSource,
       findObjectByName,
       greatestPowerAmongCreatureCards,

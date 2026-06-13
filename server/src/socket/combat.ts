@@ -11,7 +11,7 @@ import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { getLandwalkUnblockableReason } from "../../../shared/src/combatLandwalk.js";
 import { getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
-import { buildTapTriggeredStackItem, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
+import { buildTapTriggeredStackItem, collectTapTriggersForTapEvent, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
 import { canExertAsItAttacks, getAttackTriggersForCreatures, getSupportedExertAttackReward } from "../state/modules/triggers/combat.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if.js";
 import { transformPermanentToFace } from "../state/modules/day-night.js";
@@ -31,11 +31,33 @@ function getDefendingPlayerIdFromAttackDeclaration(
 ): string | undefined {
   const first = attackers[0];
   if (!first) return undefined;
-  if (first.targetPlayerId) return String(first.targetPlayerId);
-  if (first.targetPermanentId) {
-    const targetPerm = battlefield.find((p: any) => p?.id === first.targetPermanentId);
+  return resolveDefendingPlayerIdForAttackTarget(first, battlefield) || undefined;
+}
+
+function resolveDefendingPlayerIdForAttackTarget(
+  attacker: { targetPlayerId?: string; targetPermanentId?: string },
+  battlefield: any[],
+  players?: any[],
+): string | undefined {
+  const playerIds = new Set(
+    (Array.isArray(players) ? players : [])
+      .map((player: any) => String(player?.id || '').trim())
+      .filter(Boolean),
+  );
+
+  const targetPlayerId = String(attacker.targetPlayerId || '').trim();
+  if (targetPlayerId) {
+    if (playerIds.size === 0 || playerIds.has(targetPlayerId)) return targetPlayerId;
+    const targetPerm = battlefield.find((perm: any) => String(perm?.id || '') === targetPlayerId);
     if (targetPerm?.controller) return String(targetPerm.controller);
   }
+
+  const targetPermanentId = String(attacker.targetPermanentId || '').trim();
+  if (targetPermanentId) {
+    const targetPerm = battlefield.find((perm: any) => String(perm?.id || '') === targetPermanentId);
+    if (targetPerm?.controller) return String(targetPerm.controller);
+  }
+
   return undefined;
 }
 
@@ -501,21 +523,23 @@ function processTapTriggersForAttackers(
       }
     };
     
-    // Check for tap triggers for each creature that was tapped
-    const allTapTriggers: Array<{ trigger: any; tappedPermanentId: string }> = [];
+    // Check for tap triggers for creatures tapped in this declare-attackers event.
+    const tappedAttackerIds: string[] = [];
     for (const attacker of attackers) {
       const creature = battlefield.find((p: any) => p?.id === attacker.creatureId);
       if (!creature) continue;
-      
-      // Only process tap triggers if the creature was actually tapped
+
       const hasVigilance = permanentHasKeyword(creature, battlefield, attackingPlayerId, 'vigilance');
       if (!hasVigilance && creature.tapped) {
-        // Get the actual controller of the creature (may be different from attackingPlayerId in controlled combat)
-        const creatureController = creature.controller || attackingPlayerId;
-        const tapTriggers = getTapTriggers(ctx as any, creature, creatureController);
-        allTapTriggers.push(...tapTriggers.map((trigger: any) => ({ trigger, tappedPermanentId: String(creature.id) })));
+        tappedAttackerIds.push(String(creature.id));
       }
     }
+
+    const allTapTriggers = collectTapTriggersForTapEvent(
+      ctx as any,
+      tappedAttackerIds,
+      String(attackingPlayerId),
+    );
     
     // Push tap triggers to stack and notify clients
     if (allTapTriggers.length > 0) {
@@ -1756,18 +1780,31 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // Calculate total attack cost based on which players are being attacked
       let totalAttackCostRequired = 0;
       const attackCostBreakdown: { playerId: string; cost: number; sources: string[] }[] = [];
+      const attackCostByDefender = new Map<string, { cost: number; sources: string[] }>();
       
       for (const attacker of attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
-        const targetPlayerId = attacker.targetPlayerId;
-        if (targetPlayerId && attackCostPerDefender.has(targetPlayerId)) {
-          const costInfo = attackCostPerDefender.get(targetPlayerId)!;
+        const defendingPlayerId = resolveDefendingPlayerIdForAttackTarget(attacker, battlefield, players);
+        if (defendingPlayerId && attackCostPerDefender.has(defendingPlayerId)) {
+          const costInfo = attackCostPerDefender.get(defendingPlayerId)!;
           totalAttackCostRequired += costInfo.cost;
-          attackCostBreakdown.push({
-            playerId: targetPlayerId,
-            cost: costInfo.cost,
-            sources: costInfo.sources,
-          });
+          const existing = attackCostByDefender.get(defendingPlayerId);
+          if (existing) {
+            existing.cost += costInfo.cost;
+          } else {
+            attackCostByDefender.set(defendingPlayerId, {
+              cost: costInfo.cost,
+              sources: [...costInfo.sources],
+            });
+          }
         }
+      }
+
+      for (const [playerIdKey, costInfo] of attackCostByDefender.entries()) {
+        attackCostBreakdown.push({
+          playerId: playerIdKey,
+          cost: costInfo.cost,
+          sources: costInfo.sources,
+        });
       }
       
       for (const attacker of attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
@@ -2095,6 +2132,16 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         });
       } catch (e) {
         debugWarn(1, "[combat] Failed to persist declareAttackers event:", e);
+      }
+
+      try {
+        const stateAny = game.state as any;
+        stateAny.attackersDeclaredBy = Array.isArray(stateAny.attackersDeclaredBy) ? stateAny.attackersDeclaredBy : [];
+        if (!stateAny.attackersDeclaredBy.includes(playerId)) {
+          stateAny.attackersDeclaredBy.push(playerId);
+        }
+      } catch (e) {
+        debugWarn(1, "[combat] Failed to record attackersDeclaredBy:", e);
       }
 
       // Broadcast chat message
@@ -3055,6 +3102,10 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           playerId,
           attackers: [],
         });
+        stateAny.attackersDeclaredBy = Array.isArray(stateAny.attackersDeclaredBy) ? stateAny.attackersDeclaredBy : [];
+        if (!stateAny.attackersDeclaredBy.includes(playerId)) {
+          stateAny.attackersDeclaredBy.push(playerId);
+        }
       } catch (e) {
         debugWarn(2, '[combat] Failed to persist skipDeclareAttackers declareAttackers event:', e);
       }

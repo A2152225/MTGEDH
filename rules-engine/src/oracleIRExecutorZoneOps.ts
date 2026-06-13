@@ -13,6 +13,11 @@ import {
 } from './oracleIRExecutorPlayerUtils';
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
+import {
+  type OracleIrBattlefieldEntryContext,
+  resolveBattlefieldEntryFromOracleIrContext,
+} from './oracleIRExecutorBattlefieldEntryCommit';
+import { commitCardZoneChanges } from './oracleIRExecutorCardZoneTransitionCommit';
 
 export type SimpleCardType =
   | 'any'
@@ -1826,6 +1831,46 @@ export function putExactMatchingFromGraveyardOntoBattlefieldWithController(
   };
 }
 
+function tryCommitNonBattlefieldZoneMove(args: {
+  state: GameState;
+  playerId: PlayerID;
+  card: unknown;
+  sourceZone: 'graveyard' | 'exile' | 'hand' | 'library';
+  intendedDestination: 'hand' | 'graveyard' | 'exile' | 'library';
+  libraryPlacement?: 'top' | 'bottom';
+  oracleIrEntry?: OracleIrBattlefieldEntryContext;
+}):
+  | { readonly kind: 'not_bridged' }
+  | { readonly kind: 'halted' }
+  | { readonly kind: 'impossible' }
+  | { readonly kind: 'applied'; readonly state: GameState; readonly movedCards: readonly any[] } {
+  const ctx = args.oracleIrEntry?.ctx;
+  const stepIndex = ctx?.currentStepIndex;
+  if (!ctx?.serverBridge || !Number.isFinite(stepIndex)) {
+    return { kind: 'not_bridged' };
+  }
+
+  const commitResult = commitCardZoneChanges({
+    state: args.state,
+    playerId: args.playerId,
+    cards: [args.card],
+    sourceZone: args.sourceZone,
+    intendedDestination: args.intendedDestination,
+    stepIndex: Number(stepIndex),
+    stepKind: args.oracleIrEntry?.stepKind || 'move_zone',
+    cause: 'oracle_ir:move_zone',
+    ctx,
+    libraryPlacement: args.libraryPlacement,
+  });
+  if (commitResult.halted) return { kind: 'halted' };
+  if (commitResult.movedCards.length === 0) return { kind: 'impossible' };
+  return {
+    kind: 'applied',
+    state: commitResult.state,
+    movedCards: commitResult.movedCards,
+  };
+}
+
 export function moveTargetedCardFromGraveyard(
   state: GameState,
   playerId: PlayerID,
@@ -1839,14 +1884,15 @@ export function moveTargetedCardFromGraveyard(
   attachedToBattlefieldPermanentId?: string,
   referenceCardName?: string,
   battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
-  referencePower?: number
+  referencePower?: number,
+  oracleIrEntry?: OracleIrBattlefieldEntryContext
 ): {
   readonly kind: 'applied';
   readonly state: GameState;
   readonly log: readonly string[];
   readonly movedCards: readonly any[];
   readonly movedPermanentIds?: readonly string[];
-} | { readonly kind: 'impossible' } {
+} | { readonly kind: 'impossible' } | { readonly kind: 'halted' } {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { kind: 'impossible' };
 
@@ -1864,6 +1910,24 @@ export function moveTargetedCardFromGraveyard(
 
   const kept = graveyard.filter((_: any, i: number) => i !== index);
   if (destination === 'hand') {
+    const bridged = tryCommitNonBattlefieldZoneMove({
+      state,
+      playerId,
+      card,
+      sourceZone: 'graveyard',
+      intendedDestination: 'hand',
+      oracleIrEntry,
+    });
+    if (bridged.kind === 'halted') return { kind: 'halted' };
+    if (bridged.kind === 'applied') {
+      return {
+        kind: 'applied',
+        state: bridged.state,
+        log: [`${playerId} returns 1 card from graveyard to hand`],
+        movedCards: [...bridged.movedCards],
+      };
+    }
+
     const hand = Array.isArray(player.hand) ? [...player.hand] : [];
     const updatedPlayers = state.players.map(p =>
       p.id === playerId ? ({ ...(p as any), graveyard: kept, hand: [...hand, card] } as any) : p
@@ -1877,6 +1941,24 @@ export function moveTargetedCardFromGraveyard(
   }
 
   if (destination === 'exile') {
+    const bridged = tryCommitNonBattlefieldZoneMove({
+      state,
+      playerId,
+      card,
+      sourceZone: 'graveyard',
+      intendedDestination: 'exile',
+      oracleIrEntry,
+    });
+    if (bridged.kind === 'halted') return { kind: 'halted' };
+    if (bridged.kind === 'applied') {
+      return {
+        kind: 'applied',
+        state: bridged.state,
+        log: [`${playerId} exiles 1 card from graveyard`],
+        movedCards: [...bridged.movedCards],
+      };
+    }
+
     const exile = Array.isArray(player.exile) ? [...player.exile] : [];
     const updatedPlayers = state.players.map(p =>
       p.id === playerId ? ({ ...(p as any), graveyard: kept, exile: [...exile, card] } as any) : p
@@ -1890,6 +1972,25 @@ export function moveTargetedCardFromGraveyard(
   }
 
   if (destination === 'library_top' || destination === 'library_bottom') {
+    const bridged = tryCommitNonBattlefieldZoneMove({
+      state,
+      playerId,
+      card,
+      sourceZone: 'graveyard',
+      intendedDestination: 'library',
+      libraryPlacement: destination === 'library_top' ? 'top' : 'bottom',
+      oracleIrEntry,
+    });
+    if (bridged.kind === 'halted') return { kind: 'halted' };
+    if (bridged.kind === 'applied') {
+      return {
+        kind: 'applied',
+        state: bridged.state,
+        log: [`${playerId} puts 1 card from graveyard on the ${destination === 'library_top' ? 'top' : 'bottom'} of their library`],
+        movedCards: [...bridged.movedCards],
+      };
+    }
+
     const library = Array.isArray(player.library) ? [...player.library] : [];
     const nextLibrary = destination === 'library_top' ? [card, ...library] : [...library, card];
     const updatedPlayers = state.players.map(p =>
@@ -1914,13 +2015,22 @@ export function moveTargetedCardFromGraveyard(
     return { kind: 'impossible' };
   }
 
+  const entryResolution = resolveBattlefieldEntryBeforeCommit(
+    state,
+    card,
+    controllerId,
+    { entersTapped, entersFaceDown, withCounters },
+    oracleIrEntry,
+  );
+  if (entryResolution.kind === 'halted') return { kind: 'halted' };
+
   const newPermanent = createBattlefieldPermanentsFromCards(
     [card],
     playerId,
     controllerId,
-    entersTapped,
-    entersFaceDown,
-    withCounters,
+    entryResolution.entersTapped,
+    entryResolution.entersFaceDown,
+    entryResolution.withCounters,
     'gy',
     attachmentTarget,
     battlefieldEntryOverrides
@@ -1947,14 +2057,15 @@ export function moveTopCardFromLibrary(
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string,
   battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
-  faceDownWardCost?: string
+  faceDownWardCost?: string,
+  oracleIrEntry?: OracleIrBattlefieldEntryContext
 ): {
   readonly kind: 'applied';
   readonly state: GameState;
   readonly log: readonly string[];
   readonly movedCards: readonly any[];
   readonly movedPermanentIds?: readonly string[];
-} | { readonly kind: 'impossible' } {
+} | { readonly kind: 'impossible' } | { readonly kind: 'halted' } {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { kind: 'impossible' };
 
@@ -2041,13 +2152,22 @@ export function moveTopCardFromLibrary(
     return { kind: 'impossible' };
   }
 
+  const entryResolution = resolveBattlefieldEntryBeforeCommit(
+    state,
+    card,
+    controllerId,
+    { entersTapped, entersFaceDown, withCounters },
+    oracleIrEntry,
+  );
+  if (entryResolution.kind === 'halted') return { kind: 'halted' };
+
   const newPermanent = createBattlefieldPermanentsFromCards(
     [card],
     playerId,
     controllerId,
-    entersTapped,
-    entersFaceDown,
-    withCounters,
+    entryResolution.entersTapped,
+    entryResolution.entersFaceDown,
+    entryResolution.withCounters,
     'library',
     attachmentTarget,
     battlefieldEntryOverrides,
@@ -5950,13 +6070,14 @@ export function moveTargetedCardFromHand(
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string,
-  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides
+  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
+  oracleIrEntry?: OracleIrBattlefieldEntryContext
 ): {
   readonly kind: 'applied';
   readonly state: GameState;
   readonly log: readonly string[];
   readonly movedPermanentIds?: readonly string[];
-} | { readonly kind: 'impossible' } {
+} | { readonly kind: 'impossible' } | { readonly kind: 'halted' } {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { kind: 'impossible' };
 
@@ -6007,13 +6128,22 @@ export function moveTargetedCardFromHand(
     return { kind: 'impossible' };
   }
 
+  const entryResolution = resolveBattlefieldEntryBeforeCommit(
+    state,
+    card,
+    controllerId,
+    { entersTapped, entersFaceDown, withCounters },
+    oracleIrEntry,
+  );
+  if (entryResolution.kind === 'halted') return { kind: 'halted' };
+
   const newPermanent = createBattlefieldPermanentsFromCards(
     [card],
     playerId,
     controllerId,
-    entersTapped,
-    entersFaceDown,
-    withCounters,
+    entryResolution.entersTapped,
+    entryResolution.entersFaceDown,
+    entryResolution.withCounters,
     'hand',
     attachmentTarget,
     battlefieldEntryOverrides
@@ -6040,13 +6170,14 @@ export function moveTargetedCardFromExile(
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string,
-  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides
+  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
+  oracleIrEntry?: OracleIrBattlefieldEntryContext
 ): {
   readonly kind: 'applied';
   readonly state: GameState;
   readonly log: readonly string[];
   readonly movedPermanentIds?: readonly string[];
-} | { readonly kind: 'impossible' } {
+} | { readonly kind: 'impossible' } | { readonly kind: 'halted' } {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { kind: 'impossible' };
 
@@ -6062,6 +6193,23 @@ export function moveTargetedCardFromExile(
 
   const kept = exile.filter((_: any, i: number) => i !== index);
   if (destination === 'hand') {
+    const bridged = tryCommitNonBattlefieldZoneMove({
+      state,
+      playerId,
+      card,
+      sourceZone: 'exile',
+      intendedDestination: 'hand',
+      oracleIrEntry,
+    });
+    if (bridged.kind === 'halted') return { kind: 'halted' };
+    if (bridged.kind === 'applied') {
+      return {
+        kind: 'applied',
+        state: bridged.state,
+        log: [`${playerId} returns 1 card from exile to hand`],
+      };
+    }
+
     const hand = Array.isArray(player.hand) ? [...player.hand] : [];
     const updatedPlayers = state.players.map(p =>
       p.id === playerId ? ({ ...(p as any), exile: kept, hand: [...hand, card] } as any) : p
@@ -6074,6 +6222,23 @@ export function moveTargetedCardFromExile(
   }
 
   if (destination === 'graveyard') {
+    const bridged = tryCommitNonBattlefieldZoneMove({
+      state,
+      playerId,
+      card,
+      sourceZone: 'exile',
+      intendedDestination: 'graveyard',
+      oracleIrEntry,
+    });
+    if (bridged.kind === 'halted') return { kind: 'halted' };
+    if (bridged.kind === 'applied') {
+      return {
+        kind: 'applied',
+        state: bridged.state,
+        log: [`${playerId} puts 1 card from exile to graveyard`],
+      };
+    }
+
     const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
     const movedCard = stampCardPutIntoGraveyardThisTurn(state, card);
     const updatedPlayers = state.players.map(p =>
@@ -6097,13 +6262,22 @@ export function moveTargetedCardFromExile(
     return { kind: 'impossible' };
   }
 
+  const entryResolution = resolveBattlefieldEntryBeforeCommit(
+    state,
+    card,
+    controllerId,
+    { entersTapped, entersFaceDown, withCounters },
+    oracleIrEntry,
+  );
+  if (entryResolution.kind === 'halted') return { kind: 'halted' };
+
   const newPermanent = createBattlefieldPermanentsFromCards(
     [card],
     playerId,
     controllerId,
-    entersTapped,
-    entersFaceDown,
-    withCounters,
+    entryResolution.entersTapped,
+    entryResolution.entersFaceDown,
+    entryResolution.withCounters,
     'exile',
     attachmentTarget,
     battlefieldEntryOverrides
@@ -6704,6 +6878,34 @@ export function parseMoveZoneAllFromEachOpponentsExile(what: { readonly kind: st
   const parsed = parseSimpleCardTypeFromText(typeText);
   if (!parsed) return null;
   return { cardType: parsed };
+}
+
+function resolveBattlefieldEntryBeforeCommit(
+  state: GameState,
+  card: unknown,
+  controllerId: PlayerID,
+  explicit: {
+    readonly entersTapped?: boolean;
+    readonly entersFaceDown?: boolean;
+    readonly withCounters?: Record<string, number>;
+  },
+  oracleIrEntry?: OracleIrBattlefieldEntryContext,
+):
+  | {
+      readonly kind: 'resolved';
+      readonly entersTapped: boolean;
+      readonly entersFaceDown: boolean;
+      readonly withCounters: Record<string, number>;
+    }
+  | { readonly kind: 'halted' } {
+  const resolved = resolveBattlefieldEntryFromOracleIrContext(state, card, controllerId, explicit, oracleIrEntry);
+  if ('halted' in resolved) return { kind: 'halted' };
+  return {
+    kind: 'resolved',
+    entersTapped: resolved.entersTapped,
+    entersFaceDown: resolved.entersFaceDown,
+    withCounters: resolved.withCounters,
+  };
 }
 
 export function createBattlefieldPermanentsFromCards(

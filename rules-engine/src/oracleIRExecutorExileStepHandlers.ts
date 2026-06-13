@@ -19,6 +19,12 @@ import {
 import { cardMatchesExileSelectorText } from './oracleIRExecutorZoneOps';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
+import type { PlayerZoneChangeBridgeContext } from './oracleIRExecutorCardZoneTransitionCommit';
+import {
+  omitBridgedStepCarryOver,
+  usedOracleIrServerBridge,
+} from './oracleIRStepLedgerRuntime';
+import { collectExiledCardsLedgerFirst } from './oracleIRLedgerCardAccess';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -26,6 +32,7 @@ type StepApplyResult = {
   readonly log: readonly string[];
   readonly lastExiledCardCount: number;
   readonly lastExiledCards: readonly any[];
+  readonly skipLedgerFlush?: boolean;
 };
 
 type StepSkipResult = {
@@ -127,6 +134,25 @@ function resolveExileCounts(
   return exileCountByPlayer;
 }
 
+function buildExileTopBridgeOptions(
+  ctx: OracleIRExecutionContext,
+  stepKind: string,
+): PlayerZoneChangeBridgeContext | undefined {
+  if (!usedOracleIrServerBridge(ctx)) return undefined;
+  return {
+    ctx,
+    stepIndex: Number(ctx.currentStepIndex),
+    stepKind,
+  };
+}
+
+function withExileTopLedgerFlags<T extends Record<string, unknown>>(
+  result: T,
+  ledgerRecordedViaBridge?: boolean,
+): T & { skipLedgerFlush?: boolean } {
+  return omitBridgedStepCarryOver(result, { ledgerRecordedViaBridge });
+}
+
 export function applyExileTopStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'exile_top' }>,
@@ -156,23 +182,35 @@ export function applyExileTopStep(
   let totalExiled = 0;
   const exiledCardsThisStep: any[] = [];
   const log: string[] = [];
+  let ledgerRecordedViaBridge = false;
+  const bridgeOptions = buildExileTopBridgeOptions(ctx, step.kind);
 
   for (const playerId of players) {
     const amount = exileCountByPlayer.get(playerId) ?? 0;
-    const result = exileTopCardsForPlayer(nextState, playerId, amount);
+    const result = exileTopCardsForPlayer(nextState, playerId, amount, bridgeOptions);
+    if (result.halted) {
+      return withExileTopLedgerFlags({
+        applied: true,
+        state: nextState,
+        log,
+        lastExiledCardCount: totalExiled,
+        lastExiledCards: exiledCardsThisStep,
+      }, ledgerRecordedViaBridge);
+    }
     nextState = result.state;
     totalExiled += Math.max(0, result.exiled.length | 0);
     exiledCardsThisStep.push(...(result.exiled as any[]));
     log.push(...result.log);
+    if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
   }
 
-  return {
+  return withExileTopLedgerFlags({
     applied: true,
     state: nextState,
     log,
     lastExiledCardCount: totalExiled,
     lastExiledCards: exiledCardsThisStep,
-  };
+  }, ledgerRecordedViaBridge);
 }
 
 export function applyImpulseExileTopStep(
@@ -219,14 +257,26 @@ export function applyImpulseExileTopStep(
   let totalExiled = 0;
   const exiledCardsThisStep: any[] = [];
   const log: string[] = [];
+  let ledgerRecordedViaBridge = false;
+  const bridgeOptions = buildExileTopBridgeOptions(ctx, step.kind);
 
   for (const playerId of players) {
     const amount = exileCountByPlayer.get(playerId) ?? 0;
-    const result = exileTopCardsForPlayer(nextState, playerId, amount);
+    const result = exileTopCardsForPlayer(nextState, playerId, amount, bridgeOptions);
+    if (result.halted) {
+      return withExileTopLedgerFlags({
+        applied: true,
+        state: nextState,
+        log,
+        lastExiledCardCount: totalExiled,
+        lastExiledCards: exiledCardsThisStep,
+      }, ledgerRecordedViaBridge);
+    }
     nextState = result.state;
     totalExiled += Math.max(0, result.exiled.length | 0);
     exiledCardsThisStep.push(...(result.exiled as any[]));
     log.push(...result.log);
+    if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
 
     const markerResult = applyImpulsePermissionMarkers(nextState, playerId, result.exiled, {
       permission,
@@ -255,13 +305,13 @@ export function applyImpulseExileTopStep(
     }
   }
 
-  return {
+  return withExileTopLedgerFlags({
     applied: true,
     state: nextState,
     log,
     lastExiledCardCount: totalExiled,
     lastExiledCards: exiledCardsThisStep,
-  };
+  }, ledgerRecordedViaBridge);
 }
 
 export function applyModifyExilePermissionsStep(
@@ -270,9 +320,11 @@ export function applyModifyExilePermissionsStep(
   runtime: {
     readonly lastExiledCards?: readonly any[];
   },
-  _ctx?: OracleIRExecutionContext
+  ctx?: OracleIRExecutionContext
 ): ExilePermissionModifierResult {
-  const lastExiledCards = Array.isArray(runtime.lastExiledCards) ? runtime.lastExiledCards : [];
+  const lastExiledCards = ctx
+    ? collectExiledCardsLedgerFirst(ctx, runtime)
+    : (Array.isArray(runtime.lastExiledCards) ? runtime.lastExiledCards : []);
   const exiledIds = new Set(
     lastExiledCards
       .map(card => String((card as any)?.id ?? (card as any)?.cardId ?? '').trim())

@@ -15,6 +15,10 @@ import {
   parseMoveZoneSingleTargetFromLinkedExile,
 } from './oracleIRExecutorZoneOps';
 import { getCardManaValue, quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import {
+  resolveBattlefieldEntryFromOracleIrContext,
+  type OracleIrBattlefieldEntryContext,
+} from './oracleIRExecutorBattlefieldEntryCommit';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -1316,6 +1320,52 @@ function resolveCopyTokenSource(
   return { kind: 'unavailable' };
 }
 
+function tokenCharacteristicsToEntryCard(characteristics: {
+  readonly name?: string;
+  readonly types?: readonly string[];
+  readonly subtypes?: readonly string[];
+  readonly abilities?: readonly string[];
+  readonly isLegendary?: boolean;
+  readonly isArtifact?: boolean;
+}): any {
+  const cardTypes = [...(characteristics.types || [])];
+  if (characteristics.isArtifact && !cardTypes.includes('Artifact')) cardTypes.unshift('Artifact');
+  const subtypeText = [...(characteristics.subtypes || [])].join(' ');
+  const mainTypes = [
+    characteristics.isLegendary ? 'Legendary' : '',
+    ...cardTypes,
+  ].filter(Boolean).join(' ');
+  const typeLine = subtypeText ? `${mainTypes} — ${subtypeText}` : mainTypes || 'Creature';
+  return {
+    name: characteristics.name || 'Token',
+    type_line: typeLine,
+    oracle_text: (characteristics.abilities || []).join('\n'),
+  };
+}
+
+function resolveTokenBattlefieldEntry(
+  state: GameState,
+  tokenCard: unknown,
+  controllerId: PlayerID,
+  ctx: OracleIRExecutionContext,
+  explicit: {
+    readonly entersTapped?: boolean;
+    readonly withCounters?: Record<string, number>;
+    readonly copySourceId?: string;
+  },
+): { readonly entersTapped: boolean; readonly withCounters: Record<string, number>; readonly halted: boolean } {
+  const entry: OracleIrBattlefieldEntryContext = { ctx, stepKind: 'create_token' };
+  const resolved = resolveBattlefieldEntryFromOracleIrContext(state, tokenCard, controllerId, explicit, entry);
+  if ('halted' in resolved) {
+    return { entersTapped: false, withCounters: {}, halted: true };
+  }
+  return {
+    entersTapped: resolved.entersTapped,
+    withCounters: resolved.withCounters,
+    halted: false,
+  };
+}
+
 function addTokensToBattlefield(
   state: GameState,
   controllerId: PlayerID,
@@ -1367,6 +1417,17 @@ function addTokensToBattlefield(
     const copyParts = splitCopyTokenReference(tokenHint);
     const overrides = parseCopyTokenOverrides(copyParts?.exceptionText || '');
     const count = Math.max(1, amount | 0);
+    const copyCard = (copySource.sourceObject as any)?.card || copySource.sourceObject;
+    const entryMods = resolveTokenBattlefieldEntry(state, copyCard, controllerId, ctx, {
+      entersTapped,
+      withCounters,
+      copySourceId: copySourcePermanentId,
+    });
+    if (entryMods.halted) {
+      return { applied: true, state, log: [] };
+    }
+    const resolvedEntersTapped = entryMods.entersTapped;
+    const resolvedWithCounters = entryMods.withCounters;
     const copiedTokens: BattlefieldPermanent[] = [];
     for (let idx = 0; idx < count; idx += 1) {
       const token = createCopiedTokenPermanent({
@@ -1375,8 +1436,8 @@ function addTokensToBattlefield(
           sourceId: ctx.sourceId,
           sourceName: ctx.sourceName,
           copySourcePermanentId,
-          entersTapped,
-          withCounters,
+          entersTapped: resolvedEntersTapped,
+          withCounters: resolvedWithCounters,
           overrides,
         }) as any;
 
@@ -1437,16 +1498,32 @@ function addTokensToBattlefield(
   if (hintedName) {
     const commonKey = resolveCommonTokenKey(hintedName);
     if (commonKey) {
+      const commonCharacteristics = COMMON_TOKENS[commonKey];
+      const entryMods = resolveTokenBattlefieldEntry(
+        state,
+        tokenCharacteristicsToEntryCard(commonCharacteristics),
+        controllerId,
+        ctx,
+        { entersTapped, withCounters },
+      );
+      if (entryMods.halted) {
+        return { applied: true, state, log: [] };
+      }
       const count = Math.max(1, amount | 0);
-      const result = hasOverrides
+      const needsExplicitEntry =
+        hasOverrides || entryMods.entersTapped || Object.keys(entryMods.withCounters).length > 0;
+      const result = needsExplicitEntry
         ? createTokens(
             {
-              characteristics: { ...COMMON_TOKENS[commonKey], entersTapped: entersTapped || undefined },
+              characteristics: {
+                ...commonCharacteristics,
+                entersTapped: entryMods.entersTapped || entersTapped || undefined,
+              },
               count,
               controllerId,
               sourceId: ctx.sourceId,
               sourceName: ctx.sourceName,
-              withCounters,
+              withCounters: entryMods.withCounters,
             },
             state.battlefield || []
           )
@@ -1493,14 +1570,42 @@ function addTokensToBattlefield(
   if (!hasOverrides) {
     const commonKey = resolveCommonTokenKey(tokenParse.characteristics.name);
     if (commonKey) {
-      const commonParsed = createTokensByName(
-        commonKey,
-        count,
+      const commonCharacteristics = COMMON_TOKENS[commonKey];
+      const entryMods = resolveTokenBattlefieldEntry(
+        state,
+        tokenCharacteristicsToEntryCard(commonCharacteristics),
         controllerId,
-        state.battlefield || [],
-        ctx.sourceId,
-        ctx.sourceName
+        ctx,
+        { entersTapped, withCounters },
       );
+      if (entryMods.halted) {
+        return { applied: true, state, log: [] };
+      }
+      const needsExplicitEntry =
+        entryMods.entersTapped || Object.keys(entryMods.withCounters).length > 0;
+      const commonParsed = needsExplicitEntry
+        ? createTokens(
+            {
+              characteristics: {
+                ...commonCharacteristics,
+                entersTapped: entryMods.entersTapped || undefined,
+              },
+              count,
+              controllerId,
+              sourceId: ctx.sourceId,
+              sourceName: ctx.sourceName,
+              withCounters: entryMods.withCounters,
+            },
+            state.battlefield || []
+          )
+        : createTokensByName(
+            commonKey,
+            count,
+            controllerId,
+            state.battlefield || [],
+            ctx.sourceId,
+            ctx.sourceName
+          );
       if (commonParsed) {
         const tokensToAdd = commonParsed.tokens.map(token => {
           const createdToken = token.token as any;
@@ -1532,17 +1637,28 @@ function addTokensToBattlefield(
     }
   }
 
+  const parsedEntryMods = resolveTokenBattlefieldEntry(
+    state,
+    tokenCharacteristicsToEntryCard(tokenParse.characteristics),
+    controllerId,
+    ctx,
+    { entersTapped, withCounters },
+  );
+  if (parsedEntryMods.halted) {
+    return { applied: true, state, log: [] };
+  }
+
   const created = createTokens(
     {
       characteristics: {
         ...tokenParse.characteristics,
-        entersTapped: entersTapped ?? tokenParse.characteristics.entersTapped,
+        entersTapped: parsedEntryMods.entersTapped ?? entersTapped ?? tokenParse.characteristics.entersTapped,
       },
       count,
       controllerId,
       sourceId: ctx.sourceId,
       sourceName: ctx.sourceName,
-      withCounters,
+      withCounters: parsedEntryMods.withCounters,
     },
     state.battlefield || []
   );

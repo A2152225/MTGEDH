@@ -51,6 +51,38 @@ import {
   applyCounterModifications,
   updateCounters,
 } from './counters_tokens.js';
+import { getTokenImageUrls } from '../../services/tokens.js';
+import {
+  createOracleIRServerExecutionBridge,
+  queueOracleIrDeferredReplacementPrompts,
+  readAppliedStepKindsFromState,
+  readStepLedgerFromState,
+} from './oracleIrTransitionPipeline.js';
+import { createEmptyStepLedger } from '../../../../rules-engine/src/oracleIRStepLedger.js';
+import type { OracleIRTransitionHaltState } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
+
+function enrichBattlefieldTokenImages(state: any): void {
+  for (const perm of state?.battlefield || []) {
+    if (!perm?.isToken || !perm?.card) continue;
+    const card = perm.card as any;
+    if (card?.image_uris?.normal || card?.image_uris?.small) continue;
+
+    const oracleText = String(card.oracle_text || '').toLowerCase();
+    const abilities = ['hexproof', 'flying', 'vigilance', 'menace', 'deathtouch', 'lifelink', 'ward', 'haste', 'reach']
+      .filter((keyword) => oracleText.includes(keyword));
+
+    const imageUrls = getTokenImageUrls(
+      String(card.name || 'Token'),
+      card.power,
+      card.toughness,
+      Array.isArray(card.colors) ? card.colors : undefined,
+      abilities.length > 0 ? abilities : undefined,
+    );
+    if (imageUrls) {
+      card.image_uris = imageUrls;
+    }
+  }
+}
 
 /**
  * The live server stores libraries in ctx.libraries and zone summaries in state.zones,
@@ -644,6 +676,12 @@ function queueTopLibraryChoicePromptsFromOracleIRResult(
           sourceName,
           scryCount: actualCount,
           cards,
+          persistOracleIrScryResolve: true,
+          persistOracleIrScryResolveReason: 'stack_resolution',
+          oracleIrChoiceStepJson: JSON.stringify([step]),
+          oracleIrControllerId: params.controller,
+          oracleIrSourceId: sourceId,
+          oracleIrSourceName: sourceName,
         } as any, result, params) as any);
         continue;
       }
@@ -657,6 +695,12 @@ function queueTopLibraryChoicePromptsFromOracleIRResult(
         sourceName,
         surveilCount: actualCount,
         cards,
+        persistOracleIrSurveilResolve: true,
+        persistOracleIrSurveilResolveReason: 'stack_resolution',
+        oracleIrChoiceStepJson: JSON.stringify([step]),
+        oracleIrControllerId: params.controller,
+        oracleIrSourceId: sourceId,
+        oracleIrSourceName: sourceName,
       } as any, result, params) as any);
     }
   }
@@ -1637,6 +1681,46 @@ function queueChangeTargetChoicePromptsFromOracleIRResult(
       oracleIrChangeTargetPhase: 'choose_spell',
     } as any, result, params) as any);
   }
+}
+
+function normalizeOracleIrTopLibraryIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (typeof entry === 'string') return entry.trim();
+      if (entry && typeof entry === 'object') {
+        return String((entry as { id?: string }).id || '').trim();
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function extractOracleIrTopLibraryOrderingFromResponse(
+  stepKind: 'scry' | 'surveil',
+  selections: unknown,
+): Record<string, unknown> | null {
+  if (!selections || typeof selections !== 'object' || Array.isArray(selections)) {
+    return null;
+  }
+  const record = selections as Record<string, unknown>;
+  const keepTopOrder = normalizeOracleIrTopLibraryIdList(record.keepTopOrder);
+  if (stepKind === 'scry') {
+    const bottomOrder = normalizeOracleIrTopLibraryIdList(record.bottomOrder);
+    if (keepTopOrder.length + bottomOrder.length === 0) return null;
+    return {
+      keepTopOrder,
+      bottomOrder,
+      scryResolutionComplete: true,
+    };
+  }
+  const toGraveyard = normalizeOracleIrTopLibraryIdList(record.toGraveyard);
+  if (keepTopOrder.length + toGraveyard.length === 0) return null;
+  return {
+    keepTopOrder,
+    toGraveyard,
+    surveilResolutionComplete: true,
+  };
 }
 
 function extractOracleIrSelectionIds(selections: unknown): string[] {
@@ -2787,7 +2871,11 @@ export function resumeOracleIRStepWithChoiceFromResolution(
 export function maybeApplyOracleIrChoiceStepFromResolution(
   ctx: GameContext,
   step: any,
-  response: { readonly selections?: unknown; readonly cancelled?: boolean },
+  response: {
+    readonly selections?: unknown;
+    readonly cancelled?: boolean;
+    readonly splitAssignments?: { toBattlefield?: string[]; toHand?: string[] };
+  },
 ): OracleIRExecutionResult | null {
   if (response.cancelled) {
     return null;
@@ -2898,11 +2986,24 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
       chosenObjectIds = selectionIds;
       selectorContext = { chosenSpellId: selectionIds[0], chosenObjectIds: selectionIds };
     }
+  } else if (firstStep?.kind === 'scry' || firstStep?.kind === 'surveil') {
+    const orderingContext = extractOracleIrTopLibraryOrderingFromResponse(
+      firstStep.kind,
+      response.selections,
+    );
+    if (!orderingContext) {
+      return null;
+    }
+    selectorContext = orderingContext;
   } else if (firstStep?.kind === 'connive' || firstStep?.kind === 'discard' || firstStep?.kind === 'sacrifice' || firstStep?.kind === 'search_library') {
     if (selectionIds.length === 0) {
       return null;
     }
     chosenObjectIds = selectionIds;
+    const splitAssignments = (response as { splitAssignments?: { toBattlefield?: string[]; toHand?: string[] } }).splitAssignments;
+    if (splitAssignments && typeof splitAssignments === 'object' && !Array.isArray(splitAssignments)) {
+      selectorContext = { chosenObjectIds: selectionIds, splitAssignments };
+    }
   } else if (firstStep?.kind === 'player_choice' || playerChoiceKind) {
     const choiceId = selectionIds[0] || '';
     if (!choiceId) {
@@ -3088,15 +3189,43 @@ export function applyOracleIRStepsOnServer(
         irCtx,
       );
 
+  const stepLedger = createEmptyStepLedger(
+    irCtx.stepLedger ?? readStepLedgerFromState(state),
+  );
+  const appliedStepKinds = irCtx.appliedStepKinds
+    ? new Map(irCtx.appliedStepKinds)
+    : readAppliedStepKindsFromState(state);
+  const transitionHaltState: OracleIRTransitionHaltState = irCtx.transitionHaltState ?? {
+    halted: false,
+    deferred: [],
+  };
+  const serverBridge = createOracleIRServerExecutionBridge({
+    state,
+    ledger: stepLedger,
+    interactivePlayerChoices: irCtx.interactivePlayerChoices ?? true,
+    haltState: transitionHaltState,
+  });
+
   const result = applyOracleIRStepsToGameState(state, adjustedSteps, {
     ...irCtx,
+    stepLedger,
+    appliedStepKinds,
+    transitionHaltState,
     interactivePlayerChoices: irCtx.interactivePlayerChoices ?? true,
     deferStackSpellCopiesToServer: true,
+    serverBridge,
   }, {
     ...options,
     haltOnPlayerChoiceRequired: options.haltOnPlayerChoiceRequired ?? true,
   });
   Object.assign(state, result.state);
+  queueOracleIrDeferredReplacementPrompts(ctx, transitionHaltState, {
+    controller: String(controller),
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    continuationSteps: result.pendingContinuationSteps,
+  });
+  enrichBattlefieldTokenImages(state);
   syncCounterReplacementEffectsAfterOracleIR(ctx, state, countersBefore);
   syncOracleIRPlayerZonesToContext(ctx, state, controller, graveyardBefore);
   bridgeScheduleDelayedFlickerReturnsFromOracleIRResult(ctx, state, result, exileBefore, {

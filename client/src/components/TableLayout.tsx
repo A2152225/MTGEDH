@@ -28,6 +28,36 @@ import { FreeField } from './FreeField';
 import { DeckManagerModal } from './DeckManagerModal';
 import { CentralStack } from './CentralStack';
 import { FloatingManaPool } from './FloatingManaPool';
+
+function buildCommanderDamageTooltip(
+  playerId: PlayerID,
+  commanderDamage: Record<PlayerID, Record<string, number>> | undefined,
+  commandZone: Record<PlayerID, CommanderInfo | undefined> | undefined,
+  format?: string,
+): string | undefined {
+  if (String(format || '').toLowerCase() !== 'commander') return undefined;
+  const damageByCommander = commanderDamage?.[playerId];
+  if (!damageByCommander) return 'No commander damage taken';
+
+  const entries = Object.entries(damageByCommander).filter(([, amount]) => Number(amount) > 0);
+  if (entries.length === 0) return 'No commander damage taken';
+
+  const nameById = new Map<string, string>();
+  for (const info of Object.values(commandZone || {})) {
+    for (const card of (info as any)?.commanderCards || []) {
+      if (card?.id && card?.name) {
+        nameById.set(String(card.id), String(card.name));
+      }
+    }
+  }
+
+  return entries
+    .map(([commanderId, amount]) => {
+      const name = nameById.get(commanderId) || 'Unknown commander';
+      return `${name}: ${amount}/21`;
+    })
+    .join('\n');
+}
 import { TokenGroups } from './TokenGroups';
 import { XValueSelectionModal } from './XValueSelectionModal';
 import { socket } from '../socket';
@@ -240,6 +270,7 @@ export function TableLayout(props: {
   commandZone?: Record<PlayerID, CommanderInfo | undefined>;
   format?: string;
   life?: Record<PlayerID, number>; // Life totals for each player
+  commanderDamage?: Record<PlayerID, Record<string, number>>;
   poisonCounters?: Record<PlayerID, number>; // Poison counters for each player
   experienceCounters?: Record<PlayerID, number>; // Experience counters for each player
   showYourHandBelow?: boolean;
@@ -337,7 +368,7 @@ export function TableLayout(props: {
   const {
     players, permanentsByPlayer, imagePref, isYouPlayer,
     splitLands = true, enableReorderForYou = false,
-    you, zones, commandZone, format, life, poisonCounters, experienceCounters, showYourHandBelow = true,
+    you, zones, commandZone, format, life, commanderDamage, poisonCounters, experienceCounters, showYourHandBelow = true,
     onRemove, onCounter, onBulkCounter,
     highlightPermTargets, selectedPermTargets, onPermanentClick,
     highlightPlayerTargets, selectedPlayerTargets, onPlayerClick,
@@ -1367,6 +1398,12 @@ export function TableLayout(props: {
                   energyCounters?.[pb.player.id] ??
                   energy?.[pb.player.id] ??
                   0;
+                const commanderDamageTooltip = buildCommanderDamageTooltip(
+                  pb.player.id,
+                  commanderDamage,
+                  commandZone,
+                  format,
+                );
 
                 return (
                   <div
@@ -1441,7 +1478,7 @@ export function TableLayout(props: {
                               {/* Life Counter - Always visible, larger */}
                               <span 
                                 aria-label={`Life: ${lifeVal}`} 
-                                title="Life Total"
+                                title={commanderDamageTooltip || 'Life Total'}
                                 style={{ 
                                   color: lifeVal <= 10 ? '#ef4444' : lifeVal <= 20 ? '#fbbf24' : '#4ade80', 
                                   fontWeight: 700,

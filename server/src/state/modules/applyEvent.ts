@@ -357,6 +357,7 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./
 import { processLifeChange, resolveOpponentDirectedDamage } from "./game-state-effects";
 import { markEchoPaid, sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
+import { restoreOracleIrLedgerOnState } from "./oracleIrTransitionPipeline.js";
 import { parseManaCost } from "./mana-check.js";
 import { addRestrictedManaToPool, calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../../rules-engine/src/creatureUpgradeAbilities.js";
@@ -5183,6 +5184,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               delete (ctx.state as any).pendingScry;
             }
           }
+
+          restoreOracleIrLedgerOnState(
+            ctx.state,
+            (e as any).oracleIrStepLedger,
+            (e as any).oracleIrAppliedStepKinds,
+          );
         } catch (err) {
           debugWarn(1, 'applyEvent(scryResolve): failed', err);
         }
@@ -5241,6 +5248,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               delete (ctx.state as any).pendingSurveil;
             }
           }
+
+          restoreOracleIrLedgerOnState(
+            ctx.state,
+            (e as any).oracleIrStepLedger,
+            (e as any).oracleIrAppliedStepKinds,
+          );
         } catch (err) {
           debugWarn(1, 'applyEvent(surveilResolve): failed', err);
         }
@@ -6900,6 +6913,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   /* ignore */
                 }
               }
+            }
+          }
+          if (playerId) {
+            const stateAny = ctx.state as any;
+            stateAny.attackersDeclaredBy = Array.isArray(stateAny.attackersDeclaredBy) ? stateAny.attackersDeclaredBy : [];
+            if (!stateAny.attackersDeclaredBy.includes(playerId)) {
+              stateAny.attackersDeclaredBy.push(playerId);
             }
           }
           ctx.bumpSeq();
@@ -11239,6 +11259,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             });
             stateAny.pendingBottomOrder[pid] = pendingList;
           }
+
+          restoreOracleIrLedgerOnState(
+            ctx.state,
+            (e as any).oracleIrStepLedger,
+            (e as any).oracleIrAppliedStepKinds,
+          );
 
           ctx.bumpSeq();
         } catch (err) {

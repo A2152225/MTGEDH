@@ -17,6 +17,21 @@ export type {
   OracleIRExecutionResult,
   OracleIRSelectorContext,
 } from './oracleIRExecutionTypes';
+export type {
+  OracleIRPendingTransition,
+  OracleIRTransitionKind,
+  RuntimeObjectSnapshot,
+  RuntimeObjectZone,
+  ThisWayReference,
+  ThisWayTrait,
+} from './oracleIRTransitionTypes';
+export type { OracleIRServerExecutionBridge } from './oracleIRServerBridge';
+export {
+  resolveThisWayTrait,
+  resolveGreatestPowerExiledThisWay,
+  resolveGreatestManaValueExiledThisWay,
+  resolveTotalPowerExiledThisWay,
+} from './oracleIRThisWayResolver';
 export { buildOracleIRExecutionContext } from './oracleIRExecutorExecutionContext';
 export { resolveOracleQuantity, resolveOracleQuantityForPlayer } from './oracleIRExecutorResolveQuantity';
 export type { ResolveOracleQuantityOptions } from './oracleIRExecutorResolveQuantity';

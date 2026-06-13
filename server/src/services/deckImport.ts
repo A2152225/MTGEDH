@@ -8,7 +8,7 @@ import { debugWarn } from '../utils/debug.js';
 type ParsedDeckEntry = { name: string; count: number };
 type ResolvedCard = Pick<
   KnownCardRef,
-  'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris' | 'mana_cost' | 'power' | 'toughness' | 'card_faces' | 'layout' | 'loyalty'
+  'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris' | 'mana_cost' | 'power' | 'toughness' | 'card_faces' | 'layout' | 'loyalty' | 'colors' | 'color_identity'
 >;
 
 type ResolutionSource = 'scryfall' | 'oracle-cards' | 'AtomicCards' | 'hybrid';

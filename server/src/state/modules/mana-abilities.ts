@@ -35,6 +35,8 @@ import { getActualPowerToughness } from "../../state/utils.js";
 import { libraryTopCardHasType } from "./game-state-effects.js";
 import { countControlledCreaturesOfChosenType, getChosenTypeManaSpendRestriction } from "./chosen-creature-type.js";
 import { extractCreatureTypes } from "../../../../shared/src/creatureTypes.js";
+import { deriveCardColorIdentity } from "./commander.js";
+import { lookupLocalCardByNameSync } from "../../services/localCardLookup.js";
 
 const COLOR_SYMBOL_ORDER = ['W', 'U', 'B', 'R', 'G'] as const;
 
@@ -130,16 +132,9 @@ export function getCommanderColorIdentity(gameState: any, playerId: string): Set
   const commandZone = gameState?.commandZone?.[playerId];
   
   if (!commandZone) return commanderColors;
-  
-  const commanderCards = commandZone.commanderCards || commandZone.commanders || [];
-  
-  for (const commander of commanderCards) {
-    if (!commander) continue;
-    
-    // color_identity is an array like ['W', 'U', 'B', 'R', 'G']
-    const colorIdentity = commander.color_identity || commander.colorIdentity || commander.colors || [];
-    
-    for (const color of colorIdentity) {
+
+  const addColorSymbols = (symbols: string[]) => {
+    for (const color of symbols) {
       const colorUpper = color.toUpperCase();
       const colorKey = {
         'W': 'white',
@@ -151,6 +146,25 @@ export function getCommanderColorIdentity(gameState: any, playerId: string): Set
       
       if (colorKey) {
         commanderColors.add(colorKey);
+      }
+    }
+  };
+  
+  const commanderCards = commandZone.commanderCards || commandZone.commanders || [];
+  
+  for (const commander of commanderCards) {
+    if (!commander) continue;
+    addColorSymbols(deriveCardColorIdentity(commander));
+  }
+
+  if (commanderColors.size === 0) {
+    const commanderNames = Array.isArray(commandZone.commanderNames) ? commandZone.commanderNames : [];
+    for (const rawName of commanderNames) {
+      const name = String(rawName || '').trim();
+      if (!name) continue;
+      const lookedUp = lookupLocalCardByNameSync(name);
+      if (lookedUp) {
+        addColorSymbols(deriveCardColorIdentity(lookedUp));
       }
     }
   }
@@ -1582,7 +1596,7 @@ export function getDevotionManaAmount(
   const cardName = (permanent?.card?.name || "").toLowerCase();
   const oracleText = (permanent?.card?.oracle_text || "").toLowerCase();
   
-  debug(2, `[getDevotionManaAmount] Checking ${cardName}:`, {
+  debug(3, `[getDevotionManaAmount] Checking ${cardName}:`, {
     hasKarametra: cardName.includes("karametra"),
     hasAcolyte: cardName.includes("acolyte"),
     fullCardName: cardName,
@@ -1602,7 +1616,7 @@ export function getDevotionManaAmount(
     }
   }
   
-  debug(2, `[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection`);
+  debug(3, `[getDevotionManaAmount] No match in KNOWN_DEVOTION_MANA_CARDS, trying dynamic detection`);
   
   // Dynamic detection: "Add an amount of {G} equal to your devotion to green"
   const devotionManaMatch = oracleText.match(

@@ -1,6 +1,17 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { OracleEffectStep } from './oracleIR';
+import { findAntecedentStepIndex } from './oracleIRStepLedger';
+import { resolveThisWayAntecedentStepIndex, REVEALED_THIS_WAY_ANTECEDENT_KINDS } from './oracleIRThisWayBinding';
+import {
+  resolveCardCountDiscardedThisWay,
+  resolveSnapshotCountAtAntecedent,
+} from './oracleIRThisWayResolver';
+import {
+  resolveCreatureLedgerCountAtAntecedent,
+  resolveLedgerAntecedentStepIndex,
+  resolveNonlandLedgerCountAtAntecedent,
+} from './oracleIRLedgerCardAccess';
 import type { LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import { getCounterCountOnObject } from './oracleIRExecutorModifyPtWhereUtils';
@@ -232,7 +243,8 @@ function resolveReferenceScalerScale(
   targetCreatureId: string,
   raw: string,
   runtime: ModifyPtRuntime,
-  ctx?: OracleIRExecutionContext
+  ctx?: OracleIRExecutionContext,
+  step?: OracleEffectStep,
 ): number | null {
   const normalized = String(raw || '')
     .replace(/\u2019/g, "'")
@@ -244,9 +256,17 @@ function resolveReferenceScalerScale(
     return Math.max(0, countCreaturesBlockingTarget(state, targetCreatureId));
   }
   if (/^for each card revealed this way$/.test(normalized)) {
+    const antecedentStepIndex = resolveLedgerAntecedentStepIndex(ctx, step, REVEALED_THIS_WAY_ANTECEDENT_KINDS);
+    if (antecedentStepIndex != null && ctx?.stepLedger?.has(antecedentStepIndex)) {
+      return resolveSnapshotCountAtAntecedent(ctx, antecedentStepIndex);
+    }
     return Math.max(0, runtime.lastRevealedCardCount | 0);
   }
   if (/^for each nonland card revealed this way$/.test(normalized)) {
+    const antecedentStepIndex = resolveLedgerAntecedentStepIndex(ctx, step, REVEALED_THIS_WAY_ANTECEDENT_KINDS);
+    if (antecedentStepIndex != null && ctx?.stepLedger?.has(antecedentStepIndex)) {
+      return resolveNonlandLedgerCountAtAntecedent(ctx, antecedentStepIndex);
+    }
     const revealed = Array.isArray(runtime.lastMovedCards) ? runtime.lastMovedCards : [];
     return revealed.reduce((count: number, card: any) => {
       const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
@@ -254,9 +274,23 @@ function resolveReferenceScalerScale(
     }, 0);
   }
   if (/^for each card discarded this way$/.test(normalized)) {
+    if (ctx?.stepLedger?.size) {
+      const antecedentStepIndex = step
+        ? resolveThisWayAntecedentStepIndex(ctx, step as OracleEffectStep, 'discard')
+        : (ctx.currentStepIndex != null
+          ? findAntecedentStepIndex(ctx.appliedStepKinds, 'discard', ctx.currentStepIndex)
+          : null);
+      if (antecedentStepIndex != null && ctx.stepLedger.has(antecedentStepIndex)) {
+        return resolveCardCountDiscardedThisWay(ctx, antecedentStepIndex);
+      }
+    }
     return Math.max(0, runtime.lastDiscardedCardCount | 0);
   }
   if (/^for each card looked at while scrying this way$/.test(normalized)) {
+    const antecedentStepIndex = resolveLedgerAntecedentStepIndex(ctx, step, ['scry']);
+    if (antecedentStepIndex != null && ctx?.stepLedger?.has(antecedentStepIndex)) {
+      return resolveSnapshotCountAtAntecedent(ctx, antecedentStepIndex);
+    }
     return Math.max(0, runtime.lastScryLookedAtCount | 0);
   }
   if (/^for each creature tapped this way$/.test(normalized)) {
@@ -317,6 +351,14 @@ function resolveReferenceScalerScale(
     return Math.max(0, countPartyCreatures(state, controllerId));
   }
   if (/^for each creature card put into your graveyard this way$/.test(normalized)) {
+    const antecedentStepIndex = resolveLedgerAntecedentStepIndex(
+      ctx,
+      step,
+      ['move_zone', 'discard', 'sacrifice', 'mill'],
+    );
+    if (antecedentStepIndex != null && ctx?.stepLedger?.has(antecedentStepIndex)) {
+      return resolveCreatureLedgerCountAtAntecedent(ctx, antecedentStepIndex);
+    }
     const moved = Array.isArray(runtime.lastMovedCards) ? runtime.lastMovedCards : [];
     return moved.reduce((count: number, card: any) => {
       const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
@@ -646,7 +688,8 @@ export function applyModifyPtStep(
         targetCreatureIds[0],
         `for each ${inferredScalerRaw}`,
         runtime,
-        ctx
+        ctx,
+        step,
       );
       if (inferredScale !== null) {
         const basePower = step.powerUsesX
@@ -697,7 +740,8 @@ export function applyModifyPtStep(
       targetCreatureIds[0],
       String(step.scaler.raw || ''),
       runtime,
-      ctx
+      ctx,
+      step,
     );
     if (resolvedScale === null) {
       return {
@@ -790,7 +834,8 @@ export function applyModifyPtStep(
           targetCreatureId,
           String(step.scaler?.raw || ''),
           runtime,
-          ctx
+          ctx,
+          step,
         ) ?? 0)
       : scale;
     const powerBonus = basePower * effectiveScale;

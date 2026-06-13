@@ -20,7 +20,6 @@ import {
   summarizeLibraryCard,
 } from './oracleIrSpellLegacyKindredRevealUtils.js';
 import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
-import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 
 function hasIrBridgedLibrarySearchForSpell(ctx: GameContext, spellName: string): boolean {
   const gameId = String((ctx as any).gameId || '').trim();
@@ -34,7 +33,6 @@ function hasIrBridgedLibrarySearchForSpell(ctx: GameContext, spellName: string):
 }
 
 function hasOracleIrQueuedLibrarySearch(ctx: GameContext, spellName: string): boolean {
-  if (!isOracleIrSpellPrimaryEnabled()) return false;
   return hasIrBridgedLibrarySearchForSpell(ctx, spellName);
 }
 

@@ -141,6 +141,8 @@ describe('oracle IR spell primary production default', () => {
       .filter((step) => step.type === ResolutionStepType.SCRY);
     expect(scrySteps).toHaveLength(1);
     expect((scrySteps[0] as any)?.scryCount).toBe(2);
+    expect(String((scrySteps[0] as any)?.oracleIrChoiceStepJson || '')).toContain('scry');
+    expect((scrySteps[0] as any)?.persistOracleIrScryResolve).toBe(true);
   });
 
   it('queues a single surveil step under production default without legacy duplicates', () => {
@@ -170,6 +172,8 @@ describe('oracle IR spell primary production default', () => {
       .filter((step) => step.type === ResolutionStepType.SURVEIL);
     expect(surveilSteps).toHaveLength(1);
     expect((surveilSteps[0] as any)?.surveilCount).toBe(2);
+    expect(String((surveilSteps[0] as any)?.oracleIrChoiceStepJson || '')).toContain('surveil');
+    expect((surveilSteps[0] as any)?.persistOracleIrSurveilResolve).toBe(true);
   });
 
   it('queues discard through IR primary under production default', () => {
