@@ -583,13 +583,6 @@ export const KNOWN_ETB_TRIGGERS: Record<string, {
     searchDestination: 'battlefield',
     searchEntersTapped: true,
   },
-  "sakura-tribe elder": {
-    effect: "Sacrifice Sakura-Tribe Elder: Search your library for a basic land card and put it onto the battlefield tapped",
-    triggerOn: 'self',
-    searchFilter: { types: ['land'], subtypes: ['Basic'] },
-    searchDestination: 'battlefield',
-    searchEntersTapped: true,
-  },
   "solemn simulacrum": {
     effect: "Search your library for a basic land card and put it onto the battlefield tapped",
     triggerOn: 'self',

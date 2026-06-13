@@ -43,7 +43,7 @@ type StoredCandidate = {
 
 const serviceDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(serviceDir, '../../..');
-const schemaVersion = '2';
+const schemaVersion = '3';
 const defaultDbFile = path.join(repoRoot, 'server', 'data', 'card-lookup.sqlite');
 
 let db: DB | null = null;
@@ -368,6 +368,25 @@ function candidateQuality(card: LocalCardLookupRecord): number {
   return quality;
 }
 
+function aliasMatchQuality(payload: LocalCardLookupRecord, normalizedAlias: string): number {
+  let quality = candidateQuality(payload);
+  const normalizedCardName = normalizeLookupName(payload.name);
+  if (normalizedCardName === normalizedAlias) {
+    // Deck lists use exact card names — prefer the printing whose canonical name matches.
+    quality += 24;
+  } else {
+    const faces = Array.isArray(payload.card_faces) ? payload.card_faces : [];
+    const matchesFaceOnly = faces.some(
+      (face) => normalizeLookupName(String(face?.name || '')) === normalizedAlias,
+    );
+    if (matchesFaceOnly) {
+      // e.g. "Rampant Growth" on Studious First-Year // Rampant Growth (prepare fuse)
+      quality -= 16;
+    }
+  }
+  return quality;
+}
+
 function pickBetterCandidate(existing: StoredCandidate | undefined, candidate: StoredCandidate): StoredCandidate {
   if (!existing) return candidate;
   if (candidate.quality !== existing.quality) {
@@ -381,7 +400,7 @@ function indexAlias(aliasMap: Map<string, StoredCandidate>, alias: string | unde
   if (!normalized) return;
   const candidate: StoredCandidate = {
     payload,
-    quality: candidateQuality(payload),
+    quality: aliasMatchQuality(payload, normalized),
     sourcePriority,
   };
   aliasMap.set(normalized, pickBetterCandidate(aliasMap.get(normalized), candidate));

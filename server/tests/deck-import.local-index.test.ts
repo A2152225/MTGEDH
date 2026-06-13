@@ -158,4 +158,56 @@ describe('resolveDeckList local table index', () => {
       'Sol Ring',
     ]);
   });
+
+  it('resolves Rampant Growth to the standalone sorcery, not a prepare fuse face alias', async () => {
+    writeLookupSources({
+      oracleCards: [
+        {
+          id: 'prepare-fuse-1',
+          name: 'Studious First-Year // Rampant Growth',
+          layout: 'prepare',
+          type_line: 'Creature — Human Wizard // Sorcery',
+          card_faces: [
+            {
+              name: 'Studious First-Year',
+              type_line: 'Creature — Human Wizard',
+              oracle_text: 'This creature enters prepared.',
+              mana_cost: '{1}{U}',
+            },
+            {
+              name: 'Rampant Growth',
+              type_line: 'Sorcery',
+              oracle_text: 'Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.',
+              mana_cost: '{1}{G}',
+            },
+          ],
+        },
+      ],
+      atomicData: {
+        'Rampant Growth': [{
+          name: 'Rampant Growth',
+          type: 'Sorcery',
+          manaCost: '{1}{G}',
+          text: 'Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.',
+          legalities: { commander: 'legal' },
+        }],
+      },
+    });
+
+    const localLookup = await import('../src/services/localCardLookup');
+    localLookup.ensureLocalCardLookupIndexSync();
+
+    const card = localLookup.lookupLocalCardByNameSync('Rampant Growth');
+    expect(card?.name).toBe('Rampant Growth');
+    expect(card?.layout).not.toBe('prepare');
+
+    fetchCardsByExactNamesBatch.mockResolvedValue(new Map());
+    const { resolveDeckList } = await import('../src/services/deckImport');
+    const result = await resolveDeckList([{ name: 'Rampant Growth', count: 1 }]);
+
+    expect(result.missing).toEqual([]);
+    expect(result.resolvedCards).toHaveLength(1);
+    expect(result.resolvedCards[0]?.name).toBe('Rampant Growth');
+    expect(fetchCardsByExactNamesBatch).not.toHaveBeenCalled();
+  });
 });

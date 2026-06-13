@@ -9027,42 +9027,47 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   
   // Check known ETB trigger cards first
   for (const [knownName, info] of Object.entries(KNOWN_ETB_TRIGGERS)) {
-    if (lowerName.includes(knownName)) {
-      let triggerType: TriggeredAbility['triggerType'];
-      switch (info.triggerOn) {
-        case 'another_permanent':
-          triggerType = 'another_permanent_etb';
-          break;
-        case 'any_permanent':
-          triggerType = 'permanent_etb';
-          break;
-        case 'creature':
-          triggerType = 'creature_etb';
-          break;
-        default:
-          triggerType = 'etb';
-      }
-      
-      const trigger: TriggeredAbility = {
-        permanentId,
-        cardName,
-        triggerType,
-        description: info.effect,
-        effect: info.effect,
-        millAmount: info.millAmount,
-        mandatory: !String(info.effect || '').toLowerCase().includes('you may'),
-        requiresChoice: String(info.effect || '').toLowerCase().includes('you may'),
-      };
-      
-      // Add search filter info if present
-      if (info.searchFilter) {
-        (trigger as any).searchFilter = info.searchFilter;
-        (trigger as any).searchDestination = info.searchDestination || 'hand';
-        (trigger as any).searchEntersTapped = info.searchEntersTapped || false;
-      }
-      
-      triggers.push(trigger);
+    if (!lowerName.includes(knownName)) continue;
+    // Skip table rows that describe activated abilities (e.g. sacrifice costs), not ETB triggers.
+    const hasSelfEtbInOracle = /\bwhen\b[^.]*\benters(?:\s+the\s+battlefield)?\b/i.test(oracleText);
+    if (!hasSelfEtbInOracle && /^sacrifice\s+/i.test(String(info.effect || ''))) {
+      continue;
     }
+
+    let triggerType: TriggeredAbility['triggerType'];
+    switch (info.triggerOn) {
+      case 'another_permanent':
+        triggerType = 'another_permanent_etb';
+        break;
+      case 'any_permanent':
+        triggerType = 'permanent_etb';
+        break;
+      case 'creature':
+        triggerType = 'creature_etb';
+        break;
+      default:
+        triggerType = 'etb';
+    }
+    
+    const trigger: TriggeredAbility = {
+      permanentId,
+      cardName,
+      triggerType,
+      description: info.effect,
+      effect: info.effect,
+      millAmount: info.millAmount,
+      mandatory: !String(info.effect || '').toLowerCase().includes('you may'),
+      requiresChoice: String(info.effect || '').toLowerCase().includes('you may'),
+    };
+    
+    // Add search filter info if present
+    if (info.searchFilter) {
+      (trigger as any).searchFilter = info.searchFilter;
+      (trigger as any).searchDestination = info.searchDestination || 'hand';
+      (trigger as any).searchEntersTapped = info.searchEntersTapped || false;
+    }
+    
+    triggers.push(trigger);
   }
   
   // "When ~ enters the battlefield" or "When [CARDNAME] enters the battlefield"

@@ -789,50 +789,54 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   // Use the table to provide enhanced metadata for known cards (searchFilter, etc.)
   // Only add if not already detected dynamically
   for (const [knownName, info] of Object.entries(KNOWN_ETB_TRIGGERS)) {
-    if (lowerName.includes(knownName)) {
-      let triggerType: string;
-      switch (info.triggerOn) {
-        case 'another_permanent':
-          triggerType = 'another_permanent_etb';
-          break;
-        case 'any_permanent':
-          triggerType = 'permanent_etb';
-          break;
-        case 'creature':
-          triggerType = 'creature_etb';
-          break;
-        default:
-          triggerType = 'etb';
+    if (!lowerName.includes(knownName)) continue;
+    const hasSelfEtbInOracle = /\bwhen\b[^.]*\benters(?:\s+the\s+battlefield)?\b/i.test(oracleText);
+    if (!hasSelfEtbInOracle && /^sacrifice\s+/i.test(String(info.effect || ''))) {
+      continue;
+    }
+
+    let triggerType: string;
+    switch (info.triggerOn) {
+      case 'another_permanent':
+        triggerType = 'another_permanent_etb';
+        break;
+      case 'any_permanent':
+        triggerType = 'permanent_etb';
+        break;
+      case 'creature':
+        triggerType = 'creature_etb';
+        break;
+      default:
+        triggerType = 'etb';
+    }
+    
+    // Only add if not already detected by dynamic pattern
+    if (!triggers.some(t => t.triggerType === triggerType)) {
+      const trigger: TriggeredAbility = {
+        permanentId,
+        cardName,
+        triggerType,
+        description: info.effect,
+        effect: info.effect,
+        millAmount: info.millAmount,
+        mandatory: true,
+      };
+      
+      // Add enhanced metadata from table
+      if (info.searchFilter) {
+        (trigger as any).searchFilter = info.searchFilter;
+        (trigger as any).searchDestination = info.searchDestination || 'hand';
+        (trigger as any).searchEntersTapped = info.searchEntersTapped || false;
       }
       
-      // Only add if not already detected by dynamic pattern
-      if (!triggers.some(t => t.triggerType === triggerType)) {
-        const trigger: TriggeredAbility = {
-          permanentId,
-          cardName,
-          triggerType,
-          description: info.effect,
-          effect: info.effect,
-          millAmount: info.millAmount,
-          mandatory: true,
-        };
-        
-        // Add enhanced metadata from table
-        if (info.searchFilter) {
-          (trigger as any).searchFilter = info.searchFilter;
-          (trigger as any).searchDestination = info.searchDestination || 'hand';
-          (trigger as any).searchEntersTapped = info.searchEntersTapped || false;
-        }
-        
-        triggers.push(trigger);
-      } else if (info.searchFilter) {
-        // Enhance dynamically detected trigger with table metadata
-        const existingTrigger = triggers.find(t => t.triggerType === triggerType);
-        if (existingTrigger && !(existingTrigger as any).searchFilter) {
-          (existingTrigger as any).searchFilter = info.searchFilter;
-          (existingTrigger as any).searchDestination = info.searchDestination || 'hand';
-          (existingTrigger as any).searchEntersTapped = info.searchEntersTapped || false;
-        }
+      triggers.push(trigger);
+    } else if (info.searchFilter) {
+      // Enhance dynamically detected trigger with table metadata
+      const existingTrigger = triggers.find(t => t.triggerType === triggerType);
+      if (existingTrigger && !(existingTrigger as any).searchFilter) {
+        (existingTrigger as any).searchFilter = info.searchFilter;
+        (existingTrigger as any).searchDestination = info.searchDestination || 'hand';
+        (existingTrigger as any).searchEntersTapped = info.searchEntersTapped || false;
       }
     }
   }
