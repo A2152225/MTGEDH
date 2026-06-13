@@ -18,7 +18,7 @@ import { GameManager } from "../GameManager.js";
 import type { CardCostAdjustment, GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
-import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isPlayerIdleForAutoPass, isTransformBackFace, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
+import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, hasSacrificePrefixActivatedAbility, isPlayerIdleForAutoPass, isTransformBackFace, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool, stripReminderTextFromOracle } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
@@ -731,6 +731,11 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       
       // Add permanent once if it has any activatable abilities
       if (hasActivatableAbility) {
+        playableIds.push(perm.id);
+        continue;
+      }
+
+      if (hasSacrificePrefixActivatedAbility({ state, libraries: (game as any).libraries } as any, playerId, perm)) {
         playableIds.push(perm.id);
       }
     }

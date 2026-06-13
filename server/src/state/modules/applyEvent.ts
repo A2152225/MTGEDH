@@ -372,6 +372,13 @@ import { applyTriggerOrderToStack } from "../resolution/handlers/triggerOrder.js
 import { executeTriggeredAbilityEffectWithOracleIR } from "../../../../rules-engine/src/triggeredAbilities.js";
 import { applyDamageToPermanentWithCounterEffects } from "./counter-common-effects.js";
 import {
+  applyCreatureDamageFromSource,
+  applyFightDamageBetweenCreatures,
+  applyPoisonCountersToPlayer,
+  inferInfectWitherFlags,
+  resolvePlayerDamage,
+} from "./combat-damage-processing.js";
+import {
   markDungeonCompleted,
   normalizeDungeonProgress,
 } from "./dungeons.js";
@@ -2348,18 +2355,31 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "dealDamage": {
         // Handle both legacy effects format and new action format
         let effects: any[] = (e as any).effects || [];
-        
-        // If targetPermanentId is provided, evaluate using rules engine
-        const targetPermanentId = (e as any).targetPermanentId;
-        const amount = (e as any).amount;
-        if (targetPermanentId && amount > 0) {
+        const amount = Math.max(0, Number((e as any).amount ?? 0));
+        const targetPermanentId = String((e as any).targetPermanentId || '').trim();
+        const targetPlayerId = String((e as any).targetPlayerId || '').trim();
+        const sourcePermanentId = String((e as any).sourcePermanentId || (e as any).sourceCreatureId || '').trim();
+        const infectWither = inferInfectWitherFlags(ctx as any, {
+          sourcePermanentId,
+          infect: Boolean((e as any).infect),
+          wither: Boolean((e as any).wither),
+        });
+
+        if (targetPlayerId && amount > 0) {
+          resolvePlayerDamage(ctx as any, {
+            targetPlayerId,
+            amount,
+            isCombatDamage: Boolean((e as any).combatDamage),
+            sourcePermanent: infectWither.sourcePermanent || undefined,
+            sourceCard: (e as any).sourceCard,
+          });
+        } else if (targetPermanentId && amount > 0) {
           // Turn-tracking for intervening-if: creature→creature damage relationships for engine-driven damage events.
           // Best-effort: only records when the event explicitly provides a source permanent id and both are creatures.
           try {
             const stateAny = ctx.state as any;
-            const sourcePermanentId = String((e as any).sourcePermanentId || (e as any).sourceCreatureId || '');
             const targetId = String(targetPermanentId);
-            const dmg = Math.max(0, Number(amount ?? 0));
+            const dmg = amount;
 
             if (sourcePermanentId && targetId && dmg > 0) {
               const battlefield = (ctx.state as any).battlefield || [];
@@ -2378,14 +2398,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // best-effort only
           }
 
-          const action = {
-            type: 'DEAL_DAMAGE' as const,
-            targetPermanentId,
-            amount,
-            wither: Boolean((e as any).wither),
-            infect: Boolean((e as any).infect),
-          };
-          effects = [...evaluateAction(ctx.state, action)];
+          const battlefield = (ctx.state as any).battlefield || [];
+          const targetPerm = battlefield.find((p: any) => String(p?.id) === targetPermanentId);
+          if (targetPerm && infectWither.sourcePermanent && (infectWither.infect || infectWither.wither)) {
+            applyCreatureDamageFromSource(
+              ctx as any,
+              infectWither.sourcePermanent,
+              targetPerm,
+              amount,
+              'damageMarked',
+            );
+          } else {
+            const action = {
+              type: 'DEAL_DAMAGE' as const,
+              targetPermanentId,
+              amount,
+              wither: infectWither.wither,
+              infect: infectWither.infect,
+            };
+            effects = [...evaluateAction(ctx.state, action)];
+          }
         }
         
         try {
@@ -2479,7 +2511,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   // Apply damage to permanent (may kill it via SBA)
                   const perm = ctx.state.battlefield.find((p: any) => p.id === eff.id);
                   if (perm) {
-                    applyDamageToPermanentWithCounterEffects(perm, eff.amount, 'damage');
+                    const sourcePermanentId = String((eff as any).sourcePermanentId || (eff as any).sourceId || '');
+                    const sourcePerm = sourcePermanentId
+                      ? ctx.state.battlefield.find((p: any) => String(p?.id) === sourcePermanentId)
+                      : null;
+                    if (sourcePerm) {
+                      applyCreatureDamageFromSource(ctx as any, sourcePerm, perm, eff.amount, 'damage');
+                    } else {
+                      applyDamageToPermanentWithCounterEffects(perm, eff.amount, 'damage');
+                    }
                   }
                   break;
                 }
@@ -2491,12 +2531,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   let sourceControllerId = String(caster || '');
                   let sourceCard: any;
                   const sourcePermanentId = String((eff as any).sourcePermanentId || (eff as any).sourceId || '');
-                  if (sourcePermanentId) {
-                    const battlefield = (ctx.state as any).battlefield || [];
-                    const sourcePerm = battlefield.find((p: any) => String(p?.id) === sourcePermanentId);
-                    if (sourcePerm?.controller) {
-                      sourceControllerId = String(sourcePerm.controller);
-                    }
+                  const sourcePerm = sourcePermanentId
+                    ? ctx.state.battlefield.find((p: any) => String(p?.id) === sourcePermanentId)
+                    : null;
+                  if (sourcePerm?.controller) {
+                    sourceControllerId = String(sourcePerm.controller);
                     sourceCard = sourcePerm?.card;
                   }
 
@@ -2507,42 +2546,40 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     sourceCard,
                   });
                   const actualDmg = replacement.damageDealt;
-
-                  (ctx.state as any).life = (ctx.state as any).life || {};
-                  (ctx as any).life = (ctx as any).life || {};
-                  const players = (ctx.state as any).players || [];
-                  const player = players.find((p: any) => String(p?.id) === playerId);
-                  const startingLife = (ctx.state as any).startingLife ?? 40;
-                  const current = (ctx.state as any).life[playerId] ?? (ctx as any).life?.[playerId] ?? player?.life ?? startingLife;
-                  const next = current - actualDmg;
-                  (ctx.state as any).life[playerId] = next;
-                  (ctx as any).life[playerId] = next;
-                  if (player) player.life = next;
+                  const resolved = resolvePlayerDamage(ctx as any, {
+                    targetPlayerId: playerId,
+                    amount: actualDmg,
+                    sourcePermanent: sourcePerm || undefined,
+                    sourceCard,
+                  });
 
                   // Track per-turn damage/life loss for intervening-if templates.
                   try {
                     (ctx.state as any).damageTakenThisTurnByPlayer = (ctx.state as any).damageTakenThisTurnByPlayer || {};
                     (ctx.state as any).damageTakenThisTurnByPlayer[playerId] =
-                      ((ctx.state as any).damageTakenThisTurnByPlayer[playerId] || 0) + actualDmg;
+                      ((ctx.state as any).damageTakenThisTurnByPlayer[playerId] || 0) + resolved.damageDealt;
                   } catch {}
                   try {
-                    (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
-                    (ctx.state as any).lifeLostThisTurn[playerId] = ((ctx.state as any).lifeLostThisTurn[playerId] || 0) + actualDmg;
+                    if (resolved.lifeLost > 0) {
+                      (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+                      (ctx.state as any).lifeLostThisTurn[playerId] =
+                        ((ctx.state as any).lifeLostThisTurn[playerId] || 0) + resolved.lifeLost;
+                    }
                   } catch {}
 
                   // Best-effort attribution: if the effect includes a source battlefield creature.
                   try {
-                    if (sourcePermanentId && actualDmg > 0) {
+                    if (sourcePermanentId && resolved.damageDealt > 0) {
                       const battlefield = (ctx.state as any).battlefield || [];
-                      const sourcePerm = battlefield.find((p: any) => String(p?.id) === sourcePermanentId);
-                      const tl = String(sourcePerm?.card?.type_line || '').toLowerCase();
-                      if (sourcePerm && tl.includes('creature')) {
+                      const attributionSource = battlefield.find((p: any) => String(p?.id) === sourcePermanentId);
+                      const tl = String(attributionSource?.card?.type_line || '').toLowerCase();
+                      if (attributionSource && tl.includes('creature')) {
                         (ctx.state as any).creaturesThatDealtDamageToPlayer = (ctx.state as any).creaturesThatDealtDamageToPlayer || {};
                         const perPlayer = (((ctx.state as any).creaturesThatDealtDamageToPlayer[playerId] =
                           (ctx.state as any).creaturesThatDealtDamageToPlayer[playerId] || {}) as any);
                         perPlayer[sourcePermanentId] = {
-                          creatureName: String(sourcePerm?.card?.name || sourcePermanentId),
-                          totalDamage: (perPlayer[sourcePermanentId]?.totalDamage || 0) + actualDmg,
+                          creatureName: String(attributionSource?.card?.name || sourcePermanentId),
+                          totalDamage: (perPlayer[sourcePermanentId]?.totalDamage || 0) + resolved.damageDealt,
                           lastDamageTime: Date.now(),
                         };
                       }
@@ -5896,16 +5933,27 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               for (const [counterType, count] of Object.entries(permanent.counters as Record<string, number>)) {
                 if (Number(count || 0) > 0) {
                   deltas[counterType] = 1;
-                  (permanent.counters as any)[counterType] = Number(count || 0) + 1;
                 }
               }
               if (Object.keys(deltas).length > 0) {
-                trackCountersPlacedThisTurn(ctx.state, permanent, String(targetId), deltas);
+                updateCounters(ctx as any, String(targetId), deltas);
               }
               continue;
             }
 
             const player = players.find((entry: any) => entry && String(entry.id || '') === targetId);
+            const poisonCount = Math.max(
+              0,
+              Number((ctx.state as any).poisonCounters?.[targetId]) ||
+                Number(player?.poisonCounters) ||
+                Number(player?.counters?.poison) ||
+                0,
+            );
+            if (poisonCount > 0) {
+              applyPoisonCountersToPlayer(ctx as any, targetId, 1);
+              continue;
+            }
+
             if (player && player.counters && typeof player.counters === 'object') {
               for (const [counterType, count] of Object.entries(player.counters as Record<string, number>)) {
                 if (Number(count || 0) > 0) {
@@ -5916,6 +5964,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
 
           ctx.bumpSeq();
+          try {
+            runSBA(ctx as any);
+          } catch {}
         } catch (err) {
           debugWarn(1, 'applyEvent(proliferateResolve): failed', err);
         }
@@ -7033,9 +7084,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               // best-effort only
             }
 
-            // Each creature deals damage to the other equal to its power
-            (source as any).damage = ((source as any).damage || 0) + targetPower;
-            (target as any).damage = ((target as any).damage || 0) + sourcePower;
+            applyFightDamageBetweenCreatures(
+              ctx as any,
+              source,
+              Math.max(0, Number(sourcePower || 0)),
+              target,
+              Math.max(0, Number(targetPower || 0)),
+              'damageMarked',
+            );
 
             const queueDamageTrigger = (perm: any, damageAmount: number) => {
               processDamageReceivedTriggers(ctx as any, perm, damageAmount, (triggerInfo) => {

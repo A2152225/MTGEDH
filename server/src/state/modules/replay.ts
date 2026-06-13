@@ -69,6 +69,11 @@ import {
   runSBA,
 } from "./counters_tokens.js";
 import { evaluateAction } from "../../rules-engine/index.js";
+import {
+  applyCreatureDamageFromSource,
+  inferInfectWitherFlags,
+  resolvePlayerDamage,
+} from "./combat-damage-processing.js";
 import { pushStack } from "./stackPushUtils.js";
 import { resolveTopOfStack } from "./stackResolveTopOfStackUtils.js";
 import { playLand } from "./stackPlayLandUtils.js";
@@ -248,17 +253,29 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
     case "dealDamage": {
       let effects: any[] = (e as any).effects || [];
+      const amount = Math.max(0, Number((e as any).amount ?? 0));
+      const targetPermanentId = String((e as any).targetPermanentId || '').trim();
+      const targetPlayerId = String((e as any).targetPlayerId || '').trim();
+      const sourcePermanentId = String((e as any).sourcePermanentId || (e as any).sourceCreatureId || '').trim();
+      const infectWither = inferInfectWitherFlags(ctx, {
+        sourcePermanentId,
+        infect: Boolean((e as any).infect),
+        wither: Boolean((e as any).wither),
+      });
 
-      const targetPermanentId = (e as any).targetPermanentId;
-      const amount = (e as any).amount;
-      if (targetPermanentId && amount > 0) {
-        // Turn-tracking for intervening-if: creature→creature damage relationships.
-        // Best-effort: only records when the event explicitly provides a source permanent id and both are creatures.
+      if (targetPlayerId && amount > 0) {
+        resolvePlayerDamage(ctx, {
+          targetPlayerId,
+          amount,
+          isCombatDamage: Boolean((e as any).combatDamage),
+          sourcePermanent: infectWither.sourcePermanent || undefined,
+          sourceCard: (e as any).sourceCard,
+        });
+      } else if (targetPermanentId && amount > 0) {
         try {
           const stateAny = ctx.state as any;
-          const sourcePermanentId = String((e as any).sourcePermanentId || (e as any).sourceCreatureId || '');
           const targetId = String(targetPermanentId);
-          const dmg = Math.max(0, Number(amount ?? 0));
+          const dmg = amount;
 
           if (sourcePermanentId && targetId && dmg > 0) {
             const battlefield = (ctx.state as any).battlefield || [];
@@ -277,14 +294,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // best-effort only
         }
 
-        const action = {
-          type: 'DEAL_DAMAGE' as const,
-          targetPermanentId,
-          amount,
-          wither: Boolean((e as any).wither),
-          infect: Boolean((e as any).infect),
-        };
-        effects = [...evaluateAction(ctx.state, action)];
+        const battlefield = (ctx.state as any).battlefield || [];
+        const targetPerm = battlefield.find((p: any) => String(p?.id) === targetPermanentId);
+        if (targetPerm && infectWither.sourcePermanent && (infectWither.infect || infectWither.wither)) {
+          applyCreatureDamageFromSource(
+            ctx,
+            infectWither.sourcePermanent,
+            targetPerm,
+            amount,
+            'damageMarked',
+          );
+        } else {
+          const action = {
+            type: 'DEAL_DAMAGE' as const,
+            targetPermanentId,
+            amount,
+            wither: infectWither.wither,
+            infect: infectWither.infect,
+          };
+          effects = [...evaluateAction(ctx.state, action)];
+        }
       }
 
       applyEngineEffects(ctx, effects);

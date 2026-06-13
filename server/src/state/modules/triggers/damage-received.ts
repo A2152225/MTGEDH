@@ -24,6 +24,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/ind
 import { processLifeChange } from "../game-state-effects.js";
 import { triggerLifeGainEffects } from "../../utils.js";
 import { applyDamageToPermanentWithCounterEffects } from "../counter-common-effects.js";
+import { applyCreatureDamageFromSource, resolvePlayerDamage } from "../combat-damage-processing.js";
 
 function escapeRegex(text: string): string {
   return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -460,18 +461,11 @@ export function resolveDamageTrigger(
     const opponents = Object.keys(life).filter(pid => pid !== controller);
     
     for (const opponentId of opponents) {
-      life[opponentId] = (life[opponentId] || 40) - dmg;
-
-      // Track per-turn damage/life-loss for intervening-if and other rules.
-      try {
-        state.damageTakenThisTurnByPlayer = state.damageTakenThisTurnByPlayer || {};
-        state.damageTakenThisTurnByPlayer[String(opponentId)] =
-          (state.damageTakenThisTurnByPlayer[String(opponentId)] || 0) + dmg;
-      } catch {}
-      try {
-        state.lifeLostThisTurn = state.lifeLostThisTurn || {};
-        state.lifeLostThisTurn[String(opponentId)] = (state.lifeLostThisTurn[String(opponentId)] || 0) + dmg;
-      } catch {}
+      resolvePlayerDamage(ctx, {
+        targetPlayerId: opponentId,
+        amount: dmg,
+        sourcePermanent: sourcePerm || undefined,
+      });
       try {
         if (isSourceCreature && sourceId) {
           state.creaturesThatDealtDamageToPlayer = state.creaturesThatDealtDamageToPlayer || {};
@@ -496,16 +490,17 @@ export function resolveDamageTrigger(
   
   // Check if target is a player
   if (life.hasOwnProperty(targetId)) {
-    life[targetId] = (life[targetId] || 40) - dmg;
+    resolvePlayerDamage(ctx, {
+      targetPlayerId: targetId,
+      amount: dmg,
+      sourcePermanent: sourcePerm || undefined,
+    });
 
     // Track per-turn damage/life-loss for intervening-if and other rules.
     try {
       state.damageTakenThisTurnByPlayer = state.damageTakenThisTurnByPlayer || {};
-      state.damageTakenThisTurnByPlayer[String(targetId)] = (state.damageTakenThisTurnByPlayer[String(targetId)] || 0) + dmg;
-    } catch {}
-    try {
-      state.lifeLostThisTurn = state.lifeLostThisTurn || {};
-      state.lifeLostThisTurn[String(targetId)] = (state.lifeLostThisTurn[String(targetId)] || 0) + dmg;
+      state.damageTakenThisTurnByPlayer[String(targetId)] =
+        (state.damageTakenThisTurnByPlayer[String(targetId)] || 0) + dmg;
     } catch {}
     try {
       if (isSourceCreature && sourceId) {
@@ -526,8 +521,9 @@ export function resolveDamageTrigger(
   // Check if target is a permanent (planeswalker, creature, etc.)
   const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
   if (targetPerm) {
-    // Mark damage on the permanent
-    const damageResult = applyDamageToPermanentWithCounterEffects(targetPerm, dmg, 'damageMarked');
+    const damageResult = sourcePerm
+      ? applyCreatureDamageFromSource(ctx, sourcePerm, targetPerm, dmg, 'damageMarked')
+      : applyDamageToPermanentWithCounterEffects(targetPerm, dmg, 'damageMarked');
     if (damageResult.prevented) {
       return `${triggerInfo.sourceName} damage to ${targetPerm.card?.name || 'target'} was prevented.`;
     }

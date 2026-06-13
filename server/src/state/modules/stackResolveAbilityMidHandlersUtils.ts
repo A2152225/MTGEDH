@@ -9,7 +9,7 @@ import { appendEvent } from '../../db/index.js';
 import { canPermanentBeTargetedByPlayer } from '../../rules-engine/targeting.js';
 import { getEffectivePower } from '../../socket/util.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
-import { applyDamageToPermanentWithCounterEffects } from './counter-common-effects.js';
+import { applyFightDamageBetweenCreatures } from './combat-damage-processing.js';
 import { runSBA } from './counters_tokens.js';
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from './triggers/damage-received.js';
 import { attachEquipmentToCreature } from './triggerEquipmentUtils.js';
@@ -104,8 +104,16 @@ function resolveFightAbility(ctx: GameContext, item: any, controller: PlayerID):
 
   const sourcePower = getEffectivePower(sourceCreature as any);
   const targetPower = getEffectivePower(targetCreature as any);
-  const sourceDamageResult = applyDamageToPermanentWithCounterEffects(sourceCreature, targetPower, 'damageMarked');
-  const targetDamageResult = applyDamageToPermanentWithCounterEffects(targetCreature, sourcePower, 'damageMarked');
+  applyFightDamageBetweenCreatures(
+    ctx as any,
+    sourceCreature,
+    targetPower,
+    targetCreature,
+    sourcePower,
+    'damageMarked',
+  );
+  const sourceDamageResult = { appliedAmount: targetPower, prevented: false };
+  const targetDamageResult = { appliedAmount: sourcePower, prevented: false };
 
   try {
     const stateAny = state as any;

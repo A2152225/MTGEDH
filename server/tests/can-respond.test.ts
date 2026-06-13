@@ -1277,6 +1277,36 @@ describe('canActivateAnyAbility', () => {
     expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should return true for sacrifice-only activated abilities under summoning sickness', () => {
+    const ctx = createTestContext({
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+      battlefield: [
+        {
+          id: 'ste1',
+          controller: 'p1',
+          tapped: false,
+          summoningSickness: true,
+          card: {
+            name: 'Sakura-Tribe Elder',
+            type_line: 'Creature — Snake Shaman',
+            oracle_text:
+              'Sacrifice this creature: Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should return false for an UNTAPPED {Q} untap-cost ability (Gilder Bairn cannot pay the untap cost)', () => {
     const ctx = createTestContext({
       battlefield: [

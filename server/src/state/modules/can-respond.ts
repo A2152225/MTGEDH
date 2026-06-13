@@ -2011,6 +2011,72 @@ function hasActivatableLoyaltyAbility(
 }
 
 /**
+ * Sacrifice-prefixed activated abilities have no tap cost, so summoning sickness
+ * does not apply (Rule 302.6). Examples: Sakura-Tribe Elder, Viscera Seer.
+ */
+export function hasSacrificePrefixActivatedAbility(
+  ctx: GameContext,
+  playerId: PlayerID,
+  permanent: any,
+): boolean {
+  if (!permanent?.card || permanent.controller !== playerId) return false;
+
+  const { state } = ctx;
+  const oracleText = String(permanent.card.oracle_text || '');
+  const cardName = String(permanent.card.name || '').trim();
+  const pattern = /(?:^|[\n.;]\s*)(sacrifice\s+(?:~|this\s+(?:creature|artifact|enchantment|permanent|land)|the\s+source|[^:]{1,80}?))\s*:\s*([^\n.;]+)/gi;
+
+  for (const match of oracleText.matchAll(pattern)) {
+    const costPart = String(match[1] || '').trim();
+    const effectPart = String(match[2] || '').trim();
+    if (!costPart || !effectPart) continue;
+    if (/^(when|whenever|at\s+the\s+beginning)/i.test(costPart)) continue;
+
+    const fullAbilityText = `${costPart}: ${effectPart}`;
+    if (!isActivatedAbilityConditionMet(ctx, playerId, fullAbilityText, oracleText, match.index)) {
+      continue;
+    }
+
+    if (isManaAbility(oracleText, effectPart)) continue;
+
+    const abilityRestrictionText = `${effectPart} ${oracleText}`;
+    if (/(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(abilityRestrictionText)) {
+      continue;
+    }
+
+    if (hasActivateOnlyDuringYourTurnRestriction(oracleText) && (state as any)?.turnPlayer !== playerId) {
+      continue;
+    }
+
+    const costLower = costPart.toLowerCase();
+    const battlefield = state?.battlefield || [];
+
+    if (/sacrifice\s+(?:~|this\s+(?:creature|artifact|enchantment|permanent|land)|the\s+source)/i.test(costLower)) {
+      return true;
+    }
+
+    const primaryName = cardName.split('//')[0].trim().toLowerCase();
+    if (primaryName && costLower.includes(primaryName)) {
+      return true;
+    }
+
+    const genericTypeMatch = costPart.match(/sacrifice\s+(?:a|an)\s+([\w-]+)/i);
+    if (genericTypeMatch) {
+      const sacrificeType = String(genericTypeMatch[1] || '').toLowerCase();
+      const hasTarget = battlefield.some((perm: any) => {
+        if (!perm || perm.controller !== playerId) return false;
+        const typeLine = String(perm.card?.type_line || '').toLowerCase();
+        return typeLine.includes(sacrificeType);
+      });
+      if (hasTarget) return true;
+      continue;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Check if a permanent has an activated ability that can be activated
  * and requires priority (excludes mana abilities per Rule 605)
  */
@@ -2261,6 +2327,10 @@ function hasActivatableAbility(
     if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
       return true;
     }
+  }
+
+  if (hasSacrificePrefixActivatedAbility(ctx, playerId, permanent)) {
+    return true;
   }
 
   return false;

@@ -42,6 +42,11 @@ import { pushTriggerDoublerCopies } from "./triggers/combat.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
+import {
+  applyCreatureCombatDamageFromSource,
+  creatureDiesFromCombatDamage,
+  resolvePlayerCombatDamage,
+} from "./combat-damage-processing.js";
 import { runSBA, createToken, updateCounters } from "./counters_tokens.js";
 import { applyDamageToPermanentWithCounterEffects, applyShieldCounterDamagePrevention } from "./counter-common-effects.js";
 import { calculateAllPTBonuses, calculateVariablePT, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
@@ -1721,6 +1726,24 @@ function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
         }
         (ctx as any).inactive.add(player.id);
       }
+
+      const poisonTotal = Math.max(
+        0,
+        Number(state.poisonCounters?.[player.id]) ||
+          Number((ctx as any).poison?.[player.id]) ||
+          Number(player.poisonCounters) ||
+          0,
+      );
+      if (poisonTotal >= 10 && !player.hasLost) {
+        player.hasLost = true;
+        player.lossReason = "10 or more poison counters";
+        defeatedPlayers.push(player.id);
+        debug(1, `${ts()} [syncLifeAndCheckDefeat] Player ${player.id} has lost the game (poison: ${poisonTotal})`);
+        if (!((ctx as any).inactive instanceof Set)) {
+          (ctx as any).inactive = new Set<string>();
+        }
+        (ctx as any).inactive.add(player.id);
+      }
     }
     
   } catch (err) {
@@ -2058,8 +2081,14 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
 
           // Deal actual damage (may be 0 if prevented)
           if (actualDamage > 0) {
-            const currentLife = life[defendingPlayerId] ?? startingLife;
-            life[defendingPlayerId] = currentLife - actualDamage;
+            const lifeBefore = life[defendingPlayerId] ?? startingLife;
+            const resolvedPlayerDamage = resolvePlayerCombatDamage(
+              ctx,
+              attacker,
+              defendingPlayerId,
+              actualDamage,
+            );
+            const effectiveDamage = resolvedPlayerDamage.damageDealt;
 
             // Track "been dealt combat damage since your last turn".
             // Conservative: only sets true on positive evidence.
@@ -2076,17 +2105,20 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             try {
               (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
               (state as any).damageTakenThisTurnByPlayer[defendingPlayerId] =
-                ((state as any).damageTakenThisTurnByPlayer[defendingPlayerId] || 0) + actualDamage;
+                ((state as any).damageTakenThisTurnByPlayer[defendingPlayerId] || 0) + effectiveDamage;
             } catch {}
 
             // Track life lost this turn for common oracle checks.
             try {
-              state.lifeLostThisTurn = state.lifeLostThisTurn || {};
-              state.lifeLostThisTurn[defendingPlayerId] = (state.lifeLostThisTurn[defendingPlayerId] || 0) + actualDamage;
+              if (resolvedPlayerDamage.lifeLost > 0) {
+                state.lifeLostThisTurn = state.lifeLostThisTurn || {};
+                state.lifeLostThisTurn[defendingPlayerId] =
+                  (state.lifeLostThisTurn[defendingPlayerId] || 0) + resolvedPlayerDamage.lifeLost;
+              }
             } catch {}
             
             result.damageToPlayers[defendingPlayerId] = 
-              (result.damageToPlayers[defendingPlayerId] || 0) + actualDamage;
+              (result.damageToPlayers[defendingPlayerId] || 0) + effectiveDamage;
             
             // Track which attacker dealt damage to which player (for batched triggers)
             if (!result.attackersThatDealtDamage[defendingPlayerId]) {
@@ -2095,16 +2127,17 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             result.attackersThatDealtDamage[defendingPlayerId].add(attacker.id);
             result.attackerDamageToPlayers[defendingPlayerId] = result.attackerDamageToPlayers[defendingPlayerId] || {};
             result.attackerDamageToPlayers[defendingPlayerId][attacker.id] =
-              (result.attackerDamageToPlayers[defendingPlayerId][attacker.id] || 0) + actualDamage;
+              (result.attackerDamageToPlayers[defendingPlayerId][attacker.id] || 0) + effectiveDamage;
             
-            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${actualDamage} combat damage to ${defendingPlayerId} (${currentLife} -> ${life[defendingPlayerId]})`);
+            const currentLife = life[defendingPlayerId] ?? startingLife;
+            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${effectiveDamage} combat damage to ${defendingPlayerId} (${lifeBefore} -> ${currentLife}, poison +${resolvedPlayerDamage.poisonAdded})`);
             
             // Track commander damage (Rule 903.10a)
-            trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, actualDamage);
+            trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, effectiveDamage);
             
             // Track that this creature dealt damage to this player this turn
             // This is used for cards like Reciprocate that can only target creatures that dealt damage to you
-            trackCreatureDamageToPlayer(ctx, attacker.id, card.name || 'Unknown Creature', defendingPlayerId, actualDamage);
+            trackCreatureDamageToPlayer(ctx, attacker.id, card.name || 'Unknown Creature', defendingPlayerId, effectiveDamage);
             
             // Track combat damage for X abilities that require it
             // Generic tracking for any card with oracle text containing "combat damage"
@@ -2122,7 +2155,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             
             // Lifelink: Controller gains life equal to damage dealt
             if (keywords.lifelink) {
-              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, actualDamage, `${card.name || 'Attacker'} (lifelink)`);
+              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, effectiveDamage, `${card.name || 'Attacker'} (lifelink)`);
               
               result.lifeGainForPlayers[attackerController] = 
                 (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
@@ -2146,7 +2179,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                    (auraOracle.includes('enchanted creature deals') && auraOracle.includes('damage to') && 
                     auraOracle.includes('gain life equal')))) {
                 const auraController = aura.controller || attackerController;
-                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, auraController as PlayerID, actualDamage, aura.card?.name || 'Aura');
+                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, auraController as PlayerID, effectiveDamage, aura.card?.name || 'Aura');
                 
                 result.lifeGainForPlayers[auraController] = 
                   (result.lifeGainForPlayers[auraController] || 0) + lifeGainResult.actualChange;
@@ -2217,17 +2250,19 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 remainingDamage -= damageToBlocker;
                 continue;
               }
-              const damageResult = applyDamageToPermanentWithCounterEffects(blocker, damageToBlockerAfterPrevention, 'markedDamage', {
-                state: ctx.state,
-                source: card,
-                sourceId: String(attacker.id || ''),
-              });
+              const damageResult = applyCreatureCombatDamageFromSource(
+                ctx,
+                attacker,
+                blocker,
+                damageToBlockerAfterPrevention,
+                'markedDamage',
+              );
               if (damageResult.prevented) {
                 continue;
               }
               // Track damage dealt to this permanent this turn (for intervening-if clauses).
-              blocker.damageThisTurn = (blocker.damageThisTurn || 0) + damageToBlockerAfterPrevention;
-              blocker.combatDamageThisTurn = (blocker.combatDamageThisTurn || 0) + damageToBlockerAfterPrevention;
+              blocker.damageThisTurn = (blocker.damageThisTurn || 0) + damageResult.appliedAmount;
+              blocker.combatDamageThisTurn = (blocker.combatDamageThisTurn || 0) + damageResult.appliedAmount;
               blocker.tookDamageThisTurn = true;
 
               // Best-effort: track creature damaged by this creature this turn (for intervening-if templates).
@@ -2245,14 +2280,21 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               }
               remainingDamage -= damageToBlocker;
               
-              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageToBlockerAfterPrevention} damage to blocker ${blockerCard.name || blockerId}`);
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageResult.appliedAmount} damage to blocker ${blockerCard.name || blockerId}`);
               
               // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
-              queueDamageReceivedTrigger(ctx, blocker, damageToBlockerAfterPrevention);
+              queueDamageReceivedTrigger(ctx, blocker, damageResult.appliedAmount);
               
               // Check if blocker dies
               const totalDamageOnBlocker = blocker.markedDamage || 0;
-              const isDead = totalDamageOnBlocker >= blockerToughness || (keywords.deathtouch && totalDamageOnBlocker > 0);
+              const isDead = creatureDiesFromCombatDamage(
+                ctx,
+                blocker,
+                totalDamageOnBlocker,
+                keywords.deathtouch,
+                damageResult.usedMinusCounters,
+                blockerToughness,
+              );
               
               if (isDead) {
                 result.creaturesDestroyed.push(blockerId);
@@ -2261,7 +2303,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               
               // Lifelink for damage dealt to blocker
               if (keywords.lifelink) {
-                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageToBlockerAfterPrevention, `${card.name || 'Attacker'} (lifelink)`);
+                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageResult.appliedAmount, `${card.name || 'Attacker'} (lifelink)`);
                 
                 result.lifeGainForPlayers[attackerController] = 
                   (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
@@ -2317,24 +2359,33 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 continue;
               }
 
-              const currentLife = life[defendingPlayerId] ?? startingLife;
-              life[defendingPlayerId] = currentLife - trampleDamageToPlayer;
+              const lifeBeforeTrample = life[defendingPlayerId] ?? startingLife;
+              const resolvedTrampleDamage = resolvePlayerCombatDamage(
+                ctx,
+                attacker,
+                defendingPlayerId,
+                trampleDamageToPlayer,
+              );
+              const effectiveTrampleDamage = resolvedTrampleDamage.damageDealt;
 
               // Track damage dealt to each player this turn.
               try {
                 (state as any).damageTakenThisTurnByPlayer = (state as any).damageTakenThisTurnByPlayer || {};
                 (state as any).damageTakenThisTurnByPlayer[defendingPlayerId] =
-                  ((state as any).damageTakenThisTurnByPlayer[defendingPlayerId] || 0) + trampleDamageToPlayer;
+                  ((state as any).damageTakenThisTurnByPlayer[defendingPlayerId] || 0) + effectiveTrampleDamage;
               } catch {}
 
               // Track life lost this turn for common oracle checks.
               try {
-                state.lifeLostThisTurn = state.lifeLostThisTurn || {};
-                state.lifeLostThisTurn[defendingPlayerId] = (state.lifeLostThisTurn[defendingPlayerId] || 0) + trampleDamageToPlayer;
+                if (resolvedTrampleDamage.lifeLost > 0) {
+                  state.lifeLostThisTurn = state.lifeLostThisTurn || {};
+                  state.lifeLostThisTurn[defendingPlayerId] =
+                    (state.lifeLostThisTurn[defendingPlayerId] || 0) + resolvedTrampleDamage.lifeLost;
+                }
               } catch {}
               
               result.damageToPlayers[defendingPlayerId] = 
-                (result.damageToPlayers[defendingPlayerId] || 0) + trampleDamageToPlayer;
+                (result.damageToPlayers[defendingPlayerId] || 0) + effectiveTrampleDamage;
               
               // Track which attacker dealt damage to which player (for batched triggers)
               if (!result.attackersThatDealtDamage[defendingPlayerId]) {
@@ -2343,19 +2394,19 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               result.attackersThatDealtDamage[defendingPlayerId].add(attacker.id);
               result.attackerDamageToPlayers[defendingPlayerId] = result.attackerDamageToPlayers[defendingPlayerId] || {};
               result.attackerDamageToPlayers[defendingPlayerId][attacker.id] =
-                (result.attackerDamageToPlayers[defendingPlayerId][attacker.id] || 0) + trampleDamageToPlayer;
+                (result.attackerDamageToPlayers[defendingPlayerId][attacker.id] || 0) + effectiveTrampleDamage;
               
-              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${trampleDamageToPlayer} excess damage to ${defendingPlayerId}`);
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${effectiveTrampleDamage} excess damage to ${defendingPlayerId} (${lifeBeforeTrample} -> ${life[defendingPlayerId] ?? startingLife}, poison +${resolvedTrampleDamage.poisonAdded})`);
               
               // Track commander trample damage (Rule 903.10a)
-              trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, trampleDamageToPlayer);
+              trackCommanderDamage(ctx, attackerController, card, attacker, defendingPlayerId, effectiveTrampleDamage);
               
               // Track that this creature dealt damage to this player this turn (for Reciprocate-style effects)
-              trackCreatureDamageToPlayer(ctx, attacker.id, card.name || 'Unknown Creature', defendingPlayerId, trampleDamageToPlayer);
+              trackCreatureDamageToPlayer(ctx, attacker.id, card.name || 'Unknown Creature', defendingPlayerId, effectiveTrampleDamage);
               
               // Lifelink for trample damage
               if (keywords.lifelink) {
-                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, trampleDamageToPlayer, `${card.name || 'Attacker'} (lifelink trample)`);
+                const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, effectiveTrampleDamage, `${card.name || 'Attacker'} (lifelink trample)`);
                 
                 result.lifeGainForPlayers[attackerController] = 
                   (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
@@ -2458,17 +2509,19 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             if (applyVigorDamageReplacement(ctx, attacker, blockerDamageAfterPrevention, blockerCard)) {
               continue;
             }
-            const damageResult = applyDamageToPermanentWithCounterEffects(attacker, blockerDamageAfterPrevention, 'markedDamage', {
-              state: ctx.state,
-              source: blockerCard,
-              sourceId: String(blocker.id || ''),
-            });
+            const damageResult = applyCreatureCombatDamageFromSource(
+              ctx,
+              blocker,
+              attacker,
+              blockerDamageAfterPrevention,
+              'markedDamage',
+            );
             if (damageResult.prevented) {
               continue;
             }
             // Track damage dealt to this permanent this turn (for intervening-if clauses).
-            attacker.damageThisTurn = (attacker.damageThisTurn || 0) + blockerDamageAfterPrevention;
-            attacker.combatDamageThisTurn = (attacker.combatDamageThisTurn || 0) + blockerDamageAfterPrevention;
+            attacker.damageThisTurn = (attacker.damageThisTurn || 0) + damageResult.appliedAmount;
+            attacker.combatDamageThisTurn = (attacker.combatDamageThisTurn || 0) + damageResult.appliedAmount;
             attacker.tookDamageThisTurn = true;
 
             // Best-effort: track creature damaged by this creature this turn (for intervening-if templates).
@@ -2485,15 +2538,22 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               // best-effort only
             }
             
-            debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} dealt ${blockerDamageAfterPrevention} damage to attacker ${card.name || attacker.id}`);
+            debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} dealt ${damageResult.appliedAmount} damage to attacker ${card.name || attacker.id}`);
             
             // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
-            queueDamageReceivedTrigger(ctx, attacker, blockerDamageAfterPrevention);
+            queueDamageReceivedTrigger(ctx, attacker, damageResult.appliedAmount);
             
             // Check if attacker dies
             const attackerToughness = attackerStats.toughness;
             const totalDamageOnAttacker = attacker.markedDamage || 0;
-            const isDead = totalDamageOnAttacker >= attackerToughness || (blockerKeywords.deathtouch && totalDamageOnAttacker > 0);
+            const isDead = creatureDiesFromCombatDamage(
+              ctx,
+              attacker,
+              totalDamageOnAttacker,
+              blockerKeywords.deathtouch,
+              damageResult.usedMinusCounters,
+              attackerToughness,
+            );
             
             debug(2, `${ts()} [COMBAT_DAMAGE] Attacker ${card.name || attacker.id}: toughness=${attackerToughness}, totalDamage=${totalDamageOnAttacker}, isDead=${isDead}`);
             
@@ -2505,7 +2565,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             // Lifelink for blocker
             if (blockerKeywords.lifelink) {
               const blockerController = blocker.controller;
-              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, blockerController as PlayerID, blockerDamageAfterPrevention, `${blockerCard.name || 'Blocker'} (lifelink)`);
+              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, blockerController as PlayerID, damageResult.appliedAmount, `${blockerCard.name || 'Blocker'} (lifelink)`);
               
               result.lifeGainForPlayers[blockerController] = 
                 (result.lifeGainForPlayers[blockerController] || 0) + lifeGainResult.actualChange;

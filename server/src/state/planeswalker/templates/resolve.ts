@@ -13,6 +13,7 @@ import { ResolutionQueueManager } from "../../resolution/index.js";
 import { ResolutionStepType } from "../../resolution/types.js";
 import { permanentHasCreatureTypeNow } from "../../creatureTypeNow.js";
 import { applyDamageToPermanentWithCounterEffects } from "../../modules/counter-common-effects.js";
+import { applyCreatureDamageFromSource, applyFightDamageBetweenCreatures } from "../../modules/combat-damage-processing.js";
 import { syncPreparedPermanentAfterControlChange } from "../../modules/prepared.js";
 import { getPlaneswalkerTemplateMatch } from "./registry.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../../modules/graveyardEntryUtils.js";
@@ -527,12 +528,21 @@ function findCreatureOnBattlefieldById(ctx: GameContext, id: string): any | null
   return perm;
 }
 
-function applyDamageToPermanent(ctx: GameContext, permanentId: string, amount: number) {
+function applyDamageToPermanent(
+  ctx: GameContext,
+  permanentId: string,
+  amount: number,
+  options?: { sourcePermanentId?: string },
+) {
   const battlefield = getBattlefield(ctx);
   const perm = battlefield.find((p: any) => p?.id === permanentId);
   if (!perm) return;
 
   const dmg = Math.max(0, amount | 0);
+  const sourcePermanentId = String(options?.sourcePermanentId || '').trim();
+  const sourcePerm = sourcePermanentId
+    ? battlefield.find((p: any) => String(p?.id || '') === sourcePermanentId)
+    : null;
   // Track excess damage (best-effort): damage beyond remaining toughness in this event.
   try {
     const stateAny = (ctx as any).state as any;
@@ -553,7 +563,9 @@ function applyDamageToPermanent(ctx: GameContext, permanentId: string, amount: n
       }
     }
   } catch {}
-  const damageResult = applyDamageToPermanentWithCounterEffects(perm, dmg, 'damageMarked');
+  const damageResult = sourcePerm
+    ? applyCreatureDamageFromSource(ctx, sourcePerm, perm, dmg, 'damageMarked')
+    : applyDamageToPermanentWithCounterEffects(perm, dmg, 'damageMarked');
   if (damageResult.prevented) return;
   (perm as any).damageThisTurn = ((perm as any).damageThisTurn || 0) + dmg;
   (perm as any).tookDamageThisTurn = true;
@@ -7602,8 +7614,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const dmgToA = Math.max(0, bPT.power | 0);
       recordCreatureDamagedByCreatureThisTurn(ctx, String(aId), String(bId), dmgToB);
       recordCreatureDamagedByCreatureThisTurn(ctx, String(bId), String(aId), dmgToA);
-      applyDamageToPermanent(ctx, bId, dmgToB);
-      applyDamageToPermanent(ctx, aId, dmgToA);
+      applyFightDamageBetweenCreatures(ctx, a, dmgToB, b, dmgToA, 'damageMarked');
 
       (ctx as any).bumpSeq?.();
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
@@ -7636,8 +7647,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const dmgToA = Math.max(0, bPT.power | 0);
       recordCreatureDamagedByCreatureThisTurn(ctx, String(aId), String(bId), dmgToB);
       recordCreatureDamagedByCreatureThisTurn(ctx, String(bId), String(aId), dmgToA);
-      applyDamageToPermanent(ctx, bId, dmgToB);
-      applyDamageToPermanent(ctx, aId, dmgToA);
+      applyFightDamageBetweenCreatures(ctx, a, dmgToB, b, dmgToA, 'damageMarked');
 
       (ctx as any).bumpSeq?.();
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
