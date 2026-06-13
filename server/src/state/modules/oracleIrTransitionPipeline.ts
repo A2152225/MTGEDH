@@ -1,5 +1,7 @@
 import type { OracleIRServerExecutionBridge } from '../../../../rules-engine/src/oracleIRServerBridge.js';
-import type { OracleIRTransitionHaltState } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
+import type { OracleIRTransitionHaltState, OracleIRExecutionResult } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
+import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
+import { appendEvent } from '../../db/index.js';
 import type {
   OracleIRPendingTransition,
   OracleIRTransitionEventPayload,
@@ -282,6 +284,34 @@ export function readAppliedStepKindsFromState(state: unknown): Map<number, strin
   return new Map(raw);
 }
 
+/** Step index for completing a halted library-choice step (scry/surveil/search). */
+export function resolveOracleIrChoiceStepIndex(state: unknown): number {
+  const applied = readAppliedStepKindsFromState(state);
+  const ledger = readStepLedgerFromState(state);
+  const ledgerIndices = [...ledger.keys()]
+    .map((key) => Number(key))
+    .filter((index) => Number.isFinite(index) && index >= 0)
+    .sort((left, right) => left - right);
+  for (const index of ledgerIndices) {
+    if (!applied.has(index)) return index;
+  }
+  const appliedIndices = [...applied.keys()]
+    .map((key) => Number(key))
+    .filter((index) => Number.isFinite(index) && index >= 0);
+  if (appliedIndices.length === 0) return 0;
+  return Math.max(...appliedIndices) + 1;
+}
+
+/** Next absolute step index when resuming IR steps after a prior step was fully applied. */
+export function resolveOracleIrContinuationStepIndex(state: unknown): number {
+  const applied = readAppliedStepKindsFromState(state);
+  const indices = [...applied.keys()]
+    .map((key) => Number(key))
+    .filter((index) => Number.isFinite(index) && index >= 0);
+  if (indices.length === 0) return 0;
+  return Math.max(...indices) + 1;
+}
+
 export function readOracleIrLedgerPersistFields(state: unknown): {
   oracleIrStepLedger?: ReturnType<typeof serializeStepLedgerForEvent>;
   oracleIrAppliedStepKinds?: ReturnType<typeof serializeAppliedStepKindsForEvent>;
@@ -292,6 +322,146 @@ export function readOracleIrLedgerPersistFields(state: unknown): {
     ...(ledger ? { oracleIrStepLedger: ledger } : {}),
     ...(applied ? { oracleIrAppliedStepKinds: applied } : {}),
   };
+}
+
+export function readOracleIrCompoundResumePersistFields(step: unknown): {
+  oracleIrResumeStepsJson?: string;
+  oracleIrControllerId?: string;
+  oracleIrSourceId?: string;
+  oracleIrSourceName?: string;
+} {
+  if (!step || typeof step !== 'object') return {};
+  const data = step as Record<string, unknown>;
+  const resumeJson = String(data.oracleIrResumeStepsJson || '').trim();
+  if (!resumeJson) return {};
+  const controllerId = String(data.oracleIrControllerId || data.playerId || '').trim();
+  const sourceId = String(data.oracleIrSourceId || data.sourceId || '').trim();
+  const sourceName = String(data.oracleIrSourceName || data.sourceName || '').trim();
+  return {
+    oracleIrResumeStepsJson: resumeJson,
+    ...(controllerId ? { oracleIrControllerId: controllerId } : {}),
+    ...(sourceId ? { oracleIrSourceId: sourceId } : {}),
+    ...(sourceName ? { oracleIrSourceName: sourceName } : {}),
+  };
+}
+
+export function restoreOracleIrPendingCompoundResumeOnState(
+  state: unknown,
+  event: unknown,
+): void {
+  if (!state || typeof state !== 'object' || !event || typeof event !== 'object') return;
+  const resumeJson = String((event as any).oracleIrResumeStepsJson || '').trim();
+  if (!resumeJson) return;
+  (state as any).oracleIrPendingResumeStepsJson = resumeJson;
+  const controllerId = String((event as any).oracleIrControllerId || (event as any).playerId || '').trim();
+  const sourceId = String((event as any).oracleIrSourceId || '').trim();
+  const sourceName = String((event as any).oracleIrSourceName || '').trim();
+  if (controllerId) (state as any).oracleIrPendingResumeControllerId = controllerId;
+  if (sourceId) (state as any).oracleIrPendingResumeSourceId = sourceId;
+  if (sourceName) (state as any).oracleIrPendingResumeSourceName = sourceName;
+}
+
+export function clearOracleIrPendingCompoundResumeOnState(state: unknown): void {
+  if (!state || typeof state !== 'object') return;
+  delete (state as any).oracleIrPendingResumeStepsJson;
+  delete (state as any).oracleIrPendingResumeControllerId;
+  delete (state as any).oracleIrPendingResumeSourceId;
+  delete (state as any).oracleIrPendingResumeSourceName;
+}
+
+function resolveOracleIrCompoundResumeDrawCount(
+  result: OracleIRExecutionResult,
+): number {
+  const drawSteps = (result.appliedSteps || []).filter(
+    (step: OracleEffectStep) => step.kind === 'draw',
+  );
+  if (drawSteps.length === 0) return 0;
+  let total = 0;
+  for (const step of drawSteps) {
+    const amount = (step as { amount?: { kind?: string; value?: number } }).amount;
+    if (amount?.kind === 'number' && Number.isFinite(Number(amount.value))) {
+      total += Math.max(0, Number(amount.value));
+      continue;
+    }
+    total += 1;
+  }
+  return total;
+}
+
+export function collectOracleIrCompoundDrawnCardIds(
+  state: unknown,
+  controller: string,
+  handIdsBefore: ReadonlySet<string>,
+): string[] {
+  const hand = (state as any)?.zones?.[controller]?.hand;
+  if (!Array.isArray(hand)) return [];
+  return hand
+    .map((card: any) => String(card?.id || '').trim())
+    .filter((id: string) => id && !handIdsBefore.has(id));
+}
+
+export function persistOracleIrCompoundResumeDrawCardsEvent(
+  ctx: { gameId?: string; seq?: number; isReplaying?: boolean; bumpSeq?: () => void },
+  params: {
+    controller: string;
+    result: OracleIRExecutionResult;
+    sourceId?: string;
+    sourceName?: string;
+    drawnCardIds?: readonly string[];
+  },
+): void {
+  if ((ctx as any).isReplaying) return;
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown') return;
+
+  const drawCount = resolveOracleIrCompoundResumeDrawCount(params.result);
+  if (drawCount <= 0) return;
+
+  const playerId = String(params.controller || '').trim();
+  if (!playerId) return;
+
+  const drawnCardIds = (params.drawnCardIds || [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+
+  try {
+    appendEvent(gameId, Number((ctx as any).seq ?? 0), 'drawCards', {
+      playerId,
+      count: drawCount,
+      oracleIrCompoundResume: true,
+      ...(drawnCardIds.length > 0 ? { drawnCardIds } : {}),
+      ...(params.sourceId ? { oracleIrSourceId: params.sourceId } : {}),
+      ...(params.sourceName ? { oracleIrSourceName: params.sourceName } : {}),
+    });
+    if (typeof (ctx as any).bumpSeq === 'function') {
+      (ctx as any).bumpSeq();
+    }
+  } catch {
+    // best-effort only
+  }
+}
+
+export function persistOracleIrCompoundDrawAfterResolution(
+  ctx: { gameId?: string; seq?: number; isReplaying?: boolean; bumpSeq?: () => void; state?: unknown },
+  params: {
+    controller: string;
+    result: OracleIRExecutionResult | null;
+    sourceId?: string;
+    sourceName?: string;
+    handIdsBefore?: ReadonlySet<string>;
+  },
+): void {
+  if (!params.result) return;
+  const drawnCardIds = params.handIdsBefore
+    ? collectOracleIrCompoundDrawnCardIds((ctx as any).state, params.controller, params.handIdsBefore)
+    : [];
+  persistOracleIrCompoundResumeDrawCardsEvent(ctx, {
+    controller: params.controller,
+    result: params.result,
+    sourceId: params.sourceId,
+    sourceName: params.sourceName,
+    drawnCardIds,
+  });
 }
 
 export function restoreOracleIrLedgerOnState(

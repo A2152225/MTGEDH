@@ -389,6 +389,16 @@ export function App() {
   const [combatControlMode, setCombatControlMode] = useState<'attackers' | 'blockers'>('attackers');
   const combatPreviewEmitTimerRef = useRef<any>(null);
   const combatPreviewPendingRef = useRef<Record<string, string> | null>(null);
+
+  React.useEffect(() => {
+    if (safeView) return;
+    setCombatModalOpen(false);
+    setCombatModalMinimized(false);
+    setCombatModalReadOnly(false);
+    setCombatModalError(null);
+    setCombatControlModalOpen(false);
+    setCombatPreviewAttackTargets(null);
+  }, [safeView]);
   
   // NOTE: Mox Diamond replacement-effect interaction is now handled by the
   // Resolution Queue via a generic option-choice step.
@@ -6321,7 +6331,7 @@ export function App() {
             reasonCannotPlayLand={reasonCannotPlayLand}
             reasonCannotCast={reasonCannotCast}
             stack={(safeView.stack as any) || []}
-            battlefield={safeView.battlefield}
+            battlefield={safeView?.battlefield}
             players={safeView.players}
             you={you || undefined}
             priority={safeView.priority}
@@ -7190,7 +7200,7 @@ export function App() {
 
       {/* Combat Selection Modal */}
       <CombatSelectionModal
-        open={combatModalOpen}
+        open={combatModalOpen && !!safeView}
         minimized={combatModalMinimized}
         onMinimize={() => setCombatModalMinimized(true)}
         onRestore={() => setCombatModalMinimized(false)}
@@ -7202,7 +7212,7 @@ export function App() {
             : (combatModalReadOnly ? [] : myBlockerCreatures)
         }
         attackingCreatures={attackingCreatures}
-        battlefield={(safeView.battlefield || []) as BattlefieldPermanent[]}
+        battlefield={(safeView?.battlefield || []) as BattlefieldPermanent[]}
         defenders={combatMode === 'attackers' && combatModalReadOnly ? combatModalAttackersDefenders : defenders}
         initialAttackTargets={
           combatMode === 'attackers' && combatModalReadOnly

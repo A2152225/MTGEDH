@@ -55,8 +55,12 @@ import { getTokenImageUrls } from '../../services/tokens.js';
 import {
   createOracleIRServerExecutionBridge,
   queueOracleIrDeferredReplacementPrompts,
+  clearOracleIrPendingCompoundResumeOnState,
+  persistOracleIrCompoundDrawAfterResolution,
   readAppliedStepKindsFromState,
   readStepLedgerFromState,
+  resolveOracleIrChoiceStepIndex,
+  resolveOracleIrContinuationStepIndex,
 } from './oracleIrTransitionPipeline.js';
 import { createEmptyStepLedger } from '../../../../rules-engine/src/oracleIRStepLedger.js';
 import type { OracleIRTransitionHaltState } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
@@ -2781,12 +2785,18 @@ export function resumeOracleIRRemainingStepsFromResolution(
     return null;
   }
 
+  const state = (ctx as any).state;
+  const continuationStepIndex = resolveOracleIrContinuationStepIndex(state);
+
   const irCtx = buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
       sourceId: params.sourceId,
       sourceName: params.sourceName,
       targetSpellId: params.targetSpellId,
+      currentStepIndex: continuationStepIndex,
+      stepLedger: readStepLedgerFromState(state),
+      appliedStepKinds: readAppliedStepKindsFromState(state),
     },
     {
       targetPlayerId: params.targetPlayerId,
@@ -2796,7 +2806,7 @@ export function resumeOracleIRRemainingStepsFromResolution(
 
   return applyOracleIRStepsOnServer(
     ctx,
-    (ctx as any).state,
+    state,
     params.steps,
     irCtx,
     { allowOptional: false },
@@ -2833,12 +2843,18 @@ export function resumeOracleIRStepWithChoiceFromResolution(
     ...(chosenObjectIds.length > 0 ? { chosenObjectIds } : {}),
   };
 
+  const state = (ctx as any).state;
+  const choiceStepIndex = resolveOracleIrChoiceStepIndex(state);
+
   const irCtx = buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
       sourceId: params.sourceId,
       sourceName: params.sourceName,
       targetSpellId: params.targetSpellId,
+      currentStepIndex: choiceStepIndex,
+      stepLedger: readStepLedgerFromState(state),
+      appliedStepKinds: readAppliedStepKindsFromState(state),
       ...(typeof params.selectorContext?.targetPermanentId === 'string'
         ? { targetPermanentId: String(params.selectorContext.targetPermanentId) }
         : {}),
@@ -2857,7 +2873,7 @@ export function resumeOracleIRStepWithChoiceFromResolution(
 
   return applyOracleIRStepsOnServer(
     ctx,
-    (ctx as any).state,
+    state,
     params.steps,
     irCtx,
     { allowOptional: false },
@@ -3154,6 +3170,68 @@ export function maybeResumeOracleIRStepsAfterResolution(
         }
       : undefined,
   });
+}
+
+export function resumeOracleIrPendingCompoundStepsFromState(
+  ctx: GameContext,
+): OracleIRExecutionResult | null {
+  const state = (ctx as any).state;
+  const resumeJson = String(state?.oracleIrPendingResumeStepsJson || '').trim();
+  if (!resumeJson) return null;
+
+  let remainingSteps: OracleEffectStep[] = [];
+  try {
+    const parsed = JSON.parse(resumeJson);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      clearOracleIrPendingCompoundResumeOnState(state);
+      return null;
+    }
+    remainingSteps = parsed as OracleEffectStep[];
+  } catch {
+    return null;
+  }
+
+  const controller = String(
+    state?.oracleIrPendingResumeControllerId || '',
+  ).trim() as PlayerID;
+  if (!controller) return null;
+
+  const sourceId = String(state?.oracleIrPendingResumeSourceId || '').trim() || undefined;
+  const sourceName = String(state?.oracleIrPendingResumeSourceName || '').trim() || undefined;
+
+  const handIdsBefore = new Set(
+    ((state as any)?.zones?.[controller]?.hand || [])
+      .map((card: any) => String(card?.id || '').trim())
+      .filter(Boolean),
+  );
+
+  const result = resumeOracleIRRemainingStepsFromResolution(ctx, {
+    controller,
+    sourceId,
+    sourceName,
+    steps: remainingSteps,
+  });
+  if (result) {
+    persistOracleIrCompoundDrawAfterResolution(ctx, {
+      controller,
+      result,
+      sourceId,
+      sourceName,
+      handIdsBefore,
+    });
+    clearOracleIrPendingCompoundResumeOnState(state);
+  }
+  return result;
+}
+
+export function processPendingOracleIrCompoundResumeOnContext(
+  ctx: GameContext,
+): OracleIRExecutionResult | null {
+  if ((ctx as any).isReplaying) return null;
+  const state = (ctx as any).state;
+  if (!state || typeof state !== 'object') return null;
+  if (!String(state.oracleIrPendingResumeStepsJson || '').trim()) return null;
+  return resumeOracleIrPendingCompoundStepsFromState(ctx);
 }
 
 export function applyOracleIRStepsOnServer(

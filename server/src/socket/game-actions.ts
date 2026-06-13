@@ -1,7 +1,7 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, addCastSpellPaymentProducedMana, buildManaTotalsIncludingEligibleRestricted, consumeManaFromPool, consumeManaFromPoolForPurpose, deriveCreatureSpellHasteFromManaSpent, getFloatingPaymentPoolColorKey, getOrInitManaPool, calculateTotalAvailableMana, parseFloatingPaymentPermanentId, validateManaPayment, validateSelectedFloatingPoolMana, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, resolveActivatedAbilityLineById, resolvePaymentManaAbilitySpendRestriction, restrictedManaSpendRestrictionAllowsPurpose, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower, type RestrictedManaSpendPurpose } from "./util";
-import { emitResolutionStepPrompt, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
+import { emitResolutionStepPrompt, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingOracleIrCompoundResume, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
 import {
@@ -12623,6 +12623,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Process any pending proliferate effects
       processPendingProliferate(io, game, gameId);
+      processPendingOracleIrCompoundResume(io, game, gameId);
       
       broadcastGame(io, game, gameId);
     } catch (err: any) {
@@ -13155,6 +13156,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Process any pending proliferate effects
         processPendingProliferate(io, game, gameId);
+        processPendingOracleIrCompoundResume(io, game, gameId);
         
         // ========================================================================
         // CRITICAL: Check if there's a pending phase skip that was interrupted
@@ -13999,6 +14001,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
         // Process any pending Dance with Calamity effects
         processPendingDanceWithCalamity(io, game, gameId);
+        processPendingOracleIrCompoundResume(io, game, gameId);
       }
 
       // If all players passed priority with empty stack, advance to next step

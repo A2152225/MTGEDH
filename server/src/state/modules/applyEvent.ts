@@ -20,6 +20,7 @@ import {
   importDeckResolved,
   shuffleLibrary,
   drawCards,
+  drawCardsByIds,
   selectFromLibrary,
   moveHandToLibrary,
   reorderHand as zonesReorderHand,
@@ -357,7 +358,9 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./
 import { processLifeChange, resolveOpponentDirectedDamage } from "./game-state-effects";
 import { markEchoPaid, sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
-import { restoreOracleIrLedgerOnState } from "./oracleIrTransitionPipeline.js";
+import { restoreOracleIrLedgerOnState, restoreOracleIrPendingCompoundResumeOnState, clearOracleIrPendingCompoundResumeOnState } from "./oracleIrTransitionPipeline.js";
+import { processPendingOracleIrCompoundResumeOnContext } from "./oracleIrServerZoneSync.js";
+import { finalizeGameStateAfterReplay } from "./replay-prompt-cleanup.js";
 import { parseManaCost } from "./mana-check.js";
 import { addRestrictedManaToPool, calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../../rules-engine/src/creatureUpgradeAbilities.js";
@@ -2141,11 +2144,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "drawCards": {
-        drawCards(
-          ctx as any,
-          (e as any).playerId,
-          (e as any).count || 1
-        );
+        const drawPlayerId = (e as any).playerId;
+        const drawnCardIds = (Array.isArray((e as any).drawnCardIds) ? (e as any).drawnCardIds : [])
+          .map((id: unknown) => String(id || '').trim())
+          .filter(Boolean);
+        if (drawnCardIds.length > 0) {
+          drawCardsByIds(ctx as any, drawPlayerId, drawnCardIds);
+        } else {
+          drawCards(
+            ctx as any,
+            drawPlayerId,
+            (e as any).count || 1
+          );
+        }
+        clearOracleIrPendingCompoundResumeOnState(ctx.state);
         break;
       }
 
@@ -5190,6 +5202,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (e as any).oracleIrStepLedger,
             (e as any).oracleIrAppliedStepKinds,
           );
+          restoreOracleIrPendingCompoundResumeOnState(ctx.state, e);
         } catch (err) {
           debugWarn(1, 'applyEvent(scryResolve): failed', err);
         }
@@ -5254,6 +5267,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (e as any).oracleIrStepLedger,
             (e as any).oracleIrAppliedStepKinds,
           );
+          restoreOracleIrPendingCompoundResumeOnState(ctx.state, e);
         } catch (err) {
           debugWarn(1, 'applyEvent(surveilResolve): failed', err);
         }
@@ -14997,6 +15011,16 @@ export function replay(
       delete (ctx as any)._replayNextEventType;
     } catch {
       // ignore
+    }
+    try {
+      processPendingOracleIrCompoundResumeOnContext(ctx);
+    } catch {
+      // best-effort only
+    }
+    try {
+      finalizeGameStateAfterReplay(ctx);
+    } catch {
+      // best-effort only
     }
   }
 }

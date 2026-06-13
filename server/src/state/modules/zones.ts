@@ -831,6 +831,60 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
   return drawn;
 }
 
+export function drawCardsByIds(ctx: GameContext, playerId: PlayerID, cardIds: string[]): KnownCardRef[] {
+  const normalizedIds = (Array.isArray(cardIds) ? cardIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  if (normalizedIds.length === 0) return [];
+
+  const lib = ctx.libraries.get(playerId) || [];
+  const zones = ctx.state.zones = ctx.state.zones || {};
+  const z = zones[playerId] || (zones[playerId] = {
+    hand: [],
+    handCount: 0,
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+  } as any);
+
+  const byId = new Map<string, KnownCardRef>();
+  for (let i = lib.length - 1; i >= 0; i--) {
+    const card = lib[i] as any;
+    const id = String(card?.id || '').trim();
+    if (!id || !normalizedIds.includes(id)) continue;
+    const [removed] = lib.splice(i, 1);
+    byId.set(id, removed);
+  }
+
+  const drawn: KnownCardRef[] = [];
+  (ctx.state as any).cardsDrawnThisTurn = (ctx.state as any).cardsDrawnThisTurn || {};
+  const previousDrawCount = Number((ctx.state as any).cardsDrawnThisTurn?.[playerId] || 0);
+
+  for (const id of normalizedIds) {
+    const card = byId.get(id);
+    if (!card) continue;
+    const drawNumber = previousDrawCount + drawn.length + 1;
+    if (drawNumber === 1) {
+      (card as any).isFirstDrawnThisTurn = true;
+      (card as any).drawnAt = Date.now();
+    }
+    (z.hand as any[]).push(card);
+    drawn.push(card);
+  }
+
+  ctx.libraries.set(playerId, lib);
+  z.handCount = (z.hand as any[]).length;
+  z.libraryCount = lib.length;
+
+  if (drawn.length > 0 && !(ctx as any).isReplaying) {
+    (ctx.state as any).cardsDrawnThisTurn[playerId] = previousDrawCount + drawn.length;
+    processDrawTriggers(ctx, playerId, drawn.length);
+  }
+
+  ctx.bumpSeq();
+  return drawn;
+}
+
 /**
  * Process draw triggers - called when a player draws cards
  * Handles:

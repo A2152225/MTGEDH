@@ -37,6 +37,8 @@ describe('trigger scry and surveil oracle IR fallback', () => {
     const scryStep = steps.find(step => step.type === ResolutionStepType.SCRY);
     expect(scryStep).toBeTruthy();
     expect((scryStep as any)?.scryCount).toBe(2);
+    expect(String((scryStep as any)?.oracleIrChoiceStepJson || '')).toContain('scry');
+    expect((scryStep as any)?.persistOracleIrScryResolve).toBe(true);
   });
 
   it('queues surveil via oracle IR when a trigger effect surveils', () => {
@@ -61,6 +63,8 @@ describe('trigger scry and surveil oracle IR fallback', () => {
     const surveilStep = steps.find(step => step.type === ResolutionStepType.SURVEIL);
     expect(surveilStep).toBeTruthy();
     expect((surveilStep as any)?.surveilCount).toBe(2);
+    expect(String((surveilStep as any)?.oracleIrChoiceStepJson || '')).toContain('surveil');
+    expect((surveilStep as any)?.persistOracleIrSurveilResolve).toBe(true);
   });
 
   it('queues surveil with whereX resolved from battlefield count', () => {
@@ -112,5 +116,32 @@ describe('trigger scry and surveil oracle IR fallback', () => {
     const surveilStep = steps.find(step => step.type === ResolutionStepType.SURVEIL);
     expect(surveilStep).toBeTruthy();
     expect((surveilStep as any)?.surveilCount).toBe(2);
+  });
+
+  it('queues compound trigger scry with oracleIrResumeStepsJson for trailing draw', () => {
+    const gameId = 'trigger_scry_draw_compound_ir';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.importDeckResolved(p1, makeLibrary('p1', 5) as any);
+
+    const ctx = game as any;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    executeTriggerEffect(ctx, p1, 'Opt', 'Scry 1. Draw a card.', {
+      type: 'triggered_ability',
+      controller: p1,
+      sourceId: 'opt_trigger_source',
+      id: 'opt_trigger_compound',
+    });
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p1);
+    const scryStep = steps.find(step => step.type === ResolutionStepType.SCRY);
+    expect(scryStep).toBeTruthy();
+    expect((scryStep as any)?.scryCount).toBe(1);
+    expect(String((scryStep as any)?.oracleIrChoiceStepJson || '')).toContain('scry');
+    expect(String((scryStep as any)?.oracleIrResumeStepsJson || '')).toContain('draw');
+    expect((scryStep as any)?.persistOracleIrScryResolve).toBe(true);
   });
 });

@@ -913,8 +913,13 @@ export function applyOracleIRStepsToGameStateImpl(
     return true;
   };
 
-  for (let stepIndex = 0; stepIndex < steps.length; stepIndex += 1) {
-    const step = steps[stepIndex];
+  const baseStepIndex = Number.isFinite(Number(ctx.currentStepIndex)) && Number(ctx.currentStepIndex) >= 0
+    ? Number(ctx.currentStepIndex)
+    : 0;
+
+  for (let relativeIndex = 0; relativeIndex < steps.length; relativeIndex += 1) {
+    const step = steps[relativeIndex];
+    const stepIndex = baseStepIndex + relativeIndex;
     currentCtx = {
       ...currentCtx,
       currentStepIndex: stepIndex,
@@ -3326,7 +3331,7 @@ export function applyOracleIRStepsToGameStateImpl(
     }
 
     if (haltedForPlayerChoice) {
-      pendingContinuationSteps = steps.slice(stepIndex + 1) as OracleEffectStep[];
+      pendingContinuationSteps = steps.slice(relativeIndex + 1) as OracleEffectStep[];
       break;
     }
   }

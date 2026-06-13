@@ -1,7 +1,14 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
+import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutor.js';
+import { evaluateConditionalWrapperCondition } from '../../rules-engine/src/oracleIRExecutorConditionalStepSupport.js';
+import { isSearchedLibraryThisWayLedgerFirst } from '../../rules-engine/src/oracleIRLedgerCardAccess.js';
 import { createInitialGameState } from '../src/state/gameState.js';
+import {
+  readAppliedStepKindsFromState,
+  readStepLedgerFromState,
+} from '../src/state/modules/oracleIrTransitionPipeline.js';
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
@@ -213,6 +220,31 @@ describe("Kodama's Reach Oracle IR library search", () => {
     expect(liveBattlefield.some((permanent: any) => permanent?.card?.id === 'f1' && permanent?.tapped === true)).toBe(true);
     expect((game.state as any).oracleIrStepLedger?.size).toBeGreaterThan(0);
 
+    const liveIrCtx = buildOracleIRExecutionContext({
+      controllerId: playerId as PlayerID,
+      sourceId: 'kodamas_reach_2',
+      sourceName: "Kodama's Reach",
+      stepLedger: readStepLedgerFromState(game.state),
+      appliedStepKinds: readAppliedStepKindsFromState(game.state),
+      currentStepIndex: 1,
+    });
+    const searchedConditionalStep = {
+      kind: 'conditional',
+      raw: 'If you searched your library this way, draw a card.',
+      condition: { kind: 'if', raw: 'you searched your library this way' },
+      thisWayAntecedentStepIndex: 0,
+      thisWayAntecedentStepKind: 'search_library',
+    } as const;
+    expect(isSearchedLibraryThisWayLedgerFirst(liveIrCtx, searchedConditionalStep as any)).toBe(true);
+    expect(evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'you searched your library this way' },
+      nextState: game.state as any,
+      controllerId: playerId as PlayerID,
+      ctx: liveIrCtx,
+      lastActionOutcome: { kind: 'applied', stepKind: 'shuffle_library' },
+      step: searchedConditionalStep as any,
+    })).toBe(true);
+
     const resolvedEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'librarySearchResolve') as any;
     expect(resolvedEvent).toBeDefined();
     expect(Array.isArray(resolvedEvent.payload?.oracleIrStepLedger)).toBe(true);
@@ -254,5 +286,23 @@ describe("Kodama's Reach Oracle IR library search", () => {
     );
     expect((replayGame.state as any).oracleIrStepLedger?.size).toBeGreaterThan(0);
     expect([...((replayGame.state as any).oracleIrAppliedStepKinds?.values() || [])]).toContain('search_library');
+
+    const replayIrCtx = buildOracleIRExecutionContext({
+      controllerId: replayPlayerId,
+      sourceId: 'kodamas_reach_2',
+      sourceName: "Kodama's Reach",
+      stepLedger: readStepLedgerFromState(replayGame.state),
+      appliedStepKinds: readAppliedStepKindsFromState(replayGame.state),
+      currentStepIndex: 1,
+    });
+    expect(isSearchedLibraryThisWayLedgerFirst(replayIrCtx, searchedConditionalStep as any)).toBe(true);
+    expect(evaluateConditionalWrapperCondition({
+      condition: { kind: 'if', raw: 'you searched your library this way' },
+      nextState: replayGame.state as any,
+      controllerId: replayPlayerId,
+      ctx: replayIrCtx,
+      lastActionOutcome: null,
+      step: searchedConditionalStep as any,
+    })).toBe(true);
   });
 });

@@ -139,8 +139,8 @@ import {
 } from "../state/modules/triggers/targeted.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
-import { resolveOracleIrOptionalPaymentPromptFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution } from '../state/modules/oracleIrServerZoneSync.js';
-import { readOracleIrLedgerPersistFields } from '../state/modules/oracleIrTransitionPipeline.js';
+import { resolveOracleIrOptionalPaymentPromptFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution, processPendingOracleIrCompoundResumeOnContext } from '../state/modules/oracleIrServerZoneSync.js';
+import { readOracleIrLedgerPersistFields, readOracleIrCompoundResumePersistFields, persistOracleIrCompoundDrawAfterResolution } from '../state/modules/oracleIrTransitionPipeline.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
@@ -4472,6 +4472,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         processPendingBottomOrder(io, game, gameId);
         processPendingLimDulsVault(io, game, gameId);
         processPendingDanceWithCalamity(io, game, gameId);
+        processPendingOracleIrCompoundResume(io, game, gameId);
       }
     } catch {
       // best-effort only
@@ -22686,17 +22687,33 @@ function handleScryResponse(
   }
 
   let ledgerPersistFields: ReturnType<typeof readOracleIrLedgerPersistFields> = {};
+  let compoundResumePersistFields: ReturnType<typeof readOracleIrCompoundResumePersistFields> = {};
   let persistOracleIrLedger = false;
+  let compoundDrawResult: ReturnType<typeof maybeResumeOracleIRStepsAfterResolution> = null;
   if (String(scryStep.oracleIrChoiceStepJson || '').trim()) {
     const ctx = ((game as any).ctx || game) as any;
     ctx.gameId = gameId;
     ctx.state = game.state;
     const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, response);
     if (oracleIrTopLibraryChoiceResumeApplied(resumed, 'scry')) {
+      compoundResumePersistFields = readOracleIrCompoundResumePersistFields(scryStep);
       ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
-      maybeResumeOracleIRStepsAfterResolution(ctx, step);
-      ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
+      const handIdsBefore = new Set(
+        ((game.state as any).zones?.[pid]?.hand || [])
+          .map((card: any) => String(card?.id || '').trim())
+          .filter(Boolean),
+      );
+      compoundDrawResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
       persistOracleIrLedger = scryStep.persistOracleIrScryResolve === true;
+      if (compoundDrawResult && persistOracleIrLedger) {
+        persistOracleIrCompoundDrawAfterResolution(ctx, {
+          controller: pid,
+          result: compoundDrawResult,
+          sourceId: scryStep.oracleIrSourceId,
+          sourceName: scryStep.oracleIrSourceName,
+          handIdsBefore,
+        });
+      }
       broadcastGame(io, game, gameId);
     }
   }
@@ -22709,6 +22726,7 @@ function handleScryResponse(
       keepTopOrder, 
       bottomOrder,
       ...(persistOracleIrLedger ? ledgerPersistFields : {}),
+      ...(persistOracleIrLedger ? compoundResumePersistFields : {}),
     });
   } catch {
     // Ignore persistence failures
@@ -22931,6 +22949,7 @@ function handleSurveilResponse(
   }
 
   let ledgerPersistFields: ReturnType<typeof readOracleIrLedgerPersistFields> = {};
+  let compoundResumePersistFields: ReturnType<typeof readOracleIrCompoundResumePersistFields> = {};
   let persistOracleIrLedger = false;
   if (String(surveilStep.oracleIrChoiceStepJson || '').trim()) {
     const ctx = ((game as any).ctx || game) as any;
@@ -22938,10 +22957,24 @@ function handleSurveilResponse(
     ctx.state = game.state;
     const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, response);
     if (oracleIrTopLibraryChoiceResumeApplied(resumed, 'surveil')) {
+      compoundResumePersistFields = readOracleIrCompoundResumePersistFields(surveilStep);
       ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
-      maybeResumeOracleIRStepsAfterResolution(ctx, step);
-      ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
+      const handIdsBefore = new Set(
+        ((game.state as any).zones?.[pid]?.hand || [])
+          .map((card: any) => String(card?.id || '').trim())
+          .filter(Boolean),
+      );
+      const compoundDrawResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
       persistOracleIrLedger = surveilStep.persistOracleIrSurveilResolve === true;
+      if (compoundDrawResult && persistOracleIrLedger) {
+        persistOracleIrCompoundDrawAfterResolution(ctx, {
+          controller: pid,
+          result: compoundDrawResult,
+          sourceId: surveilStep.oracleIrSourceId,
+          sourceName: surveilStep.oracleIrSourceName,
+          handIdsBefore,
+        });
+      }
       broadcastGame(io, game, gameId);
     }
   }
@@ -22954,6 +22987,7 @@ function handleSurveilResponse(
       keepTopOrder, 
       toGraveyard,
       ...(persistOracleIrLedger ? ledgerPersistFields : {}),
+      ...(persistOracleIrLedger ? compoundResumePersistFields : {}),
     });
   } catch {
     // Ignore persistence failures
@@ -25701,6 +25735,28 @@ export function processPendingSurveil(
     }
   } catch (err) {
     debugWarn(1, "[processPendingSurveil] Error:", err);
+  }
+}
+
+/**
+ * After replay/reconnect, finish compound IR spells whose scry/surveil step was
+ * persisted but trailing steps (e.g. draw) were not yet applied.
+ */
+export function processPendingOracleIrCompoundResume(
+  io: Server,
+  game: any,
+  gameId: string,
+): void {
+  try {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const resumed = processPendingOracleIrCompoundResumeOnContext(ctx);
+    if (resumed?.appliedSteps?.length) {
+      broadcastGame(io, game, gameId);
+    }
+  } catch (err) {
+    debugWarn(1, '[processPendingOracleIrCompoundResume] Error:', err);
   }
 }
 

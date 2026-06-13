@@ -8547,6 +8547,9 @@ export async function handleAIPriority(
       if (resolutionModule?.processPendingDanceWithCalamity) {
         resolutionModule.processPendingDanceWithCalamity(io as any, game, gameId);
       }
+      if (resolutionModule?.processPendingOracleIrCompoundResume) {
+        resolutionModule.processPendingOracleIrCompoundResume(io as any, game, gameId);
+      }
     } catch {
       // best-effort only
     }

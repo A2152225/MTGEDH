@@ -29,6 +29,10 @@ const REPLAY_TRANSIENT_PROMPT_STATE_KEYS = [
   'pendingLibrarySearch',
   'pendingModalChoice',
   'pendingMayAbility',
+  'oracleIrPendingResumeStepsJson',
+  'oracleIrPendingResumeControllerId',
+  'oracleIrPendingResumeSourceId',
+  'oracleIrPendingResumeSourceName',
 ] as const;
 
 export function clearReplayTransientPromptState(state: any): void {

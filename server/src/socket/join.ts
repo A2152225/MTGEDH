@@ -4,7 +4,7 @@ import { ensureGame, broadcastGame, schedulePriorityTimeout } from "./util";
 import { appendEvent, updateGameCreatorPlayerId, getGameCreator } from "../db";
 import { computeDiff } from "../utils/diff";
 import { games } from "./socket.js";
-import { emitResolutionStepPrompt, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingPonder, processPendingScry, processPendingSurveil } from "./resolution.js";
+import { emitResolutionStepPrompt, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingOracleIrCompoundResume, processPendingPonder, processPendingScry, processPendingSurveil } from "./resolution.js";
 import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
@@ -1023,6 +1023,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               processPendingBottomOrder(io as any, game, gameId);
               processPendingLimDulsVault(io as any, game, gameId);
               processPendingDanceWithCalamity(io as any, game, gameId);
+              processPendingOracleIrCompoundResume(io as any, game, gameId);
             } catch (e) {
               debugWarn(1, 'joinGame: pending resolution restore failed', e);
             }
