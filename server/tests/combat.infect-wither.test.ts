@@ -80,9 +80,11 @@ describe('combat damage infect/wither/poisonous', () => {
 
     const lifeAfter = (game.state as any).life?.[defending] ?? 40;
     const poisonFromState = (game.state as any).poisonCounters?.[defending] ?? 0;
+    const defenderView = game.viewFor(defending);
 
     expect(lifeAfter).toBe(lifeBefore);
     expect(poisonFromState).toBe(2);
+    expect(defenderView.poisonCounters?.[defending]).toBe(2);
   });
 
   it('infect combat damage places -1/-1 counters on blocking creatures instead of marked damage', () => {
@@ -388,5 +390,111 @@ describe('combat damage infect/wither/poisonous', () => {
     expect((game.state as any).stack?.some((item: any) =>
       String(item?.sourceName || item?.card?.name || '').includes('Blood Artist')
     )).toBe(true);
+  });
+
+  it('first-strike infect deals poison in the first strike damage step without life loss', () => {
+    const game = createInitialGameState('combat_first_strike_infect_player');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    game.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    game.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+    setupToMain1(game, p1, p2);
+
+    const active = game.state.turnPlayer as PlayerID;
+    const defending = active === p1 ? p2 : p1;
+    const lifeBefore = (game.state as any).life?.[defending] ?? 40;
+
+    (game.state as any).battlefield = [
+      {
+        id: 'fs_infect_attacker',
+        controller: active,
+        owner: active,
+        tapped: false,
+        counters: {},
+        summoningSickness: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'fs_infect_attacker_card',
+          name: 'First Strike Infect',
+          type_line: 'Creature — Phyrexian',
+          oracle_text: 'First strike\nInfect',
+          keywords: ['First strike', 'Infect'],
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    advanceToCombatDamage(game);
+    game.applyEvent({
+      type: 'declareAttackers',
+      playerId: active,
+      attackers: [{ attackerId: 'fs_infect_attacker', defendingPlayer: defending }],
+    });
+    game.applyEvent({ type: 'nextStep' });
+    game.applyEvent({ type: 'nextStep' });
+
+    const stepAfterBlockers = String((game.state as any).step || '').toLowerCase();
+    if (stepAfterBlockers.includes('first_strike_damage')) {
+      game.applyEvent({ type: 'nextStep' });
+    }
+
+    expect((game.state as any).life?.[defending]).toBe(lifeBefore);
+    expect((game.state as any).poisonCounters?.[defending]).toBe(2);
+  });
+
+  it('double-strike infect deals poison in both combat damage steps', () => {
+    const game = createInitialGameState('combat_double_strike_infect_player');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    game.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    game.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+    setupToMain1(game, p1, p2);
+
+    const active = game.state.turnPlayer as PlayerID;
+    const defending = active === p1 ? p2 : p1;
+
+    (game.state as any).battlefield = [
+      {
+        id: 'ds_infect_attacker',
+        controller: active,
+        owner: active,
+        tapped: false,
+        counters: {},
+        summoningSickness: false,
+        basePower: 1,
+        baseToughness: 1,
+        card: {
+          id: 'ds_infect_attacker_card',
+          name: 'Double Strike Infect',
+          type_line: 'Creature — Phyrexian',
+          oracle_text: 'Double strike\nInfect',
+          keywords: ['Double strike', 'Infect'],
+          power: '1',
+          toughness: '1',
+        },
+      },
+    ];
+
+    advanceToCombatDamage(game);
+    game.applyEvent({
+      type: 'declareAttackers',
+      playerId: active,
+      attackers: [{ attackerId: 'ds_infect_attacker', defendingPlayer: defending }],
+    });
+    game.applyEvent({ type: 'nextStep' });
+    game.applyEvent({ type: 'nextStep' });
+
+    const stepAfterBlockers = String((game.state as any).step || '').toLowerCase();
+    if (stepAfterBlockers.includes('first_strike_damage')) {
+      game.applyEvent({ type: 'nextStep' });
+    }
+    game.applyEvent({ type: 'nextStep' });
+
+    expect((game.state as any).life?.[defending]).toBe(40);
+    expect((game.state as any).poisonCounters?.[defending]).toBe(2);
   });
 });

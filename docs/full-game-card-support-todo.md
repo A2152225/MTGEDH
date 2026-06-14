@@ -622,7 +622,7 @@ This is one of the largest remaining pillars for near-all-card correctness.
 - [x] Blocking requirements/restrictions.
   - Progress: Dynamic blocker calculations reject temporary blockers after evasion-granting exert results. Evaluated in [rules-engine/src/combatControl.ts](rules-engine/src/combatControl.ts).
 - [x] Combat damage assignment, including trample, first strike, double strike, deathtouch, menace, flying, reach, protection, indestructible, lifelink, toxic, infect, wither.
-  - Progress: Enhanced combat damage assigns power across legal blockers, respects flying, protection, reach evasion rules, and applies life gain, poison, infect, double strike, deathtouch, and wither appropriately. Implemented in [rules-engine/src/combatDamageEnhanced.ts](rules-engine/src/combatDamageEnhanced.ts).
+  - Progress: Rules-engine in [rules-engine/src/combatDamageEnhanced.ts](rules-engine/src/combatDamageEnhanced.ts). **Live server combat** (batch 280) uses [server/src/state/modules/combat-damage-processing.ts](server/src/state/modules/combat-damage-processing.ts) via `turn.ts` `dealCombatDamage` — infect/wither/poisonous now apply correctly. See [server-damage-processing-migration.md](./server-damage-processing-migration.md). Remaining: socket E2E, long-term delegate to `executeCombatDamage`.
 - [x] Commander damage.
   - Progress: Tracks individual commander damage totals per player inside [rules-engine/src/actions/combat.ts](rules-engine/src/actions/combat.ts).
 - [x] Commander tax by commander id.

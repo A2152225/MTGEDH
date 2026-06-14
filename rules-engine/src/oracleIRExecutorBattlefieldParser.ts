@@ -10,7 +10,22 @@ export type SimpleBattlefieldSelector = {
   readonly colorsAnyOf?: readonly string[];
   readonly colorlessOnly?: boolean;
   readonly excludeSourceId?: boolean;
+  readonly typeLineTermsAnyOf?: readonly string[];
+  readonly tappedOnly?: boolean;
+  readonly nontokenOnly?: boolean;
+  readonly usesChosenCreatureType?: boolean;
+  readonly tokenOnly?: boolean;
+  readonly attackingOnly?: boolean;
 };
+
+const BASIC_LAND_BATTLEFIELD_TYPE_NAMES = new Set([
+  'plains',
+  'island',
+  'swamp',
+  'mountain',
+  'forest',
+  'wastes',
+]);
 
 export type SimplePermanentType =
   | 'permanent'
@@ -143,7 +158,16 @@ export function parseSimpleBattlefieldSelector(
   if (!text) return null;
 
   const lower = text.replace(/\u2019/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
-  const m = lower.match(/^(?:all|each)\s+(.+)$/i);
+  let tappedOnly = false;
+  let normalizedLower = lower;
+  if (/^(?:a|an)\s+tapped\s+/.test(normalizedLower)) {
+    tappedOnly = true;
+    normalizedLower = normalizedLower.replace(/^(?:a|an)\s+tapped\s+/, '').trim();
+  } else if (/^tapped\s+/.test(normalizedLower)) {
+    tappedOnly = true;
+    normalizedLower = normalizedLower.replace(/^tapped\s+/, '').trim();
+  }
+  const m = normalizedLower.match(/^(?:all|each)\s+(.+)$/i);
 
   let remainder = '';
   let controllerFilter: SimpleBattlefieldSelector['controllerFilter'] = 'any';
@@ -153,7 +177,7 @@ export function parseSimpleBattlefieldSelector(
     if (!remainder) return null;
     remainder = remainder.replace(/^of\s+/i, '').replace(/^the\s+/i, '').trim();
   } else {
-    const oppPlural = remainder || lower;
+    const oppPlural = remainder || normalizedLower;
     if (/^(?:your\s+)?opponents?'s\s+/i.test(oppPlural) || /^(?:your\s+)?opponents?'\s+/i.test(oppPlural)) {
       controllerFilter = 'opponents';
       remainder = oppPlural
@@ -220,15 +244,42 @@ export function parseSimpleBattlefieldSelector(
   const excludeSourceId = /^(?:another|other)\b/i.test(remainder);
   remainder = remainder.replace(/^(?:a|an|the|another|other)\s+/i, '').trim();
   remainder = remainder.replace(/^target\s+/i, '').trim();
+  if (/^tapped\s+/i.test(remainder)) {
+    tappedOnly = true;
+    remainder = remainder.replace(/^tapped\s+/i, '').trim();
+  }
   if (!remainder) return null;
-  if (/\bnonland\b/.test(remainder) && !/^(?:target\s+)?nonland\s+permanents?\b/.test(remainder)) return null;
+  if (/\bnonland\b/.test(remainder) && !/^(?:target\s+)?nonland(?:,?\s+nontoken)?\s+permanents?\b/.test(remainder)) return null;
+
+  if (/^nonland,?\s+nontoken\s+permanents?\b/i.test(remainder)) {
+    return {
+      kind: 'battlefield_selector',
+      types: ['nonland_permanent'],
+      controllerFilter,
+      excludeSourceId,
+      nontokenOnly: true,
+      ...(tappedOnly ? { tappedOnly: true } : {}),
+    };
+  }
 
   if (/^nonland\s+permanents?\b/.test(remainder)) {
-    return { kind: 'battlefield_selector', types: ['nonland_permanent'], controllerFilter, excludeSourceId };
+    return {
+      kind: 'battlefield_selector',
+      types: ['nonland_permanent'],
+      controllerFilter,
+      excludeSourceId,
+      ...(tappedOnly ? { tappedOnly: true } : {}),
+    };
   }
 
   if (/^permanents?\b/.test(remainder)) {
-    return { kind: 'battlefield_selector', types: ['permanent'], controllerFilter, excludeSourceId };
+    return {
+      kind: 'battlefield_selector',
+      types: ['permanent'],
+      controllerFilter,
+      excludeSourceId,
+      ...(tappedOnly ? { tappedOnly: true } : {}),
+    };
   }
 
   const COLOR_WORD_TO_SYMBOL: Record<string, string> = {
@@ -267,6 +318,51 @@ export function parseSimpleBattlefieldSelector(
   const cleaned = remainder.replace(/\bpermanents?\b/g, '').trim();
   if (!cleaned) return null;
 
+  if (/^creatures of the creature type of your choice$/i.test(cleaned)) {
+    return {
+      kind: 'battlefield_selector',
+      types: ['creature'],
+      controllerFilter,
+      excludeSourceId,
+      usesChosenCreatureType: true,
+      ...(tappedOnly ? { tappedOnly: true } : {}),
+    };
+  }
+
+  if (/^creature tokens$/i.test(cleaned)) {
+    return {
+      kind: 'battlefield_selector',
+      types: ['creature'],
+      controllerFilter,
+      excludeSourceId,
+      tokenOnly: true,
+      ...(tappedOnly ? { tappedOnly: true } : {}),
+    };
+  }
+
+  if (/^attacking creatures$/i.test(cleaned)) {
+    return {
+      kind: 'battlefield_selector',
+      types: ['creature'],
+      controllerFilter,
+      excludeSourceId,
+      attackingOnly: true,
+      ...(tappedOnly ? { tappedOnly: true } : {}),
+    };
+  }
+
+  const basicLandType = cleaned.toLowerCase().replace(/s$/, '');
+  if (BASIC_LAND_BATTLEFIELD_TYPE_NAMES.has(basicLandType)) {
+    return {
+      kind: 'battlefield_selector',
+      types: ['land'],
+      typeLineTermsAnyOf: [basicLandType],
+      controllerFilter,
+      excludeSourceId,
+      ...(tappedOnly ? { tappedOnly: true } : {}),
+    };
+  }
+
   const parts = cleaned.split(/\s*(?:,|and\/or|\band\b|\bor\b)\s*/i).filter(Boolean);
   if (parts.length === 0) return null;
 
@@ -294,6 +390,7 @@ export function parseSimpleBattlefieldSelector(
     ...(colorsAnyOf && colorsAnyOf.length > 0 ? { colorsAnyOf } : {}),
     ...(colorlessOnly ? { colorlessOnly: true } : {}),
     excludeSourceId,
+    ...(tappedOnly ? { tappedOnly: true } : {}),
   };
 }
 

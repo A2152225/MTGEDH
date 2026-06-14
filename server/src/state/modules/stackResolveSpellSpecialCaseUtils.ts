@@ -6,7 +6,7 @@ import { canPermanentBeTargetedByPlayer } from '../../rules-engine/targeting.js'
 import { getEffectivePower } from '../../socket/util.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
-import { applyDamageToPermanentWithCounterEffects } from './counter-common-effects.js';
+import { applyCreatureDamageFromSource } from './combat-damage-processing.js';
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from './triggers/damage-received.js';
 import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import { drawCards as drawCardsFromZone } from './zones.js';
@@ -304,7 +304,7 @@ export function applyInstantSorceryNibelheimAflameEffect(
       continue;
     }
 
-    const damageResult = applyDamageToPermanentWithCounterEffects(otherCreature, sourcePower, 'damageMarked');
+    const damageResult = applyCreatureDamageFromSource(ctx, targetCreature, otherCreature, sourcePower, 'damageMarked');
     const appliedDamage = Math.max(0, Number(damageResult?.appliedAmount || 0));
     if (appliedDamage <= 0) {
       continue;

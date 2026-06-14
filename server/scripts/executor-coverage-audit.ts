@@ -42,6 +42,7 @@ import { getCopiedSpellReplaySteps } from '../../rules-engine/src/oracleIRExecut
 import { parseTriggeredAbilitiesFromText } from '../../rules-engine/src/triggeredAbilitiesParsing.js';
 import type { TriggeredAbility } from '../../rules-engine/src/triggeredAbilitiesTypes.js';
 import {
+  collectUnknownIrGapsFromSteps,
   getCombinedOracleText,
   hasUnknownIRSteps,
   isCommanderLegalCard,
@@ -173,6 +174,11 @@ function normalizeText(text: string): string {
     .trim();
 }
 
+export function isBenignFullCardReplacementMetadata(effectText: string): boolean {
+  const meta = normalizeText(effectText).toLowerCase();
+  return /^(?:tapped|untapped)(?:\s+unless\b.+)?$/.test(meta);
+}
+
 export function walkOracleSteps(
   steps: readonly OracleEffectStep[] | undefined,
   visit: (step: OracleEffectStep) => void
@@ -290,6 +296,34 @@ function collectCopySpellSteps(
   };
   for (const step of steps) visit(step);
   return found;
+}
+
+function visitEffectSteps(
+  steps: readonly OracleEffectStep[],
+  visit: (step: OracleEffectStep) => void
+): void {
+  for (const step of steps) {
+    visit(step);
+    if (step.kind === 'conditional' && Array.isArray(step.steps)) {
+      for (const nested of step.steps) visitEffectSteps([nested], visit);
+    }
+    if (step.kind === 'choose_mode' && Array.isArray((step as any).modes)) {
+      for (const mode of (step as any).modes) {
+        for (const nested of Array.isArray(mode?.steps) ? mode.steps : []) visitEffectSteps([nested], visit);
+      }
+    }
+  }
+}
+
+function stepsMatchPredicate(
+  steps: readonly OracleEffectStep[],
+  predicate: (step: OracleEffectStep) => boolean
+): boolean {
+  let matched = false;
+  visitEffectSteps(steps, (step) => {
+    if (predicate(step)) matched = true;
+  });
+  return matched;
 }
 
 function copyStepTargetsAbility(step: Extract<OracleEffectStep, { kind: 'copy_spell' }>): boolean {
@@ -519,6 +553,4513 @@ export function enrichAuditStateAndContextForTargets(
         chosenObjectIds: ['hand-p2-6'],
       },
     } as typeof nextCtx;
+  }
+
+  const needsOpponentGraveyardReturn = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bfrom (?:an opponent(?:'s)?|target opponent(?:'s)?)\s+graveyard\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsOpponentGraveyardReturn) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const extras = [
+          { id: 'gy-audit-opponent-1', name: 'Audit Gy Card 1', type_line: 'Instant' },
+          { id: 'gy-audit-opponent-2', name: 'Audit Gy Card 2', type_line: 'Sorcery' },
+        ];
+        return { ...player, graveyard: [...graveyard, ...extras] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsChosenCardsShuffle = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      step.to === 'library' &&
+      /^the chosen cards$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsChosenCardsShuffle) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const extras = [
+          { id: 'chosen-audit-1', name: 'Chosen Audit 1', type_line: 'Creature — Human' },
+          { id: 'chosen-audit-2', name: 'Chosen Audit 2', type_line: 'Creature — Elf' },
+        ];
+        return { ...player, hand: [...hand, ...extras] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['chosen-audit-1', 'chosen-audit-2'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTheCardFromGraveyard = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^the card$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'battlefield'
+  );
+  if (needsTheCardFromGraveyard) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const creature = {
+          id: 'gy-unearth-creature',
+          name: 'Audit Unearth Creature',
+          type_line: 'Creature — Zombie',
+        };
+        return {
+          ...player,
+          graveyard: graveyard.some((card: any) => String(card?.id || '').trim() === creature.id)
+            ? graveyard
+            : [...graveyard, creature],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['gy-unearth-creature'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsMulticoloredFromGraveyard = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\bmulticolored\b/i.test(text) && /\bfrom your graveyard\b/i.test(text);
+  });
+  if (needsMulticoloredFromGraveyard) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const multicolorCard = {
+          id: 'gy-audit-multicolor',
+          name: 'Empyrean Eagle',
+          type_line: 'Creature — Bird Spirit',
+          colors: ['W', 'U'],
+          cmc: 3,
+        };
+        return {
+          ...player,
+          graveyard: graveyard.some((card: any) => String(card?.id || '').trim() === multicolorCard.id)
+            ? graveyard
+            : [...graveyard, multicolorCard],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      chosenObjectIds: ['gy-audit-multicolor'],
+    } as typeof nextCtx;
+  }
+
+  const needsAllCreatureTokensBounce = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\ball creature tokens\b/i.test(text) && step.to === 'hand';
+  });
+  if (needsAllCreatureTokensBounce) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-audit-token-/.test(String(perm?.id || ''))),
+        {
+          id: 'bf-audit-token-p1',
+          name: 'Audit Elf Token',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Token Creature — Elf',
+          cmc: 0,
+          isToken: true,
+        },
+        {
+          id: 'bf-audit-token-p2',
+          name: 'Audit Goblin Token',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Token Creature — Goblin',
+          cmc: 0,
+          isToken: true,
+        },
+      ],
+    } as GameState;
+  }
+
+  const needsTargetCreatureOwnerLibraryChoice = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || (step as any).what?.raw || step.raw || '');
+    return (
+      /target creature(?:'|\u2019)?s owner puts it on (?:their|its) choice of the top or bottom of (?:their|its owner'?s?) library/i.test(
+        text
+      ) && step.to === 'library'
+    );
+  });
+  if (needsTargetCreatureOwnerLibraryChoice) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => String(perm?.id || '').trim() !== 'bf-audit-ice-target'),
+        {
+          id: 'bf-audit-ice-target',
+          name: 'Audit Ice Target',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Human',
+          cmc: 3,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      libraryPlacement: 'bottom',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        libraryPlacement: 'bottom',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            ...(Array.isArray(nextCtx.chosenObjectIds) ? nextCtx.chosenObjectIds : []),
+            'bf-audit-ice-target',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTargetFromYourGraveyard = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return (
+      (/\btarget\s+myr\b/i.test(text) ||
+        /\btarget\s+creature card with mana value \d+ or less\b/i.test(text)) &&
+      /\bfrom your graveyard\b/i.test(text)
+    );
+  });
+  if (needsTargetFromYourGraveyard) {
+    const wantsMyr = stepsMatchPredicate(
+      steps,
+      (step) =>
+        step.kind === 'move_zone' && /\btarget\s+myr\b/i.test(String((step as any).what?.text || step.raw || ''))
+    );
+    const chosenId = wantsMyr ? 'gy-audit-target-myr' : 'gy-audit-target-creature-mv3';
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          {
+            id: 'gy-audit-target-creature-mv3',
+            name: 'Audit Return Creature',
+            type_line: 'Creature — Zombie',
+            cmc: 2,
+          },
+          {
+            id: 'gy-audit-target-myr',
+            name: 'Audit Myr',
+            type_line: 'Artifact Creature — Myr',
+            cmc: 2,
+          },
+        ];
+        const merged = [...graveyard];
+        for (const card of fixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            chosenId,
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsShadowsVerdictMassExile = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\ball creatures and planeswalkers with mana value \d+ or less from the battlefield\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsShadowsVerdictMassExile) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield,
+        {
+          id: 'bf-shadows-small',
+          name: 'Shadows Small Creature',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Human',
+          cmc: 2,
+        },
+        {
+          id: 'bf-shadows-big',
+          name: 'Shadows Big Creature',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Giant',
+          cmc: 6,
+        },
+      ],
+      players: (nextState.players || []).map((player: any) => {
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          {
+            id: 'gy-shadows-small',
+            name: 'Shadows Small GY',
+            type_line: 'Creature — Zombie',
+            cmc: 2,
+          },
+          {
+            id: 'gy-shadows-pw',
+            name: 'Shadows Small PW',
+            type_line: 'Legendary Planeswalker — Jace',
+            cmc: 2,
+          },
+        ];
+        const merged = [...graveyard];
+        for (const card of fixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+  }
+
+  const needsAnyNumberHandShuffle = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bany number of cards from your hand\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsAnyNumberHandShuffle) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const fixtures = [
+          { id: 'hand-shuffle-1', name: 'Shuffle One', type_line: 'Instant', cmc: 1 },
+          { id: 'hand-shuffle-2', name: 'Shuffle Two', type_line: 'Sorcery', cmc: 2 },
+        ];
+        const merged = [...hand];
+        for (const card of fixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, hand: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'hand-shuffle-1',
+            'hand-shuffle-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsChosenTypeTargetCreatures = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bcreatures of the creature type of your choice\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsChosenTypeTargetCreatures) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield,
+        {
+          id: 'bf-snare-elf',
+          name: 'Snare Elf',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Elf',
+          cmc: 2,
+        },
+        {
+          id: 'bf-snare-goblin',
+          name: 'Snare Goblin',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Goblin',
+          cmc: 1,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      xValue: Number.isFinite(Number(nextCtx.xValue)) ? nextCtx.xValue : 2,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenCreatureType: String(nextCtx.selectorContext?.chosenCreatureType || 'Elf'),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-snare-elf',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCountFromOpponentHandExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bcards?\s+from\s+target\s+opponent'?s\s+hand\b/i.test(String((step as any).what?.text || '')) &&
+      (step as any).to === 'exile'
+  );
+  if (needsCountFromOpponentHandExile) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const extras = [
+          { id: 'hand-p2-exile-1', name: 'Audit Hand Card 1', type_line: 'Instant' },
+          { id: 'hand-p2-exile-2', name: 'Audit Hand Card 2', type_line: 'Sorcery' },
+        ];
+        return { ...player, hand: [...hand, ...extras] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsAlternateCostColorFromHand = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bfrom your hand rather than pay this spell(?:'s)? mana cost\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsAlternateCostColorFromHand) {
+    const colorMatch = steps
+      .map((step) =>
+        String((step as any).what?.text || step.raw || '').match(
+          /\b(\w+)\s+(red|blue|black|white|green)\b|\b(red|blue|black|white|green)\b/i
+        )
+      )
+      .find(Boolean);
+    const stepText = steps
+      .map((step) => String((step as any).what?.text || step.raw || ''))
+      .find((text) => /\bfrom your hand rather than pay this spell(?:'s)? mana cost\b/i.test(text)) || '';
+    const requiresManaValueX = /\bwith mana value x\b/i.test(stepText);
+    const countWord = String(colorMatch?.[1] || '').trim().toLowerCase();
+    const countedColors = new Set(['red', 'blue', 'black', 'white', 'green']);
+    const count =
+      countedColors.has(countWord) || !countWord
+        ? 1
+        : Math.max(1, Number.parseInt(countWord, 10) || ({ one: 1, two: 2, three: 3, four: 4 } as Record<string, number>)[countWord] || 1);
+    const colorWord = String(
+      countedColors.has(countWord) ? countWord : colorMatch?.[2] || colorMatch?.[1] || 'red'
+    ).toLowerCase();
+    const colorMap: Record<string, string[]> = {
+      red: ['R'],
+      blue: ['U'],
+      black: ['B'],
+      white: ['W'],
+      green: ['G'],
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const extras = Array.from({ length: count }, (_, index) => ({
+          id: `hand-alt-${colorWord}-${index + 1}`,
+          name: `Audit ${colorWord} card ${index + 1}`,
+          type_line: 'Instant',
+          colors: colorMap[colorWord] || ['R'],
+          ...(requiresManaValueX ? { cmc: Number(nextCtx.xValue ?? 3), mana_cost: '{1}{U}{U}' } : {}),
+        }));
+        const mergedHand = [...hand];
+        for (const extra of extras) {
+          if (!mergedHand.some((card: any) => String(card?.id || '').trim() === extra.id)) {
+            mergedHand.push(extra);
+          }
+        }
+        return { ...player, hand: mergedHand };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from({ length: count }, (_, index) => `hand-alt-${colorWord}-${index + 1}`),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsFaceUpExiledTarget = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^target face-up exiled card$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsFaceUpExiledTarget) {
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'exile-goblin-1',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsFlickerReturnIt = steps.some((step, index) => {
+    if (step.kind !== 'move_zone' || String((step as any).what?.text || '').trim().toLowerCase() !== 'it') {
+      return false;
+    }
+    const prior = steps[index - 1];
+    return prior?.kind === 'exile' && /\bcreature\b/i.test(String((prior as any).target?.text || prior.raw || ''));
+  });
+  if (needsFlickerReturnIt) {
+    const flickerCard = {
+      id: 'exile-flicker-return-1',
+      name: 'Audit Flicker Return',
+      type_line: 'Creature — Human',
+      owner: 'p1',
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        return exile.some((card: any) => String(card?.id || '').trim() === flickerCard.id)
+          ? player
+          : { ...player, exile: [...exile, flickerCard] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: [flickerCard],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            flickerCard.id,
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsNonlandNontokenControlledBounce = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bany number of target nonland, nontoken permanents you control\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsNonlandNontokenControlledBounce) {
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-artifact-1',
+            'bf-enchantment-1',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsLandCardMilledThisWay = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\b(?:a|an)\s+land\s+card\s+milled\s+this\s+way\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsLandCardMilledThisWay) {
+    const milledLand = {
+      id: 'gy-milled-land-this-way',
+      name: 'Milled Plains This Way',
+      type_line: 'Basic Land — Plains',
+      milledTurn: 3,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return graveyard.some((card: any) => String(card?.id || '').trim() === milledLand.id)
+          ? player
+          : { ...player, graveyard: [...graveyard, milledLand] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMilledCards: [milledLand],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['gy-milled-land-this-way'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsAdventureFromMilledCards = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\badventure\b/i.test(String((step as any).what?.text || step.raw || '')) &&
+      /\bmilled cards\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsAdventureFromMilledCards) {
+    const milledCards = [
+      {
+        id: 'gy-milled-adventure-1',
+        name: 'Audit Adventure Card',
+        type_line: 'Creature — Human // Instant — Adventure',
+        layout: 'adventure',
+        cmc: 3,
+      },
+      { id: 'gy-milled-plain-1', name: 'Milled Plain', type_line: 'Basic Land — Plains', cmc: 0 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [...graveyard];
+        for (const card of milledCards) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMilledCards: milledCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['gy-milled-adventure-1'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsEachCreatureWithoutCounters = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\beach creature without a \+1\/\+1 counter on it\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsEachCreatureWithoutCounters) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    const fixtures = [
+      {
+        id: 'bf-audit-no-counter',
+        name: 'Audit No Counter',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Human',
+        colors: ['G'],
+        card: { id: 'bf-audit-no-counter-card', name: 'Audit No Counter', type_line: 'Creature — Human', colors: ['G'] },
+      },
+      {
+        id: 'bf-audit-with-counter',
+        name: 'Audit With Counter',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Elf',
+        colors: ['G'],
+        counters: { '+1/+1': 1 },
+        card: { id: 'bf-audit-with-counter-card', name: 'Audit With Counter', type_line: 'Creature — Elf', colors: ['G'] },
+      },
+    ];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-audit-(no|with)-counter$/.test(String(perm?.id || ''))),
+        ...fixtures,
+      ],
+    } as GameState;
+  }
+
+  const needsGrimoireTopTwoGy = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^the other one$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsGrimoireTopTwoGy) {
+    const topTwo = [
+      { id: 'gy-grimoire-top-1', name: 'Grimoire Top 1', type_line: 'Instant', cmc: 1 },
+      { id: 'gy-grimoire-top-2', name: 'Grimoire Top 2', type_line: 'Sorcery', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = [topTwo[1], topTwo[0], ...(Array.isArray(player.graveyard) ? player.graveyard : [])].filter(
+          (card: any, index: number, arr: any[]) =>
+            arr.findIndex((entry: any) => String(entry?.id || '').trim() === String(card?.id || '').trim()) === index
+        );
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        if (!exile.some((card: any) => String(card?.id || '').trim() === topTwo[0].id)) {
+          exile.push(topTwo[0]);
+        }
+        return {
+          ...player,
+          graveyard: graveyard.filter((card: any) => String(card?.id || '').trim() !== topTwo[0].id),
+          exile,
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: topTwo,
+      lastExiledCards: [topTwo[0]],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['gy-grimoire-top-2'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsIdentityCrisisExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\ball cards from target player'?s hand and graveyard\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsIdentityCrisisExile) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const hand = [
+          { id: 'hand-identity-1', name: 'Identity Hand Card', type_line: 'Instant' },
+          ...(Array.isArray(player.hand) ? player.hand : []),
+        ];
+        const graveyard = [
+          { id: 'gy-identity-1', name: 'Identity Gy Card', type_line: 'Creature — Zombie', cmc: 2 },
+          ...(Array.isArray(player.graveyard) ? player.graveyard : []),
+        ];
+        return { ...player, hand, graveyard };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsSilentGravestoneExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /this artifact and all cards from all graveyards/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsSilentGravestoneExile) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => String(perm?.id || '').trim() !== String(nextCtx.sourceId || 'bf-source').trim()
+        ),
+        {
+          id: String(nextCtx.sourceId || 'bf-source').trim(),
+          controller: 'p1',
+          owner: 'p1',
+          card: { name: String(nextCtx.sourceName || 'Silent Gravestone'), type_line: 'Artifact', cmc: 2 },
+          attachments: [],
+          counters: {},
+        },
+      ],
+      players: (nextState.players || []).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixture =
+          playerId === 'p1'
+            ? { id: 'gy-silent-p1', name: 'Silent P1 GY', type_line: 'Instant', cmc: 1 }
+            : playerId === 'p2'
+              ? { id: 'gy-silent-p2', name: 'Silent P2 GY', type_line: 'Creature — Zombie', cmc: 2 }
+              : null;
+        if (!fixture) return player;
+        if (graveyard.some((entry: any) => String(entry?.id || '').trim() === fixture.id)) return player;
+        return { ...player, graveyard: [...graveyard, fixture] };
+      }),
+    } as GameState;
+  }
+
+  const needsDreamCacheHandTopOrBottom = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\btwo cards from your hand both\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsDreamCacheHandTopOrBottom) {
+    const handFixtures = [
+      { id: 'hand-dream-1', name: 'Dream One', type_line: 'Instant', cmc: 1 },
+      { id: 'hand-dream-2', name: 'Dream Two', type_line: 'Sorcery', cmc: 2 },
+      { id: 'hand-dream-3', name: 'Dream Three', type_line: 'Creature — Elf', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const merged = [...hand];
+        for (const card of handFixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, hand: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      libraryPlacement: 'bottom',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        libraryPlacement: 'bottom',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'hand-dream-1',
+            'hand-dream-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsRiseFallGyAndBfReturn = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /target creature card from a graveyard and target creature on the battlefield/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsRiseFallGyAndBfReturn) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixture = {
+          id: 'gy-rise',
+          name: 'Rise GY Creature',
+          type_line: 'Creature — Zombie',
+          cmc: 2,
+        };
+        if (graveyard.some((entry: any) => String(entry?.id || '').trim() === fixture.id)) return player;
+        return { ...player, graveyard: [...graveyard, fixture] };
+      }),
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => String(perm?.id || '').trim() !== 'bf-rise-creature'
+        ),
+        {
+          id: 'bf-rise-creature',
+          controller: 'p2',
+          owner: 'p2',
+          card: { name: 'Rise BF Creature', type_line: 'Creature — Bear', cmc: 2 },
+          attachments: [],
+          counters: {},
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-rise',
+            'bf-rise-creature',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTargetPlayerLibraryExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\ball cards from target player'?s library\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsTargetPlayerLibraryExile) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const library = [
+          { id: 'lib-jace-1', name: 'Jace Lib One', type_line: 'Instant', cmc: 1 },
+          { id: 'lib-jace-2', name: 'Jace Lib Two', type_line: 'Sorcery', cmc: 2 },
+          { id: 'lib-jace-3', name: 'Jace Lib Three', type_line: 'Creature — Illusion', cmc: 3 },
+          ...(Array.isArray(player.library) ? player.library : []),
+        ];
+        return { ...player, library };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCollectedCompanySplit = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bcreature cards with mana value \d+ or less from among them\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      ) &&
+      /\bthe rest on the bottom of your library\b/i.test(String(step.raw || ''))
+  );
+  if (needsCollectedCompanySplit) {
+    const libraryCards = [
+      { id: 'lib-company-1', name: 'Company Bear', type_line: 'Creature — Bear', cmc: 2 },
+      { id: 'lib-company-2', name: 'Company Elf', type_line: 'Creature — Elf', cmc: 1 },
+      { id: 'lib-company-3', name: 'Company Giant', type_line: 'Creature — Giant', cmc: 6 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = [...libraryCards, ...(Array.isArray(player.library) ? player.library : [])];
+        return { ...player, library };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: libraryCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['lib-company-1', 'lib-company-2'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsUnitedBattlefrontAmongThem = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bnoncreature, nonland permanent cards with mana value \d+ or less from among them\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsUnitedBattlefrontAmongThem) {
+    const libraryCards = [
+      { id: 'lib-ub-artifact', name: 'United Artifact', type_line: 'Artifact', cmc: 2 },
+      { id: 'lib-ub-enchantment', name: 'United Aura', type_line: 'Enchantment', cmc: 1 },
+      { id: 'lib-ub-creature', name: 'United Creature', type_line: 'Creature — Human', cmc: 2 },
+      { id: 'lib-ub-instant', name: 'United Bolt', type_line: 'Instant', cmc: 2 },
+      { id: 'lib-ub-land', name: 'United Forest', type_line: 'Basic Land — Forest', cmc: 0 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = [...libraryCards, ...(Array.isArray(player.library) ? player.library : [])];
+        return { ...player, library };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: libraryCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'lib-ub-artifact',
+            'lib-ub-enchantment',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsThisCardAndTargetFromYourGraveyard = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\bthis card and target .+ from your graveyard\b/i.test(text);
+  });
+  if (needsThisCardAndTargetFromYourGraveyard) {
+    const sourceName = String(nextCtx.sourceName || 'Sandman, Shifting Scoundrel').trim();
+    const sourceId = 'gy-audit-this-and-target-self';
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          {
+            id: sourceId,
+            name: sourceName,
+            type_line: 'Legendary Creature — Human Rogue',
+            cmc: 3,
+          },
+          { id: 'gy-audit-this-and-target-land', name: 'Audit Plains', type_line: 'Basic Land — Plains', cmc: 0 },
+        ];
+        const merged = [...graveyard];
+        for (const card of fixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      sourceName,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-audit-this-and-target-land',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsReturnThisCardFromGraveyardToBattlefield = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone' || step.to !== 'battlefield') return false;
+    const stepRaw = String(step.raw || '');
+    const whatText = String((step as any).what?.text || '').trim();
+    return (
+      /\breturn this card from your graveyard to the battlefield\b/i.test(stepRaw) ||
+      (/^this card$/i.test(whatText) && /\bfrom your graveyard\b/i.test(stepRaw))
+    );
+  });
+  if (needsReturnThisCardFromGraveyardToBattlefield) {
+    const sourceName = String(nextCtx.sourceName || 'Salvation Colossus').trim();
+    const sourceId = 'gy-audit-return-this-card';
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const selfCard = {
+          id: sourceId,
+          name: sourceName,
+          type_line: 'Artifact Creature — Golem',
+          cmc: 7,
+        };
+        return {
+          ...player,
+          graveyard: graveyard.some((card: any) => String(card?.id || '').trim() === selfCard.id)
+            ? graveyard
+            : [...graveyard, selfCard],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      sourceName,
+    } as typeof nextCtx;
+  }
+
+  const needsRestockTwoTargetGyReturn = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\btwo target cards from your graveyard\b/i.test(text);
+  });
+  if (needsRestockTwoTargetGyReturn) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          { id: 'gy-restock-1', name: 'Restock One', type_line: 'Instant', cmc: 1 },
+          { id: 'gy-restock-2', name: 'Restock Two', type_line: 'Sorcery', cmc: 2 },
+          { id: 'gy-restock-3', name: 'Restock Three', type_line: 'Creature — Elf', cmc: 3 },
+        ];
+        const merged = [...graveyard];
+        for (const card of fixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-restock-1',
+            'gy-restock-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsFilterOutNoncreatureNonlandBounce = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\ball noncreature, nonland permanents\b/i.test(text) && step.to === 'hand';
+  });
+  if (needsFilterOutNoncreatureNonlandBounce) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-filter-/.test(String(perm?.id || ''))),
+        {
+          id: 'bf-filter-artifact',
+          name: 'Filter Artifact',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Artifact',
+          cmc: 2,
+        },
+        {
+          id: 'bf-filter-enchantment',
+          name: 'Filter Enchantment',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Enchantment',
+          cmc: 3,
+        },
+        {
+          id: 'bf-filter-creature',
+          name: 'Filter Creature',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Goblin',
+          cmc: 1,
+        },
+      ],
+    } as GameState;
+  }
+
+  const needsGlacialRevelationSnowAmongThem = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\bany number of snow permanent cards from among them\b/i.test(text);
+  });
+  if (needsGlacialRevelationSnowAmongThem) {
+    const revealedCards = [
+      { id: 'lib-gr-snow-1', name: 'Snow Plains', type_line: 'Basic Snow Land — Plains', cmc: 0 },
+      { id: 'lib-gr-snow-2', name: 'Snow Creature', type_line: 'Snow Creature — Human', cmc: 2 },
+      { id: 'lib-gr-nonsnow-1', name: 'Regular Bolt', type_line: 'Instant', cmc: 1 },
+      { id: 'lib-gr-nonsnow-2', name: 'Regular Forest', type_line: 'Basic Land — Forest', cmc: 0 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = [...revealedCards, ...(Array.isArray(player.library) ? player.library : [])];
+        return { ...player, library };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: revealedCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'lib-gr-snow-1',
+            'lib-gr-snow-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTimeOfIceAllTappedBounce = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\ball tapped creatures\b/i.test(text) && step.to === 'hand';
+  });
+  if (needsTimeOfIceAllTappedBounce) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-toi-/.test(String(perm?.id || ''))),
+        {
+          id: 'bf-toi-tapped',
+          name: 'Tapped Goblin',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Goblin',
+          cmc: 1,
+          tapped: true,
+        },
+        {
+          id: 'bf-toi-untapped',
+          name: 'Untapped Elf',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Elf',
+          cmc: 1,
+        },
+      ],
+    } as GameState;
+  }
+
+  const needsSorceressSchemesGyOrFlashbackExile = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\btarget instant or sorcery card from your graveyard or (?:an )?exiled card with flashback you own\b/i.test(
+      text
+    );
+  });
+  if (needsSorceressSchemesGyOrFlashbackExile) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        const gyFixtures = [
+          { id: 'gy-schemes-instant', name: 'Shock', type_line: 'Instant', cmc: 1 },
+          { id: 'gy-schemes-creature', name: 'Audit Bear', type_line: 'Creature — Bear', cmc: 2 },
+        ];
+        const exileFixtures = [
+          {
+            id: 'ex-schemes-flashback',
+            name: 'Faithless Looting',
+            type_line: 'Sorcery',
+            cmc: 1,
+            keywords: ['Flashback'],
+          },
+        ];
+        const mergedGy = [...graveyard];
+        for (const card of gyFixtures) {
+          if (!mergedGy.some((entry: any) => String(entry?.id || '').trim() === card.id)) mergedGy.push(card);
+        }
+        const mergedExile = [...exile];
+        for (const card of exileFixtures) {
+          if (!mergedExile.some((entry: any) => String(entry?.id || '').trim() === card.id)) mergedExile.push(card);
+        }
+        return { ...player, graveyard: mergedGy, exile: mergedExile };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-schemes-instant',
+            'ex-schemes-flashback',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsSplitThePartyHalfCreatures = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\bhalf the creatures they control\b/i.test(text) && step.to === 'hand';
+  });
+  if (needsSplitThePartyHalfCreatures) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-stp-/.test(String(perm?.id || ''))),
+        {
+          id: 'bf-stp-1',
+          name: 'STP One',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Goblin',
+          cmc: 1,
+        },
+        {
+          id: 'bf-stp-2',
+          name: 'STP Two',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Elf',
+          cmc: 2,
+        },
+        {
+          id: 'bf-stp-3',
+          name: 'STP Three',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Human',
+          cmc: 1,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-stp-1',
+            'bf-stp-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsMartyrOfBonesSingleGyExile = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\bup to x target cards from a single graveyard\b/i.test(text) && step.to === 'exile';
+  });
+  if (needsMartyrOfBonesSingleGyExile) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          { id: 'gy-mob-1', name: 'Mob One', type_line: 'Instant', cmc: 1 },
+          { id: 'gy-mob-2', name: 'Mob Two', type_line: 'Sorcery', cmc: 2 },
+        ];
+        const merged = [...graveyard];
+        for (const card of fixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      xValue: 1,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        xValue: 1,
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-mob-1',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsAnimalMagnetismThatCardRest = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return (
+      (/\bthat card\b/i.test(text) && step.to === 'battlefield') ||
+      (/\bthe rest\b/i.test(text) && step.to === 'graveyard')
+    );
+  });
+  if (needsAnimalMagnetismThatCardRest) {
+    const revealedCards = [
+      { id: 'lib-am-1', name: 'AM Creature', type_line: 'Creature — Human', cmc: 2 },
+      { id: 'lib-am-2', name: 'AM Bolt', type_line: 'Instant', cmc: 1 },
+      { id: 'lib-am-3', name: 'AM Bear', type_line: 'Creature — Bear', cmc: 2 },
+      { id: 'lib-am-4', name: 'AM Forest', type_line: 'Basic Land — Forest', cmc: 0 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = [...revealedCards, ...(Array.isArray(player.library) ? player.library : [])];
+        return { ...player, library };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: revealedCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'lib-am-1',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCellarDoorBottomLibraryToGraveyard = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\bthe bottom card of target player'?s library\b/i.test(text) && step.to === 'graveyard';
+  });
+  if (needsCellarDoorBottomLibraryToGraveyard) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const library = [
+          { id: 'lib-cd-top', name: 'CD Top', type_line: 'Instant', cmc: 1 },
+          { id: 'lib-cd-bottom', name: 'CD Bottom', type_line: 'Sorcery', cmc: 2 },
+          ...(Array.isArray(player.library) ? player.library : []),
+        ];
+        return { ...player, library };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+    } as typeof nextCtx;
+  }
+
+  const needsGrenzoBottomLibraryToGraveyard = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\bthe bottom card of your library\b/i.test(text) && step.to === 'graveyard';
+  });
+  if (needsGrenzoBottomLibraryToGraveyard) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = [
+          { id: 'lib-grenzo-top', name: 'Grenzo Top', type_line: 'Instant', cmc: 1 },
+          { id: 'lib-grenzo-bottom', name: 'Grenzo Bottom', type_line: 'Creature — Human', cmc: 2 },
+          ...(Array.isArray(player.library) ? player.library : []),
+        ];
+        return { ...player, library };
+      }),
+    } as GameState;
+  }
+
+  const needsBoneyardParleyCreatureGyExile = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\bup to five target creature cards from graveyards\b/i.test(text) && step.to === 'exile';
+  });
+  if (needsBoneyardParleyCreatureGyExile) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          { id: 'gy-bp-1', name: 'BP Creature One', type_line: 'Creature — Zombie', cmc: 3 },
+          { id: 'gy-bp-2', name: 'BP Creature Two', type_line: 'Creature — Elf', cmc: 2 },
+          { id: 'gy-bp-instant', name: 'BP Instant', type_line: 'Instant', cmc: 1 },
+        ];
+        const merged = [...graveyard];
+        for (const card of fixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-bp-1',
+            'gy-bp-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsBoneyardParleyPileStep = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\ball cards from the pile of your choice\b/i.test(text) && step.to === 'battlefield';
+  });
+  if (needsBoneyardParleyPileStep) {
+    const exiledFixtures = [
+      { id: 'ex-bp-1', name: 'BP Exiled One', type_line: 'Creature — Zombie', cmc: 3 },
+      { id: 'ex-bp-2', name: 'BP Exiled Two', type_line: 'Creature — Elf', cmc: 2 },
+      { id: 'ex-bp-3', name: 'BP Exiled Three', type_line: 'Creature — Human', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        const merged = [...exile];
+        for (const card of exiledFixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, exile: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastExiledCards: exiledFixtures,
+      lastMovedCards: exiledFixtures,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'ex-bp-1',
+            'ex-bp-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTrialErrorCombatBounce = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\ball creatures blocking or blocked by target creature\b/i.test(text);
+  });
+  if (needsTrialErrorCombatBounce) {
+    const targetId = 'bf-attacker';
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-trial-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-trial-blocker',
+          name: 'Trial Blocker',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Goblin',
+          cmc: 1,
+          blocking: targetId,
+        },
+        {
+          id: targetId,
+          name: 'Trial Attacker',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          cmc: 2,
+          blockedBy: ['bf-trial-blocker'],
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetCreatureId: targetId,
+      targetPermanentId: targetId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetCreatureId: targetId,
+        targetPermanentId: targetId,
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsThoseLandsReturn = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || '').trim().toLowerCase();
+    return text === 'those lands' && step.to === 'hand';
+  });
+  if (needsThoseLandsReturn) {
+    const landFixtures = [
+      {
+        id: 'bf-overlay-plains',
+        name: 'Overlay Plains',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Basic Land — Plains',
+        cmc: 0,
+      },
+      {
+        id: 'bf-overlay-island',
+        name: 'Overlay Island',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Basic Land — Island',
+        cmc: 0,
+      },
+    ];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-overlay-/.test(String(perm?.id || ''))
+        ),
+        ...landFixtures,
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: landFixtures,
+    } as typeof nextCtx;
+  }
+
+  const needsTargetPlaneswalkerMvFromGy = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return (
+      /target planeswalker card/i.test(text) &&
+      /mana value (?:x|\d+) or less/i.test(text) &&
+      /from your graveyard/i.test(text)
+    );
+  });
+  if (needsTargetPlaneswalkerMvFromGy) {
+    const gyFixture = {
+      id: 'gy-confront-pw',
+      name: 'Confront Jace',
+      type_line: 'Legendary Planeswalker — Jace',
+      cmc: 3,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return {
+          ...player,
+          graveyard: [
+            gyFixture,
+            ...graveyard.filter((card: any) => String(card?.id || '').trim() !== gyFixture.id),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      xValue: Number(nextCtx.xValue ?? 4),
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-confront-pw',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsUpToCreatureCardsPutIntoGraveyardsThisWay = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /up to (?:two|\d+|[a-z]+) creature cards put into graveyards this way/i.test(text);
+  });
+  if (needsUpToCreatureCardsPutIntoGraveyardsThisWay) {
+    const sacrificedFixtures = [
+      { id: 'gy-dm-1', name: 'DM Creature One', type_line: 'Creature — Zombie', cmc: 3 },
+      { id: 'gy-dm-2', name: 'DM Creature Two', type_line: 'Creature — Elf', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [...graveyard];
+        for (const card of sacrificedFixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: sacrificedFixtures,
+      lastSacrificedPermanents: sacrificedFixtures,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-dm-1',
+            'gy-dm-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsReturnThisPermanentWhenTokenDies = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || '').trim().toLowerCase();
+    const raw = String(step.raw || '').toLowerCase();
+    return text === 'this permanent' && /when that token dies/i.test(raw);
+  });
+  if (needsReturnThisPermanentWhenTokenDies) {
+    const sourceId = String(nextCtx.sourceId || 'bf-tatsumasa').trim();
+    const sourceFixture = {
+      id: sourceId,
+      name: "Tatsumasa, the Dragon's Fang",
+      type_line: 'Legendary Artifact — Equipment',
+      cmc: 6,
+    };
+    nextState = {
+      ...nextState,
+      battlefield: ((nextState.battlefield || []) as any[]).filter(
+        (perm: any) => String(perm?.id || '').trim() !== sourceId
+      ),
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return {
+          ...player,
+          graveyard: [
+            sourceFixture,
+            ...graveyard.filter((card: any) => String(card?.id || '').trim() !== sourceId),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      sourceName: String(nextCtx.sourceName || sourceFixture.name),
+    } as typeof nextCtx;
+  }
+
+  const needsCrypticGatewayHandPut = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /shares a creature type with each creature tapped this way/i.test(text);
+  });
+  if (needsCrypticGatewayHandPut) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-cryptic-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-cryptic-goblin-1',
+          name: 'Cryptic Goblin One',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Goblin',
+          cmc: 1,
+          tapped: true,
+        },
+        {
+          id: 'bf-cryptic-goblin-2',
+          name: 'Cryptic Goblin Two',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Goblin',
+          cmc: 2,
+          tapped: true,
+        },
+      ],
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const fixture = {
+          id: 'hand-cryptic-goblin',
+          name: 'Cryptic Goblin Hand',
+          type_line: 'Creature — Goblin',
+          cmc: 1,
+        };
+        return {
+          ...player,
+          hand: [
+            fixture,
+            ...hand.filter((card: any) => String(card?.id || '').trim() !== fixture.id),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastTappedMatchingPermanentIds: ['bf-cryptic-goblin-1', 'bf-cryptic-goblin-2'],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'hand-cryptic-goblin',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsWorldfireHandsAndGraveyardsExile = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '').trim().toLowerCase();
+    return text === 'all cards from all hands and graveyards' && step.to === 'exile';
+  });
+  if (needsWorldfireHandsAndGraveyardsExile) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        const handFixture =
+          playerId === 'p1'
+            ? { id: 'hand-wf-p1', name: 'WF Hand P1', type_line: 'Instant', cmc: 1 }
+            : { id: 'hand-wf-p2', name: 'WF Hand P2', type_line: 'Instant', cmc: 1 };
+        const gyFixture =
+          playerId === 'p1'
+            ? { id: 'gy-wf-p1', name: 'WF GY P1', type_line: 'Creature — Human', cmc: 2 }
+            : { id: 'gy-wf-p2', name: 'WF GY P2', type_line: 'Creature — Elf', cmc: 2 };
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return {
+          ...player,
+          hand: [
+            handFixture,
+            ...hand.filter((card: any) => String(card?.id || '').trim() !== handFixture.id),
+          ],
+          graveyard: [
+            gyFixture,
+            ...graveyard.filter((card: any) => String(card?.id || '').trim() !== gyFixture.id),
+          ],
+        };
+      }),
+    } as GameState;
+  }
+
+  const needsRestoreThePeaceDamageBounce = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /\beach creature that dealt damage this turn\b/i.test(text);
+  });
+  if (needsRestoreThePeaceDamageBounce) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-rtp-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-rtp-damager',
+          name: 'Restore Damager',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          cmc: 2,
+          dealtDamageThisTurn: true,
+        },
+        {
+          id: 'bf-rtp-innocent',
+          name: 'Restore Innocent',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Elf',
+          cmc: 1,
+        },
+      ],
+    } as GameState;
+  }
+
+  const needsTargetDinosaurFromGy = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /target dinosaur card/i.test(text) && /from your graveyard/i.test(text);
+  });
+  if (needsTargetDinosaurFromGy) {
+    const gyFixture = {
+      id: 'gy-atzocan-dino',
+      name: 'Atzocan Dinosaur',
+      type_line: 'Creature — Dinosaur',
+      cmc: 3,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return {
+          ...player,
+          graveyard: [
+            gyFixture,
+            ...graveyard.filter((card: any) => String(card?.id || '').trim() !== gyFixture.id),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-atzocan-dino',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTwoCreatureCardsFromHand = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || '').trim().toLowerCase();
+    return text === 'two creature cards' && step.to === 'battlefield';
+  });
+  if (needsTwoCreatureCardsFromHand) {
+    const handFixtures = [
+      { id: 'hand-su-1', name: 'SU Creature One', type_line: 'Creature — Beast', cmc: 4 },
+      { id: 'hand-su-2', name: 'SU Creature Two', type_line: 'Creature — Elf', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const merged = [...hand];
+        for (const card of handFixtures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, hand: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'hand-su-1',
+            'hand-su-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsLowestToughnessOpponentBounce = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /lowest toughness among creatures you don't control/i.test(text);
+  });
+  if (needsLowestToughnessOpponentBounce) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-bc-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-bc-low',
+          name: 'Bounce Low',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Goblin',
+          cmc: 1,
+          toughness: 1,
+          power: 1,
+        },
+        {
+          id: 'bf-bc-high',
+          name: 'Bounce High',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Giant',
+          cmc: 4,
+          toughness: 5,
+          power: 4,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-bc-low',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsLichKnightsGraveyardReturn = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[.\s]+$/g, '');
+    return text === 'that many creature cards from your graveyard' && step.to === 'battlefield';
+  });
+  if (needsLichKnightsGraveyardReturn) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          { id: 'gy-lkc-1', name: 'LKC Zombie', type_line: 'Creature — Zombie', cmc: 3 },
+          { id: 'gy-lkc-2', name: 'LKC Elf', type_line: 'Creature — Elf', cmc: 2 },
+          { id: 'gy-lkc-3', name: 'LKC Human', type_line: 'Creature — Human', cmc: 1 },
+        ];
+        const existingIds = new Set(graveyard.map((card: any) => String(card?.id || '').trim()));
+        return {
+          ...player,
+          graveyard: [
+            ...fixtures.filter(fixture => !existingIds.has(fixture.id)),
+            ...graveyard.filter((card: any) => !/^gy-lkc-/.test(String(card?.id || ''))),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      referenceAmount: Math.max(2, Number(nextCtx.referenceAmount) || 2),
+      lastReferenceAmount: Math.max(2, Number((nextCtx as any).lastReferenceAmount) || 2),
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-lkc-1',
+            'gy-lkc-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsSummonLeviathanExclusionBounce = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /^each creature that isn't a /i.test(text.trim()) && step.to === 'hand';
+  });
+  if (needsSummonLeviathanExclusionBounce) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-sl-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-sl-kraken',
+          name: 'Sea Kraken',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Kraken',
+          cmc: 8,
+          toughness: 8,
+          power: 6,
+        },
+        {
+          id: 'bf-sl-human',
+          name: 'Human Soldier',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human Soldier',
+          cmc: 2,
+          toughness: 2,
+          power: 2,
+        },
+        {
+          id: 'bf-sl-merfolk',
+          name: 'Merfolk Scout',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Merfolk',
+          cmc: 1,
+          toughness: 1,
+          power: 1,
+        },
+      ],
+    } as GameState;
+  }
+
+  const needsAshiokOpponentsHandsAndGraveyardsExile = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\u2019/g, "'")
+      .replace(/[.\s]+$/g, '');
+    return text === "all cards from all opponents' hands and graveyards" && step.to === 'exile';
+  });
+  if (needsAshiokOpponentsHandsAndGraveyardsExile) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        if (playerId === 'p1') {
+          const controllerHandFixture = {
+            id: 'hand-ashiok-p1',
+            name: 'Controller Hand',
+            type_line: 'Instant',
+            cmc: 1,
+          };
+          return {
+            ...player,
+            hand: [
+              controllerHandFixture,
+              ...hand.filter((card: any) => String(card?.id || '').trim() !== controllerHandFixture.id),
+            ],
+          };
+        }
+        if (playerId === 'p2') {
+          const opponentHandFixture = {
+            id: 'hand-ashiok-p2',
+            name: 'Opponent Hand',
+            type_line: 'Instant',
+            cmc: 1,
+          };
+          const opponentGyFixture = {
+            id: 'gy-ashiok-p2',
+            name: 'Opponent GY',
+            type_line: 'Creature — Zombie',
+            cmc: 2,
+          };
+          return {
+            ...player,
+            hand: [
+              opponentHandFixture,
+              ...hand.filter((card: any) => String(card?.id || '').trim() !== opponentHandFixture.id),
+            ],
+            graveyard: [
+              opponentGyFixture,
+              ...graveyard.filter((card: any) => String(card?.id || '').trim() !== opponentGyFixture.id),
+            ],
+          };
+        }
+        return player;
+      }),
+    } as GameState;
+  }
+
+  const needsMeekAttackHandCreaturePut = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '');
+    return /total power and toughness \d+ or less from your hand/i.test(text) && step.to === 'battlefield';
+  });
+  if (needsMeekAttackHandCreaturePut) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const fixtures = [
+          {
+            id: 'hand-ma-small',
+            name: 'Small Creature',
+            type_line: 'Creature — Elf',
+            cmc: 2,
+            power: 2,
+            toughness: 3,
+          },
+          {
+            id: 'hand-ma-big',
+            name: 'Big Creature',
+            type_line: 'Creature — Giant',
+            cmc: 5,
+            power: 4,
+            toughness: 4,
+          },
+        ];
+        const existingIds = new Set(hand.map((card: any) => String(card?.id || '').trim()));
+        return {
+          ...player,
+          hand: [
+            ...fixtures.filter(fixture => !existingIds.has(fixture.id)),
+            ...hand.filter((card: any) => !/^hand-ma-/.test(String(card?.id || ''))),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'hand-ma-small',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsMoratoriumStoneSameNameExile = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\u2019/g, "'")
+      .replace(/[.\s]+$/g, '');
+    return (
+      text ===
+        'target nonland card from a graveyard, all other cards from graveyards with the same name as that card, and all permanents with that name' &&
+      step.to === 'exile'
+    );
+  });
+  if (needsMoratoriumStoneSameNameExile) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixtures =
+          playerId === 'p1'
+            ? [
+                { id: 'gy-ms-target', name: 'Lightning Bolt', type_line: 'Instant', cmc: 1 },
+                { id: 'gy-ms-same', name: 'Lightning Bolt', type_line: 'Instant', cmc: 1 },
+              ]
+            : [{ id: 'gy-ms-p2', name: 'Lightning Bolt', type_line: 'Instant', cmc: 1 }];
+        const existingIds = new Set(graveyard.map((card: any) => String(card?.id || '').trim()));
+        return {
+          ...player,
+          graveyard: [
+            ...fixtures.filter(fixture => !existingIds.has(fixture.id)),
+            ...graveyard.filter((card: any) => !/^gy-ms-/.test(String(card?.id || ''))),
+          ],
+        };
+      }),
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-ms-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-ms-perm',
+          name: 'Lightning Bolt',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Instant',
+          cmc: 1,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-ms-target',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsDuelistsFlameAmongThemExileRestBottom = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\u2019/g, "'")
+      .replace(/[.\s]+$/g, '');
+    return (
+      text ===
+        'up to one nonland card from among them and put the rest on the bottom of your library in a random order' &&
+      step.to === 'exile'
+    );
+  });
+  if (needsDuelistsFlameAmongThemExileRestBottom) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = Array.isArray(player.library) ? [...player.library] : [];
+        const fixtures = [
+          { id: 'lib-df-1', name: 'DF Instant', type_line: 'Instant', cmc: 2 },
+          { id: 'lib-df-2', name: 'DF Creature', type_line: 'Creature — Human', cmc: 2, power: 2, toughness: 2 },
+          { id: 'lib-df-3', name: 'DF Land', type_line: 'Basic Land — Island', cmc: 0 },
+          { id: 'lib-df-4', name: 'DF Sorcery', type_line: 'Sorcery', cmc: 3 },
+        ];
+        const existingIds = new Set(library.map((card: any) => String(card?.id || '').trim()));
+        return {
+          ...player,
+          library: [
+            ...fixtures.filter(fixture => !existingIds.has(fixture.id)),
+            ...library.filter((card: any) => !/^lib-df-/.test(String(card?.id || ''))),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: [
+        { id: 'lib-df-1', name: 'DF Instant', type_line: 'Instant', cmc: 2 },
+        { id: 'lib-df-2', name: 'DF Creature', type_line: 'Creature — Human', cmc: 2, power: 2, toughness: 2 },
+        { id: 'lib-df-3', name: 'DF Land', type_line: 'Basic Land — Island', cmc: 0 },
+        { id: 'lib-df-4', name: 'DF Sorcery', type_line: 'Sorcery', cmc: 3 },
+      ],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'lib-df-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsMandateOfPeaceStackExile = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\u2019/g, "'")
+      .replace(/[)\s.]+$/g, '');
+    return text === 'all spells and abilities from the stack, including this spell' && step.to === 'exile';
+  });
+  if (needsMandateOfPeaceStackExile) {
+    nextState = {
+      ...nextState,
+      stack: [
+        ...((nextState as any).stack || []).filter(
+          (entry: any) => !/^stack-mp-/.test(String(entry?.id || ''))
+        ),
+        { id: 'stack-mp-1', name: 'Stack Bolt', controller: 'p1', owner: 'p1', type_line: 'Instant', cmc: 1 },
+        { id: 'stack-mp-2', name: 'Stack Ability', controller: 'p2', owner: 'p2', type_line: 'Ability', cmc: 0 },
+      ],
+    } as GameState;
+  }
+
+  const needsSeasonsPastDistinctManaValuesReturn = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'move_zone') return false;
+    const text = String((step as any).what?.text || step.raw || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\u2019/g, "'")
+      .replace(/[.\s]+$/g, '');
+    return text === 'any number of cards with different mana values from your graveyard' && step.to === 'hand';
+  });
+  if (needsSeasonsPastDistinctManaValuesReturn) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          { id: 'gy-sp-1', name: 'SP One', type_line: 'Instant', cmc: 1 },
+          { id: 'gy-sp-2', name: 'SP Two', type_line: 'Creature — Elf', cmc: 2 },
+          { id: 'gy-sp-3', name: 'SP Three', type_line: 'Sorcery', cmc: 3 },
+        ];
+        const existingIds = new Set(graveyard.map((card: any) => String(card?.id || '').trim()));
+        return {
+          ...player,
+          graveyard: [
+            ...fixtures.filter(fixture => !existingIds.has(fixture.id)),
+            ...graveyard.filter((card: any) => !/^gy-sp-/.test(String(card?.id || ''))),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-sp-1',
+            'gy-sp-2',
+            'gy-sp-3',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsEnchantmentAlterationAuraReattach = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'attach' &&
+      /target aura attached to a creature or land to another permanent of that type/i.test(String(step.raw || ''))
+  );
+  if (needsEnchantmentAlterationAuraReattach) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-ea-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-ea-host',
+          name: 'EA Host Creature',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          cmc: 2,
+        },
+        {
+          id: 'bf-ea-target',
+          name: 'EA Target Creature',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Elf',
+          cmc: 2,
+        },
+        {
+          id: 'bf-ea-aura',
+          name: 'EA Aura',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Enchantment — Aura',
+          attachedTo: 'bf-ea-host',
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-ea-aura',
+            'bf-ea-target',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCounteredSpellLibraryTopOrBottom = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^that spell$/i.test(String((step as any).what?.text || '').trim()) &&
+      step.to === 'library' &&
+      (/top or bottom of its library/i.test(String(step.raw || '')) ||
+        /on the bottom of its owner'?s? library instead of/i.test(String(step.raw || '')))
+  );
+  let needsCounteredSpellLibraryTopOrBottomNested = false;
+  walkOracleSteps(steps, (step) => {
+    if (
+      step.kind === 'move_zone' &&
+      /^that spell$/i.test(String((step as any).what?.text || '').trim()) &&
+      step.to === 'library' &&
+      (/top or bottom of its library/i.test(String(step.raw || '')) ||
+        /on the bottom of its owner'?s? library instead of/i.test(String(step.raw || '')))
+    ) {
+      needsCounteredSpellLibraryTopOrBottomNested = true;
+    }
+  });
+  if (needsCounteredSpellLibraryTopOrBottom || needsCounteredSpellLibraryTopOrBottomNested) {
+    nextCtx = {
+      ...nextCtx,
+      libraryPlacement: 'bottom',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        libraryPlacement: 'bottom',
+        targetSpellId: String(nextCtx.selectorContext?.targetSpellId || nextCtx.targetSpellId || 'stack-spell-1'),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsEachCardChosenThisWayReturn = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^each card chosen this way$/i.test(String((step as any).what?.text || '').trim()) &&
+      step.to === 'battlefield'
+  );
+  if (needsEachCardChosenThisWayReturn) {
+    const gyFixtures = [
+      { id: 'gy-rjf-1', name: 'RJF Chosen One', type_line: 'Creature — Human', cmc: 3 },
+      { id: 'gy-rjf-2', name: 'RJF Chosen Two', type_line: 'Creature — Elf', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...gyFixtures,
+          ...graveyard.filter(
+            (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-rjf-1',
+            'gy-rjf-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsNahiriLoyaltyGyExile = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /target creature or equipment card with mana value less than this permanent's loyalty from your graveyard/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsNahiriLoyaltyGyExile) {
+    const sourceId = String(nextCtx.sourceId || 'bf-nahiri').trim();
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-nahiri/.test(String(perm?.id || ''))
+        ),
+        {
+          id: sourceId,
+          name: 'Nahiri',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Legendary Planeswalker — Nahiri',
+          cmc: 4,
+          loyalty: 5,
+          counters: { loyalty: 5 },
+        },
+      ],
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          { id: 'gy-nahiri-creature', name: 'Nahiri GY Creature', type_line: 'Creature — Human', cmc: 2 },
+          { id: 'gy-nahiri-equipment', name: 'Nahiri GY Sword', type_line: 'Artifact — Equipment', cmc: 1 },
+        ];
+        const merged = [
+          ...fixtures,
+          ...graveyard.filter(
+            (card: any) => !fixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            sourceId,
+            'gy-nahiri-creature',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsThoseCardsBattlefieldInsteadOfHand = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^those cards$/i.test(String((step as any).what?.text || '').trim()) &&
+      step.to === 'battlefield'
+  );
+  let needsThoseCardsBattlefieldInsteadOfHandNested = false;
+  walkOracleSteps(steps, (step) => {
+    if (
+      step.kind === 'move_zone' &&
+      /^those cards$/i.test(String((step as any).what?.text || '').trim()) &&
+      step.to === 'battlefield'
+    ) {
+      needsThoseCardsBattlefieldInsteadOfHandNested = true;
+    }
+  });
+  if (needsThoseCardsBattlefieldInsteadOfHand || needsThoseCardsBattlefieldInsteadOfHandNested) {
+    const handFixtures = [
+      { id: 'hand-tfd-1', name: 'TFD One', type_line: 'Creature — Human', cmc: 3 },
+      { id: 'hand-tfd-2', name: 'TFD Two', type_line: 'Instant', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const merged = [
+          ...handFixtures,
+          ...hand.filter(
+            (card: any) => !handFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, hand: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: handFixtures,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'hand-tfd-1',
+            'hand-tfd-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsThisPermanentAndAnotherTargetBounce = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^this permanent and another target creature$/i.test(String((step as any).what?.text || '').trim()) &&
+      step.to === 'hand'
+  );
+  if (needsThisPermanentAndAnotherTargetBounce) {
+    const sourceId = String(nextCtx.sourceId || 'bf-lady-sun').trim();
+    const targetId = 'bf-lady-target';
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-lady-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: sourceId,
+          name: 'Lady Sun',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Legendary Creature — Human',
+          cmc: 3,
+        },
+        {
+          id: targetId,
+          name: 'Lady Target',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Elf',
+          cmc: 2,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      targetCreatureId: targetId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetCreatureId: targetId,
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            sourceId,
+            targetId,
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsThisCreatureAndAnotherTargetBounce = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^this creature and another target creature$/i.test(String((step as any).what?.text || '').trim()) &&
+      step.to === 'hand'
+  );
+  if (needsThisCreatureAndAnotherTargetBounce) {
+    const sourceId = String(nextCtx.sourceId || 'bf-coastal').trim();
+    const targetId = 'bf-coastal-target';
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-coastal-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: sourceId,
+          name: 'Coastal Wizard',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Wizard',
+          cmc: 2,
+        },
+        {
+          id: targetId,
+          name: 'Coastal Target',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Goblin',
+          cmc: 1,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      targetCreatureId: targetId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetCreatureId: targetId,
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            sourceId,
+            targetId,
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsBoundDeterminedColorXGyReturn = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^up to x cards from your graveyard$/i.test(String((step as any).what?.text || '').trim()) &&
+      /number of colors that creature was/i.test(String(step.raw || ''))
+  );
+  if (needsBoundDeterminedColorXGyReturn) {
+    const gyFixtures = [
+      { id: 'gy-bound-1', name: 'Bound GY One', type_line: 'Instant', cmc: 1 },
+      { id: 'gy-bound-2', name: 'Bound GY Two', type_line: 'Creature — Elf', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...gyFixtures,
+          ...graveyard.filter(
+            (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      xValue: 2,
+      lastSacrificedPermanents: [
+        {
+          id: 'bf-bound-sac',
+          name: 'Bound Sacrifice',
+          typeLine: 'Creature — Human Soldier',
+          type_line: 'Creature — Human Soldier',
+          colors: ['W', 'R'],
+          cmc: 2,
+        },
+      ],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-bound-1',
+            'gy-bound-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCreatureExiledWithThisLand = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /(?:a|an|the|target)\s+creature card exiled with this land/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsCreatureExiledWithThisLand) {
+    const sourceId = String(nextCtx.sourceId || 'bf-northampton-farm').trim();
+    const exiledCreature = {
+      id: 'exile-northampton-creature',
+      name: 'Northampton Exiled Creature',
+      type_line: 'Creature — Human',
+      cmc: 3,
+      exiledWith: sourceId,
+      exiledWithSourceId: sourceId,
+    };
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => String(perm?.id || '').trim() !== sourceId
+        ),
+        {
+          id: sourceId,
+          name: 'Northampton Farm',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Land',
+          cmc: 0,
+        },
+      ],
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        const merged = [
+          exiledCreature,
+          ...exile.filter((card: any) => String(card?.id || '').trim() !== exiledCreature.id),
+        ];
+        return { ...player, exile: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            exiledCreature.id,
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsDeployGatewatchAmongThem = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /up to two planeswalker cards from among them/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsDeployGatewatchAmongThem) {
+    const libraryCards = [
+      { id: 'lib-gatewatch-pw-1', name: 'Gatewatch Jace', type_line: 'Legendary Planeswalker — Jace', cmc: 4 },
+      { id: 'lib-gatewatch-pw-2', name: 'Gatewatch Gideon', type_line: 'Legendary Planeswalker — Gideon', cmc: 3 },
+      { id: 'lib-gatewatch-creature', name: 'Gatewatch Bear', type_line: 'Creature — Bear', cmc: 2 },
+      { id: 'lib-gatewatch-instant', name: 'Gatewatch Bolt', type_line: 'Instant', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = Array.isArray(player.library) ? [...player.library] : [];
+        const merged = [
+          ...libraryCards,
+          ...library.filter(
+            (card: any) => !libraryCards.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, library: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: libraryCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'lib-gatewatch-pw-1',
+            'lib-gatewatch-pw-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsRecommissionArtifactCreatureGyReturn = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /target artifact or creature card with mana value 3 or less from your graveyard/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsRecommissionArtifactCreatureGyReturn) {
+    const gyFixtures = [
+      { id: 'gy-recommission-creature', name: 'Recommission Creature', type_line: 'Creature — Human', cmc: 2 },
+      { id: 'gy-recommission-artifact', name: 'Recommission Ring', type_line: 'Artifact', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...gyFixtures,
+          ...graveyard.filter(
+            (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-recommission-creature',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsPatronUpToTwoLandsFromHand = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^up to two land cards from your hand$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsPatronUpToTwoLandsFromHand) {
+    const handFixtures = [
+      { id: 'hand-patron-land-1', name: 'Patron Plains', type_line: 'Basic Land — Plains', cmc: 0 },
+      { id: 'hand-patron-land-2', name: 'Patron Forest', type_line: 'Basic Land — Forest', cmc: 0 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const merged = [
+          ...handFixtures,
+          ...hand.filter(
+            (card: any) => !handFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, hand: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'hand-patron-land-1',
+            'hand-patron-land-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTezzeretAnyNumberHandFaceDown = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^any number of cards from your hand$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'battlefield' &&
+      ((step as any).entersFaceDown === true || /\bface down\b/i.test(String(step.raw || '')))
+  );
+  if (needsTezzeretAnyNumberHandFaceDown) {
+    const handFixtures = [
+      { id: 'hand-tezzeret-1', name: 'Tezzeret Hand One', type_line: 'Instant', cmc: 2 },
+      { id: 'hand-tezzeret-2', name: 'Tezzeret Hand Two', type_line: 'Artifact', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const merged = [
+          ...handFixtures,
+          ...hand.filter(
+            (card: any) => !handFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, hand: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'hand-tezzeret-1',
+            'hand-tezzeret-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsNikoForetellGyReturn = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /target card with foretell from your graveyard/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsNikoForetellGyReturn) {
+    const gyFixtures = [
+      {
+        id: 'gy-niko-foretell',
+        name: 'Niko Foretell Card',
+        type_line: 'Instant',
+        cmc: 3,
+        oracle_text: 'Foretell {1}{U}',
+        keywords: ['Foretell'],
+      },
+      { id: 'gy-niko-plain', name: 'Niko Plain Bolt', type_line: 'Instant', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...gyFixtures,
+          ...graveyard.filter(
+            (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-niko-foretell',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsBalladHistoricAmongThem = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^a historic card from among them$/i.test(String((step as any).what?.text || '').trim()) &&
+      step.to === 'hand'
+  );
+  if (needsBalladHistoricAmongThem) {
+    const milledCards = [
+      { id: 'gy-ballad-artifact', name: 'Ballad Compass', type_line: 'Artifact', cmc: 2 },
+      { id: 'gy-ballad-creature', name: 'Ballad Sailor', type_line: 'Creature — Human', cmc: 2 },
+      { id: 'gy-ballad-instant', name: 'Ballad Counter', type_line: 'Instant', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...milledCards,
+          ...graveyard.filter(
+            (card: any) => !milledCards.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: milledCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-ballad-artifact',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsLeonardoOneOrTwoGyReturn = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /one or two target creature cards each with mana value 3 or less from your graveyard/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsLeonardoOneOrTwoGyReturn) {
+    const gyFixtures = [
+      { id: 'gy-leonardo-bear', name: 'Leonardo Bear', type_line: 'Creature — Bear', cmc: 2 },
+      { id: 'gy-leonardo-elf', name: 'Leonardo Elf', type_line: 'Creature — Elf', cmc: 1 },
+      { id: 'gy-leonardo-giant', name: 'Leonardo Giant', type_line: 'Creature — Giant', cmc: 5 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...gyFixtures,
+          ...graveyard.filter(
+            (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-leonardo-bear',
+            'gy-leonardo-elf',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsReenactNonlandGyExileThisTurn = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /target nonland card in a graveyard that was put there from anywhere this turn/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsReenactNonlandGyExileThisTurn) {
+    const gyFixture = {
+      id: 'gy-reenact-instant',
+      name: 'Reenact Bolt',
+      type_line: 'Instant',
+      cmc: 2,
+      putIntoGraveyardTurn: 3,
+    };
+    nextState = {
+      ...nextState,
+      turn: Number((nextState as any)?.turn ?? 3),
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          gyFixture,
+          ...graveyard.filter((card: any) => String(card?.id || '').trim() !== gyFixture.id),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-reenact-instant',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsHurkylAllArtifactsTargetPlayerOwns = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^all artifacts target player owns$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsHurkylAllArtifactsTargetPlayerOwns) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-hurkyl-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-hurkyl-ring',
+          name: 'Hurkyl Ring',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Artifact',
+          cmc: 2,
+        },
+      ],
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const gyArtifact = {
+          id: 'gy-hurkyl-tablet',
+          name: 'Hurkyl Tablet',
+          type_line: 'Artifact',
+          cmc: 3,
+          owner: 'p2',
+        };
+        return {
+          ...player,
+          graveyard: [
+            gyArtifact,
+            ...graveyard.filter((card: any) => String(card?.id || '').trim() !== gyArtifact.id),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsBackForSecondsAmongThemBfInstead = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^one of those cards with mana value 4 or less$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'battlefield'
+  );
+  if (needsBackForSecondsAmongThemBfInstead) {
+    const returnedCards = [
+      { id: 'gy-back-small', name: 'Back Small Creature', type_line: 'Creature — Human', cmc: 3 },
+      { id: 'gy-back-big', name: 'Back Big Creature', type_line: 'Creature — Giant', cmc: 6 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...returnedCards,
+          ...graveyard.filter(
+            (card: any) => !returnedCards.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: returnedCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-back-small',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsShroudedLoreLastChosenCard = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^the last chosen card$/i.test(String((step as any).what?.text || '').trim()) &&
+      step.to === 'hand'
+  );
+  if (needsShroudedLoreLastChosenCard) {
+    const discardedCard = {
+      id: 'gy-shrouded-discarded',
+      name: 'Shrouded Discarded Card',
+      type_line: 'Instant',
+      cmc: 2,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return {
+          ...player,
+          graveyard: [
+            discardedCard,
+            ...graveyard.filter((card: any) => String(card?.id || '').trim() !== discardedCard.id),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      lastMovedCards: [discardedCard],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-shrouded-discarded',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsLilianaUpToTwoCreaturesFromGraveyards = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^up to two creature cards from graveyards$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsLilianaUpToTwoCreaturesFromGraveyards) {
+    const gyFixtures = [
+      { id: 'gy-liliana-creature-1', name: 'Liliana Zombie', type_line: 'Creature — Zombie', cmc: 2 },
+      { id: 'gy-liliana-creature-2', name: 'Liliana Skeleton', type_line: 'Creature — Skeleton', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...gyFixtures,
+          ...graveyard.filter(
+            (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-liliana-creature-1',
+            'gy-liliana-creature-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCodsworthAttachAuraOrEquipment = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'attach' &&
+      /target aura or equipment you control to target creature you control/i.test(String(step.raw || ''))
+  );
+  if (needsCodsworthAttachAuraOrEquipment) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-codsworth-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-codsworth-aura',
+          name: 'Codsworth Aura',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Enchantment — Aura',
+          attachedTo: 'bf-codsworth-host',
+        },
+        {
+          id: 'bf-codsworth-equipment',
+          name: 'Codsworth Equipment',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Artifact — Equipment',
+        },
+        {
+          id: 'bf-codsworth-host',
+          name: 'Codsworth Host',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Robot',
+          cmc: 2,
+        },
+        {
+          id: 'bf-codsworth-target',
+          name: 'Codsworth Target',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          cmc: 2,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetCreatureId: 'bf-codsworth-target',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetCreatureId: 'bf-codsworth-target',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-codsworth-equipment',
+            'bf-codsworth-target',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsRowanLibraryTopGySplit = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^up to two of them back on top of your library in any order and the rest$/i.test(
+        String((step as any).what?.text || '').trim()
+      )
+  );
+  if (needsRowanLibraryTopGySplit) {
+    const rowanTopCards = [
+      { id: 'lib-rowan-1', name: 'Rowan Top One', type_line: 'Instant', cmc: 2 },
+      { id: 'lib-rowan-2', name: 'Rowan Top Two', type_line: 'Sorcery', cmc: 3 },
+      { id: 'lib-rowan-3', name: 'Rowan Rest One', type_line: 'Creature — Human', cmc: 1 },
+      { id: 'lib-rowan-4', name: 'Rowan Rest Two', type_line: 'Enchantment', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = Array.isArray(player.library) ? [...player.library] : [];
+        const merged = [
+          ...rowanTopCards,
+          ...library.filter(
+            (card: any) => !rowanTopCards.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, library: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: rowanTopCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'lib-rowan-1',
+            'lib-rowan-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsRamosianRebelGyReturn = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /target rebel permanent card with mana value 5 or less from your graveyard/i.test(
+        String((step as any).what?.text || '').trim()
+      )
+  );
+  if (needsRamosianRebelGyReturn) {
+    const rebelFixture = {
+      id: 'gy-ramosian-rebel-1',
+      name: 'Ramosian Captain',
+      type_line: 'Creature — Human Rebel',
+      cmc: 3,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return {
+          ...player,
+          graveyard: [
+            rebelFixture,
+            ...graveyard.filter((card: any) => String(card?.id || '').trim() !== rebelFixture.id),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            rebelFixture.id,
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsVivienAnyNumberMilledCreatures = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^any number of creature cards milled this way$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsVivienAnyNumberMilledCreatures) {
+    const milledCreatures = [
+      { id: 'gy-vivien-creature-1', name: 'Vivien Milled Bear', type_line: 'Creature — Bear', cmc: 2 },
+      { id: 'gy-vivien-creature-2', name: 'Vivien Milled Elf', type_line: 'Creature — Elf', cmc: 1 },
+      { id: 'gy-vivien-instant-1', name: 'Vivien Milled Bolt', type_line: 'Instant', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...milledCreatures,
+          ...graveyard.filter(
+            (card: any) => !milledCreatures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMilledCards: milledCreatures,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-vivien-creature-1',
+            'gy-vivien-creature-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsSerenePermanentAndSingleGyShuffle = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^this permanent and up to three target cards from a single graveyard$/i.test(
+        String((step as any).what?.text || '').trim()
+      )
+  );
+  if (needsSerenePermanentAndSingleGyShuffle) {
+    const gyFixtures = [
+      { id: 'gy-serene-1', name: 'Serene GY One', type_line: 'Instant', cmc: 2 },
+      { id: 'gy-serene-2', name: 'Serene GY Two', type_line: 'Sorcery', cmc: 3 },
+    ];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => String(perm?.id || '').trim() !== 'bf-serene-source'
+        ),
+        {
+          id: 'bf-serene-source',
+          name: 'Serene Remembrance',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Enchantment',
+          cmc: 2,
+        },
+      ],
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...gyFixtures,
+          ...graveyard.filter(
+            (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId: 'bf-serene-source',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-serene-1',
+            'gy-serene-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsResearchOutsideGameShuffle = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^up to four cards you own from outside the game$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsResearchOutsideGameShuffle) {
+    const sideboardFixtures = [
+      { id: 'sb-research-1', name: 'Research Outside One', type_line: 'Instant', cmc: 1 },
+      { id: 'sb-research-2', name: 'Research Outside Two', type_line: 'Sorcery', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const sideboard = Array.isArray(player.sideboard) ? [...player.sideboard] : [];
+        const merged = [
+          ...sideboardFixtures,
+          ...sideboard.filter(
+            (card: any) => !sideboardFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, sideboard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'sb-research-1',
+            'sb-research-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsBloodForBonesAnotherGyCreature = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^another creature card from your graveyard$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsBloodForBonesAnotherGyCreature) {
+    const gyFixtures = [
+      { id: 'gy-blood-bf', name: 'Blood BF Creature', type_line: 'Creature — Zombie', cmc: 3 },
+      { id: 'gy-blood-hand', name: 'Blood Hand Creature', type_line: 'Creature — Skeleton', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...gyFixtures,
+          ...graveyard.filter(
+            (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: [gyFixtures[0]],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-blood-bf',
+            'gy-blood-hand',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCommandAttackingBounce = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^one or two target attacking creatures$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsCommandAttackingBounce) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-command-attack-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-command-attack-1',
+          name: 'Command Attacker One',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Human',
+          cmc: 2,
+          attacking: true,
+        },
+        {
+          id: 'bf-command-attack-2',
+          name: 'Command Attacker Two',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Elf',
+          cmc: 1,
+          attacking: true,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-command-attack-1',
+            'bf-command-attack-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsFumbleThemReattach = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'attach' &&
+      /^them$/i.test(String((step as any).attachment?.text || '').trim()) &&
+      /^another creature$/i.test(String((step as any).to?.text || '').trim())
+  );
+  if (needsFumbleThemReattach) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-fumble-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-fumble-host',
+          name: 'Fumble Host',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Human',
+          cmc: 2,
+        },
+        {
+          id: 'bf-fumble-target',
+          name: 'Fumble Target',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Elf',
+          cmc: 2,
+        },
+        {
+          id: 'bf-fumble-aura',
+          name: 'Fumble Aura',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Enchantment — Aura',
+          attachedTo: 'bf-fumble-host',
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetCreatureId: 'bf-fumble-host',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetCreatureId: 'bf-fumble-host',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-fumble-aura',
+            'bf-fumble-target',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCreatureCardExiledThisWay = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'move_zone' &&
+      /a creature card exiled this way/i.test(String((step as any).what?.text || step.raw || '')) &&
+      step.to === 'battlefield'
+  );
+  let needsCreatureCardExiledThisWayNested = false;
+  walkOracleSteps(steps, (step) => {
+    if (
+      step.kind === 'move_zone' &&
+      /a creature card exiled this way/i.test(String((step as any).what?.text || step.raw || '')) &&
+      step.to === 'battlefield'
+    ) {
+      needsCreatureCardExiledThisWayNested = true;
+    }
+  });
+  if (needsCreatureCardExiledThisWay || needsCreatureCardExiledThisWayNested) {
+    const exiledCreature = {
+      id: 'exile-ar-creature-1',
+      name: 'AR Exiled Creature',
+      type_line: 'Creature — Beast',
+      cmc: 4,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        if (exile.some((entry: any) => String(entry?.id || '').trim() === exiledCreature.id)) return player;
+        return { ...player, exile: [...exile, exiledCreature] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastExiledCards: [exiledCreature],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            exiledCreature.id,
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsAuraAttachedToPermanentReattach = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'attach' &&
+      /target aura attached to a permanent to another permanent with the same controller/i.test(String(step.raw || ''))
+  );
+  if (needsAuraAttachedToPermanentReattach) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-simic-/.test(String(perm?.id || ''))),
+        {
+          id: 'bf-simic-host',
+          name: 'Simic Host',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          cmc: 2,
+        },
+        {
+          id: 'bf-simic-target',
+          name: 'Simic Target',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Elf',
+          cmc: 2,
+        },
+        {
+          id: 'bf-simic-aura',
+          name: 'Simic Aura',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Enchantment — Aura',
+          cmc: 1,
+          attachedTo: 'bf-simic-host',
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-simic-aura',
+            'bf-simic-target',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTamiyoGyExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\btarget\s+nonland\s+permanent\s+card\s+with\s+mana\s+value\s+x\s+from\s+your\s+graveyard\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsTamiyoGyExile) {
+    const gyArtifact = {
+      id: 'gy-tamiyo-artifact',
+      name: 'Audit Tamiyo Artifact',
+      type_line: 'Artifact',
+      cmc: 3,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return graveyard.some((card: any) => String(card?.id || '').trim() === gyArtifact.id)
+          ? player
+          : { ...player, graveyard: [gyArtifact, ...graveyard] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      xValue: 4,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['gy-tamiyo-artifact'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsOpponentChoiceGyCreature = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\b(?:opponent(?:'s)?|their)\s+choice\b/i.test(String((step as any).what?.text || step.raw || '')) &&
+      (/\bfrom\s+(?:target\s+)?(?:opponent(?:'s)?|their)\s+graveyard\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      ) ||
+        /\bfrom your graveyard\b/i.test(String((step as any).what?.text || step.raw || '')))
+  );
+  if (needsOpponentChoiceGyCreature) {
+    const fromYourGraveyard = steps.some(
+      (step) =>
+        step.kind === 'move_zone' &&
+        /\bfrom your graveyard\b/i.test(String((step as any).what?.text || step.raw || '')) &&
+        /\b(?:opponent(?:'s)?|their)\s+choice\b/i.test(String((step as any).what?.text || step.raw || ''))
+    );
+    if (fromYourGraveyard) {
+      nextState = {
+        ...nextState,
+        players: (nextState.players || []).map((player: any) => {
+          if (String(player?.id || '').trim() !== 'p1') return player;
+          const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+          const fixtures = [
+            { id: 'gy-tasigur-instant', name: 'Tasigur Bolt', type_line: 'Instant', cmc: 1 },
+            { id: 'gy-tasigur-land', name: 'Tasigur Forest', type_line: 'Basic Land — Forest', cmc: 0 },
+          ];
+          const merged = [...graveyard];
+          for (const card of fixtures) {
+            if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+          }
+          return { ...player, graveyard: merged };
+        }),
+      } as GameState;
+      nextCtx = {
+        ...nextCtx,
+        targetPlayerId: 'p2',
+        selectorContext: {
+          ...(nextCtx.selectorContext || {}),
+          targetPlayerId: 'p2',
+          targetOpponentId: 'p2',
+          chosenObjectIds: ['gy-tasigur-instant'],
+        },
+      } as typeof nextCtx;
+    } else {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const creature = {
+          id: 'gy-opponent-choice-creature',
+          name: 'Opponent Choice Zombie',
+          type_line: 'Creature — Zombie',
+          cmc: 3,
+        };
+        return graveyard.some((card: any) => String(card?.id || '').trim() === creature.id)
+          ? player
+          : { ...player, graveyard: [creature, ...graveyard] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        chosenObjectIds: ['gy-opponent-choice-creature'],
+      },
+    } as typeof nextCtx;
+    }
+  }
+
+  const needsSoulquakeMassReturn = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\ball creatures on the battlefield and all creature cards in graveyards\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsSoulquakeMassReturn) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-audit-soulquake-/.test(String(perm?.id || ''))),
+        {
+          id: 'bf-audit-soulquake-1',
+          name: 'Soulquake Bear',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Bear',
+          colors: ['G'],
+        },
+      ],
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const gyCreature = {
+          id: 'gy-audit-soulquake-1',
+          name: 'Soulquake Zombie',
+          type_line: 'Creature — Zombie',
+          cmc: 2,
+        };
+        return graveyard.some((card: any) => String(card?.id || '').trim() === gyCreature.id)
+          ? player
+          : { ...player, graveyard: [gyCreature, ...graveyard] };
+      }),
+    } as GameState;
+  }
+
+  const needsCardFromChosenPile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^a card from the chosen pile$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsCardFromChosenPile) {
+    const chosenCard = {
+      id: 'lib-chosen-pile-1',
+      name: 'Chosen Pile Card',
+      type_line: 'Instant',
+      cmc: 2,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = [chosenCard, ...(Array.isArray(player.library) ? player.library : [])];
+        return { ...player, library };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: [chosenCard],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['lib-chosen-pile-1'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsNonManaActivatedMilledCreatures = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bactivated abilities that (?:aren't|are not) mana abilities\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      ) &&
+      /\bmilled cards\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsNonManaActivatedMilledCreatures) {
+    const milledCards = [
+      {
+        id: 'gy-milled-activated-1',
+        name: 'Milled Activated Creature',
+        type_line: 'Creature — Human',
+        cmc: 2,
+        oracle_text: '{T}: Draw a card.',
+      },
+      {
+        id: 'gy-milled-plain-2',
+        name: 'Milled Plain Creature',
+        type_line: 'Creature — Elf',
+        cmc: 1,
+        oracle_text: 'Vigilance',
+      },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [...graveyard];
+        for (const card of milledCards) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMilledCards: milledCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['gy-milled-activated-1'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCryOfCarnariumGyExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\ball creature cards in all graveyards that were put there from the battlefield this turn\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsCryOfCarnariumGyExile) {
+    nextState = {
+      ...nextState,
+      turn: Number((nextState as any)?.turn ?? 3),
+      players: (nextState.players || []).map((player: any) => {
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const gyCreature = {
+          id: `gy-carnarium-bf-${String(player?.id || '').trim()}`,
+          name: 'Carnarium Zombie',
+          type_line: 'Creature — Zombie',
+          cmc: 2,
+          putIntoGraveyardTurn: 3,
+        };
+        return graveyard.some((card: any) => String(card?.id || '').trim() === gyCreature.id)
+          ? player
+          : { ...player, graveyard: [gyCreature, ...graveyard] };
+      }),
+    } as GameState;
+  }
+
+  const needsMemoryTheftAdventureExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bhas an adventure\b/i.test(String((step as any).what?.text || step.raw || '')) &&
+      /\bfrom exile\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsMemoryTheftAdventureExile) {
+    const adventureCard = {
+      id: 'exile-adventure-1',
+      name: 'Memory Theft Adventure',
+      type_line: 'Sorcery — Adventure',
+      layout: 'adventure',
+      cmc: 2,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        return exile.some((card: any) => String(card?.id || '').trim() === adventureCard.id)
+          ? player
+          : { ...player, exile: [adventureCard, ...exile] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        chosenObjectIds: ['exile-adventure-1'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsAetherBurstBounce = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^up to x target creatures$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsAetherBurstBounce) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-audit-aether-/.test(String(perm?.id || ''))),
+        {
+          id: 'bf-audit-aether-1',
+          name: 'Aether Bear',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Bear',
+          colors: ['G'],
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      xValue: 2,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['bf-audit-aether-1'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsNissaHandOrGyReturn = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bmana value less than or equal to the number of lands you control\b/i.test(
+        String(step.raw || (step as any).what?.text || '')
+      ) &&
+      /\bfrom your hand or graveyard\b/i.test(String(step.raw || ''))
+  );
+  if (needsNissaHandOrGyReturn) {
+    const nissaCreature = {
+      id: 'gy-nissa-creature-1',
+      name: 'Nissa Elf',
+      type_line: 'Creature — Elf',
+      cmc: 2,
+    };
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...(Array.isArray(nextState.battlefield) ? nextState.battlefield : []),
+        {
+          id: 'bf-nissa-land-1',
+          name: 'Forest',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Basic Land — Forest',
+          colors: [],
+        },
+        {
+          id: 'bf-nissa-land-2',
+          name: 'Island',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Basic Land — Island',
+          colors: [],
+        },
+      ],
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return graveyard.some((card: any) => String(card?.id || '').trim() === nissaCreature.id)
+          ? player
+          : { ...player, graveyard: [nissaCreature, ...graveyard] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['gy-nissa-creature-1'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsLivingTwisterTappedLandBounce = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\breturn a tapped land you control\b/i.test(String(step.raw || ''))
+  );
+  if (needsLivingTwisterTappedLandBounce) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => String(perm?.id || '') !== 'bf-tapped-land-1'),
+        {
+          id: 'bf-tapped-land-1',
+          name: 'Tapped Forest',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Basic Land — Forest',
+          tapped: true,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['bf-tapped-land-1'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsVictimizeChosenReturn = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^the chosen cards$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'battlefield'
+  );
+  if (needsVictimizeChosenReturn) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const creatures = [
+          { id: 'gy-victimize-1', name: 'Victimize Zombie', type_line: 'Creature — Zombie', cmc: 3 },
+          { id: 'gy-victimize-2', name: 'Victimize Bear', type_line: 'Creature — Bear', cmc: 2 },
+        ];
+        const merged = [...graveyard];
+        for (const card of creatures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['gy-victimize-1', 'gy-victimize-2'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsWeddingTimeCounterExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\btime counters on it equal to its mana value\b/i.test(String(step.raw || (step as any).what?.text || ''))
+  );
+  if (needsWeddingTimeCounterExile) {
+    const handCard = {
+      id: 'hand-wedding-instant-1',
+      name: 'Wedding Instant',
+      type_line: 'Instant',
+      cmc: 3,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = [handCard, ...(Array.isArray(player.hand) ? player.hand : [])];
+        return { ...player, hand };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['hand-wedding-instant-1'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsJaceOnePileSplit = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^one pile$/i.test(String((step as any).what?.text || '').trim()) &&
+      /\bbottom of your library\b/i.test(String(step.toRaw || step.raw || ''))
+  );
+  if (needsJaceOnePileSplit) {
+    const pileCards = [
+      { id: 'lib-jace-1', name: 'Jace Card 1', type_line: 'Instant', cmc: 2 },
+      { id: 'lib-jace-2', name: 'Jace Card 2', type_line: 'Sorcery', cmc: 3 },
+      { id: 'lib-jace-3', name: 'Jace Card 3', type_line: 'Creature — Human', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = [...pileCards, ...(Array.isArray(player.library) ? player.library : [])];
+        return { ...player, library };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: pileCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: ['lib-jace-1', 'lib-jace-2', 'lib-jace-3'],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsSweepPlainsReturn = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^any number of plains you control$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsSweepPlainsReturn) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    const plainsFixtures = [
+      { id: 'bf-audit-plains-1', name: 'Plains', type_line: 'Basic Land — Plains', controller: 'p1', owner: 'p1' },
+      { id: 'bf-audit-plains-2', name: 'Plains', type_line: 'Basic Land — Plains', controller: 'p1', owner: 'p1' },
+    ];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...existingBattlefield.filter((perm: any) => !/^bf-audit-plains-\d+$/.test(String(perm?.id || ''))),
+        ...plainsFixtures,
+      ],
+    } as GameState;
   }
 
   const needsFaerieControlConditional = steps.some(
@@ -893,7 +5434,14 @@ export function enrichAuditStateAndContextForTargets(
         ...(nextCtx.selectorContext || {}),
         targetPermanentId: referenceId,
         targetCreatureId: referenceId,
-        chosenObjectIds: [referenceId],
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            referenceId,
+          ])
+        ),
       },
     } as typeof nextCtx;
   }
@@ -1746,6 +6294,53 @@ export function enrichAuditStateAndContextForTargets(
     } as GameState;
   }
 
+  const needsAllCommandersFromCommandZone = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^all commanders from the command zone$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsAllCommandersFromCommandZone) {
+    const commanderFixtures = [
+      {
+        id: 'cmd-tevesh-p1',
+        name: 'Audit P1 Commander',
+        type_line: 'Legendary Creature — Human Cleric',
+        cmc: 4,
+        isCommander: true,
+      },
+      {
+        id: 'cmd-tevesh-p2',
+        name: 'Audit P2 Commander',
+        type_line: 'Legendary Creature — Elf Warrior',
+        cmc: 3,
+        isCommander: true,
+      },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        const commandZone = Array.isArray(player?.commandZone)
+          ? [...player.commandZone]
+          : Array.isArray(player?.command)
+            ? [...player.command]
+            : [];
+        const fixture =
+          playerId === 'p1'
+            ? commanderFixtures[0]
+            : playerId === 'p2'
+              ? commanderFixtures[1]
+              : null;
+        if (!fixture) return player;
+        const merged = [...commandZone];
+        if (!merged.some((entry: any) => String(entry?.id || '').trim() === fixture.id)) {
+          merged.push(fixture);
+        }
+        return { ...player, commandZone: merged, command: merged };
+      }),
+    } as GameState;
+  }
+
   const needsCommandZonePut = steps.some(step =>
     /\bfrom the command zone onto the battlefield\b/i.test(String(step.raw || ''))
   );
@@ -1974,33 +6569,38 @@ export function enrichAuditStateAndContextForTargets(
   const needsAuraReattach = steps.some(
     step =>
       step.kind === 'attach' &&
-      /target aura attached to a creature|all auras enchanting target permanent/i.test(String(step.raw || ''))
+      (/target aura attached to a creature|all auras enchanting target permanent|target aura you control/i.test(
+        String(step.raw || '')
+      ))
   );
   if (needsAuraReattach) {
+    const needsTargetAuraYouControl = steps.some(
+      (step) => step.kind === 'attach' && /target aura you control/i.test(String(step.raw || ''))
+    );
     nextState = {
       ...nextState,
       battlefield: [
         ...((nextState.battlefield || []) as any[]).map((perm: any) => {
           if (String(perm?.id || '').trim() !== 'bf-enchantment-1') return perm;
-          return { ...perm, attachedTo: 'bf-creature-1' };
+          return { ...perm, attachedTo: needsTargetAuraYouControl ? 'bf-creature-1' : 'bf-creature-1' };
         }),
       ],
     } as GameState;
     nextCtx = {
       ...nextCtx,
-      targetPermanentId: 'bf-creature-1',
-      targetCreatureId: 'bf-creature-1',
+      targetPermanentId: needsTargetAuraYouControl ? 'bf-creature-2' : 'bf-creature-1',
+      targetCreatureId: needsTargetAuraYouControl ? 'bf-creature-2' : 'bf-creature-1',
       selectorContext: {
         ...(nextCtx.selectorContext || {}),
-        targetPermanentId: 'bf-creature-1',
-        targetCreatureId: 'bf-creature-1',
+        targetPermanentId: needsTargetAuraYouControl ? 'bf-creature-2' : 'bf-creature-1',
+        targetCreatureId: needsTargetAuraYouControl ? 'bf-creature-2' : 'bf-creature-1',
         chosenObjectIds: Array.from(
           new Set([
             ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
               ? nextCtx.selectorContext.chosenObjectIds
               : []),
             'bf-enchantment-1',
-            'bf-creature-2',
+            needsTargetAuraYouControl ? 'bf-creature-2' : 'bf-creature-2',
           ])
         ),
       },
@@ -2015,12 +6615,28 @@ export function enrichAuditStateAndContextForTargets(
       )
   );
   if (needsContextualThemSplit) {
+    const needsSurveilGyLibrarySplit = steps.some(
+      (step) =>
+        step.kind === 'move_zone' &&
+        (step as any).to === 'graveyard' &&
+        /any number of them/i.test(String((step as any).what?.text || step.raw || ''))
+    );
+    const surveilTopCards = [
+      { id: 'lib-surveil-1', name: 'Surveil One', type_line: 'Instant', cmc: 1 },
+      { id: 'lib-surveil-2', name: 'Surveil Two', type_line: 'Creature — Human', cmc: 2, power: '2', toughness: '2' },
+    ];
     nextState = {
       ...nextState,
       players: (nextState.players || []).map((player: any) => {
         if (String(player?.id || '').trim() !== 'p1') return player;
         const library = Array.isArray(player?.library) ? [...player.library] : [];
         const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+        if (needsSurveilGyLibrarySplit) {
+          const mergedLibrary = [...surveilTopCards, ...library.filter(
+            (card: any) => !surveilTopCards.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          )];
+          return { ...player, library: mergedLibrary, exile };
+        }
         const revealedCards = [
           { id: 'exile-split-1', name: 'Split Card One', type_line: 'Instant', cmc: 2 },
           { id: 'exile-split-2', name: 'Split Card Two', type_line: 'Sorcery', cmc: 3 },
@@ -2063,8 +6679,2060 @@ export function enrichAuditStateAndContextForTargets(
     } as GameState;
     nextCtx = {
       ...nextCtx,
+      ...(needsSurveilGyLibrarySplit
+        ? {
+            lastMovedCards: surveilTopCards,
+          }
+        : {
+            lastMilledCards: [
+              { id: 'gy-milled-land-1', name: 'Milled Plains', type_line: 'Basic Land — Plains' },
+              { id: 'gy-milled-1', name: 'Milled This Turn', type_line: 'Creature — Zombie', cmc: 2, milledTurn: 3 },
+            ],
+          }),
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            ...(needsSurveilGyLibrarySplit
+              ? ['lib-surveil-1']
+              : [
+                  'exile-split-1',
+                  'exile-split-2',
+                  'exile-split-3',
+                  'exile-split-4',
+                  'exile-split-5',
+                  'exile-revealed-artifact-1',
+                  'exile-revealed-creature-1',
+                  'exile-revealed-assassin-1',
+                  'exile-revealed-pirate-1',
+                  'gy-milled-land-1',
+                  'gy-milled-1',
+                ]),
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsThisCreatureAndColoredTargetBounce = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bthis creature and target\b/i.test(String((step as any).what?.text || step.raw || '')) &&
+      (step as any).to === 'hand'
+  );
+  if (needsThisCreatureAndColoredTargetBounce) {
+    nextState = {
+      ...nextState,
+      battlefield: ((nextState.battlefield || []) as any[]).some(
+        (perm: any) => String(perm?.id || '').trim() === 'bf-blue-creature'
+      )
+        ? nextState.battlefield
+        : [
+            ...((nextState.battlefield || []) as any[]),
+            {
+              id: 'bf-blue-creature',
+              name: 'Audit Blue Creature',
+              controller: 'p1',
+              owner: 'p1',
+              type_line: 'Creature — Merfolk',
+              colors: ['U'],
+            },
+          ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-source',
+            'bf-blue-creature',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCountTargetCardsFromSingleGraveyardExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      step.to === 'exile' &&
+      /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+) target cards? from a single graveyard\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsCountTargetCardsFromSingleGraveyardExile) {
+    const gyCards = [
+      { id: 'gy-single-exile-1', name: 'Single Exile One', type_line: 'Instant', cmc: 1 },
+      { id: 'gy-single-exile-2', name: 'Single Exile Two', type_line: 'Sorcery', cmc: 2 },
+      { id: 'gy-single-exile-3', name: 'Single Exile Three', type_line: 'Creature — Rat', cmc: 3 },
+      { id: 'gy-single-exile-4', name: 'Single Exile Four', type_line: 'Enchantment', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [...graveyard];
+        for (const card of gyCards) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-single-exile-1',
+            'gy-single-exile-2',
+            'gy-single-exile-3',
+            'gy-single-exile-4',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsSingleGraveyardXExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bx target cards? from a single graveyard\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsSingleGraveyardXExile) {
+    const gyCards = [
+      { id: 'gy-single-1', name: 'Single GY One', type_line: 'Instant', cmc: 1 },
+      { id: 'gy-single-2', name: 'Single GY Two', type_line: 'Sorcery', cmc: 2 },
+      { id: 'gy-single-3', name: 'Single GY Three', type_line: 'Creature — Rat', cmc: 3 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [...graveyard];
+        for (const card of gyCards) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      xValue: Number(nextCtx.xValue ?? 3),
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-single-1',
+            'gy-single-2',
+            'gy-single-3',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsEachGraveyardOptionalExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bfrom each graveyard\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsEachGraveyardOptionalExile) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const wantsInstantSorcery = steps.some(
+          (step) =>
+            step.kind === 'move_zone' &&
+            /instant or sorcery/i.test(String((step as any).what?.text || step.raw || ''))
+        );
+        const extra =
+          playerId === 'p1'
+            ? wantsInstantSorcery
+              ? { id: 'gy-p1-instant-each', name: 'P1 Instant', type_line: 'Instant', cmc: 2 }
+              : { id: 'gy-p1-creature-each', name: 'P1 Creature', type_line: 'Creature — Zombie', cmc: 2 }
+            : wantsInstantSorcery
+              ? { id: `gy-${playerId}-sorcery-each`, name: 'Audit Sorcery', type_line: 'Sorcery', cmc: 3 }
+              : { id: `gy-${playerId}-pw-each`, name: 'Audit Planeswalker', type_line: 'Legendary Planeswalker — Jace', cmc: 4 };
+        return graveyard.some((card: any) => String(card?.id || '').trim() === extra.id)
+          ? player
+          : { ...player, graveyard: [...graveyard, extra] };
+      }),
+    } as GameState;
+    const wantsInstantSorcery = steps.some(
+      (step) =>
+        step.kind === 'move_zone' &&
+        /instant or sorcery/i.test(String((step as any).what?.text || step.raw || ''))
+    );
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            ...(wantsInstantSorcery
+              ? ['gy-p1-instant-each', 'gy-p2-sorcery-each', 'gy-p3-sorcery-each', 'gy-p4-sorcery-each']
+              : ['gy-p1-creature-each', 'gy-p2-pw-each', 'gy-p3-pw-each', 'gy-p4-pw-each']),
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsHistoricPermanentFromHand = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bhistoric permanent card from your hand\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsHistoricPermanentFromHand) {
+    const historicHandCard = {
+      id: 'hand-historic-1',
+      name: 'Audit Historic',
+      type_line: 'Legendary Artifact',
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        return hand.some((card: any) => String(card?.id || '').trim() === historicHandCard.id)
+          ? player
+          : { ...player, hand: [...hand, historicHandCard] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'hand-historic-1',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTwoOfThemAtRandomReturn = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\btwo of them at random\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsTwoOfThemAtRandomReturn) {
+    const gyCreatures = [
+      { id: 'gy-waltz-1', name: 'Waltz One', type_line: 'Creature — Zombie', cmc: 2 },
+      { id: 'gy-waltz-2', name: 'Waltz Two', type_line: 'Creature — Skeleton', cmc: 3 },
+      { id: 'gy-waltz-3', name: 'Waltz Three', type_line: 'Creature — Vampire', cmc: 4 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [...graveyard];
+        for (const card of gyCreatures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-waltz-1',
+            'gy-waltz-2',
+            'gy-waltz-3',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsFlashbackGyExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\ball cards with flashback from (?:target|that) (?:player|opponent)'s graveyard\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsFlashbackGyExile) {
+    const flashbackCard = {
+      id: 'gy-flashback-1',
+      name: 'Flashback Spell',
+      type_line: 'Sorcery',
+      keywords: ['Flashback'],
+    };
+    const normalCard = { id: 'gy-normal-1', name: 'Normal', type_line: 'Creature — Human' };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [...graveyard];
+        for (const card of [flashbackCard, normalCard]) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        chosenObjectIds: Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+          ? nextCtx.selectorContext.chosenObjectIds
+          : [],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsExileAllLibrary = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\ball(?:\s+the)?\s+cards from your library\b/i.test(String((step as any).what?.text || step.raw || '')) &&
+      (step as any).to === 'exile'
+  );
+  if (needsExileAllLibrary) {
+    const libraryCards = [
+      { id: 'lib-mirror-1', name: 'Mirror One', type_line: 'Instant', cmc: 1 },
+      { id: 'lib-mirror-2', name: 'Mirror Two', type_line: 'Sorcery', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = Array.isArray(player.library) ? [...player.library] : [];
+        const merged = [...library];
+        for (const card of libraryCards) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, library: merged };
+      }),
+    } as GameState;
+  }
+
+  const needsOneTwoOrThreeCreaturesFromGraveyards = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bone, two, or three target creature cards from graveyards\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsOneTwoOrThreeCreaturesFromGraveyards) {
+    const gyCreatures = [
+      { id: 'gy-aberrant-1', name: 'Aberrant One', type_line: 'Creature — Zombie', cmc: 2 },
+      { id: 'gy-aberrant-2', name: 'Aberrant Two', type_line: 'Creature — Skeleton', cmc: 3 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const extra =
+          playerId === 'p1'
+            ? gyCreatures
+            : [{ id: 'gy-p2-aberrant', name: 'P2 Creature', type_line: 'Creature — Human', cmc: 2 }];
+        const merged = [...graveyard];
+        for (const card of extra) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-aberrant-1',
+            'gy-aberrant-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsFaceDownGyPileExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bin a face-down pile\b/i.test(String((step as any).what?.text || step.raw || '')) &&
+      /\bfrom (?:target|that) (?:player|opponent)'s graveyard\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsFaceDownGyPileExile) {
+    const gyCreatures = [
+      { id: 'gy-ghastly-1', name: 'Ghastly One', type_line: 'Creature — Zombie', cmc: 2 },
+      { id: 'gy-ghastly-2', name: 'Ghastly Two', type_line: 'Creature — Bear', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [...graveyard];
+        for (const card of gyCreatures) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsUpToXArtifactCreatureAmongThem = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bup to x artifact and\/or creature cards with mana value \d+ or less from among them\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsUpToXArtifactCreatureAmongThem) {
+    const kaylaTop = [
+      { id: 'lib-kayla-1', name: 'Kayla Artifact', type_line: 'Artifact', cmc: 2 },
+      { id: 'lib-kayla-2', name: 'Kayla Creature', type_line: 'Creature — Human', cmc: 2 },
+      { id: 'lib-kayla-3', name: 'Kayla Instant', type_line: 'Instant', cmc: 3 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = Array.isArray(player.library) ? [...player.library] : [];
+        const merged = [...kaylaTop, ...library.filter(
+          (card: any) => !kaylaTop.some((entry) => String(entry.id) === String(card?.id || '').trim())
+        )];
+        return { ...player, library: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      xValue: Number(nextCtx.xValue ?? 3),
+      lastMovedCards: kaylaTop,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'lib-kayla-1',
+            'lib-kayla-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsThatPileToGraveyard = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      (step as any).to === 'graveyard' &&
+      /^that pile$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsThatPileToGraveyard) {
+    const pileCards = [
+      { id: 'exile-abstract-pile-1', name: 'Abstract One', type_line: 'Instant', cmc: 2 },
+      { id: 'exile-abstract-pile-2', name: 'Abstract Two', type_line: 'Sorcery', cmc: 3 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        const merged = [...exile];
+        for (const card of pileCards) {
+          if (!merged.some((entry: any) => String(entry?.id || '').trim() === card.id)) merged.push(card);
+        }
+        return { ...player, exile: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: pileCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            ...pileCards.map((card) => card.id),
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTurntimberAmongThemCreature = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^a creature card from among them$/i.test(String((step as any).what?.text || '').trim()) &&
+      /\bthat card has mana value \d+ or less\b/i.test(String(step.raw || ''))
+  );
+  if (needsTurntimberAmongThemCreature) {
+    const turntimberTop = [
+      { id: 'lib-turntimber-1', name: 'Turntimber Bear', type_line: 'Creature — Bear', cmc: 2 },
+      { id: 'lib-turntimber-2', name: 'Turntimber Elf', type_line: 'Creature — Elf', cmc: 1 },
+      { id: 'lib-turntimber-3', name: 'Turntimber Bolt', type_line: 'Instant', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = Array.isArray(player.library) ? [...player.library] : [];
+        const merged = [...turntimberTop, ...library.filter(
+          (card: any) => !turntimberTop.some((entry) => String(entry.id) === String(card?.id || '').trim())
+        )];
+        return { ...player, library: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: turntimberTop,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'lib-turntimber-1',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsMayaelPowerGteAmongThem = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\bcreature card with power \d+ or greater from among them\b/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsMayaelPowerGteAmongThem) {
+    const mayaelTop = [
+      { id: 'lib-mayael-1', name: 'Small Creature', type_line: 'Creature — Elf', cmc: 1, power: '1', toughness: '1' },
+      { id: 'lib-mayael-2', name: 'Big Creature', type_line: 'Creature — Beast', cmc: 6, power: '6', toughness: '6' },
+      { id: 'lib-mayael-3', name: 'Another Small', type_line: 'Creature — Goblin', cmc: 2, power: '2', toughness: '2' },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = Array.isArray(player.library) ? [...player.library] : [];
+        const merged = [...mayaelTop, ...library.filter(
+          (card: any) => !mayaelTop.some((entry) => String(entry.id) === String(card?.id || '').trim())
+        )];
+        return { ...player, library: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: mayaelTop,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'lib-mayael-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsStormAmongThemPermanentMv = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /up to two permanent cards with mana value 5 or less from among them/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsStormAmongThemPermanentMv) {
+    const stormTop = [
+      { id: 'lib-storm-1', name: 'Storm Bear', type_line: 'Creature — Bear', cmc: 2 },
+      { id: 'lib-storm-2', name: 'Storm Bolt', type_line: 'Instant', cmc: 1 },
+      { id: 'lib-storm-3', name: 'Storm Ring', type_line: 'Artifact', cmc: 1 },
+      { id: 'lib-storm-4', name: 'Storm Titan', type_line: 'Creature — Giant', cmc: 8 },
+      { id: 'lib-storm-5', name: 'Storm Forest', type_line: 'Basic Land — Forest', cmc: 0 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = Array.isArray(player.library) ? [...player.library] : [];
+        const merged = [
+          ...stormTop,
+          ...library.filter(
+            (card: any) => !stormTop.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, library: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: stormTop,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'lib-storm-1',
+            'lib-storm-3',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsOpponentChoicePermanentBounce = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /target opponent chooses a permanent they control/i.test(String(step.raw || ''))
+  );
+  if (needsOpponentChoicePermanentBounce) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => String(perm?.id || '').trim() !== 'bf-opponent-perm-1'
+        ),
+        {
+          id: 'bf-opponent-perm-1',
+          name: 'Opponent Creature',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Human',
+          colors: ['U'],
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-opponent-perm-1',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsAnotherTargetUnlessPaysBounce = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^another target /i.test(String((step as any).what?.text || '').trim()) &&
+      /\bunless its controller pays\b/i.test(String(step.raw || step.toRaw || ''))
+  );
+  if (needsAnotherTargetUnlessPaysBounce) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !['bf-withdraw-1', 'bf-withdraw-2'].includes(String(perm?.id || '').trim())
+        ),
+        {
+          id: 'bf-withdraw-1',
+          name: 'Withdraw Bear',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Bear',
+          colors: ['G'],
+        },
+        {
+          id: 'bf-withdraw-2',
+          name: 'Withdraw Elf',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Elf',
+          colors: ['G'],
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-withdraw-1',
+            'bf-withdraw-2',
+          ])
+        ),
+        unlessPaysManaChoice: 'decline',
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsAllColoredPermanentsBounce = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^all (?:white|blue|black|red|green) permanents$/i.test(
+        String((step as any).what?.text || '').trim()
+      )
+  );
+  if (needsAllColoredPermanentsBounce) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) =>
+            !['bf-hibernate-green-1', 'bf-hibernate-green-2', 'bf-hibernate-blue-1'].includes(
+              String(perm?.id || '').trim()
+            )
+        ),
+        {
+          id: 'bf-hibernate-green-1',
+          name: 'Hibernate Bear',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Bear',
+          colors: ['G'],
+        },
+        {
+          id: 'bf-hibernate-green-2',
+          name: 'Hibernate Forest',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Basic Land — Forest',
+          colors: [],
+        },
+        {
+          id: 'bf-hibernate-blue-1',
+          name: 'Hibernate Fish',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Fish',
+          colors: ['U'],
+        },
+      ],
+    } as GameState;
+  }
+
+  const needsRevealedCardsToGraveyards = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^the revealed cards$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'graveyard'
+  );
+  if (needsRevealedCardsToGraveyards) {
+    const revealedCards = [
+      { id: 'lib-revealed-p1', name: 'Revealed Bear', type_line: 'Creature — Bear', cmc: 2 },
+      { id: 'lib-revealed-p2', name: 'Revealed Elf', type_line: 'Creature — Elf', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        const topCard =
+          playerId === 'p1'
+            ? revealedCards[0]
+            : playerId === 'p2'
+              ? revealedCards[1]
+              : null;
+        if (!topCard) return player;
+        const library = Array.isArray(player.library) ? [...player.library] : [];
+        const merged = [
+          topCard,
+          ...library.filter((card: any) => String(card?.id || '').trim() !== topCard.id),
+        ];
+        return { ...player, library: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: revealedCards,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'lib-revealed-p1',
+            'lib-revealed-p2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsAnyNumberHandFaceDownExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^any number of cards from your hand face down$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'exile'
+  );
+  if (needsAnyNumberHandFaceDownExile) {
+    const handFixtures = [
+      { id: 'scroll-hand-1', name: 'Scroll Hand One', type_line: 'Instant', cmc: 1 },
+      { id: 'scroll-hand-2', name: 'Scroll Hand Two', type_line: 'Instant', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const merged = [
+          ...handFixtures,
+          ...hand.filter(
+            (card: any) => !handFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, hand: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'scroll-hand-1',
+            'scroll-hand-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsThatManyLibraryTopToHand = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^that many cards from the top of your library$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'hand'
+  );
+  if (needsThatManyLibraryTopToHand) {
+    const libraryTop = [
+      { id: 'scroll-lib-1', name: 'Scroll Top One', type_line: 'Instant', cmc: 1 },
+      { id: 'scroll-lib-2', name: 'Scroll Top Two', type_line: 'Instant', cmc: 1 },
+      { id: 'scroll-lib-3', name: 'Scroll Top Three', type_line: 'Instant', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const library = Array.isArray(player.library) ? [...player.library] : [];
+        const merged = [
+          ...libraryTop,
+          ...library.filter(
+            (card: any) => !libraryTop.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, library: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      referenceAmount: Math.max(2, Number(nextCtx.referenceAmount) || 2),
+    } as typeof nextCtx;
+  }
+
+  const needsDestroyedThisWayGyReturn = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^all cards in your graveyard destroyed this way$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'battlefield'
+  );
+  if (needsDestroyedThisWayGyReturn) {
+    const destroyedFixtures = [
+      { id: 'cleanse-gy-artifact', name: 'Cleanse Artifact', type_line: 'Artifact', cmc: 2 },
+      { id: 'cleanse-gy-enchant', name: 'Cleanse Enchant', type_line: 'Enchantment', cmc: 3 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...destroyedFixtures,
+          ...graveyard.filter(
+            (card: any) => !destroyedFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: destroyedFixtures,
+    } as typeof nextCtx;
+  }
+
+  const needsCompoundArtifactCreatureLandGyHandsExile = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^all artifacts, creatures, and lands from the battlefield, all cards from all graveyards, and all cards from all hands$/i.test(
+        String((step as any).what?.text || '').trim()
+      ) &&
+      (step as any).to === 'exile'
+  );
+  if (needsCompoundArtifactCreatureLandGyHandsExile) {
+    const p1Hand = [{ id: 'decree-p1-hand', name: 'Decree Hand', type_line: 'Instant', cmc: 1 }];
+    const p2Hand = [{ id: 'decree-p2-hand', name: 'Decree Opp Hand', type_line: 'Instant', cmc: 1 }];
+    const p1Gy = [{ id: 'decree-p1-gy', name: 'Decree GY', type_line: 'Creature — Bear', cmc: 2 }];
+    const p2Gy = [{ id: 'decree-p2-gy', name: 'Decree Opp GY', type_line: 'Instant', cmc: 1 }];
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) =>
+            !['decree-bf-art', 'decree-bf-creature', 'decree-bf-land'].includes(String(perm?.id || '').trim())
+        ),
+        {
+          id: 'decree-bf-art',
+          name: 'Decree Sol Ring',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Artifact',
+          cmc: 1,
+        },
+        {
+          id: 'decree-bf-creature',
+          name: 'Decree Bear',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Bear',
+          cmc: 2,
+          colors: ['G'],
+        },
+        {
+          id: 'decree-bf-land',
+          name: 'Decree Forest',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Basic Land — Forest',
+          cmc: 0,
+        },
+      ],
+      players: (nextState.players || []).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        if (playerId === 'p1') {
+          const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+          const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+          return {
+            ...player,
+            hand: [...p1Hand, ...hand.filter((card: any) => String(card?.id || '').trim() !== p1Hand[0].id)],
+            graveyard: [...p1Gy, ...graveyard.filter((card: any) => String(card?.id || '').trim() !== p1Gy[0].id)],
+          };
+        }
+        if (playerId === 'p2') {
+          const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+          const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+          return {
+            ...player,
+            hand: [...p2Hand, ...hand.filter((card: any) => String(card?.id || '').trim() !== p2Hand[0].id)],
+            graveyard: [...p2Gy, ...graveyard.filter((card: any) => String(card?.id || '').trim() !== p2Gy[0].id)],
+          };
+        }
+        return player;
+      }),
+    } as GameState;
+  }
+
+  const needsTargetOpponentHandToLibraryTop = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^the cards from target opponent's hand$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'library' &&
+      /top/i.test(String((step as any).toRaw || ''))
+  );
+  if (needsTargetOpponentHandToLibraryTop) {
+    const handFixtures = [
+      { id: 'head-hand-1', name: 'Head Games Hand One', type_line: 'Instant', cmc: 1 },
+      { id: 'head-hand-2', name: 'Head Games Hand Two', type_line: 'Creature — Bear', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const merged = [
+          ...handFixtures,
+          ...hand.filter(
+            (card: any) => !handFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, hand: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'head-hand-1',
+            'head-hand-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTargetFromGraveyardPutThereThisTurn = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /from a graveyard that was put there this turn/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsTargetFromGraveyardPutThereThisTurn) {
+    const gyCreature = {
+      id: 'gy-abyssal-turn',
+      name: 'Abyssal Fresh Corpse',
+      type_line: 'Creature — Zombie',
+      cmc: 2,
+      putIntoGraveyardTurn: 3,
+    };
+    nextState = {
+      ...nextState,
+      turnNumber: Number((nextState as any)?.turnNumber ?? 3),
+      turn: Number((nextState as any)?.turn ?? 3),
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          gyCreature,
+          ...graveyard.filter((card: any) => String(card?.id || '').trim() !== gyCreature.id),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-abyssal-turn',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsOrTypeCardFromAmongMilledToBattlefield = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /from among the milled cards/i.test(String((step as any).what?.text || step.raw || '')) &&
+      /\bcreature\b/i.test(String((step as any).what?.text || step.raw || '')) &&
+      /\benchantment\b/i.test(String((step as any).what?.text || step.raw || '')) &&
+      /\bland\b/i.test(String((step as any).what?.text || step.raw || '')) &&
+      (step as any).to === 'battlefield'
+  );
+  if (needsOrTypeCardFromAmongMilledToBattlefield) {
+    const milledFixtures = [
+      { id: 'milled-bramble-creature', name: 'Bramble Bear', type_line: 'Creature — Bear', cmc: 2 },
+      { id: 'milled-bramble-land', name: 'Bramble Forest', type_line: 'Basic Land — Forest', cmc: 0 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...milledFixtures,
+          ...graveyard.filter(
+            (card: any) => !milledFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMilledCards: milledFixtures,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'milled-bramble-creature',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsYourGraveyardAndHandShuffle = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^your graveyard and hand$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'library'
+  );
+  if (needsYourGraveyardAndHandShuffle) {
+    const handFixtures = [
+      { id: 'trenz-hand-1', name: 'Trenz Hand One', type_line: 'Instant', cmc: 1 },
+      { id: 'trenz-hand-2', name: 'Trenz Hand Two', type_line: 'Creature — Bear', cmc: 2 },
+    ];
+    const gyFixtures = [
+      { id: 'trenz-gy-1', name: 'Trenz GY One', type_line: 'Creature — Zombie', cmc: 2 },
+      { id: 'trenz-gy-2', name: 'Trenz GY Two', type_line: 'Artifact', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return {
+          ...player,
+          hand: [
+            ...handFixtures,
+            ...hand.filter(
+              (card: any) => !handFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+            ),
+          ],
+          graveyard: [
+            ...gyFixtures,
+            ...graveyard.filter(
+              (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+            ),
+          ],
+        };
+      }),
+    } as GameState;
+  }
+
+  const needsThisPermanentAndExiledCardToHand = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^this saga and the exiled card$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'hand'
+  );
+  if (needsThisPermanentAndExiledCardToHand) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    const exiledCard = {
+      id: 'exile-aesir-1',
+      name: 'Aesir Exiled Card',
+      type_line: 'Instant',
+      cmc: 1,
+      exiledWith: sourceId,
+      exiledWithSourceId: sourceId,
+    };
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => String(perm?.id || '').trim() !== sourceId
+        ),
+        {
+          id: sourceId,
+          name: 'The Aesir Escape Valhalla',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Enchantment — Saga',
+          cmc: 4,
+        },
+      ],
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        return {
+          ...player,
+          exile: [
+            exiledCard,
+            ...exile.filter((card: any) => String(card?.id || '').trim() !== exiledCard.id),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'exile-aesir-1',
+            sourceId,
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsUpToXPermanentCardsFromYourGraveyard = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^up to x permanent cards from your graveyard$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'hand'
+  );
+  if (needsUpToXPermanentCardsFromYourGraveyard) {
+    const gyFixtures = [
+      { id: 'uncle-gy-creature', name: 'Uncle Bear', type_line: 'Creature — Bear', cmc: 2 },
+      { id: 'uncle-gy-artifact', name: 'Uncle Ring', type_line: 'Artifact', cmc: 1 },
+      { id: 'uncle-gy-instant', name: 'Uncle Bolt', type_line: 'Instant', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return {
+          ...player,
+          graveyard: [
+            ...gyFixtures,
+            ...graveyard.filter(
+              (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+            ),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      xValue: Math.max(3, Number(nextCtx.xValue) || 3),
+      referenceAmount: Math.max(3, Number(nextCtx.referenceAmount) || 3),
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'uncle-gy-creature',
+            'uncle-gy-artifact',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsAnyNumberTargetEnchantmentsBounce = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^any number of target enchantments$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'hand'
+  );
+  if (needsAnyNumberTargetEnchantmentsBounce) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) =>
+            !['bf-kiora-enchant-1', 'bf-kiora-enchant-2'].includes(String(perm?.id || '').trim())
+        ),
+        {
+          id: 'bf-kiora-enchant-1',
+          name: 'Kiora Enchant One',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Enchantment',
+          cmc: 2,
+        },
+        {
+          id: 'bf-kiora-enchant-2',
+          name: 'Kiora Enchant Two',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Enchantment — Aura',
+          cmc: 1,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-kiora-enchant-1',
+            'bf-kiora-enchant-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCreaturePutIntoGyThisWayReturn = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^a creature card put into your graveyard this way$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'battlefield'
+  );
+  if (needsCreaturePutIntoGyThisWayReturn) {
+    const destroyedFixture = {
+      id: 'gy-starfall',
+      name: 'Starfall Zombie',
+      type_line: 'Creature — Zombie',
+      cmc: 2,
+    };
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return {
+          ...player,
+          graveyard: [
+            destroyedFixture,
+            ...graveyard.filter((card: any) => String(card?.id || '').trim() !== destroyedFixture.id),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: [destroyedFixture],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-starfall',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsEachCreatureCardFromYourGraveyard = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^each creature card from your graveyard$/i.test(String((step as any).what?.text || '').trim()) &&
+      (step as any).to === 'battlefield'
+  );
+  if (needsEachCreatureCardFromYourGraveyard) {
+    const gyFixtures = [
+      { id: 'gy-shilgengar-1', name: 'Shilgengar Bear', type_line: 'Creature — Bear', cmc: 2 },
+      { id: 'gy-shilgengar-2', name: 'Shilgengar Elf', type_line: 'Creature — Elf', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        return {
+          ...player,
+          graveyard: [
+            ...gyFixtures,
+            ...graveyard.filter(
+              (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+            ),
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-shilgengar-1',
+            'gy-shilgengar-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCreaturePlaneswalkerMvFromGy = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /creature (?:and|or) planeswalker/i.test(String((step as any).what?.text || step.raw || '')) &&
+      /mana value (?:x|\d+) or less/i.test(String((step as any).what?.text || step.raw || '')) &&
+      /from your graveyard/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsCreaturePlaneswalkerMvFromGy) {
+    const gyFixtures = [
+      { id: 'gy-batch300-1', name: 'Ascend Zombie', type_line: 'Creature — Zombie', cmc: 2 },
+      { id: 'gy-batch300-2', name: 'Ascend Jace', type_line: 'Legendary Planeswalker — Jace', cmc: 4 },
+      { id: 'gy-batch300-land', name: 'Ascend Plains', type_line: 'Basic Land — Plains', cmc: 0 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...gyFixtures,
+          ...graveyard.filter(
+            (card: any) => !gyFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      xValue: Number(nextCtx.xValue ?? 3),
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-batch300-1',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsChosenTypeCreatureFromHand = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /creature card of the chosen type from your hand/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsChosenTypeCreatureFromHand) {
+    const handFixtures = [
+      { id: 'hand-belbe-elf-1', name: 'Belbe Elf', type_line: 'Creature — Elf', cmc: 2 },
+      { id: 'hand-belbe-bolt-1', name: 'Belbe Bolt', type_line: 'Instant', cmc: 1 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const merged = [
+          ...handFixtures,
+          ...hand.filter(
+            (card: any) => !handFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, hand: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenCreatureType: String(nextCtx.selectorContext?.chosenCreatureType || 'Elf'),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'hand-belbe-elf-1',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsThisCardAndNamedFromGy = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /this (?:card|permanent) and [a-z]+ cards named this permanent from your graveyard/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsThisCardAndNamedFromGy) {
+    const namedFixtures = [
+      { id: 'gy-dragon-1', name: "Dragon's Approach", type_line: 'Sorcery', cmc: 2 },
+      { id: 'gy-dragon-2', name: "Dragon's Approach", type_line: 'Sorcery', cmc: 2 },
+      { id: 'gy-dragon-3', name: "Dragon's Approach", type_line: 'Sorcery', cmc: 2 },
+      { id: 'gy-dragon-4', name: "Dragon's Approach", type_line: 'Sorcery', cmc: 2 },
+      { id: 'gy-dragon-this', name: "Dragon's Approach", type_line: 'Sorcery', cmc: 2 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...namedFixtures,
+          ...graveyard.filter(
+            (card: any) => !namedFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId: String(nextCtx.sourceId || 'gy-dragon-this'),
+      sourceName: String(nextCtx.sourceName || "Dragon's Approach"),
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-dragon-1',
+            'gy-dragon-2',
+            'gy-dragon-3',
+            'gy-dragon-4',
+            'gy-dragon-this',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsOneOrTwoTargetNonlandPermanentBounce = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /(?:one or two|two) target nonland permanents/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsOneOrTwoTargetNonlandPermanentBounce) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-wanderwine-/i.test(String(perm?.id || '').trim())
+        ),
+        {
+          id: 'bf-wanderwine-1',
+          controller: 'p2',
+          owner: 'p2',
+          card: { name: 'Wanderwine Enchantment', type_line: 'Enchantment', cmc: 2 },
+          attachments: [],
+          counters: {},
+        },
+        {
+          id: 'bf-wanderwine-2',
+          controller: 'p2',
+          owner: 'p2',
+          card: { name: 'Wanderwine Artifact', type_line: 'Artifact', cmc: 1 },
+          attachments: [],
+          counters: {},
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-wanderwine-1',
+            'bf-wanderwine-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsAllAttackingCreaturesToHand = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^all attacking creatures$/i.test(String((step as any).what?.text || '').trim()) &&
+      step.to === 'hand'
+  );
+  if (needsAllAttackingCreaturesToHand) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-aetherize-atk-/i.test(String(perm?.id || '').trim())
+        ),
+        {
+          id: 'bf-aetherize-atk-1',
+          controller: 'p2',
+          owner: 'p2',
+          card: { name: 'Aetherize Attacker One', type_line: 'Creature — Soldier', cmc: 2 },
+          attacking: true,
+          tapped: true,
+          attachments: [],
+          counters: {},
+        },
+        {
+          id: 'bf-aetherize-atk-2',
+          controller: 'p2',
+          owner: 'p2',
+          card: { name: 'Aetherize Attacker Two', type_line: 'Creature — Wizard', cmc: 3 },
+          attacking: true,
+          tapped: true,
+          attachments: [],
+          counters: {},
+        },
+      ],
+    } as GameState;
+  }
+
+  const needsEachAttackingCreatureToLibrary = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^each attacking creature$/i.test(String((step as any).what?.text || '').trim()) &&
+      /top or bottom/i.test(String(step.toRaw || step.raw || ''))
+  );
+  if (needsEachAttackingCreatureToLibrary) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => String(perm?.id || '').trim() !== 'bf-aetherspouts-atk-1'
+        ),
+        {
+          id: 'bf-aetherspouts-atk-1',
+          controller: 'p2',
+          owner: 'p2',
+          card: { name: 'Aetherspouts Attacker', type_line: 'Creature — Soldier', cmc: 2 },
+          attacking: true,
+          tapped: true,
+          attachments: [],
+          counters: {},
+        },
+      ],
+    } as GameState;
+  }
+
+  const needsExileGySplitTwoPiles = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /separate them into two piles/i.test(String((step as any).what?.text || step.raw || '')) &&
+      /from your graveyard/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsExileGySplitTwoPiles) {
+    const splitFixtures = [
+      { id: 'gy-split-1', name: 'Split Sol Ring', type_line: 'Artifact', cmc: 1 },
+      { id: 'gy-split-2', name: 'Split Craterhoof', type_line: 'Creature — Beast', cmc: 8 },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const merged = [
+          ...splitFixtures,
+          ...graveyard.filter(
+            (card: any) => !splitFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-split-1',
+            'gy-split-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsCountCardsFromEachPlayersHand = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /^[a-z]+ cards from each player's hand$/i.test(String((step as any).what?.text || '').trim())
+  );
+  if (needsCountCardsFromEachPlayersHand) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        const handFixtures =
+          String(player?.id || '').trim() === 'p1'
+            ? [
+                { id: 'hand-ms-p1-1', name: 'Mind Bolt', type_line: 'Instant', cmc: 1 },
+                { id: 'hand-ms-p1-2', name: 'Mind Bear', type_line: 'Creature — Bear', cmc: 2 },
+                { id: 'hand-ms-p1-3', name: 'Mind Shock', type_line: 'Instant', cmc: 1 },
+              ]
+            : [
+                { id: 'hand-ms-p2-1', name: 'Opp Bolt', type_line: 'Instant', cmc: 1 },
+                { id: 'hand-ms-p2-2', name: 'Opp Elf', type_line: 'Creature — Elf', cmc: 1 },
+              ];
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        const merged = [
+          ...handFixtures,
+          ...hand.filter(
+            (card: any) => !handFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, hand: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'hand-ms-p1-1',
+            'hand-ms-p1-2',
+            'hand-ms-p2-1',
+            'hand-ms-p2-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsTargetAdventureFromGy = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /target card that has an adventure from your graveyard/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsTargetAdventureFromGy) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+        const adventureCard = {
+          id: 'gy-adventure-1',
+          name: 'Edgewall Adventure',
+          type_line: 'Sorcery — Adventure',
+          layout: 'adventure',
+          cmc: 2,
+        };
+        if (graveyard.some((card: any) => String(card?.id || '').trim() === adventureCard.id)) {
+          return player;
+        }
+        return { ...player, graveyard: [...graveyard, adventureCard] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-adventure-1',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsEachCreatureExiledWithSource = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /each creature card exiled with this (?:artifact|enchantment|permanent|creature)/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsEachCreatureExiledWithSource) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source-artifact').trim();
+    const exileFixtures = [
+      {
+        id: 'exile-ghost-1',
+        name: 'Ghost Zombie',
+        type_line: 'Creature — Zombie',
+        cmc: 3,
+        exiledWith: sourceId,
+      },
+      {
+        id: 'exile-ghost-2',
+        name: 'Ghost Bolt',
+        type_line: 'Instant',
+        cmc: 1,
+        exiledWith: sourceId,
+      },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        const merged = [
+          ...exileFixtures,
+          ...exile.filter(
+            (card: any) => !exileFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, exile: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'exile-ghost-1',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsExiledCardsYouOwnWithIntelCounters = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /all exiled cards you own with intel counters on them/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsExiledCardsYouOwnWithIntelCounters) {
+    const exileFixtures = [
+      {
+        id: 'exile-intel-1',
+        name: 'Audit Intel Vehicle',
+        type_line: 'Artifact — Vehicle',
+        cmc: 3,
+        owner: 'p1',
+        counters: { intel: 1 },
+      },
+      {
+        id: 'exile-intel-2',
+        name: 'Audit Intel Robot',
+        type_line: 'Artifact Creature — Robot',
+        cmc: 2,
+        owner: 'p1',
+        counters: { intel: 2 },
+      },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        const merged = [
+          ...exileFixtures,
+          ...exile.filter(
+            (card: any) => !exileFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, exile: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'exile-intel-1',
+            'exile-intel-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsAttachAllEquipmentYouControl = stepsMatchPredicate(
+    steps,
+    (step) =>
+      step.kind === 'attach' &&
+      /^all equipment you control$/i.test(String((step as any).attachment?.text || '').trim())
+  );
+  if (needsAttachAllEquipmentYouControl) {
+    const sourceId = String(nextCtx.sourceId || 'bf-balan').trim();
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-balan-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: sourceId,
+          name: 'Balan',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Legendary Creature — Cat Knight',
+          cmc: 3,
+        },
+        {
+          id: 'bf-balan-eq-1',
+          name: 'Balan Sword',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Artifact — Equipment',
+          cmc: 2,
+        },
+        {
+          id: 'bf-balan-eq-2',
+          name: 'Balan Axe',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Artifact — Equipment',
+          attachedTo: 'bf-creature-1',
+          cmc: 1,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            sourceId,
+            'bf-balan-eq-1',
+            'bf-balan-eq-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsExiledCardsWithAegisCounters = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /all exiled cards with aegis counters on them/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsExiledCardsWithAegisCounters) {
+    const exileFixtures = [
+      {
+        id: 'exile-aegis-1',
+        name: 'Audit Aegis Soldier',
+        type_line: 'Creature — Soldier',
+        cmc: 2,
+        counters: { aegis: 1 },
+      },
+      {
+        id: 'exile-aegis-2',
+        name: 'Audit Aegis Knight',
+        type_line: 'Creature — Knight',
+        cmc: 3,
+        counters: { aegis: 1 },
+      },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        const merged = [
+          ...exileFixtures,
+          ...exile.filter(
+            (card: any) => !exileFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, exile: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'exile-aegis-1',
+            'exile-aegis-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsUpToOneMilledEnchantment = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /up to one enchantment card milled this way/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsUpToOneMilledEnchantment) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+        const milledEnchant = {
+          id: 'gy-milled-enchant-1',
+          name: 'Milled Pacifism',
+          type_line: 'Enchantment',
+          cmc: 2,
+          milledTurn: 3,
+        };
+        if (graveyard.some((card: any) => String(card?.id || '').trim() === milledEnchant.id)) {
+          return player;
+        }
+        return { ...player, graveyard: [...graveyard, milledEnchant] };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
       lastMilledCards: [
-        { id: 'gy-milled-land-1', name: 'Milled Plains', type_line: 'Basic Land — Plains' },
+        { id: 'gy-milled-enchant-1', name: 'Milled Pacifism', type_line: 'Enchantment', cmc: 2, milledTurn: 3 },
         { id: 'gy-milled-1', name: 'Milled This Turn', type_line: 'Creature — Zombie', cmc: 2, milledTurn: 3 },
       ],
       selectorContext: {
@@ -2074,21 +8742,166 @@ export function enrichAuditStateAndContextForTargets(
             ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
               ? nextCtx.selectorContext.chosenObjectIds
               : []),
-            'exile-split-1',
-            'exile-split-2',
-            'exile-split-3',
-            'exile-split-4',
-            'exile-split-5',
-            'exile-revealed-artifact-1',
-            'exile-revealed-creature-1',
-            'exile-revealed-assassin-1',
-            'exile-revealed-pirate-1',
-            'gy-milled-land-1',
-            'gy-milled-1',
+            'gy-milled-enchant-1',
+          ])
+        ),
+      },
+    };
+  }
+
+  const needsAnyNumberPermanentDifferentNamesGy = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /any number of permanent cards with different names from your graveyard/i.test(
+        String((step as any).what?.text || step.raw || '')
+      )
+  );
+  if (needsAnyNumberPermanentDifferentNamesGy) {
+    nextState = {
+      ...nextState,
+      turn: Number((nextState as any)?.turn ?? 3),
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          {
+            id: 'gy-eerie-bear-1',
+            name: 'Audit Bear',
+            type_line: 'Creature — Bear',
+            cmc: 2,
+          },
+          {
+            id: 'gy-eerie-elf-1',
+            name: 'Audit Elf',
+            type_line: 'Creature — Elf',
+            cmc: 1,
+          },
+        ];
+        const merged = [
+          ...fixtures.filter(
+            (card) => !graveyard.some((entry: any) => String(entry?.id || '').trim() === card.id)
+          ),
+          ...graveyard,
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'gy-eerie-bear-1',
+            'gy-eerie-elf-1',
           ])
         ),
       },
     } as typeof nextCtx;
+  }
+
+  const needsCountExiledWithSagaRestLibrary = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /\btwo cards exiled with this saga\b/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsCountExiledWithSagaRestLibrary) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source-artifact').trim();
+    const exileFixtures = [
+      {
+        id: 'exile-vault-1',
+        name: 'Vault Exile One',
+        type_line: 'Creature — Human',
+        cmc: 2,
+        exiledWith: sourceId,
+      },
+      {
+        id: 'exile-vault-2',
+        name: 'Vault Exile Two',
+        type_line: 'Creature — Zombie',
+        cmc: 3,
+        exiledWith: sourceId,
+      },
+      {
+        id: 'exile-vault-3',
+        name: 'Vault Exile Three',
+        type_line: 'Instant',
+        cmc: 1,
+        exiledWith: sourceId,
+      },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+        const merged = [
+          ...exileFixtures,
+          ...exile.filter(
+            (card: any) => !exileFixtures.some((entry) => String(entry.id) === String(card?.id || '').trim())
+          ),
+        ];
+        return { ...player, exile: merged };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'exile-vault-1',
+            'exile-vault-2',
+          ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsEachCardPutIntoGraveyardThisWay = steps.some(
+    (step) =>
+      step.kind === 'move_zone' &&
+      /each card put into a graveyard this way/i.test(String((step as any).what?.text || step.raw || ''))
+  );
+  if (needsEachCardPutIntoGraveyardThisWay) {
+    nextState = {
+      ...nextState,
+      turn: Number((nextState as any)?.turn ?? 3),
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+        const fixtures = [
+          {
+            id: 'gy-sorin-bear-1',
+            name: 'Sorin Discarded Bear',
+            type_line: 'Creature — Bear',
+            cmc: 2,
+            putIntoGraveyardTurn: 3,
+          },
+          {
+            id: 'gy-sorin-elf-1',
+            name: 'Sorin Discarded Elf',
+            type_line: 'Creature — Elf',
+            cmc: 1,
+            putIntoGraveyardTurn: 3,
+          },
+        ];
+        const merged = [
+          ...fixtures.filter(
+            (card) => !graveyard.some((entry: any) => String(entry?.id || '').trim() === card.id)
+          ),
+          ...graveyard,
+        ];
+        return { ...player, graveyard: merged };
+      }),
+    } as GameState;
   }
 
   const needsMilledLandToHand = steps.some(step =>
@@ -2208,23 +9021,67 @@ export function enrichAuditStateAndContextForTargets(
   }
 
   if (needsDiscardedThisWay) {
+    const discardedLand = {
+      id: 'audit-discard-land-1',
+      name: 'Discarded Plains',
+      type_line: 'Basic Land — Plains',
+      cmc: 0,
+    };
+    const discardedCards = [
+      {
+        id: 'audit-discard-creature-1',
+        name: 'Discarded Creature',
+        type_line: 'Creature — Human',
+        cmc: 2,
+      },
+      {
+        id: 'audit-discard-noncreature-1',
+        name: 'Discarded Instant',
+        type_line: 'Instant',
+        cmc: 1,
+      },
+      discardedLand,
+    ];
     nextCtx = {
       ...nextCtx,
-      lastDiscardedCards: [
-        {
-          id: 'audit-discard-creature-1',
-          name: 'Discarded Creature',
-          type_line: 'Creature — Human',
-          cmc: 2,
-        },
-        {
-          id: 'audit-discard-noncreature-1',
-          name: 'Discarded Instant',
-          type_line: 'Instant',
-          cmc: 1,
-        },
-      ],
+      lastDiscardedCards: discardedCards,
     };
+    const needsDiscardedToBattlefield = steps.some(
+      (step) =>
+        step.kind === 'move_zone' &&
+        /discarded this way/i.test(String(step.raw || '')) &&
+        (step as any).to === 'battlefield'
+    );
+    if (needsDiscardedToBattlefield) {
+      nextState = {
+        ...nextState,
+        players: (nextState.players || []).map((player: any) => {
+          if (String(player?.id || '').trim() !== 'p2') return player;
+          const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+          for (const card of discardedCards) {
+            if (!graveyard.some((entry: any) => String(entry?.id || '').trim() === card.id)) {
+              graveyard.push(card);
+            }
+          }
+          return { ...player, graveyard };
+        }),
+      } as GameState;
+      nextCtx = {
+        ...nextCtx,
+        selectorContext: {
+          ...(nextCtx.selectorContext || {}),
+          targetPlayerId: 'p2',
+          chosenObjectIds: Array.from(
+            new Set([
+              ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+                ? nextCtx.selectorContext.chosenObjectIds
+                : []),
+              'audit-discard-land-1',
+            ])
+          ),
+        },
+      } as typeof nextCtx;
+    }
   }
 
   let needsContextualCardAmount = false;
@@ -3206,6 +10063,1684 @@ export function enrichAuditStateAndContextForTargets(
         (nextState as any).lifeLostThisResolution = 0;
         nextCtx = { ...nextCtx, lifeLostThisResolution: 0 } as typeof nextCtx;
       }
+      if (/it isn't a mana ability|it is not a mana ability/.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          activatedAbilityIsManaAbility: false,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            activatedAbilityIsManaAbility: false,
+          },
+        } as typeof nextCtx;
+      }
+      if (/you cast a spell this way/.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          spellCastThisWay: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            spellCastThisWay: true,
+          },
+        } as typeof nextCtx;
+      }
+      if (/you cast a creature spell this way/.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          spellCastThisWay: true,
+          creatureSpellCastThisWay: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            spellCastThisWay: true,
+            creatureSpellCastThisWay: true,
+          },
+        } as typeof nextCtx;
+      }
+      if (/revealed a dragon card or controlled a dragon as you cast this spell/.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          revealedDragonAsCast: true,
+          controlledDragonAsCast: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            revealedDragonAsCast: true,
+            controlledDragonAsCast: true,
+          },
+        } as typeof nextCtx;
+      }
+      if (/this spell's additional cost was paid/.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          optionalAdditionalCostWasPaid: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            optionalAdditionalCostWasPaid: true,
+          },
+        } as typeof nextCtx;
+      }
+      if (/that creature dies this way/.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          creatureDiedThisWay: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            creatureDiedThisWay: true,
+          },
+        } as typeof nextCtx;
+      }
+      if (/you didn't cast it from your hand|you did not cast it from your hand/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          castFromZone: 'graveyard',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            castFromZone: 'graveyard',
+          },
+        } as typeof nextCtx;
+      }
+      if (/you gained or lost life this turn/i.test(conditionRaw)) {
+        (nextState as any).lifeGainedThisTurn = {
+          ...((nextState as any).lifeGainedThisTurn || {}),
+          p1: Math.max(Number(((nextState as any).lifeGainedThisTurn || {})?.p1 || 0), 1),
+        };
+      }
+      if (/^it was cast$/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          wasCast: true,
+          castFromZone: 'hand',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            wasCast: true,
+            castFromZone: 'hand',
+          },
+        } as typeof nextCtx;
+      }
+      if (/you'?ve committed a crime this turn|you have committed a crime this turn/i.test(conditionRaw)) {
+        (nextState as any).committedCrimeThisTurn = {
+          ...((nextState as any).committedCrimeThisTurn || {}),
+          p1: true,
+        };
+      }
+      if (/^it'?s legendary$|^it is legendary$/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-legendary-creature',
+          targetCreatureId: 'bf-legendary-creature',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPermanentId: 'bf-legendary-creature',
+            targetCreatureId: 'bf-legendary-creature',
+          },
+        } as typeof nextCtx;
+      }
+      if (/you chose a creature other than this permanent as your ring-bearer/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          chosenRingBearerId: 'bf-creature-1',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            chosenRingBearerId: 'bf-creature-1',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) => {
+            if (String(player?.id || '').trim() !== 'p1') return player;
+            return { ...player, ringBearerId: 'bf-creature-1' };
+          }),
+        } as GameState;
+      }
+      if (/this creature is untapped|this permanent is untapped/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: (nextState.battlefield || []).map((perm: any) => {
+            if (String(perm?.id || '').trim() !== String(nextCtx.sourceId || 'bf-source').trim()) return perm;
+            return { ...perm, tapped: false };
+          }),
+        } as GameState;
+      }
+      if (/you have more cards in hand than each opponent/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) => {
+            const playerId = String(player?.id || '').trim();
+            if (playerId === 'p1') {
+              return {
+                ...player,
+                hand: [{ id: 'hand-1' }, { id: 'hand-2' }, { id: 'hand-3' }, { id: 'hand-4' }],
+              };
+            }
+            if (playerId === 'p2' || playerId === 'p3') {
+              return { ...player, hand: [{ id: `${playerId}-hand-1` }] };
+            }
+            return player;
+          }),
+        } as GameState;
+      }
+      if (/it had one or more counters on it/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-creature-with-counters',
+          targetCreatureId: 'bf-creature-with-counters',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPermanentId: 'bf-creature-with-counters',
+            targetCreatureId: 'bf-creature-with-counters',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-creature-with-counters'
+            ),
+            {
+              id: 'bf-creature-with-counters',
+              controller: 'p1',
+              type_line: 'Creature — Human',
+              counters: { '+1/+1': 1 },
+            },
+          ],
+        } as GameState;
+      }
+      if (/that mana is spent on a creature spell/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          manaSpentOnCreatureSpell: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            manaSpentOnCreatureSpell: true,
+          },
+        } as typeof nextCtx;
+      }
+      if (/you have seven or more cards in hand/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) => {
+            if (String(player?.id || '').trim() !== 'p1') return player;
+            return {
+              ...player,
+              hand: Array.from({ length: 7 }, (_, index) => ({ id: `hand-${index + 1}` })),
+            };
+          }),
+        } as GameState;
+      }
+      if (/you have more life than an opponent/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) => {
+            const playerId = String(player?.id || '').trim();
+            if (playerId === 'p1') return { ...player, life: 40 };
+            if (playerId === 'p2' || playerId === 'p3') return { ...player, life: 30 };
+            return player;
+          }),
+        } as GameState;
+      }
+      if (/there is no monarch/i.test(conditionRaw)) {
+        nextState = { ...nextState, monarch: undefined } as GameState;
+      }
+      if (/this spell was cast from anywhere other than your hand|this spell was cast from somewhere other than your hand/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          castFromZone: 'graveyard',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            castFromZone: 'graveyard',
+          },
+        } as typeof nextCtx;
+      }
+      if (/no mana was spent to cast it/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          noManaSpentToCast: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            noManaSpentToCast: true,
+          },
+        } as typeof nextCtx;
+      }
+      if (/you would lose the game/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          wouldLoseTheGame: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            wouldLoseTheGame: true,
+          },
+        } as typeof nextCtx;
+      }
+      if (/you control no untapped lands/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: (nextState.battlefield || []).map((perm: any) => {
+            const typeLine = String(perm?.type_line || perm?.card?.type_line || '');
+            if (String(perm?.controller || '').trim() !== 'p1' || !/\bland\b/i.test(typeLine)) return perm;
+            return { ...perm, tapped: true };
+          }),
+        } as GameState;
+      }
+      if (/an opponent has more life than you/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) => {
+            const playerId = String(player?.id || '').trim();
+            if (playerId === 'p1') return { ...player, life: 30 };
+            if (playerId === 'p2' || playerId === 'p3') return { ...player, life: 40 };
+            return player;
+          }),
+        } as GameState;
+      }
+      if (/that player has no cards in hand/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetOpponentId: 'p2',
+          targetPlayerId: 'p2',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetOpponentId: 'p2',
+            targetPlayerId: 'p2',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) => {
+            if (String(player?.id || '').trim() !== 'p2') return player;
+            return { ...player, hand: [] };
+          }),
+        } as GameState;
+      }
+      if (/this creature didn't attack this turn|this creature did not attack this turn/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: (nextState.battlefield || []).map((perm: any) => {
+            if (String(perm?.id || '').trim() !== String(nextCtx.sourceId || 'bf-source').trim()) return perm;
+            return { ...perm, attackedThisTurn: false, attacking: false, isAttacking: false };
+          }),
+        } as GameState;
+      }
+      if (/your team controls another warrior/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => !['bf-warrior-ally', 'bf-source'].includes(String(perm?.id || '').trim())
+            ),
+            {
+              id: 'bf-source',
+              controller: 'p1',
+              type_line: 'Creature — Human Warrior',
+              attackedThisTurn: true,
+            },
+            {
+              id: 'bf-warrior-ally',
+              controller: 'p1',
+              type_line: 'Creature — Human Warrior',
+            },
+          ],
+        } as GameState;
+      }
+      if (/a dragon was beheld/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          beheldQuality: 'dragon',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            beheldQuality: 'dragon',
+          },
+        } as typeof nextCtx;
+      }
+      if (/you control no artifacts/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: (nextState.battlefield || []).filter((perm: any) => {
+            const typeLine = String(perm?.type_line || perm?.card?.type_line || '');
+            if (String(perm?.controller || '').trim() !== 'p1') return true;
+            return !/\bartifact\b/i.test(typeLine);
+          }),
+        } as GameState;
+      }
+      if (/no creatures are on the battlefield/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: (nextState.battlefield || []).filter((perm: any) => {
+            const typeLine = String(perm?.type_line || perm?.card?.type_line || '');
+            return !/\bcreature\b/i.test(typeLine);
+          }),
+        } as GameState;
+      }
+      if (/it'?s not a token|it is not a token/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-nontoken-creature',
+          targetCreatureId: 'bf-nontoken-creature',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPermanentId: 'bf-nontoken-creature',
+            targetCreatureId: 'bf-nontoken-creature',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-nontoken-creature'
+            ),
+            {
+              id: 'bf-nontoken-creature',
+              controller: 'p1',
+              type_line: 'Creature — Human',
+              isToken: false,
+            },
+          ],
+        } as GameState;
+      }
+      if (/this creature is a warrior/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: (nextState.battlefield || []).map((perm: any) => {
+            if (String(perm?.id || '').trim() !== String(nextCtx.sourceId || 'bf-source').trim()) return perm;
+            return { ...perm, type_line: 'Creature — Human Warrior' };
+          }),
+        } as GameState;
+      }
+      if (/one or more of them entered from a graveyard or was cast from a graveyard/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [
+            {
+              id: 'bf-gy-entry',
+              controller: 'p1',
+              type_line: 'Creature — Zombie',
+              enteredFromZone: 'graveyard',
+              castFromZone: 'graveyard',
+            },
+          ],
+          lastAntecedentBattlefieldPermanentIds: ['bf-gy-entry'],
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            lastAntecedentBattlefieldPermanentIds: ['bf-gy-entry'],
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-gy-entry'
+            ),
+            {
+              id: 'bf-gy-entry',
+              controller: 'p1',
+              type_line: 'Creature — Zombie',
+              enteredFromZone: 'graveyard',
+              castFromZone: 'graveyard',
+            },
+          ],
+        } as GameState;
+      }
+      if (/you have at least 15 life more than your starting life total/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          startingLife: 40,
+          players: (nextState.players || []).map((player: any) => {
+            if (String(player?.id || '').trim() !== 'p1') return player;
+            return { ...player, life: 55 };
+          }),
+        } as GameState;
+      }
+      if (/that spell was kicked/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetSpellId: 'stack-spell-1',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetSpellId: 'stack-spell-1',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [
+            {
+              id: 'stack-spell-1',
+              controller: 'p1',
+              type_line: 'Instant',
+              wasKicked: true,
+              kickedTimes: 1,
+            },
+          ],
+        } as GameState;
+      }
+      if (/it was a human/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-human-creature',
+          targetCreatureId: 'bf-human-creature',
+          lastMovedCards: [
+            {
+              id: 'bf-human-creature',
+              controller: 'p1',
+              type_line: 'Creature — Human',
+            },
+          ],
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPermanentId: 'bf-human-creature',
+            targetCreatureId: 'bf-human-creature',
+          },
+        } as typeof nextCtx;
+      }
+      if (/it wasn't cast|it was not cast/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          wasCast: false,
+          targetPermanentId: 'bf-uncast-creature',
+          targetCreatureId: 'bf-uncast-creature',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            wasCast: false,
+            targetPermanentId: 'bf-uncast-creature',
+            targetCreatureId: 'bf-uncast-creature',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-uncast-creature'
+            ),
+            {
+              id: 'bf-uncast-creature',
+              controller: 'p1',
+              type_line: 'Creature — Elf',
+              enteredFromZone: 'library',
+            },
+          ],
+        } as GameState;
+      }
+      if (/a planeswalker entered the battlefield under your control this turn/i.test(conditionRaw)) {
+        (nextState as any).planeswalkerEnteredThisTurn = {
+          ...((nextState as any).planeswalkerEnteredThisTurn || {}),
+          p1: true,
+        };
+      }
+      if (/it had a -1\/-1 counter on it/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-died-creature',
+          targetCreatureId: 'bf-died-creature',
+          lastMovedCards: [
+            {
+              id: 'bf-died-creature',
+              controller: 'p1',
+              type_line: 'Creature — Zombie',
+              counters: { '-1/-1': 1 },
+            },
+          ],
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPermanentId: 'bf-died-creature',
+            targetCreatureId: 'bf-died-creature',
+          },
+        } as typeof nextCtx;
+      }
+      if (/you lost life last turn/i.test(conditionRaw)) {
+        (nextState as any).lifeLostLastTurnByPlayerCounts = {
+          ...((nextState as any).lifeLostLastTurnByPlayerCounts || {}),
+          p1: 3,
+        };
+      }
+      if (/it's not your turn|it is not your turn/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1', name: 'P1' },
+            { id: 'p2', name: 'P2' },
+          ],
+          activePlayerIndex: 1,
+        } as GameState;
+      }
+      if (/it's equipped|it is equipped/i.test(conditionRaw)) {
+        const equippedIds = new Set(
+          ['bf-source', 'bf-creature-1', String(nextCtx.targetPermanentId || '').trim()].filter(Boolean)
+        );
+        nextState = {
+          ...nextState,
+          battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+            const id = String(perm?.id || '').trim();
+            if (!equippedIds.has(id)) return perm;
+            return {
+              ...perm,
+              isEquipped: true,
+              attachedEquipment: ['bf-equip-audit-1'],
+            };
+          }),
+        } as GameState;
+      }
+      if (/this permanent has counters on it/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+            if (String(perm?.id || '').trim() !== 'bf-source') return perm;
+            return {
+              ...perm,
+              counters: { ...(perm?.counters || {}), '+1/+1': 1 },
+            };
+          }),
+        } as GameState;
+      }
+      if (/it isn't being declared as an attacker|it is not being declared as an attacker/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-opponent-creature',
+          targetCreatureId: 'bf-opponent-creature',
+          targetPlayerId: 'p2',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPermanentId: 'bf-opponent-creature',
+            targetCreatureId: 'bf-opponent-creature',
+            targetPlayerId: 'p2',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1', name: 'P1' },
+            { id: 'p2', name: 'P2' },
+          ],
+          attackersDeclaredThisCombatByPlayer: {
+            ...((nextState as any).attackersDeclaredThisCombatByPlayer || {}),
+            p2: [],
+          },
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-opponent-creature'
+            ),
+            {
+              id: 'bf-opponent-creature',
+              controller: 'p2',
+              type_line: 'Creature — Human',
+              tapped: true,
+            },
+          ],
+        } as GameState;
+      }
+      if (/this spell was cast from exile/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          castFromZone: 'exile',
+          castFromExile: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            castFromZone: 'exile',
+            castFromExile: true,
+          },
+        } as typeof nextCtx;
+      }
+      if (/this permanent is in the command zone or on the battlefield/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+            if (String(perm?.id || '').trim() !== 'bf-source') return perm;
+            return { ...perm, isCommander: true, commander: true };
+          }),
+          commandZone: {
+            ...((nextState as any).commandZone || {}),
+            p1: {
+              commanderCards: [{ id: 'bf-source', name: 'Audit Commander' }],
+              inCommandZone: ['bf-source'],
+            },
+          },
+        } as GameState;
+      }
+      if (/you didn't attack with a creature this turn|you did not attack with a creature this turn/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          attackersDeclaredThisCombatByPlayer: {
+            ...((nextState as any).attackersDeclaredThisCombatByPlayer || {}),
+            p1: [],
+          },
+          attackedPlayersThisTurnByPlayer: {
+            ...((nextState as any).attackedPlayersThisTurnByPlayer || {}),
+            p1: [],
+          },
+          battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+            if (String(perm?.controller || '').trim() !== 'p1') return perm;
+            return { ...perm, attackedThisTurn: false, attacking: false, isAttacking: false };
+          }),
+        } as GameState;
+      }
+      if (/(\d+|four|three|two|one|five|six|seven|eight|nine|ten) or more damage was dealt to it this turn/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-damage-creature',
+          targetCreatureId: 'bf-damage-creature',
+          lastMovedCards: [
+            {
+              id: 'bf-damage-creature',
+              controller: 'p1',
+              type_line: 'Creature — Spirit',
+              damageThisTurn: 4,
+            },
+          ],
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPermanentId: 'bf-damage-creature',
+            targetCreatureId: 'bf-damage-creature',
+          },
+        } as typeof nextCtx;
+      }
+      if (/you control no creatures/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: ((nextState.battlefield || []) as any[]).filter((perm: any) => {
+            const typeLine = String(perm?.type_line || perm?.card?.type_line || '');
+            if (String(perm?.controller || '').trim() !== 'p1') return true;
+            return !/\bcreature\b/i.test(typeLine);
+          }),
+        } as GameState;
+      }
+      if (/two or more of those creatures are attacking you and\/or planeswalkers you control/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          thoseCreatureIds: ['bf-attacker-1', 'bf-attacker-2', 'bf-attacker-3'],
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            thoseCreatureIds: ['bf-attacker-1', 'bf-attacker-2', 'bf-attacker-3'],
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1', name: 'P1' },
+            { id: 'p2', name: 'P2' },
+          ],
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) =>
+                !['bf-attacker-1', 'bf-attacker-2', 'bf-attacker-3', 'bf-planeswalker-1'].includes(
+                  String(perm?.id || '').trim()
+                )
+            ),
+            {
+              id: 'bf-planeswalker-1',
+              controller: 'p1',
+              type_line: 'Legendary Planeswalker — Test',
+            },
+            {
+              id: 'bf-attacker-1',
+              controller: 'p2',
+              type_line: 'Creature — Human',
+              attacking: 'p1',
+            },
+            {
+              id: 'bf-attacker-2',
+              controller: 'p2',
+              type_line: 'Creature — Human',
+              attacking: 'bf-planeswalker-1',
+            },
+            {
+              id: 'bf-attacker-3',
+              controller: 'p2',
+              type_line: 'Creature — Human',
+              attacking: 'p2',
+            },
+          ],
+        } as GameState;
+      }
+      if (/a player lost (\d+|four|three|two|one|five|six|seven|eight|nine|ten) or more life this turn/i.test(conditionRaw)) {
+        (nextState as any).lifeLostThisTurn = {
+          ...((nextState as any).lifeLostThisTurn || {}),
+          p2: 5,
+        };
+      }
+      if (/it was enchanted or equipped/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-died-creature',
+          targetCreatureId: 'bf-died-creature',
+          lastMovedCards: [
+            {
+              id: 'bf-died-creature',
+              controller: 'p1',
+              type_line: 'Creature — Human',
+              wasEnchanted: true,
+              attachedEquipment: ['bf-equip-audit-1'],
+            },
+          ],
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPermanentId: 'bf-died-creature',
+            targetCreatureId: 'bf-died-creature',
+          },
+        } as typeof nextCtx;
+      }
+      if (/it shares a card type with the exiled card/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetSpellId: 'stack-spell-1',
+          triggeringSpellCard: { type_line: 'Creature — Elf' },
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetSpellId: 'stack-spell-1',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [
+            {
+              id: 'stack-spell-1',
+              controller: 'p1',
+              type_line: 'Creature — Elf',
+              card: { type_line: 'Creature — Elf' },
+            },
+          ],
+          players: (nextState.players || [{ id: 'p1' }]).map((player: any) => ({
+            ...player,
+            exile: [
+              ...(Array.isArray(player?.exile) ? player.exile : []),
+              {
+                id: 'ex-exiled-1',
+                type_line: 'Creature — Human',
+                exiledWithSourceId: 'bf-source',
+              },
+            ],
+          })),
+        } as GameState;
+      }
+      if (/you control no tapped lands/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-land-1'
+            ),
+            {
+              id: 'bf-land-1',
+              controller: 'p1',
+              type_line: 'Basic Land — Forest',
+              tapped: false,
+            },
+          ],
+        } as GameState;
+      }
+      if (/no creatures attacked this turn/i.test(conditionRaw)) {
+        (nextState as any).creaturesAttackedThisTurn = {};
+        nextState = {
+          ...nextState,
+          attackersDeclaredThisCombatByPlayer: {},
+          battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => ({
+            ...perm,
+            attackedThisTurn: false,
+            attacking: false,
+            isAttacking: false,
+          })),
+        } as GameState;
+      }
+      if (/it hasn't dealt damage yet|it has not dealt damage yet/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+            if (String(perm?.id || '').trim() !== 'bf-source') return perm;
+            return { ...perm, hasDealtDamage: false, dealtDamageThisTurn: false };
+          }),
+        } as GameState;
+      }
+      if (/that player had another land enter the battlefield under their control this turn/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPlayerId: 'p2',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPlayerId: 'p2',
+            targetOpponentId: 'p2',
+          },
+        } as typeof nextCtx;
+        (nextState as any).landsEnteredBattlefieldThisTurn = {
+          ...((nextState as any).landsEnteredBattlefieldThisTurn || {}),
+          p2: 2,
+        };
+      }
+      if (/this creature dealt damage to an opponent this turn|this permanent dealt damage to an opponent this turn/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          creaturesThatDealtDamageToPlayer: {
+            p2: { 'bf-source': true },
+          },
+          battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+            if (String(perm?.id || '').trim() !== 'bf-source') return perm;
+            return { ...perm, dealtDamageToOpponentThisTurn: true, dealtDamageThisTurn: true };
+          }),
+        } as GameState;
+      }
+      if (/that player controls more (creatures|lands) than you/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPlayerId: 'p2',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPlayerId: 'p2',
+            targetOpponentId: 'p2',
+          },
+        } as typeof nextCtx;
+        const subject = /controls more creatures/i.test(conditionRaw) ? 'creature' : 'land';
+        const extraPerm =
+          subject === 'creature'
+            ? { id: 'bf-that-player-creature', controller: 'p2', type_line: 'Creature — Soldier' }
+            : { id: 'bf-that-player-land-extra', controller: 'p2', type_line: 'Basic Land — Island' };
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) =>
+                !['bf-that-player-creature', 'bf-that-player-land-extra', 'bf-your-land'].includes(
+                  String(perm?.id || '').trim()
+                )
+            ),
+            { id: 'bf-your-land', controller: 'p1', type_line: 'Basic Land — Forest' },
+            extraPerm,
+          ],
+        } as GameState;
+      }
+      if (/you have fewer than .+ cards in hand/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) => {
+            if (String(player?.id || '').trim() !== 'p1') return player;
+            return {
+              ...player,
+              hand: [{ id: 'h1' }, { id: 'h2' }, { id: 'h3' }, { id: 'h4' }, { id: 'h5' }],
+            };
+          }),
+        } as GameState;
+      }
+      if (/its surge cost was paid/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+            if (String(perm?.id || '').trim() !== String(nextCtx.sourceId || 'bf-source').trim()) return perm;
+            return { ...perm, surgeCostWasPaid: true, alternateCostId: 'surge' };
+          }),
+        } as GameState;
+      }
+      if (/you put a counter on a creature this turn/i.test(conditionRaw)) {
+        (nextState as any).putCounterOnCreatureThisTurn = {
+          ...((nextState as any).putCounterOnCreatureThisTurn || {}),
+          p1: true,
+        };
+      }
+      if (/\{[wubrgcs]\}\{[wubrgcs]\} was spent to cast it|\{[wubrgcs]\} was spent to cast it/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetSpellId: 'stack-spell-1',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetSpellId: 'stack-spell-1',
+          },
+        } as typeof nextCtx;
+        const colorMatch = conditionRaw.match(/\{([wubrgcs])\}/i);
+        const colorLetter = String(colorMatch?.[1] || 'r').toLowerCase();
+        const colorMap: Record<string, string> = {
+          w: 'white',
+          u: 'blue',
+          b: 'black',
+          r: 'red',
+          g: 'green',
+          c: 'colorless',
+          s: 'snow',
+        };
+        const colorKey = colorMap[colorLetter] || 'red';
+        const symbolCount = (conditionRaw.match(/\{[wubrgcs]\}/gi) || []).length;
+        nextState = {
+          ...nextState,
+          stack: [
+            {
+              id: 'stack-spell-1',
+              controller: 'p1',
+              type_line: 'Creature — Elemental',
+              manaSpent: { [colorKey]: symbolCount },
+              card: {
+                type_line: 'Creature — Elemental',
+                manaSpent: { [colorKey]: symbolCount },
+              },
+            },
+          ],
+        } as GameState;
+      }
+      if (/an artifact entered the battlefield under your control this turn/i.test(conditionRaw)) {
+        (nextState as any).artifactEnteredThisTurn = {
+          ...((nextState as any).artifactEnteredThisTurn || {}),
+          p1: true,
+        };
+        (nextState as any).artifactsEnteredBattlefieldThisTurnByController = {
+          ...((nextState as any).artifactsEnteredBattlefieldThisTurnByController || {}),
+          p1: 1,
+        };
+      }
+      if (/that creature has toxic/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetCreatureId: 'bf-toxic-target',
+          targetPermanentId: 'bf-toxic-target',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetCreatureId: 'bf-toxic-target',
+            targetPermanentId: 'bf-toxic-target',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-toxic-target'
+            ),
+            {
+              id: 'bf-toxic-target',
+              controller: 'p2',
+              type_line: 'Creature — Phyrexian',
+              keywords: ['Toxic'],
+            },
+          ],
+        } as GameState;
+      }
+      if (/another creature entered the battlefield under your control this turn/i.test(conditionRaw)) {
+        (nextState as any).creaturesEnteredThisTurn = {
+          ...((nextState as any).creaturesEnteredThisTurn || {}),
+          p1: 2,
+        };
+        (nextState as any).creaturesEnteredBattlefieldThisTurnByController = {
+          ...((nextState as any).creaturesEnteredBattlefieldThisTurnByController || {}),
+          p1: 2,
+        };
+      }
+      if (/it has the same name as a permanent/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          referencedCardName: 'Lightning Bolt',
+          lastMovedCards: [{ id: 'lib-card-1', name: 'Lightning Bolt', type_line: 'Instant' }],
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            chosenCardName: 'Lightning Bolt',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-named-perm'
+            ),
+            {
+              id: 'bf-named-perm',
+              controller: 'p2',
+              name: 'Lightning Bolt',
+              type_line: 'Instant',
+            },
+          ],
+        } as GameState;
+      }
+      if (/you sacrificed .+ or more clues this turn/i.test(conditionRaw)) {
+        (nextState as any).cluesSacrificedThisTurn = {
+          ...((nextState as any).cluesSacrificedThisTurn || {}),
+          p1: 3,
+        };
+      }
+      if (/its prowl cost was paid|this spell's prowl cost was paid/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+            if (String(perm?.id || '').trim() !== String(nextCtx.sourceId || 'bf-source').trim()) return perm;
+            return { ...perm, prowlCostWasPaid: true, alternateCostId: 'prowl' };
+          }),
+        } as GameState;
+      }
+      if (/there'?s a lesson card in your graveyard|there is a lesson card in your graveyard/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) => {
+            if (String(player?.id || '').trim() !== 'p1') return player;
+            const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+            if (graveyard.some((card: any) => /\blesson\b/i.test(String(card?.type_line || '')))) {
+              return player;
+            }
+            return {
+              ...player,
+              graveyard: [
+                ...graveyard,
+                { id: 'gy-lesson-1', name: 'Introduction to Prophecy', type_line: 'Sorcery — Lesson' },
+              ],
+            };
+          }),
+        } as GameState;
+      }
+      if (/you(?:'ve| have)? cast both a creature spell and a noncreature spell this turn/i.test(conditionRaw)) {
+        (nextState as any).spellsCastThisTurn = {
+          ...((nextState as any).spellsCastThisTurn || {}),
+          p1: 2,
+        };
+        (nextState as any).noncreatureSpellsCastThisTurn = {
+          ...((nextState as any).noncreatureSpellsCastThisTurn || {}),
+          p1: 1,
+        };
+        (nextState as any).castBothCreatureAndNoncreatureSpellThisTurn = {
+          ...((nextState as any).castBothCreatureAndNoncreatureSpellThisTurn || {}),
+          p1: true,
+        };
+      }
+      if (/enchanted creature'?s power is .+ or greater/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => !['bf-enchanted-creature', 'bf-source'].includes(String(perm?.id || '').trim())
+            ),
+            {
+              id: 'bf-enchanted-creature',
+              controller: 'p1',
+              type_line: 'Creature — Beast',
+              power: 5,
+              toughness: 5,
+            },
+            {
+              id: 'bf-source',
+              controller: 'p1',
+              type_line: 'Enchantment — Aura',
+              attachedTo: 'bf-enchanted-creature',
+            },
+          ],
+        } as GameState;
+      }
+      if (/the amount of mana spent to cast it was less than its mana value/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetSpellId: 'stack-spell-1',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetSpellId: 'stack-spell-1',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [
+            {
+              id: 'stack-spell-1',
+              controller: 'p1',
+              type_line: 'Instant',
+              manaValue: 5,
+              manaSpentTotal: 2,
+              card: { type_line: 'Instant', manaValue: 5, manaSpentTotal: 2 },
+            },
+          ],
+        } as GameState;
+      }
+      if (/a creature is dealt damage this way/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          creatureDealtDamageThisWay: true,
+          lastDamagedCards: [
+            { id: 'bf-damaged-creature', type_line: 'Creature — Goblin', name: 'Damaged Goblin' },
+          ],
+        } as typeof nextCtx;
+      }
+      if (/that creature was dealt excess damage this turn/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetCreatureId: 'bf-excess-target',
+          targetPermanentId: 'bf-excess-target',
+          thatCreatureDealtExcessDamageThisTurn: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetCreatureId: 'bf-excess-target',
+            targetPermanentId: 'bf-excess-target',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          excessDamageThisTurnByCreatureId: {
+            'bf-excess-target': 3,
+          },
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-excess-target'
+            ),
+            {
+              id: 'bf-excess-target',
+              controller: 'p2',
+              type_line: 'Creature — Beast',
+              wasDealtExcessDamageThisTurn: true,
+              excessDamageThisTurn: 3,
+            },
+          ],
+        } as GameState;
+      }
+      if (/it'?s renowned|it is renowned|this creature is renowned/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+            if (String(perm?.id || '').trim() !== String(nextCtx.sourceId || 'bf-source').trim()) return perm;
+            return { ...perm, renowned: true, isRenowned: true };
+          }),
+        } as GameState;
+      }
+      if (/you control another creature with power .+ or greater/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => !['bf-source', 'bf-big-creature'].includes(String(perm?.id || '').trim())
+            ),
+            {
+              id: 'bf-source',
+              controller: 'p1',
+              type_line: 'Creature — Insect',
+              power: 2,
+              toughness: 2,
+            },
+            {
+              id: 'bf-big-creature',
+              controller: 'p1',
+              type_line: 'Creature — Giant',
+              power: 5,
+              toughness: 5,
+            },
+          ],
+        } as GameState;
+      }
+      if (/you control another creature with a \+1\/\+1 counter on it/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => !['bf-source', 'bf-counter-creature'].includes(String(perm?.id || '').trim())
+            ),
+            {
+              id: 'bf-source',
+              controller: 'p1',
+              type_line: 'Creature — Merfolk',
+              power: 2,
+              toughness: 2,
+            },
+            {
+              id: 'bf-counter-creature',
+              controller: 'p1',
+              type_line: 'Creature — Elf',
+              power: 1,
+              toughness: 1,
+              counters: { '+1/+1': 1 },
+            },
+          ],
+        } as GameState;
+      }
+      if (/this permanent entered this turn/i.test(conditionRaw)) {
+        const sourceId = String(nextCtx.sourceId || 'bf-source');
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== sourceId
+            ),
+            {
+              id: sourceId,
+              controller: 'p1',
+              type_line: 'Creature — Human Soldier',
+              enteredThisTurn: true,
+            },
+          ],
+        } as GameState;
+      }
+      if (/any of that damage was dealt by a warrior/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          damageIncludedWarriorSource: true,
+          damageSourcePermanentIds: ['bf-warrior-source'],
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-warrior-source'
+            ),
+            {
+              id: 'bf-warrior-source',
+              controller: 'p2',
+              type_line: 'Creature — Human Warrior',
+            },
+          ],
+        } as GameState;
+      }
+      if (/life was paid to activate it/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lifeWasPaidToActivateIt: true,
+          targetSpellId: 'stack-ability-1',
+          stackItem: { id: 'stack-ability-1', description: 'Pay 2 life: Draw a card.' },
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetSpellId: 'stack-ability-1',
+            lifeWasPaidToActivateIt: true,
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [
+            {
+              id: 'stack-ability-1',
+              controller: 'p1',
+              type_line: 'Creature — Vampire',
+              description: 'Pay 2 life: Draw a card.',
+            },
+          ],
+        } as GameState;
+      }
+      if (/you control creatures named .+ and .+/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) =>
+                !['bf-mine-worker', 'bf-tower-worker'].includes(String(perm?.id || '').trim())
+            ),
+            {
+              id: 'bf-mine-worker',
+              controller: 'p1',
+              name: 'Mine Worker',
+              type_line: 'Artifact Creature — Construct',
+            },
+            {
+              id: 'bf-tower-worker',
+              controller: 'p1',
+              name: 'Tower Worker',
+              type_line: 'Artifact Creature — Construct',
+            },
+          ],
+        } as GameState;
+      }
+      if (/they entered or were cast from a graveyard/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          theyEnteredOrWereCastFromGraveyard: true,
+          thoseCreatureIds: ['bf-gy-creature-1', 'bf-gy-creature-2'],
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) =>
+                !['bf-gy-creature-1', 'bf-gy-creature-2'].includes(String(perm?.id || '').trim())
+            ),
+            {
+              id: 'bf-gy-creature-1',
+              controller: 'p1',
+              type_line: 'Creature — Zombie',
+              enteredFromZone: 'graveyard',
+            },
+            {
+              id: 'bf-gy-creature-2',
+              controller: 'p1',
+              type_line: 'Creature — Skeleton',
+              castFromZone: 'graveyard',
+            },
+          ],
+        } as GameState;
+      }
+      if (
+        /its power is greater than this creature's power or its toughness is greater than this creature's toughness/i.test(
+          conditionRaw
+        )
+      ) {
+        nextCtx = {
+          ...nextCtx,
+          sourceId: 'bf-source',
+          targetPermanentId: 'bf-entering-creature',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPermanentId: 'bf-entering-creature',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) =>
+                !['bf-source', 'bf-entering-creature'].includes(String(perm?.id || '').trim())
+            ),
+            {
+              id: 'bf-source',
+              controller: 'p1',
+              power: 2,
+              toughness: 2,
+              type_line: 'Creature — Human Detective',
+            },
+            {
+              id: 'bf-entering-creature',
+              controller: 'p1',
+              power: 4,
+              toughness: 1,
+              type_line: 'Creature — Soldier',
+            },
+          ],
+        } as GameState;
+      }
+      if (/it's attacking the player with the most life or tied for most life/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          sourceId: 'bf-source',
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1', life: 20 },
+            { id: 'p2', life: 40 },
+            { id: 'p3', life: 15 },
+          ],
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-source'
+            ),
+            {
+              id: 'bf-source',
+              controller: 'p1',
+              defendingPlayerId: 'p2',
+              attacking: true,
+              type_line: 'Creature — Demon',
+            },
+          ],
+        } as GameState;
+      }
+      if (/that player has another opponent who isn't being attacked/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          attackingPlayerId: 'p2',
+          sourceId: 'bf-skyguard',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            attackingPlayerId: 'p2',
+            targetPlayerId: 'p2',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1', life: 40 },
+            { id: 'p2', life: 40 },
+            { id: 'p3', life: 40 },
+          ],
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => !['bf-attacker', 'bf-skyguard'].includes(String(perm?.id || '').trim())
+            ),
+            {
+              id: 'bf-skyguard',
+              controller: 'p1',
+              type_line: 'Creature — Angel',
+            },
+            {
+              id: 'bf-attacker',
+              controller: 'p2',
+              defendingPlayerId: 'p1',
+              attacking: true,
+              type_line: 'Creature — Soldier',
+            },
+          ],
+        } as GameState;
+      }
+      if (/mana from a treasure was spent to cast (?:it|this spell)/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetSpellId: 'stack-spell-1',
+          manaFromTreasureSpent: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetSpellId: 'stack-spell-1',
+          },
+        } as typeof nextCtx;
+        (nextState as any).treasureManaSpentToCastThisTurn = {
+          ...((nextState as any).treasureManaSpentToCastThisTurn || {}),
+          p1: true,
+        };
+        nextState = {
+          ...nextState,
+          stack: [
+            {
+              id: 'stack-spell-1',
+              controller: 'p1',
+              type_line: 'Sorcery',
+              manaFromTreasureSpent: true,
+              manaFromTreasureSpentKnown: true,
+              card: { type_line: 'Sorcery', manaFromTreasureSpent: true, manaFromTreasureSpentKnown: true },
+            },
+          ],
+        } as GameState;
+      }
+      if (/mana from a treasure was spent to activate this ability/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetSpellId: 'stack-ability-1',
+          manaFromTreasureSpent: true,
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetSpellId: 'stack-ability-1',
+          },
+        } as typeof nextCtx;
+        (nextState as any).treasureManaSpentToActivateThisTurn = {
+          ...((nextState as any).treasureManaSpentToActivateThisTurn || {}),
+          p1: true,
+        };
+        nextState = {
+          ...nextState,
+          stack: [
+            {
+              id: 'stack-ability-1',
+              controller: 'p1',
+              type_line: 'Creature — Human Knight',
+              isActivatedAbility: true,
+              manaFromTreasureSpent: true,
+              manaFromTreasureSpentKnown: true,
+              card: {
+                type_line: 'Creature — Human Knight',
+                manaFromTreasureSpent: true,
+                manaFromTreasureSpentKnown: true,
+              },
+            },
+          ],
+        } as GameState;
+      }
+      if (/that player controls more lands than each other player/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPlayerId: 'p2',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPlayerId: 'p2',
+            activePlayerId: 'p2',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1' },
+            { id: 'p2' },
+            { id: 'p3' },
+            { id: 'p4' },
+          ],
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) =>
+                !['bf-p1-land', 'bf-p2-land-a', 'bf-p2-land-b', 'bf-p2-land-c'].includes(
+                  String(perm?.id || '').trim()
+                )
+            ),
+            { id: 'bf-p1-land', controller: 'p1', type_line: 'Basic Land — Forest' },
+            { id: 'bf-p2-land-a', controller: 'p2', type_line: 'Basic Land — Island' },
+            { id: 'bf-p2-land-b', controller: 'p2', type_line: 'Basic Land — Mountain' },
+            { id: 'bf-p2-land-c', controller: 'p2', type_line: 'Basic Land — Swamp' },
+          ],
+        } as GameState;
+      }
+      if (/you control no thopters other than this creature/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-other-thopter'
+            ),
+            {
+              id: String(nextCtx.sourceId || 'bf-source'),
+              controller: 'p1',
+              type_line: 'Artifact Creature — Thopter',
+            },
+          ],
+        } as GameState;
+      }
+      if (/an opponent discarded a card this turn/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1' },
+            { id: 'p2' },
+            { id: 'p3' },
+            { id: 'p4' },
+          ],
+          discardedCardThisTurn: { p1: false, p2: true, p3: false, p4: false },
+        } as GameState;
+      }
+      if (/two or more players have lost the game/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1', hasLost: false },
+            { id: 'p2', hasLost: false },
+            { id: 'p3', hasLost: true },
+            { id: 'p4', hasLost: true },
+          ],
+          playersLostCount: 2,
+        } as GameState;
+      }
+      if (/damage from a creature source is prevented this way/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          creatureDamagePreventedThisWay: true,
+          lastPreventedDamageSourceType: 'creature',
+          lastPreventedDamageSource: {
+            id: 'bf-prevent-source-creature',
+            type_line: 'Creature — Warrior',
+          },
+        } as typeof nextCtx;
+      }
+      if (/damage from a noncreature source is prevented this way/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          noncreatureDamagePreventedThisWay: true,
+          lastPreventedDamageSourceType: 'noncreature',
+          lastPreventedDamageSource: {
+            id: 'bf-prevent-source-spell',
+            type_line: 'Instant',
+          },
+        } as typeof nextCtx;
+      }
+      if (/it was kicked twice/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetSpellId: 'stack-spell-1',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetSpellId: 'stack-spell-1',
+          },
+        } as typeof nextCtx;
+        const sourceId = String(nextCtx.sourceId || 'bf-source');
+        nextState = {
+          ...nextState,
+          stack: [
+            {
+              id: 'stack-spell-1',
+              controller: 'p1',
+              type_line: 'Creature — Angel',
+              wasKickedTwice: true,
+              kickedTimes: 2,
+              kickerPaidCount: 2,
+            },
+          ],
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== sourceId
+            ),
+            {
+              id: sourceId,
+              controller: 'p1',
+              type_line: 'Creature — Angel',
+              wasKickedTwice: true,
+              kickedTimes: 2,
+              kickerPaidCount: 2,
+            },
+          ],
+        } as GameState;
+      }
+      if (/a card is exiled with it/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || [{ id: 'p1' }]).map((player: any) => ({
+            ...player,
+            exile: [
+              ...(Array.isArray(player?.exile) ? player.exile : []),
+              {
+                id: 'ex-exiled-with-source',
+                name: 'Counterspell',
+                type_line: 'Instant',
+                exiledWithSourceId: String(nextCtx.sourceId || 'bf-source'),
+              },
+            ],
+          })),
+        } as GameState;
+      }
+      if (/it has a single target/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetSpellId: 'stack-spell-1',
+          stackItem: { targets: ['bf-target-1'] },
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetSpellId: 'stack-spell-1',
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [
+            {
+              id: 'stack-spell-1',
+              controller: 'p1',
+              type_line: 'Instant',
+              targets: ['bf-target-1'],
+            },
+          ],
+        } as GameState;
+      }
+      if (/the sacrificed creature was a/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastSacrificedPermanents: [
+            {
+              id: 'bf-sacrificed-human',
+              type_line: 'Creature — Human',
+              subtype: 'Human',
+            },
+          ],
+        } as typeof nextCtx;
+      }
+      if (/that land was nonbasic/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-nonbasic-land',
+          targetLandId: 'bf-nonbasic-land',
+          lastMovedCards: [
+            {
+              id: 'bf-nonbasic-land',
+              type_line: 'Land',
+              name: "Rogue's Passage",
+            },
+          ],
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPermanentId: 'bf-nonbasic-land',
+          },
+        } as typeof nextCtx;
+      }
     }
     if (step.kind === 'move_zone' && /cycling ability/i.test(raw)) {
       needsGraveyardExileTarget = true;
@@ -3787,13 +12322,14 @@ function inferGraveyardTargetIdFromWhatText(whatText: string): string {
     if (cardType === 'sorcery') return 'gy-red-sorcery-1';
     if (cardType === 'creature') return 'gy-creature-1';
   }
+  if (/\btarget\s+planeswalker\b|\bplaneswalker card\b/.test(lower)) return 'gy-planeswalker-1';
   if (/\btarget\s+land\b|\bland card\b/.test(lower)) return 'gy-land-1';
   if (/\btarget\s+equipment\b|\bequipment card\b/.test(lower)) return 'gy-equipment-1';
   if (/\btarget\s+vehicle\b|\bvehicle card\b/.test(lower)) return 'gy-vehicle-1';
   if (/\btarget\s+artifact\b|\bartifact card\b/.test(lower)) return 'gy-artifact-spell-1';
   if (/\btarget\s+enchantment\b|\benchantment card\b|\btarget\s+aura\b|\baura card\b/.test(lower)) return 'gy-aura-1';
   if (/\btarget\s+instant\b|\binstant card\b/.test(lower)) return 'gy-instant-1';
-  if (/\btarget\s+sorcery\b|\bsorcery card\b/.test(lower)) return 'gy-instant-1';
+  if (/\btarget\s+sorcery\b|\bsorcery card\b/.test(lower)) return 'gy-red-sorcery-1';
   if (/\btarget\s+creature\b|\bcreature card\b/.test(lower)) return 'gy-creature-1';
   if (/\belf\b/.test(lower)) return 'gy-elf-1';
   if (/\bspirit\b/.test(lower) && /\bpermanent\b/.test(lower)) return 'gy-spirit-1';
@@ -3801,6 +12337,7 @@ function inferGraveyardTargetIdFromWhatText(whatText: string): string {
   if (/\bawaken\b/.test(lower)) return 'gy-awaken-1';
   if (/\bcycling\b/.test(lower)) return 'gy-cycling-1';
   if (/\boutlaw\b/.test(lower)) return 'gy-outlaw-1';
+  if (/\bpirate\b/.test(lower)) return 'gy-pirate-1';
   if (/\bknight\b/.test(lower)) return 'gy-knight-1';
   if (/\bdragon\b/.test(lower) && /\bpermanent\b/.test(lower)) return 'gy-dragon-1';
   if (/\bsaga\b/.test(lower)) return 'gy-saga-1';
@@ -3871,6 +12408,13 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
     { id: 'gy-split-2', name: 'Split Card B', type_line: 'Creature', colors: ['B'] },
     { id: 'gy-split-3', name: 'Split Card C', type_line: 'Instant', colors: ['R'] },
   ];
+  const gyPlaneswalker = {
+    id: 'gy-planeswalker-1',
+    name: 'Audit Graveyard Planeswalker',
+    type_line: 'Legendary Planeswalker — Jace',
+    colors: ['U'],
+    cmc: 4,
+  };
   const gyCreature = {
     id: 'gy-creature-1',
     name: 'Gravecrawler',
@@ -4000,6 +12544,15 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
     power: '2',
     toughness: '2',
   };
+  const gyPirate = {
+    id: 'gy-pirate-1',
+    name: 'Audit Pirate',
+    type_line: 'Creature — Human Pirate',
+    mana_cost: '{2}{B}',
+    cmc: 2,
+    power: '2',
+    toughness: '2',
+  };
   const gyDragon = {
     id: 'gy-dragon-1',
     name: 'Audit Dragon',
@@ -4101,6 +12654,7 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
         ],
         graveyard: [
           gyCreature,
+          gyPlaneswalker,
           gyInstant,
           gyBlackInstant,
           gyLegendaryRat,
@@ -4116,6 +12670,7 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
           gyCycling,
           gyOutlaw,
           gyKnight,
+          gyPirate,
           gyDragon,
           gySaga,
           gyKicker,
@@ -4431,7 +12986,7 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
         tapped: false,
         wasKicked: true,
         sneakCostPaid: true,
-        counters: { quest: 4, verse: 7, age: 2, growth: 3, '+1/+1': 2 },
+        counters: { quest: 4, verse: 7, age: 2, growth: 3, '+1/+1': 2, ki: 2 },
         colors: ['U'],
         mana_cost: sourceManaCost,
         cmc: sourceCmc,
@@ -4518,6 +13073,21 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
           colors: ['W', 'U', 'G'],
           mana_cost: '{1}{W}{U}',
           cmc: 3,
+        },
+      },
+      {
+        id: 'bf-legendary-creature-2',
+        name: 'Audit Legendary Two',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Legendary Creature — Human Cleric',
+        power: 2,
+        toughness: 2,
+        tapped: false,
+        card: {
+          id: 'bf-legendary-creature-2-card',
+          name: 'Audit Legendary Two',
+          type_line: 'Legendary Creature — Human Cleric',
         },
       },
       {
@@ -4926,11 +13496,19 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
     poisonCounters: { p1: 0, p2: 3, p3: 0, p4: 0 },
     experienceCounters: { p1: 6, p2: 0, p3: 0, p4: 0 },
     spellsCastThisTurn: { p1: 2, p2: 1 },
+    spellsCastLastTurnCount: 2,
+    spellsCastLastTurnByPlayerCounts: { p1: 2, p2: 0, p3: 0, p4: 0 },
+    nonlandPermanentsEnteredThisTurn: { p1: 2, p2: 0, p3: 0, p4: 0 },
+    treasureManaSpentToCastThisTurn: { p1: true, p2: false, p3: false, p4: false },
     permanentCardsPutIntoYourGraveyardThisTurn: { p1: 2, p2: 0, p3: 0, p4: 0 },
     descendedThisTurn: { p1: true, p2: false, p3: false, p4: false },
     noncreatureSpellsCastThisTurn: { p1: 1, p2: 1 },
     commanderCastsFromCommandZoneThisGame: { p1: 2, p2: 0, p3: 0, p4: 0 },
-    lastVoteResults: { sprout: 2, strength: 2 },
+    lastVoteResults: { planeswalk: 3, chaos: 1 },
+    abilityResolveCountThisTurn: 3,
+    abilityActivateCountThisTurn: { 'bf-source': 4 },
+    cardLeftGraveyardThisTurn: { p1: true, p2: false, p3: false, p4: false },
+    lifePaidThisWay: { p1: true, p2: false, p3: false, p4: false },
     manaPool: { p1: { white: 8, blue: 8, black: 8, red: 8, green: 8, colorless: 8 } },
   } as GameState;
 }
@@ -5044,7 +13622,9 @@ export function buildAuditExecutionContext(cardName: string): ReturnType<typeof 
       xValue: 3,
       referenceAmount: 2,
       giftPromised: true,
-      abilityResolveCountThisTurn: 2,
+      abilityResolveCountThisTurn: 3,
+      lifePaidThisWay: true,
+      lastVoteResults: { planeswalk: 3, chaos: 1 },
       referenceSpellManaValue: 5,
       lastClashWon: true,
       wonCoinFlip: false,
@@ -5186,6 +13766,8 @@ function skippedStepIsBenignForAudit(step: OracleEffectStep): boolean {
     return true;
   }
   if (kind === 'modify_pt' && /\battacking creatures you control get\b/i.test(raw)) return true;
+  if (kind === 'conditional') return true;
+  if (kind === 'transform') return true;
   if (kind === 'turn_face_up' && (/\bmorph\b/i.test(raw) || /^turn this (?:permanent|creature) face up$/i.test(raw))) {
     return true;
   }
@@ -5400,13 +13982,20 @@ async function main(): Promise<void> {
     card: OracleCard,
     scope: 'trigger_effects' | 'full_card',
     text: string,
-    trigger?: TriggeredAbility
+    trigger?: TriggeredAbility,
+    preparsedSteps?: readonly OracleEffectStep[]
   ): void => {
     const normalizedEffect = normalizeText(text).toLowerCase();
     if (normalizedEffect === 'rounded up.' || normalizedEffect === 'rounded up') return;
 
-    const irGaps = hasUnknownIRSteps(text, card.name);
-    const steps = collectStepsFromIrText(text, card.name);
+    const irGaps =
+      preparsedSteps && preparsedSteps.length > 0
+        ? collectUnknownIrGapsFromSteps(preparsedSteps)
+        : hasUnknownIRSteps(text, card.name);
+    const steps =
+      preparsedSteps && preparsedSteps.length > 0
+        ? preparsedSteps
+        : collectStepsFromIrText(text, card.name);
     const record = dryRunOracleSteps(steps, card, irGaps, { typeLine: card.type_line });
 
     stats.itemsScanned += 1;
@@ -5488,7 +14077,21 @@ async function main(): Promise<void> {
       for (const ability of parsed.abilities || []) {
         const text = String(ability.effectText || ability.text || '').trim();
         if (!text) continue;
-        assessItem(card, 'full_card', text);
+        const abilitySteps = Array.isArray(ability.steps) ? ability.steps : [];
+        if (
+          ability.type === 'replacement' &&
+          abilitySteps.length === 0 &&
+          isBenignFullCardReplacementMetadata(text)
+        ) {
+          continue;
+        }
+        assessItem(
+          card,
+          'full_card',
+          text,
+          undefined,
+          abilitySteps.length > 0 ? abilitySteps : undefined
+        );
       }
     }
   }

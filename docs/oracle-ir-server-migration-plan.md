@@ -2,10 +2,10 @@
 
 **Purpose:** Plan the full supersession of handwritten spell/trigger/ability resolution with Oracle IR execution and the Effect Program orchestrator.
 
-**Last updated:** 2026-06-13 (step ledger Phases A–Z)  
+**Last updated:** 2026-06-13 (batch 280 — server damage processing; step ledger Phases A–Z)  
 **Owner:** Project maintainers  
 
-> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then [Current status / session handoff](#current-status--session-handoff-2026-06-12) below. Batches 264–279 are **uncommitted** locally.
+> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then [Current status / session handoff](#current-status--session-handoff-2026-06-13) below. Batches 264–280 are **uncommitted** locally.
 
 **Rules for new work:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — **no card-name routing**, **no new `KNOWN_*` table rows**; extend parser → executor → `applyOracleIRStepsOnServer` → resolution queue.
 
@@ -14,6 +14,7 @@
 - [oracle-automation-roadmap.md](./oracle-automation-roadmap.md) — historical milestone log
 - [oracle-ir-gap-backlog.md](./oracle-ir-gap-backlog.md) — static parser backlog clusters
 - [oracle-ir-step-ledger-migration.md](./oracle-ir-step-ledger-migration.md) — step ledger, pre-commit transitions, "this way" memory
+- [server-damage-processing-migration.md](./server-damage-processing-migration.md) — infect/wither/poisonous server bridge (batch 280)
 
 ---
 
@@ -31,20 +32,52 @@ The project has **three distinct layers**. Layers 1–2 are in strong shape; **L
 
 ---
 
-## Current status / session handoff (2026-06-12)
+## Current status / session handoff (2026-06-13)
 
-**Latest completed work:** **Batch 279** — G1 Merfolk commander live-play integration fixes (see [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)):
+**Latest completed work:** **Batch 280** — server damage processing (infect / wither / poisonous / toxic). See [server-damage-processing-migration.md](./server-damage-processing-migration.md) and [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md).
+
+- New bridge `server/src/state/modules/combat-damage-processing.ts` wired into live combat (`turn.ts` `dealCombatDamage`), fight, legacy spell damage, `dealDamage` events, damage-received reflect, proliferate+`runSBA`.
+- **Rot Wolf pattern fixed:** infect → poison on players; infect/wither → -1/-1 on creatures (not marked damage).
+- **Delayed dies triggers:** proliferate adds lethal -1/-1 → `runSBA` → `movePermanentToGraveyard` → dies abilities on stack.
+- Tests: `server/tests/combat.infect-wither.test.ts` (6/6), `engine.damage.test.ts` (2/2).
+
+**Prior batch 279:** G1 Merfolk commander live-play integration fixes:
 
 - **Roaming Throne** counts as chosen creature type for tribal effects (+1/+1, Deeproot Pilgrimage tap, White Lotus mana).
 - **Tap triggers** fire when creatures are tapped via abilities/costs (`tap-trigger-queue.ts`).
 - **Thassa's Oracle** ETB queues library look/reorder (`look_select_top` → `LIBRARY_SEARCH`); devotion win unchanged (`tryResolveThassasOracleWin`).
 - **Kynaios** land gifts run post-resolution ETB prompts; **Growing Rites** lookup fixed; **Cryptoplasm** reverts on bounce; **Eldrazi Monument** upkeep deduped.
+- Also: sacrifice under summoning sickness (`canAct`), Rampant Growth deck import (`localCardLookup` schema v3), Sakura-Tribe Elder false ETB removed.
 
-**Prior batch 278:** trigger `ir_gap` **20 → 0**; migration **651/651**; parse→execute **0**.
+**Prior batch 278:** trigger `ir_gap` **20 → 0**; migration **649/649**; parse→execute **0**.
 
 **Step ledger (Phases A–Z):** Zone-affecting IR steps on the server path use pre-commit transitions + indexed `stepLedger`. See [oracle-ir-step-ledger-migration.md](./oracle-ir-step-ledger-migration.md).
 
-**Git state:** 100+ files modified across batches 264–279, **no commits** unless explicitly requested.
+**Git state:** 100+ files modified across batches 264–280, **no commits** unless explicitly requested.
+
+### Batch 280 — Server damage processing (infect / wither / poisonous)
+
+| Area | Change | Key files |
+|------|--------|-----------|
+| **Shared bridge** | `applyPoisonCountersToPlayer`, `resolvePlayerDamage`, `applyCreatureDamageFromSource`, `inferInfectWitherFlags` | `combat-damage-processing.ts` |
+| **Combat damage** | Live `dealCombatDamage` uses bridge; poison defeat at 10 | `turn.ts` |
+| **Fight / spells / events** | Mutual fight + `DamagePlayer`/`DamagePermanent` + `dealDamage` auto-detect | `applyEvent.ts`, `executeSpellEffect.ts`, `replay.ts` |
+| **Reflect / proliferate** | Damage-received uses source keywords; proliferate → `runSBA` | `triggers/damage-received.ts`, `applyEvent.ts` |
+
+**Verify batch 280:**
+
+```powershell
+cd server
+npx vitest run tests/combat.infect-wither.test.ts tests/engine.damage.test.ts
+npm run test:oracle-ir-migration
+```
+
+**Not yet done (batch 280 follow-ups):**
+- ~~Rot Wolf socket E2E~~ ✅
+- ~~Audit `applyDamageToPermanentWithCounterEffects`~~ ✅
+- ~~Client poison display contract~~ ✅ (`client/tests/poisonCounterDisplay.test.ts`)
+- ~~First/double strike infect unit tests~~ ✅
+- Deferred: delegate `dealCombatDamage` to rules-engine `executeCombatDamage`
 
 ### Batch 279 — G1 Merfolk integration (server Layer 3)
 
@@ -69,8 +102,8 @@ npm run test:oracle-ir-migration
 ```
 
 **Not yet done (batch 279 follow-ups):**
-- Thassa `LIBRARY_SEARCH` socket integration test
-- Roaming Throne + Kumena +1/+1 socket test
+- ~~Thassa `LIBRARY_SEARCH` socket integration test~~ ✅ (`thassa-oracle-etb.socket.integration.test.ts`)
+- ~~Roaming Throne + Kumena +1/+1 socket test~~ ✅ (`roaming-throne-kumena-tribal.socket.integration.test.ts`)
 - Eldrazi Monument indestructible cleanup after monument leaves (live retest)
 
 ### Batch 278 — trigger ir_gap closure
@@ -896,10 +929,11 @@ npx vitest run tests/oracle-ir-trigger-combat-evasion-fallback.test.ts tests/exe
 npm run test:oracle-ir-migration
 ```
 
-### G1 game-log bugs — status (batch 235 + 279)
+### G1 game-log bugs — status (batch 235 + 279 + 280)
 
 | Issue | Status | Coverage |
 |-------|--------|----------|
+| **Rot Wolf / infect / wither / poisonous** combat damage | **Fixed** (batch 280) | `combat.infect-wither.test.ts`; socket E2E **pending** |
 | **Court of Garenbrig** upkeep counters + Branching Evolution | **Fixed** (batch 174/233/234) | `oracle-ir-court-garenbrig-counter-distribution.socket.integration.test.ts`, `inspiring-call-court-garenbrig.regression.test.ts` |
 | **Inspiring Call** draw + indestructible | **Fixed** (batch 175) | `inspiring-call-court-garenbrig.regression.test.ts` |
 | **Roaming Throne** explore doubling + ETB type | **Verified** | `roaming-throne-trigger-doubling.integration.test.ts`, `creature-type-etb-persistence.integration.test.ts` |
@@ -916,7 +950,7 @@ npm run test:oracle-ir-migration
 | **Gwenna** null priority during mana selection | **Verified** | `gwenna-mana-color-selection.integration.test.ts` |
 | **Door of Destinies** charge counter on cast | **Verified** | `door-of-destinies-spell-cast.integration.test.ts`, `door-of-destinies-ir-primary.integration.test.ts` |
 
-Restart server + hard-refresh client + re-import deck after batch 279. Live spot-checks still recommended for Thassa UI and tap-trigger chains.
+Restart server + hard-refresh client + re-import deck after batch 279–280. Live spot-checks still recommended for Thassa UI, tap-trigger chains, and Rot Wolf poison counters in client view.
 
 ### Batch 173 — what landed (still relevant)
 
@@ -1035,7 +1069,7 @@ npm run test:oracle-ir-migration   # broader migration suite when touching routi
 4. **Resume gap audit** — `EXECUTOR_COVERAGE_SCOPE=full_card` or `npx tsx scripts/_tmp-trigger-gap-clusters.ts` (trigger `ir_gap` already 0).
 5. **Continue regex retirement** — grep `applyRetiredTriggerLegacy*`; gut when IR + integration green. **Never** card-name `KNOWN_*` rows (`.cursor/rules/oracle-ir-no-bespoke-handlers.mdc`).
 6. **Run migration suite** after routing/sync edits: `cd server ; npm run test:oracle-ir-migration` (expect **649/649**).
-7. **Uncommitted work** — batches 264–279 local only; no commits unless explicitly requested.
+7. **Uncommitted work** — batches 264–280 local only; no commits unless explicitly requested.
 
 ### Known invariants (do not break)
 

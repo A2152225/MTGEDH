@@ -1,6 +1,6 @@
 # MTGEDH Oracle IR Architecture & Execution Loop
 
-**Version:** 2026-06-13 (step ledger Phases A–Z, Post-Z through AV)  
+**Version:** 2026-06-13 (batch 280 server damage bridge; step ledger Phases A–Z, Post-Z through AV)  
 **Repository:** MTGEDH  
 **Audience:** Contributors working on card behavior, server integration, or migration off legacy handlers
 
@@ -395,6 +395,21 @@ cd ../server
 npm run trigger:coverage              # detection gaps
 npm run executor:coverage             # dry-run execution
 ```
+
+---
+
+## 14. Parallel server paths (outside IR)
+
+Some live gameplay still bypasses `applyOracleIRStepsOnServer`:
+
+| System | Server path | IR path | Notes |
+|--------|-------------|---------|-------|
+| **Combat damage** | `turn.ts` `dealCombatDamage` → `combat-damage-processing.ts` | `deal_damage` steps in `oracleIRExecutorDamageStepHandlers.ts` | Batch 280 unified infect/wither/poisonous on server. See [server-damage-processing-migration.md](./server-damage-processing-migration.md). |
+| **State-based actions** | `counters_tokens.ts` `runSBA` | rules-engine SBA dry-run | Post-damage, post-proliferate, post-stack |
+
+Long-term goal: delegate combat damage to rules-engine `executeCombatDamage` or route all damage through one module.
+
+**Session handoff:** [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)
 
 ---
 

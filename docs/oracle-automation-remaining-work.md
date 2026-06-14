@@ -2,26 +2,27 @@
 
 Living document. Update this file as gaps close and audits are re-run.
 
-**Last updated: 2026-06-11** (batch **174** — generic distribute-counter IR; Layer 3 handoff refreshed)
+**Last updated: 2026-06-13** (batch **280** — server damage processing; batch **279** G1 Merfolk)
 
 > **Server integration / superseding handwritten resolution:** see **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** for the Layer 3 migration plan (IR-first spells/triggers, Effect Program wiring, choice UI batches, shim retirement). This file covers Layer 1–2 (parser/executor gaps).
 
 ## Quick start for a new session
 
 1. **Read the rules first:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — no card-name handlers, no new `KNOWN_*` rows; parse → execute → server queue.
-2. **Server integration (Layer 3):** read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** and **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** § *Current status* — batch **279** G1 Merfolk fixes (Roaming Throne chosen type, tap triggers, Thassa library IR); batch **278** cleared trigger `ir_gap`.
+2. **Server integration (Layer 3):** read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)**, **[server-damage-processing-migration.md](./server-damage-processing-migration.md)**, and **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** § *Current status* — batch **280** infect/wither/poisonous server bridge; batch **279** G1 Merfolk fixes; batch **278** cleared trigger `ir_gap`.
 3. Read this file for Layer 1–2 metrics and parser/executor priority order.
-4. **Verify batch 174 before new work:**
+4. **Verify batch 280 before new work:**
    ```powershell
-   cd rules-engine
-   npx vitest run test/oracleIRDistributeCounters.test.ts
-
-   cd ../server
-   npx vitest run tests/inspiring-call-court-garenbrig.regression.test.ts
-   npx vitest run tests/upkeep-trigger-detection.unit.test.ts
+   cd server
+   npx vitest run tests/combat.infect-wither.test.ts tests/engine.damage.test.ts
    npm run test:oracle-ir-migration
    ```
-5. Re-run audits if code changed since the timestamp above:
+5. **Verify batch 279 (if touching tribal/tap/Thassa):**
+   ```powershell
+   cd server
+   npx vitest run tests/roaming-throne-chosen-type.unit.test.ts tests/g1-card-fixes.unit.test.ts
+   ```
+6. Re-run audits if code changed since the timestamp above:
    ```powershell
    cd server
    npm run executor:coverage
@@ -32,8 +33,8 @@ Living document. Update this file as gaps close and audits are re-run.
    $env:EXECUTOR_COVERAGE_SCOPE="full_card"; npm run executor:coverage
    npx tsx scripts/_tmp-full-card-gap-clusters.ts
    ```
-4. JSON reports land in `server/scripts/out/` (**gitignored** — regenerate locally; do not expect them in git). Use named scripts under `server/scripts/` — never inline `tsx -e` (see `.cursor/rules/terminal-hygiene.mdc`).
-5. Trigger parse coverage (separate from executor): `npm run trigger:coverage`
+7. JSON reports land in `server/scripts/out/` (**gitignored** — regenerate locally; do not expect them in git). Use named scripts under `server/scripts/` — never inline `tsx -e` (see `.cursor/rules/terminal-hygiene.mdc`).
+8. Trigger parse coverage (separate from executor): `npm run trigger:coverage`
 
 ---
 
@@ -198,6 +199,7 @@ Closed the final 7 singleton gaps (earthbend where-X, Greasefang compound, Azlas
 - [x] Copy zone movement SBA 704.5e (`runSBA` removes `isCopy` from non-stack/non-battlefield zones)
 - [x] Thassa's Oracle ETB devotion win (`tryResolveThassasOracleWin` + `checkThassasOracleWin`)
 - [x] Thassa's Oracle ETB library look/reorder (batch 279: `look_select_top` + `LIBRARY_SEARCH` queue; win tail unchanged)
+- [x] Live server infect/wither/poisonous combat damage (batch 280: `combat-damage-processing.ts` → `turn.ts` `dealCombatDamage`; fight, spell, `dealDamage`, proliferate+SBA)
 - [ ] Same-controller trigger ordering UI (`ORDER_TRIGGERS`)
 - [ ] Replacement-effect choice (`CHOOSE_REPLACEMENT`)
 

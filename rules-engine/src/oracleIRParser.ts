@@ -48,6 +48,9 @@ import {
   expandCopyPermanentUnknownAbilities,
   expandCopySpellUnknownAbilities,
   expandDeterministicMoveZoneFollowupAbilities,
+  upgradeExiledThisWayReturnMoveZoneSteps,
+  upgradeCounteredSpellLibraryTopReplacementSteps,
+  upgradeThoseCardsBattlefieldInsteadOfHandSteps,
   expandExilePermissionUnknownAbilities,
   expandFreeGraveyardCastPermissionAbilities,
   expandGraveyardAdditionalCostPermissionAbilities,
@@ -127,6 +130,7 @@ import {
   pruneCipherReminderAbilities,
   pruneMorphReminderAbilities,
   pruneRedundantFaceDownReminderUnknownAbilities,
+  upgradeManifestDreadGrantAbilities,
   pruneRedundantAttackRequirementAbilities,
   pruneRedundantArtifactTokenReminderUnknownAbilities,
   pruneRedundantTokenDesignationReminderUnknownAbilities,
@@ -159,6 +163,7 @@ import {
   expandFutureSpellEffectUnknownAbilities,
   pruneRedundantTriggerRestrictionUnknownAbilities,
   pruneRedundantExploreReminderAbilities,
+  pruneMalformedExploreReminderMoveZoneSteps,
   pruneRedundantLookTopReorderUnknownAbilities,
   pruneRedundantScryReminderUnknownAbilities,
   pruneRedundantStillLandUnknownAbilities,
@@ -200,6 +205,7 @@ import {
   repairGapClosureAbilitySteps,
   repairRandomChooseModeSagaAbilities,
   mergeLookSelectTopFollowupAbilities,
+  pruneRedundantSurveilReminderSteps,
   pruneThassaOracleWinGrantAbilities,
   pruneRedundantImpulseCleanupUnknownAbilities,
   pruneDuplicateGraveyardReminderAbilities,
@@ -1567,6 +1573,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = lowerAmongThemChoosePlayerChoiceAbilities(abilities);
   abilities = mergeLookChooseFromTopAbilities(abilities);
   abilities = mergeLookSelectTopFollowupAbilities(abilities);
+  abilities = pruneRedundantSurveilReminderSteps(abilities);
   abilities = expandStandaloneTopLibraryInfoAbilities(abilities);
   abilities = mergeLookChooseFromTopAbilities(abilities);
   abilities = expandHideawayReminderAbilities(abilities);
@@ -1579,6 +1586,9 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeBattlefieldEntryAuraRewriteFollowupAbilities(abilities);
   abilities = expandLandAnimationUnknownAbilities(abilities);
   abilities = expandDeterministicMoveZoneFollowupAbilities(abilities);
+  abilities = upgradeExiledThisWayReturnMoveZoneSteps(abilities);
+  abilities = upgradeCounteredSpellLibraryTopReplacementSteps(abilities);
+  abilities = upgradeThoseCardsBattlefieldInsteadOfHandSteps(abilities);
   abilities = expandMoveZoneCopiedSpellAbilities(abilities);
   abilities = expandMixedBattlefieldAndGraveyardExileAbilities(abilities);
   abilities = expandCompoundMoveZoneAbilities(abilities);
@@ -1627,6 +1637,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneCipherReminderAbilities(abilities);
   abilities = pruneForetellReminderAbilities(abilities);
   abilities = pruneMorphReminderAbilities(abilities);
+  abilities = upgradeManifestDreadGrantAbilities(abilities);
   abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
   abilities = pruneRedundantAttackRequirementAbilities(abilities);
   abilities = pruneRedundantCrewReminderAbilities(abilities);
@@ -1686,6 +1697,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandTurnScopedStaticKeywordAbilities(abilities);
   abilities = pruneExternallyHandledTemporaryLandBonusUnknownSteps(abilities);
   abilities = pruneRedundantExploreReminderAbilities(abilities);
+  abilities = pruneMalformedExploreReminderMoveZoneSteps(abilities);
   abilities = pruneRedundantAirbendReminderUnknownAbilities(abilities);
   abilities = pruneRedundantEarthbendReminderUnknownAbilities(abilities);
   abilities = pruneRedundantWaterbendReminderUnknownAbilities(abilities);
@@ -1716,6 +1728,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = annotateDestroyMetadataAbilities(abilities);
   abilities = annotateCounterMetadataAbilities(abilities);
   abilities = annotateSacrificeMetadataAbilities(abilities);
+  abilities = upgradeManifestDreadGrantAbilities(abilities);
   abilities = pruneRedundantFaceDownReminderUnknownAbilities(abilities);
   abilities = expandRepeatedProliferateUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);

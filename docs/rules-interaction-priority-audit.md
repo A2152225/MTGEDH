@@ -79,7 +79,7 @@ These systems are **production-viable** with tests and/or recent live validation
 | **Turn / phases / cleanup** | Strong | `server/src/state/modules/turn.ts`, step-entry trigger persistence |
 | **State-based actions** | Strong | `counters_tokens.ts` (`runSBA`), post-stack and post-damage |
 | **Replacement effects (leave BF)** | Strong | Shared helpers + `leave-battlefield-replacement.integration.test.ts` |
-| **Combat damage + batching** | Strong | APNAP combat triggers in `turn.ts` / `combat.ts` |
+| **Combat damage + batching** | Strong | APNAP combat triggers in `turn.ts` / `combat.ts`; infect/wither/poisonous via `combat-damage-processing.ts` (batch 280) |
 | **Goad** | Strong | `goad-effects.ts` + rules-engine `getGoadedBy` |
 | **Exert corridor** | Strong | `exert-choice.integration.test.ts` (23/23) |
 | **Resolution queue (core)** | Strong | `resolution/`, `socket/resolution.ts` — discard, target, scry, unless-pay, etc. |
@@ -118,12 +118,13 @@ These cause the bugs users actually see. Ordered by **impact on real games**.
 
 ### P2 — Live-play verification debt (code may be fixed; play unproven)
 
-From batch 279 / G1 — **socket E2E or live retest required**:
+From batch 279–280 / G1 — **socket E2E or live retest required**:
 
 | Card / interaction | Code status | Missing verification |
 |--------------------|-------------|-------------------|
-| Thassa's Oracle library reorder | IR + `LIBRARY_SEARCH` wired | Socket integration test |
-| Roaming Throne + Kumena +1/+1 | Chosen type should work | Socket tribal test |
+| Rot Wolf / infect / poisonous combat | Bridge + socket E2E + client display contract + first/double strike unit tests | `dealCombatDamage` → rules-engine delegation (deferred) |
+| Thassa's Oracle library reorder | Socket tests ✅ (`thassa-oracle-etb.socket.integration.test.ts`) | Effect-program auto-apply when may-choice=yes skips LIBRARY_SEARCH prompt |
+| Roaming Throne + Kumena +1/+1 | Socket tribal test ✅ (`roaming-throne-kumena-tribal.socket.integration.test.ts`) | Counter ability stores `+1+1` key (slashes stripped) |
 | Deeproot Pilgrimage (attack batch) | Batched in `collectTapTriggersForTapEvent` | Live retest with doublers |
 | Windborn Muse attack tax | Server payment + client estimate | Live retest after pillowfort unify |
 | Eldrazi Monument | Upkeep deduped | Indestructible static cleanup after monument leaves |

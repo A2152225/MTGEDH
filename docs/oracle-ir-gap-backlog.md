@@ -11,6 +11,42 @@ Refreshed from `tools/oracle-ir-gap-audit.ts` against `oracle-cards.json` and `A
 - Trigger `ir_gap`: **0** (batch 278)
 - Parse→execute gaps (trigger_effects scope): **0**
 
+## Completed In This Pass (Tracks A + B — 2026-06-13)
+
+**Track A:** client poison display contract; first/double-strike infect unit tests; damage call-site audit complete.
+
+**Track B:** `thassa-oracle-etb.socket.integration.test.ts` (2 tests); `roaming-throne-kumena-tribal.socket.integration.test.ts`; executor `full_card` audit reviewed (**833** parse→execute gaps, snapshot 2026-06-13).
+
+**Verify:** see `docs/oracle-ir-session-handoff.md` validation commands.
+
+---
+
+## Completed In This Pass (batch 280 follow-up — damage socket E2E + call-site audit)
+
+1. **Socket E2E:** `combat.infect-wither.socket.integration.test.ts` — Rot Wolf `declareAttackers` → 2 poison in `viewFor.poisonCounters`.
+2. **Call-site audit:** `x-activated-abilities.ts` (Crypt Rats X AoE), `stackResolveSpellSpecialCaseUtils.ts` (Nibelheim Aflame sweep) now use `combat-damage-processing.ts`. Remaining raw `applyDamageToPermanentWithCounterEffects` are intentional no-source fallbacks.
+
+**Verify:** `npx vitest run tests/combat.infect-wither.test.ts tests/combat.infect-wither.socket.integration.test.ts tests/engine.damage.test.ts`
+
+**Next:** Prod client poison UI; or resume batch 279 tribal/Thassa socket tests.
+
+---
+
+## Completed In This Pass (batch 280 — server damage processing)
+
+Parallel server path fix (not Oracle IR parser work). Live combat used bespoke `dealCombatDamage` that ignored infect/wither/poisonous. See [server-damage-processing-migration.md](./server-damage-processing-migration.md).
+
+1. **New bridge:** `server/src/state/modules/combat-damage-processing.ts` — poison sync, player/creature damage with keyword awareness, fight helper, auto-detect for `dealDamage` events.
+2. **Wired paths:** `turn.ts` combat, fight (`applyEvent.ts`, stack mid-handlers, planeswalker templates), spell damage (`executeSpellEffect.ts`), `dealDamage` events + replay, damage-received reflect, proliferate+`runSBA`.
+3. **Tests:** `combat.infect-wither.test.ts` (6) — Rot Wolf poison, infect/wither combat, infect fight, auto-detect, proliferate→dies trigger.
+
+Validation:
+
+1. `npx vitest run tests/combat.infect-wither.test.ts tests/combat.infect-wither.socket.integration.test.ts tests/engine.damage.test.ts` (server)
+2. `npm run test:oracle-ir-migration` — **701/701**
+
+**Next:** Prod client poison UI; or resume batch 279 tribal/Thassa socket tests.
+
 ## Completed In This Pass (batch 279 — G1 Merfolk integration)
 
 Server integration fixes from live G1 play (not a parser-gap audit batch). See `docs/oracle-ir-session-handoff.md` for full detail.

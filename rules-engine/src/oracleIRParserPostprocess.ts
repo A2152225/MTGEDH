@@ -738,6 +738,80 @@ function parseLookChooseFromTopTriple(
   return null;
 }
 
+function isSurveilReminderLookTopStep(step: OracleEffectStep | undefined): boolean {
+  if (!step || step.kind !== 'look_top') return false;
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  return /^look at the top /i.test(normalized);
+}
+
+function isSurveilGraveyardRestMoveZoneStep(step: OracleEffectStep | undefined): boolean {
+  if (!step || step.kind !== 'move_zone') return false;
+  if (step.what.kind !== 'raw') return false;
+  const whatText = normalizeOracleText(String(step.what.text || '')).trim().toLowerCase();
+  if (whatText !== 'any number of them') return false;
+  if (step.to !== 'graveyard') return false;
+  const toRaw = normalizeOracleText(String(step.toRaw || step.raw || '')).trim().toLowerCase();
+  return /\brest\b.*\b(?:on\s+top|top)\b.*\blibrary\b/i.test(toRaw);
+}
+
+function parseLookSelectTopSurveilGraveyardPair(
+  current: OracleEffectStep,
+  next: OracleEffectStep | undefined
+): OracleEffectStep | null {
+  if (!isSurveilReminderLookTopStep(current) || !isSurveilGraveyardRestMoveZoneStep(next)) {
+    return null;
+  }
+
+  const amount = (current as { amount?: ReturnType<typeof parseQuantity> }).amount;
+  if (!amount || amount.kind === 'unknown') return null;
+
+  const whereX = (current as { whereX?: OracleClauseCondition }).whereX;
+  const normalizedLook = normalizeOracleText(String(current.raw || '')).replace(/[.]+$/g, '').trim();
+  const normalizedMove = normalizeOracleText(String(next!.raw || '')).replace(/[.]+$/g, '').trim();
+
+  return {
+    kind: 'look_select_top',
+    who: (current as { who?: { kind: 'you' } }).who ?? { kind: 'you' },
+    amount,
+    ...(whereX ? { whereX } : {}),
+    choose: amount,
+    chooseMin: 0,
+    destination: 'graveyard',
+    restDestination: 'library',
+    restToTop: true,
+    ...(current.sequence ? { sequence: current.sequence } : {}),
+    raw: `${normalizedLook}. ${normalizedMove}`.trim(),
+  };
+}
+
+export function pruneRedundantSurveilReminderSteps(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const hasSurveil = ability.steps.some((step) => step.kind === 'surveil');
+    if (!hasSurveil) return ability;
+
+    const pruned = ability.steps.filter(
+      (step) => !isSurveilReminderLookTopStep(step) && !isSurveilGraveyardRestMoveZoneStep(step)
+    );
+    const withoutMergedSurveilTail = pruned.filter(
+      (step) =>
+        !(
+          step.kind === 'look_select_top'
+          && step.destination === 'graveyard'
+          && step.restDestination === 'library'
+        )
+    );
+
+    return withoutMergedSurveilTail.length === ability.steps.length
+      ? ability
+      : { ...ability, steps: withoutMergedSurveilTail };
+  });
+}
+
 export function mergeLookChooseFromTopAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -752,6 +826,13 @@ export function mergeLookChooseFromTopAbilities(
       const libraryReorder = parseLookTopPutOneOnTopRestBottomPair(current, next);
       if (libraryReorder) {
         merged.push(libraryReorder);
+        i += 1;
+        continue;
+      }
+
+      const surveilGraveyard = parseLookSelectTopSurveilGraveyardPair(current, next);
+      if (surveilGraveyard) {
+        merged.push(surveilGraveyard);
         i += 1;
         continue;
       }
@@ -2952,6 +3033,10 @@ function parseStructuredKeywordActionGrant(
 
   if (/^infect(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
     return [createStructuredKeywordActionGrantStep(['infect'], raw, sequence)];
+  }
+
+  if (/^devoid(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
+    return [createStructuredKeywordActionGrantStep(['devoid'], raw, sequence)];
   }
 
   if (/^fear(?:\s*\([^)]*\))?\.?$/i.test(raw)) {
@@ -8034,6 +8119,43 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
     return [];
   }
 
+  if (/^manifest dread twice$/i.test(raw)) {
+    const dreadStep = {
+      kind: 'manifest_dread',
+      who: { kind: 'you' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep;
+    return [dreadStep, { ...dreadStep }];
+  }
+
+  const manifestDreadConditional = raw.match(/^manifest dread if (.+)$/i);
+  if (manifestDreadConditional) {
+    return [{
+      kind: 'conditional',
+      condition: {
+        kind: 'if',
+        raw: normalizeLeadingConditionalCondition(String(manifestDreadConditional[1] || '').trim()),
+      },
+      steps: [{
+        kind: 'manifest_dread',
+        who: { kind: 'you' },
+        raw: 'manifest dread',
+      } as OracleEffectStep],
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^manifest dread$/i.test(raw)) {
+    return [{
+      kind: 'manifest_dread',
+      who: { kind: 'you' },
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
   if (/^(?:unleash\b|then\s+puts\s+one\s+onto\s+the\s+battlefield\s+face\s+down|(?:iv|v)\s+-\s+|jin-gitaxias\b|judge\b|jump\b|just\b|keyword\s*[→-]|kicker\b|kithkin\b|knights\b|kodama(?:'|’)s\s+reach\b|koh\b|kumena\b|land\b|landfall\b|lands\b|leave\b|legacy\b|legendary\s+partner\b|let(?:'|’)s\s+go\b|lethal\b|level\s+up\b|leviathan,\s+octopus,\s+or\s+serpent\b|life\s+and\s+limb\b|lifelink\b|lightning\s+bolt\b|liliana\b|look\b|lord\s+of\s+atlantis\b|loyalty\b|make\b|mana\b|manifest\b|mayhem\b|megalegendary\b|memory\s+lapse\b|menace\b|merchant\s+scroll\b|merfolk\b|merrow\b|mill\s+cards\s+equal\b|mobilize\b|modular-sunburst\b|monstrosity\b|moonfolk\s+offering\b|morph-|motivate\b|move\b|multicleave\b|multikicker\b|multiple\s+instances\b|myriad\b|nagas\b|name\b|negamorph\b|nice\s+try\b|ninjutsu\b|no\b|non-|noncreature\b|nonland\b|nontoken\b|note\b|offer\b|oil\b|oildying\b|oko\s+becomes\b|on\s+any\s+other\s+date\b|once\b|one\s+at\s+a\s+time\b|one\s+or\s+two\b|onionfect\b|only\b|opalescence\b|open\b|opponent\s+dredge\b|opponents\b|or\b|other\b|otherwise\b)/i.test(raw)) {
     return staticMetadata('pass39 residual', raw);
   }
@@ -9745,6 +9867,7 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       what: parseObjectSelector('all cards they exiled this way'),
       to: 'battlefield',
       toRaw: 'the battlefield',
+      battlefieldController: { kind: 'owner_of_moved_cards' },
       raw,
       sequence: 'then',
     } as OracleEffectStep];
@@ -15038,6 +15161,123 @@ export function mergeBattlefieldEntryAuraRewriteFollowupAbilities(
   }));
 }
 
+export function upgradeExiledThisWayReturnMoveZoneSteps(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => ({
+    ...ability,
+    steps: ability.steps.map((step) => {
+      if (step.kind !== 'move_zone' || step.to !== 'battlefield' || step.what.kind !== 'raw') {
+        return step;
+      }
+      const what = String(step.what.text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+      if (
+        what !== 'all cards they exiled this way' &&
+        what !== 'all cards exiled this way' &&
+        what !== 'cards they exiled this way' &&
+        what !== 'cards exiled this way'
+      ) {
+        return step;
+      }
+      return {
+        ...step,
+        battlefieldController: step.battlefieldController ?? { kind: 'owner_of_moved_cards' },
+      };
+    }),
+  }));
+}
+
+function mapCounteredSpellLibraryTopReplacementSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  return steps.map((step) => {
+    if (step.kind === 'conditional') {
+      return { ...step, steps: mapCounteredSpellLibraryTopReplacementSteps(step.steps) };
+    }
+    if (step.kind !== 'move_zone') return step;
+    const normalized = normalizeOracleText(String(step.raw || ''))
+      .replace(/^[()\s]+/, '')
+      .replace(/[.)\s]+$/g, '')
+      .trim();
+    if (
+      !/^put it on top of its owner(?:'s)? library instead of into that player(?:'s)? graveyard$/i.test(normalized) &&
+      !/^put that card on its owner(?:'s)? choice of the top or bottom of its library instead of into that player(?:'s)? graveyard$/i.test(
+        normalized
+      ) &&
+      !/^put that card on your choice of the top or bottom of its owner(?:'s)? library instead of into that player(?:'s)? graveyard$/i.test(
+        normalized
+      ) &&
+      !/^put it on the bottom of its owner(?:'s)? library instead of into that player(?:'s)? graveyard$/i.test(
+        normalized
+      )
+    ) {
+      return step;
+    }
+    return {
+      ...step,
+      what: { kind: 'raw', text: 'that spell' },
+      to: 'library',
+      toRaw: /choice of the top or bottom/i.test(normalized)
+        ? "its owner's library"
+        : /^put it on top of its owner/i.test(normalized)
+          ? "the top of its owner's library"
+          : "the bottom of its owner's library",
+    };
+  });
+}
+
+export function upgradeCounteredSpellLibraryTopReplacementSteps(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => ({
+    ...ability,
+    steps: mapCounteredSpellLibraryTopReplacementSteps(ability.steps),
+  }));
+}
+
+function mapThoseCardsBattlefieldInsteadOfHandSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  return steps.map((step) => {
+    if (step.kind === 'conditional') {
+      return { ...step, steps: mapThoseCardsBattlefieldInsteadOfHandSteps(step.steps) };
+    }
+    if (step.kind !== 'move_zone') return step;
+    const normalized = normalizeOracleText(String(step.raw || ''))
+      .replace(/^[()\s]+/, '')
+      .replace(/[.)\s]+$/g, '')
+      .trim();
+    if (!/^put those cards onto the battlefield instead of putting them into your hand$/i.test(normalized)) {
+      const oneInsteadMatch = normalized.match(
+        /^you may put one of those cards with mana value (\d+) or less onto the battlefield instead of putting it into your hand$/i
+      );
+      if (!oneInsteadMatch) {
+        return step;
+      }
+      const manaValueLte = String(oneInsteadMatch[1] || '').trim();
+      return {
+        ...step,
+        what: { kind: 'raw', text: `one of those cards with mana value ${manaValueLte} or less` },
+        to: 'battlefield',
+        toRaw: 'the battlefield',
+        battlefieldController: { kind: 'you' },
+      };
+    }
+    return {
+      ...step,
+      what: { kind: 'raw', text: 'those cards' },
+      to: 'battlefield',
+      toRaw: 'the battlefield',
+      battlefieldController: { kind: 'you' },
+    };
+  });
+}
+
+export function upgradeThoseCardsBattlefieldInsteadOfHandSteps(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => ({
+    ...ability,
+    steps: mapThoseCardsBattlefieldInsteadOfHandSteps(ability.steps),
+  }));
+}
+
 export function expandDeterministicMoveZoneFollowupAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -17030,9 +17270,31 @@ function isRedundantManifestOrCloakReminderStep(step: OracleEffectStep): boolean
   );
 }
 
+function isManifestDreadFaceDownSplitMoveZoneStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'move_zone') return false;
+  const raw = normalizeReminderStepRaw(step);
+  if (
+    /^(?:put\s+)?one onto the battlefield face down as a 2\/2 creature and the other into (?:your|their) graveyard$/i.test(raw) ||
+    /^put one of them onto the battlefield face down as a 2\/2 creature and the other into your graveyard$/i.test(raw)
+  ) {
+    return true;
+  }
+  if (step.what.kind !== 'raw') return false;
+  const what = normalizeOracleText(String(step.what.text || '')).trim().toLowerCase();
+  return what === 'one onto the battlefield face down as a 2/2 creature and the other';
+}
+
 function isRedundantManifestDreadReminderStep(step: OracleEffectStep): boolean {
   const normalized = normalizeReminderStepRaw(step);
   if (!normalized) return false;
+
+  if (isManifestDreadFaceDownSplitMoveZoneStep(step)) {
+    return true;
+  }
+
+  if (step.kind === 'look_top' && /^look at the top two cards of your library$/i.test(normalized)) {
+    return true;
+  }
 
   if (
     /^(?:then\s+)?puts? one onto the battlefield face down as a 2\/2 creature and the other into (?:your|their) graveyard$/i.test(normalized) ||
@@ -17046,6 +17308,84 @@ function isRedundantManifestDreadReminderStep(step: OracleEffectStep): boolean {
   }
 
   return step.kind === 'move_zone' && /^then put the rest into your graveyard$/i.test(normalized);
+}
+
+function buildManifestDreadStep(
+  who: OraclePlayerSelector,
+  raw: string,
+  sequence?: 'then'
+): OracleEffectStep {
+  return {
+    kind: 'manifest_dread',
+    who,
+    ...(sequence ? { sequence } : {}),
+    raw,
+  };
+}
+
+function tryUpgradeManifestDreadGrantStep(
+  step: OracleEffectStep
+): OracleEffectStep | OracleEffectStep[] | null {
+  if (step.kind !== 'grant_static_ability') return null;
+
+  const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  const normalized = normalizeOracleText(effectText || step.raw || '').replace(/[.]+$/g, '').trim();
+  if (!/\bmanifest dread\b/i.test(normalized)) return null;
+
+  const sequence = step.sequence;
+  if (/^manifest dread twice$/i.test(normalized)) {
+    const dreadStep = buildManifestDreadStep({ kind: 'you' }, normalized, sequence);
+    return [dreadStep, { ...dreadStep }];
+  }
+
+  const conditional = normalized.match(/^manifest dread if (.+)$/i);
+  if (conditional) {
+    return {
+      kind: 'conditional',
+      condition: {
+        kind: 'if',
+        raw: normalizeLeadingConditionalCondition(String(conditional[1] || '').trim()),
+      },
+      steps: [buildManifestDreadStep({ kind: 'you' }, 'manifest dread', sequence)],
+      ...(sequence ? { sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^its controller manifests dread$/i.test(normalized)) {
+    return buildManifestDreadStep({ kind: 'target_player' }, normalized, sequence);
+  }
+
+  if (/^manifest dread$/i.test(normalized)) {
+    return buildManifestDreadStep({ kind: 'you' }, normalized, sequence);
+  }
+
+  return null;
+}
+
+export function upgradeManifestDreadGrantAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const upgraded: OracleEffectStep[] = [];
+    let changed = false;
+
+    for (const step of ability.steps) {
+      const next = tryUpgradeManifestDreadGrantStep(step);
+      if (next) {
+        changed = true;
+        if (Array.isArray(next)) upgraded.push(...next);
+        else upgraded.push(next);
+        continue;
+      }
+      upgraded.push(step);
+    }
+
+    return changed ? { ...ability, steps: upgraded } : ability;
+  });
 }
 
 export function pruneRedundantFaceDownReminderUnknownAbilities(
@@ -17062,7 +17402,13 @@ export function pruneRedundantFaceDownReminderUnknownAbilities(
     const hasManifestDread = ability.steps.some((step) => step.kind === 'manifest_dread');
     const hasManifestReminderText = /\(to manifest a card, put it onto the battlefield face down as a 2\/2 creature\.?/i.test(normalizedText);
     const hasCloakReminderText = /\(to cloak a card, put it onto the battlefield face down as a 2\/2 creature with ward \{2\}\.?/i.test(normalizedText);
-    const hasManifestDreadReminderText = /\bmanifests? dread\.?\s*\((?:that player )?looks? at the top two cards of (?:your|their) library\./i.test(normalizedText);
+    const hasManifestDreadReminderText =
+      /\bmanifests? dread/i.test(normalizedText) &&
+      (
+        /\((?:to manifest dread, )?look at the top two cards of your library/i.test(normalizedText) ||
+        /\bput one onto the battlefield face down as a 2\/2 creature and the other into your graveyard/i.test(normalizedText) ||
+        /\bmanifests? dread\.?\s*\((?:that player )?looks? at the top two cards of (?:your|their) library\./i.test(normalizedText)
+      );
     if (!hasFaceDownMove && !hasManifestDread && !hasManifestReminderText && !hasCloakReminderText && !hasManifestDreadReminderText) {
       return ability;
     }
@@ -20105,7 +20451,13 @@ function isRedundantExploreReminderOnlyAbility(ability: OracleIRAbility): boolea
 export function pruneRedundantExploreReminderAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
-  const hasExploreStep = abilities.some((ability) => ability.steps.some((step) => step.kind === 'explore'));
+  const hasExploreStep = abilities.some((ability) =>
+    ability.steps.some(
+      (step) =>
+        step.kind === 'explore' ||
+        (step.kind === 'grant_static_ability' && /\bexplore\b/i.test(String(step.raw || step.keyword || '')))
+    )
+  );
   if (!hasExploreStep) return [...abilities];
 
   return abilities
@@ -20114,6 +20466,25 @@ export function pruneRedundantExploreReminderAbilities(
       return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
     })
     .filter((ability) => !isRedundantExploreReminderOnlyAbility(ability));
+}
+
+export function pruneMalformedExploreReminderMoveZoneSteps(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => ({
+    ...ability,
+    steps: ability.steps.filter((step) => {
+      if (step.kind !== 'move_zone' || step.what.kind !== 'raw') return true;
+      const what = String(step.what.text || '').trim().toLowerCase();
+      if (what === 'the card back or put it') return false;
+      const normalized = normalizeOracleText(String(step.raw || ''))
+        .replace(/^[()\s]+/, '')
+        .replace(/[.)\s]+$/g, '')
+        .trim()
+        .toLowerCase();
+      return !/^then put the card back or put it into your graveyard$/.test(normalized);
+    }),
+  }));
 }
 
 function isRedundantBestowReminderUnknownStep(step: OracleEffectStep): boolean {
@@ -22315,6 +22686,30 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
   }
 
   if (
+    /^put that card onto the battlefield and the rest into your graveyard$/i.test(raw) ||
+    /^that card onto the battlefield and the rest$/i.test(whatText)
+  ) {
+    return [
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('that card'),
+        to: 'battlefield',
+        toRaw: 'the battlefield',
+        raw: 'put that card onto the battlefield',
+        ...sharedMeta,
+      } as OracleEffectStep,
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('the rest'),
+        to: 'graveyard',
+        toRaw: 'your graveyard',
+        raw: 'put the rest into your graveyard',
+        ...sharedMeta,
+      } as OracleEffectStep,
+    ];
+  }
+
+  if (
     /^put that card onto the battlefield and shuffle all other cards revealed this way into your library$/i.test(raw) ||
     /^that card onto the battlefield and shuffle all other cards revealed this way into your library$/i.test(whatText)
   ) {
@@ -22375,6 +22770,33 @@ function trySplitBattlefieldAndOtherZoneCompoundStep(step: OracleEffectStep): re
         to: 'hand',
         toRaw: 'your hand',
         raw: 'put one of them onto the battlefield tapped and the other into your hand',
+        ...sharedMeta,
+      } as OracleEffectStep,
+    ];
+  }
+
+  if (
+    /^put all cards from the pile of your choice onto the battlefield under your control and the rest into their owners' graveyards$/i.test(
+      raw
+    ) ||
+    /^all cards from the pile of your choice onto the battlefield under your control and the rest$/i.test(whatText)
+  ) {
+    return [
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('all cards from the pile of your choice'),
+        to: 'battlefield',
+        toRaw: 'the battlefield under your control',
+        battlefieldController: { kind: 'you' },
+        raw: 'put all cards from the pile of your choice onto the battlefield under your control',
+        ...sharedMeta,
+      } as OracleEffectStep,
+      {
+        kind: 'move_zone',
+        what: parseObjectSelector('the rest'),
+        to: 'graveyard',
+        toRaw: "their owners' graveyards",
+        raw: "put the rest into their owners' graveyards",
         ...sharedMeta,
       } as OracleEffectStep,
     ];

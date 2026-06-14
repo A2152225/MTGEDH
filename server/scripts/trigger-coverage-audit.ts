@@ -38,6 +38,7 @@ import { detectMillTriggers } from '../src/state/modules/triggers/mill.js';
 import { detectBlockTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectCombatDamageTriggers } from '../src/state/modules/triggered-abilities.js';
 import { isExternallyHandledOracleFragmentText } from '../../rules-engine/src/oracleIRParserPostprocess.js';
+import type { OracleEffectStep } from '../../rules-engine/src/oracleIR.js';
 import { detectDeathTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectETBTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectLTBTriggers } from '../src/state/modules/triggered-abilities.js';
@@ -602,6 +603,8 @@ function isIgnorableUnknownIrGap(raw: string): boolean {
     /^this ability also triggers if this permanent is in your graveyard$/i.test(n) ||
     /^you may play an additional land on each of your turns$/i.test(n) ||
     /^this land enters tapped$/i.test(n) ||
+    /^tapped$/i.test(n) ||
+    /^devoid$/i.test(n) ||
     /^convert it$/i.test(n) ||
     /^you may choose a creature card in your hand$/i.test(n) ||
     /^when you do, cast it for its madness cost or put it into your graveyard\.\)?$/i.test(n) ||
@@ -784,6 +787,12 @@ export function hasUnknownIRSteps(effectText: string, cardName: string): string[
     }
   }
 
+  return gaps.filter((gap) => !isIgnorableUnknownIrGap(gap));
+}
+
+export function collectUnknownIrGapsFromSteps(steps: readonly OracleEffectStep[]): string[] {
+  const gaps: string[] = [];
+  for (const step of steps) collectUnknownSteps(step, gaps, true);
   return gaps.filter((gap) => !isIgnorableUnknownIrGap(gap));
 }
 

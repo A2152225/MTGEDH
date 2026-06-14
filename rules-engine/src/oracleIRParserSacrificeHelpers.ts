@@ -144,6 +144,9 @@ export function abilityEffectText(ability: ParsedAbility): string {
 
 export function inferZoneFromDestination(destination: string): OracleZone {
   const s = String(destination || '').toLowerCase();
+  if (/\b(?:onto|on to)\s+the\s+battlefield\b/.test(s) || /^the\s+battlefield\b/.test(s.trim())) {
+    return 'battlefield';
+  }
   if (/\bhands?\b/.test(s)) return 'hand';
   if (/\bbattlefields?\b/.test(s)) return 'battlefield';
   if (/\bgraveyards?\b/.test(s)) return 'graveyard';

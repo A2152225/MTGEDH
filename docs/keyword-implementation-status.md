@@ -138,7 +138,7 @@ Generated: 2026-03-26T07:55:26.464Z
 | Improvise | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\improvise.ts` |
 | Incubate | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\incubate.ts` |
 | Indestructible | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\indestructible.ts` |
-| Infect | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\infect.ts` |
+| Infect | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\infect.ts` + `server\src\state\modules\combat-damage-processing.ts` (batch 280) |
 | Infinity | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\infinity.ts` |
 | Ingest | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\ingest.ts` |
 | Investigate | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\investigate.ts` |
@@ -180,7 +180,7 @@ Generated: 2026-03-26T07:55:26.464Z
 | Planeswalk | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\planeswalk.ts` |
 | Play | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\play.ts` |
 | Plot | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\plot.ts` |
-| Poisonous | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\poisonous.ts` |
+| Poisonous | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\poisonous.ts` + `combat-damage-processing.ts` (batch 280 combat) |
 | Populate | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\populate.ts` |
 | Proliferate | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\proliferate.ts` |
 | Protection | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\protection.ts` |
@@ -236,7 +236,7 @@ Generated: 2026-03-26T07:55:26.464Z
 | Tap Untap | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\tapUntap.ts` |
 | Tiered | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\tiered.ts` |
 | Time Travel | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\timeTravel.ts` |
-| Toxic | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\toxic.ts` |
+| Toxic | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\toxic.ts` + `combat-damage-processing.ts` (batch 280 combat) |
 | Training | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\training.ts` |
 | Trample | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\trample.ts` |
 | Transfigure | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\transfigure.ts` |
@@ -258,7 +258,7 @@ Generated: 2026-03-26T07:55:26.464Z
 | Warp | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\warp.ts` |
 | Waterbend | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\waterbend.ts` |
 | Web Slinging | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\webSlinging.ts` |
-| Wither | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\wither.ts` |
+| Wither | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\wither.ts` + `combat-damage-processing.ts` (batch 280) |
 
 ## Gameplay Automation Status (Non-keyword rules)
 
@@ -267,7 +267,7 @@ Generated: 2026-03-26T07:55:26.464Z
 | Feature | Category | Status | Details |
 |---|---|---|---|
 | Beginning of Combat Step | Combat Phase | ✅ Fully Implemented | Combat begins, defending player selected in multiplayer (Rule 506, 703.4h) |
-| Combat Damage Application | Combat Phase | ✅ Fully Implemented | Combat damage is dealt simultaneously and automatically (Rule 510.2) |
+| Combat Damage Application | Combat Phase | ✅ Fully Implemented | Live server: `turn.ts` `dealCombatDamage` via `combat-damage-processing.ts` (batch 280). Rules-engine: `combatDamageEnhanced.ts` / `executeCombatDamage`. |
 | Combat Damage Assignment | Combat Phase | 🔶 Partially Implemented | Damage assignment is automated but complex blocking may need input (Rule 510, 703.4k-m) |
 | Declare Attackers | Combat Phase | 🔶 Partially Implemented | Active player manually selects which creatures attack (Rule 508, 703.4i) |
 | Declare Blockers | Combat Phase | 🔶 Partially Implemented | Defending player manually selects blockers (Rule 509, 703.4j) |

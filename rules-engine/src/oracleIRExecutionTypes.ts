@@ -260,6 +260,30 @@ export interface OracleIRExecutionContext {
   readonly teamworkWasPaid?: boolean;
   /** Whether an optional spell additional cost (e.g. waterbend) was paid when casting. */
   readonly optionalAdditionalCostWasPaid?: boolean;
+  /** Whether the activated ability being copied/triggered is a mana ability. */
+  readonly activatedAbilityIsManaAbility?: boolean;
+  /** Whether a spell was cast via an alternate "this way" permission in the same resolution. */
+  readonly spellCastThisWay?: boolean;
+  /** Whether a creature spell was cast via an alternate "this way" permission in the same resolution. */
+  readonly creatureSpellCastThisWay?: boolean;
+  /** Whether mana from the resolving ability was spent to cast a creature spell. */
+  readonly manaSpentOnCreatureSpell?: boolean;
+  /** Whether the referenced spell was cast without paying mana. */
+  readonly noManaSpentToCast?: boolean;
+  /** Whether the controller would lose the game from the current event (replacement check). */
+  readonly wouldLoseTheGame?: boolean;
+  /** Quality satisfied by the most recent behold action in this resolution (e.g. dragon). */
+  readonly beheldQuality?: string;
+  /** Whether a Dragon card was revealed while casting the resolving spell. */
+  readonly revealedDragonAsCast?: boolean;
+  /** Whether a Dragon was controlled while casting the resolving spell. */
+  readonly controlledDragonAsCast?: boolean;
+  /** Whether the referenced creature died from the immediately preceding destroy/damage step. */
+  readonly creatureDiedThisWay?: boolean;
+  /** Whether the resolving permanent entered the battlefield because it was cast. */
+  readonly wasCast?: boolean;
+  /** Permanent id chosen as Ring-bearer when the Ring last tempted the controller. */
+  readonly chosenRingBearerId?: string;
   /** Alias for optional spell additional costs such as waterbend. */
   readonly waterbendWasPaid?: boolean;
   /** Whether an alternate "rather than pay this spell's mana cost" cost was paid. */

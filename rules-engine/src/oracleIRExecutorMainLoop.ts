@@ -2572,7 +2572,14 @@ export function applyOracleIRStepsToGameStateImpl(
             ...currentCtx,
             selectorContext: {
               ...(currentCtx.selectorContext || {}),
-              chosenObjectIds: tappedIds,
+              chosenObjectIds: Array.from(
+                new Set([
+                  ...(Array.isArray(currentCtx.selectorContext?.chosenObjectIds)
+                    ? currentCtx.selectorContext.chosenObjectIds
+                    : []),
+                  ...tappedIds,
+                ])
+              ),
             },
           };
         }
@@ -2640,6 +2647,9 @@ export function applyOracleIRStepsToGameStateImpl(
               lastExiledCardCount = appliedResult.lastMovedCards.length;
             }
           }
+          if (typeof appliedResult.lastReferenceAmount === 'number' && Number.isFinite(appliedResult.lastReferenceAmount)) {
+            lastReferenceAmount = Math.max(0, Number(appliedResult.lastReferenceAmount) || 0);
+          }
           lastMovedBattlefieldPermanentIds = Array.isArray(appliedResult.lastMovedBattlefieldPermanentIds)
             ? [...appliedResult.lastMovedBattlefieldPermanentIds]
             : [];
@@ -2648,6 +2658,9 @@ export function applyOracleIRStepsToGameStateImpl(
             lastMovedCards,
             ...(lastExiledCards.length > 0 ? { lastExiledCards } : {}),
             lastMovedBattlefieldPermanentIds,
+            ...(typeof lastReferenceAmount === 'number' && Number.isFinite(lastReferenceAmount)
+              ? { referenceAmount: lastReferenceAmount }
+              : {}),
           };
         });
         break;

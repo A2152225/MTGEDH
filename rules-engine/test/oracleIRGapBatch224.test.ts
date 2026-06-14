@@ -51,4 +51,13 @@ describe('Oracle IR gap batch 224 support', () => {
     expect(collectUnknowns(ir)).toEqual([]);
     expect(ir.abilities).toEqual([]);
   });
+
+  it('parses bare Devoid as a structured keyword grant', () => {
+    const ir = parseOracleTextToIR('Devoid', 'Void Grafter');
+    expect(collectUnknowns(ir)).toEqual([]);
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'grant_static_ability',
+      abilities: ['devoid'],
+    });
+  });
 });

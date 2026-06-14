@@ -14,7 +14,7 @@ import {
 } from './oracleIRExecutorBattlefieldParser';
 import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 import { stampCardPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
-import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
+import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { putAttractionInJunkyard, shouldAttractionGoToCommandZone } from './remainingCardTypes';
 
 function permanentMatchesTapTargetType(perm: BattlefieldPermanent, type: SimplePermanentType | null): boolean {
@@ -375,6 +375,38 @@ export function permanentMatchesSelector(
     const sourceId = String(ctx.sourceId || '').trim();
     const permanentId = String((perm as any)?.id || '').trim();
     if (sourceId && permanentId === sourceId) return false;
+  }
+
+  if (sel.tappedOnly && (perm as any)?.tapped !== true && (perm as any)?.isTapped !== true) {
+    return false;
+  }
+
+  if (sel.nontokenOnly && (perm as any)?.isToken) {
+    return false;
+  }
+
+  if (sel.usesChosenCreatureType) {
+    const chosenType = String(ctx.selectorContext?.chosenCreatureType || '').trim().toLowerCase();
+    if (!chosenType || !hasExecutorClass(perm, 'creature')) return false;
+    if (!getExecutorTypeLineLower(perm).includes(chosenType)) return false;
+  }
+
+  if (sel.tokenOnly && !(perm as any)?.isToken) {
+    return false;
+  }
+
+  if (sel.attackingOnly) {
+    const attacking = Boolean(
+      (perm as any)?.attacking ||
+        (perm as any)?.attackedThisTurn ||
+        (perm as any)?.attackingPlayerId ||
+        (perm as any)?.isAttacking
+    );
+    if (!attacking) return false;
+  }
+
+  if (sel.typeLineTermsAnyOf && sel.typeLineTermsAnyOf.length > 0) {
+    if (!sel.typeLineTermsAnyOf.some(term => hasExecutorClass(perm, String(term || '').trim()))) return false;
   }
 
   if (sel.types.includes('permanent')) return true;

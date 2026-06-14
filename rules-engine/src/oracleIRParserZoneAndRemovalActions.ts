@@ -409,8 +409,20 @@ export function tryParseZoneAndRemovalClause(args: {
   }
 
   {
+    const forEachAttackingCreatureOwnerLibraryChoice = clause.match(
+      /^for each attacking creature, its owner puts it on their choice of the top or bottom of their library$/i
+    );
+    if (forEachAttackingCreatureOwnerLibraryChoice) {
+      return parseMoveZoneStep({
+        whatRaw: 'each attacking creature',
+        toRaw: "top or bottom of its owner's library",
+        rawClause,
+        withMeta,
+      });
+    }
+
     const targetOwnerPutsOnLibraryMatch = clause.match(
-      /^(.+?)'?s\s+owner\s+puts?\s+it\s+on\s+their\s+choice\s+of\s+the\s+top\s+or\s+bottom\s+of\s+their\s+library$/i
+      /^(.+?)(?:'s|'s)\s+owner\s+puts?\s+it\s+on\s+their\s+choice\s+of\s+the\s+top\s+or\s+bottom\s+of\s+their\s+library$/i
     );
     if (targetOwnerPutsOnLibraryMatch) {
       return parseMoveZoneStep({
