@@ -555,6 +555,37 @@ export function enrichAuditStateAndContextForTargets(
     } as typeof nextCtx;
   }
 
+  const needsRevealExileChain =
+    steps.some((step) => step.kind === 'reveal_hand') &&
+    steps.some((step) => step.kind === 'exile' && /\bthat card\b/i.test(String(step.raw || '')));
+  if (needsRevealExileChain) {
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        chosenCardName: 'Opt',
+        chosenObjectIds: ['hand-p2-6'],
+      },
+    } as typeof nextCtx;
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p2') return player;
+        const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+        return {
+          ...player,
+          hand: hand.map((card: any) =>
+            String(card?.id || '').trim() === 'hand-p2-6'
+              ? { ...card, name: card?.name || 'Opt', type_line: card?.type_line || 'Instant', cmc: 1, manaValue: 1 }
+              : card
+          ),
+        };
+      }),
+    } as GameState;
+  }
+
   const needsOpponentGraveyardReturn = steps.some(
     (step) =>
       step.kind === 'move_zone' &&
@@ -10014,8 +10045,30 @@ export function enrichAuditStateAndContextForTargets(
     if (step.kind === 'modify_pt' && /gained life this turn|controls no other creatures/i.test(raw)) {
       needsGainedLifeThisTurn = true;
     }
-    if (step.kind === 'conditional') {
-      const conditionRaw = String((step as any).condition?.raw || raw).toLowerCase();
+    const stepConditionRawForEnrich = String(
+      (step as any).condition?.raw || (step as any).unlessCondition?.raw || ''
+    ).trim();
+    const inlineConditionRawForEnrich =
+      step.kind === 'modify_pt' ||
+      step.kind === 'draw' ||
+      step.kind === 'discard' ||
+      step.kind === 'destroy' ||
+      step.kind === 'exile' ||
+      step.kind === 'move_zone'
+        ? String(step.raw || '').trim()
+        : '';
+    const mergedConditionRawForEnrich = (stepConditionRawForEnrich || inlineConditionRawForEnrich).toLowerCase();
+    if (
+      step.kind === 'conditional' ||
+      ((step.kind === 'modify_pt' ||
+        step.kind === 'draw' ||
+        step.kind === 'discard' ||
+        step.kind === 'destroy' ||
+        step.kind === 'exile' ||
+        step.kind === 'move_zone') &&
+        mergedConditionRawForEnrich)
+    ) {
+      const conditionRaw = mergedConditionRawForEnrich || String(raw).toLowerCase();
       if (/invitation counters on it/.test(conditionRaw)) {
         sourceCounterSeeds['invitation'] = Math.max(sourceCounterSeeds['invitation'] || 0, 3);
       }
@@ -11481,6 +11534,927 @@ export function enrichAuditStateAndContextForTargets(
           ],
         } as GameState;
       }
+      if (/^it's modified$|^it is modified$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-source'
+            ),
+            {
+              id: 'bf-source',
+              controller: 'p1',
+              type_line: 'Legendary Creature — Human',
+              counters: { '+1/+1': 1 },
+            },
+          ],
+        } as GameState;
+      }
+      if (/^you control no goblins$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-human'
+            ),
+            { id: 'bf-human', controller: 'p1', type_line: 'Creature — Human' },
+          ],
+        } as GameState;
+      }
+      if (/artifact or creature was put into a graveyard from the battlefield this turn/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          artifactOrCreaturePutIntoGraveyardFromBattlefieldThisTurn: true,
+        } as GameState;
+      }
+      if (/^no colored mana was spent to cast it$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          targetSpellId: 'stack-spell-1',
+          noColoredManaSpentToCast: true,
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [
+            {
+              id: 'stack-spell-1',
+              controller: 'p1',
+              type_line: 'Sorcery',
+              manaSpentBreakdown: { colorless: 2, white: 0, blue: 0, black: 0, red: 0, green: 0 },
+            },
+          ],
+        } as GameState;
+      }
+      if (/^she was a nonland creature$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-source'
+            ),
+            {
+              id: 'bf-source',
+              controller: 'p1',
+              type_line: 'Legendary Creature — Human Noble Ally',
+            },
+          ],
+        } as GameState;
+      }
+      if (/didn't attack or come under your control this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-source'
+            ),
+            {
+              id: 'bf-source',
+              controller: 'p1',
+              type_line: 'Creature — Dog',
+              attackedThisTurn: false,
+              cameUnderYourControlThisTurn: false,
+              gainedControlThisTurn: false,
+              enteredThisTurn: false,
+            },
+          ],
+        } as GameState;
+      }
+      if (/^it has mutate$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [
+            {
+              id: 'stack-spell-1',
+              controller: 'p1',
+              type_line: 'Creature — Frog',
+              oracle_text: 'Mutate {1}{G}',
+            },
+          ],
+        } as GameState;
+      }
+      if (/^you control a white or blue permanent$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-white-perm'
+            ),
+            {
+              id: 'bf-white-perm',
+              controller: 'p1',
+              type_line: 'Creature — Soldier',
+              colors: ['W'],
+            },
+          ],
+        } as GameState;
+      }
+      if (/^this creature wasn't kicked$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(nextState.battlefield || []).filter(
+              (perm: any) => String(perm?.id || '').trim() !== 'bf-source'
+            ),
+            {
+              id: 'bf-source',
+              controller: 'p1',
+              type_line: 'Creature — Elemental',
+              wasKicked: false,
+            },
+          ],
+        } as GameState;
+      }
+      if (/^the token is an aura$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-token', controller: 'p1', isToken: true, type_line: 'Token Enchantment — Aura' }],
+        } as GameState;
+        nextCtx = { ...nextCtx, sourceId: 'bf-token', targetPermanentId: 'bf-token' } as typeof nextCtx;
+      }
+      if (/^\{[wubrg]\}\{[wubrg]\} was spent to cast this spell$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [{ id: 'stack-spell-1', manaSpentBreakdown: { white: 1, blue: 1, black: 0, red: 0, green: 0 } }],
+        } as GameState;
+      }
+      if (/ or more cards are in your graveyard$/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', graveyard: new Array(8).fill({ type_line: 'Instant' }) }],
+        } as GameState;
+      }
+      if (/greatest mana value or tied for the greatest mana value/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-art', controller: 'p1', type_line: 'Artifact', manaValue: 5 }],
+        } as GameState;
+      }
+      if (/no mining counters on this land/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Land', counters: { mining: 0 } }],
+        } as GameState;
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+      }
+      if (/ or more artifacts entered the battlefield under your control this turn/i.test(conditionRaw)) {
+        (nextState as any).artifactsEnteredBattlefieldThisTurnByController = { p1: 3 };
+      }
+      if (/life total is less than your starting life total/i.test(conditionRaw)) {
+        nextState = { ...nextState, startingLife: 40, players: [{ id: 'p1', life: 35 }] } as GameState;
+      }
+      if (/the sacrificed creature was (white|blue|black|red|green)$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastSacrificedPermanents: [{ type_line: 'Creature — Zombie', colors: ['B'] }],
+        } as typeof nextCtx;
+      }
+      if (/it wasn't a /i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastSacrificedPermanents: [{ type_line: 'Creature — Human' }],
+        } as typeof nextCtx;
+      }
+      if (/your team gained life this turn/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          teams: [{ playerIds: ['p1', 'p2'] }],
+          lifeGainedThisTurn: { p1: 0, p2: 2 },
+        } as GameState;
+      }
+      if (/hanweir garrison/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-source', controller: 'p1', owner: 'p1', type_line: 'Land' },
+            { id: 'bf-garrison', name: 'Hanweir Garrison', controller: 'p1', owner: 'p1', type_line: 'Creature — Human' },
+          ],
+        } as GameState;
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+      }
+      if (/all lands on the battlefield are islands/i.test(conditionRaw)) {
+        nextState = { ...nextState, battlefield: [{ type_line: 'Land — Island' }] } as GameState;
+      }
+      if (/this permanent attacked this combat/i.test(conditionRaw)) {
+        (nextState as any).attackersDeclaredThisCombatByPlayer = { p1: [{ id: 'bf-source' }] };
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+      }
+      if (/^that card is snow$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = { ...nextState, battlefield: [{ id: 'bf-snow', type_line: 'Snow Land — Island' }] } as GameState;
+      }
+      if (/you control exactly one creature/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-only', controller: 'p1', type_line: 'Creature — Human' }],
+        } as GameState;
+      }
+      if (/no player does/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, optionalOfferAccepted: false } as typeof nextCtx;
+      }
+      if (/it had a counter on it/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ counters: { '+1/+1': 1 } }],
+        } as typeof nextCtx;
+      }
+      if (/amount of mana spent to cast that spell was less than its mana value/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [{ id: 'stack-spell-1', manaValue: 5, manaSpentTotal: 2 }],
+        } as GameState;
+      }
+      if (/you created a token this turn/i.test(conditionRaw)) {
+        (nextState as any).tokensCreatedThisTurn = { p1: 1 };
+      }
+      if (/god, a demigod, or a legendary enchantment/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-god', controller: 'p1', type_line: 'Legendary Enchantment Creature — God' }],
+        } as GameState;
+      }
+      if (/an opponent has 0 or less life/i.test(conditionRaw)) {
+        nextState = { ...nextState, players: [{ id: 'p1', life: 20 }, { id: 'p2', life: 0 }] } as GameState;
+      }
+      if (/only creature card in your graveyard/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', graveyard: [{ id: 'bf-source', type_line: 'Creature — Spirit' }] }],
+        } as GameState;
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+      }
+      if (/from anywhere other than your hand/i.test(conditionRaw)) {
+        (nextState as any).castFromGraveyardThisTurn = { p1: true };
+      }
+      if (/^a player discarded a card this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).discardedCardThisTurn = { p1: false, p2: true };
+      }
+      if (/\{s\} of any of that spell's colors was spent/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [{ id: 'stack-spell-1', colors: ['G'], snowManaOfSpellColorsSpentKnown: true, snowManaOfSpellColorsSpent: true }],
+        } as GameState;
+      }
+      if (/you had a land enter the battlefield under your control this turn/i.test(conditionRaw)) {
+        (nextState as any).landsEnteredBattlefieldThisTurn = { p1: 1 };
+      }
+      if (/quest counters on this permanent/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          attackersDeclaredThisCombatByPlayer: { p1: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] },
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Artifact', counters: { quest: 1 } }],
+        } as GameState;
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+      }
+      if (/this creature has defender/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Golem', oracle_text: 'Defender' }],
+        } as GameState;
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+      }
+      if (/^a white creature is attacking$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-white', controller: 'p2', type_line: 'Creature — Soldier', colors: ['W'], attacking: true, defendingPlayerId: 'p1' }],
+        } as GameState;
+      }
+      if (/each opponent who cast a spell this turn with the same name as that card/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, referencedCardName: 'Lightning Bolt' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1' }, { id: 'p2' }],
+          spellsCastThisTurn: [{ casterId: 'p2', name: 'Lightning Bolt' }],
+        } as GameState;
+      }
+      if (/they were attacked this turn by an assassin you controlled/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, thatPlayerId: 'p2' } as typeof nextCtx;
+        (nextState as any).attackedByAssassinThisTurnByPlayer = { p1: { p2: true } };
+      }
+      if (/^the sacrificed artifact was legendary$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastSacrificedPermanents: [{ type_line: 'Legendary Artifact' }],
+        } as typeof nextCtx;
+      }
+      if (/^a nonred permanent is dealt damage this way$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ type_line: 'Artifact', colors: ['U'] }],
+          lastActionOutcome: { kind: 'applied', stepKind: 'deal_damage' },
+        } as typeof nextCtx;
+      }
+      if (/^your life total is less than 7$/i.test(conditionRaw.trim())) {
+        nextState = { ...nextState, players: [{ id: 'p1', life: 6 }] } as GameState;
+      }
+      if (/it had power greater than drizzt's power/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-drizzt', lastMovedCards: [{ power: 5 }] } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-drizzt', controller: 'p1', type_line: 'Legendary Creature — Human', power: 3 }],
+        } as GameState;
+      }
+      if (/a land you controlled was put into a graveyard from the battlefield this turn/i.test(conditionRaw)) {
+        (nextState as any).landYouControlledPutIntoGraveyardFromBattlefieldThisTurn = { p1: true };
+      }
+      if (/^defending player controls no walls$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, defendingPlayerId: 'p2', sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-source', controller: 'p1', type_line: 'Creature — Dragon', attacking: 'p2' },
+            { id: 'bf-human', controller: 'p2', type_line: 'Creature — Human' },
+          ],
+        } as GameState;
+      }
+      if (/^you have exactly 13 life$/i.test(conditionRaw.trim())) {
+        nextState = { ...nextState, players: [{ id: 'p1', life: 13 }] } as GameState;
+      }
+      if (/at least one other wall creature is blocking that creature and no non-wall creatures are blocking that creature/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          sourceId: 'bf-wall-src',
+          thatCreatureId: 'bf-attacker',
+          blockingCreatureIds: ['bf-wall-1', 'bf-wall-2'],
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-wall-src', controller: 'p1', type_line: 'Creature — Wall' },
+            { id: 'bf-attacker', controller: 'p2', type_line: 'Creature — Human', blockedBy: ['bf-wall-1', 'bf-wall-2'] },
+            { id: 'bf-wall-1', controller: 'p1', type_line: 'Creature — Wall', blocking: 'bf-attacker' },
+            { id: 'bf-wall-2', controller: 'p1', type_line: 'Creature — Wall', blocking: 'bf-attacker' },
+          ],
+        } as GameState;
+      }
+      if (/^x is 5 or more$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, xValue: 5 } as typeof nextCtx;
+      }
+      if (/^it's a goblin or orc$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-goblin' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-goblin', controller: 'p1', type_line: 'Creature — Goblin' }],
+        } as GameState;
+      }
+      if (/^enchanted creature is a wolf or werewolf$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-aura' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-aura', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-wolf' },
+            { id: 'bf-wolf', controller: 'p1', type_line: 'Creature — Wolf' },
+          ],
+        } as GameState;
+      }
+      if (/that creature's power is greater than this creature's/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source', targetCreatureId: 'bf-entering' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-source', controller: 'p1', type_line: 'Creature — Human', power: 2 },
+            { id: 'bf-entering', controller: 'p1', type_line: 'Creature — Bear', power: 4 },
+          ],
+        } as GameState;
+      }
+      if (/a creature card was put into your graveyard from anywhere this turn/i.test(conditionRaw)) {
+        (nextState as any).creatureCardPutIntoYourGraveyardThisTurn = { p1: true };
+      }
+      if (/that player didn't cast a creature spell this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, thatPlayerId: 'p2' } as typeof nextCtx;
+        nextState = { ...nextState, spellsCastThisTurn: [{ casterId: 'p2', card: { type_line: 'Instant' } }] } as GameState;
+      }
+      if (/^you control a green or white permanent$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-green', controller: 'p1', type_line: 'Creature — Elf', colors: ['G'] }],
+        } as GameState;
+      }
+      if (/an opponent drew three or more cards this turn/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1' }, { id: 'p2' }],
+          cardsDrawnThisTurn: { p1: 0, p2: 3 },
+        } as GameState;
+      }
+      if (/^exactly one creature is attacking$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-atk', controller: 'p1', type_line: 'Creature — Soldier', attacking: true }],
+        } as GameState;
+      }
+      if (/^defending player controls no black permanents$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, defendingPlayerId: 'p2', sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-source', controller: 'p1', type_line: 'Creature — Spirit', attacking: 'p2' },
+            { id: 'bf-green', controller: 'p2', type_line: 'Creature — Elf', colors: ['G'] },
+          ],
+        } as GameState;
+      }
+      if (/^an opponent would mill one or more cards$/i.test(conditionRaw.trim())) {
+        /* replacement stub returns true */
+      }
+      if (/it targets one or more other permanents you control/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          sourceId: 'bf-source',
+          stackItem: { targets: ['bf-other'] },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-source', controller: 'p1', type_line: 'Creature — Shapeshifter' },
+            { id: 'bf-other', controller: 'p1', type_line: 'Creature — Bear' },
+          ],
+        } as GameState;
+      }
+      if (/the gift was promised and that creature isn't legendary/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          giftPromised: true,
+          targetPermanentId: 'bf-zombie',
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-zombie', controller: 'p1', type_line: 'Creature — Zombie' }],
+        } as GameState;
+      }
+      if (/^it has a counter on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', counters: { '+1/+1': 1 } }],
+        } as GameState;
+      }
+      if (/a player controls more creatures than each other player/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }],
+          battlefield: [
+            { id: 'c1', controller: 'p1', type_line: 'Creature — Human' },
+            { id: 'c2', controller: 'p2', type_line: 'Creature — Human' },
+            { id: 'c3', controller: 'p3', type_line: 'Creature — Human' },
+            { id: 'c4', controller: 'p3', type_line: 'Creature — Human' },
+            { id: 'c5', controller: 'p3', type_line: 'Creature — Human' },
+          ],
+        } as GameState;
+      }
+      if (/^this artifact has loyalty counters on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-beacon' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-beacon', controller: 'p1', type_line: 'Artifact', counters: { loyalty: 2 } }],
+        } as GameState;
+      }
+      if (/you or a player you're attacking has the initiative/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          initiative: 'p1',
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Soldier', attacking: 'p2' }],
+        } as GameState;
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+      }
+      if (/^a creature card is put into a graveyard this way$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ type_line: 'Creature — Zombie' }],
+          lastActionOutcome: { kind: 'applied', stepKind: 'destroy' },
+        } as typeof nextCtx;
+      }
+      if (/^that creature was green or white$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ type_line: 'Creature — Elf', colors: ['G'] }] } as typeof nextCtx;
+      }
+      if (/^you have exactly 1 life$/i.test(conditionRaw.trim())) {
+        nextState = { ...nextState, players: [{ id: 'p1', life: 1 }] } as GameState;
+      }
+      if (/^you control neither creature$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-a',
+          secondTargetPermanentId: 'bf-b',
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-a', controller: 'p2', type_line: 'Creature — Human' },
+            { id: 'bf-b', controller: 'p3', type_line: 'Creature — Bear' },
+          ],
+          players: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }],
+        } as GameState;
+      }
+      if (/ten or more creature cards total in all graveyards/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1', graveyard: new Array(5).fill({ type_line: 'Creature — Zombie' }) },
+            { id: 'p2', graveyard: new Array(5).fill({ type_line: 'Creature — Zombie' }) },
+          ],
+        } as GameState;
+      }
+      if (/^its spectacle cost was paid$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          targetSpellId: 'stack-spell-1',
+          stackItem: { alternateCostId: 'spectacle' },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [{ id: 'stack-spell-1', alternateCostId: 'spectacle' }],
+        } as GameState;
+      }
+      if (/creature spell you cast this turn was countered by a spell or ability an opponent controlled/i.test(conditionRaw)) {
+        (nextState as any).creatureSpellsCounteredByOpponentThisTurn = { p1: true };
+      }
+      if (/you haven't added mana with this ability this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source', abilityId: '0' } as typeof nextCtx;
+        (nextState as any).addedManaWithThisAbilityThisTurn = { p1: {} };
+      }
+      if (/^it was attacking$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p2', type_line: 'Creature — Soldier', attackedThisTurn: true }],
+        } as GameState;
+      }
+      if (/^x is 5 or more, for each artifact destroyed this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, xValue: 5, lastActionOutcome: { kind: 'applied', stepKind: 'destroy' } } as typeof nextCtx;
+      }
+      if (/that player attacked you during their last turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, thatPlayerId: 'p2' } as typeof nextCtx;
+        (nextState as any).attackedYouLastTurnByPlayer = { p1: { p2: true } };
+      }
+      if (/you win, at the beginning of your next main phase/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, lastClashWon: true } as typeof nextCtx;
+      }
+      if (/^target opponent controls more lands than you$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetOpponentId: 'p2' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'l1', controller: 'p1', type_line: 'Land' },
+            { id: 'l2', controller: 'p2', type_line: 'Land' },
+            { id: 'l3', controller: 'p2', type_line: 'Land' },
+          ],
+        } as GameState;
+      }
+      if (/haven't completed tomb of annihilation/i.test(conditionRaw)) {
+        (nextState as any).completedDungeonNames = { p1: [] };
+      }
+      if (/that library contains exactly the chosen number of cards with the chosen name/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          chosenCardName: 'Lightning Bolt',
+          chosenNumber: 2,
+          selectorContext: { chosenCardName: 'Lightning Bolt', chosenNumber: 2 },
+          lastMovedCards: [{ name: 'Lightning Bolt' }, { name: 'Lightning Bolt' }],
+        } as typeof nextCtx;
+      }
+      if (/enlisted a creature this combat/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Soldier', enlistedThisCombat: true }],
+        } as GameState;
+      }
+      if (/^it isn't a token$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', isToken: false }],
+        } as GameState;
+      }
+      if (/^you control another spirit$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-source', controller: 'p1', type_line: 'Creature — Spirit' },
+            { id: 'bf-other', controller: 'p1', type_line: 'Creature — Spirit' },
+          ],
+        } as GameState;
+      }
+      if (/three or more mana from creatures was spent to cast it/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [{ id: 'stack-spell-1', manaFromCreaturesSpent: 3 }],
+        } as GameState;
+      }
+      if (/you've cast an instant or sorcery spell this turn/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          spellsCastThisTurn: [{ casterId: 'p1', card: { type_line: 'Instant' } }],
+        } as GameState;
+      }
+      if (/^his sneak cost was paid$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [{ id: 'stack-spell-1', alternateCostId: 'sneak' }],
+        } as GameState;
+      }
+      if (/soul counters on this enchantment/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Enchantment', counters: { soul: 2 } }],
+          stack: [{ id: 'stack-spell-1', manaValue: 3 }],
+        } as GameState;
+      }
+      if (/^no mana was spent to cast that spell$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1', noManaSpentToCast: true } as typeof nextCtx;
+        nextState = { ...nextState, stack: [{ id: 'stack-spell-1', manaSpentTotal: 0 }] } as GameState;
+      }
+      if (/^it's not that player's turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPlayerId: 'p2', selectorContext: { targetPlayerId: 'p2' } } as typeof nextCtx;
+        nextState = { ...nextState, turnPlayer: 'p1' } as GameState;
+      }
+      if (/^you control another knight$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-source', controller: 'p1', type_line: 'Creature — Knight' },
+            { id: 'bf-other', controller: 'p1', type_line: 'Creature — Knight' },
+          ],
+        } as GameState;
+      }
+      if (/sacrificed creature was suspected/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastSacrificedPermanents: [{ type_line: 'Creature — Human', isSuspected: true }],
+        } as typeof nextCtx;
+      }
+      if (/another human died under your control this turn/i.test(conditionRaw)) {
+        (nextState as any).creaturesDiedThisTurnByControllerSubtype = { p1: { human: 1 } };
+      }
+      if (/^another creature died this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).creaturesDiedThisTurnByController = { p1: 2 };
+      }
+      if (/that spell targets only this creature/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          sourceId: 'bf-source',
+          targetCreatureId: 'bf-source',
+          stackItem: { targets: ['bf-source'] },
+        } as typeof nextCtx;
+      }
+      if (/^that permanent is black$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p2', type_line: 'Creature — Zombie', colors: ['B'] }],
+        } as GameState;
+      }
+      if (/fourteen or more cards in your graveyard/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', graveyard: new Array(14).fill({ type_line: 'Instant' }) }],
+        } as GameState;
+      }
+      if (/^he was cast$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, wasCast: true, targetPermanentId: 'bf-target' } as typeof nextCtx;
+      }
+      if (/you sacrificed a creature this way/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastSacrificedPermanents: [{ controller: 'p1', type_line: 'Creature — Human' }],
+          lastActionOutcome: { kind: 'applied', stepKind: 'sacrifice' },
+        } as typeof nextCtx;
+      }
+      if (/^you control another colorless creature$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-source', controller: 'p1', type_line: 'Creature — Eldrazi', colors: [] },
+            { id: 'bf-other', controller: 'p1', type_line: 'Creature — Eldrazi', colors: [] },
+          ],
+        } as GameState;
+      }
+      if (/^you win all the flips$/i.test(conditionRaw.trim())) {
+        (nextState as any).lastCoinFlips = { p1: [true, true, true] };
+      }
+      if (/^that creature was blue or black$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ type_line: 'Creature — Spirit', colors: ['U'] }] } as typeof nextCtx;
+      }
+      if (/^it didn't die$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, itCreatureId: 'bf-it', itDied: false } as typeof nextCtx;
+      }
+      if (/^you control another elf$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-source', controller: 'p1', type_line: 'Creature — Elf' },
+            { id: 'bf-other', controller: 'p1', type_line: 'Creature — Elf' },
+          ],
+        } as GameState;
+      }
+      if (/return four or more nontoken permanents you control this way/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: new Array(4).fill({ controller: 'p1', type_line: 'Creature — Human', isToken: false }),
+          lastActionOutcome: { kind: 'applied', stepKind: 'move_zone' },
+        } as typeof nextCtx;
+      }
+      if (/^enchanted creature is untapped$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-aura' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-aura', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-target' },
+            { id: 'bf-target', controller: 'p2', type_line: 'Creature — Human', tapped: false },
+          ],
+        } as GameState;
+      }
+      if (/^enchanted creature is red$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-aura' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-aura', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-target' },
+            { id: 'bf-target', controller: 'p2', type_line: 'Creature — Goblin', colors: ['R'] },
+          ],
+        } as GameState;
+      }
+      if (/^it's night$/i.test(conditionRaw.trim())) {
+        nextState = { ...nextState, dayNight: 'night' } as GameState;
+      }
+      if (/^it was attacking$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-target',
+          lastMovedCards: [{ id: 'bf-target', type_line: 'Creature — Soldier', attackedThisTurn: true }],
+        } as typeof nextCtx;
+      }
+      if (/that creature's power is 4 or greater/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-atk', attackingCreatureId: 'bf-atk' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-atk', controller: 'p1', type_line: 'Creature — Soldier', power: 5 }],
+        } as GameState;
+      }
+      if (/\+1\/\+1 counter was put on a permanent under your control this turn/i.test(conditionRaw)) {
+        (nextState as any).putPlusOneCounterOnPermanentThisTurn = { p1: true };
+      }
+      if (/you were dealt 4 or more damage this turn/i.test(conditionRaw)) {
+        (nextState as any).damageTakenThisTurnByPlayer = { p1: 4 };
+      }
+      if (/didn't enter the battlefield this turn/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Human', enteredThisTurn: false }],
+        } as GameState;
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+      }
+      if (/all nonland permanents you control are white/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-white', controller: 'p1', type_line: 'Creature — Soldier', colors: ['W'] }],
+        } as GameState;
+      }
+      if (/creature entered the battlefield under an opponent's control this turn/i.test(conditionRaw)) {
+        (nextState as any).creaturesEnteredBattlefieldUnderOpponentControlThisTurn = { p2: true };
+      }
+      if (/^an instant card or a card with flash is exiled this way$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ type_line: 'Instant' }],
+          lastActionOutcome: { kind: 'applied', stepKind: 'exile' },
+        } as typeof nextCtx;
+      }
+      if (/edgar is in the command zone or on the battlefield/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          commandZone: [{ name: 'Edgar Markov', controller: 'p1', type_line: 'Legendary Creature — Vampire' }],
+        } as GameState;
+      }
+      if (/you control four or fewer lands/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'l1', controller: 'p1', type_line: 'Land' }],
+        } as GameState;
+      }
+      if (/discarded an instant or sorcery card this way/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastDiscardedCards: [{ type_line: 'Instant' }],
+          lastActionOutcome: { kind: 'applied', stepKind: 'discard' },
+        } as typeof nextCtx;
+      }
+      if (/second spell you cast this turn/i.test(conditionRaw)) {
+        (nextState as any).spellsCastThisTurnByPlayer = { p1: 2 };
+      }
+      if (/doesn't have an indestructible counter on it/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', counters: {} }],
+        } as GameState;
+      }
+      if (/^you control a red or green permanent$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-red', controller: 'p1', type_line: 'Creature — Goblin', colors: ['R'] }],
+        } as GameState;
+      }
+      if (/three or more wolves and\/or werewolves/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'w1', controller: 'p1', type_line: 'Creature — Wolf' },
+            { id: 'w2', controller: 'p1', type_line: 'Creature — Wolf' },
+            { id: 'w3', controller: 'p1', type_line: 'Creature — Werewolf' },
+          ],
+        } as GameState;
+      }
+      if (/one or fewer cards in hand/i.test(conditionRaw)) {
+        nextState = { ...nextState, players: [{ id: 'p1', hand: [{}] }] } as GameState;
+      }
+      if (/^its power was 3 or greater$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ power: 4 }] } as typeof nextCtx;
+      }
+      if (/three or more cards were put into your graveyard from anywhere other than the battlefield/i.test(conditionRaw)) {
+        (nextState as any).cardsPutIntoGraveyardFromNonBattlefieldThisTurn = { p1: 3 };
+      }
+      if (/opponent has eight or more cards in their graveyard/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1' }, { id: 'p2', graveyard: new Array(8).fill({ type_line: 'Instant' }) }],
+        } as GameState;
+      }
+      if (/creature you control entered this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', enteredThisTurn: true }],
+        } as GameState;
+      }
+      if (/opponent controls seven or more lands/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1' }, { id: 'p2' }],
+          battlefield: new Array(7).fill(null).map((_, i) => ({ id: `l${i}`, controller: 'p2', type_line: 'Land' })),
+        } as GameState;
+      }
+      if (/^it was tapped$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target', lastMovedCards: [{ tapped: true }] } as typeof nextCtx;
+      }
+      if (/^it's not suspected$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', isSuspected: false }],
+        } as GameState;
+      }
+      if (/didn't cast a spell this turn/i.test(conditionRaw)) {
+        nextState = { ...nextState, spellsCastThisTurn: [] } as GameState;
+      }
+      if (/^it has madness$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature', oracle_text: 'Madness {1}{R}' }],
+        } as GameState;
+      }
+      if (/^this spell's surge cost was paid$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
+        nextState = { ...nextState, stack: [{ id: 'stack-spell-1', alternateCostId: 'surge' }] } as GameState;
+      }
+      if (/^you control more creatures than each other player$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1' }, { id: 'p2' }],
+          battlefield: [
+            { id: 'c1', controller: 'p1', type_line: 'Creature — Human' },
+            { id: 'c2', controller: 'p1', type_line: 'Creature — Human' },
+            { id: 'c3', controller: 'p2', type_line: 'Creature — Human' },
+          ],
+        } as GameState;
+      }
+      if (/^you control a blue or black permanent$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-blue', controller: 'p1', type_line: 'Creature — Merfolk', colors: ['U'] }],
+        } as GameState;
+      }
+      if (/^that creature is black or red$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p2', type_line: 'Creature — Goblin', colors: ['R'] }],
+        } as GameState;
+      }
       if (/mana from a treasure was spent to cast (?:it|this spell)/i.test(conditionRaw)) {
         nextCtx = {
           ...nextCtx,
@@ -11740,6 +12714,2094 @@ export function enrichAuditStateAndContextForTargets(
             targetPermanentId: 'bf-nonbasic-land',
           },
         } as typeof nextCtx;
+      }
+      if (/enlisted a creature this combat/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source', enlistedCreatureThisCombat: true } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Soldier', enlistedThisCombat: true }],
+        } as GameState;
+      }
+      if (/target creature you control gets \+2\/\+0 until end of turn if it's night/i.test(conditionRaw)) {
+        nextState = { ...nextState, dayNight: 'night' } as GameState;
+      }
+      if (/unless you waterbend \{2\}|^you waterbend \{2\}$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, waterbendWasPaid: true, selectorContext: { ...(nextCtx.selectorContext || {}), waterbendWasPaid: true } } as typeof nextCtx;
+      }
+      if (/you controlled a faerie as you cast this spell/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, controlledFaerieAsCast: true } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-faerie', controller: 'p1', type_line: 'Creature — Faerie' }],
+        } as GameState;
+      }
+      if (/unless you exile a historic card from your graveyard|^you exile a historic card from your graveyard$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, unlessExiledHistoricFromGraveyard: true } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', graveyard: [{ type_line: 'Artifact — Equipment', name: 'Sol Ring' }] }],
+        } as GameState;
+      }
+      if (/^that creature was cast for its warp cost$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target', warpCostPaid: true } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', warpCostPaid: true, alternateCostId: 'warp' }],
+        } as GameState;
+      }
+      if (/^sickness gets more votes$/i.test(conditionRaw.trim())) {
+        (nextState as any).councilVoteResults = { sickness: 3, psychosis: 1 };
+      }
+      if (/^defending player has more cards in hand than you$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, defendingPlayerId: 'p2', sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1', hand: [{}] },
+            { id: 'p2', hand: [{}, {}, {}] },
+          ],
+        } as GameState;
+      }
+      if (/^no permanents left the battlefield this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).permanentLeftBattlefieldThisTurn = { p1: false, p2: false };
+      }
+      if (/^this creature would be destroyed$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+      }
+      if (/peer through depths and a spell named reach through mists/i.test(conditionRaw)) {
+        (nextState as any).namedSpellsCastThisTurn = {
+          p1: { peerThroughDepths: true, reachThroughMists: true },
+        };
+      }
+      if (/^you do and your opponent guessed wrong$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, youDoChoice: true, lastGuessCorrect: false } as typeof nextCtx;
+      }
+      if (/doesn't have the same name as another creature you control or a creature card in your graveyard/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-unique' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', graveyard: [] }],
+          battlefield: [{ id: 'bf-unique', controller: 'p1', type_line: 'Creature — Elf', name: 'Elvish Mystic' }],
+        } as GameState;
+      }
+      if (/^it doesn't have first strike$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human' }],
+        } as GameState;
+      }
+      if (/^it has first strike$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', keywords: ['first strike'] }],
+        } as GameState;
+      }
+      if (/^it had a revival counter on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ counters: { revival: 1 } }] } as typeof nextCtx;
+      }
+      if (/unless you return a land you control to its owner's hand|^you return a land you control to its owner's hand$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, unlessReturnedLandToHand: true } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'l1', controller: 'p1', type_line: 'Land' }],
+        } as GameState;
+      }
+      if (/four or more card types among cards in your graveyard/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [{
+            id: 'p1',
+            graveyard: [
+              { type_line: 'Instant' },
+              { type_line: 'Sorcery' },
+              { type_line: 'Creature — Human' },
+              { type_line: 'Artifact' },
+            ],
+          }],
+        } as GameState;
+      }
+      if (/doesn't have a \+1\/\+1 counter on it/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Human', counters: {} }],
+        } as GameState;
+      }
+      if (/creature named fang/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-vanille' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-vanille', controller: 'p1', owner: 'p1', type_line: 'Legendary Creature — Human', name: 'Vanille, Cheerful l\'Cie' },
+            { id: 'bf-fang', controller: 'p1', owner: 'p1', type_line: 'Legendary Creature — Human', name: 'Fang' },
+          ],
+        } as GameState;
+      }
+      if (/twenty or more growth counters on it/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-ascendancy' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-ascendancy', controller: 'p1', type_line: 'Enchantment', counters: { growth: 20 } }],
+        } as GameState;
+      }
+      if (/^the card's mana value is 1 or less$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ id: 'bf-exiled-card', manaValue: 1, cmc: 1, type_line: 'Instant' }],
+          targetPermanentId: 'bf-exiled-card',
+        } as typeof nextCtx;
+      }
+      if (/^it was dealt damage this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-target',
+          targetCreatureId: 'bf-target',
+          lastMovedCards: [{ id: 'bf-target', type_line: 'Creature — Human', tookDamageThisTurn: true, wasDealtDamageThisTurn: true }],
+        } as typeof nextCtx;
+      }
+      if (/^it has unearth$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-target',
+          lastMovedCards: [{ id: 'bf-target', type_line: 'Creature — Zombie', oracle_text: 'Unearth {1}{B}' }],
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [{
+            id: 'p1',
+            hand: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Zombie', oracle_text: 'Unearth {1}{B}' }],
+          }],
+        } as GameState;
+      }
+      if (/^you control fewer creatures than an opponent$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', life: 10 }, { id: 'p2', life: 20 }],
+          battlefield: [
+            { id: 'c1', controller: 'p1', type_line: 'Creature — Human' },
+            { id: 'c2', controller: 'p2', type_line: 'Creature — Human' },
+            { id: 'c3', controller: 'p2', type_line: 'Creature — Elf' },
+          ],
+        } as GameState;
+      }
+      if (/would counter a spell/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-guile' } as typeof nextCtx;
+      }
+      if (/^a giant$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, giantWizardOrControlledSpellDamagedIt: true } as typeof nextCtx;
+      }
+      if (/^you drew two or more cards this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).cardsDrawnThisTurn = { p1: 2 };
+      }
+      if (/another creature enter the battlefield under your control last turn/i.test(conditionRaw)) {
+        (nextState as any).creaturesEnteredBattlefieldUnderControlLastTurn = { p1: true };
+      }
+      if (/^you have 40 or more life$/i.test(conditionRaw.trim())) {
+        nextState = { ...nextState, players: [{ id: 'p1', life: 40 }] } as GameState;
+      }
+      if (/^this creature is equipped$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-source', controller: 'p1', type_line: 'Creature — Human', isEquipped: true },
+            { id: 'bf-equip', controller: 'p1', type_line: 'Artifact — Equipment', attachedTo: 'bf-source' },
+          ],
+        } as GameState;
+      }
+      if (/would cause you to draw a card/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-cyclone' } as typeof nextCtx;
+      }
+      if (/dealt 10 or more damage to that player this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, damageDealtToThatPlayerThisTurn: 10, targetPlayerId: 'p2' } as typeof nextCtx;
+      }
+      if (/^you didn't play a land this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).landsPlayedThisTurn = { p1: 0 };
+      }
+      if (/power was different from its base power/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ power: 5, basePower: 3 }] } as typeof nextCtx;
+      }
+      if (/^you control no other creatures$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-lone' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-lone', controller: 'p1', type_line: 'Creature — Spirit' }],
+        } as GameState;
+      }
+      if (/^it isn't a vehicle$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-artifact' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-artifact', controller: 'p1', type_line: 'Artifact' }],
+        } as GameState;
+      }
+      if (/hasn't been exerted this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-celebrant' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-celebrant', controller: 'p1', type_line: 'Creature — Human', exertedThisTurn: false }],
+        } as GameState;
+      }
+      if (/^that artifact had counters on it$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ type_line: 'Artifact', counters: { charge: 2 } }],
+        } as typeof nextCtx;
+      }
+      if (/^there are no arrowhead counters on this artifact$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-arrows' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-arrows', controller: 'p1', type_line: 'Artifact', counters: {} }],
+        } as GameState;
+      }
+      if (/^that permanent was a nissa planeswalker$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ name: 'Nissa, Voice of Zendikar', type_line: 'Legendary Planeswalker — Nissa' }] } as typeof nextCtx;
+      }
+      if (/^that card is exiled$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ id: 'bf-exiled' }],
+          lastActionOutcome: { kind: 'applied', stepKind: 'exile' },
+        } as typeof nextCtx;
+      }
+      if (/four or more cards exiled with this artifact/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-diary' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-diary', controller: 'p1', type_line: 'Artifact', exiledCardCount: 4 }],
+        } as GameState;
+      }
+      if (/^each player has 10 or less life$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1', life: 8 },
+            { id: 'p2', life: 10 },
+          ],
+        } as GameState;
+      }
+      if (/total mana value of the cards exiled this way is 13 or less/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, totalManaValueExiledThisWay: 10 } as typeof nextCtx;
+      }
+      if (/^this permanent is in the command zone$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'cmd-oloro' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          commandZone: [{ id: 'cmd-oloro', controller: 'p1', type_line: 'Legendary Creature — Avatar' }],
+        } as GameState;
+      }
+      if (/two or more other creatures on the battlefield/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-portcullis' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-portcullis', controller: 'p1', type_line: 'Artifact' },
+            { id: 'c1', controller: 'p2', type_line: 'Creature — Human' },
+            { id: 'c2', controller: 'p2', type_line: 'Creature — Elf' },
+          ],
+        } as GameState;
+      }
+      if (/combat damage by a zombie this turn/i.test(conditionRaw)) {
+        (nextState as any).combatDamageByZombieThisTurn = { p2: true };
+      }
+      if (/^it's enchanted$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-target', controller: 'p2', type_line: 'Creature — Human' },
+            { id: 'bf-aura', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-target' },
+          ],
+        } as GameState;
+      }
+      if (/freerunning cost was paid/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, freerunningCostPaid: true, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          stack: [{ id: 'stack-spell-1', alternateCostId: 'freerunning' }],
+        } as GameState;
+      }
+      if (/^you didn't play a card from exile this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).playedFromExileThisTurn = { p1: false };
+      }
+      if (/doesn't have rampage/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human' }],
+        } as GameState;
+      }
+      if (/^a player has more cards in hand than each other player$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1', hand: [{}] },
+            { id: 'p2', hand: [{}, {}, {}] },
+          ],
+        } as GameState;
+      }
+      if (/^you have less life than an opponent$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', life: 10 }, { id: 'p2', life: 20 }],
+        } as GameState;
+      }
+      if (/^you control fewer creatures than an opponent$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', life: 10 }, { id: 'p2', life: 20 }],
+          battlefield: [
+            { id: 'c1', controller: 'p1', type_line: 'Creature — Human' },
+            { id: 'c2', controller: 'p2', type_line: 'Creature — Human' },
+            { id: 'c3', controller: 'p2', type_line: 'Creature — Elf' },
+          ],
+        } as GameState;
+      }
+      if (/that mana is spent on a dragon creature spell/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, manaSpentOnDragonCreatureSpell: true } as typeof nextCtx;
+      }
+      if (/^there are cards exiled with it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Artifact', exiledCardCount: 1 }],
+        } as GameState;
+      }
+      if (/^you controlled that artifact$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ controller: 'p1', type_line: 'Artifact' }],
+        } as typeof nextCtx;
+      }
+      if (/^it had no counters on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ counters: {} }] } as typeof nextCtx;
+      }
+      if (/wasn't a spirit/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ type_line: 'Creature — Human' }] } as typeof nextCtx;
+      }
+      if (/damage from a red source is prevented this way/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, redDamagePreventedThisWay: true } as typeof nextCtx;
+      }
+      if (/black creature with flying is attacking/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-atk', controller: 'p2', type_line: 'Creature — Bat', colors: ['B'], keywords: ['flying'], attacking: 'p1' }],
+        } as GameState;
+      }
+      if (/mana value less than the sacrificed permanent's mana value/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ manaValue: 2 }],
+          lastSacrificedPermanents: [{ manaValue: 4, type_line: 'Creature — Human' }],
+        } as typeof nextCtx;
+      }
+      if (/^this creature attacked or blocked this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Human', attackedThisTurn: true }],
+        } as GameState;
+      }
+      if (/at least four more creatures than you/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1' }, { id: 'p2' }],
+          battlefield: [
+            { id: 'c1', controller: 'p1', type_line: 'Creature — Human' },
+            ...new Array(5).fill(null).map((_, i) => ({ id: `c-opp-${i}`, controller: 'p2', type_line: 'Creature — Human' })),
+          ],
+        } as GameState;
+      }
+      if (/entered from exile or was cast from exile/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ enteredFromZone: 'exile', castFromZone: 'exile' }],
+        } as typeof nextCtx;
+      }
+      if (/^you control no other colorless creatures$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-colorless' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-colorless', controller: 'p1', type_line: 'Creature — Eldrazi', colors: [] }],
+        } as GameState;
+      }
+      if (/historic spell this turn/i.test(conditionRaw)) {
+        (nextState as any).historicSpellsCastThisTurn = { p1: true };
+      }
+      if (/^it was dealt damage this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target', lastMovedCards: [{ tookDamageThisTurn: true }] } as typeof nextCtx;
+      }
+      if (/pirate and a vehicle attacked this combat/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'pirate-1', controller: 'p1', type_line: 'Creature — Pirate', attacking: 'p2' },
+            { id: 'vehicle-1', controller: 'p1', type_line: 'Artifact — Vehicle', attacking: 'p2' },
+          ],
+        } as GameState;
+      }
+      if (/at least four more cards in hand than you/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', hand: [{}] }, { id: 'p2', hand: [{}, {}, {}, {}, {}] }],
+        } as GameState;
+      }
+      if (/modified creature died under your control this turn/i.test(conditionRaw)) {
+        (nextState as any).modifiedCreaturesDiedThisTurnByController = { p1: true };
+      }
+      if (/thirteen or more creatures on the battlefield/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: new Array(13).fill(null).map((_, i) => ({
+            id: `c-${i}`,
+            controller: i % 2 === 0 ? 'p1' : 'p2',
+            type_line: 'Creature — Human',
+          })),
+        } as GameState;
+      }
+      if (/^it has unearth$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Zombie', oracle_text: 'Unearth {1}{B}' }],
+        } as GameState;
+      }
+      if (/dealt damage to another creature this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-wolverine', dealtDamageToAnotherCreatureThisTurn: true } as typeof nextCtx;
+        (nextState as any).permanentDealtDamageToCreatureThisTurn = { 'bf-wolverine': true };
+      }
+      if (/one or more \+1\/\+1 counters on it/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-prodigy' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-prodigy', controller: 'p1', type_line: 'Creature — Human', counters: { '+1/+1': 1 } }],
+        } as GameState;
+      }
+      if (/^you sacrificed a permanent this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).permanentsSacrificedThisTurnByController = { p1: true };
+      }
+      if (/^a player has more life than each other player$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', life: 20 }, { id: 'p2', life: 10 }],
+        } as GameState;
+      }
+      if (/^that creature is 1\/1$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', power: 1, toughness: 1 }],
+        } as GameState;
+      }
+      if (/doesn't have the same name as another creature you control or a creature card in your graveyard/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          sourceId: 'bf-source',
+          thisCreatureId: 'bf-source',
+          thisPermanentId: 'bf-source',
+          targetPermanentId: 'bf-source',
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', graveyard: [] }],
+          battlefield: [{
+            id: 'bf-source',
+            controller: 'p1',
+            type_line: 'Creature — Elf',
+            name: 'Llanowar Elves',
+          }],
+        } as GameState;
+      }
+      if (/^no permanents left the battlefield this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-sarevok' } as typeof nextCtx;
+        (nextState as any).permanentLeftBattlefieldThisTurn = { p1: false, p2: false, p3: false, p4: false };
+      }
+      if (/creatures your opponents control get .+ was spent to cast this spell/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          manaSpentToCast: { U: true, R: true },
+          blueManaSpentToCast: true,
+          redManaSpentToCast: true,
+        } as typeof nextCtx;
+      }
+      if (/^\{u\} was spent to cast this spell, and creatures you control get .+ if \{r\} was spent to cast this spell$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          manaSpentToCast: { U: true, R: true },
+          blueManaSpentToCast: true,
+          redManaSpentToCast: true,
+        } as typeof nextCtx;
+      }
+      if (/^this permanent has one or more \+1\/\+1 counters on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-sarulf' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-sarulf', controller: 'p1', type_line: 'Legendary Creature — Wolf', counters: { '+1/+1': 2 } }],
+        } as GameState;
+      }
+      if (/removed a creature card with flying from the draft/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, draftRemovedFlyingCreatureWithSameName: true } as typeof nextCtx;
+      }
+      if (/^you cast it from your hand and there are five or more other creatures on the battlefield$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source', castFromHand: true, wasCastFromHand: true } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-source', controller: 'p1', type_line: 'Creature — Dragon' },
+            ...new Array(5).fill(null).map((_, i) => ({
+              id: `bf-other-${i}`,
+              controller: 'p2',
+              type_line: 'Creature — Human',
+            })),
+          ],
+        } as GameState;
+      }
+      if (/^it's at least one of the chosen colors$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-target',
+          chosenColors: ['W', 'U'],
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            chosenColors: ['W', 'U'],
+          },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Artifact', colors: ['W'] }],
+        } as GameState;
+      }
+      if (/^you haven't been dealt combat damage since your last turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).combatDamageTakenSinceLastTurn = { p1: false };
+      }
+      if (/^it wasn't blocking$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-dead',
+          lastMovedCards: [{ id: 'bf-dead', wasBlocking: false, type_line: 'Creature — Rogue' }],
+        } as typeof nextCtx;
+      }
+      if (/^none of them were cast or no mana was spent to cast them$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, noneWereCast: true, noManaSpentToCast: true } as typeof nextCtx;
+      }
+      if (/^you control a black or red permanent$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(Array.isArray(nextState.battlefield) ? nextState.battlefield : []),
+            { id: 'bf-black', controller: 'p1', type_line: 'Creature — Vampire', colors: ['B'] },
+          ],
+        } as GameState;
+      }
+      if (/^you control a black permanent and a red permanent$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-black', controller: 'p1', type_line: 'Creature — Vampire', colors: ['B'] },
+            { id: 'bf-red', controller: 'p1', type_line: 'Creature — Goblin', colors: ['R'] },
+          ],
+        } as GameState;
+      }
+      if (/^you win (one|two|three) or more flips$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, coinFlipsWonThisResolution: 3, flipsWonThisAbility: 3 } as typeof nextCtx;
+      }
+      if (/^this creature is an angel$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-angel', thisCreatureId: 'bf-angel' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-angel', controller: 'p1', type_line: 'Creature — Angel Spirit' }],
+        } as GameState;
+      }
+      if (/non-human creature spell/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, manaSpentOnNonHumanCreatureSpell: true } as typeof nextCtx;
+      }
+      if (/^this mana is spent to cast a creature spell$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, manaSpentOnCreatureSpell: true } as typeof nextCtx;
+      }
+      if (/mana spent to cast that spell is greater than this permanent's power/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          sourceId: 'bf-thopter',
+          manaSpentToCastTargetSpell: 8,
+          referenceSpellManaValue: 8,
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-thopter', controller: 'p1', type_line: 'Artifact Creature — Thopter', power: 2, toughness: 2 }],
+        } as GameState;
+      }
+      if (/^the sacrificed permanent was a commander$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sacrificedPermanentWasCommander: true } as typeof nextCtx;
+      }
+      if (/^any player pays \{2\}$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, anyPlayerPaidTwo: true, unlessPayWasPaid: true } as typeof nextCtx;
+      }
+      if (/^there are five colors among permanents you control$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'c-w', controller: 'p1', type_line: 'Creature — Human', colors: ['W'] },
+            { id: 'c-u', controller: 'p1', type_line: 'Creature — Merfolk', colors: ['U'] },
+            { id: 'c-b', controller: 'p1', type_line: 'Creature — Zombie', colors: ['B'] },
+            { id: 'c-r', controller: 'p1', type_line: 'Creature — Goblin', colors: ['R'] },
+            { id: 'c-g', controller: 'p1', type_line: 'Creature — Elf', colors: ['G'] },
+          ],
+        } as GameState;
+      }
+      if (/^an enchantment was put into your graveyard from the battlefield this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).enchantmentPutIntoGraveyardFromBattlefieldThisTurn = { p1: true };
+      }
+      if (/^you attacked with exactly one other creature this combat$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-puppeteer' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-puppeteer', controller: 'p1', type_line: 'Creature — Human', attacking: 'p2' },
+            { id: 'bf-other-atk', controller: 'p1', type_line: 'Creature — Human', attacking: 'p2' },
+          ],
+        } as GameState;
+      }
+      if (/^that creature is white or blue$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-target', targetCreatureId: 'bf-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-target', controller: 'p2', type_line: 'Creature — Merfolk', colors: ['U'] }],
+        } as GameState;
+      }
+      if (/^you roll a 6$/i.test(conditionRaw.trim()) || /^you've rolled a 6 this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastDieRollResult: 6 } as typeof nextCtx;
+        (nextState as any).rolledSixThisTurn = { p1: true };
+      }
+      if (/greatest power among creatures on the battlefield/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-aura', enchantedPermanentId: 'bf-enchanted' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-enchanted', controller: 'p1', type_line: 'Creature — Human', power: 5, toughness: 5 },
+            { id: 'bf-aura', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-enchanted' },
+            { id: 'bf-weaker', controller: 'p2', type_line: 'Creature — Elf', power: 2, toughness: 2 },
+          ],
+        } as GameState;
+      }
+      if (/creature or lesson card in your graveyard/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? {
+                  ...player,
+                  graveyard: [{ id: 'gy-lesson-1', type_line: 'Lesson', name: 'Audit Lesson' }],
+                }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/^this permanent was kicked$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Legendary Planeswalker — Jace', wasKicked: true }],
+        } as GameState;
+      }
+      if (/^there are fewer than six creature cards in your graveyard$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? { ...player, graveyard: [{ id: 'gy-c1', type_line: 'Creature — Zombie' }] }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/^a creature card is exiled this way$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ id: 'ex-creature-1', type_line: 'Creature — Human' }],
+        } as typeof nextCtx;
+      }
+      if (/^it shares a card type with the card exiled this way$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'gy-match-1',
+          lastMovedCards: [{ id: 'ex-instant-1', type_line: 'Instant' }],
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? { ...player, graveyard: [{ id: 'gy-match-1', type_line: 'Instant' }] }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/^you don't put it onto the battlefield$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, didNotPutExiledCardOntoBattlefield: true } as typeof nextCtx;
+      }
+      if (/no cards in hand and this enchantment has two or more quest counters/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-quest', targetPlayerId: 'p2' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1' }, { id: 'p2', hand: [] }],
+          battlefield: [{ id: 'bf-quest', controller: 'p1', type_line: 'Enchantment', counters: { quest: 2 } }],
+        } as GameState;
+      }
+      if (/^that spell targets a commander you control$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, spellTargetsCommanderYouControl: true } as typeof nextCtx;
+      }
+      if (/^it's not a vehicle$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-artifact' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-artifact', controller: 'p1', type_line: 'Artifact' }],
+        } as GameState;
+      }
+      if (/^that creature had to attack this combat$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-forced',
+          lastMovedCards: [{ id: 'bf-forced', mustAttackThisCombat: true, type_line: 'Creature — Dragon' }],
+        } as typeof nextCtx;
+      }
+      if (/^it comes up heads$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastCoinFlipResult: 'heads', wonCoinFlip: true } as typeof nextCtx;
+      }
+      if (/^the discarded card was a land card$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastDiscardedCards: [{ id: 'disc-land-1', type_line: 'Basic Land — Mountain' }],
+        } as typeof nextCtx;
+      }
+      if (/^this creature has two or fewer judgment counters on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-judge' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-judge', controller: 'p1', type_line: 'Creature — Human', counters: { judgment: 1 } }],
+        } as GameState;
+      }
+      if (/^you've been dealt damage by two or more creatures this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).creaturesThatDealtDamageToYouThisTurn = { p1: 2 };
+      }
+      if (/^you didn't lose life this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).lifeLostThisTurn = { p1: 0 };
+      }
+      if (/^that land was legendary$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ id: 'bf-legendary-land', type_line: 'Legendary Land' }],
+        } as typeof nextCtx;
+      }
+      if (/^that player controls a plains$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(Array.isArray(nextState.battlefield) ? nextState.battlefield : []),
+            { id: 'bf-plains', controller: 'p2', type_line: 'Basic Land — Plains' },
+          ],
+        } as GameState;
+      }
+      if (/three or more cards have been exiled with this artifact/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Artifact', exiledCardCount: 3 }],
+        } as GameState;
+      }
+      if (/defending player controls no glimmer creatures/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-non-glimmer', controller: 'p2', type_line: 'Creature — Human' }],
+        } as GameState;
+      }
+      if (/^the discarded card was an artifact card$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastDiscardedCards: [{ id: 'disc-artifact-1', type_line: 'Artifact' }],
+        } as typeof nextCtx;
+      }
+      if (/one or more players being attacked are poisoned/i.test(conditionRaw)) {
+        (nextState as any).poisonedPlayersBeingAttacked = ['p2'];
+      }
+      if (/^defending player controls more lands than you$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-your-land', controller: 'p1', type_line: 'Basic Land — Forest' },
+            { id: 'bf-opp-land-1', controller: 'p2', type_line: 'Basic Land — Plains' },
+            { id: 'bf-opp-land-2', controller: 'p2', type_line: 'Basic Land — Island' },
+          ],
+        } as GameState;
+      }
+      if (/^you have three or fewer cards in hand$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1' ? { ...player, hand: [{}] } : player
+          ),
+        } as GameState;
+      }
+      if (/assassin crewed it this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, assassinCrewedItThisTurn: true } as typeof nextCtx;
+      }
+      if (/^that creature has infect$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-infect' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-infect', controller: 'p2', type_line: 'Creature — Phyrexian', keywords: ['infect'] }],
+        } as GameState;
+      }
+      if (/^you've cast a noncreature spell this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).noncreatureSpellsCastThisTurn = { p1: true };
+      }
+      if (/haven't cast a spell from your hand this turn and this creature doesn't have a flying counter/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-wingsmith' } as typeof nextCtx;
+        (nextState as any).spellsCastFromHandThisTurn = { p1: false };
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-wingsmith', controller: 'p1', type_line: 'Artifact Creature — Construct', counters: {} }],
+        } as GameState;
+      }
+      if (/^you sacrificed one or more permanents this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).permanentsSacrificedThisTurnByController = { p1: true };
+      }
+      if (/^that player didn't cast a spell this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).spellsCastThisTurn = { p2: 0 };
+      }
+      if (/^one or more cards were put into exile this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).cardsPutIntoExileThisTurn = { p1: true };
+      }
+      if (/^the spell is countered this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, spellCounteredThisWay: true } as typeof nextCtx;
+      }
+      if (/^it's attacking$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-attacker' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-attacker', controller: 'p2', type_line: 'Creature — Human', attacking: 'p1' }],
+        } as GameState;
+      }
+      if (/^two cards that share a card type were milled this way$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMilledCards: [
+            { id: 'mill-1', type_line: 'Instant' },
+            { id: 'mill-2', type_line: 'Instant' },
+          ],
+        } as typeof nextCtx;
+      }
+      if (/^another human entered the battlefield under your control this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).humansEnteredBattlefieldUnderControlThisTurn = { p1: true };
+      }
+      if (/^it was blocked this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ id: 'bf-blocked', wasBlockedThisTurn: true, type_line: 'Creature — Human' }],
+        } as typeof nextCtx;
+      }
+      if (/midnight scavengers/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-graf-rats', thisCreatureId: 'bf-graf-rats' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-graf-rats', controller: 'p1', owner: 'p1', type_line: 'Creature — Rat', name: 'Graf Rats' },
+            { id: 'bf-midnight', controller: 'p1', owner: 'p1', type_line: 'Creature — Human', name: 'Midnight Scavengers' },
+          ],
+        } as GameState;
+      }
+      if (/^its mana cost contains \{x\}$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ id: 'hand-x-creature', mana_cost: '{X}{G}', cmc: 0, type_line: 'Creature — Tyranid' }],
+        } as typeof nextCtx;
+      }
+      if (/power or toughness equal to the chosen number/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, chosenNumber: 3, selectorContext: { ...(nextCtx.selectorContext || {}), chosenNumber: 3 } } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-squall-target', controller: 'p2', type_line: 'Creature — Human', power: 3, toughness: 2 }],
+        } as GameState;
+      }
+      if (/^it isn't a creature or vehicle$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-artifact-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-artifact-target', controller: 'p1', type_line: 'Artifact' }],
+        } as GameState;
+      }
+      if (/^it has a \+1\/\+1 counter on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-dual-sun' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-dual-sun', controller: 'p1', type_line: 'Creature — Human', counters: { '+1/+1': 1 } }],
+        } as GameState;
+      }
+      if (/ten or more luck counters on it/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-chance' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-chance', controller: 'p1', type_line: 'Enchantment', counters: { luck: 10 } }],
+        } as GameState;
+      }
+      if (/^an opponent lost life last turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).opponentLostLifeLastTurn = { p2: true };
+      }
+      if (/face-down creature entered the battlefield under your control this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, faceDownPermanentEnteredThisTurnUnderYourControl: true } as typeof nextCtx;
+        (nextState as any).faceDownCreaturesEnteredUnderControlThisTurn = { p1: true };
+      }
+      if (/other than galadriel as your ring-bearer/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          chosenRingBearerId: 'bf-other-bearer',
+          selectorContext: { ...(nextCtx.selectorContext || {}), chosenRingBearerId: 'bf-other-bearer' },
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-other-bearer', controller: 'p1', type_line: 'Legendary Creature — Elf', name: 'Legolas' }],
+        } as GameState;
+      }
+      if (/lands with contested counters on them/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-contested-land', controller: 'p2', type_line: 'Land', counters: { contested: 1 } }],
+        } as GameState;
+      }
+      if (/^this artifact has a charge counter on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-ventifact' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-ventifact', controller: 'p1', type_line: 'Artifact', counters: { charge: 1 } }],
+        } as GameState;
+      }
+      if (/sacrificed creature's toughness was 4 or greater/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastSacrificedPermanents: [{ type_line: 'Creature — Giant', toughness: 5, power: 4 }],
+        } as typeof nextCtx;
+      }
+      if (/four or more basic land types among lands that player controls/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-plains', controller: 'p2', type_line: 'Basic Land — Plains' },
+            { id: 'bf-island', controller: 'p2', type_line: 'Basic Land — Island' },
+            { id: 'bf-swamp', controller: 'p2', type_line: 'Basic Land — Swamp' },
+            { id: 'bf-mountain', controller: 'p2', type_line: 'Basic Land — Mountain' },
+          ],
+        } as GameState;
+      }
+      if (/that land had a nonbasic land type/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ id: 'bf-nonbasic', type_line: 'Land — Gate' }],
+          lastMovedLandWasNonbasic: true,
+        } as typeof nextCtx;
+      }
+      if (/draw a card\. then discard a card unless that land had a nonbasic land type/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ id: 'bf-nonbasic', type_line: 'Land — Gate' }],
+          lastMovedLandWasNonbasic: true,
+        } as typeof nextCtx;
+      }
+      if (/didn't put the revealed card onto the battlefield this way/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, didNotPutRevealedCardOntoBattlefieldThisWay: true } as typeof nextCtx;
+      }
+      if (/cast a spell with mana value 4 or greater this turn/i.test(conditionRaw)) {
+        (nextState as any).spellsCastWithManaValueFourOrGreaterThisTurn = { p1: true };
+      }
+      if (/^you discarded a card this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).cardsDiscardedThisTurn = { p1: 1 };
+      }
+      if (/number of robots you control/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, lastDieRollResult: 2 } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-robot-1', controller: 'p1', type_line: 'Artifact Creature — Robot' },
+            { id: 'bf-robot-2', controller: 'p1', type_line: 'Artifact Creature — Robot' },
+            { id: 'bf-robot-3', controller: 'p1', type_line: 'Artifact Creature — Robot' },
+          ],
+        } as GameState;
+      }
+      if (/^you've drawn two or more cards this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).cardsDrawnThisTurn = { p1: 2 };
+      }
+      if (/200 or more cards in your library/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? { ...player, library: new Array(200).fill(null).map((_, i) => ({ id: `lib-${i}`, type_line: 'Instant' })) }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/at least seven red mana was spent to cast this spell/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, atLeastSevenRedManaSpentToCast: true, redManaSpentToCast: 7 } as typeof nextCtx;
+      }
+      if (/mana value is less than or equal to the number of allies you control/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'gy-ally-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p2'
+              ? { ...player, graveyard: [{ id: 'gy-ally-target', type_line: 'Creature — Ally', cmc: 2 }] }
+              : player
+          ),
+          battlefield: [{ id: 'bf-ally-1', controller: 'p1', type_line: 'Creature — Ally' }],
+        } as GameState;
+      }
+      if (/^you were the monarch as the turn began$/i.test(conditionRaw.trim())) {
+        (nextState as any).wasMonarchAsTurnBegan = { p1: true };
+      }
+      if (/damage from a black source is prevented this way/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, blackDamagePreventedThisWay: true } as typeof nextCtx;
+      }
+      if (/devotion to white and black is seven or greater/i.test(conditionRaw)) {
+        (nextState as any).devotionToWhiteAndBlack = { p1: 7 };
+      }
+      if (/same name as a card in your graveyard/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ id: 'top-reveal', name: 'Lightning Bolt', type_line: 'Instant' }] } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? { ...player, graveyard: [{ id: 'gy-bolt', name: 'Lightning Bolt', type_line: 'Instant' }] }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/discarded card wasn't a land card/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, lastDiscardedCards: [{ id: 'disc-spell', type_line: 'Instant' }] } as typeof nextCtx;
+      }
+      if (/discovered card's mana value is less than 10/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, lastDiscoveredCardManaValue: 5 } as typeof nextCtx;
+      }
+      if (/three or more cards exiled with this permanent/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-profane' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-profane', controller: 'p1', type_line: 'Enchantment', exiledCardCount: 3 }],
+        } as GameState;
+      }
+      if (/fewer than three charge counters on it/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-training-post' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-training-post', controller: 'p1', type_line: 'Artifact', counters: { charge: 1 } }],
+        } as GameState;
+      }
+      if (/^you control a demon or devil$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-demon', controller: 'p1', type_line: 'Creature — Demon' }],
+        } as GameState;
+      }
+      if (/phyrexian died under your control this turn/i.test(conditionRaw)) {
+        (nextState as any).phyrexiansDiedUnderControlThisTurn = { p1: true };
+      }
+      if (/^at least seven mana was spent to cast it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, atLeastSevenManaSpentToCast: true, manaSpentToCastIt: 7 } as typeof nextCtx;
+      }
+      if (/three or more instant and sorcery spells this turn/i.test(conditionRaw)) {
+        (nextState as any).instantAndSorcerySpellsCastThisTurn = { p1: 3 };
+      }
+      if (/cycled two or more cards this turn/i.test(conditionRaw)) {
+        (nextState as any).cardsCycledThisTurn = { p1: 2 };
+      }
+      if (/^this permanent has one or more \+1\/\+1 counters on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-sarulf' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-sarulf', controller: 'p1', type_line: 'Legendary Creature — Wolf', counters: { '+1/+1': 2 } }],
+        } as GameState;
+      }
+      if (/^it was historic$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ id: 'draw-historic', type_line: 'Legendary Artifact', cmc: 3 }],
+        } as typeof nextCtx;
+      }
+      if (/^this land isn't a creature$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-biblioplex' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-biblioplex', controller: 'p1', type_line: 'Land' }],
+        } as GameState;
+      }
+      if (/^you spend this mana to cast your commander$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          manaSpentToCastCommander: true,
+          commanderManaSpentOnCommander: true,
+        } as typeof nextCtx;
+      }
+      if (/^no creatures died this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).creatureDiedThisTurn = false;
+      }
+      if (/^a player controls more wizards than each other player$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-wiz-p1', controller: 'p1', type_line: 'Creature — Wizard' },
+            { id: 'bf-wiz-p1b', controller: 'p1', type_line: 'Creature — Wizard' },
+            { id: 'bf-wiz-p2', controller: 'p2', type_line: 'Creature — Wizard' },
+          ],
+        } as GameState;
+      }
+      if (/^you cast it during your main phase$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, castDuringMainPhase: true, castDuringYourMainPhase: true } as typeof nextCtx;
+      }
+      if (/^that mana is spent on a multicolored creature spell$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          manaSpentOnMulticoloredCreatureSpell: true,
+          lastCastSpell: { type_line: 'Creature — Human', colors: ['W', 'U'] },
+        } as typeof nextCtx;
+      }
+      if (/^excess damage was dealt to a creature this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, excessDamageDealtToCreatureThisWay: 3, lastExcessDamageDealtThisWay: 3 } as typeof nextCtx;
+      }
+      if (/^you sacrificed a food this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).foodSacrificedThisTurn = { p1: true };
+      }
+      if (/^it has mana value 3 or less$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'gy-rebirth-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? {
+                  ...player,
+                  graveyard: [{ id: 'gy-rebirth-target', type_line: 'Creature — Human', cmc: 2, manaValue: 2 }],
+                }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/^the \{1\}\{b\} cost was paid$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, alternateCostPaid: true, paidAlternateCostRaw: '{1}{B}' } as typeof nextCtx;
+      }
+      if (/^the \{3\}\{g\} cost was paid$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, alternateCostPaid: true, paidAlternateCostRaw: '{3}{G}' } as typeof nextCtx;
+      }
+      if (/^the \{2\}\{r\}\{r\} cost was paid$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, alternateCostPaid: true, paidAlternateCostRaw: '{2}{R}{R}' } as typeof nextCtx;
+      }
+      if (/^that permanent or card has a time counter on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-timebug-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-timebug-target', controller: 'p1', type_line: 'Artifact', counters: { time: 1 } }],
+        } as GameState;
+      }
+      if (/^it's your combat phase$/i.test(conditionRaw.trim())) {
+        (nextState as any).phase = 'combat';
+        (nextState as any).activePlayerId = 'p1';
+        (nextState as any).isYourCombatPhase = { p1: true };
+      }
+      if (/^you have a card in hand$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? { ...player, hand: [{ id: 'hand-1', type_line: 'Instant' }] }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/^you win the bidding$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, wonBidding: true, youWinTheBidding: true } as typeof nextCtx;
+      }
+      if (/^its madness cost was paid$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, madnessCostWasPaid: true, alternateCostPaid: true } as typeof nextCtx;
+      }
+      if (/^sidar jabari is in the command zone or on the battlefield$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            ...(Array.isArray(nextState.battlefield) ? nextState.battlefield : []),
+            { id: 'bf-sidar', name: 'Sidar Jabari of Zhalfir', controller: 'p1', type_line: 'Legendary Creature — Human Knight' },
+          ],
+        } as GameState;
+      }
+      if (/^this creature is enchanted by two or more auras$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-kitsune', enchantedPermanentId: 'bf-kitsune' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-kitsune', controller: 'p1', type_line: 'Creature — Fox Wizard' },
+            { id: 'bf-aura-1', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-kitsune' },
+            { id: 'bf-aura-2', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-kitsune' },
+          ],
+        } as GameState;
+      }
+      if (/^a werewolf is dealt damage this way$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          werewolfDealtDamageThisWay: true,
+          lastDamagedCards: [{ id: 'bf-wolf', type_line: 'Creature — Werewolf // Human' }],
+        } as typeof nextCtx;
+      }
+      if (/^not \(you pay \{e\}\{e\}/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, unlessPaysEnergyChoice: 'pay' } as typeof nextCtx;
+      }
+      if (/^x is 1$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, xValue: 1, chosenX: 1 } as typeof nextCtx;
+      }
+      if (/^x is 3$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, xValue: 3, chosenX: 3 } as typeof nextCtx;
+      }
+      if (/^enchanted creature has toxic$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, enchantedPermanentId: 'bf-toxic-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-toxic-target', controller: 'p1', type_line: 'Creature — Human', keywords: ['toxic'] },
+            { id: 'bf-maze-mantle', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-toxic-target' },
+          ],
+        } as GameState;
+      }
+      if (/that player has this permanent deal 4 damage to them/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, unlessDealDamageChoice: 'deal' } as typeof nextCtx;
+      }
+      if (/^there are no charge counters on this vehicle$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-bankbuster' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-bankbuster', controller: 'p1', type_line: 'Artifact — Vehicle', counters: {} }],
+        } as GameState;
+      }
+      if (/^at least eight mana was spent to cast it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, atLeastEightManaSpentToCast: true, manaSpentToCastIt: 8 } as typeof nextCtx;
+      }
+      if (/^you've drawn more than one card this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).cardsDrawnThisTurn = { p1: 2 };
+      }
+      if (/^you sacrificed a permanent this way$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          youSacrificedPermanentThisWay: true,
+          lastSacrificedPermanents: [{ id: 'bf-sac', controller: 'p1', type_line: 'Creature — Human' }],
+        } as typeof nextCtx;
+      }
+      if (/^another elf entered the battlefield under your control this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).elvesEnteredBattlefieldUnderControlThisTurn = { p1: true };
+      }
+      if (/^a saproling was sacrificed this way$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastSacrificedPermanents: [{ id: 'bf-sap', type_line: 'Token Creature — Saproling' }],
+        } as typeof nextCtx;
+      }
+      if (/^it was dealt noncombat damage this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetWasDealtNoncombatDamageThisTurn: true, targetPermanentId: 'bf-sigil-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-sigil-target', controller: 'p2', type_line: 'Creature — Human', wasDealtNoncombatDamageThisTurn: true }],
+        } as GameState;
+      }
+      if (/additional cost was paid and the revealed card is the chosen type/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          optionalAdditionalCostWasPaid: true,
+          revealedCardMatchesChosenType: true,
+        } as typeof nextCtx;
+      }
+      if (/^kaito entered this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).kaitoEnteredThisTurn = true;
+      }
+      if (/^this artifact has five or more charge counters on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-coils' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-coils', controller: 'p1', type_line: 'Artifact', counters: { charge: 5 } }],
+        } as GameState;
+      }
+      if (/discard a card at random unless you pay \{e\}\{e\}/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, unlessPaysEnergyChoice: 'pay' } as typeof nextCtx;
+      }
+      if (/^it had mana value 3 or less$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ id: 'bf-exiled-low', cmc: 2, manaValue: 2, type_line: 'Creature — Zombie' }],
+          lastExiledCards: [{ id: 'bf-exiled-low', cmc: 2, manaValue: 2, type_line: 'Creature — Zombie' }],
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p2'
+              ? {
+                  ...player,
+                  exile: [{ id: 'bf-exiled-low', cmc: 2, manaValue: 2, type_line: 'Creature — Zombie' }],
+                }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/^you pay \{e\}\{e\}/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          unlessPaysEnergyChoice: 'pay',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            unlessPaysEnergyChoice: 'pay',
+          },
+        } as typeof nextCtx;
+      }
+      if (/power is less than or equal to the sacrificed creature's power/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastSacrificedPermanents: [{ id: 'bf-sac', type_line: 'Creature — Giant', power: 5, toughness: 4 }],
+          targetPermanentId: 'gy-desperate-target',
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? {
+                  ...player,
+                  graveyard: [{ id: 'gy-desperate-target', type_line: 'Creature — Human', power: 3, toughness: 2 }],
+                }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/power is greater than the sacrificed creature's power/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastSacrificedPermanents: [{ id: 'bf-sac', type_line: 'Creature — Giant', power: 3, toughness: 4 }],
+          targetPermanentId: 'gy-desperate-target-high',
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? {
+                  ...player,
+                  graveyard: [{ id: 'gy-desperate-target-high', type_line: 'Creature — Human', power: 5, toughness: 2 }],
+                }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/^you control more creatures of that type than each other player$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, chosenCreatureType: 'goblin', selectorContext: { ...(nextCtx.selectorContext || {}), chosenCreatureType: 'goblin' } } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-gob-1', controller: 'p1', type_line: 'Creature — Goblin' },
+            { id: 'bf-gob-2', controller: 'p1', type_line: 'Creature — Goblin' },
+            { id: 'bf-gob-3', controller: 'p2', type_line: 'Creature — Goblin' },
+          ],
+        } as GameState;
+      }
+      if (/most common color among all permanents/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-barrin-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-barrin-target', controller: 'p2', type_line: 'Creature — Human', colors: ['U'] },
+            { id: 'bf-blue-1', controller: 'p1', type_line: 'Creature — Merfolk', colors: ['U'] },
+            { id: 'bf-blue-2', controller: 'p2', type_line: 'Creature — Spirit', colors: ['U'] },
+          ],
+        } as GameState;
+      }
+      if (/^that player has 5 or less life$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p2' ? { ...player, life: 5 } : player
+          ),
+        } as GameState;
+      }
+      if (/five or more different mana values are exiled with this permanent/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-azor-gateway' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{
+            id: 'bf-azor-gateway',
+            controller: 'p1',
+            type_line: 'Legendary Artifact',
+            exiledDistinctManaValueCount: 5,
+            cardsExiledWithThis: [{ cmc: 1 }, { cmc: 2 }, { cmc: 3 }, { cmc: 4 }, { cmc: 5 }],
+          }],
+        } as GameState;
+      }
+      if (/^it's not a spirit$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ id: 'bf-human', type_line: 'Creature — Human Detective' }] } as typeof nextCtx;
+      }
+      if (/^\{c\} wasn't spent to cast it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, colorlessManaWasNotSpentToCast: true, colorlessManaSpentToCast: 0 } as typeof nextCtx;
+      }
+      if (/exactly three colors of mana were spent to activate this ability/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, colorsOfManaSpentToActivate: ['W', 'U', 'B'], colorCountSpentToActivate: 3 } as typeof nextCtx;
+      }
+      if (/^this card is exiled with an egg counter on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ id: 'ex-egg', type_line: 'Legendary Creature — Dragon', counters: { egg: 1 } }] } as typeof nextCtx;
+      }
+      if (/^an outlaw was sacrificed this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastSacrificedPermanents: [{ id: 'bf-rogue', type_line: 'Creature — Rogue' }] } as typeof nextCtx;
+      }
+      if (/^the top card of target player's graveyard is a creature card$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p2'
+              ? { ...player, graveyard: [{ id: 'gy-top-creature', type_line: 'Creature — Spirit' }] }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/four or more quest counters on it/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-airbender' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-airbender', controller: 'p1', type_line: 'Enchantment — Saga', counters: { quest: 4 } }],
+        } as GameState;
+      }
+      if (/^target opponent has more cards in hand than you$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) => {
+            const id = String(player?.id || '').trim();
+            if (id === 'p1') return { ...player, hand: [{ id: 'h1' }] };
+            if (id === 'p2') return { ...player, hand: [{ id: 'h2' }, { id: 'h3' }] };
+            return player;
+          }),
+        } as GameState;
+      }
+      if (/^they attacked you and\/or a planeswalker you control$/i.test(conditionRaw.trim())) {
+        (nextState as any).theyAttackedYouOrYourPlaneswalkerThisTurn = true;
+      }
+      if (/^this creature attacked this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-riders' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-riders', controller: 'p1', type_line: 'Creature — Human Soldier', attackedThisTurn: true }],
+        } as GameState;
+      }
+      if (/^defending player is poisoned$/i.test(conditionRaw.trim())) {
+        (nextState as any).defendingPlayerIsPoisoned = { p2: true };
+        (nextState as any).poisonCounters = { p2: 1 };
+      }
+      if (/^a player has one or fewer cards in hand$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p2' ? { ...player, hand: [{ id: 'h-only' }] } : player
+          ),
+        } as GameState;
+      }
+      if (/^they control fewer lands than you$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-your-land', controller: 'p1', type_line: 'Basic Land — Forest' },
+            { id: 'bf-your-land-2', controller: 'p1', type_line: 'Basic Land — Plains' },
+            { id: 'bf-opp-land', controller: 'p2', type_line: 'Basic Land — Island' },
+          ],
+        } as GameState;
+      }
+      if (/^an opponent gained life this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).opponentGainedLifeThisTurn = true;
+      }
+      if (/reveals exactly the chosen number of cards of the chosen color/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, opponentRevealedExactChosenColorCount: true } as typeof nextCtx;
+      }
+      if (/^an opponent protects it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, opponentProtectsIt: true } as typeof nextCtx;
+      }
+      if (/wasn't put onto the battlefield with this ability/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, wasNotPutOntoBattlefieldWithThisAbility: true } as typeof nextCtx;
+      }
+      if (/^you put a counter on this creature this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).countersPutOnThisCreatureThisTurn = { p1: true };
+      }
+      if (/^they discarded a nonland card$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastDiscardedCards: [{ id: 'disc-spell', type_line: 'Instant' }] } as typeof nextCtx;
+      }
+      if (/^you gained and lost life this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).lifeGainedThisTurn = { p1: 2 };
+        (nextState as any).lifeLostThisTurn = { p1: 1 };
+      }
+      if (/^it wasn't cast this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, wasNotCastThisWay: true } as typeof nextCtx;
+      }
+      if (/thirty or more counters among artifacts and creatures you control/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, totalCountersOnArtifactsAndCreaturesYouControl: 30 } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-lux', controller: 'p1', type_line: 'Artifact Creature — Construct', counters: { '+1/+1': 30 } }],
+        } as GameState;
+      }
+      if (/^it dealt combat damage to a player this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-wave', dealtCombatDamageToPlayerThisTurn: true } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-wave', controller: 'p1', type_line: 'Creature — Rat', dealtCombatDamageToPlayerThisTurn: true }],
+        } as GameState;
+      }
+      if (/^its toughness was less than 1$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ id: 'bf-dead', type_line: 'Creature — Human', toughness: 0 }] } as typeof nextCtx;
+      }
+      if (/^an opponent lost 3 or more life this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).lifeLostThisTurn = { p2: 3 };
+      }
+      if (/wolves of the hunt you control/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-wolf-1', controller: 'p1', name: 'Wolves of the Hunt', type_line: 'Creature — Wolf' },
+            { id: 'bf-wolf-2', controller: 'p1', name: 'Wolves of the Hunt', type_line: 'Creature — Wolf' },
+          ],
+        } as GameState;
+      }
+      if (/^there are seven or more lands on the battlefield$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: Array.from({ length: 7 }, (_, i) => ({
+            id: `bf-land-${i}`,
+            controller: i < 3 ? 'p1' : 'p2',
+            type_line: 'Basic Land — Forest',
+          })),
+        } as GameState;
+      }
+      if (/^you control no face-down permanents$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-face-up', controller: 'p1', type_line: 'Creature — Human', faceDown: false }],
+        } as GameState;
+      }
+      if (/cast another instant or sorcery spell this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, castAnotherInstantOrSorceryThisTurn: true } as typeof nextCtx;
+      }
+      if (/gets \+2\/\+2 until end of turn if its power is 2/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-swipe-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-swipe-target', controller: 'p1', type_line: 'Creature — Bear', power: 2, toughness: 2 }],
+        } as GameState;
+      }
+      if (/^it has four or more quest counters on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-firebender' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-firebender', controller: 'p1', type_line: 'Enchantment', counters: { quest: 4 } }],
+        } as GameState;
+      }
+      if (/^you've cast another instant or sorcery spell this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, castAnotherInstantOrSorceryThisTurn: true } as typeof nextCtx;
+        (nextState as any).instantAndSorcerySpellsCastThisTurn = { p1: 2 };
+      }
+      if (/^its power is 2$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-power-two' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-power-two', controller: 'p1', type_line: 'Creature — Bear', power: 2, toughness: 2 }],
+        } as GameState;
+      }
+      if (/^that creature has flying$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-flying-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-flying-target', controller: 'p2', type_line: 'Creature — Bird', keywords: ['flying'] }],
+        } as GameState;
+      }
+      if (/^this spell is the first spell you've cast this game$/i.test(conditionRaw.trim())) {
+        (nextState as any).spellsCastThisGame = { p1: 0 };
+        nextCtx = { ...nextCtx, isFirstSpellCastThisGame: true } as typeof nextCtx;
+      }
+      if (/^that opponent has more life than another of your opponents$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) => {
+            const id = String(player?.id || '').trim();
+            if (id === 'p1') return { ...player, life: 40 };
+            if (id === 'p2') return { ...player, life: 35 };
+            if (id === 'p3') return { ...player, life: 30 };
+            return player;
+          }),
+        } as GameState;
+      }
+      if (/^enchanted equipment is attached to a creature$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-hex' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-creature-bearer', controller: 'p1', type_line: 'Creature — Human' },
+            { id: 'bf-hex', controller: 'p1', type_line: 'Enchantment — Aura Equipment', attachedTo: 'bf-creature-bearer' },
+          ],
+        } as GameState;
+      }
+      if (/^they were cast using web-slinging$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, castUsingWebSlinging: true } as typeof nextCtx;
+      }
+      if (/^defending player has two or fewer cards in hand$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p2' ? { ...player, hand: [{ id: 'h1' }] } : player
+          ),
+        } as GameState;
+      }
+      if (/^an opponent searched their library this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).opponentSearchedLibraryThisTurn = true;
+      }
+      if (/flying was exiled with this creature's delve ability/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, delveExiledFlyingCreature: true } as typeof nextCtx;
+      }
+      if (/^that player discards an artifact card this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastDiscardedCards: [{ id: 'disc-art', type_line: 'Artifact' }] } as typeof nextCtx;
+      }
+      if (/^an opponent lost 2 or more life this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).lifeLostThisTurn = { p2: 2 };
+      }
+      if (/^this enchantment has three or more quest counters on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-bloodchief' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-bloodchief', controller: 'p1', type_line: 'Enchantment', counters: { quest: 3 } }],
+        } as GameState;
+      }
+      if (/^you guessed correctly for a card named this permanent$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, guessedCorrectlyForCardNamedThisPermanent: true } as typeof nextCtx;
+      }
+      if (/^there are cards exiled with this enchantment$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-valakut' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-valakut', controller: 'p1', type_line: 'Enchantment', exiledCardCount: 2 }],
+        } as GameState;
+      }
+      if (/three or more card types among the sacrificed permanents/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          lastSacrificedPermanents: [
+            { type_line: 'Creature — Human' },
+            { type_line: 'Artifact' },
+            { type_line: 'Enchantment' },
+          ],
+        } as typeof nextCtx;
+      }
+      if (/creature died under an opponent's control this turn/i.test(conditionRaw)) {
+        (nextState as any).creatureDiedUnderOpponentControlThisTurn = true;
+      }
+      if (/^damage would be dealt to you$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, damageWouldBeDealtToYou: true } as typeof nextCtx;
+      }
+      if (/^an opponent is the monarch$/i.test(conditionRaw.trim())) {
+        nextState = { ...nextState, monarch: 'p2' } as GameState;
+      }
+      if (/^there are three or more omen counters on this creature$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-foreboding' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-foreboding', controller: 'p1', type_line: 'Artifact Creature', counters: { omen: 3 } }],
+        } as GameState;
+      }
+      if (/first time \+1\/\+1 counters have been put on that permanent this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, firstTimePlusOneCountersPutOnThatPermanentThisTurn: true } as typeof nextCtx;
+      }
+      if (/^the sacrificed permanent was a vehicle$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastSacrificedPermanents: [{ type_line: 'Artifact — Vehicle' }] } as typeof nextCtx;
+      }
+      if (/^a goblin is sacrificed this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastSacrificedPermanents: [{ type_line: 'Creature — Goblin' }] } as typeof nextCtx;
+      }
+      if (/^the \{2\}\{u\} cost was paid$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, alternateCostPaid: true, paidAlternateCostRaw: '{2}{U}' } as typeof nextCtx;
+      }
+      if (/^that cost wasn't paid$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, alternateCostPaid: false } as typeof nextCtx;
+      }
+      if (/^this creature is enchanted$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-druid' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-druid', controller: 'p1', type_line: 'Creature — Druid' },
+            { id: 'bf-aura-on-druid', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-druid' },
+          ],
+        } as GameState;
+      }
+      if (/^the discarded card was a zombie card$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastDiscardedCards: [{ id: 'disc-zombie', type_line: 'Creature — Zombie' }] } as typeof nextCtx;
+      }
+      if (/permanents were sacrificed to activate it/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, permanentsSacrificedToActivateAbility: true } as typeof nextCtx;
+      }
+      if (/^you've drawn three or more cards this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).cardsDrawnThisTurn = { p1: 3 };
+      }
+      if (/^an opponent has no cards in hand$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p2' ? { ...player, hand: [] } : player
+          ),
+        } as GameState;
+      }
+      if (/^they aren't attacking you$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, theyAreNotAttackingYou: true } as typeof nextCtx;
+      }
+      if (/mightstone and weakstone/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-urza' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-urza', controller: 'p1', owner: 'p1', type_line: 'Legendary Creature — Human Artificer' },
+            { id: 'bf-mightstone', controller: 'p1', owner: 'p1', name: 'The Mightstone and Weakstone', type_line: 'Legendary Artifact' },
+          ],
+        } as GameState;
+      }
+      if (/equipped creature didn't deal combat damage to a creature this turn/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, equippedCreatureDidNotDealCombatDamageToCreatureThisTurn: true } as typeof nextCtx;
+      }
+      if (/no permanents other than this enchantment and have no cards in hand/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-barren-glory' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1' ? { ...player, hand: [] } : player
+          ),
+          battlefield: [{ id: 'bf-barren-glory', controller: 'p1', type_line: 'Enchantment' }],
+        } as GameState;
+      }
+      if (/three or more cards put into their graveyard from anywhere this turn/i.test(conditionRaw)) {
+        (nextState as any).cardsPutIntoGraveyardFromAnywhereThisTurn = { p2: 3 };
+      }
+      if (/entered from a graveyard or you cast it from a graveyard/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, enteredFromGraveyard: true, castFromGraveyard: true } as typeof nextCtx;
+      }
+      if (/^that permanent was blue or black$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-blue-black-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-blue-black-target', controller: 'p2', type_line: 'Artifact', colors: ['U'] }],
+        } as GameState;
+      }
+      if (/^no creature got votes$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, noCreatureGotVotes: true } as typeof nextCtx;
+      }
+      if (/greater power or toughness than this creature/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-adaptive', targetPermanentId: 'bf-bigger' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-adaptive', controller: 'p1', type_line: 'Artifact Creature', power: 1, toughness: 1 },
+            { id: 'bf-bigger', controller: 'p2', type_line: 'Creature — Bear', power: 3, toughness: 3 },
+          ],
+        } as GameState;
+      }
+      if (/^you have no land cards in hand$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? { ...player, hand: [{ id: 'h-spell', type_line: 'Instant' }] }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/^the exiled card is a god card$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastMovedCards: [{ id: 'ex-god', type_line: 'Legendary Enchantment Creature — God' }],
+        } as typeof nextCtx;
+      }
+      if (/^this permanent attacked this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-attacker' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-attacker', controller: 'p1', type_line: 'Creature — Human', attackedThisTurn: true }],
+        } as GameState;
+      }
+      if (/^an opponent was dealt 3 or more damage this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).damageDealtToOpponentsThisTurn = { p2: 3 };
+      }
+      if (/^that creature's toughness is 1 or greater$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-tough' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-tough', controller: 'p2', type_line: 'Creature — Bear', toughness: 2 }],
+        } as GameState;
+      }
+      if (/^that player controls a nonblack$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-nonblack', controller: 'p2', type_line: 'Creature — Human', colors: ['R'] }],
+        } as GameState;
+      }
+      if (/^you've discarded a card this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).cardsDiscardedThisTurn = { p1: 1 };
+      }
+      if (/^this creature was dealt damage this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-damaged', thisCreatureWasDealtDamageThisTurn: true } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-damaged', controller: 'p1', type_line: 'Creature — Wall', dealtDamageThisTurn: true }],
+        } as GameState;
+      }
+      if (/^an opponent controls three or more creatures$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-o1', controller: 'p2', type_line: 'Creature — Goblin' },
+            { id: 'bf-o2', controller: 'p2', type_line: 'Creature — Goblin' },
+            { id: 'bf-o3', controller: 'p2', type_line: 'Creature — Goblin' },
+          ],
+        } as GameState;
+      }
+      if (/^enchanted creature has flying$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-earthbind', enchantedPermanentId: 'bf-fly-enchanted' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-fly-enchanted', controller: 'p2', type_line: 'Creature — Bird', keywords: ['flying'] },
+            { id: 'bf-earthbind', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-fly-enchanted' },
+          ],
+        } as GameState;
+      }
+      if (/^this permanent is a scout/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-scout' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-scout', controller: 'p1', type_line: 'Creature — Scout' }],
+        } as GameState;
+      }
+      if (/another cleric, rogue, warrior, or wizard enter/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, anotherPartyClassEnteredThisTurn: true } as typeof nextCtx;
+      }
+      if (/^excess damage was dealt to a permanent this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastExcessDamageDealtThisWay: 2 } as typeof nextCtx;
+      }
+      if (/^that creature is attacking$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-attacking-target' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-attacking-target', controller: 'p2', type_line: 'Creature — Bear', attacking: true }],
+        } as GameState;
+      }
+      if (/\{g\} was spent to cast this spell/i.test(conditionRaw) && /\{u\} was spent to cast this spell/i.test(conditionRaw)) {
+        nextCtx = {
+          ...nextCtx,
+          greenManaSpentToCastThisSpell: true,
+          blueManaSpentToCastThisSpell: true,
+        } as typeof nextCtx;
+      }
+      if (/^it didn't have decayed$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ id: 'tok-zombie', type_line: 'Creature — Zombie', hadDecayed: false }] } as typeof nextCtx;
+      }
+      if (/^this creature has fewer than three \+1\/\+1 counters on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-steam-kin' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-steam-kin', controller: 'p1', type_line: 'Creature — Elemental', counters: { '+1/+1': 1 } }],
+        } as GameState;
+      }
+      if (/^you control each creature on the battlefield with the greatest power$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-might-1', controller: 'p1', type_line: 'Creature — Giant', power: 5 },
+            { id: 'bf-might-2', controller: 'p2', type_line: 'Creature — Goblin', power: 1 },
+          ],
+        } as GameState;
+      }
+      if (/^a creature card left your graveyard this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).creatureCardsLeftGraveyardThisTurn = { p1: 1 };
+      }
+      if (/^its mana value was 1 or greater$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ id: 'gy-mv2', cmc: 2, manaValue: 2 }] } as typeof nextCtx;
+      }
+      if (/^you haven't cast a spell this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).spellsCastThisTurnByPlayer = { p1: 0 };
+      }
+      if (/^an artifact or creature spell is countered this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, artifactOrCreatureSpellCounteredThisWay: true, lastCounteredSpellKind: 'creature' } as typeof nextCtx;
+      }
+      if (/^you have exactly thirteen cards in your hand$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? { ...player, hand: Array.from({ length: 13 }, (_, i) => ({ id: `h${i}` })) }
+              : player
+          ),
+        } as GameState;
+      }
+      if (/^that creature had a \+1\/\+1 counter on it$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          lastDestroyedCreatures: [{ id: 'bf-snake-target', type_line: 'Creature — Snake', hadPlusOneCounter: true }],
+        } as typeof nextCtx;
+      }
+      if (/^that player or that planeswalker's controller has more life than you$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) => {
+            const id = String(player?.id || '').trim();
+            if (id === 'p1') return { ...player, life: 10 };
+            if (id === 'p2') return { ...player, life: 20 };
+            return player;
+          }),
+        } as GameState;
+      }
+      if (/^a card would be put into an opponent's graveyard from anywhere$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, cardWouldEnterOpponentGraveyard: true } as typeof nextCtx;
+      }
+      if (/^an opponent cast a blue and\/or black spell this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).opponentCastBlueOrBlackSpellThisTurn = true;
+      }
+      if (/noncreature permanent under your control was destroyed this turn by a spell or ability an opponent controlled/i.test(conditionRaw)) {
+        (nextState as any).noncreaturePermanentDestroyedByOpponentThisTurn = { p1: true };
+      }
+      if (/^this spell's madness cost was paid$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, madnessCostWasPaid: true } as typeof nextCtx;
+      }
+      if (/^it was enchanted$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ id: 'bf-junk', wasEnchanted: true }] } as typeof nextCtx;
+      }
+      if (/^it was equipped$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ id: 'bf-junk', wasEquipped: true }] } as typeof nextCtx;
+      }
+      if (/named bruna/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-gisela' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-gisela', controller: 'p1', owner: 'p1', type_line: 'Legendary Creature — Angel' },
+            { id: 'bf-bruna', controller: 'p1', owner: 'p1', name: 'Bruna, the Fading Light', type_line: 'Legendary Creature — Angel' },
+          ],
+        } as GameState;
+      }
+      if (/^you discarded it this turn$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, discardedItThisTurn: true } as typeof nextCtx;
+      }
+      if (/^it isn't a creature card$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ id: 'top-noncreature', type_line: 'Instant' }] } as typeof nextCtx;
+      }
+      if (/^the sacrificed permanent was an artifact$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastSacrificedPermanents: [{ type_line: 'Artifact' }] } as typeof nextCtx;
+      }
+      if (/^it enters as a creature$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, entersAsCreature: true } as typeof nextCtx;
+      }
+      if (/^a white creature dies this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastCreaturesDiedThisWay: [{ type_line: 'Creature — Human', colors: ['W'] }] } as typeof nextCtx;
+      }
+      if (/^the sacrificed creature was legendary$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastSacrificedPermanents: [{ type_line: 'Legendary Creature — Human' }] } as typeof nextCtx;
+      }
+      if (/^it isn't your main phase$/i.test(conditionRaw.trim())) {
+        nextState = { ...nextState, phase: 'combat', turnPlayer: 'p1' } as GameState;
+      }
+      if (/creature or planeswalker an opponent controlled was dealt excess damage this turn/i.test(conditionRaw)) {
+        (nextState as any).opponentPermanentDealtExcessDamageThisTurn = true;
+      }
+      if (/^you're the defending player$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, isDefendingPlayer: true } as typeof nextCtx;
+        (nextState as any).defendingPlayerId = 'p1';
+      }
+      if (/^that card was all colors$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastMovedCards: [{ colors: ['W', 'U', 'B', 'R', 'G'], wasAllColors: true }] } as typeof nextCtx;
+      }
+      if (/permanent was put into your hand from the battlefield this turn/i.test(conditionRaw)) {
+        (nextState as any).permanentsPutIntoHandFromBattlefieldThisTurn = { p1: 1 };
+      }
+      if (/elf card in your graveyard and this creature has a -1\/-1 counter/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-safewright' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: [{ id: 'p1', graveyard: [{ type_line: 'Creature — Elf' }] }],
+          battlefield: [{ id: 'bf-safewright', controller: 'p1', type_line: 'Creature — Elf', counters: { '-1/-1': 1 } }],
+        } as GameState;
+      }
+      if (/^they can't$/i.test(conditionRaw.trim())) {
+        nextState = { ...nextState, battlefield: [] } as GameState;
+      }
+      if (/^that equipment was attached to a creature$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          targetPermanentId: 'bf-equip-destroy',
+          lastMovedCards: [{ id: 'bf-equip-destroy', type_line: 'Artifact — Equipment', wasAttachedToCreature: true, attachedTo: 'bf-bearer' }],
+        } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-bearer', controller: 'p2', type_line: 'Creature — Human' }],
+        } as GameState;
+      }
+      if (/^you haven't played it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, hasNotPlayedIt: true } as typeof nextCtx;
+      }
+      if (/^you control no creatures with decayed$/i.test(conditionRaw.trim())) {
+        nextState = { ...nextState, battlefield: [{ id: 'bf-human', controller: 'p1', type_line: 'Creature — Human' }] } as GameState;
+      }
+      if (/^you didn't activate a loyalty ability of a planeswalker this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).activatedLoyaltyAbilityThisTurn = { p1: false };
+      }
+      if (/two or more permanents you don't control have an aim counter/i.test(conditionRaw)) {
+        nextState = {
+          ...nextState,
+          battlefield: [
+            { id: 'bf-aim-1', controller: 'p2', type_line: 'Creature — Human', counters: { aim: 1 } },
+            { id: 'bf-aim-2', controller: 'p2', type_line: 'Creature — Goblin', counters: { aim: 1 } },
+          ],
+        } as GameState;
+      }
+      if (/target player discards a card unless they put a card from their hand on top of their library/i.test(conditionRaw)) {
+        nextCtx = { ...nextCtx, playerDiscardedThisWay: true } as typeof nextCtx;
+      }
+      if (/^they put a card from their hand on top of their library$/i.test(conditionRaw.trim())) {
+        nextCtx = {
+          ...nextCtx,
+          unlessPutCardOnTopOfLibraryChoice: 'decline',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPlayerId: 'p2',
+          },
+        } as typeof nextCtx;
+      }
+      if (/^that player discards a card this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastDiscardedCards: [{ id: 'disc-1' }] } as typeof nextCtx;
+      }
+      if (/^you lost 2 or more life this turn$/i.test(conditionRaw.trim())) {
+        (nextState as any).lifeLostThisTurn = { p1: 2 };
+      }
+      if (/^the creature the opponent controls is dealt excess damage this way$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, lastExcessDamageDealtThisWay: 3 } as typeof nextCtx;
+      }
+      if (/^each opponent chose silence$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, eachOpponentChoseSilence: true } as typeof nextCtx;
+      }
+      if (/^each opponent chose snitch$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, eachOpponentChoseSnitch: true } as typeof nextCtx;
+      }
+      if (/^it has fewer than four \+1\/\+1 counters on it$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, targetPermanentId: 'bf-oathsworn' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-oathsworn', controller: 'p1', type_line: 'Creature — Knight', counters: { '+1/+1': 2 } }],
+        } as GameState;
+      }
+      if (/^this creature is monstrous$/i.test(conditionRaw.trim())) {
+        nextCtx = { ...nextCtx, sourceId: 'bf-crusher' } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          battlefield: [{ id: 'bf-crusher', controller: 'p1', type_line: 'Creature — Cyclops', monstrous: true }],
+        } as GameState;
+      }
+      if (/^you have 50 or more life$/i.test(conditionRaw.trim())) {
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1' ? { ...player, life: 50 } : player
+          ),
+        } as GameState;
       }
     }
     if (step.kind === 'move_zone' && /cycling ability/i.test(raw)) {

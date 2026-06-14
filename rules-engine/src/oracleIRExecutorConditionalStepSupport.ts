@@ -166,6 +166,101 @@ function resolveUnlessPayInnerCondition(
     return false;
   }
 
+  if (/^you waterbend \{2\}$/i.test(inner)) {
+    const paid =
+      ctx.waterbendWasPaid ??
+      ctx.selectorContext?.waterbendWasPaid ??
+      ctx.optionalAdditionalCostWasPaid;
+    if (paid === true) return true;
+    if (paid === false) return false;
+    return null;
+  }
+
+  if (/^you exile a historic card from your graveyard$/i.test(inner)) {
+    const unlessPaid =
+      (ctx as any)?.unlessExiledHistoricFromGraveyard ??
+      ctx.selectorContext?.unlessExiledHistoricFromGraveyard;
+    if (unlessPaid === true) return true;
+    if (unlessPaid === false) return false;
+    if (nextState && controllerId) {
+      const player = (nextState.players || []).find(
+        (p: any) => String(p?.id || '').trim() === String(controllerId || '').trim(),
+      ) as any;
+      const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+      return graveyard.some((card: any) => {
+        const tl = String(card?.type_line || '').toLowerCase();
+        return tl.includes('artifact') || tl.includes('legendary') || tl.includes('saga');
+      });
+    }
+    return null;
+  }
+
+  if (/^you return a land you control to its owner's hand$/i.test(inner)) {
+    const unlessPaid =
+      (ctx as any)?.unlessReturnedLandToHand ??
+      ctx.selectorContext?.unlessReturnedLandToHand;
+    if (unlessPaid === true) return true;
+    if (unlessPaid === false) return false;
+    if (nextState && controllerId) {
+      return (getProcessedBattlefield(nextState) as any[]).some((perm: any) => {
+        if (String(perm?.controller || '').trim() !== String(controllerId || '').trim()) return false;
+        return String(perm?.type_line || '').toLowerCase().includes('land');
+      });
+    }
+    return null;
+  }
+
+  if (/^that land had a nonbasic land type$/i.test(inner)) {
+    const moved = Array.isArray((ctx as any)?.lastMovedCards) ? (ctx as any).lastMovedCards : [];
+    const land = moved[moved.length - 1];
+    if (land) {
+      const tl = String((land as any)?.type_line || '').toLowerCase();
+      if (tl.includes('land')) return !/\bbasic\b/.test(tl);
+    }
+    const flag = (ctx as any)?.lastMovedLandWasNonbasic;
+    return typeof flag === 'boolean' ? flag : null;
+  }
+
+  if (/^that player has this permanent deal 4 damage to them$/i.test(inner)) {
+    const choice =
+      (ctx as any)?.unlessDealDamageChoice ??
+      ctx.selectorContext?.unlessDealDamageChoice ??
+      (ctx as any)?.unlessPaysDamageChoice;
+    if (choice === 'pay' || choice === 'deal') return true;
+    if (choice === 'decline') return false;
+    return null;
+  }
+
+  if (/^they put a card from their hand on top of their library$/i.test(inner)) {
+    const choice =
+      (ctx as any)?.unlessPutCardOnTopOfLibraryChoice ??
+      ctx.selectorContext?.unlessPutCardOnTopOfLibraryChoice;
+    if (choice === 'put_on_top') return true;
+    if (choice === 'decline') return false;
+    if (nextState) {
+      const targetId = String(
+        ctx.selectorContext?.targetPlayerId ??
+          ctx.selectorContext?.targetOpponentId ??
+          'p2',
+      ).trim();
+      const player = (nextState.players || []).find(
+        (p: any) => String(p?.id || '').trim() === targetId,
+      ) as any;
+      const hand = Array.isArray(player?.hand) ? player.hand : [];
+      return hand.length > 0 ? false : null;
+    }
+    return null;
+  }
+
+  if (/^you pay \{e\}\{e\}(?: \(two energy counters\))?$/i.test(inner)) {
+    const choice =
+      (ctx as any)?.unlessPaysEnergyChoice ??
+      ctx.selectorContext?.unlessPaysEnergyChoice;
+    if (choice === 'pay') return true;
+    if (choice === 'decline') return false;
+    return null;
+  }
+
   const opponentLifePayMatch = inner.match(
     /^(?:target opponent|that player|that opponent|an opponent|its controller) pays? (\d+) life$/
   );
@@ -437,6 +532,14 @@ function parseSmallNumberWord(raw: string): number | null {
     ten: 10,
     eleven: 11,
     twelve: 12,
+    thirteen: 13,
+    fourteen: 14,
+    fifteen: 15,
+    sixteen: 16,
+    seventeen: 17,
+    eighteen: 18,
+    nineteen: 19,
+    twenty: 20,
   };
   return Number.isFinite(lookup[text]) ? lookup[text] : null;
 }
@@ -544,7 +647,31 @@ function splitCompositeCondition(raw: string, delimiter: 'and' | 'or'): string[]
     delimiter === 'or' &&
     (/\bor\s+(?:more|less|greater|fewer|equal(?:\s+to)?)\b/i.test(normalized) ||
       /^you gained or lost life this turn$/i.test(normalized) ||
-      /^they entered or were cast from a graveyard$/i.test(normalized))
+      /^they entered or were cast from a graveyard$/i.test(normalized) ||
+      /^this creature didn't attack or come under your control this turn$/i.test(normalized) ||
+      /^this creature did not attack or come under your control this turn$/i.test(normalized) ||
+      /^you control a white or blue permanent$/i.test(normalized) ||
+      /^you control a green or white permanent$/i.test(normalized) ||
+      /^it's a goblin or orc$/i.test(normalized) ||
+      /^you or a player you're attacking has the initiative$/i.test(normalized) ||
+      /^that creature was green or white$/i.test(normalized) ||
+      /^that creature was blue or black$/i.test(normalized) ||
+      /^you control a red or green permanent$/i.test(normalized) ||
+      /^you control three or more wolves and\/or werewolves$/i.test(normalized) ||
+      /^that creature is black or red$/i.test(normalized) ||
+      /^you control a god, a demigod, or a legendary enchantment$/i.test(normalized) ||
+      /^you've played a land or cast a spell this turn from anywhere other than your hand$/i.test(normalized) ||
+      /^you have played a land or cast a spell this turn from anywhere other than your hand$/i.test(normalized) ||
+      /^you control the artifact with the greatest mana value or tied for the greatest mana value$/i.test(normalized) ||
+      /^an artifact or creature was put into a graveyard from the battlefield this turn$/i.test(normalized))
+  ) {
+    return null;
+  }
+  if (
+    delimiter === 'and' &&
+    /^at least one other wall creature is blocking that creature and no non-wall creatures are blocking that creature$/i.test(
+      normalized
+    )
   ) {
     return null;
   }
@@ -840,6 +967,33 @@ export function evaluateConditionalWrapperCondition(params: {
 
   const getAffirmativeAntecedentOutcome = (): LastActionOutcome =>
     lastActionOutcome ?? lastStepOutcome;
+
+  if (condition.kind === 'unless') {
+    const inner = String(condition.raw || '')
+      .replace(/\u2019/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    const unlessResolved = resolveUnlessPayInnerCondition(inner, ctx, nextState, controllerId);
+    if (unlessResolved !== undefined) return unlessResolved;
+    {
+      const extended = evaluateExtendedConditionalClause({
+        normalizedRaw: inner,
+        raw: condition.raw,
+        nextState,
+        controllerId,
+        ctx,
+        lastActionOutcome,
+        lastMovedCards,
+        lastDiscardedCards,
+        lastExcessDamageDealtThisWay,
+        step: params.step,
+      });
+      if (extended !== null) return extended;
+    }
+    return null;
+  }
+
   if (condition.kind !== 'if' && condition.kind !== 'as_long_as') return null;
 
   const raw = String(condition.raw || '').trim().toLowerCase();
@@ -849,6 +1003,11 @@ export function evaluateConditionalWrapperCondition(params: {
   }
   if (normalizedRaw.startsWith('if ')) {
     normalizedRaw = normalizedRaw.replace(/^if\s+/i, '').trim();
+  }
+
+  {
+    const unlessResolved = resolveUnlessPayInnerCondition(normalizedRaw, ctx, nextState, controllerId);
+    if (unlessResolved !== undefined) return unlessResolved;
   }
 
   if (normalizedRaw.startsWith('you do, ')) {
@@ -1370,8 +1529,47 @@ export function evaluateConditionalWrapperCondition(params: {
     );
   }
 
-  if (normalizedRaw === 'it was attacking' || normalizedRaw === 'this creature was attacking') {
+  if (normalizedRaw === "it's not suspected" || normalizedRaw === 'it is not suspected' || normalizedRaw === "it isn't suspected") {
     const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+    if (!referencedObject) return null;
+    const suspected = Boolean(
+      (referencedObject as any)?.suspected ??
+        (referencedObject as any)?.isSuspected ??
+        (referencedObject as any)?.card?.suspected ??
+        (referencedObject as any)?.card?.isSuspected
+    );
+    return !suspected;
+  }
+
+  if (
+    normalizedRaw === "this creature didn't enter the battlefield this turn" ||
+    normalizedRaw === 'this creature did not enter the battlefield this turn'
+  ) {
+    const sourceRef = getContextSourceObject(ctx, (idRaw: string) =>
+      findObjectByIdInState(nextState, getProcessedBattlefield(nextState), idRaw)
+    );
+    if (!sourceRef) return null;
+    if ((sourceRef as any)?.enteredThisTurn === true) return false;
+    if ((sourceRef as any)?.enteredThisTurn === false) return true;
+    return null;
+  }
+
+  if (
+    normalizedRaw === "it doesn't have an indestructible counter on it" ||
+    normalizedRaw === 'it does not have an indestructible counter on it'
+  ) {
+    const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+    if (!referencedObject) return null;
+    const count = Number(((referencedObject as any)?.counters || {}).indestructible ?? 0);
+    return (Number.isFinite(count) ? count : 0) === 0;
+  }
+
+  if (normalizedRaw === 'it was attacking' || normalizedRaw === 'this creature was attacking') {
+    let referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+    if (!referencedObject) {
+      const moved = movedCardsFromCtx(ctx, lastMovedCards);
+      referencedObject = moved.length > 0 ? moved[0] : null;
+    }
     if (!referencedObject) return null;
     return (
       (referencedObject as any)?.attackedThisTurn === true ||
@@ -1393,6 +1591,35 @@ export function evaluateConditionalWrapperCondition(params: {
       Boolean((sourceRef as any)?.attacking) ||
       (sourceRef as any)?.isAttacking === true
     );
+  }
+
+  if (
+    normalizedRaw === "this creature didn't attack or come under your control this turn" ||
+    normalizedRaw === 'this creature did not attack or come under your control this turn'
+  ) {
+    const sourceRef = getContextSourceObject(ctx, (idRaw: string) =>
+      findObjectByIdInState(nextState, getProcessedBattlefield(nextState), idRaw)
+    );
+    if (!sourceRef) return null;
+    const attacked =
+      (sourceRef as any)?.attackedThisTurn === true ||
+      Boolean((sourceRef as any)?.attacking) ||
+      (sourceRef as any)?.isAttacking === true ||
+      Boolean((sourceRef as any)?.defendingPlayerId);
+    const cameUnderControl =
+      (sourceRef as any)?.cameUnderYourControlThisTurn === true ||
+      (sourceRef as any)?.gainedControlThisTurn === true ||
+      (sourceRef as any)?.enteredThisTurn === true;
+    if (attacked || cameUnderControl) return false;
+    if (
+      (sourceRef as any)?.attackedThisTurn === false &&
+      (sourceRef as any)?.cameUnderYourControlThisTurn === false &&
+      (sourceRef as any)?.gainedControlThisTurn === false &&
+      (sourceRef as any)?.enteredThisTurn === false
+    ) {
+      return true;
+    }
+    return null;
   }
 
   {
@@ -1615,6 +1842,16 @@ export function evaluateConditionalWrapperCondition(params: {
     return typeof guessCorrect === 'boolean' ? !guessCorrect : false;
   }
 
+  if (normalizedRaw === 'you do and your opponent guessed wrong') {
+    const youDo =
+      (ctx as any)?.youDoChoice ??
+      ctx.selectorContext?.youDoChoice ??
+      (ctx as any)?.youDo;
+    if (youDo !== true) return false;
+    const guessCorrect = (ctx as { readonly lastGuessCorrect?: boolean }).lastGuessCorrect;
+    return typeof guessCorrect === 'boolean' ? !guessCorrect : false;
+  }
+
   if (normalizedRaw === 'you control that creature' || normalizedRaw === 'you control that permanent') {
     const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
     if (!referencedObject) return null;
@@ -1668,7 +1905,7 @@ export function evaluateConditionalWrapperCondition(params: {
     return null;
   }
 
-  if (normalizedRaw === "it's not a token" || normalizedRaw === 'it is not a token') {
+  if (normalizedRaw === "it's not a token" || normalizedRaw === 'it is not a token' || normalizedRaw === "it isn't a token") {
     const referencedObject = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
     if (!referencedObject) return null;
     return !cardWasToken(referencedObject);
@@ -1705,7 +1942,8 @@ export function evaluateConditionalWrapperCondition(params: {
   if (
     normalizedRaw === "this creature's sneak cost was paid" ||
     normalizedRaw === "this permanent's sneak cost was paid" ||
-    normalizedRaw === 'its sneak cost was paid'
+    normalizedRaw === 'its sneak cost was paid' ||
+    normalizedRaw === 'his sneak cost was paid'
   ) {
     const battlefield = getProcessedBattlefield(nextState);
     const sourceRef = getContextSourceObject(ctx, (idRaw: string) =>
@@ -1879,7 +2117,9 @@ export function evaluateConditionalWrapperCondition(params: {
     normalizedRaw === "it wasn't kicked" ||
     normalizedRaw === 'it was not kicked' ||
     normalizedRaw === "this spell wasn't kicked" ||
-    normalizedRaw === 'this spell was not kicked'
+    normalizedRaw === 'this spell was not kicked' ||
+    normalizedRaw === "this creature wasn't kicked" ||
+    normalizedRaw === 'this creature was not kicked'
   ) {
     const kicked = resolveKickedStatus(nextState, ctx, sourceRefForEarlyChecks);
     return kicked === null ? null : !kicked;
@@ -1909,19 +2149,31 @@ export function evaluateConditionalWrapperCondition(params: {
     }
   }
 
-  const andParts = splitCompositeCondition(normalizedRaw, 'and');
-  if (andParts) {
-    const results = andParts.map(part =>
-      evaluateConditionalWrapperCondition({
-        ...params,
-        condition: { ...condition, raw: part },
-      })
-    );
-    return results.every(result => result === true)
-      ? true
-      : results.some(result => result === false)
-        ? false
-        : null;
+  {
+    const graveyardCountMatch = normalizedRaw.match(/^([a-z0-9]+) or more cards are in your graveyard$/i);
+    if (graveyardCountMatch) {
+      const threshold = parseSmallNumberWord(String(graveyardCountMatch[1] || '').trim());
+      if (threshold !== null) {
+        return getYourGraveyardCards(nextState, controllerId).length >= threshold;
+      }
+    }
+  }
+
+  {
+    const andParts = splitCompositeCondition(normalizedRaw, 'and');
+    if (andParts) {
+      const results = andParts.map(part =>
+        evaluateConditionalWrapperCondition({
+          ...params,
+          condition: { ...condition, raw: part },
+        })
+      );
+      return results.every(result => result === true)
+        ? true
+        : results.some(result => result === false)
+          ? false
+          : null;
+    }
   }
 
   const orParts = splitCompositeCondition(normalizedRaw, 'or');
@@ -1979,6 +2231,15 @@ export function evaluateConditionalWrapperCondition(params: {
     const antecedent = getAffirmativeAntecedentOutcome();
     if (antecedent?.kind === 'applied') return false;
     if (antecedent) return true;
+    return null;
+  }
+
+  if (normalizedRaw === 'no player does') {
+    const antecedent = getAffirmativeAntecedentOutcome();
+    if (antecedent?.kind === 'applied') return false;
+    if (antecedent?.kind === 'impossible') return true;
+    if ((ctx as any)?.optionalOfferAccepted === true) return false;
+    if ((ctx as any)?.optionalOfferAccepted === false) return true;
     return null;
   }
 
@@ -2163,6 +2424,21 @@ export function evaluateConditionalWrapperCondition(params: {
     normalizedRaw === "you've got the initiative"
   ) {
     return String((nextState as any)?.initiative || '').trim() === String(controllerId || '').trim();
+  }
+
+  if (normalizedRaw === "you or a player you're attacking has the initiative") {
+    const initiative = String((nextState as any)?.initiative || '').trim();
+    if (!initiative) return false;
+    if (initiative === String(controllerId || '').trim()) return true;
+    const source = getReferencedConditionalObject(nextState, getProcessedBattlefield(nextState), ctx);
+    const defendingPlayerId = String(
+      (ctx as any)?.defendingPlayerId ??
+        ctx.selectorContext?.targetOpponentId ??
+        (source as any)?.defendingPlayerId ??
+        (source as any)?.attacking ??
+        ''
+    ).trim();
+    return Boolean(defendingPlayerId && initiative === defendingPlayerId);
   }
 
   if (
@@ -2446,7 +2722,7 @@ export function evaluateConditionalWrapperCondition(params: {
     return null;
   }
 
-  if (normalizedRaw === 'it was cast') {
+  if (normalizedRaw === 'it was cast' || normalizedRaw === 'he was cast' || normalizedRaw === 'she was cast') {
     if (ctx.wasCast === true || ctx.selectorContext?.wasCast === true) return true;
     if (ctx.wasCast === false || ctx.selectorContext?.wasCast === false) return false;
     const castFromZone = String(ctx.castFromZone || ctx.selectorContext?.castFromZone || '').trim().toLowerCase();
@@ -2589,6 +2865,43 @@ export function evaluateConditionalWrapperCondition(params: {
       }
       if (lastActionOutcome?.stepKind !== 'sacrifice') return null;
       return false;
+    }
+  }
+
+  {
+    const sacrificedColorMatch = normalizedRaw.match(
+      /^the sacrificed creature was (white|blue|black|red|green)$/i
+    );
+    if (sacrificedColorMatch) {
+      const color = String(sacrificedColorMatch[1] || '').trim().toLowerCase();
+      const colorLetter: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+      const snapshots = Array.isArray((ctx as any).lastSacrificedPermanents)
+        ? ((ctx as any).lastSacrificedPermanents as any[])
+        : [];
+      if (snapshots.length > 0) {
+        return snapshots.some((entry: any) => {
+          const colors = Array.isArray(entry?.colors) ? entry.colors : Array.isArray(entry?.card?.colors) ? entry.card.colors : [];
+          return colors.some((c: unknown) => String(c || '').toUpperCase() === colorLetter[color]);
+        });
+      }
+      if (lastActionOutcome?.stepKind !== 'sacrifice') return null;
+      return false;
+    }
+  }
+
+  {
+    const wasntSubtypeMatch = normalizedRaw.match(/^(?:it|this creature|this permanent) (?:wasn't|was not) (?:a|an) ([a-z0-9-]+)$/i);
+    if (wasntSubtypeMatch) {
+      const subtype = String(wasntSubtypeMatch[1] || '').trim().toLowerCase();
+      const snapshots = Array.isArray((ctx as any).lastSacrificedPermanents)
+        ? ((ctx as any).lastSacrificedPermanents as any[])
+        : [];
+      const subject =
+        snapshots[0] ??
+        getReferencedConditionalObject(nextState, battlefield, ctx);
+      if (!subject) return null;
+      const typeLine = String(subject?.type_line || subject?.card?.type_line || '').toLowerCase();
+      return !new RegExp(`\\b${subtype.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\b`, 'i').test(typeLine);
     }
   }
 
@@ -2770,6 +3083,19 @@ export function evaluateConditionalWrapperCondition(params: {
         .replace(/^an?\s+/i, '')
         .replace(/\s+card$/i, '')
         .trim();
+      if (normalizedTypeText === 'snow') {
+        const card =
+          (Array.isArray(lastMovedCards) && lastMovedCards.length > 0 ? lastMovedCards[lastMovedCards.length - 1] : null) ??
+          getReferencedConditionalObject(nextState, battlefield, ctx);
+        if (!card) {
+          const libraryOwnerId = String(ctx.lastTopLibraryOwnerId || controllerId || '').trim();
+          const player = (nextState.players || []).find((p: any) => String(p?.id || '').trim() === libraryOwnerId) as any;
+          const topCard = Array.isArray(player?.library) && player.library.length > 0 ? player.library[0] : null;
+          if (!topCard) return null;
+          return cardMatchesType(topCard, 'snow');
+        }
+        return cardMatchesType(card, 'snow');
+      }
       const parsedType = parseSimpleCardTypeFromText(normalizedTypeText);
       if (parsedType) {
         const libraryOwnerId = String(ctx.lastTopLibraryOwnerId || controllerId || '').trim();

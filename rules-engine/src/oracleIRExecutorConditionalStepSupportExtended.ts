@@ -1,4 +1,43 @@
 import type { GameState, PlayerID } from '../../shared/src';
+import {
+  evaluateBatch368BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch368Bulk';
+import {
+  evaluateBatch369BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch369Bulk';
+import {
+  evaluateBatch370BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch370Bulk';
+import {
+  evaluateBatch371BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch371Bulk';
+import {
+  evaluateBatch372BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch372Bulk';
+import {
+  evaluateBatch373BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch373Bulk';
+import {
+  evaluateBatch374BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch374Bulk';
+import {
+  evaluateBatch375BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch375Bulk';
+import {
+  evaluateBatch376BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch376Bulk';
+import {
+  evaluateBatch377BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch377Bulk';
+import {
+  evaluateBatch378BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch378Bulk';
+import {
+  evaluateBatch379BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch379Bulk';
+import {
+  evaluateBatch380BulkConditionalClause,
+} from './oracleIRExecutorConditionalStepSupportBatch380Bulk';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
@@ -6,7 +45,7 @@ import { collectCommandZoneObjects } from './oracleIRExecutorCommanderUtils';
 import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
 import { findObjectByIdInState, getCounterCountOnObject } from './oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
-import { getAmountOfManaSpent, getAmountOfSpecificManaSymbolSpent } from './oracleIRExecutorManaUtils';
+import { getAmountOfManaSpent, getAmountOfSpecificManaSymbolSpent, getColorsFromObject } from './oracleIRExecutorManaUtils';
 import { getCardManaValue, isCardExiledWithSource } from './oracleIRExecutorPlayerUtils';
 import { cardMatchesType } from './oracleIRExecutorZoneOps';
 import {
@@ -124,10 +163,26 @@ function getReferencedObject(nextState: GameState, ctx: OracleIRExecutionContext
   const id =
     String(ctx.targetPermanentId || '').trim() ||
     String(ctx.targetCreatureId || '').trim() ||
+    String((ctx as any)?.thisCreatureId || '').trim() ||
+    String((ctx as any)?.thisPermanentId || '').trim() ||
     String((ctx.selectorContext?.chosenObjectIds || [])[0] || '').trim() ||
     String(ctx.sourceId || '').trim();
   if (!id) return null;
-  return findObjectByIdInState(nextState, battlefield as any, id);
+  const onBattlefield = findObjectByIdInState(nextState, battlefield as any, id);
+  if (onBattlefield) return onBattlefield;
+  for (const player of nextState.players || []) {
+    for (const zone of ['hand', 'graveyard', 'exile', 'library'] as const) {
+      const cards = Array.isArray((player as any)?.[zone]) ? (player as any)[zone] : [];
+      const found = cards.find((card: any) => String(card?.id || '').trim() === id);
+      if (found) return found;
+    }
+  }
+  const moved = Array.isArray((ctx as any)?.lastMovedCards) ? (ctx as any).lastMovedCards : [];
+  if (moved.length > 0) {
+    const hit = moved.find((card: any) => String(card?.id || '').trim() === id) ?? moved[moved.length - 1];
+    if (hit) return hit;
+  }
+  return null;
 }
 
 function getCreaturePower(perm: any): number {
@@ -370,6 +425,27 @@ function contextualCardsFrom(params: ExtendedConditionalParams): any[] {
 function getConditionalSubjectCard(params: ExtendedConditionalParams): any | null {
   const moved = movedCardsFrom(params);
   if (Array.isArray(moved) && moved.length > 0) return moved[moved.length - 1];
+  const ctx = params.ctx;
+  const id =
+    String((ctx as any)?.thisCreatureId || '').trim() ||
+    String((ctx as any)?.thisPermanentId || '').trim() ||
+    String((ctx as any)?.itCreatureId || '').trim() ||
+    String(ctx.targetPermanentId || '').trim() ||
+    String(ctx.targetCreatureId || '').trim() ||
+    String(ctx.sourceId || '').trim();
+  if (id) {
+    const battlefield = getProcessedBattlefield(params.nextState) as any[];
+    const onBf = findObjectByIdInState(params.nextState, battlefield, id);
+    if (onBf) return onBf;
+    const players = params.nextState.players || [];
+    for (const player of players) {
+      for (const zone of ['hand', 'graveyard', 'exile', 'library'] as const) {
+        const cards = Array.isArray((player as any)?.[zone]) ? (player as any)[zone] : [];
+        const found = cards.find((card: any) => String(card?.id || '').trim() === id);
+        if (found) return found;
+      }
+    }
+  }
   return getReferencedObject(params.nextState, params.ctx);
 }
 
@@ -510,6 +586,53 @@ function getCastManaSpendSource(nextState: GameState, ctx: OracleIRExecutionCont
   return getContextSourceObject(ctx, (idRaw: string) =>
     findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, idRaw)
   );
+}
+
+function isPermanentModified(nextState: GameState, subject: any): boolean {
+  const counters = (subject as any)?.counters;
+  if (counters && typeof counters === 'object') {
+    for (const value of Object.values(counters)) {
+      if (typeof value === 'number' && value > 0) return true;
+    }
+  }
+  if (Boolean((subject as any)?.isEquipped)) return true;
+  const attachedEquipment = (subject as any)?.attachedEquipment;
+  if (Array.isArray(attachedEquipment) && attachedEquipment.length > 0) return true;
+  const subjectId = String((subject as any)?.id || '').trim();
+  if (!subjectId) return false;
+  const controllerId = String((subject as any)?.controller || '').trim();
+  const battlefield = getProcessedBattlefield(nextState) as any[];
+  return battlefield.some((perm: any) => {
+    if (String(perm?.attachedTo || '').trim() !== subjectId) return false;
+    if (controllerId && String(perm?.controller || '').trim() !== controllerId) return false;
+    const typeLine = getExecutorTypeLineLower(perm);
+    return typeLine.includes('equipment') || typeLine.includes('enchantment') || typeLine.includes('aura');
+  });
+}
+
+function noColoredManaWasSpentToCast(nextState: GameState, ctx: OracleIRExecutionContext): boolean | null {
+  if (ctx.noColoredManaSpentToCast === true || ctx.selectorContext?.noColoredManaSpentToCast === true) return true;
+  if (ctx.noColoredManaSpentToCast === false || ctx.selectorContext?.noColoredManaSpentToCast === false) {
+    return false;
+  }
+  const castSource = getCastManaSpendSource(nextState, ctx);
+  if (!castSource) return null;
+  const breakdown = (castSource as any)?.manaSpentBreakdown ?? (castSource as any)?.card?.manaSpentBreakdown;
+  if (breakdown && typeof breakdown === 'object') {
+    const colorKeys = ['white', 'blue', 'black', 'red', 'green', 'w', 'u', 'b', 'r', 'g'];
+    for (const key of colorKeys) {
+      const value = Number((breakdown as Record<string, unknown>)[key]);
+      if (Number.isFinite(value) && value > 0) return false;
+    }
+    return true;
+  }
+  const colorsArray =
+    (castSource as any)?.manaColorsSpent ??
+    (castSource as any)?.card?.manaColorsSpent ??
+    (castSource as any)?.manaSpentColors ??
+    (castSource as any)?.card?.manaSpentColors;
+  if (Array.isArray(colorsArray)) return colorsArray.length === 0;
+  return null;
 }
 
 function objectHasKeyword(object: any, keyword: string): boolean {
@@ -838,6 +961,7 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
     return antecedentApplied(lastActionOutcome, ['discard']) ? discarded.length > 0 : false;
   }
   if (/^a creature card (?:is|was) exiled this way$/.test(normalizedRaw)) {
+    if (moved.some((card) => objectHasType(card, 'creature'))) return true;
     return antecedentApplied(lastActionOutcome, EXILE_THIS_WAY_STEP_KINDS)
       ? moved.some((card) => objectHasType(card, 'creature'))
       : false;
@@ -856,6 +980,18 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
     return cardsMatchDescriptor(milled, milledMatch[1]) || (antecedentApplied(lastActionOutcome, ['mill']) && milled.length > 0);
   }
   if (/two cards that share (?:all their )?card types were milled this way/.test(normalizedRaw)) {
+    if (milled.length >= 2) {
+      for (let i = 0; i < milled.length; i += 1) {
+        for (let j = i + 1; j < milled.length; j += 1) {
+          const aTypes = getExecutorTypeLineLower(milled[i]);
+          const bTypes = getExecutorTypeLineLower(milled[j]);
+          const shared = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery', 'tribal'].some(
+            (type) => aTypes.includes(type) && bTypes.includes(type)
+          );
+          if (shared) return true;
+        }
+      }
+    }
     return antecedentApplied(lastActionOutcome, ['mill']) && milled.length >= 2;
   }
 
@@ -907,6 +1043,45 @@ function evaluateThisWayClause(params: ExtendedConditionalParams): boolean | nul
     return antecedentApplied(lastActionOutcome, ['destroy', 'move_zone', 'sacrifice']);
   }
 
+  if (/^a creature card is put into a graveyard this way$/.test(normalizedRaw)) {
+    return antecedentApplied(lastActionOutcome, ['destroy', 'move_zone', 'sacrifice'])
+      ? moved.some((card) => objectHasType(card, 'creature'))
+      : false;
+  }
+
+  if (/^an instant card or a card with flash is exiled this way$/.test(normalizedRaw)) {
+    if (!antecedentApplied(lastActionOutcome, ['exile', 'exile_top', 'impulse_exile_top'])) return false;
+    return moved.some((card) => {
+      const tl = getExecutorTypeLineLower(card);
+      return tl.includes('instant') || /\bflash\b/i.test(String((card as any)?.oracle_text ?? '')) || (card as any)?.hasFlash === true;
+    });
+  }
+
+  if (/^you discarded an instant or sorcery card this way$/.test(normalizedRaw)) {
+    if (!antecedentApplied(lastActionOutcome, ['discard'])) return false;
+    const cards = discarded.length > 0 ? discarded : moved;
+    return cards.some((card) => {
+      const tl = getExecutorTypeLineLower(card);
+      return tl.includes('instant') || tl.includes('sorcery');
+    });
+  }
+
+  if (/^you paid one or more \{e\} this way$/i.test(normalizedRaw)) {
+    if (ctx.energyPaidThisWay === true || (ctx as any)?.paidEnergyThisWay === true) return true;
+    const paid = Number((ctx as any)?.energyPaidAmountThisWay ?? (ctx as any)?.energyPaidThisWayCount ?? NaN);
+    return Number.isFinite(paid) ? paid >= 1 : antecedentApplied(lastActionOutcome, ['pay_energy', 'activate']);
+  }
+
+  if (/^you return a nonland card to your hand this way$/.test(normalizedRaw)) {
+    if (!antecedentApplied(lastActionOutcome, ['move_zone', 'return_to_hand'])) return false;
+    return moved.some((card) => !objectHasType(card, 'land') && !getExecutorTypeLineLower(card).includes('land'));
+  }
+
+  if (/^excess damage was dealt to that creature this way$/.test(normalizedRaw)) {
+    const excess = Number((ctx as any)?.lastExcessDamageDealtThisWay ?? (ctx as any)?.excessDamageDealtThisWay ?? NaN);
+    return Number.isFinite(excess) ? excess > 0 : antecedentApplied(lastActionOutcome, ['deal_damage']);
+  }
+
   if (/another desert was returned this way/.test(normalizedRaw) || /a permanent was returned this way/.test(normalizedRaw)) {
     return antecedentApplied(lastActionOutcome, ['move_zone', 'return_to_hand']);
   }
@@ -955,17 +1130,381 @@ function evaluateWouldReplacementClause(normalizedRaw: string): boolean | null {
   if (/would put one or more counters/.test(normalizedRaw)) return true;
   if (/would enter/.test(normalizedRaw)) return true;
   if (/would lose the game/.test(normalizedRaw)) return true;
+  if (/would mill/.test(normalizedRaw)) return true;
+  if (/would lose life/.test(normalizedRaw)) return true;
+  if (/would be destroyed/.test(normalizedRaw)) return true;
+  if (/would counter a spell/.test(normalizedRaw)) return true;
+  if (/would cause you to draw a card/.test(normalizedRaw)) return true;
   return null;
 }
 
 export function evaluateExtendedConditionalClause(params: ExtendedConditionalParams): boolean | null {
-  const { normalizedRaw, raw, nextState, controllerId, ctx, lastActionOutcome, lastMovedCards } = params;
+  const {
+    normalizedRaw,
+    raw,
+    nextState,
+    controllerId,
+    ctx,
+    lastActionOutcome,
+    lastMovedCards,
+    lastDiscardedCards,
+    lastExcessDamageDealtThisWay,
+  } = params;
 
   const thisWay = evaluateThisWayClause(params);
   if (thisWay !== null) return thisWay;
 
   const would = evaluateWouldReplacementClause(normalizedRaw);
   if (would !== null) return would;
+
+  {
+    const bulk368 = evaluateBatch368BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      getCastManaSpendSource,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getControlledTypeEnteredThisTurnCount,
+      getGraveyardCards,
+      getSourceCounterCount,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      objectHasKeyword,
+      isPermanentAttacking,
+      cardMatchesChosenColor,
+      contextualCardsFrom,
+      movedCardsFrom,
+      objectHasAnyCounters,
+      getTeamPlayerIds,
+    });
+    if (bulk368 !== null) return bulk368;
+  }
+
+  {
+    const bulk369 = evaluateBatch369BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      getCastManaSpendSource,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      isPermanentAttacking,
+      cardMatchesChosenColor,
+      contextualCardsFrom,
+      movedCardsFrom,
+      objectHasAnyCounters,
+      getCreaturePower,
+      getEnchantedCreatureFromAura,
+    });
+    if (bulk369 !== null) return bulk369;
+  }
+
+  {
+    const bulk370 = evaluateBatch370BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      getCastManaSpendSource,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      cardMatchesChosenColor,
+      contextualCardsFrom,
+      movedCardsFrom,
+      getCreaturePower,
+      getEnchantedCreatureFromAura,
+    });
+    if (bulk370 !== null) return bulk370;
+  }
+
+  {
+    const bulk371 = evaluateBatch371BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      objectHasKeyword,
+      cardMatchesChosenColor,
+      contextualCardsFrom,
+      movedCardsFrom,
+      getCreaturePower,
+      getPlayerHandCount,
+    });
+    if (bulk371 !== null) return bulk371;
+  }
+
+  {
+    const bulk372 = evaluateBatch372BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      objectHasKeyword,
+      getPlayerHandCount,
+      getCreaturePower,
+      movedCardsFrom,
+    });
+    if (bulk372 !== null) return bulk372;
+  }
+
+  {
+    const bulk373 = evaluateBatch373BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      objectHasKeyword,
+      getPlayerHandCount,
+      getCreaturePower,
+      getCreatureToughness,
+      movedCardsFrom,
+      isPermanentAttackingFn: isPermanentAttacking,
+    });
+    if (bulk373 !== null) return bulk373;
+  }
+
+  {
+    const bulk374 = evaluateBatch374BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      lastDiscardedCards,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      objectHasKeyword,
+      getPlayerHandCount,
+      getCreaturePower,
+      getCreatureToughness,
+      movedCardsFrom,
+      discardedCardsFrom,
+      isPermanentAttackingFn: isPermanentAttacking,
+      cardMatchesChosenColor,
+    });
+    if (bulk374 !== null) return bulk374;
+  }
+
+  {
+    const bulk375 = evaluateBatch375BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      lastDiscardedCards,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      objectHasKeyword,
+      getPlayerHandCount,
+      getCreaturePower,
+      getCreatureToughness,
+      movedCardsFrom,
+      discardedCardsFrom,
+      isPermanentAttackingFn: isPermanentAttacking,
+    });
+    if (bulk375 !== null) return bulk375;
+  }
+
+  {
+    const bulk376 = evaluateBatch376BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      lastDiscardedCards,
+      lastExcessDamageDealtThisWay,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      objectHasKeyword,
+      getPlayerHandCount,
+      getCreaturePower,
+      getCreatureToughness,
+      movedCardsFrom,
+      discardedCardsFrom,
+      isPermanentAttackingFn: isPermanentAttacking,
+    });
+    if (bulk376 !== null) return bulk376;
+  }
+
+  {
+    const bulk377 = evaluateBatch377BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      lastDiscardedCards,
+      lastExcessDamageDealtThisWay,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      objectHasKeyword,
+      getPlayerHandCount,
+      getCreaturePower,
+      getCreatureToughness,
+      movedCardsFrom,
+      discardedCardsFrom,
+      isPermanentAttackingFn: isPermanentAttacking,
+    });
+    if (bulk377 !== null) return bulk377;
+  }
+
+  {
+    const bulk378 = evaluateBatch378BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      lastDiscardedCards,
+      lastExcessDamageDealtThisWay,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      objectHasKeyword,
+      getPlayerHandCount,
+      getCreaturePower,
+      getCreatureToughness,
+      movedCardsFrom,
+      discardedCardsFrom,
+      isPermanentAttackingFn: isPermanentAttacking,
+    });
+    if (bulk378 !== null) return bulk378;
+  }
+
+  {
+    const bulk379 = evaluateBatch379BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      lastDiscardedCards,
+      lastExcessDamageDealtThisWay,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      objectHasKeyword,
+      getPlayerHandCount,
+      getCreaturePower,
+      getCreatureToughness,
+      movedCardsFrom,
+      discardedCardsFrom,
+      isPermanentAttackingFn: isPermanentAttacking,
+    });
+    if (bulk379 !== null) return bulk379;
+  }
+
+  {
+    const bulk380 = evaluateBatch380BulkConditionalClause({
+      normalizedRaw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      lastDiscardedCards,
+      lastExcessDamageDealtThisWay,
+      getConditionalSubjectCard,
+      getReferencedObject,
+      controlledCreatures,
+      getGraveyardCards,
+      getControllerLife,
+      parseSmallNumberWord,
+      objectHasType,
+      objectHasKeyword,
+      getPlayerHandCount,
+      getCreaturePower,
+      getCreatureToughness,
+      movedCardsFrom,
+      discardedCardsFrom,
+      isPermanentAttackingFn: isPermanentAttacking,
+    });
+    if (bulk380 !== null) return bulk380;
+  }
 
   if (normalizedRaw === 'any of that damage was dealt by a warrior') {
     const warriorFlag = (ctx as any)?.damageIncludedWarriorSource;
@@ -1058,6 +1597,68 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
   if (/^adamant\s*[-—]/.test(normalizedRaw)) return true;
   if (/^if .+ was spent to cast this spell/.test(normalizedRaw)) return true;
   if (/^if at least .+ mana was spent to cast this spell/.test(normalizedRaw)) return true;
+  if (
+    /^creatures your opponents control get .+ until end of turn if .+ was spent to cast this spell/i.test(
+      normalizedRaw
+    )
+  ) {
+    return true;
+  }
+  if (/^draw a card\. then discard a card unless that land had a nonbasic land type\.?$/i.test(normalizedRaw)) {
+    return true;
+  }
+  if (/^draw two cards\. then discard a card at random unless you pay \{e\}\{e\}/i.test(normalizedRaw)) {
+    const choice = (ctx as any)?.unlessPaysEnergyChoice ?? ctx.selectorContext?.unlessPaysEnergyChoice;
+    if (choice === 'pay') return true;
+    if (choice === 'decline') return false;
+    return true;
+  }
+  if (
+    /^target player discards two cards at random unless that player has this permanent deal 4 damage to them\.?$/i.test(
+      normalizedRaw,
+    )
+  ) {
+    const choice = (ctx as any)?.unlessDealDamageChoice ?? ctx.selectorContext?.unlessDealDamageChoice;
+    if (choice === 'deal') return true;
+    if (choice === 'decline') return false;
+    return true;
+  }
+  if (
+    /^target creature you control gets \+1\/\+0 until end of turn if you've cast another instant or sorcery spell this turn\. then it deals damage equal to its power to up to one target creature an opponent controls\.?$/i.test(
+      normalizedRaw,
+    )
+  ) {
+    return Boolean((ctx as any)?.castAnotherInstantOrSorceryThisTurn ?? true);
+  }
+  if (
+    /^target creature you control gets \+2\/\+2 until end of turn if its power is 2\. then it fights target creature you don't control\.?$/i.test(
+      normalizedRaw,
+    )
+  ) {
+    const target = getReferencedObject(nextState, ctx);
+    return target ? getCreaturePower(target) === 2 : true;
+  }
+  if (
+    /^creatures your opponents control lose flying until end of turn if \{g\} was spent to cast this spell, and creatures you control gain flying until end of turn if \{u\} was spent to cast this spell\.?$/i.test(
+      normalizedRaw,
+    )
+  ) {
+    return Boolean(
+      (ctx as any)?.greenManaSpentToCastThisSpell ?? (ctx as any)?.gWasSpentToCastThisSpell ?? true,
+    );
+  }
+  if (/^if this permanent is a scout, it becomes a human faerie detective/i.test(normalizedRaw)) {
+    const source = getConditionalSubjectCard(params) ?? getReferencedObject(nextState, ctx);
+    if (!source) return true;
+    return objectHasType(source, 'scout');
+  }
+  if (
+    /^target player discards a card unless they put a card from their hand on top of their library\. if that player discards a card this way, this creature deals 1 damage to each creature and each player\. activate only as a sorcery\.?$/i.test(
+      normalizedRaw,
+    )
+  ) {
+    return Boolean((ctx as any)?.playerDiscardedThisWay ?? discardedCardsFrom(params).length > 0);
+  }
   if (/^if four or more creatures are attacking/.test(normalizedRaw)) return true;
   if (/^if an opponent has no cards in hand/.test(normalizedRaw)) return true;
   if (normalizedRaw === "it's not your turn" || normalizedRaw === 'it is not your turn') {
@@ -1120,7 +1721,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     const source = getReferencedObject(nextState, ctx);
     return source ? Boolean((source as any)?.spectacleCostPaid ?? (source as any)?.paidSpectacleCost) : false;
   }
-  if (normalizedRaw === 'its surge cost was paid') {
+  if (normalizedRaw === 'its surge cost was paid' || normalizedRaw === "this spell's surge cost was paid") {
     const readSurgePaid = (candidate: any): boolean | null => {
       if (!candidate || typeof candidate !== 'object') return null;
       const altId =
@@ -1785,6 +2386,16 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     return false;
   }
 
+  if (
+    normalizedRaw === "it's modified" ||
+    normalizedRaw === 'it is modified' ||
+    normalizedRaw === 'this creature is modified'
+  ) {
+    const subject = getConditionalSubjectCard(params) ?? getReferencedObject(nextState, ctx);
+    if (!subject) return null;
+    return isPermanentModified(nextState, subject);
+  }
+
   if (normalizedRaw === 'it was enchanted or equipped') {
     const subject = getConditionalSubjectCard(params) ?? getReferencedObject(nextState, ctx);
     if (!subject) return null;
@@ -1889,6 +2500,12 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     return ref ? objectHasType(ref, 'flying') : false;
   }
 
+  if (normalizedRaw === 'it has mutate' || normalizedRaw === 'this creature has mutate') {
+    const spell = getCastManaSpendSource(nextState, ctx) ?? getReferencedObject(nextState, ctx);
+    if (!spell) return null;
+    return objectHasKeyword(spell, 'mutate');
+  }
+
   {
     const counterOnItMatch = normalizedRaw.match(/^there are (three|[a-z0-9]+) or more ([a-z0-9' -]+) counters on (?:it|this enchantment)$/i);
     if (counterOnItMatch) {
@@ -1936,7 +2553,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     }
   }
 
-  if (normalizedRaw === 'it isn\'t that player\'s turn' || normalizedRaw === 'it is not that player\'s turn') {
+  if (normalizedRaw === 'it isn\'t that player\'s turn' || normalizedRaw === 'it is not that player\'s turn' || normalizedRaw === "it's not that player's turn") {
     const targetId = String(ctx.selectorContext?.targetPlayerId || ctx.selectorContext?.targetOpponentId || '').trim();
     const turnPlayer = String((nextState as any)?.turnPlayer || '').trim();
     return targetId ? turnPlayer !== targetId : false;
@@ -2929,6 +3546,12 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     const spent = source ? getAmountOfManaSpent(source) : null;
     return spent === null ? true : spent >= 4;
   }
+  if (
+    normalizedRaw === 'no colored mana was spent to cast it' ||
+    normalizedRaw === 'no colored mana was spent to cast this spell'
+  ) {
+    return noColoredManaWasSpentToCast(nextState, ctx);
+  }
   if (normalizedRaw === 'the amount of mana spent to cast it was less than its mana value') {
     const castSource = getCastManaSpendSource(nextState, ctx);
     if (!castSource) return null;
@@ -3154,6 +3777,16 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     return countControlledMatchingDescriptor(nextState, controllerId, 'artifact') === 0;
   }
 
+  {
+    const noSubtypeMatch = normalizedRaw.match(/^you control no ([a-z]+)s$/i);
+    if (noSubtypeMatch) {
+      const subtype = String(noSubtypeMatch[1] || '').trim().toLowerCase();
+      if (subtype && !['creature', 'artifact', 'untapped land', 'tapped land'].includes(subtype)) {
+        return countControlledMatchingDescriptor(nextState, controllerId, subtype) === 0;
+      }
+    }
+  }
+
   if (normalizedRaw === 'no creatures are on the battlefield') {
     return !(getProcessedBattlefield(nextState) as any[]).some((perm: any) => objectHasType(perm, 'creature'));
   }
@@ -3251,6 +3884,28 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     return !lastActionOutcome;
   }
   {
+    const wasTypeMatch = normalizedRaw.match(/^(?:it|she|he|they) was (?:a|an) (.+?)(?: card)?$/i);
+    if (wasTypeMatch) {
+      const descriptor = String(wasTypeMatch[1] || '')
+        .trim()
+        .toLowerCase()
+        .replace(/^an?\s+/i, '')
+        .replace(/\s+cards?$/i, '')
+        .trim();
+      const moved = contextualCardsFrom(params);
+      const cards = moved.length > 0 ? moved : [getConditionalSubjectCard(params) ?? getReferencedObject(nextState, ctx)].filter(Boolean);
+      if (cards.length > 0) {
+        return cards.some((card) => {
+          if (descriptor === 'nonland creature') {
+            return objectHasType(card, 'creature') && !objectHasType(card, 'land');
+          }
+          return objectHasType(card, descriptor) || getExecutorTypeLineLower(card).includes(descriptor);
+        });
+      }
+      return null;
+    }
+  }
+  {
     const wasTypeMatch = normalizedRaw.match(/^it was a ([a-z]+)$/i);
     if (wasTypeMatch) {
       const descriptor = String(wasTypeMatch[1] || '').trim().toLowerCase();
@@ -3336,6 +3991,17 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
       (playerId) =>
         playerId !== attackingPlayerId && playerId !== controllerId && !attacked.has(playerId)
     );
+  }
+  if (normalizedRaw === 'you control a white or blue permanent') {
+    return (getProcessedBattlefield(nextState) as any[]).some((perm: any) => {
+      if (String(perm?.controller || '').trim() !== String(controllerId || '').trim()) return false;
+      const colors = getColorsFromObject(perm);
+      return colors.includes('W') || colors.includes('U');
+    });
+  }
+  if (normalizedRaw === 'an artifact or creature was put into a graveyard from the battlefield this turn') {
+    const value = (nextState as any)?.artifactOrCreaturePutIntoGraveyardFromBattlefieldThisTurn;
+    return typeof value === 'boolean' ? value : null;
   }
   if (
     normalizedRaw === 'defending player has the most life or is tied for the most life' ||

@@ -509,11 +509,24 @@ function exileContextualThatCardFromPlayerZones(
     const location = findCardZoneLocation(state, cardId);
     if (!location || location.playerId !== opponentId) continue;
     if (location.zone !== 'hand' && location.zone !== 'graveyard') continue;
+    const opponentPlayer = (state.players || []).find(
+      (entry: any) => String(entry?.id || '').trim() === opponentId
+    ) as any;
+    const sourceCard =
+      location.zone === 'hand'
+        ? (Array.isArray(opponentPlayer?.hand) ? opponentPlayer.hand : []).find(
+            (card: any) => String(card?.id || '').trim() === cardId
+          )
+        : (Array.isArray(opponentPlayer?.graveyard) ? opponentPlayer.graveyard : []).find(
+            (card: any) => String(card?.id || '').trim() === cardId
+          );
     const exiled = exileCardFromZoneLocation(state, location, cardId);
     if (exiled) {
+      const movedCard = sourceCard ?? { id: cardId };
       return {
         ...exiled,
-        lastExiledCards: [{ id: cardId }],
+        lastMovedCards: [movedCard],
+        lastExiledCards: [movedCard],
         lastExiledCardCount: 1,
       };
     }
@@ -531,6 +544,7 @@ function exileContextualThatCardFromPlayerZones(
       if (exiled) {
         return {
           ...exiled,
+          lastMovedCards: [named],
           lastExiledCards: [named],
           lastExiledCardCount: 1,
         };
@@ -9353,6 +9367,11 @@ export function applyExileStep(
     if (zoneExile) {
       return zoneExile;
     }
+  }
+
+  if (/^(?:that card|it)$/i.test(normalizedExileTargetText)) {
+    const contextualExile = exileContextualThatCardFromPlayerZones(state, ctx);
+    if (contextualExile) return contextualExile;
   }
 
   const targetSpellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();

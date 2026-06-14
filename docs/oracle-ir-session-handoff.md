@@ -1,8 +1,340 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-06-14 (Track D batch 366; `unsupported_condition_clause` 514)
+Last updated: 2026-06-14 (Track D batch 380; condition gaps **0**)
 
 ## What was completed this session
+
+### Track D — Executor gap closure (batch 380 — final 27 clusters) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | Remaining 27 handlers: Oscorp Mayhem discard, Impromptu Raid, Foundry Helix artifact, Teferi ETB-as-creature, Cinder Cloud white death, Nasty End legendary, Dose main phase, Rith excess damage, Kazuul defending player, Jared all-colors, Barrin hand-from-BF, Creakwood elf/-1/-1, Invoke Despair they can't, Unforge equipment, Grinning Totem unplayed, Jadar no decayed, Chain Veil loyalty, Haphazard aim, Tainted Specter discard-this-way, Book life loss, Agni Kai fight excess, Prisoner's silence/snitch, Ayara +1/+1, Polis monstrous, Test of Endurance 50 life + more | `oracleIRExecutorConditionalStepSupportBatch380Bulk.ts` |
+| **Unless inner** | Tainted Specter `they put a card from their hand on top of their library` | `oracleIRExecutorConditionalStepSupport.ts` |
+| **Extended** | Tainted Specter full-sentence parser stub; batch380 wiring | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Audit fixtures** | Full batch380 cluster enrich block + unless put-on-top choice | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch380.test.ts` (3) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **27 → 0**; assisted **98.4%** (47214/47969) | `executor-coverage-audit.json` |
+| **Gap analysis** | **0** gap items / **0** unique clusters | `executor-fullcard-condition-gap-analysis.json` |
+
+**Track D condition-clause backlog: cleared.** Remaining executor gaps are other reason codes (targets, selectors, amounts, etc.).
+
+**Cumulative from post-367 baseline (501): −501 condition-clause gaps** across batches 368–380 + cleanup.
+
+### Track D — Executor gap closure (batch 379 — 36 clusters mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~36 handlers: Breathless Knight GY entry, Filigree blue/black, Vault votes, Evolving Adaptive P/T, Land Grant hand, Deicide God, Taigam attack, Lightning Phoenix damage, Gore Vassal toughness, Urborg nonblack, Recalibrate discard, Wall damage, Defense of Heart creatures, Earthbind flying, Kellan Scout, Nimble Trapfinder party, Bottle-Cap excess permanent, Wisecrack attacking, Invert the Skies {G}/{U}, Wilhelt decayed, Runaway Steam-Kin counters, Might Makes Right power tie, Syrix gy leave, Magnanimous MV, Conduit no cast, Desertion counter, Triskaidekaphile 13 hand, Rite +1/+1 had, Pulse life, Dauthi replacement, Sandstalker blue/black spell, Cobra Trap destroy, Avacyn madness, Gunner enchanted/equipped, Gisela/Bruna meld + more | `oracleIRExecutorConditionalStepSupportBatch379Bulk.ts` |
+| **Extended** | Invert the Skies compound modify_pt stub; Kellan Scout parser stub; batch379 wiring | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Audit fixtures** | Full batch379 cluster enrich block | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch379.test.ts` (4) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **63 → 27** (−36); assisted **98.4%** (47195/47969) | `executor-coverage-audit.json` |
+| **Gap analysis** | **25** gap items / **27** unique clusters | `executor-fullcard-condition-gap-analysis.json` |
+
+**Next batch 380 targets** (post-379 — run gap analysis for fresh list):
+1. `you discarded it this turn` (Oscorp Industries / Mayhem)
+2. `it isn't a creature card` (Impromptu Raid)
+3. `the sacrificed permanent was an artifact` (Foundry Helix)
+4. `it enters as a creature` (Teferi's Time Twist)
+5. `a white creature dies this way` (Cinder Cloud)
+6. `the sacrificed creature was legendary` (Nasty End)
+7. `it isn't your main phase` (Dose of Dawnglow)
+8. `a creature or planeswalker an opponent controlled was dealt excess damage this turn` (Rith)
+
+**Cumulative from post-367 baseline (501): −474 gaps** across batches 368–379 + cleanup.
+
+### Track D — Executor gap closure (batch 378 — 36 clusters mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~36 handlers: quest present tense (`it has four or more`), Burrog/Savage modify_pt inners, Cut Propulsion flying, Once Upon a Time first spell, Breena opponent life, Artificer's Hex equipment, Spiders-Man web-slinging, Reaper hand size, Archive Trap search, Soulflayer delve flying, Lumengrid artifact discard, Bloodchief life/quest, Spire guess, Valakut exiled cards, Baba Lysaga card types, Sidequest creature death, Nefarious Lich damage redirect, Queen Marchesa monarch, Foreboding omen, Botanical Brawler first +1/+1, Hellish Vehicle, Warren Goblin, Ingenious Mastery alt cost, Dreampod enchanted, Necromancer zombie discard, Ashnod sacrifice-to-activate, Rowan draws, Rekindled empty hand, Mirkwood not attacking you, Urza meld, Thirsting Axe combat damage, Barren Glory composite, Ravenous Trap GY cards + more | `oracleIRExecutorConditionalStepSupportBatch378Bulk.ts` |
+| **Extended** | batch378 wiring (after batch377); Burrog/Savage now handled via inner-clause bulk, not full-sentence stubs | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Audit fixtures** | Full batch378 cluster enrich block (incl. modify_pt inners, quest on source, meld pair, composite Barren Glory) | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch378.test.ts` (4) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **100 → 63** (−37); assisted **98.3%** (47167/47969) | `executor-coverage-audit.json` |
+| **Gap analysis** | **61** gap items / **63** unique clusters | `executor-fullcard-condition-gap-analysis.json` |
+
+**Next batch 379 targets** (post-378 — run gap analysis for fresh list):
+1. `that creature entered from a graveyard or you cast it from a graveyard` (Breathless Knight)
+2. `that permanent was blue or black` (Filigree Fracture)
+3. `no creature got votes` (Vault 11: Voter's Dilemma)
+4. `that creature has greater power or toughness than this creature` (Evolving Adaptive)
+5. `you have no land cards in hand` (Land Grant)
+6. `the exiled card is a God card` (Deicide)
+7. `this permanent attacked this turn` (Taigam, Ojutai Master)
+8. `an opponent was dealt 3 or more damage this turn` (Lightning Phoenix)
+
+**Cumulative from post-367 baseline (501): −438 gaps** across batches 368–378 + cleanup.
+
+### Track D — Executor gap closure (batch 377 — 36 clusters mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~36 handlers: Desperate Plea sacrifice power, Peer Pressure type count, Barrin's Unmaking color mode, Razor Pendulum life, Azor's Gateway exiled MVs, Otherworldly Escort not Spirit, Wumpus {C}, Paragon 3-color activate, Darigaaz egg, outlaw/saproling-adjacent, Guiding Spirit gy top, Airbender quest, Balance of Power hand, Ever-Watching attack, Riders attacked, Septic poison, Naktamun hand, Waking the Trolls lands, Needlebite life gain, Scrying Glass reveal, Portent protect, Kodama/Beseech cast path, Fractal/Security/Lunar, Lux 30 counters, Wave combat damage, Massacre toughness, Sygg life loss, Master of the Hunt wolves, Impending Disaster lands, Glitch face-down + more | `oracleIRExecutorConditionalStepSupportBatch377Bulk.ts` |
+| **Audit fix** | Rush `{E}{E}` unless enrich on `unlessCondition.raw` (`you pay {E}{E}`) | `executor-coverage-audit.ts` |
+| **Extended** | Burrog Barrage / Savage Swipe compound modify_pt stubs; batch377 wiring | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Audit fixtures** | Full batch377 cluster enrich block | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch377.test.ts` (4) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **132 → 100** (−32); assisted **98.3%** (47134/47969) | `executor-coverage-audit.json` |
+| **Gap analysis** | **97** gap items / **99** unique clusters | `executor-fullcard-condition-gap-analysis.json` |
+
+**Next batch 378 targets** (post-377 — run gap analysis for fresh list):
+1. `it has four or more quest counters on it` (Firebender/Waterbender Ascension — present tense vs batch377 past)
+2. Burrog Barrage / Savage Swipe compound modify_pt (inline condition on step)
+3. `that creature has flying` (Cut Propulsion)
+4. `this spell is the first spell you've cast this game` (Once Upon a Time)
+5. `that opponent has more life than another of your opponents` (Breena)
+6. `enchanted Equipment is attached to a creature` (Artificer's Hex)
+7. `they were cast using web-slinging` (Spiders-Man)
+8. `defending player has two or fewer cards in hand` (Reaper of Night)
+
+**Cumulative from post-367 baseline (501): −401 gaps** across batches 368–377 + cleanup.
+
+### Track D — Executor gap closure (batch 376 — 36 clusters mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~36 handlers: historic, Biblioplex land creature, Opal Palace commander mana, Titan Hunter, Thoughtbound Primoc, Sentinel's Mark, Guildmages' Forum multicolor, Vikya excess damage, Elanor Food, Cosmic Rebirth MV, modal costs ({1}{B}/{3}{G}/{2}{R}{R}), time counters, combat phase, Imaginary Pet hand, bidding, madness, Sidar Jabari, Kitsune auras, werewolf damage, Multiple Choice X, toxic enchanted, Bankbuster vehicle, Ultros 8 mana, Proft draws, Deadly Brew sacrifice, Galadriel elf ETB, Thallid saproling, Grisly noncombat, Celestial Reunion, Kaito, Lightning Coils + more | `oracleIRExecutorConditionalStepSupportBatch376Bulk.ts` |
+| **Batch375 fix** | `it had mana value 3 or less` zone lookup (Consuming Ashes audit) | `oracleIRExecutorConditionalStepSupportBatch375Bulk.ts` |
+| **Unless inners** | Skullscorch deal-damage; Liberty Prime / Rush `{E}{E}` energy | `oracleIRExecutorConditionalStepSupport.ts` |
+| **Extended** | Parser-gap stubs for Rush of Inspiration + Skullscorch full unless; batch376 wiring; `lastExcessDamageDealtThisWay` destructuring | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Audit fixtures** | Full batch376 cluster enrich block | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch376.test.ts` (4) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **169 → 132** (−37); assisted **98.2%** (47105/47969) | `executor-coverage-audit.json` |
+| **Gap analysis** | **129** gap items / **132** unique clusters | `executor-fullcard-condition-gap-analysis.json` |
+
+**Next batch 377 targets** (post-376 — run gap analysis for fresh list):
+1. `Draw two cards. Then discard a card at random unless you pay {E}{E}` (Rush of Inspiration — parser unless shape)
+2. `its power is less than or equal to the sacrificed creature's power` (Desperate Plea)
+3. `you control more creatures of that type than each other player` (Peer Pressure)
+4. `that permanent shares a color with the most common color…` (Barrin's Unmaking)
+5. `that player has 5 or less life` (Razor Pendulum)
+6. `cards with five or more different mana values are exiled with this permanent` (Azor's Gateway)
+7. `it's not a Spirit` (Otherworldly Escort)
+8. `{C} wasn't spent to cast it` (Wumpus Aberration)
+
+**Cumulative from post-367 baseline (501): −369 gaps** across batches 368–376 + cleanup.
+
+### Track D — Executor gap closure (batch 375 — 36 clusters mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~36 handlers: Graf Rats meld, Tyrannic War `{X}`, Squall chosen number, Lifecraft/Dual-Sun counters, Chance Encounter luck, Feast/Tunnel/Galadriel/Turf War, Ventifact/Witch's Oven/Mask, Wonderscape unless, Break Out/Rhino/discarded/Clowning/Galvanize/Battle of Wits, Sundering/Agadeem/monarch/Shadowbane/devotion, Consuming/Candles/Grab/Mother Lode/Profane, Adaptive/Ob Nixilis/Brimaz/Raggadragga/Arclight/Spellpyre + Sarulf audit | `oracleIRExecutorConditionalStepSupportBatch375Bulk.ts` |
+| **Unless inner** | `that land had a nonbasic land type` (Wonderscape Sage) | `oracleIRExecutorConditionalStepSupport.ts` |
+| **Extended** | Wonderscape draw-step parser stub; batch375 wiring | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Audit fixtures** | Full batch375 cluster enrich block | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch375.test.ts` (4) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **206 → 169** (−37); assisted **98.1%** (47069/47969) | `executor-coverage-audit.json` |
+| **Gap analysis** | **166** gap items / **169** unique clusters | `executor-fullcard-condition-gap-analysis.json` |
+
+**Next batch 376 targets** (post-375 — run gap analysis for fresh list):
+1. `it was historic` (Curator's Ward)
+2. `this land isn't a creature` (Great Hall of the Biblioplex)
+3. `you spend this mana to cast your commander` (Opal Palace)
+4. `no creatures died this turn` (Titan Hunter)
+5. `a player controls more Wizards than each other player` (Thoughtbound Primoc)
+6. `that mana is spent on a multicolored creature spell` (Guildmages' Forum)
+7. `excess damage was dealt to a creature this way` (Vikya)
+8. `you sacrificed a Food this turn` (Elanor Gardner)
+
+**Cumulative from post-367 baseline (501): −332 gaps** across batches 368–375 + cleanup.
+
+### Track D — Executor gap closure (batch 374 — 36 clusters mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~36 handlers + audit fixtures: Unnerving Assault stub, draft/convergence, Deathbringer/Tablet/Invasion/Guildsworn/Satoru/Dega, Fiery Gambit flips, angel/mana riders, Happily Ever After, Kami/Puppeteer/Dart, Historian/Lesson, kicked/shadowborn, quest/Bane/vehicle/Firkraag/heads, land discard/judgment/inferno/luminarch, infect/Hurkyl/wingsmith/sacrifice/exile/delay/milled/human/blocked + more | `oracleIRExecutorConditionalStepSupportBatch374Bulk.ts` |
+| **Extended** | Unnerving Assault parser-gap stub; improved `thisWay` exiled-creature + milled-share-type; batch374 wiring | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Audit fixtures** | Full batch374 cluster enrich block (incl. batch373 handlers missing fixtures) | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch374.test.ts` (4) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **263 → 206** (−57); assisted **98.1%** (47037/47969) | `executor-coverage-audit.json` |
+| **Gap analysis** | **203** gap items / **206** unique clusters (post-audit; Unnerving compound `{U}/{R}` fix applied after) | `executor-fullcard-condition-gap-analysis.json` |
+
+**Next batch 375 targets** (post-374 gap analysis — run `executor-fullcard-condition-gap-analysis.ts` for fresh list):
+1. Remaining count-1 clusters from gap analysis tail (compound/modal/parser gaps)
+2. `you both own and control this creature and a creature named Midnight Scavengers` (Graf Rats meld)
+3. `its mana cost contains {X}` (First Tyrannic War saga)
+4. `any of those creatures have power or toughness equal to the chosen number` (Squall)
+5. `this enchantment has ten or more luck counters on it` (Chance Encounter)
+6. `you chose a creature other than Galadriel as your Ring-bearer`
+7. `that player controls one or more lands with contested counters on them` (Turf War)
+
+**Cumulative from post-367 baseline (501): −295 gaps** across batches 368–374 + cleanup.
+
+### Track D — Batch 373 cleanup (post-mega-batch tighten) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Unless inner routing** | Early `resolveUnlessPayInnerCondition` for parser `kind:'if'` unless inners (`you waterbend {2}`, historic exile, land bounce) | `oracleIRExecutorConditionalStepSupport.ts` |
+| **Ref/subject lookup** | Hand/graveyard/exile/library + `lastMovedCards` fallback for `getReferencedObject` / `getConditionalSubjectCard` | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Exile priority** | Player-zone `that card` exile before stack spell when chosen hand card bound (Soul Search) | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Mana value** | Zone lookup fallback when exiled card lacks inline `cmc` | `oracleIRExecutorConditionalStepSupportBatch372Bulk.ts` |
+| **Audit fixtures** | `needsRevealExileChain`; fewer-creatures enrich preserves life totals; unless/discard/move_zone enrich gate | `executor-coverage-audit.ts` |
+| **Re-audit** | `unsupported_condition_clause` **271 → 263** (−8); assisted **98.0%** (46986/47969) | `executor-coverage-audit.json` |
+| **Gap analysis** | **259** gap items / **264** unique clusters | `executor-fullcard-condition-gap-analysis.json` |
+
+**Closed in cleanup:** Waterbending Lesson, Urza's Tome, Tragic Lesson (unless inners); Guardian Project (name uniqueness); Sold Out / Meticulous Excavation (target ctx); Soul Search (exile + MV); Timely Reinforcements (life comparison).
+
+**Next batch 374 targets** (post-cleanup gap analysis):
+1. Unnerving Assault compound `{U}/{R}` (top cluster — parser)
+2. Animus of Predation draft clause
+3. Deathbringer Regent cast-from-hand + creature count
+4. Tablet of the Guilds chosen-colors check
+5. Invasion of Fiora combat-damage-since-last-turn
+6. Guildsworn Prowler `it wasn't blocking`
+7. Satoru `none of them were cast or no mana was spent`
+8. Dega Sanctuary black/red permanent composite
+
+**Cumulative from post-367 baseline (501): −238 gaps** across batches 368–373 + cleanup.
+
+### Track D — Executor gap closure (batch 373 — 36 clusters mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~36 handlers: rampage, Timely Reinforcements, Sokenzan hand leader, dragon mana, exiled-with-it, Gleeful/Fang/Honorable/Slingbow/Anchor/Inferno/Avatar/Journey/Dust Stalker/Relic Runner/Sold Out/Swashbuckler/Teachings/Chirography/Blasphemous/unearth/Wolverine/Prodigy/Phoenix Fleet/Wild Dogs/Sigil Captain + more | `oracleIRExecutorConditionalStepSupportBatch373Bulk.ts` |
+| **Audit fix** | Widened condition enrich to `modify_pt`, `draw`, `destroy`, `exile` steps (closes Wolf Strike parser-gap cluster) | `executor-coverage-audit.ts` |
+| **Extended** | batch373 wiring | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Tests** | `oracleIRGapBatch373.test.ts` (4) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **306 → 271** (−35); assisted **97.9%** (46978/47969) | `executor-coverage-audit.json` |
+| **Gap analysis** | **267** gap items / **272** unique clusters | `executor-fullcard-condition-gap-analysis.json` |
+
+*(Superseded by cleanup re-audit above: 263 / 259 items / 264 clusters.)*
+
+### Track D — Executor gap closure (batch 372 — 36 clusters mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~45 handlers: enlisted/warp/defending-hand/no-LTB/named-spells/guardian-project/first-strike/revival/delirium/growth/Fang-meld/council-votes/parser full-text stubs, plus clusters 38–49 (arrowhead, Nissa, Ertai, River Song, Cryptolith, Dance with Calamity, Oloro, Portcullis, zombie combat, enchanted, freerunning, Visions) | `oracleIRExecutorConditionalStepSupportBatch372Bulk.ts` |
+| **Main** | `you do and your opponent guessed wrong` (Liar's Pendulum composite) | `oracleIRExecutorConditionalStepSupport.ts` |
+| **Extended** | `would be destroyed`, `would counter a spell`, `would cause you to draw`; batch372 wiring | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Audit fixtures** | Full batch372 cluster enrich block | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch372.test.ts` (4) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **349 → 306** (−43); assisted **97.9%** (46947/47969) | `executor-coverage-audit.json` |
+| **Gap analysis** | **301** gap items / **307** unique clusters | `executor-fullcard-condition-gap-analysis.json` |
+
+### Track D — Executor gap closure (batch 371 — 36 clusters mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~35 handlers: power thresholds, damage taken, white permanents, opponent ETB, Edgar lookup, land counts, second spell, wolves/werewolves, hand size, anticognition GY, avatar lands, tapped/suspected/warp/madness, sanctuary colors, etc. | `oracleIRExecutorConditionalStepSupportBatch371Bulk.ts` |
+| **Main** | `it was attacking` lastMovedCards fallback; didn't enter BF; no indestructible counter; not suspected | `oracleIRExecutorConditionalStepSupport.ts` |
+| **Extended** | thisWay: instant/flash exiled, instant/sorcery discarded, {E} paid, nonland return, excess damage; `would lose life`; `this spell's surge cost`; batch371 wiring | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Audit fixtures** | Full batch371 cluster enrich block | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch371.test.ts` (5) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **389 → 349** (−40); assisted **97.8%** (46912/47969) | `executor-coverage-audit.json` |
+
+**Cumulative from post-367 baseline (501): −195 gaps** across batches 368–372.
+
+### Track D — Executor gap closure (batch 370 — 36 clusters mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~30 handlers: compound X+destroy, O-Kagachi attack, Tithe lands, tomb dungeon, another-subtype generic, mana-from-creatures, instant/sorcery cast, soul MV, suspected sacrifice, enchanted untapped/red, etc. | `oracleIRExecutorConditionalStepSupportBatch370Bulk.ts` |
+| **Main** | `it isn't a token`, `he/she was cast`, `his sneak cost`, parseSmallNumberWord 13–20, blue/black OR guard | `oracleIRExecutorConditionalStepSupport.ts` |
+| **Extended** | `would mill` stub; `it's not that player's turn`; batch370 wiring | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Audit fixtures** | Full batch370 cluster enrich block | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch370.test.ts` (5) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **433 → 389** (−44); assisted **97.7%** (46877/47969) | `executor-coverage-audit.json` |
+
+**Next batch 371 targets** (count-1 clusters from post-370 gap analysis):
+1. `it was attacking` (Desculpting Blast — parser/audit alignment)
+2. `that creature's power is 4 or greater` (Aradesh follow-on)
+3. `a +1/+1 counter was put on a permanent under your control this turn` (Fairgrounds Trumpeter)
+4. `you were dealt 4 or more damage this turn` (Boarded Window)
+5. `this creature didn't enter the battlefield this turn` (Cactuar)
+6. `all nonland permanents you control are white` (Zealots en-Dal)
+7. `a creature entered the battlefield under an opponent's control this turn` (Lictor)
+8. `an instant card or a card with flash is exiled this way` (Check for Traps)
+9. `Edgar is in the command zone or on the battlefield` (Edgar Markov)
+
+(Top cluster remains Unnerving Assault compound `{U}/{R}` — parser batch. Parser gaps: Wolf Strike, Waterbending Lesson, Faerie Fencing full-effect-as-condition.)
+
+### Track D — Executor gap closure (batch 369 — 36 clusters mega-batch) ✅
+
+Parallel sub-agents researched clusters 2–37 (skipped Unnerving Assault compound #1). New bulk module + audit fixtures for batch368 carryover gaps.
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~26 new handlers: life thresholds, drizzt/source power, land GY, defending player scans, wall-only blocking, type/color OR clauses, draw count, initiative disjunction, spectacle, mana ability tracker, etc. | `oracleIRExecutorConditionalStepSupportBatch369Bulk.ts` |
+| **Extended** | `a creature card is put into a graveyard this way`; batch369 wiring | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Main guards** | splitComposite OR/AND exceptions (green/white, goblin or orc, initiative, wall blocking); initiative disjunction handler | `oracleIRExecutorConditionalStepSupport.ts` |
+| **Audit fixtures** | Batch368 carryover + all batch369 clusters | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch369.test.ts` (5) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **467 → 433** (−34); assisted **97.6%** (46835/47969) | `executor-coverage-audit.json` |
+
+**Next batch 370 targets** (count-1 clusters from post-369 gap analysis):
+1. `X is 5 or more, for each artifact destroyed this way` (Red Sun's Twilight — compound AND)
+2. `that player attacked you during their last turn` (O-Kagachi)
+3. `you win, at the beginning of your next main phase` (Scattering Stroke)
+4. `target opponent controls more lands than you` (Tithe)
+5. `you haven't completed Tomb of Annihilation` (Acererak)
+6. `that library contains exactly the chosen number of cards with the chosen name` (Mindblaze)
+7. `it enlisted a creature this combat` (Aradesh)
+8. `it isn't a token` (Gruff Triplets)
+9. `you control another Spirit` (Apothecary Geist)
+
+(Top cluster remains Unnerving Assault compound `{U}/{R}` — parser batch.)
+
+### Track D — Executor gap closure (batch 368 — 36 clusters mega-batch) ✅
+
+Parallel sub-agents researched 36 count-1 clusters; implementation landed in a dedicated bulk module plus main/extended splitComposite guards.
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk module** | ~30 generic handlers: mana spend `{W}{U}`/`{U}{B}`, Padeem MV tie, mining counters, ETB counts, starting life, sacrifice color, wasn't-subtype, meld, islands, snow, Grim Reminder spell-name (approx), etc. | `oracleIRExecutorConditionalStepSupportBatch368Bulk.ts` |
+| **Main guards** | splitCompositeCondition exceptions (god/demigod, Padeem MV, spider-man non-hand, etc.); graveyard count; `no player does`; sacrificed color; wasn't-subtype; snow top-card | `oracleIRExecutorConditionalStepSupport.ts` |
+| **Extended wiring** | Early call to `evaluateBatch368BulkConditionalClause` | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Regression fix** | Restored accidentally dropped `you do` handler (had caused audit spike to 1433) | Main |
+| **Tests** | `oracleIRGapBatch368.test.ts` (7) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **501 → 467** (−34); assisted **97.6%** (46806/47969) | `executor-coverage-audit.json` |
+
+**Still open from batch 368 scope** (audit fixtures or per-opponent wiring):
+- Unnerving Assault compound `{U}/{R}` (parser batch — skipped)
+- Grim Reminder per-opponent filter (`each opponent who cast…`) — boolean stub only
+- A few count-1 clusters still in gap analysis (Assassin attack, legendary sacrifice, nonred damage, etc.) — verify audit fixtures vs handler exact-match
+
+**Next batch 369 targets** (count-1 clusters from post-368 gap analysis):
+1. `each opponent who cast a spell this turn with the same name as that card` (Grim Reminder — per-opponent)
+2. `they were attacked this turn by an Assassin you controlled` (Ramses)
+3. `the sacrificed artifact was legendary` (Splitting the Powerstone)
+4. `a nonred permanent is dealt damage this way` (Redcap Melee)
+5. `your life total is less than 7` (Elderscale Wurm)
+6. `it had power greater than Drizzt's power` (Drizzt Do'Urden)
+7. `a land you controlled was put into a graveyard from the battlefield this turn` (The Lady of Otaria)
+8. `defending player controls no Walls` (Siege Dragon)
+9. `you have exactly 13 life` (Jerren)
+
+(Top cluster remains Unnerving Assault compound `{U}/{R} was spent` — parser/evaluator batch.)
+
+### Track D — Executor gap closure (batch 367 — 9 clusters) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Modified creature** | `it's modified` via counters + equipment + controller-owned auras | `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **No subtype** | Generic `you control no {subtype}s` (Stenchskipper / Goblins) | Extended |
+| **GY from BF this turn** | `an artifact or creature was put into a graveyard from the battlefield this turn` state flag | Extended + splitCompositeCondition guard |
+| **No colored mana** | `no colored mana was spent to cast it` via `manaSpentBreakdown` / `manaColorsSpent` | Extended |
+| **She was** | `she was a nonland creature` pronoun + type descriptor | Extended |
+| **Mad Dog composite** | `this creature didn't attack or come under your control this turn` + splitCompositeCondition guard | Main |
+| **Mutate on cast** | `it has mutate` via stack spell oracle/keywords | Extended |
+| **White or blue** | `you control a white or blue permanent` color scan + splitCompositeCondition guard | Extended |
+| **Not kicked (creature)** | `this creature wasn't kicked` added to existing negated-kick block | Main |
+| **Tests** | `oracleIRGapBatch367.test.ts` (5) | rules-engine |
+| **Re-audit** | `unsupported_condition_clause` **514 → 501** (−13); assisted **97.5%** (46774/47969) | `executor-coverage-audit.json` |
+
+**Next batch 368 targets** — ✅ completed in mega-batch 368 (see above).
+
+~~1. `the token is an Aura` (Yenna, Redtooth Regent)~~
+2. `{W}{U} was spent to cast this spell` (Mythos of Vadrok)
+3. `eight or more cards are in your graveyard` (Sidequest: Card Collection)
+4. `you control the artifact with the greatest mana value or tied for the greatest mana value` (Padeem)
+5. `there are no mining counters on this land` (Gemstone Mine)
+6. `three or more artifacts entered the battlefield under your control this turn` (Malcator)
+7. `your life total is less than your starting life total` (Resolute Archangel)
+8. `the sacrificed creature was black` (Lyzolda)
+9. `it wasn't a Demon` (Infernal Vessel)
+
+(Top cluster remains Unnerving Assault compound `{U}/{R} was spent` — parser/evaluator batch.)
 
 ### Track D — Executor gap closure (batch 366) ✅
 
@@ -15,9 +347,15 @@ Last updated: 2026-06-14 (Track D batch 366; `unsupported_condition_clause` 514)
 | **Re-audit** | `unsupported_condition_clause` **517 → 514** (−3); assisted **97.5%** (46760/47969) | `executor-coverage-audit.json` |
 
 **Next batch 367 targets** (count-1 clusters from post-366 gap analysis):
-1. `it's modified` (Ian the Reckless)
-2. `you control no Goblins` (Stenchskipper)
-3. `an artifact or creature was put into a graveyard from the battlefield this turn` (Ichor Shade)
+1. ~~`it's modified`~~ ✅ batch 367
+2. ~~`you control no Goblins`~~ ✅ batch 367
+3. ~~`an artifact or creature was put into a graveyard from the battlefield this turn`~~ ✅ batch 367
+4. ~~`no colored mana was spent to cast it`~~ ✅ batch 367
+5. ~~`she was a nonland creature`~~ ✅ batch 367
+6. ~~`this creature didn't attack or come under your control this turn`~~ ✅ batch 367
+7. ~~`it has mutate`~~ ✅ batch 367
+8. ~~`you control a white or blue permanent`~~ ✅ batch 367
+9. ~~`this creature wasn't kicked`~~ ✅ batch 367
 
 (Top cluster remains Unnerving Assault compound `{U}/{R} was spent` — parser/evaluator batch.)
 
