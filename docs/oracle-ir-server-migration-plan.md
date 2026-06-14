@@ -2,17 +2,18 @@
 
 **Purpose:** Plan the full supersession of handwritten spell/trigger/ability resolution with Oracle IR execution and the Effect Program orchestrator.
 
-**Last updated:** 2026-06-13 (batch 280 — server damage processing; step ledger Phases A–Z)  
+**Last updated:** 2026-06-14 (Track D complete — condition clauses 0; Track E remaining)  
 **Owner:** Project maintainers  
 
-> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then [Current status / session handoff](#current-status--session-handoff-2026-06-13) below. Batches 264–280 are **uncommitted** locally.
+> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** for remaining Layer 2 work and the copy-paste starting prompt. Batches 264–280 + Track D (368–380) are **uncommitted** locally unless otherwise noted.
 
 **Rules for new work:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — **no card-name routing**, **no new `KNOWN_*` table rows**; extend parser → executor → `applyOracleIRStepsOnServer` → resolution queue.
 
 **Companion docs:**
 - [oracle-automation-remaining-work.md](./oracle-automation-remaining-work.md) — rules-engine parser/executor gap closure (mostly complete)
 - [oracle-automation-roadmap.md](./oracle-automation-roadmap.md) — historical milestone log
-- [oracle-ir-gap-backlog.md](./oracle-ir-gap-backlog.md) — static parser backlog clusters
+- [oracle-ir-gap-backlog.md](./oracle-ir-gap-backlog.md) — parser backlog + Track D/E status
+- [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md) — **Track E** post–Track D executor gaps + starting prompt
 - [oracle-ir-step-ledger-migration.md](./oracle-ir-step-ledger-migration.md) — step ledger, pre-commit transitions, "this way" memory
 - [server-damage-processing-migration.md](./server-damage-processing-migration.md) — infect/wither/poisonous server bridge (batch 280)
 
@@ -24,17 +25,37 @@ The project has **three distinct layers**. Layers 1–2 are in strong shape; **L
 
 | Layer | What it is | Status |
 |-------|------------|--------|
-| **1 — Parse** | `parseOracleTextToIR` → `OracleEffectStep[]` | **Complete** for practical Commander scope (~30k cards, 0 non-joke IR gaps) |
-| **2 — Execute** | `applyOracleIRStepsToGameState` in rules-engine | **Complete** in dry-run (assisted fixture): ~98%+ fully applied; remainder is expected `player_choice_required` |
+| **1 — Parse** | `parseOracleTextToIR` → `OracleEffectStep[]` | **Complete** for practical Commander scope (~30k cards, 0 non-joke IR gaps on triggers) |
+| **2 — Execute** | `applyOracleIRStepsToGameState` in rules-engine | **Strong** — trigger_effects: 100% assisted; **full_card**: **98.4%** assisted; **622** parse→execute gaps remain (targets, selectors, `ir_gap`; **condition clauses cleared** Track D) |
 | **3 — Integrate** | Server routes live gameplay through IR + resolution UI | **Partial** — activated abilities yes; spells/triggers still prefer handwritten paths |
 
 **Goal:** Make Layer 3 match Layer 2 — every spell, trigger, and activated ability that parses and executes in the rules-engine should resolve through a **single server pipeline**, not parallel handwritten shims.
 
 ---
 
-## Current status / session handoff (2026-06-13)
+## Current status / session handoff (2026-06-14)
 
-**Latest completed work:** **Batch 280** — server damage processing (infect / wither / poisonous / toxic). See [server-damage-processing-migration.md](./server-damage-processing-migration.md) and [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md).
+**Latest completed work:** **Track D (batches 368–380)** — all `unsupported_condition_clause` gaps closed (501 → **0**). See [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md).
+
+**Prior batch 280** — server damage processing (infect / wither / poisonous / toxic). See [server-damage-processing-migration.md](./server-damage-processing-migration.md).
+
+### Track D summary (2026-06-14)
+
+| Metric | Before (post-367) | After batch 380 |
+|--------|-------------------|-----------------|
+| `unsupported_condition_clause` | 501 | **0** |
+| Assisted (`full_card`) | ~98.0% | **98.4%** (47215/47969) |
+| Parse→execute gaps | ~833+ | **622** (non-condition) |
+
+Bulk modules: `oracleIRExecutorConditionalStepSupportBatch368Bulk.ts` … `Batch380Bulk.ts`. Tests: `oracleIRGapBatch368.test.ts` … `oracleIRGapBatch380.test.ts`.
+
+**Next:** Track E — object selectors, targets, `ir_gap` parser gaps, amounts. Starting prompt in [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md).
+
+---
+
+## Current status / session handoff (2026-06-13 — archive)
+
+**Latest completed work (2026-06-13):** **Batch 280** — server damage processing (infect / wither / poisonous / toxic). See [server-damage-processing-migration.md](./server-damage-processing-migration.md) and [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md).
 
 - New bridge `server/src/state/modules/combat-damage-processing.ts` wired into live combat (`turn.ts` `dealCombatDamage`), fight, legacy spell damage, `dealDamage` events, damage-received reflect, proliferate+`runSBA`.
 - **Rot Wolf pattern fixed:** infect → poison on players; infect/wither → -1/-1 on creatures (not marked damage).

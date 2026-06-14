@@ -1,6 +1,12 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-06-14 (Track D batch 380; condition gaps **0**)
+Last updated: 2026-06-14 (Track D complete; Track E — see [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md))
+
+## Next session
+
+**Track D is done** (`unsupported_condition_clause` **0**). Continue **Track E** — targets, object selectors, `ir_gap`, amounts. Full baseline and copy-paste prompt: **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)**.
+
+Quick metrics (`full_card` audit 2026-06-14): assisted **98.4%** (47215/47969); parse→execute gaps **622**; top codes: `no_deterministic_target` (190), `unsupported_object_selector` (162), `unsupported_target` (99).
 
 ## What was completed this session
 

@@ -2,14 +2,29 @@
 
 Refreshed from `tools/oracle-ir-gap-audit.ts` against `oracle-cards.json` and `AtomicCards.json`.
 
-## Current Audit Snapshot
+## Current Audit Snapshot (2026-06-14)
 
 - Unique cards parsed: 29,971
-- Cards with gaps: 0
-- Gap records: 0
-- Report artifact: `tools/oracle-ir-gap-audit.json`
+- Parser gap records (tools audit): **0**
 - Trigger `ir_gap`: **0** (batch 278)
-- Parse→execute gaps (trigger_effects scope): **0**
+- Trigger parse→execute gaps: **0**
+- **`full_card` executor:** **622** parse→execute gaps; **`unsupported_condition_clause`: 0** (Track D batches 368–380 ✅)
+
+**Next work:** [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md) — targets, object selectors, `ir_gap` (132), amounts.
+
+---
+
+## Completed — Track D (condition clauses, batches 368–380)
+
+All `unsupported_condition_clause` gaps closed: **501 → 0**. Bulk modules `Batch368Bulk` … `Batch380Bulk`; unless inners for Rush `{E}{E}`, Tainted Specter put-on-top, etc.
+
+Validation:
+
+1. `npx tsx scripts/executor-fullcard-condition-gap-analysis.ts` — **0** items
+2. `$env:EXECUTOR_COVERAGE_SCOPE='full_card'; npm run executor:coverage` — no `unsupported_condition_clause` in top reason codes
+3. `npx vitest run test/oracleIRGapBatch380.test.ts` (rules-engine)
+
+---
 
 ## Completed In This Pass (Tracks A + B — 2026-06-13)
 

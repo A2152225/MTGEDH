@@ -2,47 +2,90 @@
 
 Living document. Update this file as gaps close and audits are re-run.
 
-**Last updated: 2026-06-13** (batch **280** — server damage processing; batch **279** G1 Merfolk)
+**Last updated: 2026-06-14** (Track D complete — condition clauses **0**; Track E remaining)
+
+> **Track D done.** Condition-clause backlog cleared (batches 368–380). Continue with **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** (targets, selectors, `ir_gap`, amounts).
 
 > **Server integration / superseding handwritten resolution:** see **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** for the Layer 3 migration plan (IR-first spells/triggers, Effect Program wiring, choice UI batches, shim retirement). This file covers Layer 1–2 (parser/executor gaps).
 
 ## Quick start for a new session
 
 1. **Read the rules first:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — no card-name handlers, no new `KNOWN_*` rows; parse → execute → server queue.
-2. **Server integration (Layer 3):** read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)**, **[server-damage-processing-migration.md](./server-damage-processing-migration.md)**, and **[oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md)** § *Current status* — batch **280** infect/wither/poisonous server bridge; batch **279** G1 Merfolk fixes; batch **278** cleared trigger `ir_gap`.
-3. Read this file for Layer 1–2 metrics and parser/executor priority order.
-4. **Verify batch 280 before new work:**
+2. **Track E (Layer 2 remaining):** read **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** — copy-paste starting prompt at bottom.
+3. **Handoff:** [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) — latest batch metrics.
+4. **Server integration (Layer 3):** [oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md) · [server-damage-processing-migration.md](./server-damage-processing-migration.md).
+5. **Verify before new work:**
    ```powershell
    cd server
-   npx vitest run tests/combat.infect-wither.test.ts tests/engine.damage.test.ts
    npm run test:oracle-ir-migration
-   ```
-5. **Verify batch 279 (if touching tribal/tap/Thassa):**
-   ```powershell
-   cd server
-   npx vitest run tests/roaming-throne-chosen-type.unit.test.ts tests/g1-card-fixes.unit.test.ts
-   ```
-6. Re-run audits if code changed since the timestamp above:
-   ```powershell
-   cd server
+   $env:EXECUTOR_COVERAGE_SCOPE='full_card'
    npm run executor:coverage
-   npx tsx scripts/executor-selector-gap-analysis.ts
-   npx tsx scripts/executor-target-gap-analysis.ts
-   npx tsx scripts/executor-condition-gap-analysis.ts
-   npm run executor:keyword-audit
-   $env:EXECUTOR_COVERAGE_SCOPE="full_card"; npm run executor:coverage
-   npx tsx scripts/_tmp-full-card-gap-clusters.ts
    ```
-7. JSON reports land in `server/scripts/out/` (**gitignored** — regenerate locally; do not expect them in git). Use named scripts under `server/scripts/` — never inline `tsx -e` (see `.cursor/rules/terminal-hygiene.mdc`).
-8. Trigger parse coverage (separate from executor): `npm run trigger:coverage`
+6. **Gap cluster reports** (regenerate after changes; gitignored under `server/scripts/out/`):
+   ```powershell
+   cd server
+   npx tsx scripts/executor-fullcard-condition-gap-analysis.ts   # expect 0
+   npx tsx scripts/executor-fullcard-selector-gap-analysis.ts
+   npx tsx scripts/executor-target-gap-analysis.ts
+   npx tsx scripts/executor-amount-gap-analysis.ts
+   npx tsx scripts/executor-general-gap-analysis.ts
+   ```
+7. JSON reports: `server/scripts/out/` — use named scripts; never inline `tsx -e` (see `.cursor/rules/terminal-hygiene.mdc`).
+8. Trigger parse coverage: `npm run trigger:coverage`
 
 ---
 
 ## Audit baseline (executor coverage)
 
-Source: `npm run executor:coverage --workspace=server`  
+### Trigger effects (`trigger_effects` scope)
+
+Source: `npm run executor:coverage` (default scope)  
+Assisted: **100%** (15001/15001); parse→execute gaps: **0**; `ir_gap`: **0**
+
+### Full card (`full_card` scope) — **Track E baseline**
+
+Source: `$env:EXECUTOR_COVERAGE_SCOPE='full_card'; npm run executor:coverage`  
 Report: `server/scripts/out/executor-coverage-audit.json`  
-Scope: commander-legal **triggered-ability effects**, assisted fixture (pre-bound targets, `allowOptional=true`, auto first `choose_mode`)
+Fixture: assisted (pre-bound targets, `allowOptional=true`, auto first `choose_mode`)
+
+| Metric | Current (2026-06-14) |
+|--------|---------------------:|
+| Cards / items scanned | 29,614 / 47,969 |
+| Fully applied | 45,079 |
+| Choice required (expected UI) | 2,136 |
+| Parse→execute gaps | **622** |
+| Assisted execution | **98.4%** (47215/47969) |
+| `unsupported_condition_clause` | **0** (Track D ✅) |
+| `ir_gap` | 132 |
+
+### Top skip reason codes (`full_card`, excluding UI)
+
+| Rank | Reason code | Count |
+|---:|---|---:|
+| — | `player_choice_required` | 2,284 |
+| 1 | `no_deterministic_target` | 190 |
+| 2 | `unsupported_object_selector` | 162 |
+| 3 | `unsupported_target` | 99 |
+| 4 | `unknown_amount` | 22 |
+| 5 | `unsupported_player_selector` | 12 |
+| 6 | `unsupported_scaler` | 8 |
+| 7 | `unsupported_selector` | 8 |
+
+### Gap analysis reports (`full_card`)
+
+| Report | Script | Items (2026-06-14) |
+|---|---|---:|
+| Condition | `executor-fullcard-condition-gap-analysis.ts` | **0** |
+| Selector | `executor-fullcard-selector-gap-analysis.ts` | **8** / 7 clusters |
+| Target | `executor-target-gap-analysis.ts` | trigger scope (extend for full_card) |
+| Amount | `executor-amount-gap-analysis.ts` | trigger scope (2 items) |
+
+---
+
+## Historical baseline (trigger_effects — 2026-06-09 archive)
+
+Source: `npm run executor:coverage --workspace=server`  
+Scope: commander-legal **triggered-ability effects**, assisted fixture
 
 | Metric | Baseline (2026-06-07) | Current (2026-06-09) |
 |---:|---:|---:|
