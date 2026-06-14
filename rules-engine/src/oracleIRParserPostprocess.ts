@@ -15278,6 +15278,188 @@ export function upgradeThoseCardsBattlefieldInsteadOfHandSteps(
   }));
 }
 
+function mapMoveZoneSelectorGapSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const expanded: OracleEffectStep[] = [];
+
+  for (const step of steps) {
+    if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+      expanded.push({ ...step, steps: mapMoveZoneSelectorGapSteps(step.steps) } as OracleEffectStep);
+      continue;
+    }
+
+    if (step.kind === 'move_zone') {
+      const normalized = normalizeOracleText(String(step.raw || ''))
+        .replace(/^[()\s]+/, '')
+        .replace(/[.)\s]+$/g, '')
+        .trim();
+
+      if (/^return this creature to its owner's hand and manifest dread$/i.test(normalized)) {
+        expanded.push({
+          ...step,
+          what: { kind: 'raw', text: 'this creature' },
+          to: 'hand',
+          toRaw: "its owner's hand",
+          raw: "return this creature to its owner's hand",
+        });
+        expanded.push({
+          kind: 'manifest_dread',
+          who: { kind: 'you' },
+          raw: 'manifest dread',
+        });
+        continue;
+      }
+
+      if (/^exile it from your graveyard$/i.test(normalized)) {
+        expanded.push({ ...step, what: { kind: 'raw', text: 'it' } });
+        continue;
+      }
+      if (/^put each of those cards into your hand instead$/i.test(normalized)) {
+        expanded.push({ ...step, what: { kind: 'raw', text: 'those cards' } });
+        continue;
+      }
+      if (
+        /^put that card onto the battlefield under your control instead of into its owner(?:'s)? graveyard$/i.test(
+          normalized
+        )
+      ) {
+        expanded.push({
+          ...step,
+          what: { kind: 'raw', text: 'that card' },
+          to: 'battlefield',
+          toRaw: 'the battlefield under your control',
+          battlefieldController: { kind: 'you' },
+        });
+        continue;
+      }
+      if (/^exile that many cards from your graveyard instead$/i.test(normalized)) {
+        expanded.push({ ...step, what: { kind: 'raw', text: 'that many cards from your graveyard' } });
+        continue;
+      }
+    }
+
+    expanded.push(step);
+  }
+
+  return expanded;
+}
+
+export function upgradeMoveZoneSelectorGapSteps(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
+  return abilities.map((ability) => ({
+    ...ability,
+    steps: mapMoveZoneSelectorGapSteps(ability.steps),
+  }));
+}
+
+function normalizeBatch382StepText(raw: string): string {
+  return normalizeOracleText(String(raw || ''))
+    .replace(/\u2019/g, "'")
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+}
+
+function isBatch382MisparseExecutableStep(step: OracleEffectStep): boolean {
+  const rawOriginal = String(step.raw || '').replace(/\u2019/g, "'").trim();
+  const whatOriginal = String((step as any).what?.text || (step as any).what?.raw || '').replace(/\u2019/g, "'").trim();
+  const targetOriginal = String((step as any).target?.text || (step as any).target?.raw || '')
+    .replace(/\u2019/g, "'")
+    .trim();
+  const raw = normalizeBatch382StepText(rawOriginal);
+  const whatText = normalizeBatch382StepText(whatOriginal);
+  const targetText = normalizeBatch382StepText(targetOriginal);
+
+  if (step.kind === 'sacrifice') {
+    if (/^sacrifice after [ivxlcdm]+\.?$/i.test(raw) || /^sacrifice after [ivxlcdm]+\.?$/i.test(rawOriginal)) {
+      return true;
+    }
+    if (/^after [ivxlcdm]+\.?$/i.test(whatText) || /^after [ivxlcdm]+\.?$/i.test(whatOriginal)) return true;
+    if (/^sacrifice (?:it|them) at the beginning of the next end step\.?$/i.test(raw)) return true;
+    if (/^(?:it|them) at the beginning of the next end step\.?$/i.test(whatText)) return true;
+    if (/rather than pay this spell'?s mana cost/i.test(rawOriginal)) return true;
+    if (
+      /^you may sacrifice (?:a |an |two |three |four )?(?:\w+\s+)*(?:mountains?|islands?|forests?|plains?|swamps?|cards?) rather than pay/i.test(
+        rawOriginal
+      )
+    ) {
+      return true;
+    }
+  }
+
+  if (step.kind === 'cant_block' || step.kind === 'cant_attack' || step.kind === 'cant_activate_abilities') {
+    const t = targetText || raw;
+    const tOriginal = targetOriginal || rawOriginal;
+    if (/^\(.*(?:can't block|cannot block|can't attack|cannot attack)/i.test(tOriginal)) return true;
+    if (/^\((?:it|a creature with)/i.test(tOriginal) && /can'?t (?:block|attack)/i.test(rawOriginal)) return true;
+    if (/^threshold\b/i.test(t) || /^threshold\b/i.test(tOriginal)) return true;
+    if (/^as long as there are \d+ or more cards in your graveyard,.+can't block/i.test(tOriginal)) return true;
+    if (
+      /^enchanted creature can't block, and its activated abilities can't be activated/i.test(rawOriginal) ||
+      /^enchanted creature can't block, and its activated abilities can't be activated/i.test(tOriginal) ||
+      /^enchanted creature can't block, and its\b/i.test(tOriginal)
+    ) {
+      return true;
+    }
+    if (/^until your next turn,\s*those permanents can't attack or block and their activated abilities can't be activated/i.test(rawOriginal)) {
+      return true;
+    }
+  }
+
+  if (step.kind === 'grant_temporary_ability') {
+    if (/^a creature dealt damage this way can't be regenerated this turn/i.test(rawOriginal)) return true;
+  }
+
+  if (step.kind === 'exile') {
+    if (/^then exile (?:it|the spell)\.?$/i.test(raw) || /^then exile (?:it|the spell)\.?$/i.test(targetText)) {
+      return true;
+    }
+  }
+
+  if (step.kind === 'animate_permanent') {
+    if (/^awaken \d/i.test(rawOriginal) && /\(if you cast this spell for/i.test(rawOriginal)) return true;
+    if (/^awaken \d/i.test(targetOriginal) && /\(if you cast this spell for/i.test(targetOriginal)) return true;
+  }
+
+  return false;
+}
+
+function mapBatch382PruneSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const expanded: OracleEffectStep[] = [];
+
+  for (const step of steps) {
+    if (isBatch382MisparseExecutableStep(step)) continue;
+
+    if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+      expanded.push({ ...step, steps: mapBatch382PruneSteps(step.steps) } as OracleEffectStep);
+      continue;
+    }
+
+    if (step.kind === 'choose_mode') {
+      expanded.push({
+        ...step,
+        modes: step.modes.map((mode) => ({
+          ...mode,
+          steps: mapBatch382PruneSteps(mode.steps || []),
+        })),
+      } as OracleEffectStep);
+      continue;
+    }
+
+    expanded.push(step);
+  }
+
+  return expanded;
+}
+
+export function pruneBatch382MisparseExecutableSteps(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const steps = mapBatch382PruneSteps(ability.steps || []);
+    if (steps.length === ability.steps.length && steps.every((step, index) => step === ability.steps[index])) {
+      return ability;
+    }
+    return { ...ability, steps };
+  });
+}
+
 export function expandDeterministicMoveZoneFollowupAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -22874,6 +23056,14 @@ function mapAndSplitCompoundMoveZoneSteps(steps: readonly OracleEffectStep[]): O
     if (split) {
       expanded.push(...split);
       continue;
+    }
+
+    if (step.kind === 'move_zone') {
+      const conjoined = splitConjoinedMoveZoneFollowup(step);
+      if (conjoined) {
+        expanded.push(...conjoined);
+        continue;
+      }
     }
 
     const opportunisticSplit = trySplitOpportunisticDragonCompoundStep(step);

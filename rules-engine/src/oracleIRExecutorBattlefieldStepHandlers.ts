@@ -1304,6 +1304,29 @@ function battlefieldPermanentHasFlying(perm: BattlefieldPermanent): boolean {
   return keywordValues.some(value => /\bflying\b/i.test(String(value || '')));
 }
 
+function battlefieldPermanentHasIslandwalk(perm: BattlefieldPermanent): boolean {
+  if (/\bislandwalk\b/i.test(getExecutorTypeLineLower(perm))) return true;
+  const keywordValues: unknown[] = [
+    ...(Array.isArray((perm as any)?.keywords) ? (perm as any).keywords : []),
+    ...(Array.isArray((perm as any)?.card?.keywords) ? (perm as any).card.keywords : []),
+    ...(Array.isArray((perm as any)?.grantedAbilities) ? (perm as any).grantedAbilities : []),
+  ];
+  return keywordValues.some(value => /\bislandwalk\b/i.test(String(value || '')));
+}
+
+function permanentHasColorLetter(perm: BattlefieldPermanent, colorLetter: string): boolean {
+  const colors = Array.isArray((perm as any)?.colors)
+    ? (perm as any).colors
+    : Array.isArray((perm as any)?.card?.colors)
+      ? (perm as any).card.colors
+      : [];
+  const wanted = String(colorLetter || '').trim().toUpperCase();
+  return colors.some((color: unknown) => {
+    const normalized = String(color || '').trim().toUpperCase();
+    return normalized === wanted || normalized.startsWith(wanted);
+  });
+}
+
 function isAttackingBattlefieldPermanent(perm: BattlefieldPermanent): boolean {
   return Boolean(
     (perm as any)?.attacking ||
@@ -2838,6 +2861,45 @@ function resolveDestroyTargets(
     return [];
   }
 
+  if (/^destroy the rest$/i.test(targetText) || /^the rest$/i.test(targetText)) {
+    const boundIds = new Set(collectBoundBattlefieldIds(ctx));
+    const contextualIds = buildContextualBattlefieldTargetIds(battlefield, ctx, true);
+    const excludedIds = new Set([...boundIds, ...contextualIds]);
+    return battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (excludedIds.has(permanentId)) return false;
+      return permanentMatchesType(perm, 'creature');
+    });
+  }
+
+  if (/^the chosen creatures$/i.test(targetText)) {
+    const chosenIds = new Set(
+      (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    );
+    if (chosenIds.size === 0) return [];
+    return battlefield.filter((perm: any) => chosenIds.has(String((perm as any)?.id || '').trim()));
+  }
+
+  if (/^(?:destroy )?any number of target creatures$/i.test(targetText)) {
+    const boundIds = new Set(collectBoundBattlefieldIds(ctx));
+    return battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      return boundIds.has(permanentId) && permanentMatchesType(perm, 'creature');
+    });
+  }
+
+  if (/^destroy two target enchantments$/i.test(targetText) || /^two target enchantments$/i.test(targetText)) {
+    const boundIds = new Set(collectBoundBattlefieldIds(ctx));
+    return battlefield
+      .filter((perm: any) => {
+        const permanentId = String((perm as any)?.id || '').trim();
+        return boundIds.has(permanentId) && permanentMatchesType(perm, 'enchantment');
+      })
+      .slice(0, 2);
+  }
+
   const normalizedTarget = { ...(step.target as any), text: targetText };
   const selector = parseSimpleBattlefieldSelector(normalizedTarget as any);
   if (selector) {
@@ -3896,6 +3958,81 @@ export function applySkipNextUntapStep(
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const targetTextRaw = String((step.target as any)?.text || step.raw || '').trim();
+  const targetTextLower = targetTextRaw.toLowerCase();
+
+  if (/^those creatures(?: don't untap|$)/i.test(targetTextLower)) {
+    const contextualIds = buildContextualBattlefieldTargetIds(battlefield, ctx, true);
+    const antecedentIds = [
+      ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds) ? ctx.lastAntecedentBattlefieldPermanentIds : []),
+      ...(Array.isArray(ctx.lastMovedBattlefieldPermanentIds) ? ctx.lastMovedBattlefieldPermanentIds : []),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    const targetIds = Array.from(new Set([...contextualIds, ...antecedentIds])).filter((id) =>
+      battlefield.some((perm: any) => String((perm as any)?.id || '').trim() === id)
+    );
+    if (targetIds.length > 0) {
+      const targetIdSet = new Set(targetIds);
+      const nextBattlefield = battlefield.map((perm: any) => {
+        const permanentId = String((perm as any)?.id || '').trim();
+        if (!targetIdSet.has(permanentId)) return perm;
+        const existingEffects = Array.isArray((perm as any)?.temporaryEffects)
+          ? [...(perm as any).temporaryEffects]
+          : [];
+        existingEffects.push({
+          id: `${permanentId}:temp:${existingEffects.length + 1}:doesnt-untap-next-untap-step`,
+          description: "doesn't untap during their controllers' next untap steps",
+          expiresAt: 'leaves_battlefield',
+          expiresOnControllerTurn: String((perm as any)?.controller || '').trim() || undefined,
+          sourceId: String(ctx.sourceId || '').trim() || undefined,
+          sourceName: String(ctx.sourceName || '').trim() || undefined,
+        } as any);
+        return { ...perm, temporaryEffects: existingEffects } as any;
+      });
+      return {
+        applied: true,
+        state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+        log: [`Marked ${targetIds.length} creature(s) to skip their next untap step`],
+      };
+    }
+  }
+
+  if (/^creatures and lands target opponent controls don't untap during their next untap step$/i.test(targetTextLower)) {
+    const opponentId = String(ctx.selectorContext?.targetOpponentId || ctx.selectorContext?.targetPlayerId || 'p2').trim();
+    const targetIds = battlefield
+      .filter((perm: any) => {
+        if (String((perm as any)?.controller || '').trim() !== opponentId) return false;
+        return permanentMatchesType(perm, 'creature') || permanentMatchesType(perm, 'land');
+      })
+      .map((perm: any) => String((perm as any)?.id || '').trim())
+      .filter(Boolean);
+    if (targetIds.length > 0) {
+      const targetIdSet = new Set(targetIds);
+      const nextBattlefield = battlefield.map((perm: any) => {
+        const permanentId = String((perm as any)?.id || '').trim();
+        if (!targetIdSet.has(permanentId)) return perm;
+        const existingEffects = Array.isArray((perm as any)?.temporaryEffects)
+          ? [...(perm as any).temporaryEffects]
+          : [];
+        existingEffects.push({
+          id: `${permanentId}:temp:${existingEffects.length + 1}:doesnt-untap-next-untap-step`,
+          description: "doesn't untap during their next untap step",
+          expiresAt: 'leaves_battlefield',
+          expiresOnControllerTurn: opponentId || undefined,
+          sourceId: String(ctx.sourceId || '').trim() || undefined,
+          sourceName: String(ctx.sourceName || '').trim() || undefined,
+        } as any);
+        return { ...perm, temporaryEffects: existingEffects } as any;
+      });
+      return {
+        applied: true,
+        state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+        log: [`Marked ${targetIds.length} permanent(s) to skip their next untap step`],
+      };
+    }
+  }
+
   const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
   const directTargets =
     recentTargets.length > 0
@@ -4411,6 +4548,56 @@ export function applyGrantTemporaryAbilityStep(
     ) || inferredTarget;
   const targetText = normalizedTargetText.toLowerCase();
   const sourceNameAliases = new Set(buildNameReferenceAliases(String(ctx.sourceName || '')));
+
+  if (
+    targetText === "creatures can't be blocked this turn" ||
+    /^creatures can't be blocked this turn$/i.test(stepRaw) ||
+    ((targetText === 'creatures' || targetText === 'all creatures') &&
+      /can't be blocked this turn/i.test(stepRaw))
+  ) {
+    const creatures = battlefield.filter((perm: any) =>
+      String(perm?.type_line || perm?.card?.type_line || '')
+        .toLowerCase()
+        .includes('creature')
+    );
+    if (creatures.length > 0) {
+      const nextState = applyTemporaryEffectToPermanents(state, creatures, ctx, {
+        descriptions: ["can't be blocked"],
+        expiresAt: 'end_of_turn',
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [`Granted can't-be-blocked to ${creatures.length} creature(s) until end of turn`],
+      };
+    }
+  }
+
+  if (/^a creature dealt damage this way can't be regenerated this turn$/i.test(stepRaw)) {
+    const damagedIds = Array.from(
+      new Set([
+        ...collectBoundBattlefieldIds(ctx),
+        ...(Array.isArray((ctx as any).lastDamagedBattlefieldPermanentIds)
+          ? ((ctx as any).lastDamagedBattlefieldPermanentIds as readonly string[])
+          : []),
+      ])
+    );
+    const damagedTargets = battlefield.filter((perm: any) =>
+      damagedIds.includes(String((perm as any)?.id || '').trim())
+    );
+    if (damagedTargets.length === 0) {
+      return { applied: true, state, log: ['No damaged creature for regeneration restriction'] };
+    }
+    const nextState = applyTemporaryEffectToPermanents(state, damagedTargets, ctx, {
+      descriptions: ["can't be regenerated"],
+      expiresAt: 'end_of_turn',
+    });
+    return {
+      applied: true,
+      state: nextState,
+      log: [`Applied can't-be-regenerated to ${damagedTargets.length} damaged creature(s)`],
+    };
+  }
 
   if (/^scions and spawns you control$/i.test(targetText)) {
     const controllerId = String(ctx.controllerId || '').trim();
@@ -5207,6 +5394,106 @@ export function applyCantBlockStep(
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const effectiveTarget = effectiveStepTarget(step);
   const targetText = String((effectiveTarget as any)?.text || '').trim().toLowerCase();
+  if (
+    targetText === "creatures can't block this turn" ||
+    targetText === "all creatures can't block this turn" ||
+    /^creatures can't block this turn$/i.test(String(step.raw || '')) ||
+    ((targetText === 'creatures' || targetText === 'all creatures') &&
+      /can't block this turn/i.test(String(step.raw || '')))
+  ) {
+    const creatures = battlefield.filter((perm: any) =>
+      String(perm?.type_line || perm?.card?.type_line || '')
+        .toLowerCase()
+        .includes('creature')
+    );
+    if (creatures.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped cant_block (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    const nextState = applyTemporaryEffectToPermanents(state, creatures, ctx, {
+      descriptions: ["can't block"],
+      expiresAt: 'end_of_turn',
+    });
+    return {
+      applied: true,
+      state: nextState,
+      log: [`Applied can't-block to ${creatures.length} creature(s)`],
+    };
+  }
+  if (
+    targetText === "black creatures can't block" ||
+    (targetText === 'black creatures' && /can't block/i.test(String(step.raw || '')))
+  ) {
+    const creatures = battlefield.filter(
+      (perm: any) => permanentMatchesType(perm, 'creature') && permanentHasColorLetter(perm, 'B')
+    );
+    if (creatures.length === 0) {
+      return { applied: true, state, log: ["No black creatures to restrict from blocking"] };
+    }
+    const nextState = applyTemporaryEffectToPermanents(state, creatures, ctx, {
+      descriptions: ["can't block"],
+      expiresAt: step.duration === 'static' ? 'leaves_battlefield' : 'end_of_turn',
+    });
+    return {
+      applied: true,
+      state: nextState,
+      log: [`Applied can't-block to ${creatures.length} black creature(s)`],
+    };
+  }
+  if (
+    /^goaded creatures your opponents control(?: can't block)?$/i.test(String(step.raw || '')) ||
+    targetText === 'goaded creatures your opponents control'
+  ) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const goadedIds = new Set(
+      (Array.isArray(ctx.lastGoadedBattlefieldPermanentIds) ? ctx.lastGoadedBattlefieldPermanentIds : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    );
+    const creatures = battlefield.filter((perm: any) => {
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      if (String((perm as any)?.controller || '').trim() === controllerId) return false;
+      const permanentId = String((perm as any)?.id || '').trim();
+      return goadedIds.size === 0 || goadedIds.has(permanentId);
+    });
+    if (creatures.length === 0) {
+      return { applied: true, state, log: ["No goaded opponent creatures to restrict from blocking"] };
+    }
+    const nextState = applyTemporaryEffectToPermanents(state, creatures, ctx, {
+      descriptions: ["can't block"],
+      expiresAt: step.duration === 'static' ? 'leaves_battlefield' : 'end_of_turn',
+    });
+    return {
+      applied: true,
+      state: nextState,
+      log: [`Applied can't-block to ${creatures.length} goaded creature(s)`],
+    };
+  }
+  if (/^otherwise,? it can't block$/i.test(String(step.raw || '').trim()) || /^otherwise,? it$/i.test(targetText)) {
+    const contextualIds = buildContextualBattlefieldTargetIds(battlefield, ctx, false);
+    const otherwiseTargets = battlefield.filter((perm: any) =>
+      contextualIds.includes(String((perm as any)?.id || '').trim())
+    );
+    if (otherwiseTargets.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped cant_block (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    const nextState = applyTemporaryEffectToPermanents(state, otherwiseTargets, ctx, {
+      descriptions: ["can't block"],
+      expiresAt: 'end_of_turn',
+    });
+    return {
+      applied: true,
+      state: nextState,
+      log: [`Applied can't-block to ${otherwiseTargets.length} permanent(s)`],
+    };
+  }
   if (targetText === 'cowards' || /^cowards can'?t block/.test(String(step.raw || '').toLowerCase())) {
     const creatures = battlefield.filter((perm: any) =>
       String(perm?.type_line || perm?.card?.type_line || '')
@@ -5346,6 +5633,66 @@ export function applyCantAttackStep(
     };
   }
 
+  if (
+    /^creatures without flying or islandwalk can't attack$/i.test(String(step.raw || '')) ||
+    /without flying or islandwalk/i.test(targetText)
+  ) {
+    const creatures = battlefield.filter((perm: any) => {
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      return !battlefieldPermanentHasFlying(perm) && !battlefieldPermanentHasIslandwalk(perm);
+    });
+    if (creatures.length === 0) {
+      return { applied: true, state, log: ["No creatures without flying or islandwalk to restrict"] };
+    }
+    const nextState = applyTemporaryEffectToPermanents(state, creatures, ctx, {
+      descriptions: ["can't attack"],
+      expiresAt: step.duration === 'static' ? 'leaves_battlefield' : 'end_of_turn',
+    });
+    return {
+      applied: true,
+      state: nextState,
+      log: [`Applied can't-attack to ${creatures.length} creature(s) without flying or islandwalk`],
+    };
+  }
+
+  {
+    const nonSubtypeControlMatch = targetText.match(/^non-([a-z-]+) creatures you control(?: can't attack)?$/i);
+    if (nonSubtypeControlMatch) {
+      const controllerId = String(ctx.controllerId || '').trim();
+      const excludedSubtype = String(nonSubtypeControlMatch[1] || '').trim();
+      const creatures = battlefield.filter((perm: any) => {
+        if (String((perm as any)?.controller || '').trim() !== controllerId) return false;
+        if (!permanentMatchesType(perm, 'creature')) return false;
+        return !typeLineHasSubtype(perm, excludedSubtype);
+      });
+      if (creatures.length === 0) {
+        return {
+          applied: false,
+          message: `Skipped cant_attack (no deterministic target): ${step.raw}`,
+          reason: 'no_deterministic_target',
+        };
+      }
+      const massExpiresAt =
+        step.duration === 'end_of_turn'
+          ? 'end_of_turn'
+          : step.duration === 'until_next_turn'
+            ? 'leaves_battlefield'
+            : 'leaves_battlefield';
+      const nextState = applyTemporaryEffectToPermanents(state, creatures, ctx, {
+        descriptions: ["can't attack"],
+        expiresAt: massExpiresAt,
+        ...(step.duration === 'until_next_turn' && ctx.controllerId
+          ? { expiresOnControllerTurn: ctx.controllerId }
+          : {}),
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [`Applied can't-attack to ${creatures.length} creature(s)`],
+      };
+    }
+  }
+
   const attachedTargets = resolveAttachedStaticAbilityGrantTargets(battlefield, effectiveTarget as any, ctx);
   const targets =
     attachedTargets.length > 0
@@ -5394,7 +5741,7 @@ export function applyCantActivateAbilitiesStep(
   step: Extract<OracleEffectStep, { kind: 'cant_activate_abilities' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
-  if (step.duration && step.duration !== 'end_of_turn' && step.duration !== 'static') {
+  if (step.duration && step.duration !== 'end_of_turn' && step.duration !== 'static' && step.duration !== 'until_next_turn') {
     return {
       applied: false,
       message: `Skipped cant_activate_abilities static restriction (continuous text handled elsewhere): ${step.raw}`,
@@ -5404,7 +5751,38 @@ export function applyCantActivateAbilitiesStep(
 
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const effectiveTarget = effectiveStepTarget(step);
-  const targets = resolveDirectBattlefieldPermanents(battlefield, effectiveTarget as any, ctx);
+  const targetTextLower = String((effectiveTarget as any)?.text || step.raw || '').trim().toLowerCase();
+  if (/^those permanents$/i.test(targetTextLower) || /^until your next turn,\s*those permanents/i.test(String(step.raw || ''))) {
+    const contextualIds = buildContextualBattlefieldTargetIds(battlefield, ctx, true);
+    const antecedentIds = [
+      ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds) ? ctx.lastAntecedentBattlefieldPermanentIds : []),
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : []),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    const wantedIds = new Set([...contextualIds, ...antecedentIds]);
+    const thoseTargets = battlefield.filter((perm: any) => wantedIds.has(String((perm as any)?.id || '').trim()));
+    if (thoseTargets.length > 0) {
+      const nextState = applyTemporaryEffectToPermanents(state, thoseTargets, ctx, {
+        descriptions: ["activated abilities can't be activated"],
+        expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+        ...(step.duration === 'until_next_turn' && ctx.controllerId
+          ? { expiresOnControllerTurn: ctx.controllerId }
+          : {}),
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [`Applied activated-ability lock to ${thoseTargets.length} permanent(s)`],
+      };
+    }
+  }
+
+  const attachedTargets = resolveAttachedStaticAbilityGrantTargets(battlefield, effectiveTarget as any, ctx);
+  const targets =
+    attachedTargets.length > 0
+      ? attachedTargets
+      : resolveDirectBattlefieldPermanents(battlefield, effectiveTarget as any, ctx);
   if (targets.length === 0) {
     return {
       applied: false,
@@ -5424,7 +5802,15 @@ export function applyCantActivateAbilitiesStep(
 
   const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
     descriptions: ["activated abilities can't be activated"],
-    expiresAt: step.duration === 'end_of_turn' ? 'end_of_turn' : 'leaves_battlefield',
+    expiresAt:
+      step.duration === 'end_of_turn'
+        ? 'end_of_turn'
+        : step.duration === 'until_next_turn'
+          ? 'leaves_battlefield'
+          : 'leaves_battlefield',
+    ...(step.duration === 'until_next_turn' && ctx.controllerId
+      ? { expiresOnControllerTurn: ctx.controllerId }
+      : {}),
   });
 
   return {
@@ -8517,6 +8903,38 @@ export function applyAddCounterStep(
   const special = trySpecialAddCounterStep(state, step, ctx);
   if (special) return special;
 
+  if (
+    /^it$/i.test(normalizedTargetText) ||
+    /^put (?:two|three|four|five|six|seven|eight|nine|ten|\d+|x) \+1\/\+1 counters on it$/i.test(
+      String(step.raw || '').trim()
+    )
+  ) {
+    const contextualIds = buildContextualBattlefieldTargetIds(
+      (state.battlefield || []) as BattlefieldPermanent[],
+      ctx,
+      false
+    );
+    const targets = ((state.battlefield || []) as BattlefieldPermanent[]).filter((perm: any) =>
+      contextualIds.includes(String((perm as any)?.id || '').trim())
+    );
+    if (targets.length > 0) {
+      const counterAmount = resolveAddCounterAmount(state, step, ctx, runtime) ?? 1;
+      const counterName = String(step.counter || '+1/+1').trim();
+      const targetIds = new Set(targets.map((target: any) => String(target?.id || '').trim()).filter(Boolean));
+      const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+        if (!targetIds.has(String(perm?.id || '').trim())) return perm;
+        const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+        counters[counterName] = (Number(counters[counterName] ?? 0) || 0) + counterAmount;
+        return { ...perm, counters };
+      });
+      return {
+        applied: true,
+        state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+        log: [`Added ${counterAmount} ${counterName} counter(s) to ${targets.length} permanent(s)`],
+      };
+    }
+  }
+
   if (/^(?:each of )?up to x target creatures$/i.test(normalizedTargetText)) {
     const maxCount = Number.isFinite(Number(ctx.xValue)) ? Math.max(0, Number(ctx.xValue)) : 1;
     const boundIds = collectBoundBattlefieldIds(ctx);
@@ -9110,6 +9528,31 @@ export function applyExileStep(
 
   if (/^all opponents' graveyards$/i.test(normalizedExileTargetText)) {
     return exileAllOpponentGraveyards(state, ctx);
+  }
+
+  if (/^then exile that player's graveyard$/i.test(normalizedExileTargetText) || /^that player's graveyard$/i.test(normalizedExileTargetText)) {
+    const playerId = String(
+      ctx.selectorContext?.targetPlayerId || ctx.selectorContext?.targetOpponentId || 'p2'
+    ).trim() as PlayerID;
+    const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === playerId) as any;
+    const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+    if (graveyard.length === 0) {
+      return { applied: true, state, log: [`No graveyard cards to exile for ${playerId}`] };
+    }
+    const updatedPlayers = (state.players || []).map((entry: any) =>
+      String(entry?.id || '').trim() === playerId
+        ? {
+            ...entry,
+            graveyard: [],
+            exile: [...(Array.isArray(entry?.exile) ? entry.exile : []), ...graveyard],
+          }
+        : entry
+    );
+    return {
+      applied: true,
+      state: { ...(state as any), players: updatedPlayers as any } as GameState,
+      log: [`Exiled ${graveyard.length} card(s) from ${playerId}'s graveyard`],
+    };
   }
 
   if (/^its controller's graveyard$/i.test(normalizedExileTargetText)) {

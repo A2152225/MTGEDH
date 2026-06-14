@@ -1,14 +1,51 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-06-14 (Track D complete; Track E — see [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md))
+Last updated: 2026-06-14 (Track E2 batch 383; Track D complete — see [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md))
 
 ## Next session
 
-**Track D is done** (`unsupported_condition_clause` **0**). Continue **Track E** — targets, object selectors, `ir_gap`, amounts. Full baseline and copy-paste prompt: **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)**.
+**Track E2 batch 383 is done** — target gaps **409 → 374** (−35); assisted **99.0%**. Continue **Track E2** — remaining target clusters (contextual exile/destroy, copy_permanent, distribute counters), then **E3** `ir_gap` (105), **E4** amounts. Full baseline: **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)**.
 
-Quick metrics (`full_card` audit 2026-06-14): assisted **98.4%** (47215/47969); parse→execute gaps **622**; top codes: `no_deterministic_target` (190), `unsupported_object_selector` (162), `unsupported_target` (99).
+Quick metrics (`full_card` audit 2026-06-14 post–383): assisted **99.0%** (47302/47781); parse→execute gaps **374**; top codes: `no_deterministic_target` (120), `unsupported_target` (76).
 
 ## What was completed this session
+
+### Track E2 — Target clusters (batch 383) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Parser postprocess** | Extended `pruneBatch382MisparseExecutableSteps`: awaken `{4}{U}` parentheticals (regex fix), Gelid Shackles truncated-target compound static, Mythos those-permanents bleed, regen reminder on damage | `oracleIRParserPostprocess.ts` |
+| **Executor** | Black/goaded/otherwise cant_block; flying/islandwalk cant_attack; those-permanents cant_activate; any-number destroy + two enchantments; counters-on-it; player graveyard exile; those-creatures skip untap; damaged-creature regen restriction | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Audit enrich** | Batch383 target fixture block (bound creatures, enchantments, goaded, GY, contextual ids) | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch383.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **409 → 374** (−35); `no_deterministic_target` **153 → 120**; assisted **99.0%** (47302/47781) | `executor-coverage-audit.json` |
+
+**Next batch E2 targets:** contextual exile/destroy (`exile the other`, saga chapters), copy_permanent with X, distribute counters, remaining single-count clusters from target gap JSON.
+
+### Track E2 — Parser prune + target clusters (batch 382) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Parser postprocess** | `pruneBatch382MisparseExecutableSteps`: saga `Sacrifice after [IVXLCDM].)` lore tails; alternate-cost sacrifice lines; parenthetical cant_block/cant_attack reminders; flashback `Then exile it.)`; threshold static bleed; awaken parentheticals | `oracleIRParserPostprocess.ts`, `oracleIRParser.ts` (early + late pass) |
+| **Executor** | Mass `creatures can't block this turn`; mass `creatures can't be blocked this turn`; non-subtype `Non-X creatures you control can't attack`; `destroy the rest` / `the chosen creatures` contextual destroy | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Tests** | `oracleIRGapBatch382.test.ts` (4) | rules-engine |
+| **Re-audit** | `unsupported_object_selector` **162 → 0**; gaps **618 → 409** (−209); assisted **98.9%** (47267/47781) | `executor-coverage-audit.json` |
+| **Gap analysis** | Object selector **0/0**; target **224** items / **226** clusters | `executor-fullcard-object-selector-gap-analysis.json`, `executor-fullcard-target-gap-analysis.json` |
+
+**Next batch E2 targets:** Awaken parentheticals (6+), Gelid Shackles compound static, `Black creatures can't block`, contextual `otherwise` cant_block, top `unsupported_target` destroy/exile clusters from target gap JSON.
+
+### Track E1 — Object selector / move_zone (batch 381) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Parser postprocess** | `upgradeMoveZoneSelectorGapSteps`: Desertion counter→BF replacement, Leonardo `it` exile, See the Truth `each of those cards`, Nefarious `that many` GY exile, Glitch return+manifest split | `oracleIRParserPostprocess.ts`, `oracleIRParser.ts` |
+| **Executor** | Self-reference→battlefield; `each of those cards` + library zone; `lastDiscardedCards` in contextual card resolution; reference-amount GY exile count | `oracleIRExecutorMoveZoneStepHandlers.ts`, `oracleIRExecutorZoneOps.ts` |
+| **Audit fixtures** | Leonardo artifact in GY; Desertion countered creature; Nefarious damage `referenceAmount`; Glitch no-face-down keeps source on BF | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch381.test.ts` (3) | rules-engine |
+| **Re-audit** | `unsupported_selector` **8 → 0**; assisted **98.4%** (47219/47969); gaps **622 → 618** | `executor-coverage-audit.json` |
+| **Gap analysis** | Selector clusters **0** / **0**; condition clusters stay **0** | `executor-fullcard-selector-gap-analysis.json` |
+
+**Next batch E2 targets:** top `no_deterministic_target` / `unsupported_target` clusters from audit JSON (attach/battlefield target resolution + enrich).
 
 ### Track D — Executor gap closure (batch 380 — final 27 clusters) ✅
 

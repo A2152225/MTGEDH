@@ -2139,6 +2139,110 @@ export function enrichAuditStateAndContextForTargets(
     } as typeof nextCtx;
   }
 
+  const needsBatch383TargetFixtures = stepsMatchPredicate(steps, (step) => {
+    const raw = String(step.raw || '').toLowerCase();
+    const target = String((step as any).target?.text || '').toLowerCase();
+    return (
+      (step.kind === 'destroy' && /destroy any number of target creatures/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy two target enchantments/i.test(raw)) ||
+      (step.kind === 'cant_block' && /otherwise,? it can't block/i.test(raw)) ||
+      (step.kind === 'add_counter' && /counters on it$/i.test(raw)) ||
+      (step.kind === 'skip_next_untap' && /^those creatures/i.test(target)) ||
+      (step.kind === 'grant_temporary_ability' &&
+        /creature dealt damage this way can't be regenerated/i.test(raw)) ||
+      (step.kind === 'exile' && /that player's graveyard/i.test(raw)) ||
+      (step.kind === 'cant_block' && /black creatures can't block/i.test(raw)) ||
+      (step.kind === 'cant_activate_abilities' && /^those permanents$/i.test(target))
+    );
+  });
+  if (needsBatch383TargetFixtures) {
+    const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+    const fixturePermanents = [
+      {
+        id: 'bf-audit-target-1',
+        name: 'Audit Target',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Human',
+        colors: ['W'],
+        cmc: 2,
+      },
+      {
+        id: 'bf-audit-target-2',
+        name: 'Audit Black',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Creature — Zombie',
+        colors: ['B'],
+        cmc: 2,
+      },
+      {
+        id: 'bf-audit-enchant-1',
+        name: 'Audit Aura',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Enchantment — Aura',
+        colors: ['W'],
+        cmc: 2,
+      },
+      {
+        id: 'bf-audit-enchant-2',
+        name: 'Audit Curse',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Enchantment — Aura Curse',
+        colors: ['B'],
+        cmc: 1,
+      },
+      {
+        id: 'bf-audit-goaded',
+        name: 'Audit Goaded',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Creature — Goblin',
+        colors: ['R'],
+        cmc: 1,
+      },
+    ];
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) =>
+        String(player?.id || '').trim() === 'p2'
+          ? {
+              ...player,
+              graveyard: [
+                ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+                { id: 'gy-audit-1', name: 'Audit Graveyard Card', type_line: 'Instant' },
+              ],
+            }
+          : player
+      ),
+      battlefield: [
+        ...existingBattlefield.filter(
+          (perm: any) => !/^bf-audit-(target|enchant|goaded|black)/.test(String(perm?.id || ''))
+        ),
+        ...fixturePermanents,
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPermanentId: 'bf-audit-target-1',
+      targetCreatureId: 'bf-audit-target-1',
+      lastMovedBattlefieldPermanentIds: ['bf-audit-target-1', 'bf-audit-target-2'],
+      lastAntecedentBattlefieldPermanentIds: ['bf-audit-target-1', 'bf-audit-target-2'],
+      lastGoadedBattlefieldPermanentIds: ['bf-audit-goaded'],
+      lastDamagedBattlefieldPermanentIds: ['bf-audit-target-1'],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: 'bf-audit-target-1',
+        targetCreatureId: 'bf-audit-target-1',
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        chosenObjectIds: ['bf-audit-target-1', 'bf-audit-target-2', 'bf-audit-enchant-1', 'bf-audit-enchant-2'],
+      },
+    } as typeof nextCtx;
+  }
+
   const needsTrialErrorCombatBounce = stepsMatchPredicate(steps, (step) => {
     if (step.kind !== 'move_zone') return false;
     const text = String((step as any).what?.text || step.raw || '');
@@ -13516,10 +13620,24 @@ export function enrichAuditStateAndContextForTargets(
         } as GameState;
       }
       if (/^the discarded card was an artifact card$/i.test(conditionRaw.trim())) {
-        nextCtx = {
-          ...nextCtx,
-          lastDiscardedCards: [{ id: 'disc-artifact-1', type_line: 'Artifact' }],
-        } as typeof nextCtx;
+        const discarded = { id: 'disc-artifact-1', type_line: 'Artifact', name: 'Discarded Artifact' };
+        nextCtx = { ...nextCtx, lastDiscardedCards: [discarded] } as typeof nextCtx;
+        nextState = {
+          ...nextState,
+          players: (nextState.players || []).map((player: any) =>
+            String(player?.id || '').trim() === 'p1'
+              ? {
+                  ...player,
+                  graveyard: [
+                    discarded,
+                    ...(Array.isArray(player.graveyard) ? player.graveyard : []).filter(
+                      (card: any) => String(card?.id || '').trim() !== discarded.id
+                    ),
+                  ],
+                }
+              : player
+          ),
+        } as GameState;
       }
       if (/one or more players being attacked are poisoned/i.test(conditionRaw)) {
         (nextState as any).poisonedPlayersBeingAttacked = ['p2'];
@@ -14271,9 +14389,17 @@ export function enrichAuditStateAndContextForTargets(
         } as GameState;
       }
       if (/^you control no face-down permanents$/i.test(conditionRaw.trim())) {
+        const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+        const existingSource = ((nextState.battlefield || []) as any[]).find(
+          (perm) => String(perm?.id || '').trim() === sourceId
+        );
         nextState = {
           ...nextState,
-          battlefield: [{ id: 'bf-face-up', controller: 'p1', type_line: 'Creature — Human', faceDown: false }],
+          battlefield: [
+            existingSource
+              ? { ...existingSource, faceDown: false }
+              : { id: sourceId, controller: 'p1', type_line: 'Creature — Construct', faceDown: false },
+          ],
         } as GameState;
       }
       if (/cast another instant or sorcery spell this turn/i.test(conditionRaw)) {
@@ -14391,7 +14517,11 @@ export function enrichAuditStateAndContextForTargets(
         (nextState as any).creatureDiedUnderOpponentControlThisTurn = true;
       }
       if (/^damage would be dealt to you$/i.test(conditionRaw.trim())) {
-        nextCtx = { ...nextCtx, damageWouldBeDealtToYou: true } as typeof nextCtx;
+        nextCtx = {
+          ...nextCtx,
+          damageWouldBeDealtToYou: true,
+          referenceAmount: Math.max(3, Number(nextCtx.referenceAmount) || 3),
+        } as typeof nextCtx;
       }
       if (/^an opponent is the monarch$/i.test(conditionRaw.trim())) {
         nextState = { ...nextState, monarch: 'p2' } as GameState;
@@ -14622,7 +14752,12 @@ export function enrichAuditStateAndContextForTargets(
         (nextState as any).spellsCastThisTurnByPlayer = { p1: 0 };
       }
       if (/^an artifact or creature spell is countered this way$/i.test(conditionRaw.trim())) {
-        nextCtx = { ...nextCtx, artifactOrCreatureSpellCounteredThisWay: true, lastCounteredSpellKind: 'creature' } as typeof nextCtx;
+        nextCtx = {
+          ...nextCtx,
+          artifactOrCreatureSpellCounteredThisWay: true,
+          lastCounteredSpellKind: 'creature',
+          lastMovedCards: [{ id: 'countered-creature-1', type_line: 'Creature — Human', name: 'Countered Creature' }],
+        } as typeof nextCtx;
       }
       if (/^you have exactly thirteen cards in your hand$/i.test(conditionRaw.trim())) {
         nextState = {

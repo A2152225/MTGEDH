@@ -1368,6 +1368,10 @@ export function parseMoveZoneCountFromYourGraveyard(what: {
     return { count, cardType: 'any' };
   }
 
+  if (/^that many cards from your graveyard(?: instead)?$/i.test(lower)) {
+    return { count: -1, cardType: 'any' };
+  }
+
   m = cleaned.match(/^([a-z0-9]+)\s+cards?\s+from\s+your\s+graveyard$/i);
   if (m) {
     const count = parseSmallNumberWord(String(m[1] || ''));

@@ -51,6 +51,8 @@ import {
   upgradeExiledThisWayReturnMoveZoneSteps,
   upgradeCounteredSpellLibraryTopReplacementSteps,
   upgradeThoseCardsBattlefieldInsteadOfHandSteps,
+  upgradeMoveZoneSelectorGapSteps,
+  pruneBatch382MisparseExecutableSteps,
   expandExilePermissionUnknownAbilities,
   expandFreeGraveyardCastPermissionAbilities,
   expandGraveyardAdditionalCostPermissionAbilities,
@@ -1589,6 +1591,8 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = upgradeExiledThisWayReturnMoveZoneSteps(abilities);
   abilities = upgradeCounteredSpellLibraryTopReplacementSteps(abilities);
   abilities = upgradeThoseCardsBattlefieldInsteadOfHandSteps(abilities);
+  abilities = upgradeMoveZoneSelectorGapSteps(abilities);
+  abilities = pruneBatch382MisparseExecutableSteps(abilities);
   abilities = expandMoveZoneCopiedSpellAbilities(abilities);
   abilities = expandMixedBattlefieldAndGraveyardExileAbilities(abilities);
   abilities = expandCompoundMoveZoneAbilities(abilities);
@@ -1746,6 +1750,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = lowerCurrentResidualUnknownAbilities(abilities);
   abilities = pruneThassaOracleWinGrantAbilities(abilities);
   abilities = pruneCurrentBatchReminderUnknownAbilities(abilities);
+  abilities = pruneBatch382MisparseExecutableSteps(abilities);
   abilities = lowerAmongThemChoosePlayerChoiceAbilities(abilities);
   abilities = splitCompoundChosenCardsMoveZoneAbilities(abilities);
   abilities = repairSplitChooseModeBulletAbilities(abilities);
@@ -1794,6 +1799,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = annotateSacrificeMetadataAbilities(abilities);
   abilities = bindThisWayAntecedentOnAbilities(abilities);
   abilities = abilities.map(wrapTriggeredInterveningIfAbility);
+  abilities = pruneBatch382MisparseExecutableSteps(abilities);
 
   return {
     normalizedOracleText,
