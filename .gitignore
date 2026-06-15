@@ -19,3 +19,5 @@ oracle-cards.json
 AtomicCards.json
 AtomicCards.old.json
 /server/scripts/out/
+.mtg_data.db
+mtg_data.db

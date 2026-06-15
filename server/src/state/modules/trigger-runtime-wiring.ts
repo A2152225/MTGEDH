@@ -69,6 +69,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'regenerate',
   'grant_graveyard_permission',
   'grant_graveyard_keyword_ability',
+  'modify_graveyard_permissions',
   'copy_spell',
   'pay_mana',
 ]);

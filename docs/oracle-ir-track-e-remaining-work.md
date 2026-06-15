@@ -2,7 +2,7 @@
 
 **Purpose:** Continue Layer 2 (`full_card` scope) executor gap closure after **Track D** cleared all `unsupported_condition_clause` gaps.
 
-**Last updated:** 2026-06-14 (post batch 383 E2; object_selector gaps **0**; selector gaps **0**; condition gaps **0**)
+**Last updated:** 2026-06-15 (post batch 397 E2 — parse→execute **13**, `partial` **13**, `ir_gap` **0**)
 
 **Read first:** [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) · [oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md) · `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc`
 
@@ -42,31 +42,28 @@ Report: `server/scripts/out/executor-coverage-audit.json` (regenerate locally; g
 
 | Metric | Count |
 |--------|------:|
-| Cards / items scanned | 29,614 / 47,781 |
-| Fully applied | 45,161 |
-| Choice required (expected UI) | 2,141 |
-| Parse→execute gaps | **374** items on **371** cards |
-| Assisted execution | **99.0%** (47302/47781) |
-| `ir_gap` (unparsed step kind) | 105 |
-| `unsupported` | 185 |
-| `partial` | 152 |
+| Cards / items scanned | 29,614 / 47,570 |
+| Fully applied | 45,473 |
+| Choice required (expected UI) | 2,084 |
+| Parse→execute gaps | **13** items on **13** cards |
+| Assisted execution | **100%** (47557/47570) |
+| `ir_gap` (unparsed step kind) | **0** |
+| `unsupported` | 0 |
+| `partial` | 13 |
+| `no_steps` | 0 |
 
 ### Top skip reason codes (excluding expected UI)
 
 | Priority | Reason code | Count | Track |
 |----------|-------------|------:|-------|
-| — | `player_choice_required` | 2,285 | Expected UI — not a bug |
-| **E2** | `no_deterministic_target` | 120 | Target resolution + audit fixtures |
+| — | `player_choice_required` | 2,336 | Expected UI — not a bug |
+| ~~E2~~ | ~~`no_deterministic_target`~~ | **0** | **Done (batch 389)** |
 | ~~E1~~ | ~~`unsupported_selector`~~ | **0** | **Done (batch 381)** |
 | ~~E1b~~ | ~~`unsupported_object_selector`~~ | **0** | **Done (batch 382 parser prune)** |
-| **E2** | `unsupported_target` | 76 | Target patterns + enrich |
-| — | `impossible_action` | 56 | Fixture / legality seeds |
-| — | `no_applicable_targets` | 38 | Battlefield fixture gaps |
-| **E4** | `unknown_amount` | 22 | Amount / reference_amount |
-| **E5** | `unsupported_player_selector` | 12 | `who` parsing |
-| — | `unsupported_scaler` | 8 | where-X / for-each scalers |
-| — | `unsupported_step` | 5 | New step kinds |
-| — | `unsupported_destination` | 3 | Zone destination |
+| ~~E2~~ | ~~`unsupported_target`~~ | **0** | **Done (batch 389)** |
+| — | `impossible_action` | 6 | Copy-token / combat edge cases |
+| **E4** | `unknown_amount` | 6 | Amount / reference_amount |
+| **E5** | `unsupported_player_selector` | 2 | `who` parsing |
 | ~~D~~ | ~~`unsupported_condition_clause`~~ | **0** | **Done** |
 
 ### Top skipped step kinds (where gaps concentrate)
@@ -99,7 +96,7 @@ From `npx tsx scripts/executor-fullcard-selector-gap-analysis.ts`:
 | Track | Focus | Primary files | Gap script |
 |-------|--------|---------------|------------|
 | **E1 — Object selectors** | ~~`unsupported_object_selector`~~, move_zone `what` | `oracleIRParserPostprocess.ts` (`pruneBatch382MisparseExecutableSteps`), move_zone handlers | `executor-fullcard-object-selector-gap-analysis.ts` (**0** clusters) |
-| **E2 — Targets** | `no_deterministic_target`, `unsupported_target` | `oracleIRExecutorBattlefieldStepHandlers.ts`, attach handlers, audit enrich | `_tmp-fullcard-target-gap-analysis.ts` → promote; **~190** items / clusters (regenerate) |
+| **E2 — Targets** | `no_deterministic_target`, `unsupported_target` | `oracleIRExecutorBattlefieldStepHandlers.ts`, attach handlers, audit enrich | `_tmp-fullcard-target-gap-analysis.ts` → promote; **162** items / **168** clusters (regenerate) |
 | **E3 — IR gaps** | 132 `ir_gap` items | `oracleIRParserPostprocess.ts`, `oracleIR.ts` step kinds | Filter audit JSON by `status: ir_gap` |
 | **E4 — Amounts** | `unknown_amount`, `unsupported_scaler` | `oracleIRExecutorForEachQuantity.ts`, amount eval in step handlers | `executor-amount-gap-analysis.ts` (trigger scope); extend for full_card |
 | **E5 — Unless / discard** | Remaining discard unless shapes | `oracleIRExecutorConditionalStepSupport.ts` (`resolveUnlessPayInnerCondition`) | Card probes |
@@ -162,8 +159,8 @@ Proceed with Oracle IR Track E — full_card executor gap closure.
 
 Context:
 - Track D (batches 368–380) cleared ALL unsupported_condition_clause gaps (501 → 0).
-- Current full_card audit: 99.0% assisted (47302/47781); 374 parse→execute gaps remain.
-- Top non-UI reason codes: no_deterministic_target (120), unsupported_target (76), unknown_amount (22).
+- Current full_card audit: 99.9% assisted (47746/47783); **28** parse→execute gaps; **9** `ir_gap`; **27** `partial`.
+- Top non-UI reason codes: no_deterministic_target (98), unsupported_target (70), unknown_amount (22).
 - unsupported_object_selector: **0** (batch 382 parser prune).
 - ir_gap: 105 (parser/step-kind gaps).
 - Read docs/oracle-ir-track-e-remaining-work.md and docs/oracle-ir-session-handoff.md first.

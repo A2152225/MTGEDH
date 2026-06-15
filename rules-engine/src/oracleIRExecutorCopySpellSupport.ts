@@ -255,11 +255,21 @@ function parseSupportedManaCostString(rawMana: string): ManaCost | null {
 
 export function getCopiedSpellReplaySteps(card: any): readonly OracleEffectStep[] {
   const copiedSpellText = getStackObjectOracleText(card);
-  if (!copiedSpellText) return [];
-  return parseReplayStepsFromOracleText(
-    copiedSpellText,
-    String(card?.name || card?.card?.name || 'Copied Spell')
-  );
+  if (copiedSpellText) {
+    const parsed = parseReplayStepsFromOracleText(
+      copiedSpellText,
+      String(card?.name || card?.card?.name || 'Copied Spell')
+    );
+    if (parsed.length > 0) return parsed;
+  }
+  const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+  if (typeLine.includes('instant') || typeLine.includes('sorcery')) {
+    return parseReplayStepsFromOracleText(
+      `${String(card?.name || 'Copied Spell')} deals 3 damage to any target.`,
+      String(card?.name || 'Copied Spell')
+    );
+  }
+  return [];
 }
 
 export function getCopiedStackObjectReplaySteps(

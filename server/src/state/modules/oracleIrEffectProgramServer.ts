@@ -57,6 +57,12 @@ const SEQUENTIAL_CHOICE_KINDS = new Set<string>([
   'explore',
   'proliferate',
   'populate',
+  'look_top',
+  'reveal_top',
+  'move_zone',
+  'grant_graveyard_permission',
+  'modify_graveyard_permissions',
+  'attach',
 ]);
 
 function stepOptionalRequiresChoice(step: OracleEffectStep): boolean {

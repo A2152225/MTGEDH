@@ -64,6 +64,11 @@ import {
 import { buildEffectBridgeOptions } from './oracleIRExecutorDamageTransitionCommit';
 import { resolveBattlefieldEntryFromOracleIrContext } from './oracleIRExecutorBattlefieldEntryCommit';
 import { inferSplitLibrarySearchPlan } from './oracleIRSplitLibrarySearch';
+import {
+  collectRevealedThisWayCardsLedgerFirst,
+  resolveAntecedentContextualCards,
+  resolveAntecedentMilledCards,
+} from './oracleIRLedgerCardAccess';
 
 function buildPlayerZoneBridgeOptions(
   ctx: OracleIRExecutionContext,
@@ -438,6 +443,19 @@ function resolveDynamicDrawAmount(
   ctx: OracleIRExecutionContext,
   runtime?: ModifyPtRuntime
 ): number | null {
+  const amountRaw = String((step.amount as any)?.raw || '').trim().toLowerCase();
+  if (/the milled card'?s mana value/.test(amountRaw)) {
+    const milled = [
+      ...(Array.isArray((ctx as any).lastMilledCards) ? (ctx as any).lastMilledCards : []),
+      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+      ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+    ];
+    if (milled.length > 0) {
+      const manaValue = getCardManaValue(milled[milled.length - 1]);
+      if (manaValue !== null) return manaValue;
+    }
+  }
+
   const fromShared = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {
     whereX: step.whereX,
     runtime,
@@ -2027,6 +2045,223 @@ export function buildSearchLibrarySelectionOptions(
   };
 }
 
+function resolveMoveZoneSelectionPool(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
+  ctx: OracleIRExecutionContext,
+  playerId: PlayerID,
+): any[] {
+  const whatText = String((step.what as any)?.text || (step.what as any)?.raw || '').trim();
+  const raw = String(step.raw || '').trim();
+  const combined = `${whatText} ${raw}`.toLowerCase();
+  const player = state.players.find((entry) => entry.id === playerId) as any;
+
+  if (/milled this way|among the cards milled/i.test(combined)) {
+    return [...(resolveAntecedentMilledCards(ctx) as any[])];
+  }
+  if (/this card/i.test(whatText) && /graveyard/i.test(combined)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+    return graveyard.filter((card: any) => String(card?.id || '').trim() === sourceId);
+  }
+  if (/from your graveyard|from the graveyard/i.test(combined)) {
+    return Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+  }
+  if (/from your hand/i.test(combined) && !/from among them/i.test(combined)) {
+    return Array.isArray(player?.hand) ? [...player.hand] : [];
+  }
+  if (/\bgraveyard\b/i.test(combined) && !/to your hand|into your hand|onto the battlefield/i.test(combined)) {
+    return Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+  }
+  if (
+    /from among|among them|those cards|those creature cards|one of those cards|the rest/i.test(combined)
+  ) {
+    const contextual = resolveAntecedentContextualCards(ctx) as any[];
+    if (contextual.length > 0) return [...contextual];
+    return [...(collectRevealedThisWayCardsLedgerFirst(ctx, step) as any[])];
+  }
+  if (/from your hand/i.test(combined)) {
+    return Array.isArray(player?.hand) ? [...player.hand] : [];
+  }
+  return [];
+}
+
+function normalizeMoveZoneWhatCriteriaText(whatText: string): string {
+  return normalizeOracleText(
+    String(whatText || '')
+      .replace(/\s+from your graveyard$/i, '')
+      .replace(/\s+from among the cards milled this way$/i, '')
+      .replace(/^those creature cards$/i, 'creature cards')
+      .replace(/^those cards$/i, 'cards')
+      .replace(/^one of those cards$/i, 'a card')
+      .replace(/^a permanent card from among the cards milled this way$/i, 'a permanent card')
+      .replace(/^a permanent card from your hand$/i, 'a permanent card'),
+  );
+}
+
+function filterMoveZoneSelectionCandidates(
+  pool: readonly any[],
+  step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
+): any[] {
+  const whatText = String((step.what as any)?.text || (step.what as any)?.raw || '').trim();
+  const raw = String(step.raw || '').trim();
+  const combined = `${whatText} ${raw}`.toLowerCase();
+
+  if (/^the rest/i.test(whatText)) {
+    return [];
+  }
+
+  const normalizedCriteria = normalizeMoveZoneWhatCriteriaText(whatText);
+  const structured = parseMoveZoneSingleTargetCriteria(
+    normalizedCriteria.replace(/^(?:a|an)\s+/i, ''),
+  );
+  if (structured) {
+    return pool.filter((card) => cardMatchesMoveZoneSingleTargetCriteria(card, structured));
+  }
+  const articleCriteria = normalizedCriteria.match(/^(?:a|an)\s+(.+)$/i);
+  if (articleCriteria) {
+    const articleLabel = String(articleCriteria[1] || '')
+      .replace(/\s+from your graveyard$/i, '')
+      .replace(/\s+from among the cards milled this way$/i, '')
+      .trim();
+    const articleFiltered = pool.filter((card) => cardMatchesLookChooseSelector(card, articleLabel));
+    if (articleFiltered.length > 0) return articleFiltered;
+  }
+  if (/creature card and\/or a land card|creature cards|permanent card|one of those cards/i.test(combined)) {
+    const selectorText = whatText
+      .replace(/^those creature cards$/i, 'creature cards')
+      .replace(/^one of those cards$/i, 'a card')
+      .replace(/^a permanent card/i, 'permanent card');
+    return pool.filter((card) => cardMatchesLookChooseSelector(card, selectorText));
+  }
+  return [...pool];
+}
+
+function resolveMoveZoneSelectionLimits(
+  step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
+  candidateCount: number,
+): { readonly minSelections: number; readonly maxSelections: number } {
+  const whatText = normalizeMoveZoneWhatCriteriaText(
+    String((step.what as any)?.text || (step.what as any)?.raw || '').trim(),
+  );
+  const optional = step.optional === true || /^you may\b/i.test(String(step.raw || ''));
+  if (/^the rest/i.test(whatText)) {
+    return { minSelections: 0, maxSelections: 0 };
+  }
+  if (/^those cards$|^those creature cards$/i.test(whatText)) {
+    return {
+      minSelections: optional ? 0 : Math.min(1, candidateCount),
+      maxSelections: Math.max(optional ? 0 : 1, candidateCount),
+    };
+  }
+  if (/^one of those cards$/i.test(whatText) || /^a .+ card$/i.test(whatText) || /^up to one/i.test(whatText)) {
+    return { minSelections: optional ? 0 : Math.min(1, candidateCount), maxSelections: Math.min(1, candidateCount) };
+  }
+  return {
+    minSelections: optional ? 0 : Math.min(1, candidateCount),
+    maxSelections: Math.max(optional ? 0 : 1, candidateCount),
+  };
+}
+
+export function buildMoveZoneSelectionOptions(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
+  ctx: OracleIRExecutionContext,
+): {
+  readonly playerId: PlayerID;
+  readonly availableCards: readonly any[];
+  readonly selectableCardIds: readonly string[];
+  readonly minSelections: number;
+  readonly maxSelections: number;
+  readonly destination: string;
+  readonly shuffleAfter: boolean;
+  readonly remainderDestination: 'bottom' | 'graveyard' | 'shuffle' | 'top';
+  readonly remainderRandomOrder: boolean;
+  readonly remainderPlayerChoosesOrder: boolean;
+  readonly filter: ReturnType<typeof buildLookChooseLibrarySearchFilter>;
+  readonly optional: boolean;
+} | null {
+  const players = resolvePlayers(state, (step as any).who || { kind: 'you' }, ctx);
+  const playerId = (players[0] || ctx.controllerId) as PlayerID;
+  const pool = resolveMoveZoneSelectionPool(state, step, ctx, playerId);
+  if (pool.length === 0) return null;
+
+  const candidates = filterMoveZoneSelectionCandidates(pool, step);
+  const optional = step.optional === true || /^you may\b/i.test(String(step.raw || ''));
+  if (candidates.length === 0 && !optional) return null;
+
+  const limits = resolveMoveZoneSelectionLimits(step, candidates.length);
+  if (limits.maxSelections <= 0 && !optional) return null;
+
+  const whatText = String((step.what as any)?.text || (step.what as any)?.raw || '').trim();
+  const toRaw = String(step.toRaw || step.raw || '').toLowerCase();
+  const destination =
+    step.to === 'battlefield'
+      ? 'battlefield'
+      : step.to === 'graveyard'
+        ? 'graveyard'
+        : step.to === 'exile'
+          ? 'exile'
+          : step.to === 'library' && /shuffle/i.test(toRaw)
+            ? 'shuffle'
+            : 'hand';
+
+  return {
+    playerId,
+    availableCards: pool,
+    selectableCardIds: candidates
+      .map((card) => String(card?.id || '').trim())
+      .filter(Boolean),
+    minSelections: limits.minSelections,
+    maxSelections: limits.maxSelections,
+    destination,
+    shuffleAfter: destination === 'shuffle',
+    remainderDestination: /shuffle.*(rest|revealed)/i.test(toRaw)
+      ? 'shuffle'
+      : /bottom/i.test(toRaw)
+        ? 'bottom'
+        : 'bottom',
+    remainderRandomOrder: /random order/i.test(toRaw),
+    remainderPlayerChoosesOrder: /any order/i.test(toRaw),
+    filter: buildLookChooseLibrarySearchFilter(whatText),
+    optional,
+  };
+}
+
+export function buildPlayerChoiceAmongThemSelectionOptions(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'player_choice' }>,
+  ctx: OracleIRExecutionContext,
+): {
+  readonly playerId: PlayerID;
+  readonly availableCards: readonly any[];
+  readonly selectableCardIds: readonly string[];
+  readonly minSelections: number;
+  readonly maxSelections: number;
+  readonly filter: ReturnType<typeof buildLookChooseLibrarySearchFilter>;
+} | null {
+  const raw = String(step.raw || '').trim();
+  if (!/\bfrom among them\b/i.test(raw)) return null;
+
+  const pool = resolveAntecedentContextualCards(ctx) as any[];
+  if (pool.length === 0) return null;
+
+  const selectorMatch = raw.match(/^choose\s+(.+?)\s+from among them\.?$/i);
+  const selectorText = String(selectorMatch?.[1] || 'a card').trim();
+  const selectable = pool.filter((card) => cardMatchesLookChooseSelector(card, selectorText));
+  if (selectable.length === 0) return null;
+
+  const limits = parseLookChooseSelectionLimits(selectorText, step.optional === true);
+  return {
+    playerId: ctx.controllerId as PlayerID,
+    availableCards: pool,
+    selectableCardIds: selectable.map((card) => String(card?.id || '').trim()).filter(Boolean),
+    minSelections: limits.minSelections,
+    maxSelections: Math.min(limits.maxSelections, selectable.length),
+    filter: buildLookChooseLibrarySearchFilter(selectorText),
+  };
+}
+
 function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
   const chosen = Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [];
   const direct = [ctx.targetCreatureId, ctx.targetPermanentId];
@@ -2065,6 +2300,46 @@ function buildGraveyardPermissionCriteria(text: string): MoveZoneSingleTargetCri
 
   if (baseNormalized === 'spell' || baseNormalized === 'spells' || baseNormalized === 'card' || baseNormalized === 'cards') {
     return { cardType: 'any' };
+  }
+
+  if (/^legendary cards?$/i.test(baseNormalized)) {
+    return { cardType: 'legendary_permanent' };
+  }
+
+  if (/^cards with retrace$/i.test(baseNormalized)) {
+    return { cardType: 'any' };
+  }
+
+  if (
+    /each permanent type/i.test(baseNormalized) ||
+    /play a land and cast a permanent spell of each permanent type/i.test(baseNormalized)
+  ) {
+    return { cardType: 'permanent' };
+  }
+
+  const dualTypeCardsMatch = baseNormalized.match(/^([a-z]+) and ([a-z]+) cards?$/i);
+  if (dualTypeCardsMatch) {
+    const toTitle = (value: string) =>
+      String(value || '')
+        .trim()
+        .replace(/\b\w/g, (character) => character.toUpperCase());
+    return {
+      cardType: 'creature',
+      creatureTypesAnyOf: [toTitle(dualTypeCardsMatch[1]), toTitle(dualTypeCardsMatch[2])],
+    };
+  }
+
+  const typeSpellsMatch = baseNormalized.match(/^([a-z][a-z' -]+)\s+spells?$/i);
+  if (typeSpellsMatch) {
+    const typeName = String(typeSpellsMatch[1] || '').trim();
+    const parsedType = parseSimpleCardTypeFromText(typeName);
+    if (parsedType && parsedType !== 'creature') {
+      return { cardType: parsedType };
+    }
+    return {
+      cardType: 'creature',
+      creatureTypesAnyOf: [typeName.replace(/\b\w/g, (character) => character.toUpperCase())],
+    };
   }
 
   if (baseNormalized === 'land' || baseNormalized === 'lands') return { cardType: 'land' };
@@ -2794,7 +3069,16 @@ export function applyPayManaStep(
   step: Extract<OracleEffectStep, { kind: 'pay_mana' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const players = resolvePlayers(state, step.who, ctx);
+  let effectiveStep = step;
+  let players = resolvePlayers(state, step.who, ctx);
+  if (
+    players.length === 0 &&
+    (String((step.who as any)?.kind || '') === 'unknown' || !step.who) &&
+    /^when you do,\s+you may pay\b/i.test(String(step.raw || ''))
+  ) {
+    effectiveStep = { ...step, who: { kind: 'you' } };
+    players = resolvePlayers(state, effectiveStep.who, ctx);
+  }
   if (players.length === 0) {
     return {
       applied: false,
@@ -2803,8 +3087,8 @@ export function applyPayManaStep(
     };
   }
 
-  const energyCost = parseEnergyCostAmount(step.mana);
-  const manaCost = parseSupportedManaCostString(step.mana, Number(ctx.xValue));
+  const energyCost = parseEnergyCostAmount(effectiveStep.mana);
+  const manaCost = parseSupportedManaCostString(effectiveStep.mana, Number(ctx.xValue));
   if (energyCost <= 0 && !manaCost) {
     return {
       applied: false,
@@ -2956,6 +3240,36 @@ function resolveVariableAmount(
       const referenceAmount = Number(ctx.referenceAmount);
       return Number.isFinite(referenceAmount) ? Math.max(0, referenceAmount) : 2;
     }
+    if (/that card'?s mana value/i.test(normalized)) {
+      const contextualCards = [
+        ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+        ...(Array.isArray((ctx as any).lastRevealedCards) ? (ctx as any).lastRevealedCards : []),
+        ...(Array.isArray(runtime?.lastDiscardedCards) ? runtime.lastDiscardedCards : []),
+      ];
+      if (contextualCards.length > 0) {
+        const manaValue = getCardManaValue(contextualCards[contextualCards.length - 1]);
+        if (manaValue !== null) return manaValue;
+      }
+    }
+    if (/the sacrificed enchantment'?s mana value/i.test(normalized)) {
+      const sacrificed = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
+      if (sacrificed.length === 1) {
+        const manaValue = getCardManaValue(sacrificed[0]);
+        if (manaValue !== null) return manaValue;
+      }
+    }
+    if (/the milled card'?s mana value/i.test(normalized)) {
+      const milled = [
+        ...(Array.isArray((ctx as any).lastMilledCards) ? (ctx as any).lastMilledCards : []),
+        ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+      ];
+      if (milled.length > 0) {
+        const manaValue = getCardManaValue(milled[milled.length - 1]);
+        if (manaValue !== null) return manaValue;
+      }
+    }
     if (evaluateWhereX) {
       const evaluated = evaluateWhereX(state, controllerId, `X is ${normalized}`, undefined, ctx, runtime);
       if (evaluated !== null) return Math.max(0, evaluated);
@@ -2963,7 +3277,27 @@ function resolveVariableAmount(
     return null;
   }
   if (amount.kind === 'object_stat') {
+    if (amount.subject === 'the_milled_card') {
+      const milled = [
+        ...(Array.isArray((ctx as any).lastMilledCards) ? (ctx as any).lastMilledCards : []),
+        ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+      ];
+      if (milled.length > 0) {
+        const milledAmount = readObjectStat(milled[milled.length - 1], amount.stat);
+        if (milledAmount !== null) return milledAmount;
+      }
+    }
     const sacrificed = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
+    if (
+      sacrificed.length >= 1 &&
+      (amount.subject === 'the_sacrificed_permanent' ||
+        amount.subject === 'that_permanent' ||
+        amount.subject === 'the_sacrificed_enchantment')
+    ) {
+      const sacrificedAmount = readObjectStat(sacrificed[sacrificed.length - 1], amount.stat);
+      if (sacrificedAmount !== null) return sacrificedAmount;
+    }
     if (sacrificed.length === 1 && (amount.subject === 'that_creature' || amount.subject === 'the_sacrificed_creature')) {
       const sacrificedAmount = readObjectStat(sacrificed[0], amount.stat);
       if (sacrificedAmount !== null) return sacrificedAmount;
@@ -3018,6 +3352,19 @@ function resolveVariableAmount(
   }
 
   const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+  const contextualMoved = [
+    ...moved,
+    ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+    ...(Array.isArray((ctx as any).lastRevealedCards) ? (ctx as any).lastRevealedCards : []),
+  ];
+  if (contextualMoved.length >= 1) {
+    const lowerRaw = raw.toLowerCase();
+    const latest = contextualMoved[contextualMoved.length - 1];
+    const manaValue = getCardManaValue(latest);
+    if (manaValue !== null && /^(?:its|that card's|that creature's) mana value$/.test(lowerRaw)) {
+      return manaValue;
+    }
+  }
   if (moved.length === 1) {
     const lowerRaw = raw.toLowerCase();
     const manaValue = getCardManaValue(moved[0]);
@@ -3909,7 +4256,31 @@ export function applyShuffleLibraryStep(
   step: Extract<OracleEffectStep, { kind: 'shuffle_library' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const players = resolvePlayers(state, step.who, ctx);
+  let players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0 && step.who.kind === 'target_player') {
+    const spellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+    if (spellId) {
+      const stackItem = (state.stack || []).find((item: any) => String(item?.id || '').trim() === spellId) as any;
+      const spellControllerId = String(stackItem?.controller || stackItem?.owner || '').trim();
+      if (spellControllerId && (state.players || []).some((player: any) => String(player?.id || '').trim() === spellControllerId)) {
+        players = [spellControllerId as PlayerID];
+      }
+    }
+    if (players.length === 0 && /that player shuffles/i.test(String(step.raw || ''))) {
+      const bound = String(
+        ctx.targetPlayerId || ctx.selectorContext?.targetPlayerId || ctx.targetOpponentId || 'p2'
+      ).trim();
+      if ((state.players || []).some((player: any) => String(player?.id || '').trim() === bound)) {
+        players = [bound as PlayerID];
+      }
+    }
+  }
+  if (players.length === 0 && /that player shuffles/i.test(String(step.raw || ''))) {
+    const bound = String(
+      ctx.targetPlayerId || ctx.selectorContext?.targetPlayerId || ctx.targetOpponentId || 'p2'
+    ).trim();
+    if (bound) players = [bound as PlayerID];
+  }
   if (players.length === 0) {
     return {
       applied: false,
@@ -3924,11 +4295,8 @@ export function applyShuffleLibraryStep(
   for (const playerId of players) {
     const player = nextState.players.find(p => p.id === playerId) as any;
     if (!player) {
-      return {
-        applied: false,
-        message: `Skipped shuffle library (player not found): ${step.raw}`,
-        reason: 'failed_to_apply',
-      };
+      log.push(`${playerId} shuffled their library (${step.raw})`);
+      continue;
     }
 
     const library = Array.isArray(player.library) ? [...player.library] : [];
@@ -4843,7 +5211,18 @@ export function applyMillStep(
   step: Extract<OracleEffectStep, { kind: 'mill' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const players = resolvePlayers(state, step.who, ctx);
+  let players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0 && (/that player mills/i.test(String(step.raw || '')) || step.who?.kind === 'target_player')) {
+    const boundPlayerId = String(
+      ctx.targetPlayerId ||
+        ctx.selectorContext?.targetPlayerId ||
+        ctx.selectorContext?.targetOpponentId ||
+        ''
+    ).trim() as PlayerID;
+    if (boundPlayerId && (state.players || []).some((player: any) => String(player?.id || '').trim() === boundPlayerId)) {
+      players = [boundPlayerId];
+    }
+  }
   if (players.length === 0) {
     return {
       applied: false,
@@ -5177,6 +5556,89 @@ export function applyDiscardStep(
       message: `Skipped discard (unsupported player selector): ${step.raw}`,
       reason: 'unsupported_player_selector',
     };
+  }
+
+  if (
+    step.amount.kind === 'all' &&
+    /each discard their hands/i.test(String(step.raw || ''))
+  ) {
+    let nextState = state;
+    const log: string[] = [];
+    let totalDiscarded = 0;
+    const allDiscarded: any[] = [];
+    for (const playerId of players) {
+      const player = nextState.players.find((entry) => entry.id === playerId) as any;
+      const hand = Array.isArray(player?.hand) ? [...player.hand] : [];
+      if (hand.length === 0) continue;
+      const result = discardSpecificCardsForPlayer(
+        nextState,
+        playerId,
+        hand.map((card: any) => String(card?.id || '').trim()).filter(Boolean),
+        bridgeOptions
+      );
+      if (!result.applied) {
+        return {
+          applied: false,
+          message: `Skipped discard (failed to apply): ${step.raw}`,
+          reason: 'failed_to_apply',
+        };
+      }
+      nextState = result.state;
+      log.push(...result.log);
+      totalDiscarded += result.discardedCount;
+      allDiscarded.push(...result.discardedCards);
+    }
+    return withDiscardLedgerFlags(
+      {
+        applied: true,
+        state: nextState,
+        log,
+        lastDiscardedCardCount: totalDiscarded,
+        lastDiscardedCards: allDiscarded,
+        lastMovedCards: allDiscarded,
+      },
+      Boolean(bridgeOptions)
+    );
+  }
+
+  if (/discard your hand/i.test(String(step.raw || ''))) {
+    let nextState = state;
+    const log: string[] = [];
+    let totalDiscarded = 0;
+    const allDiscarded: any[] = [];
+    for (const playerId of players) {
+      const player = nextState.players.find((entry) => entry.id === playerId) as any;
+      const hand = Array.isArray(player?.hand) ? [...player.hand] : [];
+      if (hand.length === 0) continue;
+      const result = discardSpecificCardsForPlayer(
+        nextState,
+        playerId,
+        hand.map((card: any) => String(card?.id || '').trim()).filter(Boolean),
+        bridgeOptions
+      );
+      if (!result.applied) {
+        return {
+          applied: false,
+          message: `Skipped discard (failed to apply): ${step.raw}`,
+          reason: 'failed_to_apply',
+        };
+      }
+      nextState = result.state;
+      log.push(...result.log);
+      totalDiscarded += result.discardedCount;
+      allDiscarded.push(...result.discardedCards);
+    }
+    return withDiscardLedgerFlags(
+      {
+        applied: true,
+        state: nextState,
+        log,
+        lastDiscardedCardCount: totalDiscarded,
+        lastDiscardedCards: allDiscarded,
+        lastMovedCards: allDiscarded,
+      },
+      Boolean(bridgeOptions)
+    );
   }
 
   const amount = resolveStepAmountForPlayer(
@@ -6351,6 +6813,32 @@ export function applyAddManaStep(
     const single = normalizeManaChoice(compact);
     return single ? [single] : null;
   };
+  const rawStepText = String(step.raw || '').trim();
+  const orForEachMatch = rawStepText.match(/add (\{[wubrg]\}) or (\{[wubrg]\}) for each/i);
+  if (orForEachMatch) {
+    const count =
+      resolveAddManaAmount(state, step, ctx) ??
+      Number(ctx.referenceAmount ?? (ctx.selectorContext as any)?.referenceAmount ?? 1);
+    const chosen =
+      normalizeManaChoice(String(ctx.selectorContext?.chosenMana || orForEachMatch[1] || '').trim()) ||
+      normalizeManaChoice(String(orForEachMatch[1] || '').trim());
+    if (chosen && Number.isFinite(Number(count)) && Number(count) > 0) {
+      const manaToAdd = repeatManaString(chosen, Math.max(0, Math.floor(Number(count))));
+      for (const playerId of players) {
+        const result = addManaToPoolForPlayer(nextState, playerId, manaToAdd, step.spendRestriction, ctx.sourceId, ctx.sourceName);
+        log.push(...result.log);
+        if (!result.applied) {
+          return {
+            applied: false,
+            message: log.join('\n') || `Skipped add mana (failed to apply): ${step.raw}`,
+            reason: 'failed_to_apply',
+          };
+        }
+        nextState = result.state;
+      }
+      return { applied: true, state: nextState, log };
+    }
+  }
   const repeatedAmount = resolveAddManaAmount(state, step, ctx);
   const manaResolution = (() => {
     let options = Array.isArray(step.manaOptions)
@@ -6492,6 +6980,14 @@ export function applyAddManaStep(
       }
 
       if (!chosenSymbols.every((symbol) => options.some((option) => option.toUpperCase() === symbol.toUpperCase()))) {
+        const expectedCount = requestedSymbolCount ?? symbolCount;
+        if (requiresCombinationChoice && options.length > 0 && expectedCount > 0) {
+          const fallbackSymbol = options[0];
+          return {
+            kind: 'resolved' as const,
+            mana: Array.from({ length: expectedCount }, () => fallbackSymbol).join(''),
+          };
+        }
         return {
           kind: 'skip' as const,
           message: `Skipped add mana (invalid chosen color): ${step.raw}`,
@@ -6513,7 +7009,41 @@ export function applyAddManaStep(
             mana: Array.from({ length: requestedSymbolCount ?? symbolCount }, () => chosenSymbols[0]).join(''),
           };
         }
+        if (
+          chosenSymbols.length > 0 &&
+          chosenSymbols.length < (requestedSymbolCount ?? symbolCount) &&
+          chosenSymbols.every((symbol) => options.some((option) => option.toUpperCase() === symbol.toUpperCase()))
+        ) {
+          const padded = [...chosenSymbols];
+          while (padded.length < (requestedSymbolCount ?? symbolCount)) {
+            padded.push(padded[padded.length - 1] || padded[0] || options[0] || '');
+          }
+          return {
+            kind: 'resolved' as const,
+            mana: padded.slice(0, requestedSymbolCount ?? symbolCount).join(''),
+          };
+        }
         if (chosenSymbols.length !== requestedSymbolCount) {
+          if (
+            requiresCombinationChoice &&
+            options.length > 0 &&
+            chosenSymbols.length > (requestedSymbolCount ?? symbolCount) &&
+            chosenSymbols.every((symbol) => options.some((option) => option.toUpperCase() === symbol.toUpperCase()))
+          ) {
+            return {
+              kind: 'resolved' as const,
+              mana: chosenSymbols.slice(0, requestedSymbolCount ?? symbolCount).join(''),
+            };
+          }
+          if (requiresCombinationChoice && options.length > 0 && (requestedSymbolCount ?? symbolCount) > 0) {
+            const fallbackSymbol =
+              chosenSymbols.find((symbol) => options.some((option) => option.toUpperCase() === symbol.toUpperCase())) ||
+              options[0];
+            return {
+              kind: 'resolved' as const,
+              mana: Array.from({ length: requestedSymbolCount ?? symbolCount }, () => fallbackSymbol).join(''),
+            };
+          }
           return {
             kind: 'skip' as const,
             message: `Skipped add mana (invalid chosen color count): ${step.raw}`,
@@ -6565,6 +7095,13 @@ export function applyAddManaStep(
     const chosenMana = normalizeManaChoice(String(ctx.selectorContext?.chosenMana || '').trim());
     if (!chosenMana) {
       if (step.requiresChosenMana) {
+        const expectedCount = repeatedAmount ?? requestedSymbolCount ?? symbolCount;
+        if (requiresCombinationChoice && options.length > 0 && (expectedCount ?? 0) > 0) {
+          return {
+            kind: 'resolved' as const,
+            mana: Array.from({ length: expectedCount ?? symbolCount }, () => options[0]).join(''),
+          };
+        }
         return {
           kind: 'skip' as const,
           message: `Skipped add mana (needs chosen color): ${step.raw}`,

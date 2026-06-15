@@ -465,5 +465,37 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
     }
   }
 
+  {
+    const m = raw.match(/^x is the number of vehicles you control plus the number of equipment you control$/i);
+    if (m) {
+      const vehicles = (controlled as any[]).filter((perm) => {
+        const tl = typeLineLower(perm);
+        return hasExecutorClass(perm, 'artifact') && /\bvehicle\b/i.test(tl);
+      }).length;
+      const equipment = (controlled as any[]).filter((perm) => {
+        const tl = typeLineLower(perm);
+        return hasExecutorClass(perm, 'artifact') && /\bequipment\b/i.test(tl);
+      }).length;
+      return vehicles + equipment;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of opponents who control a creature with power 4 or greater$/i);
+    if (m) {
+      return (state.players || []).reduce((count: number, player: any) => {
+        const playerId = String(player?.id || '').trim();
+        if (!playerId || playerId === String(ctx?.controllerId || '').trim()) return count;
+        const hasBigCreature = (battlefield as any[]).some((perm: any) => {
+          if (String(perm?.controller || perm?.controllerId || '').trim() !== playerId) return false;
+          if (!typeLineLower(perm).includes('creature')) return false;
+          const power = Number(perm?.power ?? perm?.card?.power);
+          return Number.isFinite(power) && power >= 4;
+        });
+        return count + (hasBigCreature ? 1 : 0);
+      }, 0);
+    }
+  }
+
   return null;
 }

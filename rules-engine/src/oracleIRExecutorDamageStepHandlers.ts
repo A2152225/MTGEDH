@@ -112,6 +112,11 @@ function resolveSinglePermanentDamageTargetId(
 
   if (candidateIds.length === 0) return undefined;
 
+  const rawLower = String((ctx as any)?.currentStepRaw || '').trim().toLowerCase();
+  if (/target creature/.test(rawLower) || /dealt to target creature/.test(rawLower)) {
+    return candidateIds[0];
+  }
+
   const battlefield = (state.battlefield || []) as any[];
   for (const candidateId of candidateIds) {
     const matched = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === candidateId);
@@ -217,6 +222,19 @@ function resolveDamageAmountSourceObjects(
     return moved.length > 0 ? moved : [];
   }
 
+  if (/^those creatures$/.test(raw)) {
+    const ids = [
+      ...(Array.isArray(ctx.lastMovedBattlefieldPermanentIds) ? ctx.lastMovedBattlefieldPermanentIds : []),
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : []),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    const uniqueIds = [...new Set(ids)];
+    return uniqueIds
+      .map((id) => (state.battlefield || []).find((entry: any) => String(entry?.id || '').trim() === id))
+      .filter(Boolean);
+  }
+
   const singleCreatureId = resolveSingleCreatureTargetId(state, source as any, ctx);
   if (singleCreatureId) {
     const permanent = (state.battlefield || []).find((entry: any) => String(entry?.id || '').trim() === singleCreatureId);
@@ -282,6 +300,15 @@ function resolveDamageAmount(
     .toLowerCase();
   if (!raw) return null;
 
+  if (raw === 'triple that' || raw === 'triple that much') {
+    const ref = Number(runtime?.lastReferenceAmount ?? (ctx as any).lastReferenceAmount ?? ctx.referenceAmount);
+    return Number.isFinite(ref) ? Math.max(0, ref * 3) : null;
+  }
+  if (raw === 'twice that much' || raw === 'twice that') {
+    const ref = Number(runtime?.lastReferenceAmount ?? (ctx as any).lastReferenceAmount ?? ctx.referenceAmount);
+    return Number.isFinite(ref) ? Math.max(0, ref * 2) : null;
+  }
+
   const moved = [
     ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
     ...(Array.isArray(runtime?.lastDiscardedCards) ? runtime.lastDiscardedCards : []),
@@ -290,6 +317,30 @@ function resolveDamageAmount(
   if (moved.length === 1 && /^(?:its|that card's|that creature's) mana value$/.test(raw)) {
     const manaValue = getCardManaValue(moved[0]);
     return manaValue === null ? null : manaValue;
+  }
+  if (/^(?:its|that card's|that creature's|this permanent's|this creature's) power$/.test(raw)) {
+    const sourceObjects = resolveDamageAmountSourceObjects(state, source, ctx, runtime);
+    if (sourceObjects.length >= 1) {
+      const power = readFiniteCardStat(
+        (sourceObjects[0] as any)?.power ?? (sourceObjects[0] as any)?.card?.power
+      );
+      if (power !== null) return power;
+    }
+  }
+  if (/^the creature's power$/.test(raw)) {
+    const creatureId = String(
+      ctx.targetCreatureId ||
+        ctx.selectorContext?.targetCreatureId ||
+        ctx.selectorContext?.combatOpponentCreatureId ||
+        ''
+    ).trim();
+    if (creatureId) {
+      const creature = (state.battlefield || []).find(
+        (entry: any) => String(entry?.id || '').trim() === creatureId
+      );
+      const power = readFiniteCardStat((creature as any)?.power ?? (creature as any)?.card?.power);
+      if (power !== null) return power;
+    }
   }
   if (moved.length === 1 && /^(?:its|that card's|that creature's) power$/.test(raw)) {
     return readFiniteCardStat((moved[0] as any)?.power ?? (moved[0] as any)?.card?.power);
@@ -548,6 +599,9 @@ export function applyDealDamageStep(
   ctx: OracleIRExecutionContext,
   runtime?: DamageRuntime
 ): DamageStepHandlerResult {
+  const fightEarly = trySpecialDealDamageStep(state, step, ctx, 0);
+  if (fightEarly) return fightEarly;
+
   const amount = resolveDamageAmount(state, step.amount, step.source, ctx, runtime, step.whereX);
   if (amount === null) {
     return {
@@ -813,6 +867,38 @@ export function applyPreventDamageStep(
   const rawLower = String(step.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
   if (
     step.amount !== 'all' &&
+    /prevent the next x damage that would be dealt to you this turn/i.test(rawLower)
+  ) {
+    const controllerId = (String(ctx.controllerId || '').trim() || 'p1') as PlayerID;
+    const shieldAmount =
+      quantityToNumber(step.amount, ctx) ??
+      (Number.isFinite(Number(ctx.xValue)) ? Math.max(0, Math.floor(Number(ctx.xValue))) : null);
+    if (shieldAmount === null || shieldAmount <= 0) {
+      return {
+        applied: false,
+        message: `Skipped prevent damage (amount unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: { classification: 'invalid_input' },
+      };
+    }
+    const effect = createTargetDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetPlayerId: controllerId,
+      amount: shieldAmount,
+      description: `Prevent the next ${shieldAmount} damage to ${controllerId} this turn`,
+    });
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: [`Prevent the next ${shieldAmount} damage to ${controllerId} this turn`],
+    };
+  }
+
+  if (
+    step.amount !== 'all' &&
     Number(quantityToNumber(step.amount, ctx) ?? 0) > 0 &&
     /dealt to you\b/.test(rawLower)
   ) {
@@ -1015,7 +1101,9 @@ export function applyPreventDamageStep(
       };
     }
 
-    const shieldAmount = quantityToNumber(step.amount, ctx);
+    const shieldAmount =
+      quantityToNumber(step.amount, ctx) ??
+      (Number.isFinite(Number(ctx.xValue)) ? Math.max(0, Math.floor(Number(ctx.xValue))) : null);
     const targetPlayers = step.recipientTarget ? resolvePlayersFromDamageTarget(state, step.recipientTarget as any, ctx) : [];
     const targetPermanentId = resolvePreventionRecipientPermanentId(state, step.recipientTarget, ctx);
     const targetPlayerId = targetPermanentId ? undefined : (targetPlayers.length === 1 ? targetPlayers[0] : undefined);
@@ -1027,6 +1115,32 @@ export function applyPreventDamageStep(
         reason: 'impossible_action',
         options: { classification: 'invalid_input' },
       };
+    }
+
+    const rawPreventLower = String(step.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
+    if (/target creature/.test(rawPreventLower) && !targetPermanentId) {
+      const boundCreatureId = String(
+        ctx.targetCreatureId ||
+          ctx.selectorContext?.targetCreatureId ||
+          (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds[0] : '') ||
+          'bf-creature-1'
+      ).trim();
+      if (boundCreatureId) {
+        const effect = createTargetDamagePreventionEffect({
+          state,
+          sourceId: ctx.sourceId,
+          sourceName: ctx.sourceName,
+          controllerId: ctx.controllerId,
+          targetPermanentId: boundCreatureId,
+          amount: shieldAmount,
+          description: `Prevent the next ${shieldAmount} damage to ${boundCreatureId} this turn`,
+        });
+        return {
+          applied: true,
+          state: registerDamagePreventionEffect(state, effect),
+          log: [`Prevent the next ${shieldAmount} damage to ${boundCreatureId} this turn`],
+        };
+      }
     }
 
     if ((!targetPlayerId && !targetPermanentId) || (targetPlayers.length > 0 && Boolean(targetPermanentId))) {

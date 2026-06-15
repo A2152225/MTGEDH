@@ -17,6 +17,8 @@ import {
   buildExploreDecisionFromStep,
   buildLookChooseFromTopSelectionOptions,
   buildLookSelectTopSelectionOptions,
+  buildMoveZoneSelectionOptions,
+  buildPlayerChoiceAmongThemSelectionOptions,
   buildSearchLibrarySelectionOptions,
 } from '../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
 import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions, collectBlightTargetSelectionConfigs } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
@@ -2314,12 +2316,13 @@ function queueConniveChoicePromptsFromOracleIRResult(
 
 function queuePlayerChoicePromptsFromOracleIRResult(
   ctx: GameContext,
-  _state: any,
+  state: any,
   result: OracleIRExecutionResult,
   params: {
     controller: PlayerID;
     sourceName?: string;
     sourceId?: string;
+    irCtx: OracleIRExecutionContext;
   },
 ): void {
   const gameId = String((ctx as any).gameId || '').trim();
@@ -2333,15 +2336,50 @@ function queuePlayerChoicePromptsFromOracleIRResult(
     if (gap.reasonCode !== 'player_choice_required') continue;
     if (String(gap.stepKind || '') !== 'player_choice') continue;
 
-    const step = findSkippedOracleStep(result, gap);
+    const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'player_choice' }> | undefined;
     if (!step || step.kind !== 'player_choice') continue;
 
     const queueKey = `player_choice:${String((step as any).choice || '')}:${String((step as any).raw || '')}`;
     if (queuedKeys.has(queueKey)) continue;
     queuedKeys.add(queueKey);
 
+    const amongBuilt = buildPlayerChoiceAmongThemSelectionOptions(state, step, params.irCtx);
+    if (amongBuilt) {
+      const availableCards = amongBuilt.availableCards.map(normalizeTopLibraryPromptCard);
+      const selectableIds = new Set(amongBuilt.selectableCardIds);
+      const nonSelectableCards = availableCards.filter(
+        (card) => !selectableIds.has(String(card.id || '')),
+      );
+      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+        type: ResolutionStepType.LIBRARY_SEARCH,
+        playerId: amongBuilt.playerId,
+        description: `${sourceName}: ${String((step as any).raw || 'Choose cards')}`,
+        mandatory: step.optional !== true,
+        sourceId,
+        sourceName,
+        searchCriteria: String((step as any).raw || 'Choose cards from among them'),
+        minSelections: amongBuilt.minSelections,
+        maxSelections: amongBuilt.maxSelections,
+        destination: 'hand',
+        reveal: false,
+        shuffleAfter: false,
+        remainderDestination: 'bottom',
+        remainderRandomOrder: false,
+        availableCards,
+        nonSelectableCards,
+        filter: amongBuilt.filter,
+        persistLibrarySearchResolve: true,
+        persistLibrarySearchResolveReason: 'stack_resolution',
+        oracleIrChoiceStepJson: JSON.stringify([step]),
+        oracleIrControllerId: params.controller,
+        oracleIrSourceId: sourceId,
+        oracleIrSourceName: sourceName,
+      } as any, result, params) as any);
+      continue;
+    }
+
     const prompt = buildPlayerChoicePrompt(
-      step as Extract<OracleEffectStep, { kind: 'player_choice' }>,
+      step,
       { controller: params.controller, sourceName, sourceId },
     );
     if (!prompt) continue;
@@ -2559,6 +2597,203 @@ function queueCopyPermanentChoicePromptsFromOracleIRResult(
       },
     );
   }
+}
+
+function buildMoveZoneLibrarySearchPrompt(
+  step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
+  built: NonNullable<ReturnType<typeof buildMoveZoneSelectionOptions>>,
+  params: {
+    controller: PlayerID;
+    sourceName: string;
+    sourceId?: string;
+  },
+): Record<string, unknown> {
+  const availableCards = built.availableCards.map(normalizeTopLibraryPromptCard);
+  const selectableIds = new Set(built.selectableCardIds);
+  const nonSelectableCards = availableCards.filter(
+    (card) => !selectableIds.has(String(card.id || '')),
+  );
+
+  return {
+    type: ResolutionStepType.LIBRARY_SEARCH,
+    playerId: built.playerId,
+    description: `${params.sourceName}: ${String((step as any).raw || 'Choose cards')}`,
+    mandatory: !built.optional,
+    sourceId: params.sourceId,
+    sourceName: params.sourceName,
+    searchCriteria: String((step as any).raw || 'Choose cards to move'),
+    minSelections: built.minSelections,
+    maxSelections: built.maxSelections,
+    destination: built.destination,
+    reveal: false,
+    shuffleAfter: built.shuffleAfter,
+    remainderDestination: built.remainderDestination,
+    remainderRandomOrder: built.remainderRandomOrder,
+    remainderPlayerChoosesOrder: built.remainderPlayerChoosesOrder,
+    availableCards,
+    nonSelectableCards,
+    filter: built.filter,
+    persistLibrarySearchResolve: true,
+    persistLibrarySearchResolveReason: 'stack_resolution',
+    oracleIrChoiceStepJson: JSON.stringify([step]),
+    oracleIrControllerId: params.controller,
+    oracleIrSourceId: params.sourceId,
+    oracleIrSourceName: params.sourceName,
+  };
+}
+
+function collectMoveZoneChoiceSteps(
+  result: OracleIRExecutionResult,
+): Extract<OracleEffectStep, { kind: 'move_zone' }>[] {
+  const steps: Extract<OracleEffectStep, { kind: 'move_zone' }>[] = [];
+  const seen = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (String(gap.stepKind || '') !== 'move_zone') continue;
+    if (
+      gap.reasonCode !== 'player_choice_required'
+      && gap.reasonCode !== 'optional_step_requires_player_choice'
+    ) {
+      continue;
+    }
+    const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'move_zone' }> | undefined;
+    if (!step) continue;
+    const key = `${String((step as any).raw || '')}:${String((step.what as any)?.text || '')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    steps.push(step);
+  }
+
+  for (const step of result.skippedSteps || []) {
+    if (step.kind !== 'move_zone') continue;
+    const moveStep = step as Extract<OracleEffectStep, { kind: 'move_zone' }>;
+    const key = `${String((moveStep as any).raw || '')}:${String((moveStep.what as any)?.text || '')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    steps.push(moveStep);
+  }
+
+  return steps;
+}
+
+function queueMoveZoneChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const step of collectMoveZoneChoiceSteps(result)) {
+    const built = buildMoveZoneSelectionOptions(state, step, params.irCtx);
+    if (!built) continue;
+
+    const queueKey = `move_zone:${String((step as any).raw || '')}:${String((step.what as any)?.text || '')}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    const prompt = buildMoveZoneLibrarySearchPrompt(step, built, {
+      controller: params.controller,
+      sourceName,
+      sourceId,
+    });
+    ResolutionQueueManager.addStep(
+      gameId,
+      attachOracleIrResumeMetadata(prompt, result, params) as any,
+    );
+  }
+}
+
+function queueOptionalStepChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'optional_step_requires_player_choice') continue;
+    const stepKind = String(gap.stepKind || '');
+    if (
+      stepKind !== 'move_zone'
+      && stepKind !== 'grant_graveyard_permission'
+      && stepKind !== 'attach'
+    ) {
+      continue;
+    }
+
+    const step = findSkippedOracleStep(result, gap);
+    if (!step) continue;
+
+    const queueKey = `${stepKind}:${String((step as any).raw || '')}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: params.controller,
+      description: `${sourceName}: ${String((step as any).raw || 'You may')}`,
+      mandatory: false,
+      sourceId,
+      sourceName,
+      options: [
+        { id: 'accept', label: 'Yes', description: 'Accept' },
+        { id: 'decline', label: 'No', description: 'Decline' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      optionalPaymentPrompt: true,
+      optionalPaymentPayChoiceId: 'accept',
+      optionalPaymentDeclineChoiceId: 'decline',
+      oracleIrOptionalMayChoice: true,
+      oracleIrChoiceStepJson: JSON.stringify([step]),
+      oracleIrControllerId: params.controller,
+      oracleIrSourceId: sourceId,
+      oracleIrSourceName: sourceName,
+    } as any, result, params) as any);
+  }
+}
+
+function persistUnqueuedPendingContinuationFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    resolutionQueueStepsBefore: number;
+    resolutionQueueStepsAfter: number;
+  },
+): void {
+  const pending = result.pendingContinuationSteps;
+  if (!Array.isArray(pending) || pending.length === 0) return;
+  if (params.resolutionQueueStepsAfter > params.resolutionQueueStepsBefore) return;
+  if (String(state?.oracleIrPendingResumeStepsJson || '').trim()) return;
+
+  state.oracleIrPendingResumeStepsJson = JSON.stringify(unwrapYouDoResumeSteps(pending));
+  state.oracleIrPendingResumeControllerId = params.controller;
+  if (params.sourceId) state.oracleIrPendingResumeSourceId = params.sourceId;
+  if (params.sourceName) state.oracleIrPendingResumeSourceName = params.sourceName;
 }
 
 function queueUnlessPayChoicePromptsFromOracleIRResult(
@@ -2845,6 +3080,7 @@ export function resumeOracleIRStepWithChoiceFromResolution(
     selectorContext?: Record<string, unknown>;
     targetPlayerId?: PlayerID;
     targetSpellId?: string;
+    allowOptional?: boolean;
   },
 ): OracleIRExecutionResult | null {
   if (!Array.isArray(params.steps) || params.steps.length === 0) {
@@ -2892,7 +3128,7 @@ export function resumeOracleIRStepWithChoiceFromResolution(
     state,
     params.steps,
     irCtx,
-    { allowOptional: false },
+    { allowOptional: params.allowOptional === true },
     {
       controller: params.controller,
       targetPlayerId: params.targetPlayerId,
@@ -3027,7 +3263,14 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
       return null;
     }
     selectorContext = orderingContext;
-  } else if (firstStep?.kind === 'connive' || firstStep?.kind === 'discard' || firstStep?.kind === 'sacrifice' || firstStep?.kind === 'search_library') {
+  } else if (
+    firstStep?.kind === 'connive'
+    || firstStep?.kind === 'discard'
+    || firstStep?.kind === 'sacrifice'
+    || firstStep?.kind === 'search_library'
+    || firstStep?.kind === 'move_zone'
+    || firstStep?.kind === 'player_choice'
+  ) {
     if (selectionIds.length === 0) {
       return null;
     }
@@ -3086,7 +3329,11 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
   const step = params.step;
   const stepData = (step && typeof step === 'object') ? step as Record<string, unknown> : {};
   if (stepData.optionalPaymentPrompt !== true) return false;
-  if (stepData.oracleIrUnlessPayChoice !== true && stepData.oracleIrOptionalPayManaChoice !== true) {
+  if (
+    stepData.oracleIrUnlessPayChoice !== true
+    && stepData.oracleIrOptionalPayManaChoice !== true
+    && stepData.oracleIrOptionalMayChoice !== true
+  ) {
     return false;
   }
 
@@ -3126,9 +3373,29 @@ export function resolveOracleIrOptionalPaymentPromptFromResolution(
           choice: 'pay',
         });
       }
+    } else if (stepData.oracleIrOptionalMayChoice === true) {
+      let choiceSteps: OracleEffectStep[] = [];
+      try {
+        const parsed = JSON.parse(String(stepData.oracleIrChoiceStepJson || '[]'));
+        choiceSteps = Array.isArray(parsed) ? parsed as OracleEffectStep[] : [];
+      } catch {
+        choiceSteps = [];
+      }
+      if (choiceSteps.length > 0) {
+        resumeOracleIRStepWithChoiceFromResolution(ctx, {
+          controller: String(stepData.oracleIrControllerId || playerId).trim() as PlayerID,
+          sourceId: String(stepData.oracleIrSourceId || stepData.sourceId || '').trim() || undefined,
+          sourceName: String(stepData.oracleIrSourceName || stepData.sourceName || '').trim() || undefined,
+          steps: choiceSteps,
+          allowOptional: true,
+        });
+      }
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
     } else {
       maybeResumeOracleIRStepsAfterResolution(ctx, step);
     }
+  } else if (stepData.oracleIrOptionalMayChoice === true) {
+    maybeResumeOracleIRStepsAfterResolution(ctx, step);
   } else if (stepData.copyTriggeredAbilityDeclineEvent === true) {
     appendCopyTriggeredAbilityResolveEvent(ctx, {
       sourceId: String(stepData.copyTriggeredAbilitySourceId || stepData.sourceId || '').trim() || undefined,
@@ -3325,6 +3592,10 @@ export function applyOracleIRStepsOnServer(
   bridgeScheduleDelayedFlickerReturnsFromOracleIRResult(ctx, state, result, exileBefore, {
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
   });
+  const gameId = String((ctx as any).gameId || '').trim();
+  const resolutionQueueStepsBefore = gameId && gameId !== 'unknown' && !(ctx as any).isReplaying
+    ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
+    : 0;
   queueTopLibraryChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -3380,6 +3651,18 @@ export function applyOracleIRStepsOnServer(
     irCtx,
   });
   queuePlayerChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueMoveZoneChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueOptionalStepChoicePromptsFromOracleIRResult(ctx, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
@@ -3461,6 +3744,16 @@ export function applyOracleIRStepsOnServer(
     irCtx,
     sourceItem: params?.sourceItem ?? params?.triggerItem,
     oracleText: params?.oracleText,
+  });
+  const resolutionQueueStepsAfter = gameId && gameId !== 'unknown' && !(ctx as any).isReplaying
+    ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
+    : resolutionQueueStepsBefore;
+  persistUnqueuedPendingContinuationFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    resolutionQueueStepsBefore,
+    resolutionQueueStepsAfter,
   });
   syncPreparedCopiesAfterBattlefieldControllerChanges(state, controllersBefore);
   syncPreparedCopiesFromControlChangeEffects(state);

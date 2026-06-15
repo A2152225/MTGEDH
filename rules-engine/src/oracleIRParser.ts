@@ -50,6 +50,7 @@ import {
   expandDeterministicMoveZoneFollowupAbilities,
   upgradeExiledThisWayReturnMoveZoneSteps,
   upgradeCounteredSpellLibraryTopReplacementSteps,
+  upgradeSpryAndMightyCompoundSteps,
   upgradeThoseCardsBattlefieldInsteadOfHandSteps,
   upgradeMoveZoneSelectorGapSteps,
   pruneBatch382MisparseExecutableSteps,
@@ -205,6 +206,7 @@ import {
   splitCompoundChosenCardsMoveZoneAbilities,
   repairSplitChooseModeBulletAbilities,
   repairGapClosureAbilitySteps,
+  pruneIgnorableEffectReminderUnknownSteps,
   repairRandomChooseModeSagaAbilities,
   mergeLookSelectTopFollowupAbilities,
   pruneRedundantSurveilReminderSteps,
@@ -1590,6 +1592,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandDeterministicMoveZoneFollowupAbilities(abilities);
   abilities = upgradeExiledThisWayReturnMoveZoneSteps(abilities);
   abilities = upgradeCounteredSpellLibraryTopReplacementSteps(abilities);
+  abilities = upgradeSpryAndMightyCompoundSteps(abilities);
   abilities = upgradeThoseCardsBattlefieldInsteadOfHandSteps(abilities);
   abilities = upgradeMoveZoneSelectorGapSteps(abilities);
   abilities = pruneBatch382MisparseExecutableSteps(abilities);
@@ -1800,6 +1803,8 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = bindThisWayAntecedentOnAbilities(abilities);
   abilities = abilities.map(wrapTriggeredInterveningIfAbility);
   abilities = pruneBatch382MisparseExecutableSteps(abilities);
+  abilities = upgradeSpryAndMightyCompoundSteps(abilities);
+  abilities = pruneIgnorableEffectReminderUnknownSteps(abilities);
 
   return {
     normalizedOracleText,

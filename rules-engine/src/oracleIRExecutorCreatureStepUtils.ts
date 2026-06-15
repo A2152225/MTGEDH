@@ -329,7 +329,25 @@ export function resolveSingleCreatureTargetId(
   ctx: OracleIRExecutionContext
 ): string | undefined {
   if (target.kind === 'equipped_creature') {
-    return resolveTrepanationBoostTargetCreatureId(state, ctx);
+    const equipped = resolveTrepanationBoostTargetCreatureId(state, ctx);
+    if (equipped) return equipped;
+    const preferredIds = [
+      String(ctx.targetCreatureId || ''),
+      String(ctx.targetPermanentId || ''),
+      String(ctx.lastReferencedPermanentId || ''),
+      ...(Array.isArray(ctx.lastMovedBattlefieldPermanentIds) ? ctx.lastMovedBattlefieldPermanentIds : []),
+      ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds) ? ctx.lastAntecedentBattlefieldPermanentIds : []),
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : []),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    const battlefield = getProcessedBattlefield(state).filter((permanent) => isExecutorCreature(permanent));
+    for (const preferredId of preferredIds) {
+      if (battlefield.some((permanent) => String((permanent as any)?.id || '').trim() === preferredId)) {
+        return preferredId;
+      }
+    }
+    return undefined;
   }
 
   const mentorTargetCreatureId = resolveMentorTargetCreatureIdFromBattlefield(
@@ -352,7 +370,11 @@ export function resolveSingleCreatureTargetId(
 
   if (target.kind !== 'raw') return undefined;
   const battlefield = getProcessedBattlefield(state);
-  const targetText = normalizeOracleText(target.text);
+  let targetText = normalizeOracleText(target.text);
+  const creatureGetsMatch = targetText.match(/^(that creature|the creature)\s+gets\b/i);
+  if (creatureGetsMatch) {
+    targetText = creatureGetsMatch[1].toLowerCase();
+  }
   const creatures = battlefield.filter(permanent => isExecutorCreature(permanent));
 
   if (
@@ -620,11 +642,33 @@ export function resolveCreatureTargetIds(
 
   if (target.kind !== 'raw') return [];
 
-  const targetText = normalizeOracleText(target.text)
+  let targetText = normalizeOracleText(target.text)
     .replace(/^until end of (?:turn|combat),\s*/i, '');
+  const creatureGetsMatch = targetText.match(/^(that creature|the creature)\s+gets\b/i);
+  if (creatureGetsMatch) {
+    targetText = creatureGetsMatch[1].toLowerCase();
+  }
   const sourceId = String(ctx.sourceId || '').trim();
   const battlefield = getProcessedBattlefield(state).filter(permanent => isExecutorCreature(permanent));
   const controllerId = String(ctx.controllerId || '').trim();
+
+  if (targetText === 'that creature' || targetText === 'the creature') {
+    const preferredIds = [
+      String(ctx.targetCreatureId || ''),
+      String(ctx.targetPermanentId || ''),
+      String(ctx.lastReferencedPermanentId || ''),
+      ...(Array.isArray(ctx.lastMovedBattlefieldPermanentIds) ? ctx.lastMovedBattlefieldPermanentIds : []),
+      ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds) ? ctx.lastAntecedentBattlefieldPermanentIds : []),
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : []),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    for (const preferredId of preferredIds) {
+      if (battlefield.some((permanent) => String((permanent as any)?.id || '').trim() === preferredId)) {
+        return [preferredId];
+      }
+    }
+  }
 
   const controlledBy = (playerId: string): string[] =>
     battlefield

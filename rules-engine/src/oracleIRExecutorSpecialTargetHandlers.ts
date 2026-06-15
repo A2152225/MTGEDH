@@ -15,6 +15,37 @@ import {
   collectContextualCardsLedgerFirst,
   collectExiledCardsLedgerFirst,
 } from './oracleIRLedgerCardAccess';
+import {
+  tryBatch386CopyPermanentStep,
+  tryBatch386DealDamageStep,
+  tryBatch386DestroyStep,
+  tryBatch386ExileStep,
+  tryBatch386RegenerateStep,
+  tryBatch386RemoveCounterStep,
+  tryBatch386SuspectStep,
+} from './oracleIRExecutorSpecialTargetHandlersBatch386Bulk';
+import {
+  tryBatch387CopyPermanentStep,
+  tryBatch387DestroyStep,
+  tryBatch387ExileStep,
+  tryBatch387SacrificeStep,
+} from './oracleIRExecutorSpecialTargetHandlersBatch387Bulk';
+import {
+  tryBatch388CopyPermanentStep,
+  tryBatch388DestroyStep,
+  tryBatch388ExileStep,
+  tryBatch388RemoveCounterStep,
+  tryBatch388SacrificeStep,
+} from './oracleIRExecutorSpecialTargetHandlersBatch388Bulk';
+import {
+  tryBatch389CopyPermanentStep,
+  tryBatch389DealDamageStep,
+  tryBatch389DestroyStep,
+  tryBatch389ExileStep,
+  tryBatch389RemoveCounterStep,
+  tryBatch389SacrificeStep,
+} from './oracleIRExecutorSpecialTargetHandlersBatch389Bulk';
+import { tryBatch391DealDamageStep } from './oracleIRExecutorSpecialTargetHandlersBatch391Bulk';
 
 export type SpecialTargetStepResult =
   | {
@@ -352,6 +383,15 @@ export function trySpecialExileStep(
   step: Extract<OracleEffectStep, { kind: 'exile' }>,
   ctx: OracleIRExecutionContext
 ): SpecialTargetStepResult | null {
+  const batch386 = tryBatch386ExileStep(state, step, ctx);
+  if (batch386) return batch386;
+  const batch387 = tryBatch387ExileStep(state, step, ctx);
+  if (batch387) return batch387;
+  const batch388 = tryBatch388ExileStep(state, step, ctx);
+  if (batch388) return batch388;
+  const batch389 = tryBatch389ExileStep(state, step, ctx);
+  if (batch389) return batch389;
+
   const raw = normalizeRaw(step);
   const target = normalizeTargetText(step);
 
@@ -363,6 +403,48 @@ export function trySpecialExileStep(
   }
 
   const normalizedExileTarget = target.replace(/\s+face\s+down$/i, '').trim();
+  if (/^the other(?: with a silver counter on it)?$/i.test(normalizedExileTarget) || /^the other with a silver counter on it$/i.test(target)) {
+    const contextual = readContextualCardsFromCtx(ctx);
+    const chosenIds = new Set(
+      (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    );
+    const otherCards =
+      contextual.length >= 2
+        ? contextual.filter((card: any) => !chosenIds.has(String(card?.id || '').trim())).slice(0, 1)
+        : contextual.length === 2
+          ? [contextual[1]]
+          : contextual.slice(0, 1);
+    if (otherCards.length === 0) {
+      return { applied: true, state, log: ['No other card to exile'] };
+    }
+    const ownerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+    const exiledCards = otherCards.map((card: any) => ({
+      ...card,
+      zone: 'exile',
+      counters: {
+        ...(((card as any)?.counters || {}) as Record<string, number>),
+        ...( /silver counter/i.test(raw) ? { silver: 1 } : {}),
+      },
+    }));
+    const updatedPlayers = (state.players || []).map((entry: any) => {
+      if (String(entry?.id || '').trim() !== ownerId) return entry;
+      return {
+        ...entry,
+        exile: [...(Array.isArray(entry?.exile) ? entry.exile : []), ...exiledCards],
+      };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), players: updatedPlayers as any } as GameState,
+      log: [`Exiled the other card${/silver counter/i.test(raw) ? ' with a silver counter' : ''}`],
+      lastMovedCards: exiledCards,
+      lastExiledCards: exiledCards,
+      lastExiledCardCount: exiledCards.length,
+    };
+  }
+
   if (
     /^them$|^those cards$|^those creatures$|^those auras$|^one of those cards$|^one of those creatures$/.test(
       normalizedExileTarget
@@ -578,6 +660,33 @@ export function trySpecialExileStep(
 
   if (target === 'them again' || /^them again$/i.test(target)) {
     return { applied: true, state, log: ['Exiled returned cards again (scheduled)'] };
+  }
+
+  if (
+    /exile target tapped creature an opponent controls until this creature leaves the battlefield/i.test(raw) ||
+    /until this creature leaves the battlefield/i.test(raw) && /exile target tapped creature an opponent controls/i.test(raw)
+  ) {
+    const boundIds = collectBoundIds(ctx);
+    const opponentId = String(ctx.selectorContext?.targetOpponentId || 'p2').trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const target =
+      battlefield.find((perm: any) => {
+        const id = String(perm?.id || '').trim();
+        if (boundIds.length > 0 && !boundIds.includes(id)) return false;
+        if (String(perm?.controller || '').trim() === String(ctx.controllerId || '').trim()) return false;
+        if (!permanentMatchesType(perm, 'creature')) return false;
+        return Boolean((perm as any)?.tapped);
+      }) ||
+      battlefield.find(
+        (perm: any) =>
+          String(perm?.controller || '').trim() === opponentId &&
+          permanentMatchesType(perm, 'creature') &&
+          Boolean((perm as any)?.tapped)
+      );
+    if (!target) {
+      return { applied: true, state, log: ['No tapped opponent creature to exile until leaves'] };
+    }
+    return exileBattlefieldPermanents(state, [target], ctx, 'until creature leaves');
   }
 
   if (
@@ -1094,6 +1203,15 @@ export function trySpecialDestroyStep(
   step: Extract<OracleEffectStep, { kind: 'destroy' }>,
   ctx: OracleIRExecutionContext
 ): SpecialTargetStepResult | null {
+  const batch386 = tryBatch386DestroyStep(state, step, ctx);
+  if (batch386) return batch386;
+  const batch387 = tryBatch387DestroyStep(state, step, ctx);
+  if (batch387) return batch387;
+  const batch388 = tryBatch388DestroyStep(state, step, ctx);
+  if (batch388) return batch388;
+  const batch389 = tryBatch389DestroyStep(state, step, ctx);
+  if (batch389) return batch389;
+
   const raw = normalizeRaw(step);
   const target = normalizeClause(String((step.target as any)?.text || ''));
 
@@ -1552,6 +1670,13 @@ export function trySpecialRemoveCounterStep(
   step: Extract<OracleEffectStep, { kind: 'remove_counter' }>,
   ctx: OracleIRExecutionContext
 ): SpecialTargetStepResult | null {
+  const batch386 = tryBatch386RemoveCounterStep(state, step, ctx);
+  if (batch386) return batch386;
+  const batch388 = tryBatch388RemoveCounterStep(state, step, ctx);
+  if (batch388) return batch388;
+  const batch389 = tryBatch389RemoveCounterStep(state, step, ctx);
+  if (batch389) return batch389;
+
   const raw = normalizeRaw(step);
   const target = normalizeClause(String((step.target as any)?.text || ''));
   const counterName = String(step.counter || '+1/+1').trim();
@@ -1655,6 +1780,48 @@ export function trySpecialRemoveCounterStep(
         .filter(Boolean)
     );
     return removeCounterFromPermanents(state, ids, 'rope', 'all');
+  }
+
+  if (/remove all flood counters from them/i.test(raw) || target === 'remove all flood counters from them') {
+    const boundIds = new Set(collectBoundIds(ctx));
+    const ids = new Set(
+      battlefield
+        .filter((perm) => {
+          const id = String((perm as any)?.id || '').trim();
+          return boundIds.size === 0 || boundIds.has(id);
+        })
+        .map((perm) => String((perm as any)?.id || '').trim())
+        .filter(Boolean)
+    );
+    return removeCounterFromPermanents(state, ids, 'flood', 'all');
+  }
+
+  if (/remove a time counter from each other card you own in exile/i.test(raw)) {
+    const ownerId = String(ctx.controllerId || 'p1').trim();
+    const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === ownerId) as any;
+    const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+    const sourceId = String(ctx.sourceId || '').trim();
+    let removed = 0;
+    const nextExile = exile.map((card: any) => {
+      const id = String(card?.id || '').trim();
+      if (sourceId && id === sourceId) return card;
+      const counters = { ...((card?.counters || {}) as Record<string, number>) };
+      const current = Number(counters.time ?? 0) || 0;
+      if (current <= 0) return card;
+      counters.time = Math.max(0, current - 1);
+      if (counters.time <= 0) delete counters.time;
+      removed += 1;
+      return { ...card, counters };
+    });
+    const updatedPlayers = (state.players || []).map((entry: any) =>
+      String(entry?.id || '').trim() === ownerId ? { ...entry, exile: nextExile } : entry
+    );
+    return {
+      applied: true,
+      state: { ...(state as any), players: updatedPlayers as any } as GameState,
+      log: [`Removed time counters from ${removed} exiled card(s)`],
+      count: removed,
+    };
   }
 
   if (/remove a loyalty counter from each of any number of permanents you control/.test(raw)) {
@@ -1825,7 +1992,29 @@ export function trySpecialRegenerateStep(
   step: Extract<OracleEffectStep, { kind: 'regenerate' }>,
   ctx: OracleIRExecutionContext
 ): SpecialTargetStepResult | null {
+  const batch386 = tryBatch386RegenerateStep(state, step, ctx);
+  if (batch386) return batch386;
+
   const target = normalizeClause(String((step.target as any)?.text || ''));
+  const raw = normalizeRaw(step);
+  if (/^regenerate it$/i.test(raw) || target === 'it') {
+    const itId =
+      collectBoundIds(ctx)[0] ||
+      String(ctx.targetCreatureId || ctx.targetPermanentId || ctx.sourceId || '').trim();
+    if (!itId) return { applied: true, state, log: ['No contextual permanent to regenerate'] };
+    const controllerId = String(ctx.controllerId || '').trim();
+    return {
+      applied: true,
+      state: {
+        ...(state as any),
+        regenerationShields: [
+          ...(Array.isArray((state as any).regenerationShields) ? (state as any).regenerationShields : []),
+          createRegenerationShield(itId, controllerId || itId),
+        ],
+      } as GameState,
+      log: [`Created regeneration shield for ${itId}`],
+    };
+  }
   if (target === 'this creature' || target === 'this permanent') {
     const sourceId = String(ctx.sourceId || '').trim();
     if (!sourceId) return null;
@@ -1851,11 +2040,17 @@ export function trySpecialDealDamageStep(
   ctx: OracleIRExecutionContext,
   amount: number
 ): SpecialTargetStepResult | null {
+  const batch386 = tryBatch386DealDamageStep(state, step, ctx, amount);
+  if (batch386) return batch386;
+  const batch389 = tryBatch389DealDamageStep(state, step, ctx, amount);
+  if (batch389) return batch389;
+  const batch391 = tryBatch391DealDamageStep(state, step, ctx, amount);
+  if (batch391) return batch391;
+
   const raw = normalizeRaw(step);
   const target = normalizeTargetText(step);
 
-  if (
-    /each creature with flying your opponents control/.test(raw) ||
+  if (/each creature with flying your opponents control/.test(raw) ||
     /each creature with flying your opponents control/.test(target) ||
     target === 'each creature with flying your opponents control'
   ) {
@@ -1874,6 +2069,33 @@ export function trySpecialDealDamageStep(
       applied: true,
       state,
       log: [`Dealt ${amount} damage to each of ${matches.length} flying creature(s) opponents control`],
+    };
+  }
+
+  if (
+    /each creature without flying that player controls/i.test(raw) ||
+    /each creature without flying that player controls/i.test(target)
+  ) {
+    const playerId = String(
+      ctx.selectorContext?.targetPlayerId ||
+        ctx.selectorContext?.targetOpponentId ||
+        ctx.targetPlayerId ||
+        'p2'
+    ).trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const matches = battlefield.filter((perm: any) => {
+      if (String(perm?.controller || '').trim() !== playerId) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      const keywords = Array.isArray((perm as any)?.keywords) ? (perm as any).keywords : [];
+      const hasFlying =
+        keywords.some((entry: any) => String(entry || '').toLowerCase() === 'flying') ||
+        getExecutorTypeLineLower(perm).includes('flying');
+      return !hasFlying;
+    });
+    return {
+      applied: true,
+      state,
+      log: [`Dealt ${amount} damage to each of ${matches.length} creature(s) without flying ${playerId} controls`],
     };
   }
 
@@ -1943,6 +2165,46 @@ export function trySpecialPreventDamageStep(
       applied: true,
       state: registerDamagePreventionEffect(state, effect),
       log: ['Prevent the next 5 damage (divided among targets) this turn'],
+    };
+  }
+
+  if (
+    /prevent the next 3 damage that a source of your choice would deal to you and\/or permanents you control this turn/i.test(
+      raw
+    )
+  ) {
+    const controllerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+    const effect = createTargetAllDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetPlayerId: controllerId,
+      description: 'Prevent the next 3 damage from chosen source',
+    });
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: ['Prevent the next 3 damage from a source of your choice this turn'],
+    };
+  }
+
+  if (
+    /prevent the next 3 damage that would be dealt to any target this turn by a source of your choice/i.test(raw)
+  ) {
+    const controllerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+    const effect = createTargetAllDamagePreventionEffect({
+      state,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      controllerId: ctx.controllerId,
+      targetPlayerId: controllerId,
+      description: 'Prevent the next 3 damage to any target from chosen source',
+    });
+    return {
+      applied: true,
+      state: registerDamagePreventionEffect(state, effect),
+      log: ['Prevent the next 3 damage to any target from a source of your choice'],
     };
   }
 
@@ -2072,6 +2334,13 @@ export function trySpecialSacrificeStep(
   step: Extract<OracleEffectStep, { kind: 'sacrifice' }>,
   ctx: OracleIRExecutionContext
 ): SpecialTargetStepResult | null {
+  const batch387 = tryBatch387SacrificeStep(state, step, ctx);
+  if (batch387) return batch387;
+  const batch388 = tryBatch388SacrificeStep(state, step, ctx);
+  if (batch388) return batch388;
+  const batch389 = tryBatch389SacrificeStep(state, step, ctx);
+  if (batch389) return batch389;
+
   const raw = normalizeRaw(step);
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
 
@@ -2153,6 +2422,36 @@ export function trySpecialSacrificeStep(
     return target ? sacrificePermanents([target]) : null;
   }
 
+  if (/each player sacrifices all creatures they control not chosen this way/i.test(raw)) {
+    const keptIds = new Set(
+      (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    );
+    const victims = battlefield.filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (!id || !permanentMatchesType(perm, 'creature')) return false;
+      return !keptIds.has(id);
+    });
+    return sacrificePermanents(victims);
+  }
+
+  if (/each opponent sacrifices an artifact/i.test(raw)) {
+    const controllerId = String(ctx.controllerId || 'p1').trim();
+    const victims = (state.players || [])
+      .map((player: any) => String(player?.id || '').trim())
+      .filter((playerId) => playerId && playerId !== controllerId)
+      .map((opponentId) =>
+        battlefield.find(
+          (perm: any) =>
+            String(perm?.controller || '').trim() === opponentId &&
+            permanentMatchesType(perm, 'artifact')
+        )
+      )
+      .filter(Boolean) as BattlefieldPermanent[];
+    return sacrificePermanents(victims);
+  }
+
   return null;
 }
 
@@ -2162,6 +2461,15 @@ export function trySpecialCopyPermanentStep(
   ctx: OracleIRExecutionContext,
   runtime?: { lastMovedCards?: readonly any[]; lastExiledCards?: readonly any[] }
 ): SpecialTargetStepResult | null {
+  const batch386 = tryBatch386CopyPermanentStep(state, step, ctx);
+  if (batch386) return batch386;
+  const batch387 = tryBatch387CopyPermanentStep(state, step, ctx);
+  if (batch387) return batch387;
+  const batch388 = tryBatch388CopyPermanentStep(state, step, ctx);
+  if (batch388) return batch388;
+  const batch389 = tryBatch389CopyPermanentStep(state, step, ctx);
+  if (batch389) return batch389;
+
   const raw = normalizeRaw(step);
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
   const sourceId = String(ctx.sourceId || '').trim();
@@ -2267,6 +2575,22 @@ export function trySpecialCopyPermanentStep(
     const target = battlefield.find((perm) => boundIds.includes(String((perm as any)?.id || '').trim()));
     if (!target || !sourceId) return null;
     return applyCopyToTargets([sourceId], (target as any)?.card || target);
+  }
+
+  if (/this land becomes a copy of target nontoken artifact you control with mana value x/i.test(raw)) {
+    const xValue = Number(ctx.xValue ?? ctx.referenceAmount ?? 3);
+    const boundIds = collectBoundIds(ctx);
+    const artifact = battlefield.find((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (boundIds.length > 0 && !boundIds.includes(id)) return false;
+      if ((perm as any)?.isToken) return false;
+      if (!permanentMatchesType(perm, 'artifact')) return false;
+      if (String(perm?.controller || '').trim() !== controllerId) return false;
+      const mv = getCardManaValue((perm as any)?.card || perm);
+      return mv !== null && mv === Math.floor(xValue);
+    });
+    if (!artifact || !sourceId) return null;
+    return applyCopyToTargets([sourceId], (artifact as any)?.card || artifact);
   }
 
   return null;
@@ -2415,6 +2739,21 @@ export function trySpecialTapOrUntapStep(
   ctx: OracleIRExecutionContext
 ): SpecialTargetStepResult | null {
   const raw = normalizeRaw(step);
+  if (/when you do, untap all other creatures you control and after this phase, there is an additional combat phase/i.test(raw)) {
+    const controllerId = String(ctx.controllerId || 'p1').trim();
+    const sourceId = String(ctx.sourceId || '').trim();
+    const battlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+      if (String(perm?.controller || '').trim() !== controllerId) return perm;
+      if (!permanentMatchesType(perm, 'creature')) return perm;
+      if (String(perm?.id || '').trim() === sourceId) return perm;
+      return { ...perm, tapped: false };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield, additionalCombatPhasePending: true } as GameState,
+      log: ['Untapped other creatures and scheduled additional combat phase'],
+    };
+  }
   if (!/untap all creatures you control/.test(raw)) return null;
   const controllerId = String(ctx.controllerId || 'p1').trim();
   const battlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
@@ -2436,6 +2775,72 @@ export function trySpecialForceBlockStep(
 ): SpecialTargetStepResult | null {
   const raw = normalizeRaw(step);
   const blockerText = String((step.blocker as any)?.text || '').trim().toLowerCase();
+  if (
+    /^target creature an opponent controls blocks this turn if able$/i.test(raw) ||
+    (/^target creature an opponent controls$/i.test(blockerText) && /blocks this turn if able$/i.test(raw))
+  ) {
+    const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+    const controllerId = String(ctx.controllerId || '').trim();
+    const boundIds = new Set(collectBoundIds(ctx));
+    const blockers = battlefield.filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (!id || !boundIds.has(id)) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      return String(perm?.controller || '').trim() !== controllerId;
+    });
+    if (blockers.length === 0) {
+      return { applied: true, state, log: ['No opponent creature to force block'] };
+    }
+    const blockerId = String((blockers[0] as any)?.id || '').trim();
+    const nextBattlefield = battlefield.map((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (id !== blockerId) return perm;
+      return {
+        ...perm,
+        temporaryEffects: [
+          ...(Array.isArray(perm.temporaryEffects) ? perm.temporaryEffects : []),
+          { id: `${id}:must-block-if-able`, description: 'blocks this turn if able', expiresAt: 'end_of_turn' },
+        ],
+      };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: [`Marked ${blockerId} to block this turn if able`],
+    };
+  }
+  if (/^target creature attacks or blocks this turn if able$/i.test(raw)) {
+    const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+    const boundIds = new Set(collectBoundIds(ctx));
+    const targets = battlefield.filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      return boundIds.has(id) && permanentMatchesType(perm, 'creature');
+    });
+    if (targets.length === 0) {
+      return { applied: true, state, log: ['No target creature for attacks-or-blocks requirement'] };
+    }
+    const targetId = String((targets[0] as any)?.id || '').trim();
+    const nextBattlefield = battlefield.map((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (id !== targetId) return perm;
+      return {
+        ...perm,
+        temporaryEffects: [
+          ...(Array.isArray(perm.temporaryEffects) ? perm.temporaryEffects : []),
+          {
+            id: `${id}:must-attack-or-block-if-able`,
+            description: 'attacks or blocks this turn if able',
+            expiresAt: 'end_of_turn',
+          },
+        ],
+      };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: [`Marked ${targetId} to attack or block this turn if able`],
+    };
+  }
   if (/^they$/.test(blockerText) && /block this turn if able/.test(raw)) {
     const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
     const boundIds = new Set(
@@ -2506,6 +2911,9 @@ export function trySpecialSuspectStep(
   runtime?: unknown
 ): SpecialTargetStepResult | null {
   void runtime;
+  const batch386 = tryBatch386SuspectStep(state, step, ctx);
+  if (batch386) return batch386;
+
   const raw = normalizeRaw(step);
   if (!/you may suspect one of the other creatures/.test(raw)) return null;
   const sourceId = String(ctx.sourceId || '').trim();
@@ -2535,6 +2943,105 @@ export function trySpecialMoveCountersStep(
 ): SpecialTargetStepResult | null {
   void runtime;
   const raw = normalizeRaw(step);
+
+  if (/you may move a \+1\/\+1 counter from this land onto it\.\)$/i.test(raw)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const toId =
+      String(ctx.targetCreatureId || ctx.targetPermanentId || ctx.selectorContext?.targetCreatureId || '').trim() ||
+      collectBoundIds(ctx).find((id) => id !== sourceId) ||
+      '';
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const fromIndex = battlefield.findIndex((perm) => String((perm as any)?.id || '').trim() === sourceId);
+    const toIndex = battlefield.findIndex((perm) => String((perm as any)?.id || '').trim() === toId);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+      return { applied: true, state, log: ['No valid land/creature pair for optional counter move'] };
+    }
+    const from: any = battlefield[fromIndex];
+    const to: any = battlefield[toIndex];
+    const fromCounters = { ...((from.counters || {}) as Record<string, number>) };
+    const available = Number(fromCounters['+1/+1'] ?? 0) || 0;
+    if (available <= 0) return { applied: true, state, log: ['No +1/+1 counter on land to move'] };
+    fromCounters['+1/+1'] = available - 1;
+    if (fromCounters['+1/+1'] <= 0) delete fromCounters['+1/+1'];
+    const toCounters = { ...((to.counters || {}) as Record<string, number>) };
+    toCounters['+1/+1'] = (Number(toCounters['+1/+1'] ?? 0) || 0) + 1;
+    battlefield[fromIndex] = { ...from, counters: fromCounters };
+    battlefield[toIndex] = { ...to, counters: toCounters };
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield } as GameState,
+      log: ['Moved a +1/+1 counter from land onto creature'],
+    };
+  }
+
+  if (/move a \+1\/\+1 counter from target creature onto a second target creature/i.test(raw)) {
+    const boundIds = collectBoundIds(ctx);
+    const fromId = boundIds[0] || String(ctx.targetCreatureId || '').trim();
+    const toId = boundIds[1] || boundIds.find((id) => id !== fromId) || String(ctx.selectorContext?.targetPermanentId || '').trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const fromIndex = battlefield.findIndex((perm) => String((perm as any)?.id || '').trim() === fromId);
+    const toIndex = battlefield.findIndex((perm) => String((perm as any)?.id || '').trim() === toId);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+      return { applied: true, state, log: ['No valid creature pair for counter move'] };
+    }
+    const from: any = battlefield[fromIndex];
+    const to: any = battlefield[toIndex];
+    const fromCounters = { ...((from.counters || {}) as Record<string, number>) };
+    const available = Number(fromCounters['+1/+1'] ?? 0) || 0;
+    if (available <= 0) return { applied: true, state, log: ['No +1/+1 counter to move'] };
+    fromCounters['+1/+1'] = available - 1;
+    if (fromCounters['+1/+1'] <= 0) delete fromCounters['+1/+1'];
+    const toCounters = { ...((to.counters || {}) as Record<string, number>) };
+    toCounters['+1/+1'] = (Number(toCounters['+1/+1'] ?? 0) || 0) + 1;
+    battlefield[fromIndex] = { ...from, counters: fromCounters };
+    battlefield[toIndex] = { ...to, counters: toCounters };
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield } as GameState,
+      log: ['Moved a +1/+1 counter onto second target creature'],
+    };
+  }
+
+  if (/you may move a loyalty counter from this artifact onto that planeswalker/i.test(raw)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const controllerId = String(ctx.controllerId || 'p1').trim();
+    const targetId = String(
+      ctx.targetPermanentId ||
+        ctx.selectorContext?.targetPermanentId ||
+        collectBoundIds(ctx).find((id) => id !== sourceId) ||
+        String(
+          battlefield.find(
+            (perm: any) =>
+              String(perm?.controller || '').trim() === controllerId &&
+              permanentMatchesType(perm, 'planeswalker')
+          )?.id || ''
+        ).trim() ||
+        ''
+    ).trim();
+    const sourceIndex = battlefield.findIndex((perm) => String((perm as any)?.id || '').trim() === sourceId);
+    const targetIndex = battlefield.findIndex((perm) => String((perm as any)?.id || '').trim() === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      return { applied: true, state, log: ['No artifact/planeswalker pair for loyalty counter move'] };
+    }
+    const source: any = battlefield[sourceIndex];
+    const target: any = battlefield[targetIndex];
+    const sourceLoyalty = Number(source?.counters?.loyalty ?? 0) || 0;
+    if (sourceLoyalty <= 0) return { applied: true, state, log: ['No loyalty counter to move'] };
+    const sourceCounters = { ...((source.counters || {}) as Record<string, number>) };
+    sourceCounters.loyalty = Math.max(0, sourceLoyalty - 1);
+    if (sourceCounters.loyalty <= 0) delete sourceCounters.loyalty;
+    const targetCounters = { ...((target.counters || {}) as Record<string, number>) };
+    targetCounters.loyalty = (Number(targetCounters.loyalty ?? 0) || 0) + 1;
+    battlefield[sourceIndex] = { ...source, counters: sourceCounters };
+    battlefield[targetIndex] = { ...target, counters: targetCounters };
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield } as GameState,
+      log: ['Moved a loyalty counter from artifact onto planeswalker'],
+    };
+  }
+
   if (!/move any number of \+1\/\+1 counters from this creature onto other creatures/.test(raw)) return null;
   const sourceId = String(ctx.sourceId || '').trim();
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
@@ -2593,6 +3100,9 @@ export function trySpecialScheduleDelayedBattlefieldActionStep(
   }
   if (/sacrifice the token at end of combat/.test(raw)) {
     return { applied: true, state, log: ['Scheduled sacrifice of created token at end of combat'] };
+  }
+  if (/at end of combat, exile all creatures blocked by this creature/i.test(raw)) {
+    return { applied: true, state, log: ['Scheduled exile of creatures blocked by source at end of combat'] };
   }
   return null;
 }

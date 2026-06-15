@@ -5188,7 +5188,9 @@ export function parseMoveZoneReturnContextualThemToBattlefield(what: {
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
   return (
     raw === "then return them to the battlefield under their owners' control" ||
-    raw === "return them to the battlefield under their owners' control"
+    raw === "return them to the battlefield under their owners' control" ||
+    raw === "then return it to the battlefield under its owner's control" ||
+    raw === "return it to the battlefield under its owner's control"
   );
 }
 

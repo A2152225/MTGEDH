@@ -36,6 +36,7 @@ const STATIC_KEYWORD_ABILITIES = new Set([
   'suspend',
   'umbra armor',
   'provoke',
+  'haunt',
   'demonstrate',
   'affinity for artifacts',
   'afflict 3',
@@ -145,6 +146,30 @@ export function tryParseStaticAbilityGrantClause(args: {
   if (/\buntil\s+end\s+of\s+turn\b/i.test(normalized) && !/"[^"]*\buntil\s+end\s+of\s+turn\b[^"]*"/i.test(normalized)) return null;
   if (/^during your turn,\s+/i.test(normalized) && !/^during your turn,\s+you may\s+(?:cast|play)\b/i.test(normalized)) return null;
   if (/^(?:plainswalk|islandwalk|swampwalk|mountainwalk|forestwalk)\s*\(/i.test(normalized)) return null;
+
+  if (/^this creature enters prepared$/i.test(normalized)) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('this creature'),
+      effectText: ['enters prepared'],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  const standaloneKeywordAbilities = parseKeywordAbilityList(normalized);
+  if (
+    standaloneKeywordAbilities.length > 0 &&
+    standaloneKeywordAbilities.join(', ') === normalized.toLowerCase()
+  ) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('this permanent'),
+      abilities: standaloneKeywordAbilities,
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
 
   const exiledCardPermission = normalized.match(
     /^(you|that player|target player|target opponent|its controller)?\s*(?:may\s+)?(cast|play)s?\s+(the\s+exiled\s+card|that\s+card|this\s+card|it)(?:\s+from\s+exile)?(?:\s+without\s+paying\s+its\s+mana\s+cost)?(?:\s+this\s+turn)?(?:\s+if\s+.+)?$/i
@@ -1097,6 +1122,30 @@ export function tryParseRulesTextClause(args: {
 }): OracleEffectStep | null {
   const normalized = normalizeClauseForParse(normalizeOracleText(args.clause)).clause.trim();
   const { withMeta, rawClause } = args;
+
+  if (/^this creature enters prepared$/i.test(normalized)) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('this creature'),
+      effectText: ['enters prepared'],
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
+
+  const standaloneKeywordAbilities = parseKeywordAbilityList(normalized);
+  if (
+    standaloneKeywordAbilities.length > 0 &&
+    standaloneKeywordAbilities.join(', ') === normalized.toLowerCase()
+  ) {
+    return withMeta({
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('this permanent'),
+      abilities: standaloneKeywordAbilities,
+      duration: 'static',
+      raw: rawClause,
+    });
+  }
 
   if (
     /^all damage that would be dealt this turn to you and permanents you control is dealt to the chosen permanent instead/i.test(

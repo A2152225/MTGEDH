@@ -1,0 +1,73 @@
+# migrate_mtg.py
+import json
+import sqlite3
+import os
+
+def migrate_json_to_sql(json_path, db_path):
+    if not os.path.exists(json_path):
+        print(f"Error: Could not find '{json_path}' in this folder.")
+        return
+
+    # 1. Connect to local SQLite database
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # 2. Create base table with just the primary key
+    cursor.execute("CREATE TABLE IF NOT EXISTS cards (name TEXT PRIMARY KEY)")
+    
+    # Track columns we already added to avoid syntax errors
+    cursor.execute("PRAGMA table_info(cards)")
+    known_columns = {col[1] for col in cursor.fetchall()}
+
+    print("Reading atomicCards.json... please wait...")
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    print("Processing and dynamically populating rows...")
+    
+    # Handle both MTGJson formats (dictionary of arrays or single objects)
+    card_dict = data.get("data", data) if "data" in data else data
+
+    for card_name, card_entry in card_dict.items():
+        if isinstance(card_entry, list):
+            if not card_entry:
+                continue
+            card_info = card_entry[0].copy() # Extract first variant from list
+        else:
+            card_info = card_entry.copy()
+
+        # Ensure the canonical name is locked in
+        card_info["name"] = card_name
+
+        # DYNAMIC STEP: Add columns to SQL table if they don't exist yet
+        for key in card_info.keys():
+            if key not in known_columns:
+                try:
+                    cursor.execute(f"ALTER TABLE cards ADD COLUMN [{key}] TEXT")
+                    known_columns.add(key)
+                except sqlite3.OperationalError:
+                    pass
+
+        # Build dynamic INSERT statement
+        columns = list(card_info.keys())
+        placeholders = ", ".join(["?"] * len(columns))
+        escaped_columns = ", ".join([f"[{c}]" for c in columns])
+        query = f"INSERT OR REPLACE INTO cards ({escaped_columns}) VALUES ({placeholders})"
+
+        # Convert complex sub-objects/arrays to plain text strings for SQL storage
+        values = []
+        for c in columns:
+            val = card_info[c]
+            if isinstance(val, (dict, list)):
+                values.append(json.dumps(val)) 
+            else:
+                values.append(str(val) if val is not None else "")
+
+        cursor.execute(query, values)
+
+    conn.commit()
+    conn.close()
+    print(f"\nSuccess! '{db_path}' populated with all cards and schema columns.")
+
+# Run the population process locally
+migrate_json_to_sql("atomicCards.json", "mtg_data.db")

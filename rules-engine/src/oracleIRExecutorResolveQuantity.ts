@@ -223,12 +223,30 @@ export function resolveOracleQuantity(
       if (Number.isFinite(runtimeGreatest)) return Math.max(0, runtimeGreatest);
     }
 
-    const runtimeAmount = Number(runtime?.lastReferenceAmount);
-    if (Number.isFinite(runtimeAmount)) return Math.max(0, runtimeAmount);
-
     if (normalized === 'twice that much' || normalized === 'twice x') {
       const ref = quantityToNumber({ kind: 'reference_amount', raw: 'that much' }, ctx);
       return ref === null ? null : Math.max(0, ref * 2);
+    }
+
+    if (normalized === 'triple that' || normalized === 'triple that much') {
+      const runtimeRef = Number(runtime?.lastReferenceAmount);
+      const ctxRef = Number((ctx as any).lastReferenceAmount ?? ctx.referenceAmount);
+      const baseRef = Number.isFinite(runtimeRef)
+        ? runtimeRef
+        : Number.isFinite(ctxRef)
+          ? ctxRef
+          : quantityToNumber({ kind: 'reference_amount', raw: 'that much' }, ctx, { runtime, step });
+      return baseRef === null || !Number.isFinite(Number(baseRef)) ? null : Math.max(0, Number(baseRef) * 3);
+    }
+
+    const multiplier = Number.isFinite(Number((qty as any).multiplier))
+      ? Math.max(0, Number((qty as any).multiplier))
+      : 1;
+
+    const runtimeAmount = Number(runtime?.lastReferenceAmount);
+    if (Number.isFinite(runtimeAmount)) {
+      const base = Math.max(0, runtimeAmount);
+      return multiplier > 1 ? base * multiplier : base;
     }
 
     if (normalized === 'x plus one') {
@@ -276,6 +294,17 @@ export function resolveOracleQuantity(
     };
 
     const contextualCards = collectContextualCardsLedgerFirst(ctx, runtime);
+    if (qty.subject === 'the_milled_card') {
+      const milled = [
+        ...(Array.isArray((ctx as any).lastMilledCards) ? (ctx as any).lastMilledCards : []),
+        ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+      ];
+      if (milled.length > 0) {
+        const milledAmount = readStat(milled[milled.length - 1]);
+        if (milledAmount !== null) return milledAmount;
+      }
+    }
     if (
       contextualCards.length > 0 &&
       (qty.subject === 'it' || qty.subject === 'that_card' || qty.subject === 'that_creature')
@@ -342,6 +371,39 @@ export function resolveOracleQuantity(
       if (sourcePermanent) {
         const statAmount = readStat(sourcePermanent);
         if (statAmount !== null) return statAmount;
+      }
+    }
+
+    if (qty.subject === 'source' && qty.stat === 'power') {
+      const stepRaw = String(step?.raw || '').toLowerCase();
+      if (/creature's power/.test(stepRaw)) {
+        const destroyed = [
+          ...readSacrificedPermanents(runtime, ctx),
+          ...(Array.isArray(runtime?.lastDestroyedPermanents) ? runtime.lastDestroyedPermanents : []),
+          ...(Array.isArray((ctx as any)?.lastDestroyedPermanents) ? (ctx as any).lastDestroyedPermanents : []),
+          ...collectContextualCardsLedgerFirst(ctx, runtime),
+        ];
+        const destroyedCreature = destroyed.find((entry) => {
+          const typeLine = String((entry as any)?.type_line || (entry as any)?.card?.type_line || '').toLowerCase();
+          return typeLine.includes('creature');
+        });
+        if (destroyedCreature) {
+          const destroyedPower = readStat(destroyedCreature);
+          if (destroyedPower !== null) return destroyedPower;
+        }
+        const targetCreatureId = String(
+          ctx.targetCreatureId ||
+            ctx.selectorContext?.targetCreatureId ||
+            ctx.selectorContext?.combatOpponentCreatureId ||
+            ''
+        ).trim();
+        if (targetCreatureId) {
+          const targetSnapshot = destroyed.find(
+            (entry) => String((entry as any)?.id || '').trim() === targetCreatureId
+          );
+          const snapshotPower = readStat(targetSnapshot);
+          if (snapshotPower !== null) return snapshotPower;
+        }
       }
     }
 

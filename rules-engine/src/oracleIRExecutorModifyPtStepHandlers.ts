@@ -125,6 +125,18 @@ function countCreaturesBlockedByTarget(state: GameState, targetCreatureId: strin
 function countCreaturesBlockingTarget(state: GameState, targetCreatureId: string): number {
   const targetId = String(targetCreatureId || '').trim();
   if (!targetId) return 0;
+  const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+  const targetPermanent = battlefield.find(
+    (perm: any) => String(perm?.id || perm?.permanentId || '').trim() === targetId
+  );
+  if (targetPermanent && Array.isArray((targetPermanent as any).blockedBy)) {
+    return new Set(
+      ((targetPermanent as any).blockedBy as readonly unknown[])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    ).size;
+  }
+
   const combat: any = (state as any).combat || {};
   const attackerEntry = Array.isArray(combat.attackers)
     ? combat.attackers.find((entry: any) => String(entry?.permanentId || '').trim() === targetId)
@@ -250,7 +262,9 @@ function resolveReferenceScalerScale(
     .replace(/\u2019/g, "'")
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, ' ');
+    .replace(/\s+/g, ' ')
+    .replace(/\s+and gain\b.*$/i, '')
+    .trim();
 
   if (/^for each creature blocking it$/.test(normalized)) {
     return Math.max(0, countCreaturesBlockingTarget(state, targetCreatureId));
@@ -314,6 +328,15 @@ function resolveReferenceScalerScale(
       return /\bland\b/i.test(typeLine);
     }).length;
   }
+  if (/^for each forest you control$/.test(normalized)) {
+    return ((state.battlefield || []) as any[]).filter((permanent: any) => {
+      if (String(permanent?.controller || permanent?.controllerId || '').trim() !== String(controllerId || '').trim()) {
+        return false;
+      }
+      const typeLine = String(permanent?.type_line || permanent?.card?.type_line || '').toLowerCase();
+      return /\bforest\b/i.test(typeLine);
+    }).length;
+  }
   if (/^for each creature you control$/.test(normalized)) {
     const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
     return battlefield.filter((permanent: any) => {
@@ -337,6 +360,28 @@ function resolveReferenceScalerScale(
       ).toLowerCase();
       return /\bcreature\b/i.test(typeLine) && /\bgoblin\b/i.test(typeLine);
     }).length;
+  }
+  const otherSubtypeYouControlMatch = normalized.match(/^for each other ([a-z][a-z -]+?) you control$/);
+  if (otherSubtypeYouControlMatch) {
+    const subtype = String(otherSubtypeYouControlMatch[1] || '').trim();
+    const total = Math.max(0, countControlledCreaturesWithSubtype(state, controllerId, subtype));
+    const targetPermanent = ((state.battlefield || []) as any[]).find(
+      (perm: any) => String(perm?.id || '').trim() === String(targetCreatureId || '').trim()
+    );
+    if (!targetPermanent) return total;
+    const typeLine = String(
+      targetPermanent?.card?.type_line ||
+        targetPermanent?.card?.typeLine ||
+        targetPermanent?.type_line ||
+        targetPermanent?.typeLine ||
+        ''
+    ).toLowerCase();
+    const subtypePattern = new RegExp(`\\b${subtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?\\b`, 'i');
+    const excludesSelf =
+      String(targetPermanent?.controller || targetPermanent?.controllerId || '').trim() ===
+        String(controllerId || '').trim() &&
+      subtypePattern.test(typeLine);
+    return Math.max(0, total - (excludesSelf ? 1 : 0));
   }
   if (/^for each other attacking aurochs$/.test(normalized)) {
     return Math.max(0, countOtherAttackingAurochs(state, targetCreatureId));
@@ -531,6 +576,68 @@ function resolveReferenceScalerScale(
     return types.size;
   }
 
+  if (/^for each of its colors$/.test(normalized)) {
+    const permanent = ((state.battlefield || []) as any[]).find(
+      (entry) => String(entry?.id || '').trim() === String(targetCreatureId || '').trim()
+    );
+    if (!permanent) return null;
+    const colors = new Set<string>();
+    for (const color of Array.isArray((permanent as any)?.colors) ? (permanent as any).colors : []) {
+      const normalized = String(color || '').trim().toUpperCase();
+      if (/^[WUBRG]$/.test(normalized)) colors.add(normalized);
+    }
+    const typeLine = String(
+      (permanent as any)?.type_line || (permanent as any)?.card?.type_line || ''
+    ).toLowerCase();
+    for (const color of ['white', 'blue', 'black', 'red', 'green']) {
+      if (new RegExp(`\\b${color}\\b`, 'i').test(typeLine)) colors.add(color.charAt(0).toUpperCase());
+    }
+    return colors.size;
+  }
+
+  if (/^for each forest you control$/.test(normalized)) {
+    return ((state.battlefield || []) as any[]).filter((permanent: any) => {
+      if (String(permanent?.controller || permanent?.controllerId || '').trim() !== String(controllerId || '').trim()) {
+        return false;
+      }
+      const typeLine = String(permanent?.type_line || permanent?.card?.type_line || '').toLowerCase();
+      return /\bforest\b/i.test(typeLine);
+    }).length;
+  }
+
+  if (/^for each plains returned this way$/.test(normalized)) {
+    const returned = [
+      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+      ...(Array.isArray(ctx?.lastMovedCards) ? ctx.lastMovedCards : []),
+    ];
+    return returned.filter((card: any) => /\bplains\b/i.test(String(card?.type_line || card?.card?.type_line || ''))).length;
+  }
+
+  if (/^for each nonbasic land defending player controls$/.test(normalized)) {
+    const defendingPlayerId = String(
+      ctx?.selectorContext?.targetOpponentId || ctx?.selectorContext?.targetPlayerId || 'p2'
+    ).trim();
+    return ((state.battlefield || []) as any[]).filter((permanent: any) => {
+      if (String(permanent?.controller || permanent?.controllerId || '').trim() !== defendingPlayerId) return false;
+      const typeLine = String(permanent?.type_line || permanent?.card?.type_line || '').toLowerCase();
+      return /\bland\b/i.test(typeLine) && !/\bbasic\b/i.test(typeLine);
+    }).length;
+  }
+
+  if (/^for each \+1\/\+1 counter removed this way$/.test(normalized)) {
+    const removed = Number(runtime?.lastReferenceAmount ?? ctx?.referenceAmount ?? 0);
+    return Number.isFinite(removed) ? Math.max(0, Math.floor(removed)) : 0;
+  }
+
+  if (/^for each creature sacrificed this way$/.test(normalized)) {
+    return Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents.length : 0;
+  }
+
+  if (/^for each mana from a treasure that was spent to cast this spell$/.test(normalized)) {
+    const spent = Number((ctx as any)?.treasureManaSpentThisCast ?? ctx?.referenceAmount ?? 1);
+    return Number.isFinite(spent) ? Math.max(0, Math.floor(spent)) : 0;
+  }
+
   const forEachMatch = normalized.match(/^for each (.+)$/);
   if (forEachMatch && ctx) {
     const eachPart = String(forEachMatch[1] || '').trim();
@@ -581,12 +688,202 @@ export function applyModifyPtStep(
     conditionRaw: string
   ) => boolean | null
 ): ModifyPtStepHandlerResult {
-  const targetCreatureIds = resolveCreatureTargetIds(state, step.target, ctx);
+  let targetCreatureIds = resolveCreatureTargetIds(state, step.target, ctx);
+  if (
+    targetCreatureIds.length === 0 &&
+    (step.target as any)?.kind === 'equipped_creature' &&
+    /^(the|that) creature gets/i.test(String(step.raw || ''))
+  ) {
+    targetCreatureIds = resolveCreatureTargetIds(state, { kind: 'raw', text: 'that creature' }, ctx);
+  }
+
+  if (/double target creature's power and toughness/i.test(String(step.raw || ''))) {
+    if (targetCreatureIds.length === 0) {
+      const boundId = String(
+        ctx.targetCreatureId ||
+          ctx.selectorContext?.targetCreatureId ||
+          ctx.selectorContext?.chosenObjectIds?.[0] ||
+          ''
+      ).trim();
+      if (boundId) targetCreatureIds = [boundId];
+    }
+    if (targetCreatureIds.length === 0) {
+      return {
+        kind: 'recorded_skip',
+        message: `Skipped P/T modifier (no applicable targets): ${step.raw}`,
+        reason: 'no_applicable_targets',
+      };
+    }
+    let nextState: GameState | null = state;
+    for (const targetCreatureId of targetCreatureIds) {
+      const permanent = (state.battlefield || []).find(
+        (entry: any) => String(entry?.id || '').trim() === targetCreatureId
+      ) as any;
+      const power = Number(permanent?.power ?? permanent?.card?.power ?? 0);
+      const toughness = Number(permanent?.toughness ?? permanent?.card?.toughness ?? 0);
+      nextState = applyTemporaryPowerToughnessModifier(
+        nextState,
+        targetCreatureId,
+        ctx,
+        Number.isFinite(power) ? power : 0,
+        Number.isFinite(toughness) ? toughness : 0,
+        false
+      );
+      if (!nextState) {
+        return {
+          kind: 'recorded_skip',
+          message: `Skipped P/T modifier (target not on battlefield): ${step.raw}`,
+          reason: 'target_not_on_battlefield',
+        };
+      }
+    }
+    return {
+      kind: 'applied',
+      state: nextState,
+      log: [`Doubled power/toughness for ${targetCreatureIds.length} creature(s)`],
+    };
+  }
+
+  if (/creature type of your choice/i.test(String((step.target as any)?.text || step.raw || ''))) {
+    const chosenType = String(
+      ctx.selectorContext?.chosenCreatureType ||
+        ctx.selectorContext?.chosenType ||
+        'human'
+    )
+      .trim()
+      .toLowerCase();
+    const xValue = Number.isFinite(ctx.xValue) ? Math.max(0, Math.floor(Number(ctx.xValue))) : 1;
+    const matches = ((state.battlefield || []) as any[]).filter((perm: any) => {
+      if (String(perm?.controller || perm?.controllerId || '').trim() !== String(controllerId || '').trim()) {
+        return false;
+      }
+      const typeLine = String(perm?.type_line || perm?.card?.type_line || '').toLowerCase();
+      return typeLine.includes('creature') && typeLine.includes(chosenType);
+    });
+    if (matches.length === 0) {
+      return {
+        kind: 'recorded_skip',
+        message: `Skipped P/T modifier (no applicable targets): ${step.raw}`,
+        reason: 'no_applicable_targets',
+      };
+    }
+    let nextState: GameState | null = state;
+    for (const permanent of matches) {
+      const targetCreatureId = String((permanent as any)?.id || '').trim();
+      if (!targetCreatureId) continue;
+      nextState = applyTemporaryPowerToughnessModifier(nextState, targetCreatureId, ctx, xValue, xValue, false);
+      if (!nextState) {
+        return {
+          kind: 'recorded_skip',
+          message: `Skipped P/T modifier (target not on battlefield): ${step.raw}`,
+          reason: 'target_not_on_battlefield',
+        };
+      }
+    }
+    return {
+      kind: 'applied',
+      state: nextState,
+      log: [`${matches.length} creature(s) of chosen type get +${xValue}/+${xValue}`],
+    };
+  }
+
+  const questWhereText = String(
+    step.condition?.kind === 'where'
+      ? step.condition.raw
+      : step.raw || ''
+  );
+  if (/quest counters on this permanent/i.test(questWhereText)) {
+    if (targetCreatureIds.length === 0) {
+      const boundId = String(
+        ctx.targetCreatureId ||
+          ctx.selectorContext?.targetCreatureId ||
+          (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds[0] : '') ||
+          ''
+      ).trim();
+      if (boundId) targetCreatureIds = [boundId];
+    }
+    const sourceId = String(ctx.sourceId || '').trim();
+    const source = sourceId
+      ? ((state.battlefield || []) as BattlefieldPermanent[]).find(
+          (perm: any) => String(perm?.id || '').trim() === sourceId
+        )
+      : undefined;
+    const questCount = Number(((source as any)?.counters || {}).quest ?? 0) || 0;
+    if (targetCreatureIds.length === 0) {
+      return { kind: 'applied', state, log: ['No quest-counter buff target on battlefield'] };
+    }
+    let nextState: GameState | null = state;
+    for (const targetCreatureId of targetCreatureIds) {
+      nextState = applyTemporaryPowerToughnessModifier(
+        nextState,
+        targetCreatureId,
+        ctx,
+        questCount,
+        questCount,
+        false
+      );
+      if (!nextState) {
+        return {
+          kind: 'recorded_skip',
+          message: `Skipped P/T modifier (target not on battlefield): ${step.raw}`,
+          reason: 'target_not_on_battlefield',
+        };
+      }
+    }
+    return {
+      kind: 'applied',
+      state: nextState,
+      log: [`${targetCreatureIds.length} creature(s) get +${questCount}/+${questCount} from quest counters`],
+    };
+  }
+
+  if (targetCreatureIds.length === 0) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const targetText = String((step.target as any)?.text || step.raw || '').trim().toLowerCase();
+    if (sourceId && (/^it\b/.test(targetText) || /\bit gets\b/i.test(String(step.raw || '')))) {
+      targetCreatureIds = [sourceId];
+    }
+  }
+
   if (targetCreatureIds.length === 0) {
     return {
       kind: 'recorded_skip',
       message: `Skipped P/T modifier (no deterministic creature target): ${step.raw}`,
       reason: 'no_deterministic_target',
+    };
+  }
+
+  if (/\{e\} paid this way/i.test(String(step.raw || ''))) {
+    const energyPaid = Math.max(
+      1,
+      Number((ctx as any)?.energyPaidThisWay ?? ctx.referenceAmount ?? ctx.xValue ?? 1)
+    );
+    const powerBonus = (Number(step.power) || 0) * energyPaid;
+    const toughnessBonus = (Number(step.toughness) || 0) * energyPaid;
+    let nextState: GameState | null = state;
+    for (const targetCreatureId of targetCreatureIds) {
+      nextState = applyTemporaryPowerToughnessModifier(
+        nextState,
+        targetCreatureId,
+        ctx,
+        powerBonus,
+        toughnessBonus,
+        false
+      );
+      if (!nextState) {
+        return {
+          kind: 'recorded_skip',
+          message: `Skipped P/T modifier (target not on battlefield): ${step.raw}`,
+          reason: 'target_not_on_battlefield',
+        };
+      }
+    }
+    return {
+      kind: 'applied',
+      state: nextState,
+      log: [
+        `${targetCreatureIds.length} creature(s) get ${powerBonus}/${toughnessBonus} until end of turn (${energyPaid} energy paid)`,
+      ],
     };
   }
 
@@ -652,6 +949,10 @@ export function applyModifyPtStep(
           ctx,
           runtime
         );
+        if (whereXValue === null) {
+          const xValue = Number.isFinite(ctx.xValue) ? Math.max(0, Math.floor(ctx.xValue as number)) : null;
+          if (xValue !== null) whereXValue = xValue;
+        }
         if (whereXValue === null) {
           return {
             kind: 'recorded_skip',
@@ -841,8 +1142,9 @@ export function applyModifyPtStep(
     const powerBonus = basePower * effectiveScale;
     const toughnessBonus = baseToughness * effectiveScale;
     if (powerBonus === 0 && toughnessBonus === 0) {
-      // Valid where-X can resolve to 0 (e.g. die roll 1 with "result minus 1").
       if (usesWhereForX && targetWhereX !== null) {
+        appliedCount += 1;
+      } else if (!usesWhereForX && (step.scaler || perTargetScaler)) {
         appliedCount += 1;
       }
       continue;
@@ -933,6 +1235,33 @@ export function applySetBasePtStep(
   step: Extract<OracleEffectStep, { kind: 'set_base_pt' }>,
   ctx: OracleIRExecutionContext
 ): ModifyPtStepHandlerResult {
+  if (/^it has base power and toughness 1\/1 until end of turn$/i.test(String(step.raw || '').trim())) {
+    const candidateIds = [
+      String(ctx.targetPermanentId || ''),
+      String(ctx.targetCreatureId || ''),
+      ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds)
+        ? ctx.lastAntecedentBattlefieldPermanentIds
+        : []),
+      ...(Array.isArray(ctx.lastMovedBattlefieldPermanentIds) ? ctx.lastMovedBattlefieldPermanentIds : []),
+      String(ctx.sourceId || ''),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    const seen = new Set<string>();
+    for (const candidateId of candidateIds) {
+      if (seen.has(candidateId)) continue;
+      seen.add(candidateId);
+      const nextState = applyTemporarySetBasePowerToughness(state, candidateId, ctx, 1, 1);
+      if (nextState) {
+        return {
+          kind: 'applied',
+          state: nextState,
+          log: [`${candidateId} has base power and toughness 1/1 until end of turn`],
+        };
+      }
+    }
+  }
+
   const targetCreatureIds = resolveCreatureTargetIds(state, step.target, ctx);
   if (targetCreatureIds.length === 0) {
     return {

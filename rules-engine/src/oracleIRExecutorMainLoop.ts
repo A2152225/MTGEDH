@@ -170,6 +170,7 @@ import {
   type StepLedger,
 } from './oracleIRStepLedgerRuntime';
 import { trackAppliedStepKind } from './oracleIRStepLedger';
+import { resolveAntecedentContextualCards } from './oracleIRLedgerCardAccess';
 
 const COUNTER_IMMUNITY_COLOR_SYMBOLS: Record<string, string> = {
   white: 'W',
@@ -697,7 +698,9 @@ export function applyOracleIRStepsToGameStateImpl(
   let lastTappedMatchingPermanentCount = Math.max(0, Number(ctx.lastTappedMatchingPermanentCount) || 0);
   let lastReferenceAmount = Number.isFinite(Number(ctx.referenceAmount))
     ? Math.max(0, Number(ctx.referenceAmount) || 0)
-    : undefined;
+    : Number.isFinite(Number((ctx as any).lastReferenceAmount))
+      ? Math.max(0, Number((ctx as any).lastReferenceAmount) || 0)
+      : undefined;
   let lastClashWon = typeof ctx.lastClashWon === 'boolean' ? ctx.lastClashWon : undefined;
   let lastCollectedEvidence = typeof ctx.lastCollectedEvidence === 'boolean' ? ctx.lastCollectedEvidence : undefined;
   let lastSetInMotionScheme = (ctx as any).lastSetInMotionScheme;
@@ -2021,6 +2024,56 @@ export function applyOracleIRStepsToGameStateImpl(
           break;
         }
 
+        {
+          const chosenObjectIds = Array.isArray(currentCtx.selectorContext?.chosenObjectIds)
+            ? currentCtx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
+            : [];
+          const normalizedChoiceRaw = String(step.raw || '')
+            .replace(/\u2019/g, "'")
+            .trim()
+            .toLowerCase();
+          const amongThemChoice = /\bfrom among them\b/.test(normalizedChoiceRaw);
+          const contextualCardIds = amongThemChoice
+            ? new Set(
+                (resolveAntecedentContextualCards(currentCtx) as any[])
+                  .map((card) => String(card?.id || '').trim())
+                  .filter(Boolean),
+              )
+            : null;
+          const validAmongThemChoice =
+            !amongThemChoice
+            || (
+              chosenObjectIds.length > 0
+              && chosenObjectIds.every((id) => contextualCardIds?.has(id))
+            );
+          const exactCountMatch = normalizedChoiceRaw.match(
+            /^choose exactly (two|three|four|five|\d+) (?:target )?(?:creatures|creature cards|cards|permanents)(?: you control)?$/
+          );
+          const requiredCount = exactCountMatch
+            ? ({ two: 2, three: 3, four: 4, five: 5 } as Record<string, number>)[String(exactCountMatch[1] || '').toLowerCase()] ??
+              Number(exactCountMatch[1])
+            : null;
+          if (
+            validAmongThemChoice &&
+            chosenObjectIds.length > 0 &&
+            (requiredCount === null || chosenObjectIds.length >= requiredCount)
+          ) {
+            const boundIds =
+              requiredCount === null ? chosenObjectIds : chosenObjectIds.slice(0, Math.max(0, requiredCount));
+            currentCtx = {
+              ...currentCtx,
+              selectorContext: {
+                ...(currentCtx.selectorContext || {}),
+                chosenObjectIds: boundIds,
+              },
+            };
+            setLastStepOutcome(step, 'applied');
+            log.push(`Chose ${boundIds.length} object(s) for player choice: ${step.raw}`);
+            appliedSteps.push(step);
+            break;
+          }
+        }
+
         recordSkippedStep(
           step,
           `Skipped player choice (${step.choice}): ${step.raw}`,
@@ -2082,6 +2135,12 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'populate': {
         const result = applyPopulateStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
+        break;
+      }
+      case 'paradigm': {
+        setLastStepOutcome(step, 'applied');
+        log.push(`Registered paradigm: ${step.raw}`);
+        appliedSteps.push(step);
         break;
       }
       case 'ring_tempts_you': {
@@ -3215,6 +3274,7 @@ export function applyOracleIRStepsToGameStateImpl(
           {
             ...currentCtx,
             lastDiscardedCards,
+            lastMovedCards,
             lastSacrificedPermanents,
             copyReplaySteps: steps.slice(0, stepIndex),
             lastTappedMatchingPermanentCount,

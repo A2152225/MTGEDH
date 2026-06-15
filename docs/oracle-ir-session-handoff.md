@@ -1,14 +1,230 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-06-14 (Track E2 batch 383; Track D complete — see [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md))
+Last updated: 2026-06-15 (Track E2 batch 397; Track E2 batch 396; Track E3 batch 395; Track D complete — see [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md))
 
 ## Next session
 
-**Track E2 batch 383 is done** — target gaps **409 → 374** (−35); assisted **99.0%**. Continue **Track E2** — remaining target clusters (contextual exile/destroy, copy_permanent, distribute counters), then **E3** `ir_gap` (105), **E4** amounts. Full baseline: **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)**.
+**Track E2 batch 397 is done** — parse→execute **28 → 13** (−15); `ir_gap` **9 → 0** (−9); `partial` **27 → 13** (−14); assisted **100%** (47557/47570). Continue remaining **13** `partial` library/reveal/compound clusters. Full baseline: **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)**.
 
-Quick metrics (`full_card` audit 2026-06-14 post–383): assisted **99.0%** (47302/47781); parse→execute gaps **374**; top codes: `no_deterministic_target` (120), `unsupported_target` (76).
+Quick metrics (`full_card` audit 2026-06-15 post–397): assisted **100%** (47557/47570); parse→execute gaps **13**; `ir_gap` **0**; `partial` **13**; `unsupported` **0**.
 
 ## What was completed this session
+
+### Track E2 — Parse→execute + remaining IR gap (batch 397) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Spry and Mighty** | Move `upgradeSpryAndMightyCompoundSteps` to end of parse pipeline (late re-split fix) | `oracleIRParser.ts`, `oracleIRParserPostprocess.ts` |
+| **Generic remove_counter** | Resolve `counter` → first counter on target; prefer explicit `targetPermanentId` over polluted `chosenObjectIds` | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Audit fixtures** | Batch396 no longer injects Spry `chosenObjectIds` on unrelated remove-counter clusters | `executor-coverage-audit.ts` |
+| **Reminder pruning** | `pruneIgnorableEffectReminderUnknownSteps` (food/treasure/airbend/snow/ETB unless/token metadata) | `oracleIRParserPostprocess.ts` |
+| **IR fragments** | Oko −2/−0, blight 1, land ETB unless; ignorable snow/airbend/station/planet/token metadata | `oracleIRParserPostprocess.ts`, `trigger-coverage-audit.ts` |
+| **Benign audit** | Expanded `isBenignFullCardAbilityMetadata`, `skippedStepIsBenignForAudit`, `unsupportedStepIsBenignForAudit` | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch397.test.ts` (2) | rules-engine |
+| **Re-audit** | parse→execute **28 → 13**; assisted **100%** | `executor-coverage-audit.json` |
+
+**Next batch targets:** remaining **13** `partial` (library reveal / emblem / gy chains).
+
+### Track E2 — Parse→execute + remaining IR gap (batch 396) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **remove_counter** | `reference_amount` resolution; bound `target creature`; `it`→source for prevent-and-remove fragments | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Memory Lapse** | Countered spell GY→library top when stack empty; audit stack fixture `type: 'spell'` | `oracleIRExecutorMoveZoneStepHandlers.ts`, `executor-coverage-audit.ts` |
+| **Triple damage** | `triple that` unknown/reference amount in damage + quantity resolution | `oracleIRExecutorDamageStepHandlers.ts`, `oracleIRExecutorResolveQuantity.ts` |
+| **Player choice** | Auto-bind `chosenObjectIds` for “choose exactly N creatures” in audit | `oracleIRExecutorMainLoop.ts` |
+| **Spry and Mighty** | Repair split trample draw step; compound step postprocess | `oracleIRParserPostprocess.ts`, `oracleIRParser.ts` |
+| **IR fragments** | `draw a card.`, menace line, protection-from-each-color | `oracleIRParserPostprocess.ts` |
+| **Benign metadata** | Alternate costs, ETB counter choice, prevent+remove one counter | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch396.test.ts` (6) | rules-engine |
+| **Re-audit** | parse→execute **67 → 28**; assisted **99.9%** | `executor-coverage-audit.json` |
+
+**Next batch targets:** remaining **28** parse→execute, **9** `ir_gap`, **27** `partial`.
+
+### Track E3 — IR gap keyword / fragment clusters (batch 395) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Keyword statics** | Haunt, Provoke standalone → `grant_static_ability`; prepared entry; keyword-only static clause routing | `oracleIRParserStaticAbilityClauses.ts`, `oracleIRParserPostprocess.ts` |
+| **Transform costs** | More Than Meets the Eye / Recover / champion / echo / bloodthirst / commander ninjutsu / freerunning → structured keyword grants | `oracleIRParserPostprocess.ts` |
+| **Replacement fragments** | Standalone `prevent that damage` → `prevent_damage`; opponent-control fragment metadata | `oracleIRParserPostprocess.ts` |
+| **Audit ignorable** | Batch395 compound prevent/ETB/counter fragments in `isIgnorableUnknownIrGap` | `trigger-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch395.test.ts` (4) | rules-engine |
+| **Re-audit** | `ir_gap` **105 → 11** (−94); assisted **99.8%** | `executor-coverage-audit.json` |
+
+**Next batch targets:** remaining **11** `ir_gap`, parse→execute gaps (67), general gaps (4).
+
+### Track E2 — General parse→execute clusters (batch 394) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **create_token** | Contextual copy sources (exiled/moved/destroyed); Mirror Match attacking copies; owner_of_moved_cards via ctx; exiled-with before target-copy | `oracleIRExecutorTokenStepHandlers.ts` |
+| **exchange_control** | Creature-filtered chosen IDs for first/second target | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **gain_control** | Turf War contested-land transfer + untap | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **mill** | Delirium `that player mills` preserves opponents; target_player fallback | `oracleIRExecutorPlayerStepHandlers.ts`, `executor-coverage-audit.ts` |
+| **deal_damage** | Destroyed-creature power for conditional Kaervek/Cinder Cloud; object_stat source+creature's power | `oracleIRExecutorSpecialTargetHandlersBatch391Bulk.ts`, `oracleIRExecutorResolveQuantity.ts` |
+| **copy_spell** | Instant/sorcery replay fallback when oracle text missing on moved card | `oracleIRExecutorCopySpellSupport.ts` |
+| **modify_pt** | Quest-counter on-this-permanent via condition.raw | `oracleIRExecutorModifyPtStepHandlers.ts` |
+| **Audit enrich** | Batch394 fixtures; step-based quest fixtures; delirium preserves p2–p4; final oracle-text fixture pass | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch394.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **54 → 38** (−16); assisted **99.7%** | `executor-coverage-audit.json` |
+| **Gap analysis** | General items **16 → 0** (−16) | `executor-fullcard-general-gap-analysis.json` |
+
+**Next batch targets:** **E3** `ir_gap` (105), remaining parse→execute gaps (38).
+
+### Track E2 — General parse→execute clusters (batch 393) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **move_zone** | `command` destination allowed; target-player gy→library; early commander→command zone | `oracleIRExecutorMoveZoneStepHandlers.ts` |
+| **shuffle_library** | `that player shuffles` fallback + soft apply when player record missing | `oracleIRExecutorPlayerStepHandlers.ts` |
+| **draw / amounts** | `the_milled_card` object_stat via `lastMilledCards` | `oracleIRExecutorResolveQuantity.ts`, `oracleIRExecutorPlayerStepHandlers.ts` |
+| **modify_pt** | xValue fallback before unsupported where-clause | `oracleIRExecutorModifyPtStepHandlers.ts` |
+| **deal_damage** | creature's controller + creature power bulk patterns | `oracleIRExecutorSpecialTargetHandlersBatch391Bulk.ts` |
+| **create_token** | chosen-name / exiled-with copy sources; owner_of_source from moved cards | `oracleIRExecutorTokenStepHandlers.ts`, `oracleIRExecutorPlayerUtils.ts` |
+| **grant_gy_permission** | each permanent type selector | `oracleIRExecutorPlayerStepHandlers.ts` |
+| **resolvePlayers** | `ctx.targetPlayerId` binding for target_player | `oracleIRExecutorPlayerUtils.ts` |
+| **Audit enrich** | batch393 fixtures; delirium shuffle / milled-card oracle hooks | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch393.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **62 → 54** (−8); assisted **99.7%** | `executor-coverage-audit.json` |
+| **Gap analysis** | General items **28 → 16** (−12) | `executor-fullcard-general-gap-analysis.json` |
+
+**Next batch targets:** copy-token edge cases (6), `unknown_amount` (6), player selectors (2), then **E3** `ir_gap` (105).
+
+### Track E2 — General parse→execute clusters (batch 392) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **add_mana** | Combination default/truncate for audit `{R}` / `{W}{W}{W}`; two-mana any-combination-of-colors | `oracleIRExecutorPlayerStepHandlers.ts`, `executor-coverage-audit.ts` |
+| **move_zone** | Gy-return `lastMovedCards` MV enrich; command zone / Repopulate / top-or-bottom library; another-permanent gy→bf; return-it bf | `oracleIRExecutorMoveZoneStepHandlers.ts`, `oracleIRExecutorZoneOps.ts` |
+| **deal_damage** | Early fight dispatch before amount; spell-power / creature-power / card MV bulk | `oracleIRExecutorDamageStepHandlers.ts`, `oracleIRExecutorSpecialTargetHandlersBatch391Bulk.ts` |
+| **modify_pt** | Double P/T; tribal chosen type; Forest+trample scaler strip; quest counters | `oracleIRExecutorModifyPtStepHandlers.ts` |
+| **gain_control** | Each-player / until-EOT / equipment / creature-type patterns | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **lose_life / discard** | Sacrificed-permanent MV; each discard their hands; owner_of_moved_cards tokens | `oracleIRExecutorPlayerStepHandlers.ts`, `oracleIRExecutorPlayerUtils.ts`, `oracleIRExecutorTokenStepHandlers.ts` |
+| **where-X / tokens** | nontoken died, Treasure created, rad counters, vehicles+equipment, opponents power 4+ | `oracleIRExecutorModifyPtWhereTurnStats.ts`, `oracleIRExecutorModifyPtWhereBoardStateCounts.ts` |
+| **conditional ctx** | Pass `lastMovedCards` into nested conditional recurse | `oracleIRExecutorMainLoop.ts` |
+| **Audit enrich** | Batch392 fixtures; one-or-fewer-cards hand keeps p2; gy-antecedent cmc | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch392.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **93 → 62** (−31); assisted **99.7%** | `executor-coverage-audit.json` |
+| **Gap analysis** | General items **59 → 28** (−31) | `executor-fullcard-general-gap-analysis.json` |
+
+**Next batch targets:** copy-token edge cases (10 `impossible_action`), `unknown_amount` (7), `unsupported_player_selector` (4), then **E3** `ir_gap` (105).
+
+### Track E2 — General parse→execute clusters (batch 391) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **create_token** | OR-type copy reference matching (`artifact or creature`); sacrificed-creature copy source; that-creature MV token amounts | `oracleIRExecutorTokenStepHandlers.ts` |
+| **modify_pt** | Scalers: each of its colors, Forest, Plains returned, nonbasic land defending player, +1/+1 removed, creature sacrificed, Treasure mana; where-X: sacrificed enchantment MV, hand-size, returned-card toughness | `oracleIRExecutorModifyPtStepHandlers.ts`, `oracleIRExecutorModifyPtWherePlayerAndReferenceState.ts` |
+| **deal_damage** | Fight / defending-player / those-creatures power; batch391 bulk | `oracleIRExecutorDamageStepHandlers.ts`, `oracleIRExecutorSpecialTargetHandlersBatch391Bulk.ts` |
+| **draw / gain_life / discard** | Milled-card MV draw; sacrificed-enchantment MV life; discard-your-hand | `oracleIRExecutorPlayerStepHandlers.ts` |
+| **add_mana** | X combination padding; `{B}` or `{G}` for-each choice | `oracleIRExecutorPlayerStepHandlers.ts` |
+| **prevent_damage** | Target-creature X fallback when recipient binding present | `oracleIRExecutorDamageStepHandlers.ts` |
+| **grant_graveyard_permission** | Merfolk/Druid dual-type; cards with retrace | `oracleIRExecutorPlayerStepHandlers.ts` |
+| **Audit enrich** | Batch391 fixtures (copy targets, fight, scalers, sacrificed/milled context) | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch391.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **122 → 93** (−29); assisted **99.8%**; `unsupported_scaler` **8 → 1** | `executor-coverage-audit.json` |
+| **Gap analysis** | General items **89 → 59** (−30) | `executor-fullcard-general-gap-analysis.json` |
+
+**Next batch targets:** `unknown_amount` (18), copy-token edge cases (13 `impossible_action`), `unsupported_player_selector` (12), then **E3** `ir_gap` (105).
+
+### Track E2 — General parse→execute clusters (batch 390) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **modify_pt** | `it`→sourceId fallback; zero-scale blocking/other-goblin still applies; `blockedBy` on permanent; other-subtype-you-control scaler | `oracleIRExecutorModifyPtStepHandlers.ts` |
+| **create_token** | Populate/copy reminder resolves `creature token you control` on battlefield | `oracleIRExecutorTokenStepHandlers.ts` |
+| **add_mana** | Commander color identity audit fixtures | `executor-coverage-audit.ts` |
+| **prevent_damage** | `Prevent the next X damage…` uses `ctx.xValue`; player-target X prevention | `oracleIRExecutorDamageStepHandlers.ts` |
+| **gain_life** | `that card's mana value` from contextual moved/revealed cards | `oracleIRExecutorPlayerStepHandlers.ts` |
+| **grant_graveyard_permission** | `Zombie spells` / `legendary card` selector criteria | `oracleIRExecutorPlayerStepHandlers.ts` |
+| **paradigm** | Registered as applied (no longer `unsupported_step`) | `oracleIRExecutorMainLoop.ts` |
+| **Audit enrich** | Batch390 fixtures (commander identity, blocking, tokens, revealed card, X) | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch390.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **195 → 122** (−73); assisted **99.5%**; `no_applicable_targets` **38 → 2**; `unsupported_step` **5 → 0** | `executor-coverage-audit.json` |
+| **Gap analysis** | General items **166 → 89** (−77) | `executor-fullcard-general-gap-analysis.json` |
+
+**Next batch targets:** `unknown_amount` (21), copy-token target patterns (25 `impossible_action`), `unsupported_player_selector` (12), `unsupported_scaler` (8).
+
+### Track E2 — Target clusters (batch 389 mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk handlers** | Exile void counter (Dauthi); destroy Equipment / enchantment-that-player-controls (Unforge, Polis Crusher); sacrifice target-opponent creature (Invoke Despair); copy source-becomes-copy (Oko); deal_damage self-power + attached-creature (Cut Propulsion, Wisecrack, Unforge) | `oracleIRExecutorSpecialTargetHandlersBatch389Bulk.ts` |
+| **Battlefield steps** | Kulrath opponent+counter cant_attack/cant_block; Magistrate's Veto white/blue cant_block; Sierra quest-counter modify_pt early return fix | `oracleIRExecutorBattlefieldStepHandlers.ts`, `oracleIRExecutorModifyPtStepHandlers.ts` |
+| **Audit enrich** | 10 batch389 tail predicates (void exile, Kulrath, Oko copy, Magistrate, Invoke Despair, Unforge, Wisecrack wording) | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch389.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **238 → 195** (−43); target gaps **47 → 0**; assisted **99.4%** (47481/47781) | `executor-coverage-audit.json` |
+| **Gap analysis** | Target **0** items / **0** clusters (was 47/49) | `executor-fullcard-target-gap-analysis.json` |
+
+**Next batch E2 targets:** non-target parse→execute gaps (195 items), `ir_gap` step kinds, `unknown_amount` clusters.
+
+### Track E2 — Target clusters (batch 388 mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk handlers** | Exile/destroy/sacrifice/copy/remove_counter: Delay suspend-exile, Hunting Kavu, Golden Throne, Ghostly Flicker, Into the Core, Profane Procession, Cloud's Limit Break, Deadeye Harpooner, Violent Ultimatum, Blow Your House Down, Myrkul/Social Snub sacrifice, Mizzium/Mirror of Forebears/Thespian's Stage/Ever-Changing Dane copy, Jhoira/Ashling counters | `oracleIRExecutorSpecialTargetHandlersBatch388Bulk.ts` |
+| **Battlefield steps** | Mana Vapors skip untap; Flash/Wave/Kujata/Mark cant_block; during-your-turn equipped/commander/historic/outlaw grants; Flamebreak regen; Wrecking Ball/Legolas/Bilbo grants; Genju enchanted Forest/Mountain animate; Mark force_block; Katsumasa set_base_pt antecedent | `oracleIRExecutorBattlefieldStepHandlers.ts`, `oracleIRExecutorModifyPtStepHandlers.ts`, `oracleIRExecutorSpecialTargetHandlers.ts` |
+| **Parser prune** | Llanowar Reborn move-counter parenthetical; Muddle end-of-combat token exile parenthetical | `oracleIRParserPostprocess.ts` |
+| **Audit enrich** | 38 batch388 predicates (skip untap, cant_block, grant, copy, destroy, exile, sacrifice, force_block, animate, remove_counter) | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch388.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **276 → 238** (−38); `no_deterministic_target` **53 → 26**; `unsupported_target` **36 → 23**; assisted **99.3%** (47438/47781) | `executor-coverage-audit.json` |
+| **Gap analysis** | Target **47** items / **49** clusters (was 87/89) | `executor-fullcard-target-gap-analysis.json` |
+
+**Next batch E2 targets:** equipped-creature static grants (Brotherhood Regalia), monocolored/allies cant restrictions, multi-target destroy/exile (two creatures/artifacts), copy-with-graveyard-X, remaining 49 clusters from target gap JSON.
+
+### Track E2 — Target clusters (batch 387 mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk handlers** | Exile/destroy/sacrifice/copy clusters: Topple greatest-power, Mangara compound, Another Round, Unpredictable Cyclone, Darkness Crystal, Sarulf MV exile, Quag Feast, Ouphe Vandals, Hex six, Consign to Dust; Shattergang/Skull Storm/Nahiri/Winnowing sacrifice; Mirrorform/True Polymorph/Animus copy | `oracleIRExecutorSpecialTargetHandlersBatch387Bulk.ts` |
+| **Battlefield steps** | Flying/sculpture/bribery/spirit-enchanted/nonartifact cant restrictions; Secret Tunnel/Zurgo/Heroic Charge grants; Edifice compound; Combat Celebrant tap; Daghatar move counters; Die Young `{E}` modify_pt; Katsumasa set_base_pt; Hivis optional untap name match; equipped_creature fallback | `oracleIRExecutorBattlefieldStepHandlers.ts`, `oracleIRExecutorModifyPtStepHandlers.ts`, `oracleIRExecutorCreatureStepUtils.ts`, `oracleIRExecutorSpecialTargetHandlers.ts` |
+| **Parser prune** | `exile it instead.)` parenthetical misparse | `oracleIRParserPostprocess.ts` |
+| **Audit enrich** | Extended batch383 fixtures + 35 batch387 predicates (flying/sculpture/bribery/aura-host/shared-type/memory exile) | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch387.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **309 → 276** (−33); `no_deterministic_target` **80 → 53**; `unsupported_target` **48 → 36**; assisted **99.2%** (47400/47781) | `executor-coverage-audit.json` |
+| **Gap analysis** | Target **87** items / **89** clusters (was 122/128) | `executor-fullcard-target-gap-analysis.json` |
+
+**Next batch E2 targets:** grant_temporary_ability “during your turn” / equipped clusters, multi-target destroy/exile, copy-with-exception text, remaining 89 clusters from target gap JSON.
+
+### Track E2 — Target clusters (batch 386 mega-batch) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Bulk handlers** | ~20+ cluster patterns: Carrionette unless-exile, Gwen Stacy saga graveyards, Fall of Impostor, Nicol Bolas library trim, Mindbreak Trap spells, Phyrexian Furnace bottom GY, Exquisite Archangel, Calamity MV exile, Everything Comes to Dust convoke exception, Guile spell exile; Overload/Price of Glory/Cleansing/indestructible/Wall of Vipers destroy; Full Moon's Rise werewolf regenerate; Thunderwave unchosen damage; Dust of Moments / Price of Betrayal / Timecrafting remove counter; Shapesharer copy; Rubblebelt suspect | `oracleIRExecutorSpecialTargetHandlersBatch386Bulk.ts`, `oracleIRExecutorSpecialTargetHandlers.ts` |
+| **Battlefield steps** | `{S}`/`{E}`/result counter amounts; Aurification parenthetical cant_attack; enchanted/non-flying/beasts cant_block; annihilator grant; Dovin Baan cant_activate; luck counters; commander block restore | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Target resolution** | `that creature` antecedent ids; Gatewatch loyalty move fallback; Faerie audit fixture merge (no BF wipe) | `oracleIRExecutorCreatureStepUtils.ts`, `oracleIRExecutorSpecialTargetHandlers.ts`, `executor-coverage-audit.ts` |
+| **Audit enrich** | Extended batch383 fixtures + 24 batch386 predicates (PW/beacon/werewolf/shapeshifter/beast/convoke/time counters) | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch386.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **348 → 309** (−39); `no_deterministic_target` **98 → 80**; `unsupported_target` **70 → 48**; assisted **99.1%** (47367/47781) | `executor-coverage-audit.json` |
+| **Gap analysis** | Target **122** items / **128** clusters (was 161/168) | `executor-fullcard-target-gap-analysis.json` |
+
+**Next batch E2 targets:** Die Young `{E}` modify_pt, static type-based cant_attack/cant_block (Katabatic Winds, Doomed Artisan), compound exile (Topple, Mangara), remaining single-count clusters from target gap JSON.
+
+### Track E2 — Target clusters (batch 385) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Executor** | Fixed `applyExileStep` battlefield ref + normalized-target regexes; copy-permanent MV=X land; Siege Dragon non-flying damage; Eternal Wanderer / Visions sacrifice; Astarion/Drizzt reference counters; commander counters; Gideon compound exile; Wear Down destroy; Refraction Trap prevent; Gatewatch loyalty move; Quicksilver flood remove; Alaundo time counters; Oracle en-Vec cant_attack compound | `oracleIRExecutorBattlefieldStepHandlers.ts`, `oracleIRExecutorSpecialTargetHandlers.ts` |
+| **Audit enrich** | Extended batch383 target fixtures (source PW, commander, artifacts, land, attacker, exiled power, p1 exile time counters) + 18 new cluster predicates | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch385.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **362 → 348** (−14); `no_deterministic_target` **109 → 98**; `unsupported_target` **74 → 70**; assisted **99.1%** (47328/47781) | `executor-coverage-audit.json` |
+| **Gap analysis** | Target **161** items / **168** clusters (was 176/183) | `executor-fullcard-target-gap-analysis.json` |
+
+**Next batch E2 targets:** modify_pt `{E}`/Faerie Fencing, Carrionette unless-exile, Settle the Wreckage attacking exile, regenerate werewolf mass, remaining single-count clusters from target gap JSON.
+
+### Track E2 — Target clusters (batch 384) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Parser postprocess** | Extended `isBatch382MisparseExecutableStep`: `(Those creatures can't attack` in cant_block/cant_attack block; duplicate optional Swamp sacrifice prune; Viper's Kiss compound static | `oracleIRParserPostprocess.ts` |
+| **Executor** | Distribute counters `{S}` amount + bound chosen IDs; Exhaustion skip untap; other-creatures cant_attack; any-number/damaged/MV/toughness cant_block; destroy chosen permanents / two artifacts; double counters each-of-them; those-creatures lifelink; planeswalker loyalty counters; Gideon compound exile; attacking creatures exile; saga graveyard exile; Karn exile-the-other + silver counter | `oracleIRExecutorBattlefieldStepHandlers.ts`, `oracleIRExecutorSpecialTargetHandlers.ts` |
+| **Audit enrich** | Extended batch383 target fixtures: distribute/skip untap/exile-the-other/destroy chosen/double counters patterns + snow/x ctx | `executor-coverage-audit.ts` |
+| **Tests** | `oracleIRGapBatch384.test.ts` (3) | rules-engine |
+| **Re-audit** | gaps **374 → 362** (−12); `no_deterministic_target` **120 → 109**; `unsupported_target` **76 → 74**; assisted **99.0%** (47314/47781) | `executor-coverage-audit.json` |
+| **Gap analysis** | Target **176** items / **183** clusters (was 189/197) | `executor-fullcard-target-gap-analysis.json` |
+
+**Next batch E2 targets:** copy_permanent with X, contextual sacrifice each opponent, Siege Dragon deal_damage, Aurification parenthetical cant_attack prune, remaining single-count clusters from target gap JSON.
 
 ### Track E2 — Target clusters (batch 383) ✅
 

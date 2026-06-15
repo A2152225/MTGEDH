@@ -380,6 +380,38 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
   }
 
   {
+    const m = raw.match(/^x is the number of nontoken creatures that died this turn$/i);
+    if (m) {
+      const byController = stateAny.nontokenCreaturesDiedThisTurnByController;
+      if (byController && typeof byController === 'object' && !Array.isArray(byController)) {
+        return sumAllValues(byController);
+      }
+      const fallback = stateAny.creaturesDiedThisTurnByController;
+      if (fallback && typeof fallback === 'object' && !Array.isArray(fallback)) {
+        return sumAllValues(fallback);
+      }
+      return Boolean(stateAny.creatureDiedThisTurn) ? 1 : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of treasure tokens you created this turn$/i);
+    if (m) {
+      return readControllerValue(stateAny.treasureTokensCreatedThisTurnByController, controllerId, true);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the total number of rad counters among players$/i);
+    if (m) {
+      return (state.players || []).reduce((sum: number, player: any) => {
+        const rad = Number((player as any)?.counters?.rad ?? (player as any)?.radCounters ?? 0);
+        return sum + (Number.isFinite(rad) ? Math.max(0, rad) : 0);
+      }, 0);
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of creatures that died this turn$/i);
     if (m) {
       const byController = stateAny.creaturesDiedThisTurnByController;

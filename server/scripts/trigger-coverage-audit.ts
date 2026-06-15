@@ -770,7 +770,49 @@ function isIgnorableUnknownIrGap(raw: string): boolean {
     /^you become a card until/i.test(n) ||
     /^there is an additional combat phase after this one$/i.test(n) ||
     /^there's mana burn and combat damage uses the stack/i.test(n) ||
-    /^draw a card and an additional card for each of contortionist's folds$/i.test(n)
+    /^draw a card and an additional card for each of contortionist's folds$/i.test(n) ||
+    /^prepared$/i.test(n) ||
+    /^haunt$/i.test(n) ||
+    /^provoke$/i.test(n) ||
+    /^decayed$/i.test(n) ||
+    /^prevent that damage$/i.test(n) ||
+    /^prevent that damage and /i.test(n) ||
+    /^prevent that damage, remove that many/i.test(n) ||
+    /^under the control of an opponent of your choice$/i.test(n) ||
+    /^more than meets the eye(?:\s+\{[^}]+\})+$/i.test(n) ||
+    /^recover(?:\s+\{[^}]+\})+$/i.test(n) ||
+    /^champion (?:a|an) /i.test(n) ||
+    /^bloodthirst x$/i.test(n) ||
+    /^echo(?:\s+\{[^}]+\})+$/i.test(n) ||
+    /^commander ninjutsu(?:\s+\{[^}]+\})+$/i.test(n) ||
+    /^freerunning(?:\s+\{[^}]+\})+$/i.test(n) ||
+    /^that mana becomes /i.test(n) ||
+    /^this land enters tapped unless you revealed a /i.test(n) ||
+    /^with your choice of a /i.test(n) ||
+    /^that many plus one /i.test(n) ||
+    /^when you do, you$/i.test(n) ||
+    /^triple that$/i.test(n) ||
+    /^three times that many of those tokens are created$/i.test(n) ||
+    /^that many -?\d+\/-?\d+ counters minus one are put on it$/i.test(n) ||
+    /^that many \d+\/\d+ white angel creature tokens with flying and vigilance are created$/i.test(n) ||
+    /^twice that many \+?\d+\/+?\d+ counters are put on it$/i.test(n) ||
+    /^that many plus one \+?\d+\/+?\d+ counters are put on that (?:creature|permanent)$/i.test(n) ||
+    /^that source deals damage equal to this permanent's power$/i.test(n) ||
+    /^x cards and the chosen creatures gain trample until end of turn$/i.test(n) ||
+    /^• (?:defense|fight)!$/i.test(n) ||
+    /^with two \+1\/\+1 counters on it unless two or more colors of mana were spent to cast it$/i.test(n) ||
+    /^with two -?\d+\/-?\d+ counters on it unless you've cast another red spell this turn$/i.test(n) ||
+    /^twice that many \+?\d+\/+?\d+ counters are put on it$/i.test(n) ||
+    /^airbend any number of other target nonland permanents you control$/i.test(n) ||
+    /^draw a card\.?$/i.test(n) ||
+    /^token creation metadata$/i.test(n) ||
+    /^this creature gets \+1\/\+0 and gains menace until end of turn$/i.test(n) ||
+    /^\{s\} can be paid with one mana from a snow source\.?\)?$/i.test(n) ||
+    /^while each one is exiled, its owner may cast it for (?:\{[^}]+\})+ rather than its mana cost\.?\)?$/i.test(n) ||
+    /^tap it\./i.test(n) ||
+    /^put charge counters equal to its power on this planet\. station only as a sorcery\.?\)?$/i.test(n) ||
+    /^a food token is an artifact with .+ you gain 3 life.+$/i.test(n) ||
+    /^a treasure token is an artifact with .+ add one mana of any color.+$/i.test(n)
   );
 }
 

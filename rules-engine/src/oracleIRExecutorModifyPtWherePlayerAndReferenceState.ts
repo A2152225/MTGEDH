@@ -119,6 +119,54 @@ export function tryEvaluateModifyPtWherePlayerAndReferenceState(args: {
   }
 
   {
+    const m = raw.match(/^x is the sacrificed enchantment'?s mana value$/i);
+    if (m) {
+      const snapshot = resolveLastSacrificedSnapshot('card');
+      if (snapshot) return snapshot.manaValue;
+      const sacrificed = Array.isArray((ctx as any)?.lastSacrificedPermanents)
+        ? (ctx as any).lastSacrificedPermanents
+        : [];
+      if (sacrificed.length === 1) {
+        const mv = getCardManaValue(sacrificed[0]);
+        if (mv !== null) return mv;
+      }
+      return null;
+    }
+  }
+
+  {
+    const m = raw.match(
+      /^x is 7 minus the number of cards in that creature'?s controller'?s hand$/i
+    );
+    if (m) {
+      const creatureId = String(targetCreatureId || ctx?.targetCreatureId || '').trim();
+      const creature = creatureId
+        ? ((battlefield as any[]) || []).find((entry) => String(entry?.id || '').trim() === creatureId)
+        : null;
+      const creatureController = String(
+        (creature as any)?.controller || (creature as any)?.controllerId || ''
+      ).trim();
+      if (!creatureController) return null;
+      const player = findPlayerById(creatureController);
+      const handSize = Array.isArray((player as any)?.hand) ? (player as any).hand.length : 0;
+      return Math.max(0, 7 - handSize);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the toughness of the card returned this way$/i);
+    if (m) {
+      const moved = Array.isArray(ctx?.lastMovedCards) ? ctx.lastMovedCards : [];
+      if (moved.length >= 1) {
+        const latest = moved[moved.length - 1] as any;
+        const toughness = Number(latest?.toughness ?? latest?.card?.toughness);
+        return Number.isFinite(toughness) ? toughness : null;
+      }
+      return null;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the greatest mana value of a commander you own on the battlefield or in the command zone$/i);
     if (m) {
       const ownedBattlefieldCommanders = (battlefield as any[]).filter((p: any) => {

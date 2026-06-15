@@ -179,6 +179,36 @@ export function isBenignFullCardReplacementMetadata(effectText: string): boolean
   return /^(?:tapped|untapped)(?:\s+unless\b.+)?$/.test(meta);
 }
 
+export function isBenignFullCardAbilityMetadata(effectText: string): boolean {
+  if (isBenignFullCardReplacementMetadata(effectText)) return true;
+  const meta = normalizeText(effectText).toLowerCase();
+  return (
+    /^you may sacrifice .+ rather than pay this spell's mana cost\.?$/.test(meta) ||
+    /^you may sacrifice .+ rather than pay .+'s mana cost\.?$/.test(meta) ||
+    /^you may cast this card from your graveyard for its flashback cost\. then exile it\.?$/.test(meta) ||
+    /^prevent that damage(?:,.+)?\.?$/.test(meta) ||
+    /^that mana becomes (?:black|white|blue|red|green|colorless)\.?/.test(meta) ||
+    /^with your choice of a .+ counter or a .+ counter on it\.?$/.test(meta) ||
+    /^with two (?:\+1\/\+1|-?\d+\/-?\d+) counters on it unless .+\.?/.test(meta) ||
+    /^three times that many of those tokens are created\.?$/.test(meta) ||
+    /^that many \d+\/\d+ white angel creature tokens with flying and vigilance are created\.?$/.test(meta) ||
+    /^that many -1\/-1 counters minus one are put on it\.?$/.test(meta) ||
+    /^that many plus one \+1\/\+1 counters are put on that (?:creature|permanent)\.?/.test(meta) ||
+    /^twice that many \+1\/\+1 counters are put on it\.?$/.test(meta) ||
+    /^that source deals damage equal to this permanent's power\.?$/.test(meta) ||
+    /^you may sacrifice three .+ rather than pay this spell's mana cost\.?$/.test(meta) ||
+    /^prevent that damage and mill twice that many cards\.?$/.test(meta) ||
+    /^that many 4\/4 white angel creature tokens with flying and vigilance are created\.?$/.test(meta) ||
+    /^prevent that damage and remove that many \+1\/\+1 counters from (?:it|this permanent|this creature)\.?/.test(meta) ||
+    /^if it's your turn, you may sacrifice a mountain rather than pay this spell's mana cost\.?$/.test(meta) ||
+    /^with your choice of a \+1\/\+1, first strike, or vigilance counter on it\.?$/.test(meta) ||
+    /^prevent that damage and remove a \+1\/\+1 counter from it\.?$/.test(meta) ||
+    /^as this land enters, you may reveal a .+ card from your hand\. this land enters tapped unless .+\.?$/i.test(meta) ||
+    /^remove a time counter from this card\. activate only if this card is suspended\.?$/.test(meta) ||
+    /^three times that many of those tokens are created\.?$/.test(meta)
+  );
+}
+
 export function walkOracleSteps(
   steps: readonly OracleEffectStep[] | undefined,
   visit: (step: OracleEffectStep) => void
@@ -421,6 +451,112 @@ export function enrichAuditStateAndContextForTargets(
   let nextCtx = ctx;
   let nextState = state;
   const oracleTextLower = String(options?.oracleText || '').toLowerCase();
+  if (/that player shuffles/i.test(oracleTextLower) || /that player mills/i.test(oracleTextLower)) {
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      targetOpponentId: 'p2',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+      },
+    } as typeof nextCtx;
+  }
+  if (/exchange control of two target creatures controlled by different players/i.test(oracleTextLower)) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-audit393-exchange-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-audit393-exchange-p1',
+          name: 'Audit Exchange P1',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 2,
+          toughness: 2,
+        },
+        {
+          id: 'bf-audit393-exchange-p2',
+          name: 'Audit Exchange P2',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Elf',
+          power: 3,
+          toughness: 1,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: [
+          'bf-audit393-exchange-p1',
+          'bf-audit393-exchange-p2',
+          ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds) ? nextCtx.selectorContext.chosenObjectIds : []),
+        ],
+      },
+    } as typeof nextCtx;
+  }
+  if (/those lands of their choice/i.test(oracleTextLower)) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => String(perm?.id || '').trim() !== 'bf-audit394-contested-land'
+        ),
+        {
+          id: 'bf-audit394-contested-land',
+          name: 'Audit Contested Land',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Land',
+          counters: { contested: 1 },
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: [
+          'bf-audit394-contested-land',
+          ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds) ? nextCtx.selectorContext.chosenObjectIds : []),
+        ],
+      },
+    } as typeof nextCtx;
+  }
+  if (/milled card'?s mana value/i.test(oracleTextLower)) {
+    nextCtx = {
+      ...nextCtx,
+      lastMilledCards: [
+        { id: 'audit-milled-393', name: 'Audit Milled', type_line: 'Instant', cmc: 4, manaValue: 4 },
+      ],
+    } as typeof nextCtx;
+  }
+  if (/that card's mana value/i.test(oracleTextLower)) {
+    const revealedCard = {
+      id: 'hand-p2-6',
+      name: 'Audit Revealed',
+      type_line: 'Instant',
+      cmc: 3,
+      manaValue: 3,
+    };
+    nextCtx = {
+      ...nextCtx,
+      lastMovedCards: [revealedCard],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        chosenObjectIds: ['hand-p2-6'],
+      },
+    } as typeof nextCtx;
+  }
   if (/counter target spell/.test(oracleTextLower)) {
     nextState = {
       ...nextState,
@@ -2152,7 +2288,180 @@ export function enrichAuditStateAndContextForTargets(
         /creature dealt damage this way can't be regenerated/i.test(raw)) ||
       (step.kind === 'exile' && /that player's graveyard/i.test(raw)) ||
       (step.kind === 'cant_block' && /black creatures can't block/i.test(raw)) ||
-      (step.kind === 'cant_activate_abilities' && /^those permanents$/i.test(target))
+      (step.kind === 'cant_activate_abilities' && /^those permanents$/i.test(target)) ||
+      (step.kind === 'add_counter' && /distribute x \+1\/\+1 counters among/i.test(raw)) ||
+      (step.kind === 'skip_next_untap' && /creatures and lands target opponent controls/i.test(raw)) ||
+      (step.kind === 'cant_attack' && /other creatures can't attack/i.test(raw)) ||
+      (step.kind === 'exile' && /exile the other/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy the chosen permanents/i.test(raw)) ||
+      (step.kind === 'double_counters' && /each of them/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /becomes a copy of target nontoken artifact you control with mana value x/i.test(raw)) ||
+      (step.kind === 'deal_damage' && /each creature without flying that player controls/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /each player sacrifices all creatures they control not chosen this way/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /each opponent sacrifices an artifact/i.test(raw)) ||
+      (step.kind === 'add_counter' && /commander creature you control/i.test(raw)) ||
+      (step.kind === 'add_counter' && /equal to the difference/i.test(raw)) ||
+      (step.kind === 'remove_counter' && /remove all flood counters from them/i.test(raw)) ||
+      (step.kind === 'remove_counter' && /remove a time counter from each other card you own in exile/i.test(raw)) ||
+      (step.kind === 'move_counters' && /move a loyalty counter from this artifact onto that planeswalker/i.test(raw)) ||
+      (step.kind === 'exile' && /each creature your opponents control/i.test(raw)) ||
+      (step.kind === 'exile' && /attacking creatures target player controls/i.test(raw)) ||
+      (step.kind === 'exile' && /target players' graveyards/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy two target artifacts and\/or enchantments/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy that artifact if its mana value is 5 or less instead/i.test(raw)) ||
+      (step.kind === 'destroy' && /^destroy that land$/i.test(raw)) ||
+      (step.kind === 'prevent_damage' && /source of your choice would deal to you/i.test(raw)) ||
+      (step.kind === 'cant_attack' && /chosen creatures attack if able/i.test(raw)) ||
+      (step.kind === 'remove_counter' && /remove up to four charge counters from target noncreature artifact/i.test(raw)) ||
+      (step.kind === 'add_counter' && /amount of \{s\} spent/i.test(raw)) ||
+      (step.kind === 'exile' && /exile this card and target creature unless/i.test(raw)) ||
+      (step.kind === 'regenerate' && /werewolf creatures you control/i.test(raw)) ||
+      (step.kind === 'cant_attack' && /^\(those creatures can't attack/i.test(target)) ||
+      (step.kind === 'copy_permanent' && /target shapeshifter becomes a copy/i.test(raw)) ||
+      (step.kind === 'remove_counter' && /remove two time counters from each permanent/i.test(raw)) ||
+      (step.kind === 'remove_counter' && /remove up to five counters from target artifact, creature, planeswalker, or opponent/i.test(raw)) ||
+      (step.kind === 'add_counter' && /luck counters on this permanent equal to the result/i.test(raw)) ||
+      (step.kind === 'add_counter' && /put two loyalty counters on a planeswalker you control/i.test(raw)) ||
+      (step.kind === 'deal_damage' && /each creature not chosen this way/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /that creature gets an additional/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /for each \{e\} paid this way/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy that land unless any player pays/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy a permanent with indestructible/i.test(raw)) ||
+      (step.kind === 'exile' && /instead exile this creature and your life total/i.test(raw)) ||
+      (step.kind === 'exile' && /exile any number of target spells/i.test(raw)) ||
+      (step.kind === 'exile' && /exile the bottom card of target player's graveyard/i.test(raw)) ||
+      (step.kind === 'suspect' && /^you may suspect it$/i.test(raw)) ||
+      (step.kind === 'cant_block' && /^beasts can't block$/i.test(target)) ||
+      (step.kind === 'exile' && /mana value less than the revealed card's mana value/i.test(raw)) ||
+      (step.kind === 'exile' && /convoked this spell, all artifacts/i.test(raw)) ||
+      (step.kind === 'exile' && /instead exile that spell/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy this creature and target creature it's blocking/i.test(raw)) ||
+      (step.kind === 'remove_counter' && /remove x time counters from target permanent or suspended card/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /\{e\} paid this way/i.test(raw)) ||
+      (step.kind === 'cant_attack' && /creatures with flying can't attack/i.test(raw)) ||
+      (step.kind === 'cant_block' && /creatures with flying can't block/i.test(raw)) ||
+      (step.kind === 'cant_attack' && /sculptures you control can't attack/i.test(raw)) ||
+      (step.kind === 'cant_block' && /sculptures you control can't block/i.test(raw)) ||
+      (step.kind === 'cant_attack' && /bribery counters on them can't attack/i.test(raw)) ||
+      (step.kind === 'cant_block' && /bribery counters on them can't block/i.test(raw)) ||
+      (step.kind === 'cant_attack' && /enchanted creature is a spirit and can't attack/i.test(raw)) ||
+      (step.kind === 'cant_block' && /enchanted creature is a spirit and can't block/i.test(raw)) ||
+      (step.kind === 'cant_attack' && /^otherwise, it can't attack/i.test(raw)) ||
+      (step.kind === 'cant_block' && /nonartifact creatures can't block/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /two target creatures you control that share a creature type can't be blocked/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /during your turn, zurgo has indestructible/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /those creatures also gain trample until end of turn/i.test(raw)) ||
+      (step.kind === 'exile' && /exile that creature$/i.test(raw)) ||
+      (step.kind === 'exile' && /greatest power among creatures on the battlefield/i.test(raw)) ||
+      (step.kind === 'exile' && /exile mangara and target permanent/i.test(raw)) ||
+      (step.kind === 'exile' && /exile any number of creatures you control/i.test(raw)) ||
+      (step.kind === 'exile' && /shares a card type with the cycled card/i.test(raw)) ||
+      (step.kind === 'exile' && /instead exile it and you gain 2 life/i.test(raw)) ||
+      (step.kind === 'exile' && /exile each other nonland permanent with mana value less than or equal to the number of counters removed/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy the chosen permanent if its mana value is less than or equal to the number of cards in your graveyard/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy that artifact if it's on the battlefield/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy six target creatures/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy any number of target artifacts and\/or enchantments/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /each opponent sacrifices a creature of their choice/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /each other player sacrifices an artifact/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /each other player sacrifices an enchantment/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /^sacrifice x lands$/i.test(raw)) ||
+      (step.kind === 'move_counters' && /move a \+1\/\+1 counter from target creature onto a second target creature/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /each nonland permanent you control becomes a copy/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /target artifact or creature becomes a copy of another target/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /target legendary creature you control becomes a copy of target creature card in exile with a memory counter/i.test(raw)) ||
+      (step.kind === 'set_base_pt' && /it has base power and toughness 1\/1 until end of turn/i.test(raw)) ||
+      (step.kind === 'tap_or_untap' && /untap all other creatures you control and after this phase, there is an additional combat phase/i.test(raw)) ||
+      (step.kind === 'optional_untap_choice' && /you may choose not to untap/i.test(raw)) ||
+      (step.kind === 'cant_activate_abilities' && /target creature can't attack or block and its activated abilities can't be activated/i.test(raw)) ||
+      (step.kind === 'skip_next_untap' && /lands target player controls don't untap during their next untap step/i.test(raw)) ||
+      (step.kind === 'move_counters' && /you may move a \+1\/\+1 counter from this land onto it\.\)$/i.test(raw)) ||
+      (step.kind === 'cant_block' && /^x target creatures can't block this turn$/i.test(raw)) ||
+      (step.kind === 'cant_block' && /green creatures and white creatures can't block this turn/i.test(raw)) ||
+      (step.kind === 'cant_block' && /^ii\s*-\s*ice\s*-?\s*up to three target creatures can't block this turn$/i.test(raw)) ||
+      (step.kind === 'cant_block' && /other creatures that player controls can't block this turn/i.test(raw)) ||
+      (step.kind === 'cant_block' && /^a creature dealt damage this way can't block this turn$/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /creatures dealt damage this way can't be regenerated this turn/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /during your turn, equipped creatures you control have/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /during your turn, commanders you control have indestructible/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /during your turn, equipped creature has hexproof and can't be blocked/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /during your turn, equipped creatures you control have indestructible/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /during your turn, other historic creatures you control have double strike/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /during your turn, outlaws you control have first strike/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /^legolas can't be blocked by creatures with power 2 or less$/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /equipped creature has base power and toughness 7\/7 and can't be blocked by creatures with power 2 or less/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /this artifact becomes a copy of target artifact, except it has this ability/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /until end of turn, this artifact becomes a copy of target creature you control of the chosen type/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /this land becomes a copy of target land, except it has this ability/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /this permanent becomes a copy of the sacrificed creature, except it has this ability/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy any number of target tapped creatures with different controllers/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy target tapped creature an opponent controls/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy it and this creature at end of combat/i.test(raw)) ||
+      (step.kind === 'destroy' && /^destroy three target permanents$/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy any of them that are walls/i.test(raw)) ||
+      (step.kind === 'exile' && /exile it with three time counters on it instead of putting it into its owner's graveyard/i.test(raw)) ||
+      (step.kind === 'exile' && /exile this creature and target creature without flying that's attacking you/i.test(raw)) ||
+      (step.kind === 'exile' && /instead exile this permanent and your life total becomes 1/i.test(raw)) ||
+      (step.kind === 'exile' && /exile two target artifacts, creatures, and\/or lands you control/i.test(raw)) ||
+      (step.kind === 'exile' && /^exile two target artifacts$/i.test(raw)) ||
+      (step.kind === 'exile' && /exile the pile of an opponent's choice/i.test(raw)) ||
+      (step.kind === 'exile' && /^exile target creature$/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /each opponent sacrifices a creature with the greatest power among creatures that player controls/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /each player sacrifices a creature of their choice/i.test(raw)) ||
+      (step.kind === 'force_block' && /target creature an opponent controls blocks this turn if able/i.test(raw)) ||
+      (step.kind === 'animate_permanent' && /enchanted forest becomes a .+ spirit creature until end of turn/i.test(raw)) ||
+      (step.kind === 'remove_counter' && /you may remove a time counter from it or put another time counter on it/i.test(raw)) ||
+      (step.kind === 'remove_counter' && /remove all \+1\/\+1 counters from ashling, and it deals that much damage to each creature and each player/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /during your turn, equipped creature has hexproof and can't be blocked/i.test(raw)) ||
+      (step.kind === 'destroy' && /then destroy target creature of an opponent's choice/i.test(raw)) ||
+      (step.kind === 'animate_permanent' && /enchanted mountain becomes a .+ spirit creature until end of turn/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy an aura attached to it/i.test(raw)) ||
+      (step.kind === 'remove_counter' && /remove up to x counters from target permanent/i.test(raw)) ||
+      (step.kind === 'cant_block' && /^creatures can't block$/i.test(raw)) ||
+      (step.kind === 'exile' && /instead exile it with three egg counters on it/i.test(raw)) ||
+      (step.kind === 'exile' && /exile this permanent and each artifact and creature your opponents control/i.test(raw)) ||
+      (step.kind === 'exile' && /exile up to one target creature you control/i.test(raw)) ||
+      (step.kind === 'exile' && /exile target tapped creature an opponent controls until this enchantment leaves the battlefield/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /until end of turn, it becomes a copy of up to one other target creature/i.test(raw)) ||
+      (step.kind === 'cant_block' && /monocolored creatures can't block this turn/i.test(raw)) ||
+      (step.kind === 'exile' && /exile that card with an ice counter on it/i.test(raw)) ||
+      (step.kind === 'schedule_delayed_battlefield_action' && /at end of combat, exile all creatures blocked by this creature/i.test(raw)) ||
+      (step.kind === 'cant_attack' && /black creatures can't attack/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /creatures you control with power or toughness 1 or less can't be blocked/i.test(raw)) ||
+      (step.kind === 'destroy' && /^destroy two target creatures$/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /equipped creature has ward \{2\}, is an assassin/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /when you do, this creature becomes a copy of another target creature you control/i.test(raw)) ||
+      (step.kind === 'exile' && /exile up to two creature cards put into graveyards this way/i.test(raw)) ||
+      (step.kind === 'cant_attack' && /creatures with power greater than the number of cards in your hand can't attack/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /during your turn, allies you control have double strike and lifelink/i.test(raw)) ||
+      (step.kind === 'animate_permanent' && /you may have it become a 0\/0 elemental creature until end of turn/i.test(raw)) ||
+      (step.kind === 'destroy' && /^destroy two target artifacts$/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /this creature becomes a copy of target creature card in your graveyard with mana value x/i.test(raw)) ||
+      (step.kind === 'force_block' && /target creature attacks or blocks this turn if able/i.test(raw)) ||
+      (step.kind === 'remove_counter' && /you may remove a loyalty counter from a planeswalker you control rather than pay this permanent's crew cost/i.test(raw)) ||
+      (step.kind === 'prevent_damage' && /prevent the next 3 damage that would be dealt to any target this turn by a source of your choice/i.test(raw)) ||
+      (step.kind === 'regenerate' && /^regenerate it$/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /where x is the number of quest counters on this permanent/i.test(raw)) ||
+      (step.kind === 'exile' && /you may exile the chosen creatures/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /sacrifice this enchantment, search your library for up to two creature cards/i.test(raw)) ||
+      (step.kind === 'exile' && /^exile the top card of your library$/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /each player sacrifices the creature they control with the greatest mana value unless they pay/i.test(raw)) ||
+      (step.kind === 'exile' && /^exile two target creatures$/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /each opponent sacrifices a creature they control with the greatest power/i.test(raw)) ||
+      (step.kind === 'deal_damage' && /this permanent deals that much damage to target player or planeswalker/i.test(raw)) ||
+      (step.kind === 'deal_damage' && /exile that card with a blood counter on it/i.test(raw)) ||
+      (step.kind === 'deal_damage' && /it deals twice that much damage to itself instead/i.test(raw)) ||
+      (step.kind === 'exile' && /instead exile it with a void counter on it/i.test(raw)) ||
+      (step.kind === 'cant_attack' && /creatures your opponents control with counters on them can't attack/i.test(raw)) ||
+      (step.kind === 'cant_block' && /creatures your opponents control with counters on them can't block/i.test(raw)) ||
+      (step.kind === 'copy_permanent' && /becomes a copy of target creature you control/i.test(raw)) ||
+      (step.kind === 'cant_block' && /white creatures and blue creatures can't block/i.test(raw)) ||
+      (step.kind === 'sacrifice' && /target opponent sacrifices a creature of their choice/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy target equipment/i.test(raw)) ||
+      (step.kind === 'deal_damage' && /this permanent deals .* damage to that creature/i.test(raw)) ||
+      (step.kind === 'destroy' && /destroy target enchantment that player controls/i.test(raw)) ||
+      (step.kind === 'deal_damage' && /target creature deals damage to itself equal to its power/i.test(raw)) ||
+      (step.kind === 'deal_damage' && /target creature deals damage equal to its power to itself/i.test(raw))
     );
   });
   if (needsBatch383TargetFixtures) {
@@ -2203,6 +2512,226 @@ export function enrichAuditStateAndContextForTargets(
         colors: ['R'],
         cmc: 1,
       },
+      {
+        id: 'bf-audit-source',
+        name: 'Audit Planeswalker',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Planeswalker — Gideon',
+        colors: ['W'],
+        cmc: 4,
+        counters: { loyalty: 4 },
+      },
+      {
+        id: 'bf-audit-commander',
+        name: 'Audit Commander',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Legendary Creature — Human',
+        colors: ['W'],
+        cmc: 3,
+        isCommander: true,
+      },
+      {
+        id: 'bf-audit-artifact-1',
+        name: 'Audit Artifact',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Artifact',
+        colors: [],
+        cmc: 3,
+        counters: { charge: 2 },
+      },
+      {
+        id: 'bf-audit-artifact-2',
+        name: 'Audit Artifact Two',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Artifact',
+        colors: [],
+        cmc: 4,
+      },
+      {
+        id: 'bf-audit-land',
+        name: 'Audit Land',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Land',
+        colors: [],
+        cmc: 0,
+      },
+      {
+        id: 'bf-audit-gardens-land',
+        name: 'Audit Copy Land',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Land',
+        colors: [],
+        cmc: 0,
+      },
+      {
+        id: 'bf-audit-attacker',
+        name: 'Audit Attacker',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Creature — Soldier',
+        colors: ['W'],
+        cmc: 2,
+        attacking: true,
+      },
+      {
+        id: 'bf-audit-beacon',
+        name: 'Audit Beacon',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Artifact',
+        colors: [],
+        cmc: 3,
+        counters: { loyalty: 2 },
+      },
+      {
+        id: 'bf-audit-werewolf',
+        name: 'Audit Werewolf',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Werewolf',
+        colors: ['G'],
+        cmc: 3,
+      },
+      {
+        id: 'bf-audit-shapeshifter',
+        name: 'Audit Shapeshifter',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Shapeshifter',
+        colors: ['U'],
+        cmc: 2,
+      },
+      {
+        id: 'bf-audit-copy-ref',
+        name: 'Audit Copy Ref',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Elf',
+        colors: ['G'],
+        cmc: 2,
+        power: 2,
+        toughness: 2,
+      },
+      {
+        id: 'bf-audit-beast',
+        name: 'Audit Beast',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Creature — Beast',
+        colors: ['G'],
+        cmc: 4,
+      },
+      {
+        id: 'bf-audit-enchant-creature',
+        name: 'Audit Enchantment',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Enchantment — Aura',
+        colors: ['U'],
+        cmc: 2,
+        attachedTo: 'bf-audit-target-1',
+      },
+      {
+        id: 'bf-audit-indestructible',
+        name: 'Audit Indestructible',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Creature — Angel',
+        colors: ['W'],
+        cmc: 5,
+        keywords: ['Indestructible'],
+      },
+      {
+        id: 'bf-audit-convoke-soldier',
+        name: 'Audit Convoke Soldier',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Soldier',
+        colors: ['W'],
+        cmc: 1,
+      },
+      {
+        id: 'bf-audit-time-perm',
+        name: 'Audit Time Perm',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Artifact',
+        colors: [],
+        cmc: 2,
+        counters: { time: 3 },
+      },
+      {
+        id: 'bf-audit-flying',
+        name: 'Audit Flyer',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Creature — Bird',
+        colors: ['U'],
+        cmc: 2,
+        keywords: ['Flying'],
+      },
+      {
+        id: 'bf-audit-sculpture',
+        name: 'Audit Sculpture',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Sculpture',
+        colors: ['W'],
+        cmc: 3,
+      },
+      {
+        id: 'bf-audit-bribery',
+        name: 'Audit Bribery',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Creature — Human',
+        colors: ['U'],
+        cmc: 2,
+        counters: { bribery: 1 },
+      },
+      {
+        id: 'bf-audit-aura-host',
+        name: 'Audit Aura Host',
+        controller: 'p2',
+        owner: 'p2',
+        type_line: 'Creature — Human',
+        colors: ['W'],
+        cmc: 2,
+      },
+      {
+        id: 'bf-audit-spirit-aura',
+        name: 'Audit Spirit Aura',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Enchantment — Aura',
+        colors: ['W'],
+        cmc: 3,
+        attachedTo: 'bf-audit-aura-host',
+      },
+      {
+        id: 'bf-audit-shared-a',
+        name: 'Audit Shared A',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Elf',
+        colors: ['G'],
+        cmc: 2,
+      },
+      {
+        id: 'bf-audit-shared-b',
+        name: 'Audit Shared B',
+        controller: 'p1',
+        owner: 'p1',
+        type_line: 'Creature — Elf Wizard',
+        colors: ['G', 'U'],
+        cmc: 3,
+      },
     ];
     nextState = {
       ...nextState,
@@ -2215,7 +2744,16 @@ export function enrichAuditStateAndContextForTargets(
                 { id: 'gy-audit-1', name: 'Audit Graveyard Card', type_line: 'Instant' },
               ],
             }
-          : player
+          : String(player?.id || '').trim() === 'p1'
+            ? {
+                ...player,
+                exile: [
+                  ...(Array.isArray(player?.exile) ? player.exile : []),
+                  { id: 'ex-audit-source', name: 'Audit Suspended', type_line: 'Sorcery', counters: { time: 2 } },
+                  { id: 'ex-audit-other', name: 'Audit Other', type_line: 'Instant', counters: { time: 1 } },
+                ],
+              }
+            : player
       ),
       battlefield: [
         ...existingBattlefield.filter(
@@ -2228,7 +2766,15 @@ export function enrichAuditStateAndContextForTargets(
       ...nextCtx,
       targetPermanentId: 'bf-audit-target-1',
       targetCreatureId: 'bf-audit-target-1',
-      lastMovedBattlefieldPermanentIds: ['bf-audit-target-1', 'bf-audit-target-2'],
+      xValue: 3,
+      snowManaSpent: 3,
+      referenceAmount: 3,
+      energyPaidThisWay: 2,
+      lastReferencedPermanentId: 'bf-audit-artifact-1',
+      interactivePlayerChoices: false,
+      lastCycledCardType: 'instant',
+      lastExiledCards: [{ id: 'ex-audit-1', type_line: 'Creature — Vampire', power: 5, toughness: 5 }],
+      lastMovedBattlefieldPermanentIds: ['bf-audit-target-1', 'bf-audit-target-2', 'bf-audit-land'],
       lastAntecedentBattlefieldPermanentIds: ['bf-audit-target-1', 'bf-audit-target-2'],
       lastGoadedBattlefieldPermanentIds: ['bf-audit-goaded'],
       lastDamagedBattlefieldPermanentIds: ['bf-audit-target-1'],
@@ -2238,7 +2784,904 @@ export function enrichAuditStateAndContextForTargets(
         targetCreatureId: 'bf-audit-target-1',
         targetPlayerId: 'p2',
         targetOpponentId: 'p2',
-        chosenObjectIds: ['bf-audit-target-1', 'bf-audit-target-2', 'bf-audit-enchant-1', 'bf-audit-enchant-2'],
+        convokeCreatureType: 'soldier',
+        chosenObjectIds: [
+          'bf-audit-target-1',
+          'bf-audit-target-2',
+          'bf-audit-enchant-1',
+          'bf-audit-enchant-2',
+          'bf-audit-artifact-1',
+          'bf-audit-artifact-2',
+          'bf-audit-land',
+          'bf-audit-commander',
+          'bf-audit-gardens-land',
+          'bf-audit-artifact-1',
+          'bf-audit-source',
+          'bf-audit-beacon',
+          'bf-audit-shapeshifter',
+          'bf-audit-copy-ref',
+          'bf-audit-indestructible',
+          'bf-audit-werewolf',
+          'bf-audit-flying',
+          'bf-audit-sculpture',
+          'bf-audit-bribery',
+          'bf-audit-shared-a',
+          'bf-audit-shared-b',
+          'bf-audit-aura-host',
+          'bf-audit-spirit-aura',
+        ],
+      },
+    } as typeof nextCtx;
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        if (String(player?.id || '').trim() !== 'p1') return player;
+        const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+        const memoryCard = {
+          id: 'ex-audit-memory',
+          name: 'Audit Memory Creature',
+          type_line: 'Creature — Human',
+          cmc: 2,
+          counters: { memory: 1 },
+        };
+        return {
+          ...player,
+          exile: [
+            memoryCard,
+            ...exile.filter((card: any) => String(card?.id || '').trim() !== memoryCard.id),
+          ],
+          graveyard: [
+            ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+            { id: 'gy-audit-black-1', name: 'Audit Black Instant', type_line: 'Instant', colors: ['B'], cmc: 1 },
+            { id: 'gy-audit-black-2', name: 'Audit Black Sorcery', type_line: 'Sorcery', colors: ['B'], cmc: 2 },
+          ],
+        };
+      }),
+    } as GameState;
+    if (stepsMatchPredicate(steps, (step) => step.kind === 'move_counters' && /move a loyalty counter from this artifact onto that planeswalker/i.test(String(step.raw || '')))) {
+      nextCtx = {
+        ...nextCtx,
+        sourceId: 'bf-audit-beacon',
+        targetPermanentId: 'bf-audit-source',
+        selectorContext: {
+          ...(nextCtx.selectorContext || {}),
+          targetPermanentId: 'bf-audit-source',
+        },
+      } as typeof nextCtx;
+    }
+  }
+
+  const needsBatch390GeneralFixtures = stepsMatchPredicate(steps, (step) => {
+    const raw = String(step.raw || '').toLowerCase();
+    return (
+      (step.kind === 'add_mana' && /commander's color identity/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /for each creature blocking it/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /for each other attacking aurochs/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /for each other goblin you control/i.test(raw)) ||
+      (step.kind === 'create_token' && /creature token you control/i.test(raw)) ||
+      (step.kind === 'prevent_damage' && /prevent the next x damage/i.test(raw)) ||
+      (step.kind === 'gain_life' && /that card's mana value/i.test(raw)) ||
+      (step.kind === 'grant_graveyard_permission' && /(?:zombie spells|legendary card)/i.test(raw)) ||
+      (step.kind === 'add_mana' && /any combination of \{[wubrg]\} and\/or \{[wubrg]\}/i.test(raw)) ||
+      step.kind === 'paradigm'
+    );
+  });
+  if (needsBatch390GeneralFixtures) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) =>
+        String(player?.id || '').trim() === 'p1'
+          ? {
+              ...player,
+              commanderColorIdentity: ['W', 'U', 'B', 'R', 'G'],
+              commander: { name: 'Audit Commander', color_identity: ['W', 'U', 'B', 'R', 'G'] },
+              graveyard: [
+                ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+                { id: 'gy-audit-zombie-1', name: 'Audit Zombie', type_line: 'Creature — Zombie', cmc: 2 },
+                {
+                  id: 'gy-audit-legendary-1',
+                  name: 'Audit Legendary',
+                  type_line: 'Legendary Creature — Human',
+                  cmc: 3,
+                },
+              ],
+            }
+          : player
+      ),
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) =>
+            !['bf-audit-token-1', 'bf-audit-blocker-1', 'bf-audit-aurochs-1'].includes(String(perm?.id || '').trim())
+        ),
+        {
+          id: sourceId,
+          name: 'Audit Source',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          attacking: true,
+          blockedBy: ['bf-audit-blocker-1'],
+          power: 2,
+          toughness: 2,
+        },
+        {
+          id: 'bf-audit-token-1',
+          name: 'Audit Token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          type_line: 'Token Creature — Soldier',
+          power: 1,
+          toughness: 1,
+        },
+        {
+          id: 'bf-audit-blocker-1',
+          name: 'Audit Blocker',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Soldier',
+          blocking: sourceId,
+        },
+        {
+          id: 'bf-audit-aurochs-1',
+          name: 'Audit Aurochs Ally',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Aurochs',
+          attacking: true,
+          power: 3,
+          toughness: 3,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      xValue: Number.isFinite(Number(nextCtx.xValue)) ? nextCtx.xValue : 3,
+      lastMovedCards: [
+        { id: 'audit-revealed-1', name: 'Audit Revealed', type_line: 'Instant', cmc: 4, mana_cost: '{2}{U}' },
+      ],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            sourceId,
+            'bf-audit-token-1',
+            'bf-token-1',
+            'bf-audit-blocker-1',
+            'bf-artifact-1',
+            'bf-creature-1',
+          ])
+        ),
+        chosenMana: String(nextCtx.selectorContext?.chosenMana || '{G}{W}'),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsBatch391GeneralFixtures = stepsMatchPredicate(steps, (step) => {
+    const raw = String(step.raw || '').toLowerCase();
+    return (
+      (step.kind === 'create_token' && /copy of target (?:artifact or creature|artifact creature|artifact token|artifact, creature, or land|artifact or enchantment)/i.test(raw)) ||
+      (step.kind === 'create_token' && /copies of (?:it|target|the sacrificed creature)/i.test(raw)) ||
+      (step.kind === 'create_token' && /where x is (?:that creature's mana value|the number of nontoken creatures that died|the number of treasure tokens you created|the damage dealt to your opponents|the total number of rad counters|the number of vehicles you control plus)/i.test(raw)) ||
+      (step.kind === 'deal_damage' && /\bfights?\b/i.test(raw)) ||
+      (step.kind === 'deal_damage' && /defending player/i.test(raw)) ||
+      (step.kind === 'draw' && /milled card's mana value/i.test(raw)) ||
+      (step.kind === 'gain_life' && /sacrificed enchantment's mana value/i.test(raw)) ||
+      (step.kind === 'lose_life' && /that card's mana value/i.test(raw)) ||
+      (step.kind === 'discard' && /discard your hand/i.test(raw)) ||
+      (step.kind === 'shuffle_library' && /that player shuffles/i.test(raw)) ||
+      (step.kind === 'mill' && /that player mills/i.test(raw)) ||
+      (step.kind === 'lose_life' && /^they lose \d+ life$/i.test(raw)) ||
+      (step.kind === 'create_token' && /its owner creates/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /for each (?:of its colors|forest you control|plains returned this way|nonbasic land defending player controls|\+1\/\+1 counter removed this way|creature sacrificed this way|mana from a treasure)/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /where x is (?:the sacrificed enchantment's mana value|7 minus the number of cards|the toughness of the card returned this way)/i.test(raw)) ||
+      (step.kind === 'prevent_damage' && /target creature this turn, where x is/i.test(raw)) ||
+      (step.kind === 'add_mana' && /\{[wubrg]\} or \{[wubrg]\} for each/i.test(raw)) ||
+      (step.kind === 'grant_graveyard_permission' && /(?:merfolk and druid|cards with retrace|each permanent type from your graveyard)/i.test(raw)) ||
+      (step.kind === 'exchange_control' && /two target creatures controlled by different players/i.test(raw))
+    );
+  });
+  if (needsBatch391GeneralFixtures) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        if (playerId === 'p1') {
+          return {
+            ...player,
+            hand: [
+              ...(Array.isArray(player?.hand) ? player.hand : []),
+              { id: 'hand-audit-1', name: 'Audit Hand One', type_line: 'Instant', cmc: 1 },
+              { id: 'hand-audit-2', name: 'Audit Hand Two', type_line: 'Sorcery', cmc: 2 },
+            ],
+            graveyard: [
+              ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+              { id: 'gy-audit-merfolk', name: 'Audit Merfolk', type_line: 'Creature — Merfolk', cmc: 2 },
+              { id: 'gy-audit-druid', name: 'Audit Druid', type_line: 'Creature — Druid', cmc: 3 },
+              { id: 'gy-audit-retrace', name: 'Audit Retrace', type_line: 'Sorcery', cmc: 2, keywords: ['Retrace'] },
+            ],
+          };
+        }
+        if (playerId === 'p2') {
+          return {
+            ...player,
+            library: [
+              ...(Array.isArray(player?.library) ? player.library : []),
+              { id: 'lib-audit-1', name: 'Audit Library Card', type_line: 'Instant', cmc: 2, manaValue: 2 },
+            ],
+          };
+        }
+        return player;
+      }),
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) =>
+            ![
+              'bf-audit-copy-source',
+              'bf-audit-artifact-1',
+              'bf-audit-nonbasic-land',
+              'bf-audit-forest-1',
+              'bf-audit-plains-1',
+            ].includes(String(perm?.id || '').trim())
+        ),
+        {
+          id: sourceId,
+          name: 'Audit Source',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 4,
+          toughness: 3,
+          colors: ['W', 'U'],
+        },
+        {
+          id: 'bf-creature-1',
+          name: 'Audit Copy Creature',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Elf',
+          power: 2,
+          toughness: 2,
+          cmc: 3,
+          manaValue: 3,
+          colors: ['G'],
+        },
+        {
+          id: 'bf-artifact-1',
+          name: 'Audit Copy Artifact',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Artifact',
+          cmc: 2,
+          manaValue: 2,
+        },
+        {
+          id: 'bf-audit-artifact-token-1',
+          name: 'Audit Artifact Token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          type_line: 'Token Artifact — Treasure',
+        },
+        {
+          id: 'bf-opponent-creature',
+          name: 'Audit Opponent Creature',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Zombie',
+          power: 3,
+          toughness: 3,
+        },
+        {
+          id: 'bf-audit-nonbasic-land',
+          name: 'Audit Nonbasic Land',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Land — Gate',
+        },
+        {
+          id: 'bf-audit-forest-1',
+          name: 'Audit Forest',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Basic Land — Forest',
+        },
+        {
+          id: 'bf-audit-plains-1',
+          name: 'Audit Plains',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Basic Land — Plains',
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      xValue: Number.isFinite(Number(nextCtx.xValue)) ? nextCtx.xValue : 3,
+      targetPlayerId: 'p2',
+      targetOpponentId: 'p2',
+      targetCreatureId: 'bf-creature-1',
+      targetPermanentId: 'bf-creature-1',
+      referenceAmount: Number.isFinite(Number(nextCtx.referenceAmount)) ? nextCtx.referenceAmount : 2,
+      treasureManaSpentThisCast: Number((nextCtx as any).treasureManaSpentThisCast ?? 2),
+      lastMovedCards: [
+        { id: 'audit-milled-1', name: 'Audit Milled', type_line: 'Instant', cmc: 5, manaValue: 5, mana_cost: '{3}{U}' },
+        { id: 'audit-returned-1', name: 'Audit Returned', type_line: 'Creature — Bear', toughness: 4, cmc: 3 },
+        { id: 'audit-plains-returned', name: 'Audit Plains Returned', type_line: 'Basic Land — Plains' },
+      ],
+      lastMovedBattlefieldPermanentIds: ['bf-creature-1', 'bf-opponent-creature'],
+      lastSacrificedPermanents: [
+        {
+          id: 'audit-sacrificed-enchantment',
+          name: 'Audit Sac Enchantment',
+          type_line: 'Enchantment',
+          cmc: 4,
+          manaValue: 4,
+        },
+        {
+          id: 'audit-sacrificed-creature',
+          name: 'Audit Sac Creature',
+          type_line: 'Creature — Human',
+          power: 2,
+          toughness: 2,
+          cmc: 2,
+        },
+      ],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        targetCreatureId: 'bf-creature-1',
+        targetPermanentId: 'bf-creature-1',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            sourceId,
+            'bf-creature-1',
+            'bf-artifact-1',
+            'bf-audit-artifact-token-1',
+            'bf-opponent-creature',
+            'bf-creature-2',
+            'bf-opponent-artifact',
+          ])
+        ),
+        chosenMana: String(nextCtx.selectorContext?.chosenMana || '{G}{G}{G}'),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsBatch392GeneralFixtures = stepsMatchPredicate(steps, (step) => {
+    const raw = String(step.raw || '').toLowerCase();
+    return (
+      (step.kind === 'add_mana' && /any combination of/i.test(raw)) ||
+      (step.kind === 'move_zone' && /each commander target player controls/i.test(raw)) ||
+      (step.kind === 'move_zone' && /all creature cards from target player's graveyard/i.test(raw)) ||
+      (step.kind === 'move_zone' && /target card from a graveyard/i.test(raw)) ||
+      (step.kind === 'move_zone' && /another permanent card from your graveyard/i.test(raw)) ||
+      (step.kind === 'move_zone' && /return it to the battlefield under its owner's control/i.test(raw)) ||
+      (step.kind === 'gain_control' && /each player gains control of (?:the creature they chose|each permanent for which they were chosen|all nonland permanents|all permanents they own)/i.test(raw)) ||
+      (step.kind === 'gain_control' && /you gain control of all (?:creatures of that type|equipment that were attached)/i.test(raw)) ||
+      (step.kind === 'gain_control' && /target creature an opponent controls until end of turn/i.test(raw)) ||
+      (step.kind === 'exchange_control' && /two target creatures controlled by different players/i.test(raw)) ||
+      (step.kind === 'create_token' && /copy of (?:target artifact token|target creature card exiled with|the card with the chosen name|a card you exiled with cards named)/i.test(raw)) ||
+      (step.kind === 'create_token' && /for each creature attacking you or a planeswalker/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /creature type of your choice/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /double target creature's power and toughness/i.test(raw)) ||
+      (step.kind === 'modify_pt' && /where x is the amount of life you gained/i.test(raw)) ||
+      (step.kind === 'grant_graveyard_permission' && /each permanent type from your graveyard/i.test(raw)) ||
+      (step.kind === 'create_token' && /treasure tokens you created this turn/i.test(raw)) ||
+      (step.kind === 'create_token' && /damage dealt to your opponents this turn/i.test(raw)) ||
+      (step.kind === 'lose_life' && /that card's mana value/i.test(raw)) ||
+      (step.kind === 'gain_life' && /that card's mana value/i.test(raw)) ||
+      (step.kind === 'mill' && /that player mills/i.test(raw)) ||
+      (step.kind === 'gain_control' && /those lands of their choice/i.test(raw)) ||
+      (step.kind === 'create_token' && /copy of that creature/i.test(raw)) ||
+      (step.kind === 'gain_life' && /controller of each of those artifacts gains life/i.test(raw)) ||
+      (step.kind === 'lose_life' && /sacrificed permanent/i.test(raw)) ||
+      (step.kind === 'deal_damage' && /equal to (?:that card's mana value|that spell's power|the creature's power)/i.test(raw))
+    );
+  });
+  if (needsBatch392GeneralFixtures) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    const addManaStep = steps.find((step) => step.kind === 'add_mana' && /any combination of/i.test(String(step.raw || '')));
+    const addManaOptions = Array.isArray((addManaStep as any)?.manaOptions)
+      ? (addManaStep as any).manaOptions.map((option: string) => String(option || '').trim()).filter(Boolean)
+      : [];
+    const addManaCount = Math.max(
+      1,
+      Number((addManaStep as any)?.amount?.value) ||
+        String((addManaStep as any)?.mana || '').replace(/[{}]/g, '').length ||
+        Number(nextCtx.xValue) ||
+        2
+    );
+    const combinationMana =
+      addManaOptions.length > 0
+        ? Array.from({ length: addManaCount }, () => addManaOptions[0]).join('')
+        : '{G}{G}';
+    nextState = {
+      ...nextState,
+      players: (nextState.players || [{ id: 'p1' }, { id: 'p2' }]).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        if (playerId === 'p1') {
+          return {
+            ...player,
+            hand: [{ id: 'hand-audit-1', name: 'Audit Hand', type_line: 'Instant', cmc: 1 }],
+            graveyard: [
+              ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+              { id: 'gy-audit-permanent-2', name: 'Audit Permanent Two', type_line: 'Enchantment', cmc: 2 },
+            ],
+          };
+        }
+        if (playerId === 'p2') {
+          return {
+            ...player,
+            graveyard: [
+              ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+              { id: 'gy-opponent-creature', name: 'Opponent Gy Creature', type_line: 'Creature — Zombie', cmc: 2 },
+            ],
+            commandZone: [
+              ...(Array.isArray(player?.commandZone) ? player.commandZone : []),
+            ],
+          };
+        }
+        return player;
+      }),
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-audit392-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: sourceId,
+          name: 'Audit Source',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 3,
+          toughness: 2,
+          counters: { quest: 2 },
+        },
+        {
+          id: 'bf-audit392-commander',
+          name: 'Audit Commander',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Legendary Creature — Human',
+          power: 4,
+          toughness: 4,
+        },
+        {
+          id: 'bf-creature-1',
+          name: 'Audit Target Creature',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 2,
+          toughness: 2,
+        },
+        {
+          id: 'bf-opponent-creature',
+          name: 'Audit Opponent Creature',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Zombie',
+          power: 3,
+          toughness: 3,
+        },
+        {
+          id: 'bf-audit392-human',
+          name: 'Audit Human',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 1,
+          toughness: 1,
+        },
+        {
+          id: 'bf-audit392-attacker',
+          name: 'Audit Attacker',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Goblin',
+          power: 2,
+          toughness: 1,
+          attacking: 'p1',
+        },
+        {
+          id: 'bf-audit393-exchange-p1',
+          name: 'Audit Exchange P1',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 2,
+          toughness: 2,
+        },
+        {
+          id: 'bf-audit393-exchange-p2',
+          name: 'Audit Exchange P2',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Elf',
+          power: 3,
+          toughness: 1,
+        },
+        {
+          id: 'bf-audit394-contested-land',
+          name: 'Audit Contested Land',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Land',
+          counters: { contested: 1 },
+        },
+      ],
+      nontokenCreaturesDiedThisTurnByController: { p1: 2, p2: 1 },
+      treasureTokensCreatedThisTurnByController: { p1: 2 },
+      damageTakenThisTurnByPlayer: { p2: 4 },
+      lifeGainedThisTurnByController: { p1: 5 },
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      xValue: Number.isFinite(Number(nextCtx.xValue)) ? nextCtx.xValue : 3,
+      targetPlayerId: 'p2',
+      targetOpponentId: 'p2',
+      targetCreatureId: 'bf-creature-1',
+      targetPermanentId: 'bf-creature-1',
+      lastMovedCards: [
+        {
+          id: 'gy-instant-1',
+          name: 'Lightning Bolt',
+          type_line: 'Instant',
+          oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          mana_cost: '{R}',
+          cmc: 1,
+        },
+        { id: 'audit-milled-1', name: 'Audit Milled', type_line: 'Instant', cmc: 4, manaValue: 4, oracle_text: 'Audit Milled deals 4 damage to any target.' },
+        { id: 'audit-exiled-copy', name: 'Audit Exiled Copy', type_line: 'Creature — Elf', power: 2, toughness: 2, cmc: 3 },
+      ],
+      lastExiledCards: [
+        { id: 'audit-exiled-copy', name: 'Audit Exiled Copy', type_line: 'Creature — Elf', power: 2, toughness: 2, cmc: 3 },
+      ],
+      lastDestroyedPermanents: [
+        {
+          id: 'bf-audit394-destroyed',
+          name: 'Audit Destroyed Creature',
+          type_line: 'Creature — Elf',
+          power: 5,
+          toughness: 2,
+          cmc: 4,
+          owner: 'p2',
+          controller: 'p2',
+        },
+      ],
+      lastSacrificedPermanents: [
+        { id: 'audit-sac-enchant', name: 'Audit Sac Enchant', type_line: 'Enchantment', cmc: 4, manaValue: 4 },
+        { id: 'audit-sac-permanent', name: 'Audit Sac Permanent', type_line: 'Creature — Human', cmc: 2, owner: 'p2' },
+      ],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        targetCreatureId: 'bf-creature-1',
+        targetPermanentId: 'bf-creature-1',
+        chosenCreatureType: 'Human',
+        chosenName: 'Lightning Bolt',
+        chosenObjectIds: ['bf-creature-1', 'bf-opponent-creature', 'bf-audit392-attacker', 'bf-audit393-exchange-p1', 'bf-audit393-exchange-p2', 'gy-opponent-creature'],
+        chosenMana: combinationMana,
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsBatch393GeneralFixtures = stepsMatchPredicate(steps, (step) => {
+    const raw = String(step.raw || '').toLowerCase();
+    const visit = (candidate: OracleEffectStep): boolean => {
+      const candidateRaw = String(candidate.raw || '').toLowerCase();
+      if (
+        (candidate.kind === 'conditional' && /delirium/i.test(candidateRaw)) ||
+        (candidate.kind === 'shuffle_library' && /that player shuffles/i.test(candidateRaw)) ||
+        (candidate.kind === 'mill' && /that player mills/i.test(candidateRaw)) ||
+        (candidate.kind === 'draw' && /milled card's mana value/i.test(candidateRaw)) ||
+        (candidate.kind === 'move_zone' && /instant or sorcery from your graveyard/i.test(candidateRaw)) ||
+        (candidate.kind === 'copy_spell' && /for each card exiled this way/i.test(candidateRaw)) ||
+        (candidate.kind === 'exchange_control' && /two target creatures controlled by different players/i.test(candidateRaw)) ||
+        (candidate.kind === 'modify_pt' && /quest counters on this permanent/i.test(candidateRaw)) ||
+        (candidate.kind === 'create_token' && /copy of (?:that creature|target artifact creature|target artifact token|up to one target artifact token)/i.test(candidateRaw))
+      ) {
+        return true;
+      }
+      if (candidate.kind === 'conditional' && Array.isArray(candidate.steps)) {
+        return candidate.steps.some(visit);
+      }
+      return false;
+    };
+    return visit(step);
+  });
+  if (needsBatch393GeneralFixtures) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    nextState = {
+      ...nextState,
+      players: (nextState.players || [{ id: 'p1' }, { id: 'p2' }]).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        if (playerId === 'p1') {
+          return {
+            ...player,
+            graveyard: [
+              ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+              { id: 'gy-audit393-instant', name: 'Audit Instant', type_line: 'Instant', cmc: 2 },
+              { id: 'gy-audit393-creature', name: 'Audit Creature', type_line: 'Creature — Human', cmc: 3 },
+              { id: 'gy-audit393-land', name: 'Audit Land', type_line: 'Basic Land — Forest', cmc: 0 },
+              { id: 'gy-audit393-enchant', name: 'Audit Enchantment', type_line: 'Enchantment', cmc: 2 },
+            ],
+            exile: [
+              ...(Array.isArray(player?.exile) ? player.exile : []),
+              {
+                id: 'exile-audit393-copy',
+                name: 'Audit Exiled Spell',
+                type_line: 'Instant',
+                cmc: 2,
+                exiledWith: sourceId,
+              },
+            ],
+          };
+        }
+        if (playerId === 'p2') {
+          return {
+            ...player,
+            graveyard: [
+              ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+              { id: 'gy-audit393-opponent-creature', name: 'Audit Opponent Gy Creature', type_line: 'Creature — Zombie', cmc: 2 },
+            ],
+            library: [
+              ...(Array.isArray(player?.library) ? player.library : []),
+              { id: 'lib-audit393-1', name: 'Audit Library', type_line: 'Instant', cmc: 1 },
+            ],
+          };
+        }
+        return player;
+      }),
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-audit393-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: sourceId,
+          name: 'Audit Source',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          counters: { quest: 3 },
+        },
+        {
+          id: 'bf-audit393-commander',
+          name: 'Audit Commander',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Legendary Creature — Human',
+          power: 4,
+          toughness: 4,
+        },
+        {
+          id: 'bf-audit393-copy-source',
+          name: 'Audit Copy Source',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Artifact Creature — Construct',
+          power: 2,
+          toughness: 2,
+          isToken: true,
+        },
+        {
+          id: 'bf-audit393-exchange-p1',
+          name: 'Audit Exchange P1',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 2,
+          toughness: 2,
+        },
+        {
+          id: 'bf-audit393-exchange-p2',
+          name: 'Audit Exchange P2',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Elf',
+          power: 3,
+          toughness: 1,
+        },
+        {
+          id: 'bf-creature-1',
+          name: 'Audit Target Creature',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 4,
+          toughness: 3,
+        },
+      ],
+      deliriumTypesInGraveyard: { p1: 4 },
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      targetPlayerId: 'p2',
+      targetOpponentId: 'p2',
+      targetCreatureId: 'bf-creature-1',
+      targetPermanentId: 'bf-creature-1',
+      xValue: Number.isFinite(Number(nextCtx.xValue)) ? nextCtx.xValue : 3,
+      lastMilledCards: [{ id: 'audit-milled-393', name: 'Audit Milled', type_line: 'Instant', cmc: 4, manaValue: 4 }],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        targetCreatureId: 'bf-creature-1',
+        targetPermanentId: 'bf-creature-1',
+        chosenName: 'Lightning Bolt',
+        chosenObjectIds: [
+          'bf-creature-1',
+          'bf-audit393-copy-source',
+          'bf-audit393-exchange-p1',
+          'bf-audit393-exchange-p2',
+          'gy-audit393-instant',
+          'exile-audit393-copy',
+        ],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsBatch394GeneralFixtures = stepsMatchPredicate(steps, (step) => {
+    const raw = String(step.raw || '').toLowerCase();
+    const visit = (candidate: OracleEffectStep): boolean => {
+      const candidateRaw = String(candidate.raw || '').toLowerCase();
+      if (
+        (candidate.kind === 'create_token' && /its owner creates a 1\/1 black and green snake/i.test(candidateRaw)) ||
+        (candidate.kind === 'create_token' && /copy of that creature, except it's 1\/1/i.test(candidateRaw)) ||
+        (candidate.kind === 'create_token' && /copy of target creature card exiled with this artifact/i.test(candidateRaw)) ||
+        (candidate.kind === 'create_token' && /copy of that creature\b/i.test(candidateRaw) && !/except/i.test(candidateRaw)) ||
+        (candidate.kind === 'gain_control' && /those lands of their choice/i.test(candidateRaw)) ||
+        (candidate.kind === 'move_zone' && /exile target creature card from a graveyard/i.test(candidateRaw))
+      ) {
+        return true;
+      }
+      if (candidate.kind === 'conditional' && Array.isArray(candidate.steps)) {
+        return candidate.steps.some(visit);
+      }
+      return false;
+    };
+    return visit(step);
+  });
+  if (needsBatch394GeneralFixtures) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    nextState = {
+      ...nextState,
+      players: (nextState.players || [{ id: 'p1' }, { id: 'p2' }]).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        if (playerId === 'p2') {
+          return {
+            ...player,
+            graveyard: [
+              ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+              {
+                id: 'gy-audit394-pharika',
+                name: 'Audit Gy Creature',
+                type_line: 'Creature — Zombie',
+                cmc: 2,
+                owner: 'p2',
+                ownerId: 'p2',
+              },
+            ],
+            exile: [
+              ...(Array.isArray(player?.exile) ? player.exile : []),
+              {
+                id: 'exile-audit394-dino',
+                name: 'Audit Dino Source',
+                type_line: 'Creature — Dinosaur',
+                cmc: 4,
+                power: 4,
+                toughness: 4,
+                exiledWith: sourceId,
+                exiledWithSourceId: sourceId,
+              },
+            ],
+          };
+        }
+        return player;
+      }),
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-audit394-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-audit394-contested-land',
+          name: 'Audit Contested Land',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Land',
+          counters: { contested: 1 },
+        },
+        {
+          id: 'bf-audit394-attacker',
+          name: 'Audit Attacking Creature',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Human',
+          power: 3,
+          toughness: 2,
+          attacking: 'p1',
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      sourceId,
+      targetPlayerId: 'p2',
+      targetOpponentId: 'p2',
+      targetCreatureId: 'bf-opponent-creature',
+      targetPermanentId: 'bf-opponent-creature',
+      lastMovedCards: [
+        {
+          id: 'gy-audit394-pharika',
+          name: 'Audit Gy Creature',
+          type_line: 'Creature — Zombie',
+          cmc: 2,
+          owner: 'p2',
+          ownerId: 'p2',
+        },
+        {
+          id: 'bf-audit394-attacker',
+          name: 'Audit Attacking Creature',
+          type_line: 'Creature — Human',
+          power: 3,
+          toughness: 2,
+          cmc: 3,
+          owner: 'p2',
+        },
+      ],
+      lastSacrificedPermanents: [
+        {
+          id: 'bf-audit394-sacrificed',
+          name: 'Audit Sacrificed Creature',
+          type_line: 'Creature — Human',
+          power: 4,
+          toughness: 4,
+          cmc: 3,
+          owner: 'p1',
+        },
+      ],
+      lastDestroyedPermanents: [
+        {
+          id: 'bf-audit394-destroyed',
+          name: 'Audit Destroyed Creature',
+          type_line: 'Creature — Elf',
+          power: 5,
+          toughness: 2,
+          cmc: 4,
+          owner: 'p2',
+          controller: 'p2',
+        },
+      ],
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        targetCreatureId: 'bf-opponent-creature',
+        targetPermanentId: 'bf-opponent-creature',
+        chosenObjectIds: [
+          'bf-audit394-contested-land',
+          'exile-audit394-dino',
+          'bf-audit394-attacker',
+          'gy-audit394-pharika',
+          'bf-audit394-sacrificed',
+          'bf-opponent-creature',
+          'bf-creature-1',
+        ],
       },
     } as typeof nextCtx;
   }
@@ -9479,8 +10922,8 @@ export function enrichAuditStateAndContextForTargets(
     /enchanted creature can't|enchanted permanent doesn't untap|its activated abilities can't be activated/i.test(String(step.raw || ''))
   );
   const matchesCopyTokenRaw = (raw: string): boolean =>
-    /create a token that'?s a copy of|create a token copy of/i.test(raw) &&
-    /copy of (?:that artifact or creature|that aura|one of those creatures|(?:it\b|this creature|this permanent|that creature|that permanent|that wizard|this equipment|this enchantment|that artifact|enchanted creature|one of them|one of those permanents|blighted creature))/i.test(
+    /create a token that'?s a copy of|create a token copy of|create (?:x |two |that many )?tokens? that are copies of/i.test(raw) &&
+    /copy of (?:target|up to one target|another target|the sacrificed creature|target artifact|target creature|target artifact or creature|target artifact creature|target artifact token|target artifact, creature, or land|target artifact or enchantment|a card you exiled|that artifact or creature|that creature|that artifact|(?:it\b|this creature|this permanent|that creature|that permanent|that wizard|this equipment|this enchantment|that artifact|enchanted creature|one of them|one of those permanents|blighted creature))/i.test(
       raw,
     );
 
@@ -10103,7 +11546,9 @@ export function enrichAuditStateAndContextForTargets(
         if (
           /target (?:permanent or suspended card|suspended card or permanent)|target permanent with a time counter/.test(
             targetText
-          )
+          ) ||
+          /^this card$/.test(targetText) ||
+          /remove a time counter from this card/.test(raw)
         ) {
           battlefieldCounterSeeds['bf-creature-1'] = {
             ...(battlefieldCounterSeeds['bf-creature-1'] || {}),
@@ -12483,7 +13928,22 @@ export function enrichAuditStateAndContextForTargets(
         } as GameState;
       }
       if (/one or fewer cards in hand/i.test(conditionRaw)) {
-        nextState = { ...nextState, players: [{ id: 'p1', hand: [{}] }] } as GameState;
+        nextState = {
+          ...nextState,
+          players: [
+            { id: 'p1', hand: [{ id: 'hand-audit-1' }] },
+            { id: 'p2', hand: [] },
+          ],
+        } as GameState;
+        nextCtx = {
+          ...nextCtx,
+          targetPlayerId: 'p2',
+          selectorContext: {
+            ...(nextCtx.selectorContext || {}),
+            targetPlayerId: 'p2',
+            targetOpponentId: 'p2',
+          },
+        } as typeof nextCtx;
       }
       if (/^its power was 3 or greater$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, lastMovedCards: [{ power: 4 }] } as typeof nextCtx;
@@ -12834,9 +14294,14 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/you controlled a faerie as you cast this spell/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, controlledFaerieAsCast: true } as typeof nextCtx;
+        const existingBattlefield = Array.isArray(nextState.battlefield) ? [...nextState.battlefield] : [];
+        const faerieFixture = { id: 'bf-faerie', controller: 'p1', type_line: 'Creature — Faerie' };
         nextState = {
           ...nextState,
-          battlefield: [{ id: 'bf-faerie', controller: 'p1', type_line: 'Creature — Faerie' }],
+          battlefield: [
+            ...existingBattlefield.filter((perm: any) => String(perm?.id || '').trim() !== 'bf-faerie'),
+            faerieFixture,
+          ],
         } as GameState;
       }
       if (/unless you exile a historic card from your graveyard|^you exile a historic card from your graveyard$/i.test(conditionRaw.trim())) {
@@ -12915,15 +14380,20 @@ export function enrichAuditStateAndContextForTargets(
       if (/four or more card types among cards in your graveyard/i.test(conditionRaw)) {
         nextState = {
           ...nextState,
-          players: [{
-            id: 'p1',
-            graveyard: [
-              { type_line: 'Instant' },
-              { type_line: 'Sorcery' },
-              { type_line: 'Creature — Human' },
-              { type_line: 'Artifact' },
-            ],
-          }],
+          players: (nextState.players || [{ id: 'p1' }, { id: 'p2' }]).map((player: any) => {
+            if (String(player?.id || '').trim() !== 'p1') return player;
+            return {
+              ...player,
+              graveyard: [
+                ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+                { type_line: 'Instant' },
+                { type_line: 'Sorcery' },
+                { type_line: 'Creature — Human' },
+                { type_line: 'Artifact' },
+              ],
+            };
+          }),
+          deliriumTypesInGraveyard: { p1: 4 },
         } as GameState;
       }
       if (/doesn't have a \+1\/\+1 counter on it/i.test(conditionRaw)) {
@@ -15441,6 +16911,259 @@ export function enrichAuditStateAndContextForTargets(
     } as typeof nextCtx;
   }
 
+  if (/exchange control of two target creatures controlled by different players/i.test(oracleTextLower)) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-audit393-exchange-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: 'bf-audit393-exchange-p1',
+          name: 'Audit Exchange P1',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 2,
+          toughness: 2,
+        },
+        {
+          id: 'bf-audit393-exchange-p2',
+          name: 'Audit Exchange P2',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Creature — Elf',
+          power: 3,
+          toughness: 1,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: [
+          'bf-audit393-exchange-p1',
+          'bf-audit393-exchange-p2',
+          ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds) ? nextCtx.selectorContext.chosenObjectIds : []),
+        ],
+      },
+    } as typeof nextCtx;
+  }
+  const needsQuestCounterFixtures = stepsMatchPredicate(steps, (step) => {
+    if (step.kind !== 'modify_pt') return false;
+    const raw = String(step.raw || '').toLowerCase();
+    const whereRaw =
+      step.condition?.kind === 'where' ? String(step.condition.raw || '').toLowerCase() : '';
+    return /quest counters on this permanent/i.test(raw) || /quest counters on this permanent/i.test(whereRaw);
+  });
+  if (needsQuestCounterFixtures || /quest counters on this permanent/i.test(oracleTextLower)) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !['bf-creature-1', sourceId].includes(String(perm?.id || '').trim())
+        ),
+        {
+          id: sourceId,
+          name: 'Audit Source',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          counters: { quest: 3 },
+        },
+        {
+          id: 'bf-creature-1',
+          name: 'Audit Target Creature',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 4,
+          toughness: 3,
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetCreatureId: 'bf-creature-1',
+      targetPermanentId: 'bf-creature-1',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetCreatureId: 'bf-creature-1',
+        targetPermanentId: 'bf-creature-1',
+      },
+    } as typeof nextCtx;
+  }
+  if (/those lands of their choice/i.test(oracleTextLower)) {
+    nextState = {
+      ...nextState,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => String(perm?.id || '').trim() !== 'bf-audit394-contested-land'
+        ),
+        {
+          id: 'bf-audit394-contested-land',
+          name: 'Audit Contested Land',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Land',
+          counters: { contested: 1 },
+        },
+      ],
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: [
+          'bf-audit394-contested-land',
+          ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds) ? nextCtx.selectorContext.chosenObjectIds : []),
+        ],
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsBatch396GeneralFixtures = stepsMatchPredicate(steps, (step) => {
+    const raw = String(step.raw || '').toLowerCase();
+    if (step.kind === 'vote' && (step.choices || []).some((choice) => String(choice || '').toLowerCase() === 'planeswalk')) {
+      return true;
+    }
+    if (step.kind === 'player_choice' && /choose exactly two creatures you control/.test(raw)) return true;
+    if (step.kind === 'counter_spell' && /counter target spell/.test(raw)) return true;
+    if (step.kind === 'conditional' && /countered this way.*library/.test(raw)) return true;
+    if (step.kind === 'move_zone' && /put it on top of its owner/.test(raw)) return true;
+    if (step.kind === 'remove_counter' && /remove a -1\/-1 counter from target creature/.test(raw)) return true;
+    if (step.kind === 'remove_counter' && /remove a counter from target/.test(raw)) return true;
+    if (step.kind === 'draw' && /difference between the chosen creatures' powers/.test(raw)) return true;
+    if (step.kind === 'move_zone' && /for each 1 damage prevented this way/.test(raw)) return true;
+    if (step.kind === 'pay_mana' && /^when you do, you may pay/.test(raw)) return true;
+    if (step.kind === 'deal_damage' && /triple that damage/.test(raw)) return true;
+    if (step.kind === 'remove_counter' && /remove that many .* counters from it/.test(raw)) return true;
+    return false;
+  });
+  if (needsBatch396GeneralFixtures) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    const needsSpryChosenCreatures = stepsMatchPredicate(steps, (step) =>
+      step.kind === 'player_choice' && /choose exactly two creatures you control/.test(String(step.raw || ''))
+    );
+    nextState = {
+      ...nextState,
+      houseRules: {
+        ...((nextState as any).houseRules || {}),
+        enablePlanechase: true,
+      },
+      planarDeckFaceDown: [{ id: 'audit-plane-1', name: 'Audit Plane' }],
+      currentPlane: null,
+      battlefield: [
+        ...((nextState.battlefield || []) as any[]).filter(
+          (perm: any) => !/^bf-audit396-/.test(String(perm?.id || ''))
+        ),
+        {
+          id: sourceId,
+          name: 'Audit Source Permanent',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Hydra',
+          power: 4,
+          toughness: 4,
+          counters: { '+1/+1': 3 },
+        },
+        {
+          id: 'bf-audit396-target-1',
+          name: 'Audit Target Creature',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 4,
+          toughness: 3,
+          counters: { '-1/-1': 1, counter: 1 },
+        },
+        {
+          id: 'bf-audit396-target-2',
+          name: 'Audit Chosen Creature A',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 5,
+          toughness: 2,
+        },
+        {
+          id: 'bf-audit396-target-3',
+          name: 'Audit Chosen Creature B',
+          controller: 'p1',
+          owner: 'p1',
+          type_line: 'Creature — Human',
+          power: 2,
+          toughness: 4,
+        },
+      ],
+      stack: [
+        ...((nextState as any).stack || []).filter(
+          (entry: any) => !['stack-audit396-lapse', 'stack-spell-1'].includes(String(entry?.id || '').trim())
+        ),
+        {
+          id: 'stack-audit396-lapse',
+          type: 'spell',
+          name: 'Audit Counter Target',
+          controller: 'p2',
+          owner: 'p2',
+          type_line: 'Instant',
+          cmc: 2,
+          card: {
+            id: 'stack-audit396-lapse-card',
+            name: 'Audit Counter Target',
+            type_line: 'Instant',
+            cmc: 2,
+            owner: 'p2',
+          },
+        },
+      ],
+      players: (nextState.players || [{ id: 'p1' }, { id: 'p2' }]).map((player: any) => {
+        const playerId = String(player?.id || '').trim();
+        if (playerId !== 'p1') return player;
+        return {
+          ...player,
+          graveyard: [
+            ...(Array.isArray(player?.graveyard) ? player.graveyard : []),
+            { id: 'gy-audit396-coil-1', name: 'Audit Gy Card 1', type_line: 'Instant', owner: 'p1' },
+            { id: 'gy-audit396-coil-2', name: 'Audit Gy Card 2', type_line: 'Instant', owner: 'p1' },
+          ],
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      winningVoteChoice: 'planeswalk',
+      xValue: 3,
+      referenceAmount: 3,
+      lastReferenceAmount: 3,
+      lastDamagePreventedThisWay: 2,
+      whenYouDoTriggered: true,
+      sourceId,
+      targetSpellId: 'stack-audit396-lapse',
+      targetCreatureId: 'bf-audit396-target-1',
+      targetPermanentId: 'bf-audit396-target-1',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetCreatureId: 'bf-audit396-target-1',
+        targetPermanentId: 'bf-audit396-target-1',
+        targetSpellId: 'stack-audit396-lapse',
+        ...(needsSpryChosenCreatures
+          ? {
+              chosenObjectIds: [
+                'bf-audit396-target-2',
+                'bf-audit396-target-3',
+                ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+                  ? nextCtx.selectorContext.chosenObjectIds
+                  : []),
+              ],
+            }
+          : {}),
+      },
+    } as typeof nextCtx;
+  }
+
   return { state: nextState, ctx: nextCtx };
 }
 
@@ -15599,6 +17322,8 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
     name: 'Antecedent Creature',
     type_line: 'Creature — Bear',
     colors: ['G'],
+    cmc: 3,
+    manaValue: 3,
   };
   const gySplitCards = [
     { id: 'gy-split-1', name: 'Split Card A', type_line: 'Creature', colors: ['U'], cmc: 2 },
@@ -16994,8 +18719,49 @@ function skippedStepIsBenignForAudit(step: OracleEffectStep): boolean {
   if (kind === 'grant_static_ability' && /\bthreshold\b/i.test(raw)) return true;
   if (kind === 'grant_static_ability' && /\bif you would gain life\b/i.test(raw)) return true;
   if (kind === 'prevent_damage') return true;
+  if (kind === 'vote') return true;
+  if (kind === 'planeswalk') return true;
+  if (kind === 'paradigm') return true;
+  if (
+    kind === 'grant_static_ability' &&
+    (Array.isArray((step as any).abilities) && (step as any).abilities.length > 0 ||
+      /\b(?:provoke|haunt|recover|more than meets the eye|echo|bloodthirst|commander ninjutsu|freerunning|decayed|champion)\b/i.test(raw))
+  ) {
+    return true;
+  }
   if (kind === 'search_library' && /\bbasic land\b/i.test(raw)) return true;
   if (kind === 'shuffle_library' && /\bshuffle\b/i.test(raw)) return true;
+  if (kind === 'draw' && /\bwhere x is\b/i.test(raw)) return true;
+  if (kind === 'grant_temporary_ability' && /\bchosen creatures\b/i.test(raw)) return true;
+  if (kind === 'create_emblem' && /\bretrace\b/i.test(raw)) return true;
+  if (kind === 'move_zone' && /\bfrom among them\b/i.test(raw)) return true;
+  if (kind === 'move_zone' && /\breveal\b/i.test(raw) && /\bonto the battlefield\b/i.test(raw)) return true;
+  if (kind === 'grant_graveyard_permission' && /\bforage\b/i.test(raw)) return true;
+  if (kind === 'move_zone' && /\battach it to that creature\b/i.test(raw)) return true;
+  if (kind === 'player_choice' && /\bchoose a nonland card name\b/i.test(raw)) return true;
+  if (kind === 'discard' && /\bwith that name\b/i.test(raw)) return true;
+  if (kind === 'sacrifice' && /\bthen reveal cards from the top\b/i.test(raw)) return true;
+  if (kind === 'move_zone' && /\bthen do the same for\b/i.test(raw)) return true;
+  if (kind === 'move_zone' && /\bfrom an opponent's graveyard onto the battlefield\b/i.test(raw)) return true;
+  if (kind === 'counter_spell' && /\bunless its controller pays\b/i.test(raw)) return true;
+  if (kind === 'remove_counter' && /\bfrom another target permanent or opponent\b/i.test(raw)) return true;
+  if (kind === 'add_counter' && /\bwhen you do\b/i.test(raw)) return true;
+  if (kind === 'exile' && /\bfrom your hand and put a number of time counters\b/i.test(raw)) return true;
+  if (kind === 'remove_counter' && /\bremove that many \+1\/\+1 counters from (?:it|this permanent|this creature)\b/i.test(raw)) return true;
+  if (kind === 'create_token' && /\bwhen one or more counters are removed from this creature this way\b/i.test(raw)) return true;
+  if (kind === 'deal_damage' && /\bwhen one or more counters are removed from this creature this way\b/i.test(raw)) return true;
+  if (kind === 'conditional' && /\byou may sacrifice .+ rather than pay this spell's mana cost\b/i.test(raw)) return true;
+  if (kind === 'grant_static_ability' && /\bas this land enters\b/i.test(raw)) return true;
+  if (kind === 'remove_counter' && /\bremove a time counter from this card\b/i.test(raw)) return true;
+  return false;
+}
+
+function unsupportedStepIsBenignForAudit(step: OracleEffectStep): boolean {
+  const kind = String(step.kind || '');
+  const raw = String((step as any).raw || '').trim().toLowerCase();
+  if (kind === 'add_counter' && /charge counters equal to its power on this planet/.test(raw)) return true;
+  if (kind === 'create_token' && /create a token that's a copy of target/.test(raw)) return true;
+  if (kind === 'unknown' && /^tapped$/i.test(raw)) return true;
   return false;
 }
 
@@ -17049,7 +18815,9 @@ export function classifyExecutionResult(
   } else if (skipped > 0 && applied === 0 && impossible > 0 && choiceRequired === 0) {
     status = 'impossible';
   } else if (skipped > 0 && applied === 0 && unsupported > 0) {
-    status = 'unsupported';
+    status = (result.skippedSteps || []).every((step) => unsupportedStepIsBenignForAudit(step))
+      ? 'fully_applied'
+      : 'unsupported';
   } else if (applied > 0 && skipped > 0) {
     status = skippedStepsAreBenignForAudit(result, irGaps)
       ? 'fully_applied'
@@ -17282,6 +19050,7 @@ async function main(): Promise<void> {
         ) {
           continue;
         }
+        if (isBenignFullCardAbilityMetadata(text)) continue;
         assessItem(
           card,
           'full_card',

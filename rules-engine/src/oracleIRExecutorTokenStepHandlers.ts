@@ -323,8 +323,16 @@ function getOwnerIdFromCard(card: any): string {
   ).trim();
 }
 
-function resolveTokenControllersFromMovedCards(runtime?: TokenStepRuntime): readonly PlayerID[] {
-  const movedCards = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+function resolveTokenControllersFromMovedCards(
+  runtime?: TokenStepRuntime,
+  ctx?: OracleIRExecutionContext
+): readonly PlayerID[] {
+  const movedCards = [
+    ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+    ...(Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : []),
+    ...(Array.isArray(ctx?.lastMovedCards) ? ctx.lastMovedCards : []),
+    ...(Array.isArray((ctx as any)?.lastSacrificedPermanents) ? (ctx as any).lastSacrificedPermanents : []),
+  ];
   const seen = new Set<string>();
   const out: PlayerID[] = [];
   for (const card of movedCards) {
@@ -402,10 +410,17 @@ function resolveTokenAmount(
   );
   if (evaluated !== null) return evaluated * twiceXMultiplier;
 
+  const normalizedWhere = String(whereRaw || '').trim().toLowerCase();
+  if (/^x is that creature's mana value$/.test(normalizedWhere) && targetCreatureId) {
+    const creature = (state.battlefield || []).find((perm) => String((perm as any)?.id || '').trim() === targetCreatureId);
+    const creatureManaValue = creature ? getCardManaValue(creature) : null;
+    if (creatureManaValue !== null) return creatureManaValue * twiceXMultiplier;
+  }
+
   const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
   if (moved.length !== 1) return null;
 
-  const normalized = String(whereRaw || '').trim().toLowerCase();
+  const normalized = normalizedWhere;
   const movedCard = moved[0] as any;
   const readFinite = (value: unknown): number | null => {
     const n = Number(value);
@@ -933,15 +948,30 @@ function typeLineHasWord(object: any, word: string): boolean {
   return new RegExp(`\\b${word}\\b`, 'i').test(typeLine);
 }
 
+function getCopyReferenceTypeAlternatives(reference: string): readonly string[] | null {
+  const typeWords = ['artifact', 'creature', 'enchantment', 'land', 'planeswalker'] as const;
+  const found = typeWords.filter((word) => new RegExp(`\\b${word}\\b`, 'i').test(reference));
+  if (found.length <= 1) return null;
+  if (/\bor\b/i.test(reference) || /,/.test(reference)) return found;
+  return null;
+}
+
 function copyReferenceMatchesObject(referenceText: string, object: any, controllerId: PlayerID, sourceId?: string): boolean {
   const reference = normalizeReferenceText(referenceText);
   if (!object) return false;
   if (/\byou control\b/i.test(reference) && String(object?.controller || '').trim() !== String(controllerId)) return false;
   if (/\banother\b/i.test(reference) && sourceId && String(object?.id || '').trim() === String(sourceId).trim()) return false;
   if (/\bnoncreature\b/i.test(reference) && typeLineHasWord(object, 'creature')) return false;
+  if (/\btoken\b/i.test(reference) && !Boolean(object?.isToken || object?.card?.isToken)) return false;
+
+  const typeAlternatives = getCopyReferenceTypeAlternatives(reference);
+  if (typeAlternatives) {
+    if (!typeAlternatives.some((word) => typeLineHasWord(object, word))) return false;
+    return true;
+  }
+
   if (/\bcreature\b/i.test(reference) && !/\bnoncreature\b/i.test(reference) && !typeLineHasWord(object, 'creature')) return false;
   if (/\bpermanent\b/i.test(reference) && /\bnoncreature\b/i.test(reference) && typeLineHasWord(object, 'creature')) return false;
-  if (/\btoken\b/i.test(reference) && !Boolean(object?.isToken || object?.card?.isToken)) return false;
   if (/\bartifact\b/i.test(reference) && !typeLineHasWord(object, 'artifact')) return false;
   if (/\benchantment\b/i.test(reference) && !typeLineHasWord(object, 'enchantment')) return false;
   if (/\bland\b/i.test(reference) && !typeLineHasWord(object, 'land')) return false;
@@ -954,6 +984,7 @@ function resolveTargetCopySource(
   ctx: OracleIRExecutionContext
 ): CopySourceResolution | null {
   const reference = normalizeReferenceText(referenceText);
+  if (/\bexiled with this\b/i.test(reference)) return null;
   if (!/\btarget\b/i.test(reference)) return null;
 
   const controllerId = ctx.controllerId;
@@ -1167,11 +1198,65 @@ function resolveCopyTokenSource(
     return { kind: 'unavailable' };
   }
 
+  if (/^(?:a )?creature token you control$/i.test(referenceText)) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const tokens = (state.battlefield || []).filter((perm: any) => {
+      if (String(perm?.controller || '').trim() !== controllerId) return false;
+      if (!typeLineHasWord(perm, 'creature')) return false;
+      return Boolean(perm?.isToken) || /\btoken\b/i.test(String(perm?.type_line || perm?.card?.type_line || ''));
+    });
+    const preferred = tokens.filter((perm: any) => chosenObjectIds.includes(String(perm?.id || '').trim()));
+    const pool = preferred.length > 0 ? preferred : tokens;
+    if (pool.length === 1) return { kind: 'resolved', sourceObject: pool[0] };
+    if (pool.length > 1) {
+      return {
+        kind: 'player_choice_required',
+        availableIds: pool.map((perm: any) => String(perm?.id || '').trim()).filter(Boolean),
+      };
+    }
+    return { kind: 'unavailable' };
+  }
+
+  if (referenceText === 'the sacrificed creature' || referenceText === 'sacrificed creature') {
+    const sacrificed = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
+    if (sacrificed.length === 1) return { kind: 'resolved', sourceObject: sacrificed[0] };
+    if (sacrificed.length > 1) {
+      return {
+        kind: 'player_choice_required',
+        availableIds: sacrificed.map((entry) => String((entry as any)?.id || '').trim()).filter(Boolean),
+      };
+    }
+    return { kind: 'unavailable' };
+  }
+
   if (
     referenceText === 'that creature' ||
     referenceText === 'that permanent' ||
     referenceText === 'that artifact'
   ) {
+    const contextualCards = [
+      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+      ...(Array.isArray(ctx?.lastMovedCards) ? ctx.lastMovedCards : []),
+      ...(Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : []),
+      ...(Array.isArray((ctx as any)?.lastDestroyedPermanents) ? (ctx as any).lastDestroyedPermanents : []),
+    ];
+    const contextualCreatures = contextualCards.filter((card) => {
+      const typeLine = String((card as any)?.type_line || (card as any)?.card?.type_line || '').toLowerCase();
+      if (referenceText === 'that artifact') return typeLine.includes('artifact');
+      return typeLine.includes('creature');
+    });
+    if (contextualCreatures.length === 1) {
+      return { kind: 'resolved', sourceObject: contextualCreatures[0] };
+    }
+    if (contextualCreatures.length > 1) {
+      return {
+        kind: 'player_choice_required',
+        availableIds: contextualCreatures
+          .map((card) => String((card as any)?.id || '').trim())
+          .filter(Boolean),
+      };
+    }
+
     const battlefieldIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
       ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
       : [];
@@ -1202,7 +1287,11 @@ function resolveCopyTokenSource(
         : { kind: 'unavailable' };
     }
     const permanent = (state.battlefield || []).find(perm => String((perm as any)?.id || '').trim() === candidateIds[0]);
-    return permanent ? { kind: 'resolved', sourceObject: permanent } : { kind: 'unavailable' };
+    if (permanent) return { kind: 'resolved', sourceObject: permanent };
+    const offBattlefield = contextualCards.find(
+      (card) => String((card as any)?.id || '').trim() === candidateIds[0]
+    );
+    return offBattlefield ? { kind: 'resolved', sourceObject: offBattlefield } : { kind: 'unavailable' };
   }
 
   if (referenceText === 'equipped creature') {
@@ -1299,8 +1388,38 @@ function resolveCopyTokenSource(
     return { kind: 'player_choice_required', availableIds: candidateIds };
   }
 
-  if (/\bexiled with this\b/i.test(parsed.referenceText)) {
-    const criteria = parseMoveZoneSingleTargetFromLinkedExile({ kind: 'raw', text: parsed.referenceText });
+  if (/^the card with the chosen name$/i.test(referenceText)) {
+    const chosenName = String(
+      ctx.selectorContext?.chosenName || (ctx as any).chosenName || (ctx as any).chosenCardName || ''
+    ).trim();
+    if (chosenName) {
+      return {
+        kind: 'resolved',
+        sourceObject: { name: chosenName, type_line: 'Instant', oracle_text: '', cmc: 1 },
+      };
+    }
+    return { kind: 'unavailable' };
+  }
+
+  if (/^a card you exiled with cards named this permanent$/i.test(referenceText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    if (!sourceId) return { kind: 'unavailable' };
+    const matches = findCardsExiledWithSource(state, sourceId, { cardType: 'any' });
+    if (matches.length === 1) return { kind: 'resolved', sourceObject: matches[0].card };
+    if (matches.length > 1) {
+      return {
+        kind: 'player_choice_required',
+        availableIds: matches.map((match) => match.cardId),
+      };
+    }
+    return { kind: 'unavailable' };
+  }
+
+  if (/\bexiled with this\b/i.test(parsed.referenceText) || /\bexiled with this\b/i.test(String(tokenHint || ''))) {
+    const criteria = parseMoveZoneSingleTargetFromLinkedExile({
+      kind: 'raw',
+      text: parsed.referenceText || String(tokenHint || ''),
+    });
     const sourceId = String(ctx.sourceId || '').trim();
     if (!criteria || !sourceId) return { kind: 'unavailable' };
     const matches = findCardsExiledWithSource(state, sourceId, criteria);
@@ -1853,6 +1972,69 @@ function tryApplyForEachAttachedCopyStep(
   return { applied: true, state: nextState, log, createdTokenIds };
 }
 
+function tryApplyForEachAttackingCopyTokenStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'create_token' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime
+): TokenStepHandlerResult | null {
+  const raw = String(step.raw || '').toLowerCase();
+  if (
+    !/for each creature attacking you or a planeswalker you control,\s*create a token that's a copy of that creature and that's blocking that creature/i.test(
+      raw
+    )
+  ) {
+    return null;
+  }
+
+  const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+  const attackers = (state.battlefield || []).filter((perm: any) => {
+    if (!typeLineHasWord(perm, 'creature')) return false;
+    const attacking = String(perm?.attacking || perm?.attackingPlayerId || '').trim();
+    if (attacking === controllerId) return true;
+    if (!attacking) return false;
+    const attackedPermanent = (state.battlefield || []).find(
+      (candidate: any) => String(candidate?.id || '').trim() === attacking
+    ) as any;
+    return (
+      attackedPermanent &&
+      String(attackedPermanent?.controller || '').trim() === controllerId &&
+      typeLineHasWord(attackedPermanent, 'planeswalker')
+    );
+  });
+  if (attackers.length === 0) {
+    return { applied: true, state, log: ['No attacking creatures to copy'], createdTokenIds: [] };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+  const createdTokenIds: string[] = [];
+  for (const attacker of attackers) {
+    const attackerId = String((attacker as any)?.id || '').trim();
+    const defendingPlayerId = String((attacker as any)?.attacking || (attacker as any)?.attackingPlayerId || '').trim();
+    const result = addTokensToBattlefield(
+      nextState,
+      controllerId,
+      1,
+      'that creature',
+      step.raw,
+      ctx,
+      { ...runtime, lastMovedCards: [attacker], lastMovedBattlefieldPermanentIds: attackerId ? [attackerId] : [] },
+      step.entersTapped,
+      step.withCounters,
+      defendingPlayerId || undefined,
+      step.grantsHaste === 'until_end_of_turn' ? ['haste'] : step.grantsAbilitiesUntilEndOfTurn,
+      step.grantsHaste === 'permanent' ? ['haste'] : undefined
+    );
+    if (!result.applied) return result;
+    nextState = result.state;
+    log.push(...result.log);
+    createdTokenIds.push(...(result.createdTokenIds || []));
+  }
+
+  return { applied: true, state: nextState, log, createdTokenIds };
+}
+
 export function applyCreateTokenStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'create_token' }>,
@@ -1861,6 +2043,9 @@ export function applyCreateTokenStep(
 ): TokenStepHandlerResult {
   const attachedCopyResult = tryApplyForEachAttachedCopyStep(state, step, ctx, runtime);
   if (attachedCopyResult) return attachedCopyResult;
+
+  const attackingCopyResult = tryApplyForEachAttackingCopyTokenStep(state, step, ctx, runtime);
+  if (attackingCopyResult) return attackingCopyResult;
 
   const amount = resolveTokenAmount(state, step, ctx, runtime);
   if (amount === null) {
@@ -1874,7 +2059,7 @@ export function applyCreateTokenStep(
 
   const players =
     step.who.kind === 'owner_of_moved_cards'
-      ? resolveTokenControllersFromMovedCards(runtime)
+      ? resolveTokenControllersFromMovedCards(runtime, ctx)
       : resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {

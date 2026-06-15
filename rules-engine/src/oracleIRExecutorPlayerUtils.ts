@@ -759,7 +759,7 @@ export function resolvePlayers(
       if (chosenTargets.length > 0) return chosenTargets;
       const bound = normalizeId(ctx.selectorContext?.targetOpponentId);
       if (bound && opponentIdSet.has(bound)) return [bound];
-      return [];
+      return opponents;
     }
     case 'any_number_of_target_players': {
       const chosenTargets = Array.isArray(ctx.selectorContext?.chosenObjectIds)
@@ -816,9 +816,13 @@ export function resolvePlayers(
       return [];
     }
     case 'target_player': {
-      const bound = normalizeId(ctx.selectorContext?.targetPlayerId);
+      const bound =
+        normalizeId(ctx.targetPlayerId) ??
+        normalizeId(ctx.selectorContext?.targetPlayerId);
       if (bound && allPlayerIds.has(bound)) return [bound];
-      const boundOpponent = normalizeId(ctx.selectorContext?.targetOpponentId);
+      const boundOpponent =
+        normalizeId(ctx.selectorContext?.targetOpponentId) ??
+        normalizeId(ctx.targetOpponentId);
       if (boundOpponent && allPlayerIds.has(boundOpponent)) return [boundOpponent];
       const boundSpellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
       if (boundSpellId) {
@@ -830,9 +834,26 @@ export function resolvePlayers(
       }
       return opponents.length === 1 ? [opponents[0]] : [];
     }
-    case 'owner_of_moved_cards':
-      return [];
+    case 'owner_of_moved_cards': {
+      const movedCards = Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : [];
+      const seen = new Set<string>();
+      const owners: PlayerID[] = [];
+      for (const card of movedCards) {
+        const ownerId = normalizeId((card as any)?.owner ?? (card as any)?.ownerId);
+        if (!ownerId || !allPlayerIds.has(ownerId) || seen.has(ownerId)) continue;
+        seen.add(ownerId);
+        owners.push(ownerId);
+      }
+      if (owners.length > 0) return owners;
+      return opponents.length === 1 ? [opponents[0]] : [];
+    }
     case 'owner_of_source': {
+      const movedCards = Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : [];
+      const sacrificed = Array.isArray(ctx.lastSacrificedPermanents) ? ctx.lastSacrificedPermanents : [];
+      for (const entry of [...sacrificed, ...movedCards].reverse()) {
+        const ownerId = normalizeId((entry as any)?.owner || (entry as any)?.controller);
+        if (ownerId && allPlayerIds.has(ownerId)) return [ownerId];
+      }
       const sourceId = String(ctx.sourceId || '').trim();
       if (sourceId) {
         for (const player of state.players || []) {
