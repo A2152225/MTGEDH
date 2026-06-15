@@ -2939,11 +2939,19 @@ export function applyModifyGraveyardPermissionsStep(
   );
 
   if (step.scope !== 'last_granted_graveyard_cards' || grantedIds.size === 0) {
-    if (step.castedPermanentEntersWithCounters) {
+    if (
+      step.castedPermanentEntersWithCounters ||
+      step.castCost ||
+      step.castCostRaw ||
+      step.additionalCost ||
+      step.withoutPayingManaCost ||
+      /\bretrace\b/i.test(String(step.raw || '')) ||
+      /\bcast from your graveyard\b/i.test(String(step.raw || ''))
+    ) {
       return {
         applied: true,
         state,
-        log: [`Escape entry carries counters: ${step.raw}`],
+        log: [`Graveyard permission modifier recorded: ${step.raw}`],
       };
     }
     return {

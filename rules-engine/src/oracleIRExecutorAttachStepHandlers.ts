@@ -81,8 +81,20 @@ function resolveBattlefieldPermanentBySelector(
   const controllerId = getControllerId(ctx);
   const chosenObjectIds = getChosenObjectIds(ctx);
 
-  if (normalized === 'it' || normalized === 'that creature' || normalized === 'that permanent') {
-    const movedIds = lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean);
+  if (normalized === 'that creature' || normalized === 'that permanent') {
+    const movedIds = lastMovedBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean);
+    const matchingMoved = movedIds.filter((id) => {
+      const perm = battlefield.find((entry) => String((entry as any)?.id || '').trim() === id) as any;
+      if (!perm) return false;
+      return hasExecutorClass(perm, normalized === 'that creature' ? 'creature' : 'permanent');
+    });
+    if (matchingMoved.length === 1) return matchingMoved[0];
+    if (matchingMoved.length > 1) return 'player_choice_required';
+    return String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
+  }
+
+  if (normalized === 'it') {
+    const movedIds = lastMovedBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean);
     if (movedIds.length === 1) return movedIds[0];
     if (movedIds.length > 1) return 'player_choice_required';
     const contextualTargetId = String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
@@ -374,11 +386,37 @@ function resolveAttachmentPermanentIds(
   const chosenObjectIds = getChosenObjectIds(ctx);
   const sourceId = String(ctx.sourceId || '').trim();
 
-  if (
-    /^(?:it|this (?:aura|enchantment|equipment|permanent))$/.test(normalized) &&
-    sourceId
-  ) {
-    return [sourceId];
+  if (/^this (?:aura|enchantment|equipment|permanent)$/.test(normalized)) {
+    if (sourceId) {
+      const sourceOnBattlefield = battlefield.some(
+        (perm) => String((perm as any)?.id || '').trim() === sourceId
+      );
+      if (sourceOnBattlefield) return [sourceId];
+    }
+    const movedIds = lastMovedBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean);
+    const attachmentFromMoved = movedIds.filter((id) => {
+      const perm = battlefield.find((entry) => String((entry as any)?.id || '').trim() === id) as any;
+      if (!perm) return false;
+      return (
+        hasExecutorClass(perm, 'equipment') ||
+        hasExecutorClass(perm, 'aura') ||
+        hasExecutorClass(perm, 'enchantment')
+      );
+    });
+    if (attachmentFromMoved.length === 1) return attachmentFromMoved;
+    if (attachmentFromMoved.length > 1) return 'player_choice_required';
+    const equipment = battlefield.filter(
+      (perm) => (perm as any)?.controller === controllerId && hasExecutorClass(perm as any, 'equipment')
+    );
+    if (equipment.length === 1) return [String((equipment[0] as any)?.id || '').trim()];
+    return sourceId ? [sourceId] : '';
+  }
+
+  if (normalized === 'it') {
+    const movedIds = lastMovedBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean);
+    if (movedIds.length === 1) return [movedIds[0]];
+    if (movedIds.length > 1) return 'player_choice_required';
+    if (sourceId) return [sourceId];
   }
 
   if (/^that equipment$/.test(normalized)) {

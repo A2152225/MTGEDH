@@ -2112,19 +2112,45 @@ function moveContextualRestToLibraryBottom(
   runtime: MoveZoneRuntime | undefined,
   movedIds: readonly string[]
 ): { state: GameState; log: string[] } {
+  return moveContextualRestAfterPrimaryMove(state, controllerId, ctx, runtime, movedIds, 'library_bottom');
+}
+
+function resolveRevealThisWayRestDestination(
+  step: Extract<OracleEffectStep, { kind: 'move_zone' }>
+): 'graveyard' | 'library_bottom' {
+  const toRaw = String(step.toRaw || step.raw || '').toLowerCase();
+  if (/\bgraveyard\b/i.test(toRaw)) return 'graveyard';
+  return 'library_bottom';
+}
+
+function moveContextualRestAfterPrimaryMove(
+  state: GameState,
+  controllerId: PlayerID,
+  ctx: OracleIRExecutionContext,
+  runtime: MoveZoneRuntime | undefined,
+  movedIds: readonly string[],
+  destination: 'graveyard' | 'library_bottom'
+): { state: GameState; log: string[] } {
   const moved = new Set(movedIds.map(id => String(id || '').trim()).filter(Boolean));
-  const restIds = resolveContextualCardIdsInZones(state, ctx, runtime, ['hand', 'exile']).filter(id => !moved.has(id));
+  const restIds = resolveContextualCardIdsInZones(state, ctx, runtime, ['library', 'hand', 'exile']).filter(
+    id => !moved.has(id)
+  );
   if (restIds.length === 0) return { state, log: [] };
 
   let workingState = state;
   const combinedLog: string[] = [];
   for (const cardId of restIds) {
     const location = findBoundCardZoneLocation(workingState, cardId);
-    if (!location || location.zone === 'library') continue;
+    if (!location || location.zone === 'graveyard') continue;
     const result =
-      location.zone === 'hand'
-        ? moveTargetedCardFromHand(workingState, location.playerId, cardId, 'any', 'library_bottom')
-        : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', 'library_bottom');
+      location.zone === 'library'
+        ? moveContextualCardToDestination(workingState, location, cardId, destination, {
+            controllerId,
+            cardType: 'any',
+          })
+        : location.zone === 'hand'
+          ? moveTargetedCardFromHand(workingState, location.playerId, cardId, 'any', destination)
+          : moveTargetedCardFromExile(workingState, location.playerId, cardId, 'any', destination);
     if (result.kind === 'impossible') continue;
     workingState = result.state;
     combinedLog.push(...(result.log || []));
@@ -2153,16 +2179,27 @@ function resolveContextualCardIdsInZones(
     : Array.isArray(ctx.lastDiscardedCards)
       ? ctx.lastDiscardedCards
       : [];
-  const candidateIds = Array.from(
+  const exiledCards = Array.isArray(runtime?.lastExiledCards)
+    ? runtime.lastExiledCards
+    : Array.isArray(ctx.lastExiledCards)
+      ? ctx.lastExiledCards
+      : [];
+  const antecedentIds = Array.from(
     new Set(
       [
-        ...getChosenObjectIds(ctx),
         ...movedCards.map(card => String((card as any)?.id || '').trim()),
         ...milledCards.map(card => String((card as any)?.id || '').trim()),
         ...discardedCards.map(card => String((card as any)?.id || '').trim()),
+        ...exiledCards.map(card => String((card as any)?.id || '').trim()),
       ].filter(Boolean)
     )
   );
+  const candidateIds =
+    antecedentIds.length > 0
+      ? antecedentIds
+      : Array.from(
+          new Set([...getChosenObjectIds(ctx), ...antecedentIds].filter(Boolean))
+        );
 
   return candidateIds.filter(cardId => {
     const location = findBoundCardZoneLocation(state, cardId);
@@ -8324,12 +8361,27 @@ export function applyMoveZoneStep(
       );
     });
     if (!cardId) {
+      const player = nextState.players.find((entry) => entry.id === controllerId) as any;
+      const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+      const criteriaMatches = graveyard.filter((card: any) =>
+        cardMatchesMoveZoneSingleTargetCriteria(card, graveyardCriteria)
+      );
+      if (criteriaMatches.length === 1) {
+        cardId = String(criteriaMatches[0]?.id || '').trim();
+      } else if (criteriaMatches.length > 1) {
+        cardId =
+          preferredIds.find((id) =>
+            criteriaMatches.some((card: any) => String(card?.id || '').trim() === id)
+          ) || String(criteriaMatches[0]?.id || '').trim();
+      }
+    }
+    if (!cardId) {
       cardId = resolveTypedCardIdFromPlayerZone(
         nextState,
         controllerId,
         'graveyard',
         graveyardCriteria.cardType,
-        preferredIds
+        []
       );
     }
     if (!cardId) {
@@ -10578,13 +10630,8 @@ export function applyMoveZoneStep(
       const card = zoneCards.find((entry: any) => String(entry?.id || '').trim() === cardId);
       return card && cardMatchesMoveZoneSingleTargetCriteria(card, effectiveCriteria);
     });
-    if (matchingIds.length === 0) {
-      return {
-        applied: false,
-        message: `Skipped move zone (revealed-this-way card unavailable): ${step.raw}`,
-        reason: 'impossible_action',
-        options: { persist: false },
-      };
+    if (matchingIds.length === 0 && !parsedRevealedThisWayRestToLibrary) {
+      return buildAppliedResult({ state: nextState, log: [`No matching revealed-this-way cards: ${step.raw}`] });
     }
     let workingState = nextState;
     const combinedLog: string[] = [];
@@ -10653,7 +10700,14 @@ export function applyMoveZoneStep(
       movedBattlefieldIds.push(...((result as any).movedPermanentIds || []));
     }
     if (parsedRevealedThisWayRestToLibrary) {
-      const restResult = moveContextualRestToLibraryBottom(workingState, controllerId, ctx, runtime, movedCardIds);
+      const restResult = moveContextualRestAfterPrimaryMove(
+        workingState,
+        controllerId,
+        ctx,
+        runtime,
+        movedCardIds,
+        resolveRevealThisWayRestDestination(step)
+      );
       workingState = restResult.state;
       combinedLog.push(...restResult.log);
     }

@@ -631,6 +631,10 @@ function cardMatchesRevealUntilCriterion(card: any, criterion: string): boolean 
   if (!typeLine) return false;
   if (normalized === 'nonland card') return !typeLine.includes('land');
   if (normalized === 'land card') return typeLine.includes('land');
+  if (/^creature card\b/i.test(normalized)) return typeLine.includes('creature');
+  if (/zombie creature card/i.test(normalized)) {
+    return typeLine.includes('creature') && typeLine.includes('zombie');
+  }
   if (normalized.endsWith(' card')) {
     const typeName = normalized.slice(0, -' card'.length).trim();
     return typeName ? typeLine.includes(typeName) : false;

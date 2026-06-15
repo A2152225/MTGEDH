@@ -2402,6 +2402,23 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   {
+    const returnedToHandMatch = normalizedRaw.match(
+      /^returned (?:a|an) ([a-z][a-z'-]*) card to your hand this way$/i
+    );
+    if (returnedToHandMatch) {
+      const subtype = String(returnedToHandMatch[1] || '').trim().toLowerCase();
+      const movedCards = [
+        ...(Array.isArray(lastMovedCards) ? lastMovedCards : []),
+        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+      ];
+      return movedCards.some((card: any) => {
+        const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+        return typeLine.includes(subtype);
+      });
+    }
+  }
+
+  {
     const gainedLifeThresholdMatch = normalizedRaw.match(/^you gained ([a-z0-9]+) or more life this turn$/i);
     if (gainedLifeThresholdMatch) {
       const threshold = parseSmallNumberWord(String(gainedLifeThresholdMatch[1] || ''));
@@ -2710,6 +2727,17 @@ export function evaluateConditionalWrapperCondition(params: {
 
   if (normalizedRaw === 'this spell was cast from your hand') {
     return String(ctx.castFromZone || '').trim().toLowerCase() === 'hand';
+  }
+
+  if (
+    normalizedRaw === 'this spell was cast from anywhere other than your hand' ||
+    normalizedRaw === 'this spell was cast from somewhere other than your hand'
+  ) {
+    const castFromZone = String(ctx.castFromZone || ctx.selectorContext?.castFromZone || '')
+      .trim()
+      .toLowerCase();
+    if (!castFromZone || castFromZone === 'hand') return false;
+    return true;
   }
 
   if (normalizedRaw === 'this spell was cast from exile') {

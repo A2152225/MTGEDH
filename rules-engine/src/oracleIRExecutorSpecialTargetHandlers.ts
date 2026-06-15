@@ -157,7 +157,9 @@ function exileBattlefieldPermanents(
     applied: true,
     state: result.state,
     log: result.log.length > 0 ? result.log : [`Exiled ${permanents.length} permanent(s) (${logLabel})`],
-    ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+    ...(movedCards.length > 0
+      ? { lastMovedCards: movedCards, lastExiledCards: movedCards, lastExiledCardCount: movedCards.length }
+      : {}),
   };
 }
 
@@ -726,18 +728,59 @@ export function trySpecialExileStep(
     return exileContextualCardsFromCtx(state, ctx, 'the rest');
   }
 
-  if (/face-down pile/.test(raw) || /face down pile/.test(raw)) {
-    return exileContextualCardsFromCtx(state, ctx, 'face-down pile');
-  }
-
   if (/exile it and the top card of your library in a face-down pile/.test(raw)) {
-    const next = millToExile(state, String(ctx.controllerId || 'p1').trim() as PlayerID, 1, true);
-    return exileSourceWithCounter(next, ctx, 'face_down');
+    const controllerId = String(ctx.controllerId || 'p1').trim() as PlayerID;
+    const sourceResult = exileSourceWithCounter(state, ctx, 'face_down');
+    let workingState = sourceResult.state;
+    const player = (workingState.players || []).find((entry: any) => String(entry?.id || '').trim() === controllerId) as any;
+    const library = Array.isArray(player?.library) ? [...player.library] : [];
+    const topCard =
+      library.length > 0
+        ? {
+            ...library[0],
+            id: String(library[0]?.id || 'exiled-top-1').trim(),
+            zone: 'exile',
+            faceDown: true,
+          }
+        : null;
+    if (topCard) {
+      workingState = {
+        ...(workingState as any),
+        players: (workingState.players || []).map((entry: any) =>
+          String(entry?.id || '').trim() === controllerId
+            ? {
+                ...entry,
+                library: library.slice(1),
+                exile: [...(Array.isArray(entry?.exile) ? entry.exile : []), topCard],
+              }
+            : entry
+        ) as any,
+      } as GameState;
+    }
+    const lastMovedCards = [
+      ...(Array.isArray(sourceResult.lastMovedCards) ? sourceResult.lastMovedCards : []),
+      ...(topCard ? [topCard] : []),
+    ];
+    return {
+      applied: true,
+      state: workingState,
+      log: [
+        ...(Array.isArray(sourceResult.log) ? sourceResult.log : []),
+        ...(topCard ? ['Exiled top library card face down'] : []),
+      ],
+      ...(lastMovedCards.length > 0
+        ? { lastMovedCards, lastExiledCards: lastMovedCards, lastExiledCardCount: lastMovedCards.length }
+        : {}),
+    };
   }
 
   if (/exile it and the top six cards of your library in a face-down pile/.test(raw)) {
     const next = millToExile(state, String(ctx.controllerId || 'p1').trim() as PlayerID, 6, true);
     return exileSourceWithCounter(next, ctx, 'face_down');
+  }
+
+  if (/face-down pile/.test(raw) || /face down pile/.test(raw)) {
+    return exileContextualCardsFromCtx(state, ctx, 'face-down pile');
   }
 
   if (/exile the bottom card of each opponent's library face down/.test(raw)) {
@@ -1044,6 +1087,34 @@ export function trySpecialExileStep(
       return true;
     });
     return exileBattlefieldPermanents(state, matches, ctx, 'any number of target creatures');
+  }
+
+  if (
+    /exile up to two target creatures you control/i.test(raw) ||
+    target === 'up to two target creatures you control'
+  ) {
+    const boundIds = collectBoundIds(ctx);
+    const controllerId = String(ctx.controllerId || 'p1').trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const preferredIds = boundIds.filter((id) => {
+      const perm = battlefield.find((entry: any) => String(entry?.id || '').trim() === id);
+      return (
+        perm &&
+        String((perm as any)?.controller || '').trim() === controllerId &&
+        permanentMatchesType(perm, 'creature')
+      );
+    });
+    const matches = (
+      preferredIds.length > 0
+        ? preferredIds
+            .map((id) => battlefield.find((entry: any) => String(entry?.id || '').trim() === id))
+            .filter(Boolean)
+        : battlefield.filter(
+            (perm: any) =>
+              String(perm?.controller || '').trim() === controllerId && permanentMatchesType(perm, 'creature')
+          )
+    ).slice(0, 2) as BattlefieldPermanent[];
+    return exileBattlefieldPermanents(state, matches, ctx, 'up to two target creatures you control');
   }
 
   if (

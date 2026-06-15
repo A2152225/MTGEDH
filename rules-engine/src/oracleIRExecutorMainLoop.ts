@@ -3137,6 +3137,11 @@ export function applyOracleIRStepsToGameStateImpl(
           } else if (lastExiledCards.length > 0) {
             lastMovedCards = [...lastExiledCards];
           }
+          currentCtx = {
+            ...currentCtx,
+            ...(lastMovedCards.length > 0 ? { lastMovedCards } : {}),
+            ...(lastExiledCards.length > 0 ? { lastExiledCards } : {}),
+          };
         });
         break;
       }

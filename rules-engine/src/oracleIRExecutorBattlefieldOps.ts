@@ -269,27 +269,39 @@ function placeRemovedPermanentInOwnerZone(params: {
 
   if (adjustedDestination === 'graveyard') {
     const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
-    graveyard.push(stampCardPutIntoGraveyardThisTurn(state, buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'graveyard')));
+    graveyard.push({
+      ...stampCardPutIntoGraveyardThisTurn(state, buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'graveyard')),
+      id: String((perm as any)?.id || '').trim() || String((perm as any)?.card?.id || '').trim(),
+    });
     player.graveyard = graveyard;
     return 'graveyard';
   }
 
   if (adjustedDestination === 'hand') {
     const hand = Array.isArray(player.hand) ? [...player.hand] : [];
-    hand.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'hand'));
+    hand.push({
+      ...buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'hand'),
+      id: String((perm as any)?.id || '').trim() || String((perm as any)?.card?.id || '').trim(),
+    });
     player.hand = hand;
     return 'hand';
   }
 
   if (adjustedDestination === 'library') {
     const library = Array.isArray(player.library) ? [...player.library] : [];
-    const movedCard = buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'library');
+    const movedCard = {
+      ...buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'library'),
+      id: String((perm as any)?.id || '').trim() || String((perm as any)?.card?.id || '').trim(),
+    };
     player.library = libraryPlacement === 'top' ? [movedCard, ...library] : [...library, movedCard];
     return 'library';
   }
 
   const exile = Array.isArray(player.exile) ? [...player.exile] : [];
-  exile.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
+  exile.push({
+    ...buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'),
+    id: String((perm as any)?.id || '').trim() || String((perm as any)?.card?.id || '').trim(),
+  });
   player.exile = exile;
   return 'exile';
 }
