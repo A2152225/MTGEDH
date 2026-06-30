@@ -21,10 +21,14 @@ import {
 } from './oracleIrServerZoneSync.js';
 import {
   probeOracleEffectProgramShadow,
-  requiresEffectProgramOrchestration,
+  requiresSpellEffectProgramOrchestration,
   startOracleEffectProgramOnServer,
 } from './oracleIrEffectProgramServer.js';
-import { collectOracleEffectSteps } from './trigger-runtime-wiring.js';
+import {
+  collectOracleEffectSteps,
+  type CollectOracleEffectStepsOptions,
+} from './trigger-runtime-wiring.js';
+import { extractOracleCardLookupKeys } from './oracleIrCompiledOverlayLookup.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { normalizeOracleIrSelectedModeIds } from './oracleIrModeSelection.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
@@ -51,6 +55,9 @@ export interface TryResolveSpellViaOracleIRParams {
   readonly sourceColors?: readonly string[];
   readonly sourceImage?: string;
   readonly sourceItem?: any;
+  readonly card?: any;
+  readonly effectiveCard?: any;
+  readonly cardId?: string;
 }
 
 export interface TryResolveSpellViaOracleIRResult {
@@ -60,8 +67,12 @@ export interface TryResolveSpellViaOracleIRResult {
   readonly legacySpellSpecOp?: string;
 }
 
-function collectSpellSteps(oracleText: string, sourceName: string): OracleEffectStep[] {
-  return collectOracleEffectSteps(oracleText, sourceName);
+function collectSpellSteps(
+  oracleText: string,
+  sourceName: string,
+  options?: CollectOracleEffectStepsOptions,
+): OracleEffectStep[] {
+  return collectOracleEffectSteps(oracleText, sourceName, options);
 }
 
 function inferTargetBinding(state: any, targetIds: readonly string[], controller?: PlayerID): {
@@ -263,7 +274,15 @@ export function tryResolveSpellViaOracleIR(
   ctx: GameContext,
   params: TryResolveSpellViaOracleIRParams,
 ): TryResolveSpellViaOracleIRResult {
-  const steps = collectSpellSteps(params.oracleText, params.spellName);
+  const cardKeys = extractOracleCardLookupKeys({
+    cardId: params.cardId,
+    cardName: params.spellName,
+    sourceName: params.spellName,
+    card: params.card,
+    effectiveCard: params.effectiveCard,
+    sourceItem: params.sourceItem,
+  });
+  const steps = collectSpellSteps(params.oracleText, params.spellName, cardKeys);
   if (steps.length === 0) {
     return { handled: false, applied: 0, shadowWouldHandle: false };
   }
@@ -278,7 +297,7 @@ export function tryResolveSpellViaOracleIR(
     selectedModeIds: normalizedSelectedModeIds,
   };
 
-  const useEffectProgram = requiresEffectProgramOrchestration(steps, normalizedSelectedModeIds);
+  const useEffectProgram = requiresSpellEffectProgramOrchestration(steps, normalizedSelectedModeIds);
   const effectProgramParams = {
     controller: params.controller,
     sourceName: params.spellName,
@@ -325,7 +344,8 @@ export function tryResolveSpellViaOracleIR(
     if (effectProgramResult.handled) {
       if (effectProgramResult.waitingForChoice && !effectProgramResult.completed) {
         applyOracleIrSpellStructuralSupplements(ctx, params);
-        return { handled: false, applied: 0, shadowWouldHandle: false };
+        // Choice is queued on the resolution queue — do not fall through to legacy handlers.
+        return { handled: true, applied: 0, shadowWouldHandle: false };
       }
       applyOracleIrSpellStructuralSupplements(ctx, params);
       return {

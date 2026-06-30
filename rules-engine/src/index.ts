@@ -922,6 +922,21 @@ export {
 export { parseOracleTextToIR } from './oracleIRParser';
 
 export {
+  collectOracleEffectStepsWithOverlay,
+  envelopeToOracleIRAbilities,
+  lowerCompilerEnvelopeToSteps,
+  resolveOracleIRWithOverlay,
+  validateCompiledOracleEffectSteps,
+  type OracleIRCompiledAbility,
+  type OracleIRCompilerEnvelope,
+  type OracleIRCompilerExecutionNode,
+  type OracleIRCompilerExecutionTree,
+  type OracleIRCompilerStepVerb,
+  type OracleIRCompilerValidationResult,
+  type ResolveOracleIRWithOverlayOptions,
+} from './oracleIRCompilerEnvelope';
+
+export {
   applyOracleIRStepsToGameState,
   type OracleIRExecutionContext,
   type OracleIRExecutionOptions,

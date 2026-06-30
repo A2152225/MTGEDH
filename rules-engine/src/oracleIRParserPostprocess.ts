@@ -1258,6 +1258,33 @@ function isAmongThemRevealedChosenFollowupPutStep(step: OracleEffectStep): boole
   );
 }
 
+export function upgradeXAtLeastAlternateMoveDestinations(
+  abilities: readonly OracleIRAbility[],
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const nextSteps = ability.steps.map((step) => {
+      if (step.kind !== 'move_zone') return step;
+      const whatText = String((step.what as any)?.text || '').trim().toLowerCase();
+      if (whatText !== 'those cards') return step;
+      if (step.to !== 'hand') return step;
+      const placementRaw = String(step.toRaw || step.raw || '');
+      if (!/\band the rest on the bottom of your library in a random order\b/i.test(placementRaw)) {
+        return step;
+      }
+      changed = true;
+      return {
+        ...step,
+        xAtLeastAlternate: {
+          threshold: 5,
+          destinations: ['battlefield', 'hand'],
+        },
+      } as OracleEffectStep;
+    });
+    return changed ? { ...ability, steps: nextSteps } : ability;
+  });
+}
+
 export function splitCompoundChosenCardsMoveZoneAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -1306,6 +1333,34 @@ export function splitCompoundChosenCardsMoveZoneAbilities(
     }
     return changed ? { ...ability, steps: nextSteps } : ability;
   });
+}
+
+export function mergeChooseCreatureTypePrefixAbilities(
+  abilities: readonly OracleIRAbility[],
+): OracleIRAbility[] {
+  if (abilities.length < 2) return [...abilities];
+
+  const merged: OracleIRAbility[] = [];
+  for (let index = 0; index < abilities.length; index += 1) {
+    const current = abilities[index];
+    const next = abilities[index + 1];
+    if (
+      current &&
+      next &&
+      current.steps.length === 1 &&
+      current.steps[0]?.kind === 'choose_creature_type' &&
+      next.steps.some((step) => step.kind !== 'unknown')
+    ) {
+      merged.push({
+        ...next,
+        steps: [...current.steps, ...next.steps],
+      });
+      index += 1;
+      continue;
+    }
+    merged.push(current);
+  }
+  return merged;
 }
 
 export function lowerAmongThemChoosePlayerChoiceAbilities(
@@ -6514,6 +6569,7 @@ export function expandStandaloneStaticKeywordAbilities(
 ): OracleIRAbility[] {
   return abilities.map((ability) => {
     if (ability.type !== AbilityType.STATIC) return ability;
+    if (hasCreateTokenStepInTree(ability.steps)) return ability;
     const text = String(ability.text || ability.effectText || '').trim();
     if (!text || !isKeywordOnlyStaticAbilityText(text)) return ability;
     if (/\bbanding\b/i.test(text) && !hasNonBandingKeywordOnlyStaticText(text)) return ability;
@@ -8448,6 +8504,14 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^(?:grenades!|grotag\s+thrasher\b|haktos\s+has\b|hand\s+backup\b|harness\s+this\s+permanent\b|haste,\s+toxic\b|he\s+gets\b|he(?:'|’)s\b|head\s+to\s+askurza\.com\b|hexproof\s+from\b|hideaway\b|hordeling\s+outburst\b|host\b|humans\s+you\s+control\s+have\b|humility\b|i\b|i\s+-\s+|i(?:'|’)m\b|i(?:'|’)ve\b)/i.test(raw)) {
     return staticMetadata('pass35 residual', raw);
+  }
+
+  if (
+    /^if x is \d+ or more, instead put the chosen cards onto the battlefield or into your hand and the rest on the bottom of your library in a random order\.?$/i.test(
+      raw,
+    )
+  ) {
+    return [];
   }
 
   if (/^(?:then\s+put\s+the\s+rest\s+on\s+the\s+bottom\s+in\s+a\s+random\s+order|idyllic\s+tutor\b|revoke\s+existence\b|reprisal\b|it\s+can(?:'|’)t\s+be\s+regenerated|if\b)/i.test(raw)) {
@@ -17612,6 +17676,158 @@ function parseGraveyardAdditionalCostFromText(rawText: string): OracleGraveyardA
   return null;
 }
 
+function normalizeGraveyardAdditionalCostFilterText(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .replace(/\s+cards?\b/gi, ' ')
+    .replace(/\s+permanents?\b/gi, ' ')
+    .replace(/\b([a-z]+)s\b/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function graveyardAdditionalCostsEqual(
+  left: OracleGraveyardAdditionalCost,
+  right: OracleGraveyardAdditionalCost,
+): boolean {
+  if (left.kind !== right.kind) return false;
+
+  switch (left.kind) {
+    case 'discard':
+    case 'sacrifice':
+    case 'exile_from_graveyard':
+      return left.count === right.count
+        && normalizeGraveyardAdditionalCostFilterText(left.filterText)
+          === normalizeGraveyardAdditionalCostFilterText(right.filterText);
+    case 'remove_counter':
+      return left.count === right.count
+        && normalizeGraveyardAdditionalCostFilterText(left.filterText)
+          === normalizeGraveyardAdditionalCostFilterText(right.filterText)
+        && normalizeCounterName(String(left.counter || ''))
+          === normalizeCounterName(String((right as typeof left).counter || ''));
+    default:
+      return false;
+  }
+}
+
+function grantRawEmbedsAdditionalCost(
+  grantRaw: string,
+  additionalCost: OracleGraveyardAdditionalCost | undefined,
+): boolean {
+  if (!additionalCost) return false;
+  const parsedFromGrant = parseGraveyardAdditionalCostFromText(grantRaw);
+  if (!parsedFromGrant) return false;
+  return graveyardAdditionalCostsEqual(parsedFromGrant, additionalCost);
+}
+
+function buildGrantedGraveyardAdditionalCostModifierRaw(
+  grantRaw: string,
+  additionalCost: OracleGraveyardAdditionalCost | undefined,
+  castCostRaw: string | undefined,
+): string {
+  if (additionalCost && grantRawEmbedsAdditionalCost(grantRaw, additionalCost)) {
+    return '';
+  }
+  if (additionalCost?.raw) {
+    return additionalCost.raw;
+  }
+  if (castCostRaw) {
+    return `Cast cost ${castCostRaw}`;
+  }
+  return '';
+}
+
+function stripRedundantGrantedGraveyardAdditionalCostModifier(
+  modifier: Extract<OracleEffectStep, { kind: 'modify_graveyard_permissions' }>,
+  grantRaw: string,
+): Extract<OracleEffectStep, { kind: 'modify_graveyard_permissions' }> {
+  if (!modifier.additionalCost || !grantRawEmbedsAdditionalCost(grantRaw, modifier.additionalCost)) {
+    return modifier;
+  }
+
+  return {
+    ...modifier,
+    raw: '',
+  };
+}
+
+function dedupeRedundantGrantedGraveyardAdditionalCostModifiers(
+  steps: readonly OracleEffectStep[],
+): OracleEffectStep[] {
+  const deduped: OracleEffectStep[] = [];
+
+  for (let i = 0; i < steps.length; i += 1) {
+    const step = steps[i];
+    if (step.kind === 'conditional') {
+      const nested = dedupeRedundantGrantedGraveyardAdditionalCostModifiers(step.steps);
+      deduped.push(nested === step.steps ? step : { ...step, steps: nested });
+      continue;
+    }
+
+    const next = steps[i + 1];
+    if (
+      step.kind === 'grant_graveyard_permission' &&
+      next?.kind === 'modify_graveyard_permissions'
+    ) {
+      deduped.push(step);
+      deduped.push(stripRedundantGrantedGraveyardAdditionalCostModifier(next, String(step.raw || '')));
+      i += 1;
+      continue;
+    }
+
+    deduped.push(step);
+  }
+
+  return deduped;
+}
+
+function restoreGrantedGraveyardAdditionalCostModifierRaw(
+  steps: readonly OracleEffectStep[],
+): OracleEffectStep[] {
+  const restored: OracleEffectStep[] = [];
+
+  for (let i = 0; i < steps.length; i += 1) {
+    const step = steps[i];
+    if (step.kind === 'conditional') {
+      const nested = restoreGrantedGraveyardAdditionalCostModifierRaw(step.steps);
+      restored.push(nested === step.steps ? step : { ...step, steps: nested });
+      continue;
+    }
+
+    const next = steps[i + 1];
+    if (
+      step.kind === 'grant_graveyard_permission' &&
+      next?.kind === 'modify_graveyard_permissions' &&
+      next.additionalCost &&
+      !String(next.raw || '').trim()
+    ) {
+      restored.push(step);
+      const costRaw = String(next.additionalCost.raw || '').trim();
+      restored.push(
+        costRaw && !grantRawEmbedsAdditionalCost(String(step.raw || ''), next.additionalCost)
+          ? { ...next, raw: costRaw }
+          : next,
+      );
+      i += 1;
+      continue;
+    }
+
+    restored.push(step);
+  }
+
+  return restored;
+}
+
+export function restoreGrantedGraveyardAdditionalCostModifierRawAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => ({
+    ...ability,
+    steps: restoreGrantedGraveyardAdditionalCostModifierRaw(ability.steps),
+  }));
+}
+
 function appendGrantedGraveyardAdditionalCostModifiers(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
   const expanded: OracleEffectStep[] = [];
 
@@ -17645,16 +17861,22 @@ function appendGrantedGraveyardAdditionalCostModifiers(steps: readonly OracleEff
       continue;
     }
 
+    const modifierRaw = buildGrantedGraveyardAdditionalCostModifierRaw(
+      String(step.raw || ''),
+      additionalCost || undefined,
+      castCostRaw || undefined,
+    );
+
     expanded.push({
       kind: 'modify_graveyard_permissions',
       scope: 'last_granted_graveyard_cards',
       ...(castCostRaw ? { castCostRaw } : {}),
       ...(additionalCost ? { additionalCost } : {}),
-      raw: additionalCost?.raw || `Cast cost ${castCostRaw}`,
+      raw: modifierRaw,
     });
   }
 
-  return expanded;
+  return dedupeRedundantGrantedGraveyardAdditionalCostModifiers(expanded);
 }
 
 export function expandGraveyardAdditionalCostPermissionAbilities(
@@ -21969,18 +22191,42 @@ function canAppendTokenMetadataDespiteBlockedKinds(ability: OracleIRAbility): bo
   return /\b\d+\+\s*\|[\s\S]*\bcreate(?:s)?\b[\s\S]*\btoken/i.test(text);
 }
 
+function findSquadTokenMetadataFallbackTargetIndex(abilities: readonly OracleIRAbility[]): number {
+  const isEligible = (ability: OracleIRAbility): boolean =>
+    !isSquadReminderAbilityText(ability) &&
+    !hasCreateTokenStepInTree(ability.steps) &&
+    ability.steps.some((step) => step.kind !== 'unknown');
+
+  const triggeredEtBIndex = abilities.findIndex(
+    (ability) =>
+      isEligible(ability) &&
+      ability.type === 'triggered' &&
+      /\bwhen this creature enters\b/i.test(String(ability.text || ability.effectText || ''))
+  );
+  if (triggeredEtBIndex >= 0) return triggeredEtBIndex;
+
+  const triggeredIndex = abilities.findIndex(
+    (ability) => isEligible(ability) && ability.type === 'triggered'
+  );
+  if (triggeredIndex >= 0) return triggeredIndex;
+
+  const nonKeywordStaticIndex = abilities.findIndex(
+    (ability) =>
+      isEligible(ability) &&
+      !(ability.type === AbilityType.STATIC && isKeywordOnlyStaticAbilityText(String(ability.text || ability.effectText || '')))
+  );
+  if (nonKeywordStaticIndex >= 0) return nonKeywordStaticIndex;
+
+  return abilities.findIndex(isEligible);
+}
+
 function appendSquadTokenMetadataFallback(
   abilities: readonly OracleIRAbility[],
   parsed: OracleEffectStep,
   rawText: string
 ): OracleIRAbility[] {
   const metadataWrapper = { kind: 'unknown', raw: 'Token creation metadata', steps: [parsed] } as any as OracleEffectStep;
-  const targetIndex = abilities.findIndex(
-    (ability) =>
-      !isSquadReminderAbilityText(ability) &&
-      !hasCreateTokenStepInTree(ability.steps) &&
-      ability.steps.some((step) => step.kind !== 'unknown')
-  );
+  const targetIndex = findSquadTokenMetadataFallbackTargetIndex(abilities);
 
   if (targetIndex >= 0) {
     return abilities.map((ability, index) =>
@@ -27115,17 +27361,26 @@ function isRedundantStationChargeCounterReminderUnknownStep(
   step: OracleEffectStep,
   ability: OracleIRAbility
 ): boolean {
-  if (ability.type !== 'activated') return false;
+  if (ability.type !== 'activated' && ability.type !== 'keyword') return false;
 
   if (step.kind === 'add_counter') {
     const targetText = String((step.target as any)?.text || '').trim();
     const amount = step.amount as any;
-    return /^this spacecraft$/i.test(targetText) &&
+    const isStationChargeCounter =
+      /^this (?:spacecraft|planet)$/i.test(targetText) &&
       String(step.counter || '').toLowerCase() === 'charge' &&
       amount?.kind === 'object_stat' &&
       amount?.subject === 'it' &&
-      amount?.stat === 'power' &&
-      ability.steps.some(candidate => isStationThresholdReminderUnknownStep(candidate));
+      amount?.stat === 'power';
+    if (!isStationChargeCounter) return false;
+
+    return ability.steps.some(
+      (candidate) =>
+        candidate.kind === 'unknown' &&
+        /^put charge counters equal to its power on this (?:spacecraft|planet)$/i.test(
+          normalizeOracleText(String(candidate.raw || '')).trim()
+        )
+    );
   }
 
   if (step.kind !== 'unknown') return false;
@@ -27133,11 +27388,22 @@ function isRedundantStationChargeCounterReminderUnknownStep(
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
     .trim();
-  if (!/^put charge counters equal to its power on this spacecraft$/i.test(normalized)) {
+  if (!/^put charge counters equal to its power on this (?:spacecraft|planet)$/i.test(normalized)) {
     return false;
   }
 
-  return ability.steps.some(candidate => isStationThresholdReminderUnknownStep(candidate));
+  return ability.steps.some((candidate) => {
+    if (candidate.kind !== 'add_counter') return false;
+    const targetText = String((candidate.target as any)?.text || '').trim();
+    const amount = candidate.amount as any;
+    return (
+      /^this (?:spacecraft|planet)$/i.test(targetText) &&
+      String(candidate.counter || '').toLowerCase() === 'charge' &&
+      amount?.kind === 'object_stat' &&
+      amount?.subject === 'it' &&
+      amount?.stat === 'power'
+    );
+  });
 }
 
 export function pruneRedundantStationChargeCounterReminderUnknownAbilities(
@@ -27352,11 +27618,26 @@ export function mergeDeterministicGraveyardPermissionFollowupAbilities(
       continue;
     }
 
+    const grantStep = current.steps.find((step) => step.kind === 'grant_graveyard_permission');
+    let mergedModifier = next.steps[0];
+    if (
+      mergedModifier?.kind === 'modify_graveyard_permissions' &&
+      grantStep?.kind === 'grant_graveyard_permission' &&
+      mergedModifier.additionalCost &&
+      !grantRawEmbedsAdditionalCost(String(grantStep.raw || ''), mergedModifier.additionalCost)
+    ) {
+      const costRaw = String(mergedModifier.additionalCost.raw || mergedModifier.raw || '').trim();
+      mergedModifier = {
+        ...mergedModifier,
+        ...(costRaw ? { raw: costRaw } : {}),
+      };
+    }
+
     merged.push({
       ...current,
       text: `${String(current.text || '').trim()} ${String(next.text || '').trim()}`.trim(),
       effectText: `${String(current.effectText || '').trim()} ${String(next.effectText || '').trim()}`.trim(),
-      steps: [...current.steps, next.steps[0]],
+      steps: [...current.steps, mergedModifier],
     });
     i += 1;
   }

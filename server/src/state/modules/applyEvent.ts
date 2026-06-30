@@ -71,6 +71,7 @@ import {
 import { castSpell } from "./stackCastSpellUtils.js";
 import { exileEntireStack } from "./stackExileUtils.js";
 import { playLand } from "./stackPlayLandUtils.js";
+import { resolveLandWouldEnterSacrificeChoice, resolveWouldEnterDiscardLandChoice } from "./land-would-enter-replacement.js";
 import { pushStack } from "./stackPushUtils.js";
 import { resolveTopOfStack } from "./stackResolveTopOfStackUtils.js";
 import { triggerETBEffectsForToken } from "./triggerEtbEntryEffects.js";
@@ -10833,11 +10834,46 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "landWouldEnterSacrificeChoice": {
+        const pid = (e as any).playerId;
+        const sacrificePermanentIds = (e as any).sacrificePermanentIds;
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '').trim() === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any).landWouldEnterSacrificeChoice === true &&
+                (!pid || String((step as any)?.playerId || '').trim() === String(pid || '').trim())
+              );
+            });
+          }
+
+          const selectionIds = Array.isArray(sacrificePermanentIds)
+            ? sacrificePermanentIds.map((id: any) => String(id)).filter(Boolean)
+            : [];
+          const declined = selectionIds.length === 0;
+
+          resolveLandWouldEnterSacrificeChoice(
+            ctx,
+            pid as PlayerID,
+            declined ? ['decline_land_would_enter'] : selectionIds,
+            false,
+          );
+        } catch (err) {
+          debugWarn(1, "applyEvent(landWouldEnterSacrificeChoice): failed", err);
+        }
+        break;
+      }
+
       case "moxDiamondChoice": {
-        // Mox Diamond replacement effect - discard a land to enter battlefield, or go to graveyard
         const pid = (e as any).playerId;
         const discardLandId = (e as any).discardLandId;
-        const stackItemId = (e as any).stackItemId;
+        const stackItemId = String((e as any).stackItemId || '').trim();
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();
           const resolvedStepId = String((e as any).resolvedStepId || '').trim();
@@ -10850,64 +10886,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 String((step as any)?.type || '').trim() === String(ResolutionStepType.OPTION_CHOICE) &&
                 (step as any).moxDiamondChoice === true &&
                 (!pid || String((step as any)?.playerId || '').trim() === String(pid || '').trim()) &&
-                (!stackItemId || String((step as any)?.stackItemId || (step as any)?.sourceId || '').trim() === String(stackItemId || '').trim())
+                (!stackItemId || String((step as any)?.stackItemId || (step as any)?.sourceId || '').trim() === stackItemId)
               );
             });
           }
 
-          const zones = ctx.state.zones || {};
-          const z = zones[pid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-          zones[pid] = z as any;
-          ctx.state.zones = zones;
-          
-          // Find Mox Diamond on stack (it may already be removed by socket handler, but handle replay case)
-          const stack = ctx.state.stack || [];
-          const moxIdx = stack.findIndex((item: any) => item.id === stackItemId);
-          let moxCard = null;
-          
-          if (moxIdx !== -1) {
-            const [moxItem] = stack.splice(moxIdx, 1);
-            moxCard = moxItem.card;
+          const choiceId = discardLandId ? String(discardLandId) : null;
+          const resolved = resolveWouldEnterDiscardLandChoice(ctx, pid as PlayerID, stackItemId, choiceId, !choiceId);
+          if (resolved.ok) {
+            ctx.bumpSeq();
           }
-          
-          if (discardLandId) {
-            // Discard a land and put Mox Diamond on battlefield
-            const hand = z.hand as any[];
-            const landIdx = hand.findIndex((c: any) => c?.id === discardLandId);
-            if (landIdx !== -1) {
-              const [discardedLand] = hand.splice(landIdx, 1);
-              z.handCount = hand.length;
-              (z.graveyard as any[]).push({ ...discardedLand, zone: 'graveyard' });
-              z.graveyardCount = (z.graveyard as any[]).length;
-
-              // Turn-tracking for intervening-if: a player discarded a card this turn.
-              const stateAny = ctx.state as any;
-              stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
-              stateAny.discardedCardThisTurn[String(pid)] = true;
-              stateAny.anyPlayerDiscardedCardThisTurn = true;
-            }
-            
-            // Put Mox Diamond on battlefield
-            if (moxCard) {
-              ctx.state.battlefield = ctx.state.battlefield || [];
-              ctx.state.battlefield.push({
-                id: String(stackItemId || generateDeterministicId(ctx, 'perm', String(moxCard?.id || 'mox_diamond'))),
-                controller: pid,
-                owner: pid,
-                tapped: false,
-                counters: {},
-                card: { ...moxCard, zone: 'battlefield' },
-              } as any);
-            }
-          } else {
-            // Put Mox Diamond in graveyard
-            if (moxCard) {
-              (z.graveyard as any[]).push({ ...moxCard, zone: 'graveyard' });
-              z.graveyardCount = (z.graveyard as any[]).length;
-            }
-          }
-          
-          ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(moxDiamondChoice): failed", err);
         }

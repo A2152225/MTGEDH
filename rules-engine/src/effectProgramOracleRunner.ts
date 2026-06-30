@@ -67,6 +67,8 @@ interface DerivedOracleIRContextBindings {
 const LAST_GRANTED_GRAVEYARD_CARDS_BINDING = '__oracleLastGrantedGraveyardCards';
 const LAST_GRANTED_GRAVEYARD_PERMISSION_IDS_BINDING = '__oracleLastGrantedGraveyardPermissionIds';
 const LAST_ACTION_OUTCOME_BINDING = '__oracleLastActionOutcome';
+const LAST_MOVED_CARDS_BINDING = '__oracleLastMovedCards';
+const LAST_REVEALED_CARD_COUNT_BINDING = '__oracleLastRevealedCardCount';
 
 export type OracleIREffectProgramHandlerOverrides = Omit<EffectProgramHandlers<GameState>, 'applyCommand'> & {
   readonly applyCommand?: EffectProgramHandlers<GameState>['applyCommand'];
@@ -126,6 +128,12 @@ export function createOracleIRCommandHandler(
     const bindings: Record<string, unknown> = {};
     if (execution.lastStepOutcome) {
       bindings[LAST_ACTION_OUTCOME_BINDING] = execution.lastStepOutcome;
+    }
+    if (Array.isArray(execution.lastMovedCards) && execution.lastMovedCards.length > 0) {
+      bindings[LAST_MOVED_CARDS_BINDING] = execution.lastMovedCards;
+    }
+    if (typeof execution.lastRevealedCardCount === 'number' && execution.lastRevealedCardCount > 0) {
+      bindings[LAST_REVEALED_CARD_COUNT_BINDING] = execution.lastRevealedCardCount;
     }
     return {
       state: execution.state,
@@ -1207,8 +1215,27 @@ function createOracleIRContextWithEffectProgramBindings(
   runtime: EffectProgramRuntime<GameState>
 ): OracleIRExecutionContext {
   const derived = deriveOracleIRContextFromEffectProgramBindings(runtime);
-  if (!derived) {
+  const boundLastMovedCards = runtime.bindings[LAST_MOVED_CARDS_BINDING];
+  const boundLastRevealedCardCount = runtime.bindings[LAST_REVEALED_CARD_COUNT_BINDING];
+  const lastMovedCards = Array.isArray(boundLastMovedCards)
+    ? boundLastMovedCards
+    : Array.isArray(ctx.lastMovedCards)
+      ? ctx.lastMovedCards
+      : undefined;
+  const lastRevealedCardCount = typeof boundLastRevealedCardCount === 'number'
+    ? Math.max(0, Number(boundLastRevealedCardCount) || 0)
+    : ctx.lastRevealedCardCount;
+
+  if (!derived && !lastMovedCards && lastRevealedCardCount === ctx.lastRevealedCardCount) {
     return ctx;
+  }
+
+  if (!derived) {
+    return {
+      ...ctx,
+      ...(lastMovedCards ? { lastMovedCards } : {}),
+      ...(typeof lastRevealedCardCount === 'number' ? { lastRevealedCardCount } : {}),
+    };
   }
 
   return {
@@ -1217,6 +1244,8 @@ function createOracleIRContextWithEffectProgramBindings(
     targetPermanentId: derived.targetPermanentId || ctx.targetPermanentId,
     targetSpellId: derived.targetSpellId || ctx.targetSpellId,
     lastClashWon: typeof derived.lastClashWon === 'boolean' ? derived.lastClashWon : ctx.lastClashWon,
+    ...(lastMovedCards ? { lastMovedCards } : {}),
+    ...(typeof lastRevealedCardCount === 'number' ? { lastRevealedCardCount } : {}),
     ...(derived.selectorContext?.unlessPaysManaChoice === 'pay' || derived.selectorContext?.unlessPaysManaChoice === 'decline'
       ? { unlessPaysManaChoice: derived.selectorContext.unlessPaysManaChoice }
       : {}),

@@ -1,6 +1,10 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
-import { applyOracleIRTriggerUncategorizedFallback } from './oracleIrTriggerUncategorizedFallback.js';
+import {
+  applyOracleIRTriggerUncategorizedFallback,
+  applyTriggerIrSpecialHandlersOnly,
+} from './oracleIrTriggerUncategorizedFallback.js';
+import { shouldSkipTriggerUncategorizedFallback } from './oracleIrTriggerLegacyRouting.js';
 import { applyCopyPermanentTriggerStep, queueOptionalSelfCopyFromControlledCreature } from './trigger-copy-permanent.js';
 import { resolveTriggeredAbilityTargetPlayerId } from './triggerSourceUtils.js';
 import { buildStackOracleIRContext } from './oracleIrStackContextUtils.js';
@@ -36,9 +40,21 @@ export function applyOracleIRFallbackForTriggeredEffect(
   sourceName: string,
   description: string,
   triggerItem?: any,
+  options?: { readonly skipUncategorizedSpellFallback?: boolean },
 ): number {
   const text = String(description || '').trim();
   if (!text) return 0;
+
+  if (options?.skipUncategorizedSpellFallback) {
+    return applyTriggerIrSpecialHandlersOnly(
+      ctx,
+      controller,
+      sourceName,
+      text,
+      triggerItem,
+      triggerUncategorizedFallbackDeps,
+    );
+  }
 
   const targets = Array.isArray(triggerItem?.targets) ? triggerItem.targets : [];
   const players = Array.isArray((ctx as any).state?.players) ? (ctx as any).state.players : [];

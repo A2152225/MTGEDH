@@ -1,7 +1,7 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
-import { finalizeBattlefieldRemoval, permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import { finalizeBattlefieldRemoval, permanentMatchesType, resolveZoneCardIdFromPermanent } from './oracleIRExecutorBattlefieldOps';
 import { getCardManaValue, quantityToNumber } from './oracleIRExecutorPlayerUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { createRegenerationShield } from './keywordAbilities/regeneration';
@@ -152,7 +152,10 @@ function exileBattlefieldPermanents(
   const result = finalizeBattlefieldRemoval(state, [...permanents], removedIds, kept, 'exile', 'exiled');
   const movedCards = permanents
     .filter((perm) => !(perm as any)?.isToken)
-    .map((perm) => ({ ...((perm as any)?.card || perm), id: String((perm as any)?.id || '') }));
+    .map((perm) => ({
+      ...((perm as any)?.card || perm),
+      id: resolveZoneCardIdFromPermanent(perm),
+    }));
   return {
     applied: true,
     state: result.state,

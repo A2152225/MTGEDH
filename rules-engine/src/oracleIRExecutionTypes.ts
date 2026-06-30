@@ -94,6 +94,8 @@ export interface OracleIRSelectorContext {
     readonly toBattlefield?: readonly string[];
     readonly toHand?: readonly string[];
   };
+  /** Player-chosen destination for X-threshold alternate move_zone paths. */
+  readonly moveZoneDestination?: string;
 }
 
 export interface OracleIRExecutionEventHint {
@@ -111,6 +113,8 @@ export interface OracleIRExecutionEventHint {
   readonly targetPermanentId?: string;
   /** Bound chosen objects for delayed/antecedent-based battlefield references. */
   readonly chosenObjectIds?: readonly string[];
+  /** Player-chosen destination for X-threshold alternate move_zone paths. */
+  readonly moveZoneDestination?: string;
   /** Explicit chosen dungeon id for venture selection. */
   readonly chosenDungeonId?: string;
   /** Explicit chosen room id for venture branch selection. */
@@ -353,4 +357,7 @@ export interface OracleIRExecutionResult {
   readonly pendingContinuationSteps?: readonly OracleEffectStep[];
   /** Outcome of the final executed step in this invocation (including nested branches). */
   readonly lastStepOutcome?: OracleIRStepOutcome | null;
+  /** Step carry-over for chained selectors (e.g. reveal_top → move_zone "those cards"). */
+  readonly lastMovedCards?: readonly any[];
+  readonly lastRevealedCardCount?: number;
 }

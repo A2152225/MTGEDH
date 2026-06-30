@@ -184,6 +184,7 @@ import {
   mergeCopyChapterAbilityFollowupAbilities,
   mergeExilePermissionCastCounterFollowupAbilities,
   mergeDeterministicGraveyardPermissionFollowupAbilities,
+  restoreGrantedGraveyardAdditionalCostModifierRawAbilities,
   mergeDeterministicKeywordFollowupAbilities,
   mergeKinshipRevealConditionalAbilities,
   mergeConditionalMoveZoneCounterFollowupAbilities,
@@ -202,8 +203,10 @@ import {
   mergeTopLibraryBottomRandomTailAbilities,
   enrichConditionalAmongThemHandRestAbilities,
   lowerAmongThemChoosePlayerChoiceAbilities,
+  mergeChooseCreatureTypePrefixAbilities,
   repairQuotedStaticGrantAbilities,
   splitCompoundChosenCardsMoveZoneAbilities,
+  upgradeXAtLeastAlternateMoveDestinations,
   repairSplitChooseModeBulletAbilities,
   repairGapClosureAbilitySteps,
   pruneIgnorableEffectReminderUnknownSteps,
@@ -1453,6 +1456,9 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
     type: ability.type,
     text: ability.text,
     cost: ability.cost,
+    ...(ability.stationChargeThreshold != null
+      ? { stationChargeThreshold: ability.stationChargeThreshold }
+      : {}),
     triggerCondition: ability.triggerCondition,
     interveningIf: ability.interveningIf,
     effectText,
@@ -1692,6 +1698,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeConditionalGraveyardReminderFollowupAbilities(abilities);
   abilities = mergeExilePermissionCastCounterFollowupAbilities(abilities);
   abilities = mergeDeterministicGraveyardPermissionFollowupAbilities(abilities);
+  abilities = restoreGrantedGraveyardAdditionalCostModifierRawAbilities(abilities);
   abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
   abilities = mergeBattlefieldEntryAuraRewriteFollowupAbilities(abilities);
   abilities = expandMoveZoneHasteFollowupAbilities(abilities);
@@ -1755,7 +1762,9 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneCurrentBatchReminderUnknownAbilities(abilities);
   abilities = pruneBatch382MisparseExecutableSteps(abilities);
   abilities = lowerAmongThemChoosePlayerChoiceAbilities(abilities);
+  abilities = mergeChooseCreatureTypePrefixAbilities(abilities);
   abilities = splitCompoundChosenCardsMoveZoneAbilities(abilities);
+  abilities = upgradeXAtLeastAlternateMoveDestinations(abilities);
   abilities = repairSplitChooseModeBulletAbilities(abilities);
   abilities = repairGapClosureAbilitySteps(abilities);
   abilities = repairRandomChooseModeSagaAbilities(abilities);
@@ -1787,6 +1796,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   }
   abilities = expandGraveyardPermissionUnknownAbilities(abilities);
   abilities = mergeDeterministicGraveyardPermissionFollowupAbilities(abilities);
+  abilities = restoreGrantedGraveyardAdditionalCostModifierRawAbilities(abilities);
   abilities = lowerAmassReminderAbilities(abilities);
   abilities = pruneRedundantBestowReminderUnknownAbilities(abilities);
   abilities = pruneRedundantAirbendReminderUnknownAbilities(abilities);

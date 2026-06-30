@@ -2,7 +2,7 @@
 
 **Purpose:** Plan the full supersession of handwritten spell/trigger/ability resolution with Oracle IR execution and the Effect Program orchestrator.
 
-**Last updated:** 2026-06-14 (Track D complete — condition clauses 0; Track E remaining)  
+**Last updated:** 2026-06-29 (audit refresh; **Track E6 Layer 3** primary; batches 431–435 would-enter arc complete)  
 **Owner:** Project maintainers  
 
 > **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** for remaining Layer 2 work and the copy-paste starting prompt. Batches 264–280 + Track D (368–380) are **uncommitted** locally unless otherwise noted.
@@ -26,18 +26,29 @@ The project has **three distinct layers**. Layers 1–2 are in strong shape; **L
 | Layer | What it is | Status |
 |-------|------------|--------|
 | **1 — Parse** | `parseOracleTextToIR` → `OracleEffectStep[]` | **Complete** for practical Commander scope (~30k cards, 0 non-joke IR gaps on triggers) |
-| **2 — Execute** | `applyOracleIRStepsToGameState` in rules-engine | **Strong** — trigger_effects: 100% assisted; **full_card**: **98.4%** assisted; **622** parse→execute gaps remain (targets, selectors, `ir_gap`; **condition clauses cleared** Track D) |
-| **3 — Integrate** | Server routes live gameplay through IR + resolution UI | **Partial** — activated abilities yes; spells/triggers still prefer handwritten paths |
+| **2 — Execute** | `applyOracleIRStepsToGameState` in rules-engine | **Complete for practical scope** — `full_card`: **100%** assisted (47,514/47,514); parse→execute **0**; `partial` **0**; `ir_gap` **0** |
+| **3 — Integrate** | Server routes live gameplay through IR + resolution UI | **In progress** — **752/752** migration tests pass; E6 P0–P2 + would-enter arc (431–435) done |
 
 **Goal:** Make Layer 3 match Layer 2 — every spell, trigger, and activated ability that parses and executes in the rules-engine should resolve through a **single server pipeline**, not parallel handwritten shims.
 
 ---
 
-## Current status / session handoff (2026-06-14)
+## Current status / session handoff (2026-06-29)
 
-**Latest completed work:** **Track D (batches 368–380)** — all `unsupported_condition_clause` gaps closed (501 → **0**). See [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md).
+**Latest audit refresh:** Executor **47,514/47,514** assisted; trigger **15,741/15,741**; migration **752/752**. One optional E2 target cluster (Waterbender Ascension). See [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md).
 
-**Prior batch 280** — server damage processing (infect / wither / poisonous / toxic). See [server-damage-processing-migration.md](./server-damage-processing-migration.md).
+**Prior completed arcs:** Track E2 (batch 398), Track D (368–380), E6 P0–P2, Station/Broodship (409–427), would-enter (431–435).
+
+### Track E2 summary (2026-06-15)
+
+| Metric | Post-397 | After batch 398 |
+|--------|----------|-----------------|
+| Parse→execute gaps | 13 | **0** |
+| `partial` | 13 | **0** |
+| Assisted (`full_card`) | 100% (47557/47570) | **100%** (47570/47570) |
+| `ir_gap` | 0 | **0** |
+
+**Next:** **Track E6 — Layer 3 server integration** (patterns beyond completed P0–P2). Migration bar: `npm run test:oracle-ir-migration` (**752/752** pass). Optional E2 polish: Waterbender Ascension targeted unblockable grant (1 cluster).
 
 ### Track D summary (2026-06-14)
 

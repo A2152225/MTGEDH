@@ -49,8 +49,10 @@ import { grantTelepathyForPlayer, revokeTelepathyForPlayer } from "./telepathy.j
 import { getDurableLibraryPermissionForCard } from "./durable-permissions.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
+import { isStationPermanentTypeLine } from "../../../../rules-engine/src/stationPermanentUtils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { cardHasCreatureType } from "../creatureTypeNow.js";
+import { getActiveStationAbilities, parseStationAbilities } from "../../utils/stationParser.js";
 
 /**
  * Check if a permanent is an actual Treasure token/artifact (not just a card that creates treasures)
@@ -1191,11 +1193,14 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
     
     const cardName = (perm.card?.name || "").toLowerCase();
     const oracleText = (perm.card?.oracle_text || "");
+    const typeLine = String(perm.card?.type_line || '');
+    const isStationPermanent = isStationPermanentTypeLine(typeLine);
     const isController = perm.controller === playerId;
     let foundInKnownList = false;
     
-    // First check known cards list
-    for (const [knownName, effect] of Object.entries(ADDITIONAL_LAND_PLAY_CARDS)) {
+    // First check known cards list (skip partial-name matches for Station permanents — e.g. Exploration Broodship)
+    if (!isStationPermanent) {
+      for (const [knownName, effect] of Object.entries(ADDITIONAL_LAND_PLAY_CARDS)) {
       if (cardName.includes(knownName) && effect.lands > 0) {
         // Check if this effect applies to this player
         // Effect applies if: player controls it OR effect affects all players
@@ -1208,11 +1213,18 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
         }
       }
     }
+    }
     
     // If not in known list, try dynamic oracle text parsing
     // This handles both controller-only and all-player effects dynamically
     if (!foundInKnownList) {
-      const dynamicResult = detectAdditionalLandPlayFromOracle(oracleText);
+      const oracleForLandDetection = isStationPermanent
+        ? getActiveStationAbilities(
+            Number((perm as any).counters?.charge ?? (perm as any).counters?.['charge'] ?? 0),
+            parseStationAbilities(oracleText),
+          ).join('\n')
+        : oracleText;
+      const dynamicResult = detectAdditionalLandPlayFromOracle(oracleForLandDetection);
       if (dynamicResult.lands > 0) {
         // Apply if: player controls it OR effect affects all players
         if (isController || dynamicResult.affectsAll) {

@@ -1,5 +1,6 @@
 import type { GameContext } from "../context";
 import type { DurablePermission, PlayerID } from "../../../../shared/src";
+import { isActivatableStationThresholdEffect } from "../../../../rules-engine/src/stationPermanentUtils.js";
 import { collectStaticEffectSources } from "./static-effect-sources";
 import { cardManaValue } from "../utils";
 import { buildDurableGraveyardActivationPermission, buildDurableGraveyardPermission, clearTemporaryDurableGraveyardPermissions, getActiveDurablePermissions, getDurableGraveyardActivationPermissionForCard, upsertDurablePermission } from "./durable-permissions";
@@ -75,6 +76,14 @@ export interface GraveyardCastingPermissionReplacement {
   sourceName?: string;
 }
 
+export interface GraveyardCastingPermissionAdditionalCost {
+  type: 'discard' | 'sacrifice' | 'remove_counters' | 'exile_from_graveyard';
+  amount: number;
+  filter?: string;
+  counterType?: string;
+  distributed?: boolean;
+}
+
 export interface GraveyardCastingPermission {
   id: string;
   playerId: string;
@@ -87,6 +96,7 @@ export interface GraveyardCastingPermission {
   sourceId?: string;
   sourceName?: string;
   sourceText?: string;
+  additionalCost?: GraveyardCastingPermissionAdditionalCost;
   usageLimit?: GraveyardCastingPermissionUsageLimit;
   replacement?: GraveyardCastingPermissionReplacement;
 }
@@ -215,6 +225,39 @@ function graveyardCastingPermissionIsActive(state: any, permission: GraveyardCas
   return turnApplied >= currentTurn;
 }
 
+function readDurableGraveyardPermissionAdditionalCost(
+  permission: DurablePermission,
+): GraveyardCastingPermissionAdditionalCost | undefined {
+  const raw = permission.metadata?.additionalCost;
+  if (!raw || typeof raw !== 'object') return undefined;
+
+  const type = String((raw as GraveyardCastingPermissionAdditionalCost).type || '').trim();
+  const amount = Number((raw as GraveyardCastingPermissionAdditionalCost).amount || 0);
+  if (!type || !Number.isFinite(amount) || amount <= 0) return undefined;
+
+  switch (type) {
+    case 'discard':
+    case 'sacrifice':
+    case 'remove_counters':
+    case 'exile_from_graveyard':
+      return {
+        type,
+        amount,
+        ...((raw as GraveyardCastingPermissionAdditionalCost).filter
+          ? { filter: String((raw as GraveyardCastingPermissionAdditionalCost).filter) }
+          : {}),
+        ...((raw as GraveyardCastingPermissionAdditionalCost).counterType
+          ? { counterType: String((raw as GraveyardCastingPermissionAdditionalCost).counterType) }
+          : {}),
+        ...((raw as GraveyardCastingPermissionAdditionalCost).distributed
+          ? { distributed: true }
+          : {}),
+      };
+    default:
+      return undefined;
+  }
+}
+
 function durablePermissionToGraveyardCastingPermission(permission: DurablePermission): GraveyardCastingPermission | undefined {
   if (!permission || String(permission.kind || '') !== 'graveyard_permission') return undefined;
   if (permission.allowedAction !== 'play' && permission.allowedAction !== 'cast') return undefined;
@@ -233,6 +276,8 @@ function durablePermissionToGraveyardCastingPermission(permission: DurablePermis
   const leaveBattlefieldDestination = permission.replacement?.leaveBattlefieldDestination === 'exile'
     ? 'exile'
     : undefined;
+  const sourceText = String(permission.debug?.sourceText || '').trim();
+  const additionalCost = readDurableGraveyardPermissionAdditionalCost(permission);
 
   return {
     id: String(permission.id || '').trim(),
@@ -248,6 +293,8 @@ function durablePermissionToGraveyardCastingPermission(permission: DurablePermis
     ...(typeof permission.turnApplied === 'number' ? { turnApplied: permission.turnApplied } : {}),
     ...(permission.sourceId ? { sourceId: String(permission.sourceId) } : {}),
     ...(permission.sourceName ? { sourceName: String(permission.sourceName) } : {}),
+    ...(sourceText ? { sourceText } : {}),
+    ...(additionalCost ? { additionalCost: { ...additionalCost } } : {}),
     ...(permission.usageLimit ? { usageLimit: { ...permission.usageLimit } as GraveyardCastingPermissionUsageLimit } : {}),
     ...(permission.replacement ? {
       replacement: {
@@ -277,6 +324,24 @@ function isStaticGraveyardPermissionLine(line: string): boolean {
   if (normalized.includes(':')) return false;
   if (/^\s*(when|whenever|at the beginning)\b/.test(normalized)) return false;
   return true;
+}
+
+export function isActivatableStationGraveyardPermissionLine(
+  sourceText: string,
+  oracleText: string,
+  typeLine: string,
+): boolean {
+  const effectWithoutThreshold = String(sourceText || '').replace(/^\d+\+\s*\|\s*/i, '').trim();
+  const hadThresholdPrefix = effectWithoutThreshold !== String(sourceText || '').trim();
+  if (!isActivatableStationThresholdEffect(effectWithoutThreshold)) {
+    return false;
+  }
+
+  const normalizedTypeLine = String(typeLine || '').toLowerCase();
+  const isStationPermanent = normalizedTypeLine.includes('spacecraft')
+    || normalizedTypeLine.includes('planet')
+    || /station\s*\(/i.test(String(oracleText || ''));
+  return hadThresholdPrefix || isStationPermanent;
 }
 
 function getGraveyardPermissionCostModeFromText(text: unknown): GraveyardCastingPermissionCostMode {
@@ -403,6 +468,12 @@ function getStaticSourceGraveyardCastingPermissions(state: any, playerId: Player
       const sourceText = String(rawLine || '').trim();
       const line = normalizeRuleText(sourceText);
       if (!isStaticGraveyardPermissionLine(line)) continue;
+
+      const effectWithoutThreshold = sourceText.replace(/^\d+\+\s*\|\s*/i, '').trim();
+      if (isActivatableStationGraveyardPermissionLine(sourceText, oracleText, String(source?.typeLine || ''))) {
+        continue;
+      }
+
       if (/\bduring(?:\s+each\s+of)?\s+your\s+turns?\b/.test(line) && !isPlayersTurn(state, playerId)) continue;
 
       const combinedPlayCastMatch = line.match(/you may play ([^.]+?) and cast ([^.]+?) from your graveyard/i);
@@ -462,6 +533,7 @@ export function addGraveyardCastingPermission(
     ...(permission.sourceId ? { sourceId: String(permission.sourceId) } : {}),
     ...(permission.sourceName ? { sourceName: String(permission.sourceName) } : {}),
     ...(permission.sourceText ? { sourceText: String(permission.sourceText) } : {}),
+    ...(permission.additionalCost ? { additionalCost: { ...permission.additionalCost } } : {}),
     ...(permission.usageLimit ? { usageLimit: { ...permission.usageLimit } } : {}),
     ...(permission.replacement ? { replacement: { ...permission.replacement } } : {}),
   };
@@ -478,10 +550,36 @@ export function addGraveyardCastingPermission(
     turnApplied: entry.turnApplied,
     sourceId: entry.sourceId,
     sourceName: entry.sourceName,
+    sourceText: entry.sourceText,
+    additionalCost: entry.additionalCost,
     usageLimit: entry.usageLimit,
     replacement: entry.replacement,
   }));
   return entry;
+}
+
+export function mirrorGraveyardCastingPermissionsToDurable(state: any): void {
+  if (!state) return;
+
+  for (const permission of getGraveyardCastingPermissions(state)) {
+    if (!permission?.id || !permission.playerId || !permission.permission) continue;
+
+    upsertDurablePermission(state, buildDurableGraveyardPermission({
+      id: permission.id,
+      playerId: permission.playerId as PlayerID,
+      permission: permission.permission,
+      cardFilter: permission.cardFilter,
+      costMode: permission.costMode,
+      duration: permission.duration,
+      turnApplied: permission.turnApplied,
+      sourceId: permission.sourceId,
+      sourceName: permission.sourceName,
+      sourceText: permission.sourceText,
+      additionalCost: permission.additionalCost,
+      usageLimit: permission.usageLimit,
+      replacement: permission.replacement,
+    }));
+  }
 }
 
 export function getActiveGraveyardCastingPermissions(

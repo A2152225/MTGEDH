@@ -6,6 +6,7 @@ import {
   ORACLE_IR_FALLBACK_STEP_KINDS,
   TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS,
 } from './trigger-runtime-wiring.js';
+import { buildOracleOverlayCollectOptions } from './oracleIrCompiledOverlayLookup.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrSpellExecution.js';
 
 /**
@@ -89,7 +90,11 @@ export const ORACLE_IR_SPELL_RETIRED_CATEGORIZE_OPS = new Set<string>([
 ]);
 
 function collectSpellEffectSteps(oracleText: string, spellName: string): OracleEffectStep[] {
-  return collectOracleEffectSteps(oracleText, spellName);
+  return collectOracleEffectSteps(
+    oracleText,
+    spellName,
+    buildOracleOverlayCollectOptions({ cardName: spellName, sourceName: spellName }),
+  );
 }
 
 /**

@@ -54,6 +54,8 @@ import {
   applyCounterModifications,
   updateCounters,
 } from './counters_tokens.js';
+import { mirrorGraveyardCastingPermissionsToDurable } from './graveyard-permissions.js';
+import { syncCastingModifierGrantsFromOracleIRResult } from './casting-modifiers.js';
 import { getTokenImageUrls } from '../../services/tokens.js';
 import {
   createOracleIRServerExecutionBridge,
@@ -575,20 +577,32 @@ function queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult(
   }
 }
 
+function filterNonExecutableOracleIrResumeSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  return steps.filter((step) => {
+    if (step.kind !== 'grant_static_ability') return true;
+    const targetText = String((step.target as any)?.text || '').trim();
+    if (targetText !== 'pass36 residual') return true;
+    return !/^if x is \d+ or more, instead put the chosen cards/i.test(String(step.raw || '').trim());
+  });
+}
+
 function unwrapYouDoResumeSteps(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
-  if (steps.length === 1 && steps[0]?.kind === 'conditional') {
-    const conditionRaw = String((steps[0] as any)?.condition?.raw || '')
-      .replace(/\u2019/g, "'")
-      .trim()
-      .toLowerCase();
-    if (conditionRaw === 'you do' || conditionRaw.startsWith('you do,')) {
-      const nested = (steps[0] as any)?.steps;
-      if (Array.isArray(nested) && nested.length > 0) {
-        return nested as OracleEffectStep[];
+  const unwrapped = (() => {
+    if (steps.length === 1 && steps[0]?.kind === 'conditional') {
+      const conditionRaw = String((steps[0] as any)?.condition?.raw || '')
+        .replace(/\u2019/g, "'")
+        .trim()
+        .toLowerCase();
+      if (conditionRaw === 'you do' || conditionRaw.startsWith('you do,')) {
+        const nested = (steps[0] as any)?.steps;
+        if (Array.isArray(nested) && nested.length > 0) {
+          return nested as OracleEffectStep[];
+        }
       }
     }
-  }
-  return [...steps];
+    return [...steps];
+  })();
+  return filterNonExecutableOracleIrResumeSteps(unwrapped);
 }
 
 function attachOracleIrResumeMetadata(
@@ -598,15 +612,22 @@ function attachOracleIrResumeMetadata(
     controller: PlayerID;
     sourceId?: string;
     sourceName?: string;
+    irCtx?: OracleIRExecutionContext;
   },
 ): Record<string, unknown> {
+  const xValue = Number(params.irCtx?.xValue);
+  const xValuePayload = Number.isFinite(xValue) ? { oracleIrXValue: xValue } : {};
   const pending = result.pendingContinuationSteps;
   if (!Array.isArray(pending) || pending.length === 0) {
-    return payload;
+    return {
+      ...payload,
+      ...xValuePayload,
+    };
   }
 
   return {
     ...payload,
+    ...xValuePayload,
     oracleIrResumeStepsJson: JSON.stringify(unwrapYouDoResumeSteps(pending)),
     oracleIrControllerId: params.controller,
     oracleIrSourceId: params.sourceId,
@@ -2343,13 +2364,26 @@ function queuePlayerChoicePromptsFromOracleIRResult(
     if (queuedKeys.has(queueKey)) continue;
     queuedKeys.add(queueKey);
 
-    const amongBuilt = buildPlayerChoiceAmongThemSelectionOptions(state, step, params.irCtx);
+    const irCtxForChoice = {
+      ...params.irCtx,
+      stepLedger: params.irCtx.stepLedger?.size
+        ? params.irCtx.stepLedger
+        : readStepLedgerFromState(state),
+      appliedStepKinds: params.irCtx.appliedStepKinds?.size
+        ? params.irCtx.appliedStepKinds
+        : readAppliedStepKindsFromState(state),
+    };
+    const amongBuilt = buildPlayerChoiceAmongThemSelectionOptions(state, step, irCtxForChoice);
     if (amongBuilt) {
       const availableCards = amongBuilt.availableCards.map(normalizeTopLibraryPromptCard);
       const selectableIds = new Set(amongBuilt.selectableCardIds);
       const nonSelectableCards = availableCards.filter(
         (card) => !selectableIds.has(String(card.id || '')),
       );
+      const remainderRandomOrder = /\brandom order\b/i.test(String((step as any).raw || ''))
+        || (result.pendingContinuationSteps || []).some((pending) =>
+          /\brandom order\b/i.test(String((pending as any).raw || '')),
+        );
       ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
         type: ResolutionStepType.LIBRARY_SEARCH,
         playerId: amongBuilt.playerId,
@@ -2364,7 +2398,7 @@ function queuePlayerChoicePromptsFromOracleIRResult(
         reveal: false,
         shuffleAfter: false,
         remainderDestination: 'bottom',
-        remainderRandomOrder: false,
+        remainderRandomOrder,
         availableCards,
         nonSelectableCards,
         filter: amongBuilt.filter,
@@ -2374,7 +2408,7 @@ function queuePlayerChoicePromptsFromOracleIRResult(
         oracleIrControllerId: params.controller,
         oracleIrSourceId: sourceId,
         oracleIrSourceName: sourceName,
-      } as any, result, params) as any);
+      } as any, result, { ...params, controller: params.controller }) as any);
       continue;
     }
 
@@ -2648,6 +2682,10 @@ function collectMoveZoneChoiceSteps(
   const steps: Extract<OracleEffectStep, { kind: 'move_zone' }>[] = [];
   const seen = new Set<string>();
 
+  const isLandPlayFromHandStep = (
+    step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
+  ): boolean => isControllerMayPutLandFromHandStep(step) || isEachPlayerMayPutLandFromHandStep(step);
+
   for (const gap of result.automationGaps || []) {
     if (String(gap.stepKind || '') !== 'move_zone') continue;
     if (
@@ -2657,7 +2695,7 @@ function collectMoveZoneChoiceSteps(
       continue;
     }
     const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'move_zone' }> | undefined;
-    if (!step) continue;
+    if (!step || isLandPlayFromHandStep(step)) continue;
     const key = `${String((step as any).raw || '')}:${String((step.what as any)?.text || '')}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -2667,6 +2705,7 @@ function collectMoveZoneChoiceSteps(
   for (const step of result.skippedSteps || []) {
     if (step.kind !== 'move_zone') continue;
     const moveStep = step as Extract<OracleEffectStep, { kind: 'move_zone' }>;
+    if (isLandPlayFromHandStep(moveStep)) continue;
     const key = `${String((moveStep as any).raw || '')}:${String((moveStep.what as any)?.text || '')}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -2711,6 +2750,77 @@ function queueMoveZoneChoicePromptsFromOracleIRResult(
       gameId,
       attachOracleIrResumeMetadata(prompt, result, params) as any,
     );
+  }
+}
+
+function queueMoveZoneDestinationChoicePromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+  const priorChosenObjectIds = [
+    ...(Array.isArray(params.irCtx.selectorContext?.chosenObjectIds)
+      ? params.irCtx.selectorContext!.chosenObjectIds
+      : []),
+    ...(Array.isArray((params.irCtx as any).chosenObjectIds)
+      ? (params.irCtx as any).chosenObjectIds
+      : []),
+  ]
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (String(gap.stepKind || '') !== 'move_zone') continue;
+
+    const destinations = (gap.metadata as any)?.moveZoneDestinationChoice;
+    if (!Array.isArray(destinations) || destinations.length === 0) continue;
+
+    const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'move_zone' }> | undefined;
+    if (!step || step.kind !== 'move_zone') continue;
+
+    const queueKey = `move_zone_destination:${String((step as any).raw || '')}:${destinations.join(',')}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    const options = destinations.map((destination) => {
+      const normalized = String(destination || '').trim();
+      return {
+        id: normalized,
+        label: normalized === 'battlefield' ? 'Put onto the battlefield' : 'Put into your hand',
+        description: normalized,
+      };
+    });
+
+    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: params.controller,
+      description: `${sourceName}: Put the chosen cards onto the battlefield or into your hand`,
+      mandatory: true,
+      sourceId,
+      sourceName,
+      options,
+      minSelections: 1,
+      maxSelections: 1,
+      oracleIrMoveZoneDestinationChoice: true,
+      oracleIrChoiceStepJson: JSON.stringify([step]),
+      oracleIrPriorChosenObjectIdsJson: JSON.stringify(Array.from(new Set(priorChosenObjectIds))),
+      oracleIrControllerId: params.controller,
+      oracleIrSourceId: sourceId,
+      oracleIrSourceName: sourceName,
+    } as any, result, { ...params, controller: params.controller }) as any);
   }
 }
 
@@ -3030,6 +3140,8 @@ export function resumeOracleIRRemainingStepsFromResolution(
     targetPlayerId?: PlayerID;
     targetSpellId?: string;
     triggerItem?: any;
+    chosenObjectIds?: readonly string[];
+    xValue?: number;
   },
 ): OracleIRExecutionResult | null {
   if (!Array.isArray(params.steps) || params.steps.length === 0) {
@@ -3038,6 +3150,13 @@ export function resumeOracleIRRemainingStepsFromResolution(
 
   const state = (ctx as any).state;
   const continuationStepIndex = resolveOracleIrContinuationStepIndex(state);
+  const chosenObjectIds = (params.chosenObjectIds || [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  const selectorContext = chosenObjectIds.length > 0
+    ? { chosenObjectIds }
+    : undefined;
+  const xValue = Number(params.xValue);
 
   const irCtx = buildOracleIRExecutionContext(
     {
@@ -3048,10 +3167,13 @@ export function resumeOracleIRRemainingStepsFromResolution(
       currentStepIndex: continuationStepIndex,
       stepLedger: readStepLedgerFromState(state),
       appliedStepKinds: readAppliedStepKindsFromState(state),
+      ...(Number.isFinite(xValue) ? { xValue } : {}),
+      ...(selectorContext ? { selectorContext } : {}),
     },
     {
       targetPlayerId: params.targetPlayerId,
       targetSpellId: params.targetSpellId,
+      ...(chosenObjectIds.length > 0 ? { chosenObjectIds } : {}),
     },
   );
 
@@ -3081,6 +3203,7 @@ export function resumeOracleIRStepWithChoiceFromResolution(
     targetPlayerId?: PlayerID;
     targetSpellId?: string;
     allowOptional?: boolean;
+    xValue?: number;
   },
 ): OracleIRExecutionResult | null {
   if (!Array.isArray(params.steps) || params.steps.length === 0) {
@@ -3097,6 +3220,7 @@ export function resumeOracleIRStepWithChoiceFromResolution(
 
   const state = (ctx as any).state;
   const choiceStepIndex = resolveOracleIrChoiceStepIndex(state);
+  const xValue = Number(params.xValue);
 
   const irCtx = buildOracleIRExecutionContext(
     {
@@ -3107,6 +3231,7 @@ export function resumeOracleIRStepWithChoiceFromResolution(
       currentStepIndex: choiceStepIndex,
       stepLedger: readStepLedgerFromState(state),
       appliedStepKinds: readAppliedStepKindsFromState(state),
+      ...(Number.isFinite(xValue) ? { xValue } : {}),
       ...(typeof params.selectorContext?.targetPermanentId === 'string'
         ? { targetPermanentId: String(params.selectorContext.targetPermanentId) }
         : {}),
@@ -3147,6 +3272,49 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
 ): OracleIRExecutionResult | null {
   if (response.cancelled) {
     return null;
+  }
+
+  if (step?.oracleIrMoveZoneDestinationChoice === true) {
+    const choiceJson = String(step?.oracleIrChoiceStepJson || '').trim();
+    if (!choiceJson) return null;
+
+    let choiceSteps: OracleEffectStep[] = [];
+    try {
+      const parsed = JSON.parse(choiceJson);
+      if (!Array.isArray(parsed) || parsed.length === 0) return null;
+      choiceSteps = parsed as OracleEffectStep[];
+    } catch {
+      return null;
+    }
+
+    const destination = extractOracleIrSelectionIds(response.selections)[0] || '';
+    if (!destination) return null;
+
+    let priorChosenObjectIds: string[] = [];
+    try {
+      const parsedPrior = JSON.parse(String(step?.oracleIrPriorChosenObjectIdsJson || '[]'));
+      if (Array.isArray(parsedPrior)) {
+        priorChosenObjectIds = parsedPrior.map((id) => String(id || '').trim()).filter(Boolean);
+      }
+    } catch {
+      priorChosenObjectIds = [];
+    }
+
+    const controller = String(step?.oracleIrControllerId || step?.playerId || '').trim() as PlayerID;
+    const xValue = Number(step?.oracleIrXValue);
+
+    return resumeOracleIRStepWithChoiceFromResolution(ctx, {
+      controller,
+      sourceId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
+      sourceName: String(step?.oracleIrSourceName || step?.sourceName || '').trim() || undefined,
+      steps: choiceSteps,
+      ...(priorChosenObjectIds.length > 0 ? { chosenObjectIds: priorChosenObjectIds } : {}),
+      selectorContext: {
+        moveZoneDestination: destination,
+        ...(priorChosenObjectIds.length > 0 ? { chosenObjectIds: priorChosenObjectIds } : {}),
+      },
+      ...(Number.isFinite(xValue) ? { xValue } : {}),
+    });
   }
 
   const choiceJson = String(step?.oracleIrChoiceStepJson || '').trim();
@@ -3441,6 +3609,12 @@ export function maybeResumeOracleIRStepsAfterResolution(
     sourceName: String(step?.oracleIrSourceName || step?.sourceName || '').trim() || undefined,
     steps: remainingSteps,
     targetSpellId: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim() || undefined,
+    ...(extractOracleIrSelectionIds(step?.response?.selections).length > 0
+      ? { chosenObjectIds: extractOracleIrSelectionIds(step?.response?.selections) }
+      : {}),
+    ...(Number.isFinite(Number(step?.oracleIrXValue))
+      ? { xValue: Number(step.oracleIrXValue) }
+      : {}),
     triggerItem: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim()
       ? {
           id: String(step?.copyTriggeredAbilityTriggerStackItemId || '').trim() || undefined,
@@ -3580,6 +3754,14 @@ export function applyOracleIRStepsOnServer(
     haltOnPlayerChoiceRequired: options.haltOnPlayerChoiceRequired ?? true,
   });
   Object.assign(state, result.state);
+  mirrorGraveyardCastingPermissionsToDurable(state);
+  syncCastingModifierGrantsFromOracleIRResult(
+    state,
+    controller,
+    String(irCtx.sourceName || '').trim() || undefined,
+    result,
+    params?.triggerItem ?? params?.sourceItem,
+  );
   queueOracleIrDeferredReplacementPrompts(ctx, transitionHaltState, {
     controller: String(controller),
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -3657,6 +3839,12 @@ export function applyOracleIRStepsOnServer(
     irCtx,
   });
   queueMoveZoneChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueMoveZoneDestinationChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,

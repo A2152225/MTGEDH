@@ -40,6 +40,17 @@ export function executeTriggerEffect(
     return;
   }
 
+  const triggerIrOutcome = tryResolveTriggerViaOracleIR(ctx, {
+    controller,
+    sourceName,
+    effectText: String(normalizedDescription || '').trim(),
+    triggerItem,
+  });
+  if (triggerIrOutcome.handled) {
+    tryApplyRoomDoorStateFromResolvedEffect(ctx, controller, normalizedDescription, triggerItem);
+    return;
+  }
+
   const normalizedDesc = String(normalizedDescription || '').replace(/[\u2019]/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
   if (isCreateCreatureTokenTriggerText(normalizedDesc)) {
     if (applyRetiredTriggerLegacyCreateCreatureToken({
@@ -65,17 +76,6 @@ export function executeTriggerEffect(
     triggerCard,
     battlefield,
   })) {
-    return;
-  }
-
-  const triggerIrOutcome = tryResolveTriggerViaOracleIR(ctx, {
-    controller,
-    sourceName,
-    effectText: String(normalizedDescription || '').trim(),
-    triggerItem,
-  });
-  if (triggerIrOutcome.handled) {
-    tryApplyRoomDoorStateFromResolvedEffect(ctx, controller, normalizedDescription, triggerItem);
     return;
   }
 

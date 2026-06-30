@@ -12,6 +12,7 @@ import {
   collectOracleEffectSteps,
   wouldOracleIRFallbackPrefilterMatch,
 } from './trigger-runtime-wiring.js';
+import { buildOracleOverlayCollectOptions } from './oracleIrCompiledOverlayLookup.js';
 import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync.js';
 import {
   describeMissingMandatoryOracleIrSteps,
@@ -67,8 +68,15 @@ function shouldIncludeUncategorizedSpellFallbackStep(step: OracleEffectStep): bo
   return ORACLE_IR_FALLBACK_STEP_KINDS.has(String(step.kind));
 }
 
-function collectSpellSteps(oracleText: string, spellName: string): OracleEffectStep[] {
-  const fromShared = collectOracleEffectSteps(oracleText, spellName);
+function collectSpellSteps(oracleText: string, spellName: string, sourceItem?: any): OracleEffectStep[] {
+  const overlayOptions = buildOracleOverlayCollectOptions({
+    cardName: spellName,
+    sourceName: spellName,
+    sourceItem,
+    card: sourceItem?.card,
+    effectiveCard: sourceItem?.card,
+  });
+  const fromShared = collectOracleEffectSteps(oracleText, spellName, overlayOptions);
   if (fromShared.length > 0) return fromShared;
 
   const ir = parseOracleTextToIR(oracleText, spellName);
@@ -118,7 +126,7 @@ export function applyOracleIRUncategorizedSpellFallback(
     if (!text || !wouldOracleIRFallbackPrefilterMatch(text)) return 0;
 
     const textLower = text.toLowerCase();
-    const allSteps = collectSpellSteps(text, spellName);
+    const allSteps = collectSpellSteps(text, spellName, sourceItem);
     let fallbackSteps = allSteps.filter(shouldIncludeUncategorizedSpellFallbackStep);
     const hasGraveyardTokenInsteadRider = Boolean(
       castFromGraveyard

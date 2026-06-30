@@ -1,14 +1,367 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-06-15 (Track E2 batch 397; Track E2 batch 396; Track E3 batch 395; Track D complete — see [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md))
+Last updated: 2026-06-29 (audit refresh — Layer 2 **100%**, triggers **15,741/15,741**, migration **752/752**)
 
 ## Next session
 
-**Track E2 batch 397 is done** — parse→execute **28 → 13** (−15); `ir_gap` **9 → 0** (−9); `partial` **27 → 13** (−14); assisted **100%** (47557/47570). Continue remaining **13** `partial` library/reveal/compound clusters. Full baseline: **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)**.
+**Audit refresh complete (2026-06-29).** All coverage reports regenerated after batches 431–435.
 
-Quick metrics (`full_card` audit 2026-06-15 post–397): assisted **100%** (47557/47570); parse→execute gaps **13**; `ir_gap` **0**; `partial` **13**; `unsupported` **0**.
+| Bar | Result |
+|-----|--------|
+| Executor (`full_card`) | **47,514/47,514** assisted — parse→execute **0**, `partial` **0**, `ir_gap` **0** |
+| Trigger coverage | **15,741/15,741** fully covered — `not_detected` **0** |
+| Selector / condition / amount gaps | **0** clusters each |
+| Target gaps | **1** optional cluster — Waterbender Ascension (`no_deterministic_target`) |
+| Migration | **752/752** (`npm run test:oracle-ir-migration`) |
+
+Use `@OracleIRCompiler` (`.github/agents/OracleIRCompiler.agent.md`) to compile overlays, then:
+
+```powershell
+cd server
+npm run oracle-ir:overlay:probe -- --name "Card Name"
+npm run oracle-ir:overlay:validate -- --file data/compiled-oracle-ir-overlays/<card>.json --compare-parser
+npm run oracle-ir:overlay:import
+```
+
+Overlays live in `server/data/compiled-oracle-ir-overlays/` (`*.example.json` templates are skipped on import). Runtime lookup: `oracle_ir_compiled_overlay` SQLite table + `collectOracleEffectSteps` overlay hook.
 
 ## What was completed this session
+
+### Audit refresh (2026-06-29) ✅
+
+| Command | Outcome |
+|---------|---------|
+| `EXECUTOR_COVERAGE_SCOPE=full_card npm run executor:coverage` | 29,614 cards; 45,608 fully applied + 1,906 choice-required |
+| `npm run trigger:coverage` | 15,741 triggers; 0 gaps |
+| `executor-fullcard-selector-gap-analysis.ts` | 0 clusters |
+| `executor-fullcard-condition-gap-analysis.ts` | 0 clusters |
+| `executor-general-gap-analysis.ts` | 1 `no_deterministic_target` (Waterbender Ascension) |
+| `executor-target-gap-analysis.ts` | 1 cluster |
+| `executor-amount-gap-analysis.ts` | 0 clusters |
+| `npm run test:oracle-ir-migration` | **752/752** |
+
+Reports written to `server/scripts/out/*.json` (gitignored).
+
+### Track E — batch 435: Mox Diamond socket integration ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **Socket flow** | `tryQueueWouldEnterDiscardLandBeforeStackResolve` → `submitResolutionResponse` | `mox-diamond-would-enter.socket.integration.test.ts` |
+| **Paths** | Discard land → ETB; decline → graveyard | same |
+| **Event log** | `moxDiamondChoice` persisted on accept | same |
+| **Migration bar** | **752/752** (unchanged) | `npm run test:oracle-ir-migration` |
+
+### Track E — batch 434: Mox Diamond → shared would-enter module ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **Parser** | `parseWouldEnterDiscardLandFromHandReplacement` — generic artifact discard-land | `land-would-enter-replacement.ts` |
+| **Queue** | `queueWouldEnterDiscardLandChoiceForStackItem` | same |
+| **Resolve** | `resolveWouldEnterDiscardLandChoice` — shared resolution + replay | `resolution.ts`, `applyEvent.ts` |
+| **Shim** | `mox-diamond-choice.ts` re-exports for back-compat | `mox-diamond-choice.ts` |
+| **Tests** | generic artifact oracle + existing mox replay/auto-pass | `land-would-enter-sacrifice.integration.test.ts` |
+| **Migration bar** | **752/752** (unchanged) | `npm run test:oracle-ir-migration` |
+
+### Track E — batch 433: Lotus Vale socket integration ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **Socket flow** | `playLand` defers ETB; `submitResolutionResponse` sacrifices 2 lands or declines | `land-would-enter-sacrifice.socket.integration.test.ts` |
+| **Event log** | `landWouldEnterSacrificeChoice` persisted on accept | same |
+| **Migration bar** | **752/752** (unchanged) | `npm run test:oracle-ir-migration` |
+
+### Track E — batch 432: Sheltered Valley named-sacrifice would-enter ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **Parser** | `parseLandWouldEnterNamedSacrificeReplacement` — sacrifice each other permanent named X | `land-would-enter-replacement.ts` |
+| **Auto apply** | `tryApplyLandWouldEnterNamedSacrificeReplacement` on play-land (no queue) | `stackPlayLandUtils.ts` |
+| **Lotus polish** | Optional `the battlefield` in sacrifice-lands regex; untapped only in prompt when required | `land-would-enter-replacement.ts` |
+| **Tests** | solo ETB + sacrifice-other-copy | `land-would-enter-sacrifice.integration.test.ts` |
+| **Migration bar** | **752/752** (unchanged) | `npm run test:oracle-ir-migration` |
+
+### Track E — batch 431: generic land would-enter sacrifice replacement ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **Parser** | `parseLandWouldEnterSacrificeReplacement` — `sacrifice two untapped lands instead` | `land-would-enter-replacement.ts` |
+| **Play land defer** | `tryDeferPlayLandForWouldEnterReplacement` before battlefield entry | `stackPlayLandUtils.ts` |
+| **Resolution** | `landWouldEnterSacrificeChoice` handler + OPTION_CHOICE validation | `resolution.ts` |
+| **Replay** | `landWouldEnterSacrificeChoice` applyEvent + replay coverage meta | `applyEvent.ts`, `replay-coverage.meta.test.ts` |
+| **AI** | `chooseAILandWouldEnterSacrificeSelection` | `ai.ts` |
+| **Tests** | defer / accept / decline + replay semantics | `land-would-enter-sacrifice.integration.test.ts`, `land-would-enter-sacrifice.replay.test.ts` |
+| **Migration bar** | **752/752** (unchanged) | `npm run test:oracle-ir-migration` |
+
+### Track E — batch 430: final trigger `not_detected` gaps ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **Tribal deals damage** | `whenever a ([\w]+) deals damage to you` pattern in `detectDealtDamageTriggers` | `triggered-abilities.ts` |
+| **explore-clash** | `KEYWORD_ACTION_WITH_CONTINUATION` + standalone `explore-clash` guard in effect normalizer | `oracleReminderText.ts` |
+| **Effect extraction** | `if you win` as continuation sentence | `triggerEffectTextExtraction.ts` |
+| **Metrics** | `not_detected` **2 → 0**; `fully_covered` **15,741** | `npm run trigger:coverage` |
+| **Migration bar** | **752/752** (unchanged) | `trigger-coverage-audit.probe.unit.test.ts` |
+
+### Track E — batch 429: support keyword ETB effect preservation ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **Keyword actions** | `STANDALONE_KEYWORD_ACTION_EFFECT` guard in `stripKeywordAbilitySuffixes` — `support 2` no longer treated as reminder suffix | `oracleReminderText.ts` |
+| **ETB detection** | `detectETBTriggers` + parser retain support effects; audit `not_detected` **12 → 2** | `triggered-abilities.ts` (via shared normalizer), `oracleReminderText.test.ts` |
+| **Regression** | Expedition Raptor ETB + Door chosen-type cast in audit probe tests | `trigger-coverage-audit.probe.unit.test.ts` |
+| **Migration bar** | **752/752** (unchanged) | `server/package.json` |
+
+### Track E — batch 428: trigger coverage audit probe metadata ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **Probe permanent** | `buildAuditProbePermanent` sets `chosenCreatureType` / `chosenLandType` / `chosenCardName` from oracle text | `trigger-coverage-audit.ts` |
+| **Detector wiring** | `serverDetectsTrigger`, `getDetectorResultsForEvent`, `anyServerTriggerDetectorMatches` use probe permanent | same |
+| **Regression** | Door of Destinies chosen-type cast trigger detected in audit | `trigger-coverage-audit.probe.unit.test.ts` |
+| **Metrics** | `not_detected` trigger gaps **15 → 12** (Door, Reflections of Littjara, Chronicle of Victory fixed) | `npm run trigger:coverage` |
+| **Migration bar** | **752/752** (unchanged) | `server/package.json` |
+
+### Track E — batch 427: Station activatable graveyard-cast static gate ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **Static skip** | `isActivatableStationGraveyardPermissionLine` excludes Broodship-style once-per-turn graveyard cast from static permission synthesis and `getSpecificSpellFromGraveyardPermission` scan | `graveyard-permissions.ts`, `can-respond.ts` |
+| **Regression** | Serra Paragon static grants unchanged; no candidates until IR activation | `durable-permissions.test.ts`, `oracle-ir-broodship-graveyard-cast.socket.integration.test.ts` |
+| **Migration bar** | **752/752** (+1 test) | `server/package.json` |
+
+### Track E — batch 426: request-cast Broodship IR activation alignment ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **IR activation** | Broodship test activates 8+ graveyard-cast ability before cast candidates / `requestCastSpell` (Chainer pattern) | `request-cast.graveyard-permission.integration.test.ts` |
+| **Permission asserts** | `this_turn` first-class + durable `additionalCost: { sacrifice, land }` after IR resolve | same |
+| **Migration bar** | **751/751** (unchanged) | `server/package.json` |
+
+### Track E — batch 425: Broodship full event-log replay ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **Full replay** | `activateBattlefieldAbility` → sacrifice `castSpellContinuation` → mana `castSpellContinuation` → `castSpell` events replay sacrifice, mana payment, and graveyard cast | `oracle-ir-broodship-graveyard-cast.socket.integration.test.ts` |
+| **Stack resolution** | Post-replay `resolveTopOfStack` loop (same pattern as `cast-from-graveyard.graveyard-replay.integration.test.ts`) — `castSpell` is persisted, resolution is not | test only |
+| **Migration bar** | **751/751** (+1 test) | `server/package.json` |
+
+### Track E — batch 424: discard `sourceGrantedAdditionalCost` live cast path ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **Cast candidates** | Structured `additionalCost: { type: 'discard' }` on durable graveyard permissions surfaces `sourceGrantedAdditionalCost` (Six land-filter + Kess any-card) | `can-respond.ts`, `durable-permissions.test.ts` |
+| **Live cast** | `requestCastSpell` queues `ADDITIONAL_COST_PAYMENT` / `costType: 'discard'` from candidate metadata | `game-actions.ts`, `request-cast.graveyard-permission.integration.test.ts` |
+| **Static Kess** | Full oracle discard clause parsed onto cast candidates via static permission scan | `can-respond.test.ts` |
+| **Migration bar** | **750/750** (unchanged) | `server/package.json` |
+
+### Track E — batch 423: Broodship EOT graveyard-permission cleanup ✅
+
+| Item | Change | Key files / tests |
+|------|--------|-------------------|
+| **EOT symmetry** | `clearTemporaryPlayableFromGraveyardPermissions` already clears first-class `this_turn`/`end_of_turn` permissions and durable `graveyard_permission` mirror via `clearTemporaryDurableGraveyardPermissions` during cleanup | `graveyard-permissions.ts`, `turn.ts` |
+| **Integration** | Live Broodship IR activation → cleanup step → activated `this_turn` permission id gone from both stores | `oracle-ir-broodship-graveyard-cast.socket.integration.test.ts` |
+| **Migration bar** | **750/750** (+1) | `server/package.json` |
+
+### Track E — batches 419–422: Broodship arc completion ✅
+
+| Batch | Item | Key files / tests |
+|-------|------|-------------------|
+| **419** | Replay `castSpellContinuation` sacrifice step with durable `additionalCost` | `oracle-ir-broodship-graveyard-cast.socket.integration.test.ts` |
+| **420** | Full cast completes; second graveyard cast blocked (`castFromGraveyardThisTurn`) | same |
+| **421** | `mirrorGraveyardCastingPermissionsToDurable` on EP `applyRunResultState` | `effectProgramResolutionService.ts`, `effect-program-graveyard-mirror.unit.test.ts` |
+| **3+ land** | Station threshold-aware `calculateMaxLandsPerTurn` (skip Exploration partial-name false positive) | `game-state-effects.ts`, `oracle-ir-station-multi-threshold.integration.test.ts` |
+| **Generic** | Six retrace + Kess discard `additionalCost` durable restore | `durable-permissions.test.ts` |
+| **422** | Adagia Station/`12+` create_token boundary regression guard | `oracleIRGapBatch422.test.ts` |
+
+### Track E — batches 415–418 (prior in arc): structured graveyard additionalCost ✅
+
+| Batch | Item | Key files |
+|-------|------|-----------|
+| **415** | `GraveyardCastingPermissionAdditionalCost` + `oracleGraveyardAdditionalCostToSerializable` | `graveyard-permissions.ts`, `graveyardPermissionAdditionalCost.ts` |
+| **416** | Parser dedupe of redundant grant/modify `raw` | `oracleIRParserPostprocess.ts` |
+| **417** | Durable round-trip for `sourceText` + `additionalCost` | `durable-permissions.ts` |
+| **418** | Live IR → durable mirror on `applyOracleIRStepsOnServer` | `oracleIrServerZoneSync.ts` |
+
+### Track E — Layer 3 batch 404: Kavaron threshold IR execution ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Step collection** | `collectActivatedAbilitySteps` parses full `N+ \|` lines via IR (no first-colon strip) | `oracleIrAbilityExecution.ts` |
+| **Threshold helper** | `readStationChargeThresholdFromActivatedOracleText` for stack/activation metadata | same |
+| **Integration** | Kavaron 12+ token + pump via `tryApplyOracleIRToActivatedAbility` | `oracle-ir-kavaron-threshold.integration.test.ts` |
+| **Migration bar** | **729/729** (+3) | `server/package.json` |
+
+### Track E — Layer 2 batch 403: Station threshold activated costs ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Cost split** | `12+ \| {cost}:` → `stationChargeThreshold: 12`, `cost: '{cost}'`, effect unchanged | `oracleTextParserKeywordCosts.ts`, `oracleTextParser.ts` |
+| **IR field** | `OracleIRAbility.stationChargeThreshold` carried from parser | `oracleIR.ts`, `oracleIRParser.ts` |
+| **Tests** | Adagia + Kavaron threshold lines; die-roll bands excluded | `oracleIRGapBatch403.test.ts` |
+
+### Track E — Layer 2 batch 402: Squad token metadata with Flash ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Fallback target** | Squad `create_token` metadata prefers ETB triggered abilities over Flash/Vigilance static lines | `oracleIRParserPostprocess.ts` |
+| **Keyword expand guard** | `expandStandaloneStaticKeywordAbilities` skips abilities that already carry nested `create_token` metadata | same |
+| **Regression** | `oracleIRCurrentBatch.test.ts` offset-1050 primary gaps green (Sicarian Infiltrator) | `oracleIRGapBatch402.test.ts` |
+
+### Track E — Layer 2 batch 401: Station ability boundaries ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Line split** | `12+ \| {cost}:` threshold activations no longer merge onto Station reminder lines | `oracleTextParserPreprocess.ts` |
+| **Station parse** | Dedicated `parseStationKeywordActivatedAbility` before generic colon split; strips inline threshold/sorcery reminders from effect | `oracleTextParserKeywordCosts.ts`, `oracleTextParser.ts` |
+| **Reminder strip guard** | `normalizeOracleForParsing` preserves `Station (Tap …: …)` gameplay parens (Kavaron inline `It's an artifact creature at 12+`) | `oracleReminderText.ts` |
+| **Prune fix** | Station charge-counter dedupe applies to `keyword` abilities; keeps `add_counter` when threshold reminder is inline | `oracleIRParserPostprocess.ts` |
+| **Tests** | Adagia + Kavaron Station/`12+` separation; reminder normalization | `oracleIRGapBatch401.test.ts`, `oracleReminderText.test.ts` |
+
+### Track E — Layer 2 batch 400: Station charge counters on Planet ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Self target** | `this Planet` resolves as source permanent for counter placement | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Dynamic amount** | `object_stat` power + `equal to its power` falls back to `referenceAmount` / `stationedCreaturePower` | `oracleIRExecutorResolveQuantity.ts` |
+| **Audit enrich** | Seeds stationed creature power for Planet charge-counter dry-runs | `executor-coverage-audit.ts` |
+| **Audit** | Last non-choice skip cleared (`unsupported_target` **0**) | `executor-coverage-audit.json` |
+| **Test** | `oracleIRGapBatch400.test.ts` | rules-engine |
+
+### Track E — Layer 2 batch 399: flicker `those cards` return ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Exile ledger ids** | `exileBattlefieldPermanents` records zone card ids in `lastExiledCards`/`lastMovedCards` (matches exile zone containers) | `oracleIRExecutorSpecialTargetHandlers.ts`, `oracleIRExecutorBattlefieldOps.ts` |
+| **Contextual filter** | `contextualBoundCardIds` no longer wiped when audit `chosenObjectIds` use permanent ids | `oracleIRExecutorMoveZoneStepHandlers.ts` |
+| **Audit** | Displace / Illusionist's Stratagem flicker chain fully applied; **0** parse→execute gaps | `executor-coverage-audit.json` |
+| **Test** | `oracleIRGapBatch399.test.ts` — exile up to two → return those cards | rules-engine |
+
+### Track E6 — Layer 3 batch 14: trigger uncategorized spell fallback retirement ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Tail shim skip** | When `shouldSkipTriggerUncategorizedFallback`, skip `applyOracleIRUncategorizedSpellFallback`; retain copy/explore/equipped-token special handlers only | `stackExecuteTriggerEffectTailUtils.ts`, `stackExecuteTriggerEffectIrFallbackUtils.ts`, `oracleIrTriggerUncategorizedFallback.ts` |
+| **Special-handler export** | `applyTriggerIrSpecialHandlersOnly` for IR-owned tail path without spell fallback | `oracleIrTriggerUncategorizedFallback.ts` |
+| **Tests** | Tail skip unit test + guardrail wiring for uncategorized fallback skip | `oracle-ir-trigger-legacy-handler-retirement.unit.test.ts`, `oracle-ir-trigger-legacy-guardrail.test.ts` |
+| **Migration suite** | **726/726 pass** (+1) | server tests |
+
+### Track E6 — Layer 3 batch 13: trigger compound Effect Program expansion ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **EP gate expansion** | `requiresCoreEffectProgramOrchestration` routes `choose_color`, `choose_card_name`, and `choose_opponent` + follow-up compounds through Effect Program (same pattern as `choose_creature_type`) | `oracleIrEffectProgramServer.ts` |
+| **Preset bindings** | EP initial bindings now preset `choose_color`, `choose_card_name`, and `choose_opponent` from IR context | same |
+| **Live trigger tests** | `tryResolveTriggerViaOracleIR` end-to-end for color→mana, opponent→draw, and fateseal compounds | `oracle-ir-trigger-compound-effect-program.integration.test.ts` |
+| **Migration suite** | **725/725 pass** (+8); fateseal/clash EP tests added to migration bar | `server/package.json`, server tests |
+
+### Track E6 — Layer 3 batch 12: trigger legacy tail regex retirement ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Tail regex skip** | When `shouldSkipLegacyTriggerRegexHandlers`, skip combined/single/late legacy regex batches; IR uncategorized fallback + prepared-state tail retained | `stackExecuteTriggerEffectTailUtils.ts` |
+| **Tests** | Tail skip unit test when IR owns draw text | `oracle-ir-trigger-legacy-handler-retirement.unit.test.ts` |
+| **Migration suite** | **717/717 pass** (+1) | server tests |
+
+### Track E6 — Layer 3 batch 11: trigger legacy orchestration retirement ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **IR-first dispatch** | `tryResolveTriggerViaOracleIR` runs before legacy create-token/keyword pre-hooks (matches spell stack order) | `stackExecuteTriggerEffectUtils.ts` |
+| **Body handler skip** | `shouldSkipLegacyTriggerBodyHandlers` wired — fully IR-wired effects bypass legacy body chain; tail fallback retained | `stackExecuteTriggerEffectLegacyBodyUtils.ts` |
+| **Guardrail** | Source-order assertion IR before legacy create-token | `oracle-ir-trigger-legacy-guardrail.test.ts` |
+| **Migration suite** | **716/716 pass** (unchanged count) | server tests |
+
+### Track E6 — Layer 3 batch 10: trigger compound live-path integration ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Trigger Green Sun resume** | `tryResolveTriggerViaOracleIR` → LIBRARY_SEARCH → resume puts chosen card in hand | `oracle-ir-reveal-player-choice.integration.test.ts` |
+| **Trigger Kindred EP** | `choose_creature_type` compounds route through Effect Program on trigger path; CREATURE_TYPE_CHOICE + resume completes reveal-until | `oracle-ir-kindred-summons.integration.test.ts` |
+| **Migration suite** | **716/716 pass** (+3) | server tests |
+
+### Track E6 — Layer 3 batch 9: trigger Effect Program gate ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Trigger EP gate** | `requiresTriggerEffectProgramOrchestration` — same direct-IR gate as spells; reveal/player_choice/move compounds no longer route through in-memory EP on trigger path | `oracleIrEffectProgramServer.ts`, `oracleIrTriggerExecution.ts` |
+| **Shared core gate** | `requiresCoreEffectProgramOrchestration` + spell/trigger aliases | `oracleIrEffectProgramServer.ts` |
+| **Trigger LIBRARY_SEARCH** | `tryResolveTriggerViaOracleIR` queues among-them search for Green Sun effect text (no `effectProgramPrompt`) | `oracle-ir-reveal-player-choice.integration.test.ts` |
+| **Migration suite** | **713/713 pass** (+2) | server tests |
+
+### Track E6 — Layer 3 batch 8: compound reveal→choice stack path ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Spell EP gate** | `requiresSpellEffectProgramOrchestration` — direct IR for reveal/player_choice/move compounds; EP kept for modal, Kindred, fateseal/clash | `oracleIrEffectProgramServer.ts`, `oracleIrSpellExecution.ts` |
+| **Green Sun stack path** | `resolveTopOfStack` queues LIBRARY_SEARCH (not silent EP completion); resume to hand | `oracle-ir-reveal-player-choice.integration.test.ts` |
+| **EP step carry-over** (batch 7 carry) | `lastMovedCards` / `lastRevealedCardCount` across EP oracle_ir commands | `effectProgramOracleRunner.ts`, `oracleIRExecutorMainLoop.ts` |
+| **Migration suite** | **711/711 pass** (+3) | server tests |
+
+### Track E6 — Layer 3 batch 7: Kindred Summons live stack path ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **`reveal_top` runtime wiring** | Added to `ORACLE_IR_FALLBACK_STEP_KINDS` so spell primary owns Kindred Summons | `trigger-runtime-wiring.ts` |
+| **Legacy pre-resolution skip** | Skip legacy `CREATURE_TYPE_CHOICE` when Effect Program orchestrates (choose_creature_type + follow-ups) | `stackResolveSpellChoiceUtils.ts` |
+| **Spell EP waitingForChoice** | Return `handled: true` when Effect Program queues choice (align with trigger path) | `oracleIrSpellExecution.ts` |
+| **Legacy Kindred skip** | Skip `resolveKindredSummonsFromLibrary` when IR primary owns spell | `stackResolveSpellChoiceUtils.ts` |
+| **EP step carry-over** | Propagate `lastMovedCards` / `lastRevealedCardCount` across Effect Program oracle_ir commands | `effectProgramOracleRunner.ts`, `oracleIRExecutorMainLoop.ts` |
+| **EP zone sync** | Sync full library arrays into `zones[player].library` after Effect Program | `effectProgramResolutionService.ts` |
+| **Migration suite** | **708/708 pass** (+3); stack resolveTopOfStack → CREATURE_TYPE_CHOICE → resume | `oracle-ir-kindred-summons.integration.test.ts` |
+
+### Track E6 — Layer 3 batch 6: Green Sun's Twilight X≥5 alternate ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **X≥5 alternate IR** | `xAtLeastAlternate` on reveal→choose→move steps; battlefield-or-hand when X≥5 | `oracleIRParserPostprocess.ts`, `oracleIR.ts` |
+| **Destination choice** | Executor + `moveZoneDestination` selector context | `oracleIRExecutorMoveZoneStepHandlers.ts`, `oracleIRExecutionTypes.ts` |
+| **Server queue/resume** | OPTION_CHOICE after LIBRARY_SEARCH when X≥5; persist `oracleIrXValue` on resume | `oracleIrServerZoneSync.ts` |
+| **Migration suite** | **705/705 pass** (+1); X=5 battlefield integration test | `oracle-ir-reveal-player-choice.integration.test.ts` |
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Reveal until X of chosen type** | `resolveRevealUntilReferenceAmountForPlayer` handles Kindred Summons amount + chosen type | `oracleIRExecutorPlayerUtils.ts` |
+| **Ability merge** | `mergeChooseCreatureTypePrefixAbilities` merges split choose + reveal steps | `oracleIRParserPostprocess.ts` |
+| **Ledger contextual ids** | `resolveContextualCardIdsInZones` falls back to step ledger when bridge strips carry-over | `oracleIRExecutorMoveZoneStepHandlers.ts` |
+| **Green Sun resume rider** | Drop bogus `pass36` grant_static from parser + resume filter | `oracleIRParserPostprocess.ts`, `oracleIrServerZoneSync.ts` |
+| **Migration suite** | **704/704 pass** (+2); `oracle-ir-kindred-summons.integration.test.ts` | server tests |
+
+### Track E6 — Layer 3 batch 4: reveal → choose → move (Green Sun's Twilight) ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **"Those cards" move from library** | Contextual bound-card handler moves library-zone cards via `moveContextualCardToDestination` (was falling through to exile mover) | `oracleIRExecutorMoveZoneStepHandlers.ts` |
+| **Chosen subset** | Filter contextual bound ids by `chosenObjectIds` when antecedent pool is full reveal set | same |
+| **Rest to bottom** | Rest pool reads step ledger when runtime `lastMovedCards` absent on IR resume | same |
+| **Server queue bridge** | Among-them `LIBRARY_SEARCH` + resume with `chosenObjectIds`; ledger at queue time | `oracleIrServerZoneSync.ts`, `oracleIRLedgerCardAccess.ts` |
+| **Migration suite** | **702/702 pass** (+1); `oracle-ir-reveal-player-choice.integration.test.ts` | server tests |
+
+### Track E6 — Layer 3 batch 3: Hakbal + Celestial Reunion ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Celestial Reunion X** | Resolve `manaValueLte: -1` from `xValue` before library search filter | `oracleIRExecutorPlayerStepHandlers.ts` |
+| **Hakbal land-play** | Skip `LIBRARY_SEARCH` bridge for hand→battlefield optional land steps; defer draw sync when KYNAIOS queued | `oracleIrServerZoneSync.ts`, `oracleIrTriggerExecution.ts` |
+| **Migration suite** | **701/701 pass** (+7 from 694) | server tests |
+
+### Track E6 — Layer 3 batch 2: counter distribution ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Counter distribution** | Always queue `COUNTER_DISTRIBUTION` when split needs player choice (even with pre-bound targets) | `oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Migration suite** | **698/701 pass** (+4) | server tests |
+
+### Track E6 — Layer 3 batch 1: zone-change card id ✅
+
+| Item | Change | Key files |
+|------|--------|-----------|
+| **Partial → 0** | Remaining 13 library/reveal/compound clusters closed via executor fixes + audit benign/enrich (batch398 fixtures) | `executor-coverage-audit.ts`, parser/executor |
+| **Layer 3 helpers** | `buildPlayerChoiceAmongThemSelectionOptions`, `buildMoveZoneSelectionOptions` for reveal→choice→move and GY chain heads | `oracleIRExecutorPlayerStepHandlers.ts` |
+| **Tests** | `oracleIRGapBatch398.test.ts` (2) | rules-engine |
+| **Re-audit** | parse→execute **13 → 0**; `partial` **13 → 0**; assisted **100%** (47570/47570) | `executor-coverage-audit.json` |
+| **Migration suite** | `npm run test:oracle-ir-migration` — **670/701 pass**, 31 Layer 3 gaps exposed | server tests |
+
+**Next:** Track E6 — targeted zone-change queue resume (P0), then compound library search / reveal chains.
 
 ### Track E2 — Parse→execute + remaining IR gap (batch 397) ✅
 
@@ -1014,7 +1367,7 @@ $env:EXECUTOR_COVERAGE_SCOPE='full_card'; npm run executor:coverage
 npx tsx scripts/executor-fullcard-selector-gap-analysis.ts
 ```
 
-Expected: `combat.infect-wither.test.ts` **8/8**; `combat.infect-wither.socket.integration.test.ts` **1/1**; `thassa-oracle-etb.socket.integration.test.ts` **2/2**; `roaming-throne-kumena-tribal.socket.integration.test.ts` **1/1**; `poisonCounterDisplay.test.ts` **3/3**; migration suite **701/701**.
+Expected: `combat.infect-wither.test.ts` **8/8**; `combat.infect-wither.socket.integration.test.ts` **1/1**; `thassa-oracle-etb.socket.integration.test.ts` **2/2**; `roaming-throne-kumena-tribal.socket.integration.test.ts` **1/1**; `poisonCounterDisplay.test.ts` **3/3**; migration suite **704/704**.
 
 ## Open / not verified in live play
 

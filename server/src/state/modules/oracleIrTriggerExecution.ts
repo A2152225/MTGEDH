@@ -24,7 +24,7 @@ import {
 } from './oracleIrTriggerExecutionHelpers.js';
 import {
   probeOracleEffectProgramShadow,
-  requiresEffectProgramOrchestration,
+  requiresTriggerEffectProgramOrchestration,
   startOracleEffectProgramOnServer,
 } from './oracleIrEffectProgramServer.js';
 import { copyPermanentTriggerStepNeedsTargetSelectionQueue } from './trigger-copy-permanent.js';
@@ -354,11 +354,22 @@ function drawEffectSynced(
   controller: PlayerID,
   effectText: string,
   libraryCountBefore: number,
+  queueBridged: boolean,
 ): boolean {
-  if (!/draw (?:a card|(\d+) cards?)/i.test(String(effectText || ''))) {
+  const normalized = String(effectText || '').replace(/\u2019/g, "'").trim();
+  if (
+    queueBridged
+    && /you may put a land card from your hand onto the battlefield/i.test(normalized)
+    && /if you don'?t,?\s*draw (?:a card|\d+ cards?)/i.test(normalized)
+  ) {
+    // Draw is deferred to KYNAIOS_CHOICE resolution, not applied during IR execution.
     return true;
   }
-  const drawMatch = String(effectText || '').match(/draw (?:a card|(\d+) cards?)/i);
+
+  if (!/draw (?:a card|(\d+) cards?)/i.test(normalized)) {
+    return true;
+  }
+  const drawMatch = normalized.match(/draw (?:a card|(\d+) cards?)/i);
   const expectedDrawn = drawMatch?.[1] ? parseInt(drawMatch[1], 10) : 1;
   if (!Number.isFinite(expectedDrawn) || expectedDrawn <= 0) {
     return true;
@@ -376,7 +387,7 @@ export function tryResolveTriggerViaOracleIR(
     return { handled: false, applied: 0, shadowWouldHandle: false };
   }
 
-  const steps = collectTriggerExecutionSteps(effectText, params.sourceName);
+  const steps = collectTriggerExecutionSteps(effectText, params.sourceName, params.triggerItem);
   if (steps.length === 0 || steps.every((step) => step.kind === 'unknown')) {
     return { handled: false, applied: 0, shadowWouldHandle: false };
   }
@@ -388,7 +399,7 @@ export function tryResolveTriggerViaOracleIR(
   const executionOptions = buildTriggerExecutionOptionsFromSteps(steps, params.triggerItem);
   const normalizedSelectedModeIds = executionOptions.selectedModeIds;
 
-  const useEffectProgram = requiresEffectProgramOrchestration(steps, normalizedSelectedModeIds);
+  const useEffectProgram = requiresTriggerEffectProgramOrchestration(steps, normalizedSelectedModeIds);
   const hasChooseModeStep = steps.some((step) => step.kind === 'choose_mode');
   const hasPreselectedModes = Array.isArray(normalizedSelectedModeIds) && normalizedSelectedModeIds.length > 0;
   const canApplyPreselectedChooseMode = hasChooseModeStep && hasPreselectedModes;
@@ -529,7 +540,7 @@ export function tryResolveTriggerViaOracleIR(
       handled = false;
     }
 
-    if (handled && !drawEffectSynced(ctx, params.controller, effectText, libraryCountBefore)) {
+    if (handled && !drawEffectSynced(ctx, params.controller, effectText, libraryCountBefore, queueBridged)) {
       handled = false;
       logOracleIrAllOrNothingFailure(
         'trigger',

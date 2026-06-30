@@ -87,6 +87,26 @@ function countSequentialChoiceSteps(steps: readonly OracleEffectStep[]): number 
   return count;
 }
 
+const PREFIXED_CHOICE_STEP_KINDS = [
+  'choose_creature_type',
+  'choose_color',
+  'choose_card_name',
+  'choose_opponent',
+] as const;
+
+function hasPrefixedChoiceWithFollowUpSteps(steps: readonly OracleEffectStep[]): boolean {
+  for (const prefixKind of PREFIXED_CHOICE_STEP_KINDS) {
+    const prefixIndex = steps.findIndex((step) => step.kind === prefixKind);
+    if (
+      prefixIndex >= 0
+      && steps.slice(prefixIndex + 1).some((step) => step.kind !== 'unknown')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function requiresEffectProgramOrchestration(
   steps: readonly OracleEffectStep[],
   selectedModeIds?: readonly string[],
@@ -106,35 +126,90 @@ export function requiresEffectProgramOrchestration(
     return true;
   }
 
-  const chooseCreatureTypeIndex = steps.findIndex((step) => step.kind === 'choose_creature_type');
-  if (
-    chooseCreatureTypeIndex >= 0
-    && steps.slice(chooseCreatureTypeIndex + 1).some((step) => step.kind !== 'unknown')
-  ) {
+  if (hasPrefixedChoiceWithFollowUpSteps(steps)) {
     return true;
   }
 
   return countSequentialChoiceSteps(steps) >= 2;
 }
 
+/**
+ * Core Effect Program gate for multi-step effects. Reveal → player_choice → move_zone
+ * and similar compounds use applyOracleIRStepsOnServer (queue bridge + resume metadata).
+ * Effect Program remains for modal, prefixed choice compounds (Kindred/color/name/opponent),
+ * fateseal/clash, optional yes/no steps, etc.
+ */
+export function requiresCoreEffectProgramOrchestration(
+  steps: readonly OracleEffectStep[],
+  selectedModeIds?: readonly string[],
+): boolean {
+  if (!Array.isArray(steps) || steps.length === 0) return false;
+
+  const hasUnresolvedChooseMode = steps.some((step) => step.kind === 'choose_mode')
+    && (!Array.isArray(selectedModeIds) || selectedModeIds.length === 0);
+  if (hasUnresolvedChooseMode) return true;
+
+  if (steps.some((step) => step.kind === 'fateseal' || step.kind === 'clash')) {
+    return true;
+  }
+
+  if (steps.some((step) => stepOptionalRequiresChoice(step))) {
+    return true;
+  }
+
+  return hasPrefixedChoiceWithFollowUpSteps(steps);
+}
+
+/** Spell stack/trigger routing — see {@link requiresCoreEffectProgramOrchestration}. */
+export const requiresSpellEffectProgramOrchestration = requiresCoreEffectProgramOrchestration;
+
+/** Trigger stack routing — same gate as spells (direct IR for reveal/player_choice compounds). */
+export const requiresTriggerEffectProgramOrchestration = requiresCoreEffectProgramOrchestration;
+
 function buildPresetEffectProgramBindings(
   program: EffectProgram,
   irCtx: OracleIRExecutionContext,
 ): Record<string, ChoiceResponse> {
   const bindings: Record<string, ChoiceResponse> = {};
+  const presetSelectionsByOracleStepKind: Record<string, string> = {};
+
   const presetCreatureType = String(
     irCtx.selectorContext?.chosenCreatureType || (irCtx as { chosenCreatureType?: string }).chosenCreatureType || '',
   ).trim();
-  if (!presetCreatureType) return bindings;
+  if (presetCreatureType) {
+    presetSelectionsByOracleStepKind.choose_creature_type = presetCreatureType;
+  }
+
+  const presetChosenMana = String(irCtx.selectorContext?.chosenMana || '').trim();
+  if (presetChosenMana) {
+    presetSelectionsByOracleStepKind.choose_color = presetChosenMana;
+  }
+
+  const presetCardName = String(irCtx.selectorContext?.chosenCardName || '').trim();
+  if (presetCardName) {
+    presetSelectionsByOracleStepKind.choose_card_name = presetCardName;
+  }
+
+  const presetOpponentId = String(
+    irCtx.selectorContext?.targetOpponentId || (irCtx as { targetOpponentId?: string }).targetOpponentId || '',
+  ).trim();
+  if (presetOpponentId) {
+    presetSelectionsByOracleStepKind.choose_opponent = presetOpponentId;
+  }
+
+  if (Object.keys(presetSelectionsByOracleStepKind).length === 0) {
+    return bindings;
+  }
 
   for (const step of program.steps) {
     if (step.kind !== 'choice') continue;
     const oracleStepKind = String((step.choiceRequest?.payload as any)?.oracleStepKind || '');
-    if (oracleStepKind !== 'choose_creature_type') continue;
+    const presetSelection = presetSelectionsByOracleStepKind[oracleStepKind];
+    if (!presetSelection) continue;
     bindings[step.bindingKey] = {
       eventId: step.bindingKey,
       playerId: irCtx.controllerId,
-      selections: [presetCreatureType],
+      selections: [presetSelection],
       cancelled: false,
       timestamp: Date.now(),
     };

@@ -263,9 +263,24 @@ function getDatabase(): DB {
     );
 
     CREATE INDEX IF NOT EXISTS card_lookup_source_idx ON card_lookup(source);
+
+    CREATE TABLE IF NOT EXISTS oracle_ir_compiled_overlay (
+      overlay_key TEXT PRIMARY KEY,
+      card_id TEXT,
+      normalized_name TEXT,
+      payload TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS oracle_ir_overlay_card_id_idx ON oracle_ir_compiled_overlay(card_id);
+    CREATE INDEX IF NOT EXISTS oracle_ir_overlay_name_idx ON oracle_ir_compiled_overlay(normalized_name);
   `);
 
   return db;
+}
+
+export function getLocalCardLookupDatabase(): DB {
+  return getDatabase();
 }
 
 function readMetaValue(database: DB, key: string): string | null {

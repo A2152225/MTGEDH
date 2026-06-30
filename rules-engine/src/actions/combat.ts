@@ -23,6 +23,10 @@ import {
 } from '../damageProcessing';
 import { previewPreventedDamage } from '../oracleIRDamagePrevention';
 import {
+  isStationPermanentCreatureNow,
+  isStationPermanentTypeLine,
+} from '../stationPermanentUtils';
+import {
   checkAttackCosts,
   collectPillowfortEffects,
   getAttackCostDescription,
@@ -287,7 +291,7 @@ function collectAllAbleBlockRequirements(
  * - Animation effects (e.g., Tezzeret making artifacts creatures, Nissa animating lands)
  * - Granted types from effects
  * - Vehicles (only creatures when crewed this turn)
- * - Spacecraft with Station (creatures when charge counter threshold met)
+ * - Spacecraft / Planet with Station (creatures when charge counter threshold met)
  * - Bestow creatures (may be Auras when attached to another creature)
  * 
  * @param permanent - The permanent to check
@@ -415,26 +419,11 @@ export function isCurrentlyCreature(permanent: any): boolean {
     return false;
   }
   
-  // Handle Spacecraft with Station mechanic
-  // Spacecraft become creatures when they have enough charge counters
-  if (typeLine.includes('spacecraft')) {
-    // Check if the spacecraft has met its station threshold
-    // This is tracked by the game when station ability resolves
-    if (permanent.stationed === true) {
+  // Handle Spacecraft / Planet permanents with Station mechanic
+  if (isStationPermanentTypeLine(typeLine)) {
+    if (isStationPermanentCreatureNow(permanent, oracleText)) {
       return true;
     }
-    // Also check for granted creature type from station effect
-    if (permanent.grantedTypes && Array.isArray(permanent.grantedTypes)) {
-      if (permanent.grantedTypes.includes('Creature')) return true;
-    }
-    // Check if counters meet the threshold (simplified check)
-    // The game should manage this, but we can check for charge counters
-    const chargeCounters = permanent.counters?.charge || permanent.counters?.['charge'] || 0;
-    const stationThreshold = permanent.stationThreshold || 0;
-    if (stationThreshold > 0 && chargeCounters >= stationThreshold) {
-      return true;
-    }
-    // Spacecraft not stationed - not a creature
     return false;
   }
   

@@ -1,5 +1,10 @@
 import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser.js';
+import { collectOracleEffectStepsWithOverlay } from '../../../../rules-engine/src/oracleIRCompilerEnvelope.js';
 import type { OracleEffectStep, OracleObjectSelector } from '../../../../rules-engine/src/oracleIR.js';
+import {
+  resolveCompiledOverlayForCard,
+  type CollectOracleEffectStepsOptions,
+} from './oracleIrCompiledOverlayLookup.js';
 import {
   isExternallyHandledOracleFragmentText,
   parseBareTriggerEffectFragmentSteps,
@@ -10,6 +15,7 @@ import { normalizeGameplayEffectText } from '../../../../rules-engine/src/oracle
 import { isSupportedCopyPermanentTriggerPattern } from './trigger-copy-permanent.js';
 
 export { isSupportedCopyPermanentTriggerPattern } from './trigger-copy-permanent.js';
+export type { CollectOracleEffectStepsOptions } from './oracleIrCompiledOverlayLookup.js';
 
 /**
  * Step kinds handled by applyOracleIRUncategorizedSpellFallback for mandatory steps.
@@ -53,6 +59,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'shuffle_zones_into_library',
   'look_choose_from_top',
   'look_select_top',
+  'reveal_top',
   'choose_pile',
   'change_target',
   'choose_target_creature',
@@ -249,7 +256,25 @@ export function parseTriggerEffectSteps(effectText: string, cardName: string): O
  * (bare upkeep/ETB clauses) wins over spell-style full-card IR so effects like
  * Cryptoplasm upkeep copy resolve to copy_permanent steps.
  */
-export function collectOracleEffectSteps(oracleText: string, sourceName: string): OracleEffectStep[] {
+export function collectOracleEffectSteps(
+  oracleText: string,
+  sourceName: string,
+  options?: CollectOracleEffectStepsOptions,
+): OracleEffectStep[] {
+  const mergedOptions: CollectOracleEffectStepsOptions = {
+    ...options,
+    cardName: options?.cardName || sourceName,
+  };
+  const overlay = resolveCompiledOverlayForCard(mergedOptions);
+  if (overlay) {
+    return collectOracleEffectStepsWithOverlay(
+      oracleText,
+      sourceName,
+      overlay,
+      options?.overlayOptions,
+    );
+  }
+
   const text = String(oracleText || '').trim();
   if (!text) return [];
 

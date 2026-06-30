@@ -14,6 +14,13 @@ import { creatureWillHaveHaste } from './creatureEntryHasteUtils.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { markPermanentEnteredFromZone } from './triggerDelayedEffectUtils.js';
 import { repairReplayCardSourceZones } from './stackReplayUtils.js';
+import { tryDeferPlayLandForWouldEnterReplacement, tryApplyLandWouldEnterNamedSacrificeReplacement } from './land-would-enter-replacement.js';
+
+export interface PlayLandEntryOptions {
+  playedFromExile?: boolean;
+  playedFromGraveyard?: boolean;
+  skipLandPlayCountIncrement?: boolean;
+}
 
 /* Place a land onto the battlefield for a player (simplified) */
 export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
@@ -154,6 +161,37 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
   }
 
   const tl = (card.type_line || '').toLowerCase();
+  const isLand = /\bland\b/.test(tl);
+  if (
+    isLand
+    && tryDeferPlayLandForWouldEnterReplacement(ctx, playerId, card, { playedFromExile, playedFromGraveyard })
+  ) {
+    bumpSeq();
+    return;
+  }
+
+  if (
+    isLand
+    && tryApplyLandWouldEnterNamedSacrificeReplacement(ctx, playerId, card, { playedFromExile, playedFromGraveyard })
+  ) {
+    bumpSeq();
+    return;
+  }
+
+  finishPlayLandBattlefieldEntry(ctx, playerId, card, { playedFromExile, playedFromGraveyard });
+}
+
+export function finishPlayLandBattlefieldEntry(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any,
+  opts: PlayLandEntryOptions = {},
+) {
+  const { state, bumpSeq } = ctx;
+  const playedFromExile = Boolean(opts.playedFromExile);
+  const playedFromGraveyard = Boolean(opts.playedFromGraveyard);
+
+  const tl = (card.type_line || '').toLowerCase();
   const isCreature = /\bcreature\b/.test(tl);
   const isLand = /\bland\b/.test(tl);
   const baseP = isCreature ? parsePT((card as any).power) : undefined;
@@ -238,8 +276,10 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     summoningSickness: hasSummoningSickness,
     card: { ...card, zone: 'battlefield' },
   } as any);
-  state.landsPlayedThisTurn = state.landsPlayedThisTurn || {};
-  state.landsPlayedThisTurn[playerId] = (state.landsPlayedThisTurn[playerId] ?? 0) + 1;
+  if (!opts.skipLandPlayCountIncrement) {
+    state.landsPlayedThisTurn = state.landsPlayedThisTurn || {};
+    state.landsPlayedThisTurn[playerId] = (state.landsPlayedThisTurn[playerId] ?? 0) + 1;
+  }
 
   const newPermanent = state.battlefield[state.battlefield.length - 1];
   if (playedFromGraveyard) {

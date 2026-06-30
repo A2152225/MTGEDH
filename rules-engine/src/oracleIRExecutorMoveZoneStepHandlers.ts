@@ -2,6 +2,10 @@ import type { GameState, PlayerID } from '../../shared/src';
 import { cardHasCreatureType, isValidCreatureType } from '../../shared/src/creatureTypes';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import {
+  collectMostRecentLedgerCards,
+  collectRevealedThisWayCardsLedgerFirst,
+} from './oracleIRLedgerCardAccess';
 import { parseSimpleBattlefieldSelector } from './oracleIRExecutorBattlefieldParser';
 import { getCardManaValue, getCurrentTurnNumber } from './oracleIRExecutorPlayerUtils';
 import { evaluateConditionalWrapperCondition } from './oracleIRExecutorConditionalStepSupport';
@@ -2123,6 +2127,29 @@ function resolveRevealThisWayRestDestination(
   return 'library_bottom';
 }
 
+function resolveContextualRestPoolIdsInZones(
+  state: GameState,
+  ctx: OracleIRExecutionContext,
+  runtime: MoveZoneRuntime | undefined,
+  zones: readonly ('library' | 'graveyard' | 'hand' | 'exile')[],
+): string[] {
+  const fromRuntime = resolveContextualCardIdsInZones(state, ctx, runtime, zones);
+  const fromLedger = collectRevealedThisWayCardsLedgerFirst(ctx)
+    .map((card) => String((card as any)?.id || '').trim())
+    .filter(Boolean);
+  const fromRecentLedger =
+    fromLedger.length > 0
+      ? fromLedger
+      : collectMostRecentLedgerCards(ctx)
+          .map((card) => String((card as any)?.id || '').trim())
+          .filter(Boolean);
+  const pool = Array.from(new Set([...fromRecentLedger, ...fromRuntime]));
+  return pool.filter((cardId) => {
+    const location = findBoundCardZoneLocation(state, cardId);
+    return Boolean(location && zones.includes(location.zone));
+  });
+}
+
 function moveContextualRestAfterPrimaryMove(
   state: GameState,
   controllerId: PlayerID,
@@ -2132,7 +2159,7 @@ function moveContextualRestAfterPrimaryMove(
   destination: 'graveyard' | 'library_bottom'
 ): { state: GameState; log: string[] } {
   const moved = new Set(movedIds.map(id => String(id || '').trim()).filter(Boolean));
-  const restIds = resolveContextualCardIdsInZones(state, ctx, runtime, ['library', 'hand', 'exile']).filter(
+  const restIds = resolveContextualRestPoolIdsInZones(state, ctx, runtime, ['library', 'hand', 'exile']).filter(
     id => !moved.has(id)
   );
   if (restIds.length === 0) return { state, log: [] };
@@ -2194,12 +2221,18 @@ function resolveContextualCardIdsInZones(
       ].filter(Boolean)
     )
   );
-  const candidateIds =
+  let candidateIds =
     antecedentIds.length > 0
       ? antecedentIds
       : Array.from(
           new Set([...getChosenObjectIds(ctx), ...antecedentIds].filter(Boolean))
         );
+
+  if (candidateIds.length === 0 && ctx) {
+    candidateIds = collectMostRecentLedgerCards(ctx)
+      .map((card) => String((card as any)?.id || '').trim())
+      .filter(Boolean);
+  }
 
   return candidateIds.filter(cardId => {
     const location = findBoundCardZoneLocation(state, cardId);
@@ -3002,9 +3035,25 @@ export function applyMoveZoneStep(
   const parsedUpToXLandsHandGy = parseMoveZoneUpToXLandsFromHandAndOrGraveyard(step.what as any);
   const boundTargetObjectId = getBoundTargetObjectId(ctx, step, runtime);
   const sourcePermanentPower = getSourcePermanentPower(nextState, ctx);
-  const contextualBoundCardIds = isContextualBoundCardsReference(step.what as any)
+  const contextualBoundCardIdsRaw = isContextualBoundCardsReference(step.what as any)
     ? resolveContextualCardIdsInZones(nextState, ctx, runtime, ['library', 'graveyard', 'hand', 'exile'])
     : [];
+  let contextualBoundCardIds = contextualBoundCardIdsRaw;
+  if (contextualBoundCardIds.length > 0) {
+    const preferredIds = getChosenObjectIds(ctx);
+    if (preferredIds.length > 0) {
+      const preferred = new Set(preferredIds);
+      const filtered = contextualBoundCardIds.filter((id) => preferred.has(id));
+      if (filtered.length > 0) {
+        contextualBoundCardIds = filtered;
+      } else {
+        const fromPreferred = preferredIds.filter((id) => Boolean(findBoundCardZoneLocation(nextState, id)));
+        if (fromPreferred.length > 0) {
+          contextualBoundCardIds = fromPreferred;
+        }
+      }
+    }
+  }
   const parsedOneOfThemSplit = getOneOfThemSplitKind(step);
   const parsedOnePileSplit = getOnePileSplitKind(step);
   const contextualBoundCardZone = resolveContextualBoundCardZone(nextState, step, ctx, runtime);
@@ -3738,14 +3787,54 @@ export function applyMoveZoneStep(
   }
 
   if (contextualBoundCardIds.length > 0) {
-    const libraryPlacement = getLibraryPlacement(step);
-    const ownerControlledBattlefield =
-      step.to === 'battlefield' &&
-      (step.battlefieldController?.kind === 'owner_of_moved_cards' ||
-        /under their owners?'? control/i.test(String(step.toRaw || step.raw || '')));
+    const xAtLeastAlternate = (step as any).xAtLeastAlternate as
+      | { threshold?: number; destinations?: readonly string[] }
+      | undefined;
+    let activeStep = step;
     if (
-      !['hand', 'exile', 'graveyard', 'battlefield'].includes(step.to) &&
-      !(step.to === 'library' && libraryPlacement)
+      xAtLeastAlternate
+      && Number.isFinite(Number(xAtLeastAlternate.threshold))
+      && Number.isFinite(Number(ctx.xValue))
+      && Number(ctx.xValue) >= Number(xAtLeastAlternate.threshold)
+    ) {
+      const allowedDestinations = (Array.isArray(xAtLeastAlternate.destinations)
+        ? xAtLeastAlternate.destinations
+        : []
+      )
+        .map((destination) => String(destination || '').trim())
+        .filter(Boolean);
+      const chosenDestination = String(ctx.selectorContext?.moveZoneDestination || '').trim();
+      if (!chosenDestination || !allowedDestinations.includes(chosenDestination)) {
+        return {
+          applied: false,
+          message: `Move zone destination choice required: ${step.raw}`,
+          reason: 'player_choice_required',
+          options: {
+            classification: 'player_choice',
+            metadata: {
+              moveZoneDestinationChoice: allowedDestinations,
+              xAtLeastAlternateThreshold: Number(xAtLeastAlternate.threshold),
+            },
+          },
+        };
+      }
+      activeStep = {
+        ...step,
+        to: chosenDestination as typeof step.to,
+        ...(chosenDestination === 'battlefield' && !step.battlefieldController
+          ? { battlefieldController: { kind: 'you' } as const }
+          : {}),
+      };
+    }
+
+    const libraryPlacement = getLibraryPlacement(activeStep);
+    const ownerControlledBattlefield =
+      activeStep.to === 'battlefield' &&
+      (activeStep.battlefieldController?.kind === 'owner_of_moved_cards' ||
+        /under their owners?'? control/i.test(String(activeStep.toRaw || activeStep.raw || '')));
+    if (
+      !['hand', 'exile', 'graveyard', 'battlefield'].includes(activeStep.to) &&
+      !(activeStep.to === 'library' && libraryPlacement)
     ) {
       return {
         applied: false,
@@ -3756,6 +3845,7 @@ export function applyMoveZoneStep(
 
     let workingState = nextState;
     const combinedLog: string[] = [];
+    const movedCardIds: string[] = [];
     for (const targetObjectId of contextualBoundCardIds) {
       const exactZone = findBoundCardZoneLocation(workingState, targetObjectId);
       if (!exactZone) {
@@ -3768,14 +3858,14 @@ export function applyMoveZoneStep(
       }
 
       const destination =
-        step.to === 'library'
+        activeStep.to === 'library'
           ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom')
-          : step.to;
+          : activeStep.to;
       const battlefieldControllerId =
-        step.to === 'battlefield'
+        activeStep.to === 'battlefield'
           ? ownerControlledBattlefield
             ? exactZone.playerId
-            : step.battlefieldController?.kind === 'you'
+            : activeStep.battlefieldController?.kind === 'you'
               ? controllerId
               : controllerId
           : undefined;
@@ -3809,19 +3899,46 @@ export function applyMoveZoneStep(
                 attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
                 battlefieldEntryOverrides
               )
-            : moveTargetedCardFromExile(
-                workingState,
-                exactZone.playerId,
-                targetObjectId,
-                'any',
-                destination as any,
-                battlefieldControllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
-                attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
-                battlefieldEntryOverrides
-              );
+            : exactZone.zone === 'library'
+              ? moveContextualCardToDestination(
+                  workingState,
+                  exactZone,
+                  targetObjectId,
+                  destination === 'library_top' || destination === 'library_bottom'
+                    ? destination
+                    : destination === 'hand'
+                      ? 'hand'
+                      : destination === 'graveyard'
+                        ? 'graveyard'
+                        : destination === 'exile'
+                          ? 'exile'
+                          : destination === 'battlefield'
+                            ? 'battlefield'
+                            : 'hand',
+                  {
+                    controllerId,
+                    cardType: 'any',
+                    entersTapped: step.entersTapped,
+                    entersFaceDown: step.entersFaceDown,
+                    withCounters: effectiveWithCounters,
+                    battlefieldEntryOverrides,
+                    ctx,
+                    stepKind: 'move_zone',
+                  }
+                )
+              : moveTargetedCardFromExile(
+                  workingState,
+                  exactZone.playerId,
+                  targetObjectId,
+                  'any',
+                  destination as any,
+                  battlefieldControllerId,
+                  step.entersTapped,
+                  step.entersFaceDown,
+                  effectiveWithCounters,
+                  attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+                  battlefieldEntryOverrides
+                );
 
       if (result.kind === 'impossible') {
         return {
@@ -3834,6 +3951,19 @@ export function applyMoveZoneStep(
 
       workingState = result.state;
       combinedLog.push(...(result.log || []));
+      movedCardIds.push(targetObjectId);
+    }
+
+    if (stepHasRevealedThisWayRestToLibrary(step)) {
+      const restResult = moveContextualRestToLibraryBottom(
+        workingState,
+        controllerId,
+        ctx,
+        runtime,
+        movedCardIds
+      );
+      workingState = restResult.state;
+      combinedLog.push(...restResult.log);
     }
 
     return buildAppliedResult({

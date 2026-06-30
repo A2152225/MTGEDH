@@ -438,6 +438,10 @@ const stackExecuteTriggerEffectIrFallbackUtilsSource = readFileSync(
   join(serverRoot, 'src/state/modules/stackExecuteTriggerEffectIrFallbackUtils.ts'),
   'utf8',
 );
+const oracleIrTriggerUncategorizedFallbackSource = readFileSync(
+  join(serverRoot, 'src/state/modules/oracleIrTriggerUncategorizedFallback.ts'),
+  'utf8',
+);
 const oracleIrTriggerLegacyRoutingSource = readFileSync(
   join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyRouting.ts'),
   'utf8',
@@ -947,7 +951,8 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackResolveTopOfStackPrefaceUtilsSource.includes('applyExplicitDayNightChangeFromText')).toBe(true);
     expect(stackResolveTopOfStackPrefaceUtilsSource.includes('resolveStackItemEffectiveCard(item, card)')).toBe(true);
     expect(stackResolveTopOfStackPrefaceUtilsSource.includes('shouldFizzleStackSpellForMissingTargets')).toBe(true);
-    expect(stackResolveTopOfStackPrefaceUtilsSource.includes('isMoxDiamondCard')).toBe(true);
+    expect(stackResolveTopOfStackPrefaceUtilsSource.includes('hasWouldEnterDiscardLandReplacement')).toBe(true);
+    expect(stackResolveTopOfStackPrefaceUtilsSource.includes('queueWouldEnterDiscardLandChoiceForStackItem')).toBe(true);
     expect(stackResolveTopOfStackUtilsSource.includes('applyExplicitDayNightChangeFromText')).toBe(false);
     expect(stackResolveTopOfStackUtilsSource.includes('tryPrepareResolveTopOfStackContext(ctx')).toBe(true);
     expect(stackResolveTopOfStackUtilsSource.includes('tryDispatchResolvedStackItem(ctx')).toBe(true);
@@ -1320,9 +1325,19 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackExecuteTriggerEffectUtilsSource.includes('tryApplyTriggerEffectLegacyTailHandlers(')).toBe(true);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('export function tryApplyTriggerEffectLegacyBodyHandlers')).toBe(true);
     expect(stackExecuteTriggerEffectTailUtilsSource.includes('export function tryApplyTriggerEffectLegacyTailHandlers')).toBe(true);
-    expect(stackExecuteTriggerEffectTailUtilsSource.includes('applyRetiredTriggerLegacyCombinedEffectsRegexBatch(')).toBe(true);
+    expect(stackExecuteTriggerEffectTailUtilsSource.includes('shouldSkipLegacyTriggerRegexHandlers')).toBe(true);
+    expect(stackExecuteTriggerEffectTailUtilsSource.includes('skipLegacyRegexTail')).toBe(true);
+    expect(stackExecuteTriggerEffectTailUtilsSource.includes('shouldSkipTriggerUncategorizedFallback')).toBe(true);
+    expect(stackExecuteTriggerEffectTailUtilsSource.includes('skipUncategorizedSpellFallback')).toBe(true);
+    expect(stackExecuteTriggerEffectIrFallbackUtilsSource.includes('applyTriggerIrSpecialHandlersOnly')).toBe(true);
+    expect(stackExecuteTriggerEffectIrFallbackUtilsSource.includes('skipUncategorizedSpellFallback')).toBe(true);
+    expect(oracleIrTriggerUncategorizedFallbackSource.includes('export function applyTriggerIrSpecialHandlersOnly')).toBe(true);
     expect(stackExecuteTriggerEffectUtilsSource.includes('applyRetiredTriggerLegacyCombinedEffectsRegexBatch(')).toBe(false);
     expect(stackExecuteTriggerEffectUtilsSource.includes('tryResolveTriggerViaOracleIR(ctx')).toBe(true);
+    expect(stackExecuteTriggerEffectUtilsSource.indexOf('tryResolveTriggerViaOracleIR')).toBeLessThan(
+      stackExecuteTriggerEffectUtilsSource.indexOf('applyRetiredTriggerLegacyCreateCreatureToken'),
+    );
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('shouldSkipLegacyTriggerBodyHandlers')).toBe(true);
     expect(stackExecuteTriggerEffectUtilsSource.includes('function applyOracleIRFallbackForTriggeredEffect')).toBe(false);
     expect(stackExecuteTriggerEffectUtilsSource.includes("from './stackExecuteTriggerEffectIrFallbackUtils.js'") || stackExecuteTriggerEffectUtilsSource.includes('from "./stackExecuteTriggerEffectIrFallbackUtils.js"')).toBe(false);
     expect(stackExecuteTriggerEffectTailUtilsSource.includes("from './stackExecuteTriggerEffectIrFallbackUtils.js'") || stackExecuteTriggerEffectTailUtilsSource.includes('from "./stackExecuteTriggerEffectIrFallbackUtils.js"')).toBe(true);

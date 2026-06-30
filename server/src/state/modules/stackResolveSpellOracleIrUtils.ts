@@ -1,4 +1,5 @@
-import type { GameContext } from '../context.js';import { debug } from '../../utils/debug.js';
+import type { GameContext } from '../context.js';
+import { debug } from '../../utils/debug.js';
 import { categorizeSpell } from '../../rules-engine/targeting.js';
 import { isOracleIrSpellPrimaryEnabled, tryResolveSpellViaOracleIR } from './oracleIrSpellExecution.js';
 import { shouldSkipLegacySpellCategorizeExecution } from './oracleIrSpellLegacyRouting.js';
@@ -43,6 +44,14 @@ export function tryResolveInstantSorceryOracleIrSpell(
     sourceColors: Array.isArray(effectiveCard?.colors) ? effectiveCard.colors : undefined,
     sourceImage: effectiveCard?.image_uris?.small || effectiveCard?.image_uris?.normal,
     sourceItem: item,
+    card,
+    effectiveCard,
+    cardId: String(
+      effectiveCard?.oracle_id
+      || card?.oracle_id
+      || item?.card?.oracle_id
+      || '',
+    ).trim() || undefined,
   });
 
   let spellSpec: ReturnType<typeof categorizeSpell> | null = null;

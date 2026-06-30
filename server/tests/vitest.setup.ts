@@ -8,6 +8,7 @@ const workerId =
   (process.env.VITEST_WORKER_ID || process.env.VITEST_POOL_ID || '').trim() ||
   String(process.pid);
 const testDbFile = path.resolve(__dirname, '..', 'data', `mtgedh.test.${workerId}.sqlite`);
+const testCardLookupDbFile = path.resolve(__dirname, '..', 'data', `card-lookup.test.${workerId}.sqlite`);
 
 function rmIfExists(filePath: string) {
   try {
@@ -27,10 +28,14 @@ beforeEach(() => {
 
 beforeAll(() => {
   process.env.SQLITE_FILE = testDbFile;
+  process.env.CARD_LOOKUP_SQLITE_FILE = testCardLookupDbFile;
   // Ensure a clean slate (WAL leaves sidecar files)
   rmIfExists(testDbFile);
   rmIfExists(`${testDbFile}-wal`);
   rmIfExists(`${testDbFile}-shm`);
+  rmIfExists(testCardLookupDbFile);
+  rmIfExists(`${testCardLookupDbFile}-wal`);
+  rmIfExists(`${testCardLookupDbFile}-shm`);
 });
 
 afterAll(() => {
@@ -38,4 +43,7 @@ afterAll(() => {
   rmIfExists(testDbFile);
   rmIfExists(`${testDbFile}-wal`);
   rmIfExists(`${testDbFile}-shm`);
+  rmIfExists(testCardLookupDbFile);
+  rmIfExists(`${testCardLookupDbFile}-wal`);
+  rmIfExists(`${testCardLookupDbFile}-shm`);
 });

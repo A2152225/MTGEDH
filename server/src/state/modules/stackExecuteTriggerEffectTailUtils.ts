@@ -9,6 +9,7 @@ import { getTriggerSourcePermanent } from './triggerSourceUtils.js';
 import {
   isTriggerEffectOwnedByOracleIrPrimary,
   shouldSkipLegacyTriggerRegexHandlers,
+  shouldSkipTriggerUncategorizedFallback,
 } from './oracleIrTriggerLegacyRouting.js';
 import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
 import {
@@ -119,52 +120,66 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
     battlefield,
   } = continuation;
 
-  if (shouldSkipLegacyTriggerRegexHandlers(descriptionForOracleFallback, sourceName)) {
+  const skipLegacyRegexTail = shouldSkipLegacyTriggerRegexHandlers(descriptionForOracleFallback, sourceName);
+  const skipUncategorizedSpellFallback = shouldSkipTriggerUncategorizedFallback(
+    descriptionForOracleFallback,
+    sourceName,
+  );
+
+  if (skipLegacyRegexTail) {
     debug(
       1,
-      `[executeTriggerEffect] ${sourceName}: IR primary owns trigger effect but did not apply; falling through to legacy regex handlers: ${String(descriptionForOracleFallback || '').trim()}`,
+      `[executeTriggerEffect] ${sourceName}: IR primary owns trigger effect but did not apply; skipping legacy regex tail handlers: ${String(descriptionForOracleFallback || '').trim()}`,
     );
+  } else {
+    const combinedEffectsHandled = applyRetiredTriggerLegacyCombinedEffectsRegexBatch({
+      ctx,
+      controller,
+      sourceName,
+      desc,
+      description,
+      triggerItem,
+      state,
+      isKynaiosEffect,
+      opponents,
+      battlefield,
+    });
+
+    if (applyRetiredTriggerLegacyPutLandFromHand({
+      ctx,
+      controller,
+      sourceName,
+      desc,
+      description,
+      triggerItem,
+      state,
+    })) {
+      return true;
+    }
+
+    if (combinedEffectsHandled) {
+      tryResolveThassasOracleWin(ctx, controller, sourceName);
+      return true;
+    }
   }
 
-  const combinedEffectsHandled = applyRetiredTriggerLegacyCombinedEffectsRegexBatch({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-    isKynaiosEffect,
-    opponents,
-    battlefield,
-  });
-
-  if (applyRetiredTriggerLegacyPutLandFromHand({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (combinedEffectsHandled) {
-    tryResolveThassasOracleWin(ctx, controller, sourceName);
-    return true;
+  if (skipUncategorizedSpellFallback) {
+    debug(
+      1,
+      `[executeTriggerEffect] ${sourceName}: IR primary owns trigger effect but did not apply; skipping uncategorized spell fallback shim: ${String(descriptionForOracleFallback || '').trim()}`,
+    );
   }
 
   const libraryCountBefore = libraryCountForPlayer(ctx, controller);
   const battlefieldCountBefore = battlefieldCount(state);
   const triggeredOracleIRApplied = applyOracleIRFallbackForTriggeredEffect(
-      ctx,
-      controller,
-      sourceName,
-      descriptionForOracleFallback,
-      triggerItem,
-    );
+    ctx,
+    controller,
+    sourceName,
+    descriptionForOracleFallback,
+    triggerItem,
+    skipUncategorizedSpellFallback ? { skipUncategorizedSpellFallback: true } : undefined,
+  );
   const createTokenTrigger = isCreateCreatureTokenTriggerText(desc)
     || isCreateCreatureTokenTriggerText(descriptionForOracleFallback);
   const createTokenBattlefieldSynced = !createTokenTrigger
@@ -194,37 +209,39 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
     return true;
   }
 
-  if (applyRetiredTriggerLegacySingleEffectRegexBatch({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    triggerCard,
-    state,
-    opponents,
-    players,
-    battlefield,
-    isKynaiosEffect,
-  })) {
-    return true;
-  }
+  if (!skipLegacyRegexTail) {
+    if (applyRetiredTriggerLegacySingleEffectRegexBatch({
+      ctx,
+      controller,
+      sourceName,
+      desc,
+      description,
+      triggerItem,
+      triggerCard,
+      state,
+      opponents,
+      players,
+      battlefield,
+      isKynaiosEffect,
+    })) {
+      return true;
+    }
 
-  if (applyRetiredTriggerLegacyLateEffectRegexBatch({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    triggerCard,
-    state,
-    opponents,
-    players,
-    battlefield,
-  })) {
-    return true;
+    if (applyRetiredTriggerLegacyLateEffectRegexBatch({
+      ctx,
+      controller,
+      sourceName,
+      desc,
+      description,
+      triggerItem,
+      triggerCard,
+      state,
+      opponents,
+      players,
+      battlefield,
+    })) {
+      return true;
+    }
   }
 
   if (maybeApplyPreparedStateChange(ctx, controller, description, triggerItem, getTriggerSourcePermanent(state, triggerItem))) {

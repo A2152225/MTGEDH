@@ -5,6 +5,13 @@ export interface ExpandedKeywordCostAbility {
   readonly effect: string;
 }
 
+export interface StationThresholdActivatedAbility {
+  readonly text: string;
+  readonly stationChargeThreshold: number;
+  readonly cost: string;
+  readonly effect: string;
+}
+
 function normalizeDashPunctuation(text: string): string {
   return String(text || '')
     .replace(/[\u2012\u2013\u2014\u2015]/g, '\u2014')
@@ -49,6 +56,59 @@ function formatCyclingSearchSelector(keyword: string): string | null {
 
 function indefiniteArticleFor(selector: string): 'a' | 'an' {
   return /^[aeiou]/i.test(String(selector || '').trim()) ? 'an' : 'a';
+}
+
+function normalizeStationKeywordEffect(rawEffect: string): string {
+  let effect = String(rawEffect || '').trim();
+  effect = effect.replace(/\.\s*It(?:'|\u2019)s an artifact creature at \d+\+\.?\s*$/i, '');
+  effect = effect.replace(/\.\s*Station only as a sorcery\.?\s*$/i, '');
+  if (effect && !/[.!?]$/.test(effect)) {
+    effect = `${effect}.`;
+  }
+  return effect.trim();
+}
+
+export function parseStationKeywordActivatedAbility(text: string): ExpandedKeywordCostAbility | null {
+  const trimmed = String(text || '').trim();
+  const match = trimmed.match(/^Station\s*\(([\s\S]+?)\)\.?\s*$/i);
+  if (!match) return null;
+
+  const inner = String(match[1] || '').trim();
+  const innerMatch = inner.match(/^(.+?):\s*([\s\S]+)$/);
+  if (!innerMatch) return null;
+
+  const tapCost = String(innerMatch[1] || '').trim();
+  const effect = normalizeStationKeywordEffect(String(innerMatch[2] || '').trim());
+  if (!tapCost || !effect) return null;
+
+  return buildExpandedKeywordAbility(text, `Station (${tapCost})`, effect);
+}
+
+export function parseStationThresholdActivatedAbility(text: string): StationThresholdActivatedAbility | null {
+  const trimmed = String(text || '').trim();
+  const gatedMatch = trimmed.match(/^(\d+)\+\s*\|\s*(.+)$/);
+  if (!gatedMatch) return null;
+
+  const stationChargeThreshold = parseInt(String(gatedMatch[1] || ''), 10);
+  if (!Number.isFinite(stationChargeThreshold)) return null;
+
+  const abilityText = String(gatedMatch[2] || '').trim();
+  const colonMatch = abilityText.match(/^([^:]+?):\s*([\s\S]+)$/);
+  if (!colonMatch) return null;
+
+  const cost = String(colonMatch[1] || '').trim();
+  const effect = String(colonMatch[2] || '').trim();
+  if (!cost || !effect) return null;
+
+  if (/^(when|whenever|at\s+the\s+beginning)/i.test(cost)) return null;
+  if (cost.startsWith('(')) return null;
+
+  return {
+    text: trimmed,
+    stationChargeThreshold,
+    cost,
+    effect,
+  };
 }
 
 export function parseKeywordPrefixedActivatedAbility(text: string): ExpandedKeywordCostAbility | null {

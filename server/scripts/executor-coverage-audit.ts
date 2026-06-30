@@ -11276,6 +11276,19 @@ export function enrichAuditStateAndContextForTargets(
     } as typeof nextCtx;
   }
 
+  const needsStationChargeCountersOnPlanet = steps.some(
+    (step) =>
+      step.kind === 'add_counter' &&
+      /charge counters equal to its power on this planet/i.test(String(step.raw || ''))
+  );
+  if (needsStationChargeCountersOnPlanet) {
+    nextCtx = {
+      ...nextCtx,
+      referenceAmount: Math.max(1, Number(nextCtx.referenceAmount ?? 4)),
+      stationedCreaturePower: Math.max(1, Number((nextCtx as any).stationedCreaturePower ?? nextCtx.referenceAmount ?? 4)),
+    } as typeof nextCtx;
+  }
+
   const needsLifeGainedWhere = steps.some((step) =>
     /life you gained this turn|amount of life you gained/i.test(
       String((step as any).condition?.raw || step.raw || '')

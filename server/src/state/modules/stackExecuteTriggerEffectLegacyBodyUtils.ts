@@ -68,6 +68,7 @@ import {
   applyRetiredTriggerLegacyChosenTypeTopCardReveal,
   applyRetiredTriggerLegacyRevealTopCreatureOfChosenType,
 } from './oracleIrTriggerLegacyLibraryHandlers.js';
+import { shouldSkipLegacyTriggerBodyHandlers } from './oracleIrTriggerLegacyRouting.js';
 
 export type { TriggerEffectLegacyBodyContinuation, TriggerEffectLegacyBodyResult } from './stackResolveSharedTypes.js';
 import type { TriggerEffectLegacyBodyContinuation, TriggerEffectLegacyBodyResult } from './stackResolveSharedTypes.js';
@@ -111,6 +112,13 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
   state: any,
   triggerCard: any,
 ): TriggerEffectLegacyBodyResult {
+  if (shouldSkipLegacyTriggerBodyHandlers(description, sourceName)) {
+    return {
+      handled: false,
+      ...buildTriggerEffectLegacyBodyContinuation(controller, sourceName, description, triggerItem, state),
+    };
+  }
+
   if (applyRetiredTriggerLegacyDiscardTriggeredCastFromGraveyard({
     ctx,
     controller,

@@ -1,4 +1,5 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
+import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import { parseManaCost } from './mana-check.js';
 import { cardHasCreatureType } from '../creatureTypeNow.js';
 import { parseNextChosenTypeSpellFlashGrant } from './chosen-creature-type.js';
@@ -116,10 +117,13 @@ export function grantNextSpellConvoke(
   setConvokeGrants(state, grants);
 }
 
+export type DelayedAffinitySpellFilter = 'any' | 'noncreature';
+
 export function grantNextSpellAffinityForArtifacts(
   state: any,
   controllerId: PlayerID,
   sourceName?: string,
+  options?: { spellFilter?: DelayedAffinitySpellFilter },
 ): void {
   const turnApplied = Number(state?.turnNumber ?? state?.turn ?? 0) || 0;
   state.delayedAffinityForArtifactsNextCast = Array.isArray(state.delayedAffinityForArtifactsNextCast)
@@ -131,6 +135,7 @@ export function grantNextSpellAffinityForArtifacts(
     turnApplied,
     sourceName,
     used: false,
+    spellFilter: options?.spellFilter || 'any',
   });
 }
 
@@ -401,7 +406,8 @@ export function getDynamicBattlefieldCostReduction(
     if (String(entry?.controllerId || '') !== String(playerId || '')) continue;
     if (entry?.used === true) continue;
     if (Number(entry?.turnApplied || 0) !== currentTurn) continue;
-    if (!isArtifact) continue;
+    const spellFilter = String(entry?.spellFilter || 'any').trim().toLowerCase();
+    if (spellFilter === 'noncreature' && isCreature) continue;
 
     const artifactCount = battlefield.filter((p: any) =>
       p && String(p.controller || '') === String(playerId || '')
@@ -474,6 +480,82 @@ export function consumeChosenTypeFlashGrantsAfterCast(
   setChosenTypeFlashGrants(state, grants);
 }
 
+function rebuildCastingModifierTextFromGrantStep(step: OracleEffectStep): string {
+  const raw = normalizeText(step.raw);
+  if (raw) return raw;
+
+  if (step.kind !== 'grant_static_ability' && step.kind !== 'grant_temporary_ability') {
+    return '';
+  }
+
+  const targetText = normalizeText((step as { target?: { text?: string } }).target?.text);
+  const abilities = Array.isArray((step as { abilities?: string[] }).abilities)
+    ? (step as { abilities?: string[] }).abilities!.map((entry) => normalizeText(entry)).filter(Boolean)
+    : [];
+  const effectText = Array.isArray((step as { effectText?: string[] }).effectText)
+    ? (step as { effectText?: string[] }).effectText!.map((entry) => normalizeText(entry)).filter(Boolean)
+    : [];
+  const clauses = [...abilities, ...effectText];
+  if (!targetText || clauses.length === 0) return '';
+
+  if (/^the next\b/i.test(targetText) && clauses.some((clause) => /convoke/i.test(clause))) {
+    return `${targetText} has convoke`;
+  }
+  if (/^the next\b/i.test(targetText) && clauses.some((clause) => /affinity for artifacts/i.test(clause))) {
+    return `${targetText} has affinity for artifacts`;
+  }
+  if (/^the next\b/i.test(targetText) && clauses.some((clause) => /cast as though it had flash/i.test(clause))) {
+    return `${targetText} can be cast as though it had flash`;
+  }
+
+  return '';
+}
+
+export function collectCastingModifierGrantTexts(
+  appliedSteps: readonly OracleEffectStep[] | undefined,
+  state: any,
+): string[] {
+  const texts = new Set<string>();
+
+  for (const step of appliedSteps || []) {
+    const raw = normalizeText(step.raw);
+    if (raw) texts.add(raw);
+    const rebuilt = rebuildCastingModifierTextFromGrantStep(step);
+    if (rebuilt) texts.add(rebuilt);
+  }
+
+  for (const effect of Array.isArray(state?.staticAbilityGrantEffects) ? state.staticAbilityGrantEffects : []) {
+    const raw = normalizeText(effect?.raw);
+    if (raw) texts.add(raw);
+    const rebuilt = rebuildCastingModifierTextFromGrantStep({
+      kind: 'grant_static_ability',
+      raw,
+      target: effect?.target,
+      abilities: effect?.abilities,
+      effectText: effect?.effectText,
+    } as OracleEffectStep);
+    if (rebuilt) texts.add(rebuilt);
+  }
+
+  return [...texts];
+}
+
+export function syncCastingModifierGrantsFromOracleIRResult(
+  state: any,
+  controllerId: PlayerID,
+  sourceName: string | undefined,
+  result: { appliedSteps?: readonly OracleEffectStep[] },
+  triggerItem?: any,
+): number {
+  let applied = 0;
+  for (const text of collectCastingModifierGrantTexts(result.appliedSteps, state)) {
+    if (tryApplyCastingModifierGrantsFromText(state, controllerId, text, sourceName, triggerItem)) {
+      applied += 1;
+    }
+  }
+  return applied;
+}
+
 export function tryApplyCastingModifierGrantsFromText(
   state: any,
   controllerId: PlayerID,
@@ -486,6 +568,11 @@ export function tryApplyCastingModifierGrantsFromText(
 
   if (/the next spell you cast this turn has convoke/i.test(normalized)) {
     grantNextSpellConvoke(state, controllerId, sourceName);
+    return true;
+  }
+
+  if (/the next noncreature spell you cast this turn has affinity for artifacts/i.test(normalized)) {
+    grantNextSpellAffinityForArtifacts(state, controllerId, sourceName, { spellFilter: 'noncreature' });
     return true;
   }
 

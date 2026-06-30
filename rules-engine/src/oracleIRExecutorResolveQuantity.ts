@@ -249,7 +249,7 @@ export function resolveOracleQuantity(
       return multiplier > 1 ? base * multiplier : base;
     }
 
-    if (normalized === 'x plus one') {
+    if (normalized === 'x plus one' || normalized.replace(/\s+cards?\s*$/i, '').trim() === 'x plus one') {
       const xValue = Number(ctx.xValue);
       return Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue) + 1) : null;
     }
@@ -420,6 +420,18 @@ export function resolveOracleQuantity(
       if (sourcePermanent) {
         const statAmount = readStat(sourcePermanent);
         if (statAmount !== null) return statAmount;
+      }
+
+      const stepRaw = String(step?.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
+      if (qty.stat === 'power' && /equal to its power/.test(stepRaw)) {
+        const referencePower = Number(
+          ctx?.referenceAmount ??
+            (ctx as any)?.stationedCreaturePower ??
+            (ctx as any)?.lastReferencedPermanentPower
+        );
+        if (Number.isFinite(referencePower) && referencePower > 0) {
+          return Math.max(0, Math.floor(referencePower * multiplier));
+        }
       }
 
       const triggeredId = String(

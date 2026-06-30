@@ -20,7 +20,7 @@ import {
   getDurablePlayableFromExilePermissionForCard,
   playerHasDurableLandPlayPermission,
 } from '../src/state/modules/durable-permissions';
-import { addGraveyardCastingPermission, clearTemporaryPlayableFromGraveyardPermissions, getActiveGraveyardCastingPermissions } from '../src/state/modules/graveyard-permissions';
+import { addGraveyardCastingPermission, clearTemporaryPlayableFromGraveyardPermissions, getActiveGraveyardCastingPermissions, getMatchingGraveyardCastingPermission } from '../src/state/modules/graveyard-permissions';
 import { updateLandPlayPermissions } from '../src/state/modules/land-permissions';
 import type { GameContext } from '../src/state/context';
 import type { PlayerID } from '../../shared/src';
@@ -145,6 +145,33 @@ describe('durable permissions', () => {
     expect(getActiveGraveyardCastingPermissions(state, 'p1' as PlayerID, { permission: 'cast' })).toEqual([]);
   });
 
+  it('does not synthesize static graveyard cast permission from Station spacecraft once-per-turn lines', () => {
+    const broodshipOracle =
+      "Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 8+.)\n" +
+      '3+ | You may play an additional land on each of your turns.\n' +
+      '8+ | Flying\n' +
+      'Once during each of your turns, you may cast a permanent spell from your graveyard by sacrificing a land in addition to paying its other costs.';
+    const state: any = {
+      turnNumber: 3,
+      turnPlayer: 'p1',
+      battlefield: [
+        {
+          id: 'broodship_1',
+          controller: 'p1',
+          counters: { charge: 8 },
+          card: {
+            id: 'broodship_card_1',
+            name: 'Exploration Broodship',
+            type_line: 'Artifact — Spacecraft',
+            oracle_text: broodshipOracle,
+          },
+        },
+      ],
+    };
+
+    expect(getActiveGraveyardCastingPermissions(state, 'p1' as PlayerID, { permission: 'cast' })).toEqual([]);
+  });
+
   it('uses durable land-play permissions when generating graveyard land candidates', () => {
     const ctx = createTestContext({
       turnNumber: 4,
@@ -241,6 +268,86 @@ describe('durable permissions', () => {
         metadata: { graveyardPermissionId: 'chainer_permission_1' },
       }),
     ]);
+  });
+
+  it('persists structured additionalCost and sourceText through durable graveyard permission round-trip', () => {
+    const state: any = {
+      turnNumber: 1,
+      players: [{ id: 'p1' }],
+      turnPlayer: 'p1',
+      step: 'MAIN1',
+      zones: {
+        p1: {
+          graveyard: [
+            {
+              id: 'mind_stone_1',
+              name: 'Mind Stone',
+              type_line: 'Artifact',
+              mana_cost: '{2}',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'forest_1',
+          controller: 'p1',
+          card: { name: 'Forest', type_line: 'Basic Land — Forest' },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 3 },
+      },
+    };
+
+    addGraveyardCastingPermission(state, {
+      id: 'broodship_perm_1',
+      playerId: 'p1',
+      permission: 'cast',
+      cardFilter: { qualifier: 'permanent spell' },
+      costMode: 'normal',
+      duration: 'this_turn',
+      turnApplied: 1,
+      sourceId: 'broodship_1',
+      sourceName: 'Exploration Broodship',
+      sourceText:
+        'Once during each of your turns, you may cast a permanent spell from your graveyard by sacrificing a land in addition to paying its other costs.',
+      additionalCost: { type: 'sacrifice', amount: 1, filter: 'land' },
+      usageLimit: { type: 'once_per_turn', maxUses: 1 },
+    });
+
+    expect(getActiveDurablePermissions(state, { playerId: 'p1' as PlayerID, kind: 'graveyard_permission' })).toEqual([
+      expect.objectContaining({
+        metadata: {
+          graveyardPermissionId: 'broodship_perm_1',
+          additionalCost: { type: 'sacrifice', amount: 1, filter: 'land' },
+        },
+        debug: expect.objectContaining({
+          sourceText: expect.stringMatching(/sacrificing a land in addition to paying its other costs/i),
+        }),
+      }),
+    ]);
+
+    delete state.graveyardCastingPermissions;
+
+    const mindStone = state.zones.p1.graveyard[0];
+    expect(getMatchingGraveyardCastingPermission(state, 'p1' as PlayerID, mindStone, 'cast')).toMatchObject({
+      id: 'broodship_perm_1',
+      additionalCost: { type: 'sacrifice', amount: 1, filter: 'land' },
+      sourceText: expect.stringMatching(/sacrificing a land in addition to paying its other costs/i),
+    });
+    expect(getActiveGraveyardCastingPermissions(state, 'p1' as PlayerID, { permission: 'cast' })).toHaveLength(1);
+
+    const ctx = createTestContext(state);
+    const candidate = getCastableSpellCandidates(ctx, 'p1' as PlayerID, { mode: 'main' })
+      .find((entry: any) => String(entry?.card?.id || '') === 'mind_stone_1');
+
+    expect(candidate).toMatchObject({
+      sourceZone: 'graveyard',
+      castMethod: 'graveyard_permanent',
+      graveyardPermissionId: 'broodship_perm_1',
+      sourceGrantedAdditionalCost: { type: 'sacrifice', amount: 1, filter: 'land' },
+    });
   });
 
   it('filters exhausted durable permissions by usage counters', () => {
@@ -1433,5 +1540,137 @@ describe('durable permissions', () => {
       name: 'Other Commander',
       type_line: 'Legendary Creature — Warrior',
     }, 'cast')).toBeUndefined();
+  });
+
+  it('restores Six retrace discard-land additionalCost from durable mirror when first-class permissions are cleared', () => {
+    const state: any = {
+      turnNumber: 4,
+      turnPlayer: 'p1',
+      step: 'MAIN1',
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'six_forest_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+            },
+          ],
+          graveyard: [
+            {
+              id: 'six_mind_stone_1',
+              name: 'Mind Stone',
+              type_line: 'Artifact',
+              mana_cost: '{2}',
+            },
+          ],
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+    };
+
+    addGraveyardCastingPermission(state, {
+      id: 'six_retrace_perm_1',
+      playerId: 'p1',
+      permission: 'cast',
+      cardFilter: { qualifier: 'permanent spell' },
+      costMode: 'normal',
+      duration: 'static',
+      turnApplied: 4,
+      sourceId: 'six_1',
+      sourceName: 'Six',
+      sourceText:
+        'During your turn, nonland permanent cards in your graveyard have retrace. (You may cast permanent cards from your graveyard by discarding a land card in addition to paying their other costs.)',
+      additionalCost: { type: 'discard', amount: 1, filter: 'land' },
+    });
+
+    delete state.graveyardCastingPermissions;
+
+    const mindStone = state.zones.p1.graveyard[0];
+    const restored = getMatchingGraveyardCastingPermission(state, 'p1' as PlayerID, mindStone, 'cast');
+    expect(restored?.additionalCost).toEqual({ type: 'discard', amount: 1, filter: 'land' });
+    expect(getActiveGraveyardCastingPermissions(state, 'p1' as PlayerID, { permission: 'cast' })).toEqual([
+      expect.objectContaining({
+        id: 'six_retrace_perm_1',
+        additionalCost: { type: 'discard', amount: 1, filter: 'land' },
+      }),
+    ]);
+
+    const sixCandidate = getCastableSpellCandidates(createTestContext(state), 'p1' as PlayerID, { mode: 'main' })
+      .find((entry: any) => String(entry?.card?.id || '') === 'six_mind_stone_1');
+    expect(sixCandidate).toMatchObject({
+      sourceZone: 'graveyard',
+      castMethod: 'graveyard_permanent',
+      graveyardPermissionId: 'six_retrace_perm_1',
+      sourceGrantedAdditionalCost: { type: 'discard', amount: 1, filter: 'land' },
+    });
+  });
+
+  it('restores free-cast discard additionalCost from durable mirror when first-class permissions are cleared', () => {
+    const state: any = {
+      turnNumber: 5,
+      turnPlayer: 'p1',
+      step: 'MAIN1',
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'kess_discard_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+            },
+          ],
+          graveyard: [
+            {
+              id: 'kess_consider_1',
+              name: 'Consider',
+              type_line: 'Instant',
+              mana_cost: '{U}',
+            },
+          ],
+        },
+      },
+    };
+
+    addGraveyardCastingPermission(state, {
+      id: 'kess_discard_perm_1',
+      playerId: 'p1',
+      permission: 'cast',
+      cardFilter: { qualifier: 'instant or sorcery spell' },
+      costMode: 'without_paying_mana_cost',
+      duration: 'this_turn',
+      turnApplied: 5,
+      sourceId: 'kess_1',
+      sourceName: 'Kess, Dissident Mage',
+      sourceText:
+        'Once during each of your turns, you may cast an instant or sorcery spell from your graveyard without paying its mana cost by discarding a card in addition to paying its other costs.',
+      additionalCost: { type: 'discard', amount: 1 },
+      replacement: { exileAfterResolution: true, sourceName: 'Kess, Dissident Mage' },
+    });
+
+    delete state.graveyardCastingPermissions;
+
+    const consider = state.zones.p1.graveyard[0];
+    const restored = getMatchingGraveyardCastingPermission(state, 'p1' as PlayerID, consider, 'cast');
+    expect(restored?.additionalCost).toEqual({ type: 'discard', amount: 1 });
+    expect(getActiveGraveyardCastingPermissions(state, 'p1' as PlayerID, { permission: 'cast' })).toEqual([
+      expect.objectContaining({
+        id: 'kess_discard_perm_1',
+        additionalCost: { type: 'discard', amount: 1 },
+        costMode: 'without_paying_mana_cost',
+      }),
+    ]);
+
+    const kessCandidate = getCastableSpellCandidates(createTestContext(state), 'p1' as PlayerID, { mode: 'main' })
+      .find((entry: any) => String(entry?.card?.id || '') === 'kess_consider_1');
+    expect(kessCandidate).toMatchObject({
+      sourceZone: 'graveyard',
+      castMethod: 'graveyard_permanent',
+      graveyardPermissionId: 'kess_discard_perm_1',
+      sourceGrantedAdditionalCost: { type: 'discard', amount: 1 },
+      exileAfterResolution: true,
+    });
   });
 });

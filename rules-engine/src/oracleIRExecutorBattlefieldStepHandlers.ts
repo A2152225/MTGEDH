@@ -1769,7 +1769,6 @@ function tryApplyDistributeCountersAmong(
   if (
     distributeCountersNeedsPlayerChoice(amountValue, targetIds.length)
     && ctx.interactivePlayerChoices !== false
-    && collectBoundBattlefieldIds(ctx).length === 0
   ) {
     return {
       applied: false,
@@ -2044,7 +2043,7 @@ function parseContextualBattlefieldReference(
   const normalized = normalizeBattlefieldTargetReferenceText(raw);
 
   if (
-    /^(?:it|he|him|her|this creature|this artifact|this enchantment|this aura|this land|this planeswalker|this battle|this vehicle|this permanent|this token|this card|this saga)$/i.test(
+    /^(?:it|he|him|her|this creature|this artifact|this enchantment|this aura|this land|this planet|this planeswalker|this battle|this vehicle|this permanent|this token|this card|this saga)$/i.test(
       normalized
     )
   ) {

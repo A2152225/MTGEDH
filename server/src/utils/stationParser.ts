@@ -19,6 +19,8 @@
  * More ability text (part of M+ threshold)
  */
 
+import { isStationPermanentCreatureNow } from '../../../rules-engine/src/stationPermanentUtils.js';
+
 export interface ParsedStationAbility {
   threshold: number;  // Charge counter threshold (0 = always available)
   abilities: string[]; // List of ability texts at this threshold
@@ -166,13 +168,5 @@ export function getRequiredThresholdForAbility(
  * @returns true if it's currently a creature
  */
 export function isStationCreature(chargeCounters: number, oracleText: string): boolean {
-  // Parse creature threshold from reminder text
-  // Pattern: "It's an artifact creature at N+."
-  const creatureMatch = oracleText.match(/it's an? (?:artifact )?creature at (\d+)\+/i);
-  if (creatureMatch) {
-    const threshold = parseInt(creatureMatch[1], 10);
-    return chargeCounters >= threshold;
-  }
-  
-  return false;
+  return isStationPermanentCreatureNow({ counters: { charge: chargeCounters } }, oracleText);
 }

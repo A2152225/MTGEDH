@@ -63,6 +63,16 @@ describe('oracleReminderText', () => {
     );
   });
 
+  it('preserves standalone support keyword actions as gameplay effects', () => {
+    expect(normalizeGameplayEffectText('support 2').toLowerCase()).toBe('support 2.');
+    expect(normalizeGameplayEffectText('Support 6.').toLowerCase()).toBe('support 6.');
+    expect(stripKeywordAbilitySuffixes('fabricate 3')).toBe('fabricate 3');
+    expect(normalizeGameplayEffectText('explore-clash').toLowerCase()).toBe('explore-clash.');
+    expect(normalizeGameplayEffectText(
+      'explore-clash. If you win the explore-clash, gain 3 life.',
+    ).toLowerCase()).toBe('explore-clash. if you win the explore-clash, gain 3 life.');
+  });
+
   it('strips Room DFC modal footers from unlock-door effects', () => {
     const text =
       'When you unlock this door, this Room deals 6 damage to target creature an opponent controls. You may cast either half. That door unlocks on the battlefield.';
@@ -111,6 +121,12 @@ describe('oracleReminderText', () => {
     expect(normalizeOracleForParsing(oracle)).toBe(
       'When you cycle this card and when this creature dies, you may exile target card from a graveyard.\nCycling {2}{B}',
     );
+  });
+
+  it('normalizeOracleForParsing preserves Station ability parens with inline threshold reminder', () => {
+    const oracle =
+      "Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 12+.)";
+    expect(normalizeOracleForParsing(oracle)).toBe(oracle);
   });
 
   it('normalizeOracleForGameplay drops boilerplate-only lines', () => {

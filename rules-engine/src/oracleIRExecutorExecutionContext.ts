@@ -152,6 +152,10 @@ export function buildOracleIRExecutionContext(
     baseSel?.unlessPaysManaChoice === 'pay' || baseSel?.unlessPaysManaChoice === 'decline'
       ? baseSel.unlessPaysManaChoice
       : undefined;
+  const hintMoveZoneDestination =
+    typeof hint?.moveZoneDestination === 'string' ? hint.moveZoneDestination.trim() || undefined : undefined;
+  const baseMoveZoneDestination =
+    typeof baseSel?.moveZoneDestination === 'string' ? baseSel.moveZoneDestination.trim() || undefined : undefined;
 
   const eachOfThoseOpponents =
     dedupe(hint?.affectedOpponentIds) ??
@@ -225,6 +229,9 @@ export function buildOracleIRExecutionContext(
       : {}),
     ...(baseSel?.splitAssignments && typeof baseSel.splitAssignments === 'object'
       ? { splitAssignments: baseSel.splitAssignments }
+      : {}),
+    ...(hintMoveZoneDestination || baseMoveZoneDestination
+      ? { moveZoneDestination: hintMoveZoneDestination ?? baseMoveZoneDestination }
       : {}),
     ...(hintChosenCreatureType || baseChosenCreatureType
       ? { chosenCreatureType: hintChosenCreatureType ?? baseChosenCreatureType }

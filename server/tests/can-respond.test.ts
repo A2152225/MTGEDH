@@ -3873,7 +3873,13 @@ describe('canAct', () => {
     const ctx = createTestContext({
       zones: {
         p1: {
-          hand: [],
+          hand: [
+            {
+              id: 'kess_discard_fodder_1',
+              name: 'Forest',
+              type_line: 'Basic Land — Forest',
+            },
+          ],
           graveyard: [
             {
               id: 'consider_1',
@@ -3900,7 +3906,8 @@ describe('canAct', () => {
           card: {
             name: 'Kess, Dissident Mage',
             type_line: 'Legendary Creature — Human Wizard',
-            oracle_text: 'Flying\nOnce during each of your turns, you may cast an instant or sorcery spell from your graveyard.',
+            oracle_text:
+              'Flying\nOnce during each of your turns, you may cast an instant or sorcery spell from your graveyard without paying its mana cost by discarding a card in addition to paying its other costs. If a spell cast this way would be put into your graveyard, exile it instead.',
           },
         },
       ],
@@ -3920,6 +3927,7 @@ describe('canAct', () => {
       expect.objectContaining({
         card: expect.objectContaining({ id: 'consider_1' }),
         sourceZone: 'graveyard',
+        sourceGrantedAdditionalCost: { type: 'discard', amount: 1 },
       }),
     ]));
     expect(candidates.some((candidate) => candidate.card?.id === 'runeclaw_1')).toBe(false);

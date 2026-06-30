@@ -77,6 +77,16 @@ const KEYWORD_SUFFIX_PATTERN = new RegExp(
   'i',
 );
 
+/** Sole keyword-action effects (e.g. ETB "support 2") — not reminder suffixes to strip. */
+const STANDALONE_KEYWORD_ACTION_EFFECT = new RegExp(
+  `^(?:${['support', 'fabricate', 'explore', 'mobilize', 'devour', 'amplify', 'reinforce', 'monstrosity']
+    .join('|')}|explore-clash)\\s*(?:\\d+|\\{[^}]+\\})?\\.?\\s*$`,
+  'i',
+);
+
+/** Keyword action followed by a gameplay continuation sentence (Merfolk Surveyor explore-clash). */
+const KEYWORD_ACTION_WITH_CONTINUATION = /^(?:explore-clash|support\s+\d+|fabricate\s+\d+)\.\s+\S/i;
+
 const TOKEN_TYPE_REMINDER =
   /\.\s*\((?:it'?s|they'?re) an (?:artifact|enchantment|creature)[^)]*\)\s*\.?/gi;
 
@@ -127,6 +137,9 @@ function shouldStripParenthetical(source: string, openIndex: number): boolean {
   if (/^as a siege enters\b/i.test(inner)) return true;
 
   const preceding = precedingToken(source, openIndex);
+  // Station (Tap …: Put charge counters…) is the ability definition, not a reminder paren.
+  if (/\bstation\s*$/i.test(preceding)) return false;
+
   if (isKeywordAnchoredReminder(preceding)) return true;
   if (REMINDER_PAREN_CONTENT.test(inner)) return true;
 
@@ -213,7 +226,14 @@ export function stripStandardOracleFragments(text: string): string {
  * Remove trailing em-dash / cost keyword ability blocks (Escape—, Craft with …, etc.).
  */
 export function stripKeywordAbilitySuffixes(text: string): string {
-  let normalized = String(text || '').trim();
+  const trimmed = String(text || '').trim();
+  if (STANDALONE_KEYWORD_ACTION_EFFECT.test(trimmed)) {
+    return trimmed.replace(/\.\s*$/, '').trim();
+  }
+  if (KEYWORD_ACTION_WITH_CONTINUATION.test(trimmed)) {
+    return trimmed;
+  }
+  let normalized = trimmed;
   for (let pass = 0; pass < 4; pass += 1) {
     const match = normalized.match(KEYWORD_SUFFIX_PATTERN);
     if (!match || match.index == null) break;

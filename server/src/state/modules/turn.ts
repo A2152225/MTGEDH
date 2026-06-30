@@ -3095,6 +3095,11 @@ function endTemporaryEffects(ctx: GameContext) {
         delete permanent.activatedThisTurn;
         endedCount++;
       }
+
+      if (permanent.activatedAbilityIndicesThisTurn) {
+        delete permanent.activatedAbilityIndicesThisTurn;
+        endedCount++;
+      }
       
       // Clear crewed status from vehicles (they stop being creatures at end of turn)
       if (permanent.crewed) {

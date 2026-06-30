@@ -30,6 +30,8 @@ import {
 import {
   expandKeywordCostAbility,
   parseKeywordPrefixedActivatedAbility,
+  parseStationKeywordActivatedAbility,
+  parseStationThresholdActivatedAbility,
 } from './oracleTextParserKeywordCosts';
 import { parseKeywordActionAbility } from './oracleTextParserKeywordActionAbilities';
 import { parseKeywordTriggeredAbility } from './oracleTextParserKeywordTriggers';
@@ -51,6 +53,8 @@ export interface ParsedAbility {
   readonly targets?: readonly string[];
   readonly modes?: readonly string[];
   readonly requiresChoice?: ChoiceRequirement;
+  /** Station / Spacecraft charge-counter gate (N in `N+ | {cost}: effect`). */
+  readonly stationChargeThreshold?: number;
 }
 
 /**
@@ -182,6 +186,39 @@ export function parseActivatedAbility(text: string): ParsedAbility | null {
       isManaAbility,
       isOptional: prefixedKeywordActivated.effect.toLowerCase().includes('you may'),
       targets: parseTargets(prefixedKeywordActivated.effect),
+    };
+  }
+
+  const stationKeywordActivated = parseStationKeywordActivatedAbility(text);
+  if (stationKeywordActivated) {
+    const isManaAbility =
+      isManaProducingAbility(stationKeywordActivated.effect) &&
+      !hasTargeting(stationKeywordActivated.effect);
+    return {
+      type: AbilityType.KEYWORD,
+      text: stationKeywordActivated.text,
+      cost: stationKeywordActivated.cost,
+      effect: stationKeywordActivated.effect,
+      isManaAbility,
+      isOptional: stationKeywordActivated.effect.toLowerCase().includes('you may'),
+      targets: parseTargets(stationKeywordActivated.effect),
+    };
+  }
+
+  const stationThresholdActivated = parseStationThresholdActivatedAbility(text);
+  if (stationThresholdActivated) {
+    const isManaAbility =
+      isManaProducingAbility(stationThresholdActivated.effect) &&
+      !hasTargeting(stationThresholdActivated.effect);
+    return {
+      type: AbilityType.ACTIVATED,
+      text: stationThresholdActivated.text,
+      cost: stationThresholdActivated.cost,
+      effect: stationThresholdActivated.effect,
+      stationChargeThreshold: stationThresholdActivated.stationChargeThreshold,
+      isManaAbility,
+      isOptional: stationThresholdActivated.effect.toLowerCase().includes('you may'),
+      targets: parseTargets(stationThresholdActivated.effect),
     };
   }
   

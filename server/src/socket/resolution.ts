@@ -125,6 +125,7 @@ import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } f
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, permanentsShareCardType, selectionRequiresSharedCardType, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
+import { resolveLandWouldEnterSacrificeChoice, resolveWouldEnterDiscardLandChoice } from "../state/modules/land-would-enter-replacement.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
 import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
@@ -140,6 +141,7 @@ import {
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { resolveOracleIrOptionalPaymentPromptFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution, processPendingOracleIrCompoundResumeOnContext } from '../state/modules/oracleIrServerZoneSync.js';
+import { tryApplyStationChargeCountersViaOracleIR } from '../state/modules/oracleIrAbilityExecution.js';
 import { readOracleIrLedgerPersistFields, readOracleIrCompoundResumePersistFields, persistOracleIrCompoundDrawAfterResolution } from '../state/modules/oracleIrTransitionPipeline.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
@@ -5665,10 +5667,35 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           return;
         }
 
+        if (stepAny?.landWouldEnterSacrificeChoice === true) {
+          const hasDecline = selectionIds.includes('decline_land_would_enter');
+          if (hasDecline && selectionIds.length > 1) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Decline must be the only selection' });
+            return;
+          }
+        }
+
         if ((Number.isFinite(minSelections) ? selectionIds.length : 0) < (Number.isFinite(minSelections) ? minSelections : 0) ||
             (Number.isFinite(maxSelections) ? selectionIds.length : 0) > (Number.isFinite(maxSelections) ? maxSelections : Infinity)) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid number of selections' });
-          return;
+          if (stepAny?.landWouldEnterSacrificeChoice === true) {
+            const sacrificeCount = Number(stepAny?.sacrificeCount ?? 0);
+            const hasDecline = selectionIds.includes('decline_land_would_enter');
+            if (hasDecline) {
+              if (selectionIds.length !== 1) {
+                socket.emit('error', { code: 'INVALID_SELECTION', message: 'Decline must be the only selection' });
+                return;
+              }
+            } else if (sacrificeCount > 0 && selectionIds.length !== sacrificeCount) {
+              socket.emit('error', { code: 'INVALID_SELECTION', message: `Select exactly ${sacrificeCount} land(s) to sacrifice` });
+              return;
+            } else {
+              socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid number of selections' });
+              return;
+            }
+          } else {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid number of selections' });
+            return;
+          }
         }
 
         // If the step defines explicit options, enforce membership.
@@ -10724,18 +10751,43 @@ async function handleStepResponse(
       const countersToAdd = Math.max(0, Number(creaturePower || 0));
       const creatureName = String((creature as any).card?.name || 'creature');
       const counterType = String(stepData?.tapForCountersSource?.counterType || 'charge');
+      const stationThreshold = Number(stepData?.tapForCountersSource?.threshold || stepData?.station?.threshold || 0);
+      const stationName = String((station as any).card?.name || stepData?.tapForCountersSource?.name || stepData?.station?.name || step.sourceName || 'Station');
 
       // Tap the creature
       (creature as any).tapped = true;
 
-      // Add counters using the generic tap-for-counters metadata when present.
-      (station as any).counters = (station as any).counters || {};
-      const currentCounters = Number((station as any).counters[counterType] || 0);
-      (station as any).counters[counterType] = currentCounters + countersToAdd;
+      const stationCtx: GameContext = {
+        state: game.state,
+        libraries: (game as any).libraries,
+        bumpSeq: () => {
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        },
+        rng: (game as any).rng,
+        gameId,
+      } as any;
 
-      const newCounterCount = Number((station as any).counters[counterType] || 0);
-      const stationThreshold = Number(stepData?.tapForCountersSource?.threshold || stepData?.station?.threshold || 0);
-      const stationName = String((station as any).card?.name || stepData?.tapForCountersSource?.name || stepData?.station?.name || step.sourceName || 'Station');
+      const irResult = tryApplyStationChargeCountersViaOracleIR(stationCtx, {
+        controller: pid as PlayerID,
+        sourcePermanentId: stationId,
+        sourceName: stationName,
+        stationedCreaturePower: countersToAdd,
+        effectText: String(stepData?.stationEffectText || stepData?.tapForCountersSource?.effectText || ''),
+        typeLine: String((station as any).card?.type_line || ''),
+        stationAbilityOracleText: String((station as any).card?.oracle_text || ''),
+      });
+
+      let countersAdded = countersToAdd;
+      if (irResult.handled) {
+        countersAdded = irResult.countersAdded;
+      } else {
+        // Fallback when IR cannot resolve "equal to its power" without runtime context wiring.
+        (station as any).counters = (station as any).counters || {};
+        const currentCounters = Number((station as any).counters[counterType] || 0);
+        (station as any).counters[counterType] = currentCounters + countersToAdd;
+      }
+
+      const newCounterCount = Number((station as any).counters?.[counterType] || 0);
 
       // Check if threshold is met
       if (stationThreshold > 0 && newCounterCount >= stationThreshold && !(station as any).stationed) {
@@ -10749,7 +10801,7 @@ async function handleStepResponse(
           id: `m_${Date.now()}`,
           gameId,
           from: 'system',
-          message: `🚀 ${getPlayerName(game, pid)} tapped ${creatureName} (power ${creaturePower}) to station ${stationName}! It gained ${countersToAdd} charge counter${countersToAdd !== 1 ? 's' : ''} (${newCounterCount}/${stationThreshold}) and is now an artifact creature!`,
+          message: `🚀 ${getPlayerName(game, pid)} tapped ${creatureName} (power ${creaturePower}) to station ${stationName}! It gained ${countersAdded} charge counter${countersAdded !== 1 ? 's' : ''} (${newCounterCount}/${stationThreshold}) and is now an artifact creature!`,
           ts: Date.now(),
         });
       } else {
@@ -10757,7 +10809,7 @@ async function handleStepResponse(
           id: `m_${Date.now()}`,
           gameId,
           from: 'system',
-          message: `⚡ ${getPlayerName(game, pid)} tapped ${creatureName} (power ${creaturePower}) to add ${countersToAdd} charge counter${countersToAdd !== 1 ? 's' : ''} to ${stationName}. (${newCounterCount}/${stationThreshold})`,
+          message: `⚡ ${getPlayerName(game, pid)} tapped ${creatureName} (power ${creaturePower}) to add ${countersAdded} charge counter${countersAdded !== 1 ? 's' : ''} to ${stationName}. (${newCounterCount}/${stationThreshold})`,
           ts: Date.now(),
         });
       }
@@ -10769,7 +10821,7 @@ async function handleStepResponse(
         creatureId,
         creatureName,
         creaturePower,
-        countersAdded: countersToAdd,
+        countersAdded,
         totalCounters: newCounterCount,
         threshold: stationThreshold,
         stationed: Boolean((station as any).stationed),
@@ -17844,6 +17896,8 @@ async function handleTargetSelectionResponse(
     const allTappedPermanentsForCost = [...prePaidTappedPermanentsForCost, ...tappedPermanentsForCost];
 
     // Put the ability on the stack.
+    const activatedAbilityText = String(stepAny?.activatedAbilityText || '').trim()
+      || (manaCost ? `${manaCost}: ${abilityText}` : abilityText);
     const stackItem = {
       id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: 'ability' as const,
@@ -17851,6 +17905,7 @@ async function handleTargetSelectionResponse(
       source: permanentId,
       sourceName: cardName,
       description: abilityText,
+      activatedAbilityText: activatedAbilityText || undefined,
     } as any;
 
     game.state.stack = game.state.stack || [];
@@ -17882,7 +17937,7 @@ async function handleTargetSelectionResponse(
         abilityId: abilityId || undefined,
         cardName,
         abilityText,
-        activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || undefined,
+        activatedAbilityText: activatedAbilityText || undefined,
         tappedPermanents: allTappedPermanentsForCost,
         sacrificedPermanents: sacrificedIds,
         discardedCardIds: Array.isArray((stepAny as any)?.discardedCardIdsForCost)
@@ -29053,7 +29108,102 @@ async function handleOptionChoiceResponse(
     return;
   }
 
-  // ===== MOX DIAMOND (replacement effect): discard a land or it goes to graveyard =====
+  // ===== LAND WOULD-ENTER (replacement effect): sacrifice lands or it goes to graveyard =====
+  if (stepData?.landWouldEnterSacrificeChoice === true) {
+    const extractSelectionIds = (raw: any): string[] => {
+      const extractOne = (sel: any): string | null => {
+        if (typeof sel === 'string') return sel;
+        if (sel && typeof sel === 'object') {
+          const optionId = (sel as any).optionId;
+          if (typeof optionId === 'string' && optionId.trim()) return optionId;
+          const id = (sel as any).id;
+          if (typeof id === 'string' && id.trim()) return id;
+          const value = (sel as any).value;
+          if (typeof value === 'string' && value.trim()) return value;
+        }
+        return null;
+      };
+
+      if (typeof raw === 'string') return [raw];
+      if (Array.isArray(raw)) {
+        return raw
+          .map((entry) => extractOne(entry))
+          .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+      }
+      if (raw && typeof raw === 'object') {
+        const wrapped = Array.isArray(raw.selectedOptionIds)
+          ? raw.selectedOptionIds
+          : (Array.isArray(raw.optionIds) ? raw.optionIds : (Array.isArray(raw.selectedIds) ? raw.selectedIds : null));
+        if (wrapped) {
+          return wrapped
+            .map((entry: any) => extractOne(entry))
+            .filter((entry: any): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+        }
+        const one = extractOne(raw);
+        return one ? [one] : [];
+      }
+      return [];
+    };
+
+    const selectionIds = extractSelectionIds(selectedOption);
+    const cardName = String(stepData?.sourceName || 'Land');
+    const landCtx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as any;
+
+    const resolved = resolveLandWouldEnterSacrificeChoice(
+      landCtx,
+      playerId,
+      selectionIds,
+      Boolean(response.cancelled),
+    );
+    if (!resolved) {
+      emitToPlayer(io, playerId, 'error', {
+        code: 'INVALID_SELECTION',
+        message: 'Could not resolve land sacrifice replacement (invalid selection or missing pending land).',
+      });
+      return;
+    }
+
+    const declined = Boolean(response.cancelled) || selectionIds.includes('decline_land_would_enter');
+    const sacrificedIds = declined
+      ? null
+      : selectionIds.filter((id) => id !== 'decline_land_would_enter');
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: declined
+        ? `${getPlayerName(game, playerId)} declines to sacrifice lands. ${cardName} goes to the graveyard.`
+        : `${getPlayerName(game, playerId)} sacrifices lands. ${cardName} enters the battlefield.`,
+      ts: Date.now(),
+    });
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'landWouldEnterSacrificeChoice', {
+        playerId,
+        resolvedStepId: String((step as any).id || '').trim(),
+        sacrificePermanentIds: sacrificedIds,
+        cardName,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] Failed to persist landWouldEnterSacrificeChoice event:', e);
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ===== WOULD-ENTER DISCARD LAND (replacement effect): discard a land or it goes to graveyard =====
   if (stepData?.moxDiamondChoice === true) {
     const choiceId = extractId(selectedOption);
     const stackItemId = String(stepData?.stackItemId || step.sourceId || '').trim();
@@ -29066,30 +29216,7 @@ async function handleOptionChoiceResponse(
     game.state.stack = game.state.stack || [];
     game.state.battlefield = game.state.battlefield || [];
 
-    const stack = game.state.stack as any[];
-    const stackIndex = stack.findIndex((it: any) => it && String(it.id) === String(stackItemId) && String(it.controller) === String(playerId));
-    if (stackIndex === -1) {
-      debugWarn(1, `[Resolution] moxDiamondChoice: stack item not found (${stackItemId})`);
-      return;
-    }
-
-    const stackItem = stack[stackIndex];
-    const moxCard = stackItem?.card;
-    const moxName = String(moxCard?.name || step.sourceName || 'Mox Diamond');
-
-    // Remove from stack - we'll either put it onto battlefield or into graveyard.
-    stack.splice(stackIndex, 1);
-
-    const normalized = String(choiceId || '').toLowerCase();
-    const discardLandId = !response.cancelled && choiceId && normalized !== 'decline_mox_diamond' ? String(choiceId) : null;
-
-    const zones = (game.state as any).zones = (game.state as any).zones || {};
-    zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-    const playerZones = zones[playerId] as any;
-    playerZones.hand = playerZones.hand || [];
-    playerZones.graveyard = playerZones.graveyard || [];
-
-    const moxDiamondCtx = {
+    const discardCtx = {
       state: game.state,
       libraries: (game as any).libraries,
       bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
@@ -29097,55 +29224,42 @@ async function handleOptionChoiceResponse(
       gameId,
     } as any;
 
-    let discardedLandName: string | null = null;
+    const resolved = resolveWouldEnterDiscardLandChoice(
+      discardCtx,
+      playerId,
+      stackItemId,
+      choiceId,
+      Boolean(response.cancelled),
+    );
 
-    if (discardLandId) {
-      const handIndex = (playerZones.hand as any[]).findIndex((c: any) => c && String(c.id) === String(discardLandId));
-      const handCard = handIndex >= 0 ? (playerZones.hand as any[])[handIndex] : null;
-
-      if (!handCard || !/\bland\b/i.test(String(handCard?.type_line || ''))) {
+    if (!resolved.ok) {
+      if (resolved.errorCode === 'LAND_NOT_IN_HAND') {
         emitToPlayer(io, playerId, 'error', {
           code: 'LAND_NOT_IN_HAND',
           message: 'Selected land card not found in hand (or not a land).',
         });
       } else {
-        // Discard land
-        (playerZones.hand as any[]).splice(handIndex, 1);
-        playerZones.handCount = (playerZones.hand as any[]).length;
-        pushCardToPlayerGraveyardWithReplacements(moxDiamondCtx, String(playerId), handCard, playerZones.graveyard);
-        playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
-        discardedLandName = String(handCard?.name || 'a land');
-
-        // Put Mox Diamond onto battlefield
-        const permanent = {
-          id: stackItemId, // reuse stack id for determinism
-          controller: playerId,
-          owner: playerId,
-          card: moxCard,
-          tapped: false,
-        };
-        (game.state.battlefield as any[]).push(permanent);
-
-        io.to(gameId).emit('chat', {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: 'system',
-          message: `${getPlayerName(game, playerId)} discards ${discardedLandName}. ${moxName} enters the battlefield.`,
-          ts: Date.now(),
-        });
+        debugWarn(1, `[Resolution] moxDiamondChoice: stack item not found (${stackItemId})`);
       }
+      return;
     }
 
-    if (!discardedLandName) {
-      // Put Mox Diamond into graveyard.
-      pushCardToPlayerGraveyardWithReplacements(moxDiamondCtx, String(playerId), moxCard || {}, playerZones.graveyard);
-      playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+    const { cardName, discardedLandName, discardLandId } = resolved;
 
+    if (discardedLandName) {
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
         from: 'system',
-        message: `${getPlayerName(game, playerId)} declines to discard. ${moxName} goes to the graveyard.`,
+        message: `${getPlayerName(game, playerId)} discards ${discardedLandName}. ${cardName} enters the battlefield.`,
+        ts: Date.now(),
+      });
+    } else {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} declines to discard. ${cardName} goes to the graveyard.`,
         ts: Date.now(),
       });
     }
@@ -29156,7 +29270,7 @@ async function handleOptionChoiceResponse(
         resolvedStepId: String((step as any).id || '').trim(),
         stackItemId,
         discardLandId: discardedLandName ? discardLandId : null,
-        cardName: moxName,
+        cardName,
       });
     } catch (e) {
       debugWarn(1, '[Resolution] Failed to persist moxDiamondChoice event:', e);

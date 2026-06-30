@@ -3431,5 +3431,7 @@ export function applyOracleIRStepsToGameStateImpl(
     pendingOptionalSteps,
     ...(pendingContinuationSteps ? { pendingContinuationSteps } : {}),
     lastStepOutcome,
+    ...(lastMovedCards.length > 0 ? { lastMovedCards } : {}),
+    ...(lastRevealedCardCount > 0 ? { lastRevealedCardCount } : {}),
   };
 }

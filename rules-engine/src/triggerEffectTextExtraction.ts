@@ -11,7 +11,7 @@ const ABILITY_LINE_BOUNDARY =
 const NEW_TRIGGER_TIMING_SENTENCE = /^(?:when|whenever|at the beginning of)\b/i;
 
 const CONTINUATION_SENTENCE =
-  /^(?:then|each|if you do|otherwise|you may|that player|those|they|it|choose|target|otherwise)\b/i;
+  /^(?:then|each|if you (?:do|win)|otherwise|you may|that player|those|they|it|choose|target|otherwise)\b/i;
 
 function splitSentences(text: string): string[] {
   const source = String(text || '').trim();

@@ -101,9 +101,26 @@ export function isSearchedLibraryThisWayLedgerFirst(
 export function collectMostRecentLedgerCards(
   ctx: OracleIRExecutionContext | undefined,
 ): Record<string, unknown>[] {
-  if (!ctx?.stepLedger?.size || ctx.currentStepIndex == null) return [];
-  for (let index = ctx.currentStepIndex - 1; index >= 0; index -= 1) {
-    const snapshots = ctx.stepLedger.get(index);
+  if (!ctx?.stepLedger?.size) return [];
+  if (ctx.currentStepIndex != null) {
+    for (let index = ctx.currentStepIndex - 1; index >= 0; index -= 1) {
+      const snapshots = ctx.stepLedger.get(index);
+      if (snapshots && snapshots.length > 0) {
+        return snapshots.map(snapshotToCardLike);
+      }
+    }
+    return [];
+  }
+
+  let maxIndex = -1;
+  for (const key of ctx.stepLedger.keys()) {
+    const numeric = Number(key);
+    if (Number.isFinite(numeric)) {
+      maxIndex = Math.max(maxIndex, numeric);
+    }
+  }
+  if (maxIndex >= 0) {
+    const snapshots = ctx.stepLedger.get(maxIndex);
     if (snapshots && snapshots.length > 0) {
       return snapshots.map(snapshotToCardLike);
     }

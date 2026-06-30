@@ -18,6 +18,7 @@ import {
 import { payManaCost } from './spellCasting';
 import { createEmptyManaPool, setManaDoesNotEmpty, type ManaCost } from './types/mana';
 import { parseManaSymbols } from './types/numbers';
+import { oracleGraveyardAdditionalCostToSerializable } from './graveyardPermissionAdditionalCost.ts';
 import {
   addManaToPoolForPlayer,
   applyExilePermissionMarkers,
@@ -159,6 +160,38 @@ function normalizeGrantedGraveyardPermissionDuration(duration: Extract<Extract<O
   }
 }
 
+export function mergeGrantedGraveyardPermissionSourceText(
+  existingSourceText: string,
+  modifierSourceText: string,
+): string {
+  const base = String(existingSourceText || '').trim();
+  const tail = String(modifierSourceText || '').trim();
+  if (!base) {
+    return tail;
+  }
+  if (!tail) {
+    return base;
+  }
+
+  const collapse = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
+  const normalizedBase = collapse(base);
+  const normalizedTail = collapse(tail);
+
+  if (normalizedBase.includes(normalizedTail)) {
+    return base;
+  }
+
+  const byClauseMatch = base.match(/\bby\s+(.+?)\s+in addition to paying\b/i);
+  if (byClauseMatch) {
+    const byClause = collapse(byClauseMatch[1] || '');
+    if (byClause.includes(normalizedTail) || normalizedTail.includes(byClause)) {
+      return base;
+    }
+  }
+
+  return `${base} ${tail}`.trim();
+}
+
 function buildFirstClassGrantedGraveyardPermission(
   state: GameState,
   playerId: PlayerID,
@@ -185,6 +218,7 @@ function buildFirstClassGrantedGraveyardPermission(
   }
 
   const turnApplied = Number((state as any)?.turnNumber ?? (state as any)?.turn ?? 0) || 0;
+  const rawText = String(step.raw || '').trim();
   return {
     id: buildGrantedGraveyardPermissionId({
       playerId,
@@ -207,6 +241,10 @@ function buildFirstClassGrantedGraveyardPermission(
     turnApplied,
     ...(sourceId ? { sourceId } : {}),
     ...(sourceName ? { sourceName } : {}),
+    ...(rawText ? { sourceText: rawText } : {}),
+    ...( /\bonce during each of your turns\b/i.test(rawText)
+      ? { usageLimit: { type: 'once_per_turn', maxUses: 1 } }
+      : {}),
   };
 }
 
@@ -371,6 +409,7 @@ function resolveAddManaAmount(
         return powers.size;
       }
       case 'x plus one':
+      case 'x plus one cards':
         return Number.isFinite(ctx.xValue) ? Math.max(0, Math.floor(ctx.xValue as number) + 1) : null;
       case 'your devotion to green': {
         return getControlledPermanents(state, ctx.controllerId)
@@ -567,6 +606,7 @@ function normalizeLookChooseSelectorText(value: string): string {
 
 function splitLookChooseSelectorTerms(value: string): string[] {
   const normalized = normalizeLookChooseSelectorText(value)
+    .replace(/\s+and\/or\s+/gi, ',')
     .replace(/\s*,\s*or\s+/gi, ',')
     .replace(/\s+or\s+/gi, ',')
     .replace(/\s*,\s*/g, ',')
@@ -632,6 +672,14 @@ function parseLookChooseSelectionLimits(
   optional?: boolean
 ): { readonly minSelections: number; readonly maxSelections: number } {
   const normalized = normalizeLookChooseSelectorText(selectorText).toLowerCase();
+
+  if (/\band\/or\b/i.test(normalized)) {
+    const parts = normalized.split(/\s+and\/or\s+/i).map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      return { minSelections: optional ? 0 : 1, maxSelections: parts.length };
+    }
+  }
+
   const wordToNum = (word: string): number => {
     const map: Record<string, number> = {
       one: 1,
@@ -1972,7 +2020,18 @@ function getSearchLibraryMatches(
 
   const structuredCriteria = parseMoveZoneSingleTargetCriteria(normalizedText);
   if (structuredCriteria) {
-    return cards.filter((card) => cardMatchesMoveZoneSingleTargetCriteria(card, structuredCriteria));
+    let resolvedCriteria = structuredCriteria;
+    if (resolvedCriteria.manaValueLte === -1) {
+      const x = Math.max(0, Number(ctx.xValue ?? ctx.referenceAmount ?? 0));
+      resolvedCriteria = { ...resolvedCriteria, manaValueLte: x };
+    }
+    if (resolvedCriteria.usesChosenCreatureType) {
+      const chosenType = String(ctx.selectorContext?.chosenCreatureType || '').trim();
+      if (chosenType) {
+        resolvedCriteria = { ...resolvedCriteria, creatureTypesAnyOf: [chosenType] };
+      }
+    }
+    return cards.filter((card) => cardMatchesMoveZoneSingleTargetCriteria(card, resolvedCriteria));
   }
 
   const sameManaValueMatch = normalizedText.match(/^((?:[a-z' -]+?)\s+)?card with the same mana value as this(?: card)?$/i);
@@ -2938,6 +2997,51 @@ export function applyModifyGraveyardPermissionsStep(
       .filter(Boolean)
   );
 
+  const mergeGrantedGraveyardPermissionModifiers = (inputState: GameState): GameState => {
+    const nextStateAny: any = { ...(inputState as any) };
+    if (grantedPermissionIds.size === 0 || !Array.isArray(nextStateAny.graveyardCastingPermissions)) {
+      return inputState;
+    }
+
+    const modifierSourceText = String(step.raw || '').trim();
+    nextStateAny.graveyardCastingPermissions = nextStateAny.graveyardCastingPermissions.map((permission: any) => {
+      const permissionId = String(permission?.id || '').trim();
+      if (!permissionId || !grantedPermissionIds.has(permissionId)) {
+        return permission;
+      }
+
+      const mergedSourceText = mergeGrantedGraveyardPermissionSourceText(
+        String(permission?.sourceText || '').trim(),
+        modifierSourceText,
+      );
+
+      const nextReplacement = permission?.replacement && typeof permission.replacement === 'object'
+        ? { ...permission.replacement }
+        : {};
+      if (step.exileInsteadOfGraveyard) {
+        nextReplacement.exileAfterResolution = true;
+        if (!nextReplacement.sourceName && permission?.sourceName) {
+          nextReplacement.sourceName = permission.sourceName;
+        }
+      }
+
+      const structuredAdditionalCost = oracleGraveyardAdditionalCostToSerializable(step.additionalCost);
+
+      return {
+        ...permission,
+        ...(mergedSourceText ? { sourceText: mergedSourceText } : {}),
+        ...(structuredAdditionalCost ? { additionalCost: structuredAdditionalCost } : {}),
+        ...( /\bonce during each of your turns\b/i.test(mergedSourceText)
+          ? { usageLimit: { type: 'once_per_turn', maxUses: 1 } }
+          : {}),
+        ...(step.withoutPayingManaCost ? { costMode: 'without_paying_mana_cost' } : {}),
+        ...(Object.keys(nextReplacement).length > 0 ? { replacement: nextReplacement } : {}),
+      };
+    });
+
+    return nextStateAny as GameState;
+  };
+
   if (step.scope !== 'last_granted_graveyard_cards' || grantedIds.size === 0) {
     if (
       step.castedPermanentEntersWithCounters ||
@@ -2950,7 +3054,7 @@ export function applyModifyGraveyardPermissionsStep(
     ) {
       return {
         applied: true,
-        state,
+        state: mergeGrantedGraveyardPermissionModifiers(state),
         log: [`Graveyard permission modifier recorded: ${step.raw}`],
       };
     }
@@ -2991,34 +3095,9 @@ export function applyModifyGraveyardPermissionsStep(
   });
 
   const nextStateAny: any = { ...(state as any), players: updatedPlayers as any };
-  if (grantedPermissionIds.size > 0 && Array.isArray(nextStateAny.graveyardCastingPermissions)) {
-    nextStateAny.graveyardCastingPermissions = nextStateAny.graveyardCastingPermissions.map((permission: any) => {
-      const permissionId = String(permission?.id || '').trim();
-      if (!permissionId || !grantedPermissionIds.has(permissionId)) {
-        return permission;
-      }
-
-      const nextReplacement = permission?.replacement && typeof permission.replacement === 'object'
-        ? { ...permission.replacement }
-        : {};
-      if (step.exileInsteadOfGraveyard) {
-        nextReplacement.exileAfterResolution = true;
-        if (!nextReplacement.sourceName && permission?.sourceName) {
-          nextReplacement.sourceName = permission.sourceName;
-        }
-      }
-
-      return {
-        ...permission,
-        ...(step.withoutPayingManaCost ? { costMode: 'without_paying_mana_cost' } : {}),
-        ...(Object.keys(nextReplacement).length > 0 ? { replacement: nextReplacement } : {}),
-      };
-    });
-  }
-
   return {
     applied: true,
-    state: nextStateAny as any,
+    state: mergeGrantedGraveyardPermissionModifiers(nextStateAny as GameState) as any,
     log:
       changed > 0
         ? [`Updated graveyard permissions for ${changed} graveyard card(s)`]
@@ -4836,7 +4915,7 @@ export function applyRevealTopStep(
     : undefined;
 
   for (const playerId of players) {
-    const untilReveal = resolveRevealUntilReferenceAmountForPlayer(state, playerId, step.amount);
+    const untilReveal = resolveRevealUntilReferenceAmountForPlayer(state, playerId, step.amount, ctx);
     if (untilReveal) {
       totalRevealed += untilReveal.count;
       revealedCards.push(...untilReveal.cards);

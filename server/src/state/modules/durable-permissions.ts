@@ -6,6 +6,14 @@ export type DurablePlayableFromExileAction = 'play' | 'cast';
 export type DurableLibraryPermissionAction = 'play' | 'cast';
 export type DurableCommandZonePermissionAction = 'cast';
 
+export type DurableGraveyardPermissionAdditionalCost = {
+  type: 'discard' | 'sacrifice' | 'remove_counters' | 'exile_from_graveyard';
+  amount: number;
+  filter?: string;
+  counterType?: string;
+  distributed?: boolean;
+};
+
 const LAND_PLAY_KIND = 'land_play';
 const GRAVEYARD_PERMISSION_KIND = 'graveyard_permission';
 const PLAYABLE_FROM_EXILE_KIND = 'playable_from_exile';
@@ -389,6 +397,8 @@ export function buildDurableGraveyardPermission(args: {
     leaveBattlefieldLifeGain?: number;
     sourceName?: string;
   };
+  sourceText?: string;
+  additionalCost?: DurableGraveyardPermissionAdditionalCost;
 }): DurablePermission {
   const affectedCardIds = Array.isArray(args.cardFilter?.cardIds)
     ? args.cardFilter.cardIds.map((cardId) => String(cardId || '').trim()).filter(Boolean)
@@ -416,9 +426,13 @@ export function buildDurableGraveyardPermission(args: {
     ...(args.condition ? { condition: { ...args.condition } } : {}),
     ...(args.replacement ? { replacement: { ...args.replacement } } : {}),
     ...(typeof args.turnApplied === 'number' ? { turnApplied: args.turnApplied } : {}),
-    metadata: { graveyardPermissionId: args.id },
+    metadata: {
+      graveyardPermissionId: args.id,
+      ...(args.additionalCost ? { additionalCost: { ...args.additionalCost } } : {}),
+    },
     debug: {
       reason: `${args.permission}_from_graveyard`,
+      ...(args.sourceText ? { sourceText: String(args.sourceText) } : {}),
       ...(args.sourceName ? { notes: [`Granted by ${args.sourceName}`] } : {}),
     },
   };

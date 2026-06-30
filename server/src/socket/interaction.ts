@@ -37,6 +37,16 @@ import { canPayManaCost, canPayManaCostWithAvailableSources, getAvailableMana } 
 import { cardManaValue, exchangePermanentOracleText, parsePT, parseWordNumber } from "../state/utils";
 import { buildEmbalmOrEternalizeTokenPermanent } from "../state/modules/graveyard-tokens.js";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../state/resolution/index.js";
+import { resolveStationChargeCounterEffectText, isStationPermanentTypeLine } from "../state/modules/oracleIrAbilityExecution.js";
+import {
+  readStationChargeCreatureThresholdFromOracleText,
+  isActivatableStationThresholdEffect,
+  isOnceDuringEachOfYourTurnActivatedEffect,
+  hasUsedOnceDuringEachActivatedAbilityThisTurn,
+  hasOncePerTurnActivatedAbilityPendingOnStack,
+  isRecognizedActivatedAbilityCostText,
+} from "../../../rules-engine/src/stationPermanentUtils.js";
+import { parseStationAbilities } from "../utils/stationParser.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
@@ -264,17 +274,7 @@ function getLifePaymentForActivationCost(activationCost: unknown): number {
 }
 
 function parseStationThreshold(oracleText: string): number {
-  const inlineMatch = oracleText.match(/station\s*(\d+)/i);
-  if (inlineMatch) {
-    return parseInt(inlineMatch[1], 10);
-  }
-
-  const thresholdLineMatch = oracleText.match(/station(?:\s*\([^)]*\))?\s*(?:\r?\n)+\s*(\d+)\+\s*\|/i);
-  if (thresholdLineMatch) {
-    return parseInt(thresholdLineMatch[1], 10);
-  }
-
-  return 0;
+  return readStationChargeCreatureThresholdFromOracleText(oracleText);
 }
 
 function parseThresholdRestrictedActivatedAbility(rawText: string): {
@@ -282,21 +282,47 @@ function parseThresholdRestrictedActivatedAbility(rawText: string): {
   cost: string;
   effect: string;
 } | null {
-  const match = String(rawText || '').trim().match(/^(\d+)\+\s*\|\s*([^:]+):\s*(.+)$/i);
-  if (!match) {
-    return null;
+  const trimmed = String(rawText || '').trim();
+  const withColon = trimmed.match(/^(\d+)\+\s*\|\s*([^:]+):\s*(.+)$/is);
+  if (withColon) {
+    const threshold = parseInt(withColon[1], 10);
+    if (!Number.isFinite(threshold)) {
+      return null;
+    }
+    return {
+      threshold,
+      cost: withColon[2].trim(),
+      effect: withColon[3].trim(),
+    };
   }
 
-  const threshold = parseInt(match[1], 10);
-  if (!Number.isFinite(threshold)) {
-    return null;
+  const thresholdOnly = trimmed.match(/^(\d+)\+\s*\|\s*(.+)$/is);
+  if (thresholdOnly) {
+    const threshold = parseInt(thresholdOnly[1], 10);
+    const effect = String(thresholdOnly[2] || '').trim();
+    if (!Number.isFinite(threshold) || !effect) {
+      return null;
+    }
+    return {
+      threshold,
+      cost: '',
+      effect,
+    };
   }
 
-  return {
-    threshold,
-    cost: match[2].trim(),
-    effect: match[3].trim(),
-  };
+  return null;
+}
+
+function resolveThresholdRestrictedActivatedAbility(ability: {
+  cost: string;
+  effect: string;
+  fullText: string;
+}): ReturnType<typeof parseThresholdRestrictedActivatedAbility> {
+  const fromFullText = parseThresholdRestrictedActivatedAbility(ability.fullText);
+  if (fromFullText) {
+    return fromFullText;
+  }
+  return parseThresholdRestrictedActivatedAbility(`${ability.cost}: ${ability.effect}`);
 }
 
 // ============================================================================
@@ -704,22 +730,11 @@ function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; 
   const extracted: Array<{ cost: string; effect: string; fullText: string }> = [];
   const seen = new Set<string>();
 
-  const pushAbility = (costRaw: string, effectRaw: string) => {
+  const pushColonAbility = (costRaw: string, effectRaw: string) => {
     const cost = String(costRaw || '').trim();
     const effect = String(effectRaw || '').trim();
     if (!cost || !effect) return;
-
-    const costLower = cost.toLowerCase();
-    if (
-      !cost.includes('{') &&
-      !costLower.includes('tap') &&
-      !costLower.includes('sacrifice') &&
-      !costLower.includes('discard') &&
-      !(costLower.includes('remove') && costLower.includes('counter')) &&
-      !(costLower.includes('pay') && costLower.includes('life')) &&
-      !costLower.includes('exile') &&
-      !costLower.includes('return')
-    ) {
+    if (!isRecognizedActivatedAbilityCostText(cost)) {
       return;
     }
 
@@ -730,12 +745,69 @@ function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; 
     extracted.push({ cost, effect, fullText });
   };
 
+  const pushThresholdGatedAbility = (threshold: number, effectRaw: string, fullTextRaw?: string) => {
+    if (!Number.isFinite(threshold) || threshold <= 0) return;
+
+    const effect = String(effectRaw || '').trim();
+    if (!effect) return;
+
+    const innerColon = effect.match(/^([^:]+):\s*(.+)$/s);
+    if (innerColon && isRecognizedActivatedAbilityCostText(innerColon[1])) {
+      const cost = `${threshold}+ | ${innerColon[1].trim()}`;
+      const innerEffect = innerColon[2].trim();
+      const fullText = String(fullTextRaw || `${cost}: ${innerEffect}`).trim();
+      const dedupeKey = `${cost}::${innerEffect}`.toLowerCase();
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      extracted.push({ cost, effect: innerEffect, fullText });
+      return;
+    }
+
+    if (!isActivatableStationThresholdEffect(effect)) {
+      return;
+    }
+
+    const cost = `${threshold}+ |`;
+    const fullText = String(fullTextRaw || `${threshold}+ | ${effect}`).trim();
+    const dedupeKey = `${cost}::${effect}`.toLowerCase();
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    extracted.push({ cost, effect, fullText });
+  };
+
   for (const rawLine of String(text || '').split(/\r?\n+/)) {
     const line = rawLine.trim();
+    if (/^Station\s*\(/i.test(line)) continue;
+
+    const thresholdLine = line.match(/^(\d+)\+\s*\|\s*(.+)$/);
+    if (thresholdLine) {
+      pushThresholdGatedAbility(parseInt(thresholdLine[1], 10), thresholdLine[2], line);
+      continue;
+    }
+
     if (!line.includes(':')) continue;
     const lineMatch = line.match(/^([^:]+):\s*(.+)$/);
     if (lineMatch) {
-      pushAbility(lineMatch[1], lineMatch[2]);
+      pushColonAbility(lineMatch[1], lineMatch[2]);
+    }
+  }
+
+  for (const section of parseStationAbilities(text)) {
+    if (section.threshold <= 0) {
+      for (const ability of section.abilities) {
+        if (/^\d+\+\s*\|/.test(ability)) continue;
+        if (!ability.includes(':')) continue;
+        const lineMatch = ability.match(/^([^:]+):\s*(.+)$/);
+        if (lineMatch) {
+          pushColonAbility(lineMatch[1], lineMatch[2]);
+        }
+      }
+      continue;
+    }
+
+    for (const ability of section.abilities) {
+      if (/^\d+\+\s*\|/.test(ability)) continue;
+      pushThresholdGatedAbility(section.threshold, ability, `${section.threshold}+ | ${ability}`);
     }
   }
 
@@ -752,7 +824,7 @@ function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; 
       .replace(/\s*\(?Activate only as a sorcery\)?\.?\s*$/i, '')
       .replace(/\s*\(?Activate only any time you could cast a sorcery\)?\.?\s*$/i, '')
       .trim();
-    pushAbility(inlineMatch[1], effect);
+    pushColonAbility(inlineMatch[1], effect);
     if (extracted.length > 0) {
       return extracted;
     }
@@ -761,7 +833,7 @@ function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; 
   const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
   let match;
   while ((match = abilityPattern.exec(text)) !== null) {
-    pushAbility(match[1], match[2]);
+    pushColonAbility(match[1], match[2]);
   }
 
   return extracted;
@@ -779,7 +851,7 @@ export function getActivatedAbilityScopeText(oracleText: string, abilityId: stri
   }
 
   const abilities = extractActivatedAbilitiesFromText(oracleText);
-  const selectedAbility = abilities[abilityIndex] || (abilities.length === 1 ? abilities[0] : null);
+  const selectedAbility = abilityIndex < abilities.length ? abilities[abilityIndex] : null;
   if (!selectedAbility) {
     return { abilityText: '', fullAbilityText: '' };
   }
@@ -788,6 +860,29 @@ export function getActivatedAbilityScopeText(oracleText: string, abilityId: stri
     abilityText: selectedAbility.effect,
     fullAbilityText: selectedAbility.fullText,
   };
+}
+
+export function buildActivatedAbilityOracleTextForStack(params: {
+  selectedAbilityFullText?: string;
+  selectedAbilityOracleLine?: string;
+  abilityConditionText?: string;
+  manaCost?: string;
+  abilityText?: string;
+}): string {
+  const fullLine = String(
+    params.selectedAbilityFullText
+    || params.selectedAbilityOracleLine
+    || '',
+  ).trim();
+  if (fullLine) return fullLine;
+
+  const conditionText = String(params.abilityConditionText || '').trim();
+  if (conditionText.includes(':')) return conditionText;
+
+  const manaCost = String(params.manaCost || '').trim();
+  const effectText = String(params.abilityText || '').trim();
+  if (manaCost && effectText) return `${manaCost}: ${effectText}`;
+  return conditionText || effectText;
 }
 
 // Pre-compiled RegExp patterns for creature type matching
@@ -7569,16 +7664,26 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Handle Station abilities (Spacecraft cards)
+    // Handle Station abilities (Spacecraft / Planet permanents)
     // Station N (Rule 702.184a): "Tap another untapped creature you control: Put a number of 
     // charge counters on this permanent equal to the tapped creature's power."
-    const isSpacecraft = typeLine.includes("spacecraft");
+    const isStationPermanent = isStationPermanentTypeLine(typeLine);
     const hasExplicitStationAbilityId = /-station-(\d+)$/i.test(abilityId) || abilityId === 'station';
+    const isNonStationActivatedAbilityId = /-ability-\d+$/i.test(abilityId) && !hasExplicitStationAbilityId;
     const stationAbilityText = hasExplicitStationAbilityId ? oracleText : scopedAbilityFullText;
-    const isStationAbility = hasExplicitStationAbilityId || (isSpacecraft && /\bstation\b/i.test(stationAbilityText));
+    const isStationAbility = hasExplicitStationAbilityId
+      || (
+        !isNonStationActivatedAbilityId
+        && isStationPermanent
+        && /\bstation\b/i.test(stationAbilityText)
+      );
     if (isStationAbility) {
       // Parse station threshold from oracle text
       const stationThreshold = parseStationThreshold(stationAbilityText);
+      const stationEffectText = resolveStationChargeCounterEffectText({
+        typeLine,
+        stationAbilityOracleText: stationAbilityText,
+      });
       
       // Per Rule 702.184a, station is activated at sorcery speed
       // Check if it's the player's turn and main phase
@@ -7640,6 +7745,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
         description: `Tap another untapped creature you control. Put charge counters on ${cardName} equal to that creature's power.`,
         mandatory: false,
+        stationEffectText,
         station: {
           id: permanentId,
           name: cardName,
@@ -7657,6 +7763,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           counterType: 'charge',
           amountFrom: 'power',
           requireAnother: true,
+          effectText: stationEffectText,
         },
         tapForCountersCreatures: creatureOptions,
         title: `Station ${stationThreshold}`,
@@ -8881,7 +8988,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     if (selectedAbilityIndex < abilities.length) {
       const ability = abilities[selectedAbilityIndex];
-      const thresholdRestrictedAbility = parseThresholdRestrictedActivatedAbility(`${ability.cost}: ${ability.effect}`);
+      const thresholdRestrictedAbility = resolveThresholdRestrictedActivatedAbility(ability);
       const normalizedCost = thresholdRestrictedAbility?.cost || ability.cost;
       abilityText = thresholdRestrictedAbility?.effect || ability.effect;
       // Only treat the ability as requiring the SOURCE to tap when the cost includes an explicit tap symbol
@@ -8924,7 +9031,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // If there's only one ability parsed, use it
       if (abilities.length === 1) {
         const ability = abilities[0];
-        const thresholdRestrictedAbility = parseThresholdRestrictedActivatedAbility(`${ability.cost}: ${ability.effect}`);
+        const thresholdRestrictedAbility = resolveThresholdRestrictedActivatedAbility(ability);
         const normalizedCost = thresholdRestrictedAbility?.cost || ability.cost;
         abilityText = thresholdRestrictedAbility?.effect || ability.effect;
         requiresTap = /\{t\}/i.test(normalizedCost) || /^\s*tap\s*:/i.test(normalizedCost);
@@ -8956,21 +9063,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         .map((line) => String(line || '').trim())
         .filter((line) => line.length > 0);
       const activatedLines = rawLines.filter((line) => {
+        if (/^\d+\+\s*\|/.test(line)) {
+          return true;
+        }
         const colonIndex = line.indexOf(':');
         if (colonIndex <= 0) {
           return false;
         }
-        const costLower = line.slice(0, colonIndex).toLowerCase();
-        return (
-          costLower.includes('{') ||
-          costLower.includes('tap') ||
-          costLower.includes('sacrifice') ||
-          costLower.includes('discard') ||
-          (costLower.includes('remove') && costLower.includes('counter')) ||
-          (costLower.includes('pay') && costLower.includes('life')) ||
-          costLower.includes('exile') ||
-          costLower.includes('return')
-        );
+        return isRecognizedActivatedAbilityCostText(line.slice(0, colonIndex));
       });
       return selectedAbilityIndex < activatedLines.length
         ? String(activatedLines[selectedAbilityIndex] || '').trim()
@@ -9024,6 +9124,40 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         socket.emit('error', {
           code: 'ACTIVATION_CONDITION_NOT_MET',
           message: `${cardName}'s selected ability requires ${requiredChargeCounters}+ charge counters.`,
+        });
+        return;
+      }
+    }
+
+    const oncePerTurnActivatedEffect = String(
+      selectedAbilityFullText || abilityText || '',
+    ).trim();
+    if (isOnceDuringEachOfYourTurnActivatedEffect(oncePerTurnActivatedEffect)) {
+      if (hasUsedOnceDuringEachActivatedAbilityThisTurn(permanent, selectedAbilityIndex)) {
+        socket.emit('error', {
+          code: 'ABILITY_ALREADY_USED',
+          message: `${cardName}'s selected ability can only be activated once during each of your turns.`,
+        });
+        return;
+      }
+
+      const stackItems = Array.isArray(game.state?.stack) ? game.state.stack : [];
+      if (hasOncePerTurnActivatedAbilityPendingOnStack(stackItems, String(permanentId), selectedAbilityIndex)) {
+        socket.emit('error', {
+          code: 'ABILITY_ALREADY_USED',
+          message: `${cardName}'s selected ability is already on the stack.`,
+        });
+        return;
+      }
+
+      const alreadyCastFromGraveyard = Boolean((game.state as any)?.castFromGraveyardThisTurn?.[pid]);
+      if (
+        alreadyCastFromGraveyard
+        && /\bfrom your graveyard\b/i.test(oncePerTurnActivatedEffect)
+      ) {
+        socket.emit('error', {
+          code: 'ABILITY_ALREADY_USED',
+          message: `${cardName}'s selected ability can only be used once during each of your turns.`,
         });
         return;
       }
@@ -10144,11 +10278,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 .find((step: any) => step?.type === ResolutionStepType.MANA_PAYMENT_CHOICE && step?.phyrexianManaChoice === true && String(step?.permanentId || step?.sourceId) === String(permanentId));
 
               if (!existingPhyrexianPrompt) {
-                const activatedAbilityText = (() => {
-                  const scopedAbilityText = String(abilityConditionText || '').trim();
-                  if (scopedAbilityText.includes(':')) return scopedAbilityText;
-                  return manaOnly ? `${manaOnly}: ${abilityText}` : (scopedAbilityText || abilityText);
-                })();
+                const activatedAbilityText = buildActivatedAbilityOracleTextForStack({
+                  selectedAbilityFullText,
+                  selectedAbilityOracleLine,
+                  abilityConditionText,
+                  manaCost: manaOnly || manaCost,
+                  abilityText,
+                });
                 const phyrexianChoices = phyrexianCosts.map((options: string[], index: number) => {
                   const colorOption = options.find((option: string) => !option.startsWith('LIFE:') && !option.startsWith('GENERIC:'));
                   const lifeOption = options.find((option: string) => option.startsWith('LIFE:'));
@@ -10224,7 +10360,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.sacrificeAbilityAsCost === true && String((s as any)?.permanentId || s?.sourceId) === String(permanentId));
 
       if (!existing) {
-        const activatedAbilityText = String(abilityConditionText || '').trim() || `${String(manaCost || '').trim()}: ${abilityText}`;
+        const activatedAbilityText = buildActivatedAbilityOracleTextForStack({
+          selectedAbilityFullText,
+          selectedAbilityOracleLine,
+          abilityConditionText,
+          manaCost,
+          abilityText,
+        });
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: pid as PlayerID,
@@ -11202,7 +11344,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             .find((s: any) => s?.type === ResolutionStepType.DISCARD_SELECTION && (s as any)?.discardAbilityAsCost === true && String((s as any)?.permanentId || s?.sourceId) === String(permanentId));
 
           if (!existing) {
-            const activatedAbilityText = String(abilityConditionText || '').trim() || `${String(manaCost || '').trim()}: ${abilityText}`;
+            const activatedAbilityText = buildActivatedAbilityOracleTextForStack({
+              selectedAbilityFullText,
+              selectedAbilityOracleLine,
+              abilityConditionText,
+              manaCost,
+              abilityText,
+            });
             ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.DISCARD_SELECTION,
               playerId: pid as PlayerID,
@@ -11239,8 +11387,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const resolvedAbilityText = applyXValueToText(abilityText, selectedXValue);
     const resolvedActivatedAbilityText = applyXValueToText(
-      String(selectedAbilityFullText || abilityConditionText || '').trim() || (manaCost ? `${manaCost}: ${abilityText}` : abilityText),
-      selectedXValue
+      buildActivatedAbilityOracleTextForStack({
+        selectedAbilityFullText,
+        selectedAbilityOracleLine,
+        abilityConditionText,
+        manaCost,
+        abilityText,
+      }),
+      selectedXValue,
     );
 
     const shouldPromptForActivationPaymentChoice = (resolvedManaCost: string): boolean => {
@@ -12479,6 +12633,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         description: resolvedAbilityText,
         activatedAbilityText: activatedAbilityTextForStack,
         xValue: selectedXValue,
+        activatedAbilityIndex: selectedAbilityIndex,
+        ...(isOnceDuringEachOfYourTurnActivatedEffect(oncePerTurnActivatedEffect)
+          ? { oncePerTurnActivated: true }
+          : null),
       } as any;
       
       game.state.stack = game.state.stack || [];

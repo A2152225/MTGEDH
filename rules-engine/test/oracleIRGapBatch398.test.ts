@@ -15,8 +15,10 @@ describe('oracle IR gap batch398 — resolution queue bridge helpers', () => {
     const steps = ir.abilities?.[0]?.steps || [];
     const revealStep = steps.find((step) => step.kind === 'reveal_top');
     const choiceStep = steps.find((step) => step.kind === 'player_choice');
+    const moveStep = steps.find((step) => step.kind === 'move_zone');
     expect(revealStep).toBeTruthy();
     expect(choiceStep).toBeTruthy();
+    expect((moveStep as any)?.xAtLeastAlternate?.destinations).toEqual(['battlefield', 'hand']);
 
     const library = [
       { id: 'lib-1', name: 'Forest', type_line: 'Basic Land — Forest', zone: 'library' },

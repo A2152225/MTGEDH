@@ -8,6 +8,7 @@ import {
   collectOracleEffectSteps,
   wouldOracleIRFallbackPrefilterMatch,
 } from './trigger-runtime-wiring.js';
+import { extractOracleCardLookupKeys } from './oracleIrCompiledOverlayLookup.js';
 import {
   buildTriggerExecutionOptionsFromSteps,
 } from './oracleIrTriggerExecutionHelpers.js';
@@ -109,6 +110,44 @@ function applyLegacyTriggerSpecialHandlers(
 }
 
 /**
+ * Copy/explore/equipped-token bridges that still run when IR primary owns the effect
+ * but the primary gate did not apply (e.g. server target queue deferrals).
+ */
+export function applyTriggerIrSpecialHandlersOnly(
+  ctx: GameContext,
+  controller: PlayerID,
+  sourceName: string,
+  description: string,
+  triggerItem: any | undefined,
+  deps: TriggerUncategorizedFallbackDeps,
+): number {
+  const text = String(description || '').trim();
+  if (!text || !wouldOracleIRFallbackPrefilterMatch(text)) {
+    return 0;
+  }
+
+  try {
+    const steps = collectOracleEffectSteps(
+      text,
+      sourceName,
+      extractOracleCardLookupKeys({ cardName: sourceName, sourceName, triggerItem }),
+    );
+    return applyLegacyTriggerSpecialHandlers(
+      ctx,
+      controller,
+      sourceName,
+      text,
+      triggerItem,
+      steps,
+      deps,
+    );
+  } catch (err) {
+    debugWarn(1, `[executeTriggerEffect] Oracle IR trigger special handlers failed for ${sourceName}:`, err);
+    return 0;
+  }
+}
+
+/**
  * Best-effort Oracle IR resolution for trigger effects after the primary IR gate
  * and legacy regex handlers miss. Keeps card-specific copy/explore shims only when
  * IR primary mode does not own the effect text.
@@ -131,25 +170,15 @@ export function applyOracleIRTriggerUncategorizedFallback(
   ).trim();
   const sourceId = String(sourcePermanentId || triggerItem?.sourceId || triggerItem?.id || '').trim();
 
-  let applied = 0;
-  if (wouldOracleIRFallbackPrefilterMatch(text)) {
-    try {
-      const steps = collectOracleEffectSteps(text, sourceName);
-      applied = applyLegacyTriggerSpecialHandlers(
-        ctx,
-        controller,
-        sourceName,
-        text,
-        triggerItem,
-        steps,
-        deps,
-      );
-    } catch (err) {
-      debugWarn(1, `[executeTriggerEffect] Oracle IR trigger special handlers failed for ${sourceName}:`, err);
-    }
-  }
-
-  if (applied > 0) return applied;
+  const specialApplied = applyTriggerIrSpecialHandlersOnly(
+    ctx,
+    controller,
+    sourceName,
+    text,
+    triggerItem,
+    deps,
+  );
+  if (specialApplied > 0) return specialApplied;
 
   if (shouldSkipTriggerUncategorizedFallback(text, sourceName)) {
     return 0;
@@ -168,6 +197,13 @@ export function applyOracleIRTriggerUncategorizedFallback(
     'ability',
     triggerItem,
     undefined,
-    buildTriggerExecutionOptionsFromSteps(collectOracleEffectSteps(text, sourceName), triggerItem),
+    buildTriggerExecutionOptionsFromSteps(
+      collectOracleEffectSteps(
+        text,
+        sourceName,
+        extractOracleCardLookupKeys({ cardName: sourceName, sourceName, triggerItem }),
+      ),
+      triggerItem,
+    ),
   );
 }

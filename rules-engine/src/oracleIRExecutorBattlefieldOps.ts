@@ -17,6 +17,11 @@ import { stampCardPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { putAttractionInJunkyard, shouldAttractionGoToCommandZone } from './remainingCardTypes';
 
+/** Zone containers use card id (Scryfall id), not battlefield permanent id — matches server destroyPermanent. */
+export function resolveZoneCardIdFromPermanent(perm: any): string {
+  return String(perm?.card?.id || perm?.id || '').trim();
+}
+
 function permanentMatchesTapTargetType(perm: BattlefieldPermanent, type: SimplePermanentType | null): boolean {
   if (!type || type === 'permanent') return true;
   if (type === 'nonland_permanent') return !hasExecutorClass(perm as any, 'land');
@@ -271,7 +276,7 @@ function placeRemovedPermanentInOwnerZone(params: {
     const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
     graveyard.push({
       ...stampCardPutIntoGraveyardThisTurn(state, buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'graveyard')),
-      id: String((perm as any)?.id || '').trim() || String((perm as any)?.card?.id || '').trim(),
+      id: resolveZoneCardIdFromPermanent(perm),
     });
     player.graveyard = graveyard;
     return 'graveyard';
@@ -281,7 +286,7 @@ function placeRemovedPermanentInOwnerZone(params: {
     const hand = Array.isArray(player.hand) ? [...player.hand] : [];
     hand.push({
       ...buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'hand'),
-      id: String((perm as any)?.id || '').trim() || String((perm as any)?.card?.id || '').trim(),
+      id: resolveZoneCardIdFromPermanent(perm),
     });
     player.hand = hand;
     return 'hand';
@@ -291,7 +296,7 @@ function placeRemovedPermanentInOwnerZone(params: {
     const library = Array.isArray(player.library) ? [...player.library] : [];
     const movedCard = {
       ...buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'library'),
-      id: String((perm as any)?.id || '').trim() || String((perm as any)?.card?.id || '').trim(),
+      id: resolveZoneCardIdFromPermanent(perm),
     };
     player.library = libraryPlacement === 'top' ? [movedCard, ...library] : [...library, movedCard];
     return 'library';
@@ -300,7 +305,7 @@ function placeRemovedPermanentInOwnerZone(params: {
   const exile = Array.isArray(player.exile) ? [...player.exile] : [];
   exile.push({
     ...buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'),
-    id: String((perm as any)?.id || '').trim() || String((perm as any)?.card?.id || '').trim(),
+    id: resolveZoneCardIdFromPermanent(perm),
   });
   player.exile = exile;
   return 'exile';

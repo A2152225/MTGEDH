@@ -17,6 +17,10 @@ import {
   resolveKindredSummonsFromLibrary,
 } from './oracleIrSpellLegacyKindredRevealUtils.js';
 import { queueChosenTypeTopLibraryRevealPrompt } from './oracleIrSpellLegacyLibrarySelectionUtils.js';
+import { requiresEffectProgramOrchestration } from './oracleIrEffectProgramServer.js';
+import { collectOracleEffectSteps } from './trigger-runtime-wiring.js';
+import { buildOracleOverlayCollectOptions } from './oracleIrCompiledOverlayLookup.js';
+import { isSpellEffectOwnedByOracleIrPrimary } from './oracleIrSpellLegacyRouting.js';
 
 function applyInstantSorceryChosenCreatureTypeEffects(
   ctx: GameContext,
@@ -77,8 +81,9 @@ function applyInstantSorceryChosenCreatureTypeEffects(
   }
 
   if (
-    spellNameLower.includes('kindred summons') ||
-    /reveal cards from the top of your library until you reveal x creature cards of the chosen type/i.test(oracleTextLower)
+    (spellNameLower.includes('kindred summons') ||
+      /reveal cards from the top of your library until you reveal x creature cards of the chosen type/i.test(oracleTextLower))
+    && !isSpellEffectOwnedByOracleIrPrimary(oracleText, String(effectiveCard.name || 'Spell'))
   ) {
     resolveKindredSummonsFromLibrary(ctx, controller, existingChosenCreatureType, String(effectiveCard.name || 'Kindred Summons'));
   }
@@ -209,6 +214,20 @@ export function tryResolveInstantSorceryPreResolutionChoices(
   const existingChosenCreatureType = String(card?.chosenCreatureType || item?.chosenCreatureType || '').trim();
 
   if (hasCreatureTypeChoiceSpell && !existingChosenCreatureType && !isReplaying) {
+    const spellSteps = collectOracleEffectSteps(
+      oracleText,
+      String(effectiveCard.name || 'Spell'),
+      buildOracleOverlayCollectOptions({
+        cardName: String(effectiveCard.name || 'Spell'),
+        card,
+        effectiveCard,
+        sourceItem: item,
+      }),
+    );
+    if (requiresEffectProgramOrchestration(spellSteps)) {
+      return false;
+    }
+
     debug(2, `[tryResolveInstantSorceryPreResolutionChoices] ${effectiveCard.name} requires creature type choice, adding resolution step`);
 
     queueResolveTopOfStackPrompt(ctx, {

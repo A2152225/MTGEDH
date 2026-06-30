@@ -240,4 +240,33 @@ describe('casting modifiers integration', () => {
     };
     expect(spellHasConvokeForCast(game.state, p1, divination, 'hand')).toBe(true);
   });
+
+  it('applies delayed affinity for artifacts to non-artifact spells', () => {
+    const game = setupGame();
+    (game.state as any).battlefield.push({
+      id: 'sol_ring_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'sol_ring_card',
+        name: 'Sol Ring',
+        type_line: 'Artifact',
+      },
+    });
+    tryApplyCastingModifierGrantsFromText(
+      game.state,
+      p1,
+      'The next spell you cast this turn has affinity for artifacts.',
+      'Tezzeret, Cruel Captain',
+    );
+
+    const instant = {
+      id: 'consider_1',
+      name: 'Consider',
+      type_line: 'Instant',
+      mana_cost: '{U}',
+    };
+    const reduction = getDynamicBattlefieldCostReduction(game.state, p1, instant);
+    expect(reduction.generic).toBe(1);
+  });
 });

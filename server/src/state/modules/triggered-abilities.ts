@@ -2577,6 +2577,7 @@ export function detectDealtDamageTriggers(card: any, permanent: any): TriggeredA
     /whenever a source you control deals noncombat damage to an opponent,?\s*([^.]+)/gi,
     /whenever damage is dealt to you,?\s*([^.]+)/gi,
     /whenever a creature deals damage to you,?\s*([^.]+)/gi,
+    /whenever a ([\w]+) deals damage to you,?\s*([^.]+)/gi,
     /when (?:a |an )?source an opponent controls deals damage to you,?\s*([^.]+)/gi,
     /whenever (?:a |an )?source an opponent controls deals damage to you,?\s*([^.]+)/gi,
     /whenever enchanted player is dealt damage,?\s*([^.]+)/gi,

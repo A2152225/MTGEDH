@@ -14,6 +14,10 @@ import { randomBytes } from "crypto";
 import type { Server, Socket } from "socket.io";
 import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
+import {
+  isStationPermanentTypeLine,
+  readStationChargeCreatureThresholdFromOracleText,
+} from "../../../rules-engine/src/stationPermanentUtils.js";
 import { cardAnalyzer, CardCategory, SynergyArchetype, type DeckArchetypeProfile } from "../../../rules-engine/src/CardAnalyzer.js";
 import { calculateManaProduction, ensureGame, broadcastGame, getEffectivePower, getEffectiveToughness, getPlayerName, getOrInitManaPool, validateManaPayment, getMaxGenericManaAvailable } from "./util.js";
 import { appendEvent, gameExistsInDb, isGameCreator } from "../db/index.js";
@@ -2504,6 +2508,27 @@ function chooseAIRevealLandSelection(
   return { selections: [String(matchingOption.id)], cancelled: false };
 }
 
+function chooseAILandWouldEnterSacrificeSelection(
+  game: any,
+  _playerId: PlayerID,
+  step: any,
+  options: any[],
+  resolveOptionId: (option: any) => string,
+): { selections: string[]; cancelled: boolean } {
+  const offeredIds = new Set(options.map((option: any) => resolveOptionId(option)).filter(Boolean));
+  const declineId = offeredIds.has('decline_land_would_enter') ? 'decline_land_would_enter' : 'decline_land_would_enter';
+  const sacrificeCount = Number(step?.sacrificeCount ?? 2);
+  const landCandidates = options
+    .map((option: any) => resolveOptionId(option))
+    .filter((id: string) => id && id !== declineId);
+
+  if (landCandidates.length >= sacrificeCount) {
+    return { selections: landCandidates.slice(0, sacrificeCount), cancelled: false };
+  }
+
+  return { selections: [declineId], cancelled: false };
+}
+
 function chooseAIMoxDiamondSelection(
   game: any,
   playerId: PlayerID,
@@ -3763,6 +3788,10 @@ export function chooseAIOptionSelectionsForStep(
 
   if (step?.revealLandChoice === true) {
     return chooseAIRevealLandSelection(game, playerId, step, options, resolveOptionId);
+  }
+
+  if (step?.landWouldEnterSacrificeChoice === true) {
+    return chooseAILandWouldEnterSacrificeSelection(game, playerId, step, options, resolveOptionId);
   }
 
   if (step?.moxDiamondChoice === true) {
@@ -6488,12 +6517,12 @@ function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedA
     });
   }
 
-  const stationMatch = nativeOracleText.match(/station\s*(\d+)/i);
-  if (stationMatch && (typeLine.includes('spacecraft') || lowerOracleText.includes('station'))) {
+  const stationThreshold = readStationChargeCreatureThresholdFromOracleText(nativeOracleText);
+  if (isStationPermanentTypeLine(typeLine) || lowerOracleText.includes('station')) {
     candidates.push({
       id: `${cardId}-station-0`,
-      text: `Station ${stationMatch[1]}`,
-      effect: `station ${stationMatch[1]}`,
+      text: stationThreshold > 0 ? `Station ${stationThreshold}` : 'Station',
+      effect: stationThreshold > 0 ? `station ${stationThreshold}` : 'station',
     });
   }
 

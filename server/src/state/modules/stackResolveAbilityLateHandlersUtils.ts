@@ -11,6 +11,8 @@ import {
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import { ResolutionStepType } from '../resolution/index.js';
 import { tryApplyOracleIRToActivatedAbility } from './oracleIrAbilityExecution.js';
+import { extractOracleCardLookupKeys } from './oracleIrCompiledOverlayLookup.js';
+import { markOnceDuringEachActivatedAbilityUsedThisTurn } from '../../../../rules-engine/src/stationPermanentUtils.js';
 import { resolveChosenTypeDrawPerCreature } from './triggerChosenTypeSpellUtils.js';
 import { queueChosenTypeTopLibraryRevealPrompt } from './oracleIrSpellLegacyLibrarySelectionUtils.js';
 import { syncPreparedPermanentAfterControlChange } from './prepared.js';
@@ -230,6 +232,25 @@ function resolveTextDrivenActivatedControlChange(
 
 export type { StackActivatedAbilityLateHandlerDeps, StackActivatedAbilityLateHandlerOptions } from './stackResolveSharedTypes.js';
 
+function markResolvedOncePerTurnActivatedAbility(state: any, item: any): void {
+  if (!item?.oncePerTurnActivated) {
+    return;
+  }
+  const permanentId = String(item?.source || '').trim();
+  if (!permanentId) {
+    return;
+  }
+  const permanent = (state?.battlefield || []).find((entry: any) => String(entry?.id || '') === permanentId);
+  if (!permanent) {
+    return;
+  }
+  const abilityIndex = Number(item?.activatedAbilityIndex);
+  markOnceDuringEachActivatedAbilityUsedThisTurn(
+    permanent,
+    Number.isFinite(abilityIndex) ? abilityIndex : 0,
+  );
+}
+
 export function tryResolveStackActivatedAbilityLateHandlers(
   ctx: GameContext,
   options: StackActivatedAbilityLateHandlerOptions,
@@ -269,6 +290,7 @@ export function tryResolveStackActivatedAbilityLateHandlers(
       sourceName,
       equipmentName: sourceName || String(sourcePermanent?.card?.name || 'Equipment'),
     });
+    markResolvedOncePerTurnActivatedAbility(state, item);
     bumpSeq();
     return true;
   }
@@ -316,6 +338,7 @@ export function tryResolveStackActivatedAbilityLateHandlers(
         lookCount: activationTopReveal.lookCount,
       });
       debug(2, `[tryResolveStackActivatedAbilityLateHandlers] ${sourceName} queued chosen-type top-library reveal (${queuedCount} card(s))`);
+      markResolvedOncePerTurnActivatedAbility(state, item);
       bumpSeq();
       return true;
     }
@@ -323,6 +346,7 @@ export function tryResolveStackActivatedAbilityLateHandlers(
 
   if (existingAbilityChosenType && parseChosenTypeDrawPerCreatureEffect(abilityTextForTypeChoice)) {
     resolveChosenTypeDrawPerCreature(ctx, controller as PlayerID, existingAbilityChosenType, sourceName);
+    markResolvedOncePerTurnActivatedAbility(state, item);
     bumpSeq();
     return true;
   }
@@ -335,8 +359,19 @@ export function tryResolveStackActivatedAbilityLateHandlers(
     String(sourceName || 'Activated ability'),
   );
 
-  const activatedOracleForIR = [activatedAbilityText, description].filter(Boolean).join('\n').trim();
+  const activatedOracleForIR = (() => {
+    const scoped = String(activatedAbilityText || '').trim();
+    if (scoped.includes(':')) return scoped;
+    return [activatedAbilityText, description].filter(Boolean).join('\n').trim();
+  })();
   if (activatedOracleForIR) {
+    const cardKeys = extractOracleCardLookupKeys({
+      cardName: sourceName,
+      sourceName,
+      sourceItem: item,
+      card: sourcePermanent?.card || item?.card,
+      effectiveCard: sourcePermanent?.card || item?.card,
+    });
     const irResult = tryApplyOracleIRToActivatedAbility(ctx, {
       controller: controller as PlayerID,
       sourceName,
@@ -347,9 +382,13 @@ export function tryResolveStackActivatedAbilityLateHandlers(
       teamworkWasPaid: Boolean(item?.teamworkWasPaid ?? item?.card?.teamworkWasPaid),
       giftPromised: Boolean(item?.giftPromised ?? item?.card?.giftPromised),
       allowOptional: true,
+      cardId: cardKeys.cardId,
+      sourceItem: item,
+      card: sourcePermanent?.card || item?.card,
     });
     if (irResult.handled) {
       debug(2, `[tryResolveStackActivatedAbilityLateHandlers] Oracle IR resolved activated ability from ${sourceName} (${irResult.applied} step(s))`);
+      markResolvedOncePerTurnActivatedAbility(state, item);
       bumpSeq();
       return true;
     }
@@ -357,6 +396,7 @@ export function tryResolveStackActivatedAbilityLateHandlers(
 
   debug(2, `[tryResolveStackActivatedAbilityLateHandlers] Executing activated ability from ${sourceName} for ${controller}: ${description}`);
   executeTriggerEffect(ctx, controller, sourceName, description, item);
+  markResolvedOncePerTurnActivatedAbility(state, item);
   bumpSeq();
   return true;
 }

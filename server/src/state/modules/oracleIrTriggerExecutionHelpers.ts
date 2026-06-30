@@ -3,7 +3,7 @@ import {
   collectOracleEffectSteps,
   parseTriggerEffectSteps,
 } from './trigger-runtime-wiring.js';
-import { normalizeOracleIrSelectedModeIds } from './oracleIrModeSelection.js';
+import { extractOracleCardLookupKeys } from './oracleIrCompiledOverlayLookup.js';import { normalizeOracleIrSelectedModeIds } from './oracleIrModeSelection.js';
 
 export function resolveTriggerSelectedModeIds(triggerItem?: any): readonly string[] | undefined {
   const raw = Array.isArray(triggerItem?.selectedModeIds)
@@ -18,8 +18,14 @@ export function resolveTriggerSelectedModeIds(triggerItem?: any): readonly strin
 export function collectTriggerExecutionSteps(
   effectText: string,
   sourceName: string,
+  triggerItem?: any,
 ): ReturnType<typeof parseTriggerEffectSteps> {
-  const steps = collectOracleEffectSteps(effectText, sourceName);
+  const cardKeys = extractOracleCardLookupKeys({
+    cardName: sourceName,
+    sourceName,
+    triggerItem,
+  });
+  const steps = collectOracleEffectSteps(effectText, sourceName, cardKeys);
   if (steps.length > 0) return steps;
   return parseTriggerEffectSteps(effectText, sourceName);
 }

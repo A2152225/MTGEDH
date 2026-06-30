@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { skipRetiredTriggerLegacyHandler } from '../src/state/modules/oracleIrTriggerLegacyRouting.js';
+import * as oracleIrUncategorizedSpellFallback from '../src/state/modules/oracleIrUncategorizedSpellFallback.js';
 import {
   applyRetiredTriggerLegacyDrawAndLifeCombinedEffects,
   applyRetiredTriggerLegacyEachOpponentDiscards,
@@ -16,6 +17,7 @@ import { applyRetiredTriggerLegacyExtraTurnAfterThisOne } from '../src/state/mod
 import { applyRetiredTriggerLegacySacrificeThisCreature } from '../src/state/modules/oracleIrTriggerLegacySpecialTriggerHandlers.js';
 import { applyRetiredTriggerLegacySingleEffectRegexBatch } from '../src/state/modules/oracleIrTriggerLegacySingleEffectRegexBatch.js';
 import { tryApplyTriggerEffectLegacyBodyHandlers } from '../src/state/modules/stackExecuteTriggerEffectLegacyBodyUtils.js';
+import { tryApplyTriggerEffectLegacyTailHandlers } from '../src/state/modules/stackExecuteTriggerEffectTailUtils.js';
 import {
   applyRetiredTriggerLegacyCreateCreatureToken,
   applyRetiredTriggerLegacyPredefinedArtifactTokens,
@@ -149,6 +151,104 @@ describe('retired trigger legacy handler defense-in-depth', () => {
       expect(result.desc).toContain('draw');
     }
     expect(player.hand).toHaveLength(0);
+  });
+
+  it('legacy tail regex batches skip when IR primary owns effect text', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const game = createInitialGameState('handler_tail_regex_skip');
+    const p1 = 'p1' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+
+    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
+    player.library = [
+      { id: 'lib-1', name: 'Island', zone: 'library' },
+      { id: 'lib-2', name: 'Mountain', zone: 'library' },
+    ];
+    player.hand = [];
+
+    const ctx = game as any;
+    ctx.gameId = 'handler_tail_regex_skip';
+    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
+
+    const bodyResult = tryApplyTriggerEffectLegacyBodyHandlers(
+      ctx,
+      p1,
+      'Mulldrifter',
+      'Draw two cards.',
+      { id: 'trigger-tail-skip' },
+      game.state,
+      {},
+    );
+    expect(bodyResult.handled).toBe(false);
+
+    const tailHandled = tryApplyTriggerEffectLegacyTailHandlers(
+      ctx,
+      p1,
+      'Mulldrifter',
+      'Draw two cards.',
+      { id: 'trigger-tail-skip' },
+      {},
+      game.state,
+      bodyResult,
+    );
+
+    expect(tailHandled).toBe(false);
+    expect(player.hand).toHaveLength(0);
+    expect(player.library).toHaveLength(2);
+  });
+
+  it('legacy tail skips uncategorized spell fallback when IR primary owns draw text', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const spellFallbackSpy = vi.spyOn(
+      oracleIrUncategorizedSpellFallback,
+      'applyOracleIRUncategorizedSpellFallback',
+    );
+
+    const game = createInitialGameState('handler_tail_uncategorized_skip');
+    const p1 = 'p1' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+
+    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
+    player.library = [
+      { id: 'lib-1', name: 'Island', zone: 'library' },
+      { id: 'lib-2', name: 'Mountain', zone: 'library' },
+    ];
+    player.hand = [];
+
+    const ctx = game as any;
+    ctx.gameId = 'handler_tail_uncategorized_skip';
+    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
+
+    const bodyResult = tryApplyTriggerEffectLegacyBodyHandlers(
+      ctx,
+      p1,
+      'Mulldrifter',
+      'Draw two cards.',
+      { id: 'trigger-tail-uncategorized-skip' },
+      game.state,
+      {},
+    );
+    expect(bodyResult.handled).toBe(false);
+
+    const tailHandled = tryApplyTriggerEffectLegacyTailHandlers(
+      ctx,
+      p1,
+      'Mulldrifter',
+      'Draw two cards.',
+      { id: 'trigger-tail-uncategorized-skip' },
+      {},
+      game.state,
+      bodyResult,
+    );
+
+    expect(tailHandled).toBe(false);
+    expect(spellFallbackSpy).not.toHaveBeenCalled();
+    expect(player.hand).toHaveLength(0);
+    expect(player.library).toHaveLength(2);
+
+    spellFallbackSpy.mockRestore();
   });
 
   it('skipRetiredTriggerLegacyHandler defers duplicate prevention to orchestrators', () => {

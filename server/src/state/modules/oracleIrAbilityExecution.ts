@@ -2,10 +2,18 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import { buildOracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutor.js';
 import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser.js';
+import { collectOracleEffectStepsWithOverlay } from '../../../../rules-engine/src/oracleIRCompilerEnvelope.js';
+import { isRecognizedActivatedAbilityCostText } from '../../../../rules-engine/src/stationPermanentUtils.js';
+import { parseStationKeywordActivatedAbility } from '../../../../rules-engine/src/oracleTextParserKeywordCosts.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync.js';
 import { debug, debugWarn } from '../../utils/debug.js';
+import {
+  resolveCompiledOverlayForCard,
+  extractOracleCardLookupKeys,
+  type CollectOracleEffectStepsOptions,
+} from './oracleIrCompiledOverlayLookup.js';
 import {
   describeOracleIrActivatedAbilityIncomplete,
   getUnwiredOracleEffectStepKinds,
@@ -38,11 +46,200 @@ function extractActivatedEffectText(oracleText: string): string {
   return colonSplit ? String(colonSplit[1] || '').trim() : raw;
 }
 
-export function collectActivatedAbilitySteps(oracleText: string, sourceName: string): OracleEffectStep[] {
-  const effectText = extractActivatedEffectText(oracleText);
+function applyCompiledOverlayToActivatedSteps(
+  parsedText: string,
+  sourceName: string,
+  steps: readonly OracleEffectStep[],
+  options?: CollectOracleEffectStepsOptions,
+): OracleEffectStep[] {
+  const overlay = resolveCompiledOverlayForCard({
+    cardName: sourceName,
+    ...options,
+  });
+  if (!overlay) return [...steps];
+  const hasUnknown = steps.some((step) => step.kind === 'unknown');
+  if (!hasUnknown && steps.length > 0) return [...steps];
+  return [...collectOracleEffectStepsWithOverlay(parsedText, sourceName, overlay, options?.overlayOptions)];
+}
+
+export function collectActivatedAbilitySteps(
+  oracleText: string,
+  sourceName: string,
+  options?: CollectOracleEffectStepsOptions,
+): OracleEffectStep[] {
+  const raw = String(oracleText || '').trim();
+  if (!raw) return [];
+
+  const thresholdLine = raw.match(/^(\d+)\+\s*\|\s*(.+)$/is);
+  if (thresholdLine) {
+    const innerText = String(thresholdLine[2] || '').trim();
+    const innerColon = innerText.match(/^([^:]+):\s*(.+)$/s);
+    if (innerColon && isRecognizedActivatedAbilityCostText(innerColon[1])) {
+      const ir = parseOracleTextToIR(raw, sourceName);
+      const steps = (ir.abilities || []).flatMap((ability) => ability.steps || []);
+      return applyCompiledOverlayToActivatedSteps(raw, sourceName, steps, options);
+    }
+
+    const ir = parseOracleTextToIR(innerText, sourceName);
+    const steps = (ir.abilities || []).flatMap((ability) => ability.steps || []);
+    return applyCompiledOverlayToActivatedSteps(innerText, sourceName, steps, options);
+  }
+
+  const effectText = extractActivatedEffectText(raw);
   if (!effectText) return [];
   const ir = parseOracleTextToIR(effectText, sourceName);
-  return (ir.abilities || []).flatMap((ability) => ability.steps || []);
+  const steps = (ir.abilities || []).flatMap((ability) => ability.steps || []);
+  return applyCompiledOverlayToActivatedSteps(effectText, sourceName, steps, options);
+}
+
+function extractStationKeywordLineFromOracle(oracleText: string): string {
+  return String(oracleText || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^Station\s*\(/i.test(line)) || '';
+}
+
+export {
+  isStationPermanentTypeLine,
+  readStationChargeCreatureThresholdFromOracleText,
+} from '../../../../rules-engine/src/stationPermanentUtils.js';
+
+export function inferStationChargeCounterEffectText(typeLine: string): string {
+  const normalized = String(typeLine || '').toLowerCase();
+  if (normalized.includes('planet')) {
+    return 'Put charge counters equal to its power on this Planet.';
+  }
+  if (normalized.includes('spacecraft')) {
+    return 'Put charge counters equal to its power on this Spacecraft.';
+  }
+  return 'Put charge counters equal to its power on this permanent.';
+}
+
+export function resolveStationChargeCounterEffectText(params: {
+  effectText?: string;
+  typeLine?: string;
+  stationAbilityOracleText?: string;
+}): string {
+  const explicit = String(params.effectText || '').trim();
+  if (explicit) return explicit;
+
+  const stationLine = extractStationKeywordLineFromOracle(params.stationAbilityOracleText || '');
+  if (stationLine) {
+    const parsed = parseStationKeywordActivatedAbility(stationLine);
+    if (parsed?.effect) return parsed.effect;
+  }
+
+  return inferStationChargeCounterEffectText(params.typeLine || '');
+}
+
+export function tryApplyStationChargeCountersViaOracleIR(
+  ctx: GameContext,
+  params: {
+    controller: PlayerID;
+    sourcePermanentId: string;
+    sourceName: string;
+    stationedCreaturePower: number;
+    effectText?: string;
+    typeLine?: string;
+    stationAbilityOracleText?: string;
+  },
+): { handled: boolean; countersAdded: number } {
+  const power = Math.max(0, Math.floor(Number(params.stationedCreaturePower || 0)));
+  if (power <= 0) {
+    return { handled: true, countersAdded: 0 };
+  }
+
+  try {
+    const effectOracle = resolveStationChargeCounterEffectText(params);
+    const steps = collectActivatedAbilitySteps(effectOracle, params.sourceName);
+    if (
+      steps.length === 0
+      || steps.some((step) => step.kind === 'unknown')
+      || !steps.every((step) => step.kind === 'add_counter')
+    ) {
+      return { handled: false, countersAdded: 0 };
+    }
+
+    if (!isActivatedAbilityEffectFullyWired(steps)) {
+      return { handled: false, countersAdded: 0 };
+    }
+
+    const state = (ctx as any).state;
+    const stationBefore = (Array.isArray(state?.battlefield) ? state.battlefield : [])
+      .find((permanent: any) => String(permanent?.id || '') === params.sourcePermanentId);
+    const chargeBefore = Number(stationBefore?.counters?.charge || 0);
+
+    const irCtx = buildOracleIRExecutionContext(
+      {
+        controllerId: params.controller,
+        sourceId: params.sourcePermanentId,
+        sourceName: params.sourceName,
+        sourceObjectType: 'ability',
+        referenceAmount: power,
+        stationedCreaturePower: power,
+      } as any,
+      { sourceObjectType: 'ability' },
+    );
+
+    const gameId = String((ctx as any).gameId || 'unknown');
+    const queueBefore = gameId !== 'unknown'
+      ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
+      : 0;
+
+    const result = applyOracleIRStepsOnServer(ctx, state, steps, irCtx, {
+      allowOptional: true,
+    }, {
+      controller: params.controller,
+      applyMillReplacements: true,
+    });
+
+    const queueAfter = gameId !== 'unknown'
+      ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
+      : queueBefore;
+
+    const handled = isOracleIrActivatedAbilityHandled(steps, result, {
+      resolutionQueueStepsBefore: queueBefore,
+      resolutionQueueStepsAfter: queueAfter,
+    });
+
+    const stationAfter = (Array.isArray(state?.battlefield) ? state.battlefield : [])
+      .find((permanent: any) => String(permanent?.id || '') === params.sourcePermanentId);
+    const chargeAfter = Number(stationAfter?.counters?.charge || 0);
+    const countersAdded = Math.max(0, chargeAfter - chargeBefore);
+
+    if (!handled) {
+      logOracleIrAllOrNothingFailure(
+        'activated',
+        params.sourceName,
+        describeOracleIrActivatedAbilityIncomplete(steps, result, {
+          resolutionQueueStepsBefore: queueBefore,
+          resolutionQueueStepsAfter: queueAfter,
+        }),
+        { applied: result.appliedSteps.length, parsed: steps.length },
+      );
+      return { handled: false, countersAdded: 0 };
+    }
+
+    debug(
+      2,
+      `[oracleIR] Station charge counters via IR for ${params.sourceName}: +${countersAdded} (power ${power})`,
+    );
+    return { handled: true, countersAdded };
+  } catch (err) {
+    debugWarn(1, `[oracleIR] Station charge counter execution failed for ${params.sourceName}:`, err);
+    return { handled: false, countersAdded: 0 };
+  }
+}
+
+export function readStationChargeThresholdFromActivatedOracleText(
+  oracleText: string,
+  sourceName: string,
+): number | undefined {
+  const raw = String(oracleText || '').trim();
+  if (!raw || !/^\d+\+\s*\|/.test(raw)) return undefined;
+  const ir = parseOracleTextToIR(raw, sourceName);
+  const threshold = ir.abilities.find((ability) => ability.stationChargeThreshold != null)?.stationChargeThreshold;
+  return threshold != null ? Number(threshold) : undefined;
 }
 
 function inferTargetBinding(state: any, targetIds: readonly string[]): {
@@ -77,6 +274,9 @@ export function tryApplyOracleIRToActivatedAbility(
     sourcePermanentId?: string;
     stackItemId?: string;
     targets?: readonly string[];
+    cardId?: string;
+    sourceItem?: any;
+    card?: any;
     teamworkWasPaid?: boolean;
     giftPromised?: boolean;
     selectedModeIds?: readonly string[];
@@ -84,7 +284,16 @@ export function tryApplyOracleIRToActivatedAbility(
   },
 ): { handled: boolean; applied: number; pendingOptional: boolean } {
   try {
-    const steps = collectActivatedAbilitySteps(params.oracleText, params.sourceName);
+    const steps = collectActivatedAbilitySteps(params.oracleText, params.sourceName, {
+      ...extractOracleCardLookupKeys({
+        cardId: params.cardId,
+        cardName: params.sourceName,
+        sourceName: params.sourceName,
+        sourceItem: params.sourceItem,
+        card: params.card,
+        effectiveCard: params.card,
+      }),
+    });
     if (steps.length === 0) {
       return { handled: false, applied: 0, pendingOptional: false };
     }

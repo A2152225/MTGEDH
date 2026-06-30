@@ -7,9 +7,18 @@ import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
 import { getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
+import { addGraveyardCastingPermission, getActiveGraveyardCastingPermissions } from '../src/state/modules/graveyard-permissions.js';
+import { getActiveDurablePermissions } from '../src/state/modules/durable-permissions.js';
 import { movePermanentToGraveyard } from '../src/state/modules/counters_tokens.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
+import '../src/state/modules/priority.js';
+
+const BROODSHIP_ORACLE =
+  "Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 8+.)\n" +
+  '3+ | You may play an additional land on each of your turns.\n' +
+  '8+ | Flying\n' +
+  'Once during each of your turns, you may cast a permanent spell from your graveyard by sacrificing a land in addition to paying its other costs.';
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -551,18 +560,19 @@ describe('requestCastSpell graveyard permission windows (integration)', () => {
     (game.state as any).step = 'MAIN1';
     (game.state as any).turnPlayer = playerId;
     (game.state as any).priority = playerId;
+    (game.state as any).turnNumber = 1;
     (game.state as any).battlefield = [
       {
-        id: 'exploration_broodship_1',
+        id: 'broodship_1',
         controller: playerId,
         owner: playerId,
         tapped: false,
         counters: { charge: 8 },
         card: {
-          id: 'exploration_broodship_card',
+          id: 'broodship_card_1',
           name: 'Exploration Broodship',
           type_line: 'Artifact — Spacecraft',
-          oracle_text: 'Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It\'s an artifact creature at 8+.)\n3+ | You may play an additional land on each of your turns.\n8+ | Flying\nOnce during each of your turns, you may cast a permanent spell from your graveyard by sacrificing a land in addition to paying its other costs.',
+          oracle_text: BROODSHIP_ORACLE,
         },
       },
       {
@@ -611,6 +621,30 @@ describe('requestCastSpell graveyard permission windows (integration)', () => {
     (game as any).libraries.set(opponentId, []);
 
     return game;
+  }
+
+  async function activateExplorationBroodshipGraveyardCast(
+    game: any,
+    handlers: Record<string, Function>,
+  ) {
+    await handlers['activateBattlefieldAbility']({
+      gameId,
+      permanentId: 'broodship_1',
+      abilityId: 'broodship_1-ability-0',
+    });
+
+    (game as any).resolveTopOfStack();
+
+    const optionalStep = ResolutionQueueManager.getQueue(gameId).steps.find(
+      (step: any) => step.type === ResolutionStepType.OPTION_CHOICE,
+    ) as any;
+    if (optionalStep) {
+      await handlers['submitResolutionResponse']({
+        gameId,
+        stepId: String(optionalStep.id),
+        selections: ['accept'],
+      });
+    }
   }
 
   function setupQuilledGreatwurmGame(options?: { totalCounters?: number }) {
@@ -2405,16 +2439,73 @@ describe('requestCastSpell graveyard permission windows (integration)', () => {
     expect((discardStep.hand || []).map((card: any) => card.id)).toEqual(['six_forest_1']);
   });
 
-  it('queues Exploration Broodship\'s land-sacrifice cost before casting a graveyard permanent', async () => {
-    const game = setupExplorationBroodshipGame();
+  it('surfaces Six-style discard-land sourceGrantedAdditionalCost on cast candidates and queues ADDITIONAL_COST_PAYMENT', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
 
-    const broodshipCandidate = getCastableSpellCandidates({ state: game.state, libraries: (game as any).libraries } as any, playerId as any, {
+    const mindStone = {
+      id: 'six_perm_mind_stone_1',
+      name: 'Mind Stone',
+      mana_cost: '{2}',
+      manaCost: '{2}',
+      type_line: 'Artifact',
+      oracle_text: '{T}: Add {C}.',
+    };
+    const forest = {
+      id: 'six_perm_forest_1',
+      name: 'Forest',
+      type_line: 'Basic Land — Forest',
+      oracle_text: '({T}: Add {G}.)',
+    };
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnNumber = 4;
+    (game.state as any).battlefield = [];
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [forest],
+        handCount: 1,
+        graveyard: [mindStone],
+        graveyardCount: 1,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    addGraveyardCastingPermission(game.state as any, {
+      id: 'six_perm_discard_land_1',
+      playerId,
+      permission: 'cast',
+      cardFilter: { qualifier: 'permanent spell' },
+      costMode: 'normal',
+      duration: 'static',
+      turnApplied: 4,
+      sourceId: 'six_perm_1',
+      sourceName: 'Six',
+      sourceText:
+        'During your turn, nonland permanent cards in your graveyard have retrace. (You may cast permanent cards from your graveyard by discarding a land card in addition to paying their other costs.)',
+      additionalCost: { type: 'discard', amount: 1, filter: 'land' },
+    });
+
+    const sixCandidate = getCastableSpellCandidates({ state: game.state, libraries: (game as any).libraries } as any, playerId as any, {
       mode: 'main',
       allowUnknownCostFallback: false,
-    }).find((candidate: any) => String(candidate?.card?.id || '') === 'broodship_mind_stone_1');
+    }).find((candidate: any) => String(candidate?.card?.id || '') === 'six_perm_mind_stone_1');
 
-    expect(broodshipCandidate?.castMethod).toBe('graveyard_permanent');
-    expect(broodshipCandidate?.sourceGrantedAdditionalCost).toEqual({ type: 'sacrifice', amount: 1, filter: 'land' });
+    expect(sixCandidate?.castMethod).toBe('graveyard_permanent');
+    expect(sixCandidate?.sourceGrantedAdditionalCost).toEqual({ type: 'discard', amount: 1, filter: 'land' });
+    expect(sixCandidate?.graveyardPermissionId).toBe('six_perm_discard_land_1');
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket({ playerId, gameId }, emitted);
@@ -2423,6 +2514,144 @@ describe('requestCastSpell graveyard permission windows (integration)', () => {
 
     registerGameActions(io as any, socket as any);
     registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'six_perm_mind_stone_1', fromZone: 'graveyard' });
+
+    const errors = emitted.filter((entry) => entry.event === 'error').map((entry) => entry.payload?.code);
+    expect(errors).not.toContain('NO_PERMISSION');
+
+    const discardCostStep = ResolutionQueueManager.getQueue(gameId).steps.find((step: any) =>
+      step.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT
+      && step.costType === 'discard'
+      && step.cardId === 'six_perm_mind_stone_1'
+    ) as any;
+
+    expect(discardCostStep).toBeDefined();
+    expect((discardCostStep.availableCards || []).map((card: any) => card.id)).toEqual(['six_perm_forest_1']);
+  });
+
+  it('surfaces Kess-style discard sourceGrantedAdditionalCost on cast candidates and queues ADDITIONAL_COST_PAYMENT', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const consider = {
+      id: 'kess_perm_consider_1',
+      name: 'Consider',
+      mana_cost: '{U}',
+      manaCost: '{U}',
+      type_line: 'Instant',
+      oracle_text: 'Surveil 1, then draw a card.',
+    };
+    const discardCard = {
+      id: 'kess_perm_discard_1',
+      name: 'Forest',
+      type_line: 'Basic Land — Forest',
+      oracle_text: '({T}: Add {G}.)',
+    };
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnNumber = 5;
+    (game.state as any).battlefield = [];
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [discardCard],
+        handCount: 1,
+        graveyard: [consider],
+        graveyardCount: 1,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    addGraveyardCastingPermission(game.state as any, {
+      id: 'kess_perm_discard_1',
+      playerId,
+      permission: 'cast',
+      cardFilter: { qualifier: 'instant or sorcery spell' },
+      costMode: 'without_paying_mana_cost',
+      duration: 'this_turn',
+      turnApplied: 5,
+      sourceId: 'kess_perm_source_1',
+      sourceName: 'Kess, Dissident Mage',
+      sourceText:
+        'Once during each of your turns, you may cast an instant or sorcery spell from your graveyard without paying its mana cost by discarding a card in addition to paying its other costs.',
+      additionalCost: { type: 'discard', amount: 1 },
+      replacement: { exileAfterResolution: true, sourceName: 'Kess, Dissident Mage' },
+      usageLimit: { type: 'once_per_turn', maxUses: 1 },
+    });
+
+    const kessCandidate = getCastableSpellCandidates({ state: game.state, libraries: (game as any).libraries } as any, playerId as any, {
+      mode: 'main',
+      allowUnknownCostFallback: false,
+    }).find((candidate: any) => String(candidate?.card?.id || '') === 'kess_perm_consider_1');
+
+    expect(kessCandidate?.castMethod).toBe('graveyard_permanent');
+    expect(kessCandidate?.sourceGrantedAdditionalCost).toEqual({ type: 'discard', amount: 1 });
+    expect(kessCandidate?.graveyardPermissionId).toBe('kess_perm_discard_1');
+    expect(kessCandidate?.exileAfterResolution).toBe(true);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId, gameId }, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted);
+
+    registerGameActions(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'kess_perm_consider_1', fromZone: 'graveyard' });
+
+    const errors = emitted.filter((entry) => entry.event === 'error').map((entry) => entry.payload?.code);
+    expect(errors).not.toContain('NO_PERMISSION');
+
+    const discardCostStep = ResolutionQueueManager.getQueue(gameId).steps.find((step: any) =>
+      step.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT
+      && step.costType === 'discard'
+      && step.cardId === 'kess_perm_consider_1'
+    ) as any;
+
+    expect(discardCostStep).toBeDefined();
+    expect((discardCostStep.availableCards || []).map((card: any) => card.id)).toEqual(['kess_perm_discard_1']);
+  });
+
+  it('queues Exploration Broodship\'s land-sacrifice cost before casting a graveyard permanent', async () => {
+    const game = setupExplorationBroodshipGame();
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId, gameId }, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await activateExplorationBroodshipGraveyardCast(game, handlers);
+
+    const activatedPermission = getActiveGraveyardCastingPermissions(game.state as any, playerId as any)
+      .find((permission) => permission.duration === 'this_turn' && permission.sourceName === 'Exploration Broodship');
+    expect(activatedPermission?.additionalCost).toEqual({ type: 'sacrifice', amount: 1, filter: 'land' });
+
+    const durablePermission = getActiveDurablePermissions(game.state as any, {
+      playerId: playerId as any,
+      kind: 'graveyard_permission',
+    }).find((entry: any) => entry?.metadata?.additionalCost?.type === 'sacrifice') as any;
+    expect(durablePermission?.metadata?.additionalCost).toEqual({ type: 'sacrifice', amount: 1, filter: 'land' });
+
+    const broodshipCandidate = getCastableSpellCandidates({ state: game.state, libraries: (game as any).libraries } as any, playerId as any, {
+      mode: 'main',
+      allowUnknownCostFallback: false,
+    }).find((candidate: any) => String(candidate?.card?.id || '') === 'broodship_mind_stone_1');
+
+    expect(broodshipCandidate?.castMethod).toBe('graveyard_permanent');
+    expect(broodshipCandidate?.sourceGrantedAdditionalCost).toEqual({ type: 'sacrifice', amount: 1, filter: 'land' });
 
     await handlers['requestCastSpell']({ gameId, cardId: 'broodship_mind_stone_1', fromZone: 'graveyard' });
 

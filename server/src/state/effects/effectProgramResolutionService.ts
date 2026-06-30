@@ -22,6 +22,7 @@ import {
   maybeEmitPaidOptionalManaFromEffectProgram,
   type EffectProgramOracleIrBridgeConfig,
 } from '../modules/oracleIrEffectProgramBridge.js';
+import { mirrorGraveyardCastingPermissionsToDurable } from '../modules/graveyard-permissions.js';
 
 interface StoredEffectProgramRuntime {
   readonly runtime: EffectProgramRuntime<GameState>;
@@ -195,6 +196,7 @@ function applyRunResultState(game: any, runResult: EffectProgramRunResult<GameSt
   }
 
   (game as any).state = syncEffectProgramStateToGame(game, runResult.state);
+  mirrorGraveyardCastingPermissionsToDurable((game as any).state);
   if (typeof (game as any).bumpSeq === 'function') {
     (game as any).bumpSeq();
   }
@@ -268,6 +270,7 @@ function syncEffectProgramStateToGame(game: any, state: GameState): GameState {
       (game as any).libraries.set(playerId, library);
       zones[playerId] = {
         ...(zones[playerId] || {}),
+        library,
         libraryCount: library.length,
       };
       didSyncZones = true;

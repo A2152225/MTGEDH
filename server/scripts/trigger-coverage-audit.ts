@@ -167,6 +167,22 @@ const CAST_EVENTS = new Set<string>([
 
 const FAKE_PERMANENT = { id: 'AUDIT_SRC', controller: 'P1', owner: 'P1', attachedTo: 'AUDIT_ATTACHED' };
 
+/** Probe battlefield permanent for server trigger detectors during coverage audit. */
+export function buildAuditProbePermanent(oracleText: string): typeof FAKE_PERMANENT & Record<string, unknown> {
+  const permanent: Record<string, unknown> = { ...FAKE_PERMANENT };
+  const oracleLower = String(oracleText || '').toLowerCase();
+  if (/\bchoose a creature type\b/.test(oracleLower)) {
+    permanent.chosenCreatureType = 'Human';
+  }
+  if (/\bchoose a basic land type\b/.test(oracleLower)) {
+    permanent.chosenLandType = 'Forest';
+  }
+  if (/\bchoose a card name\b/.test(oracleLower) || /\bname a card\b/.test(oracleLower)) {
+    permanent.chosenCardName = 'Lightning Bolt';
+  }
+  return permanent;
+}
+
 type ParseOracleTextToIR = (oracleText: string, cardName?: string) => { abilities?: Array<{ steps?: unknown[] }> };
 let parseOracleTextToIR: ParseOracleTextToIR | null = null;
 let effectIrAuditEnabled = false;
@@ -281,6 +297,7 @@ function getDetectorResultsForEvent(
   event: string,
   cardObj: { name: string; oracle_text: string; type_line?: string },
 ): unknown[] {
+  const probePermanent = buildAuditProbePermanent(cardObj.oracle_text);
   const detectorResults: unknown[] = [];
 
   switch (event) {
@@ -288,132 +305,132 @@ function getDetectorResultsForEvent(
     case TriggerEvent.CREATURE_SPELL_CAST:
     case TriggerEvent.NONCREATURE_SPELL_CAST:
     case TriggerEvent.INSTANT_OR_SORCERY_CAST:
-      detectorResults.push(...detectSpellCastTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectOpponentSpellCastTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectSpellCastTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectOpponentSpellCastTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.ENTERS_BATTLEFIELD:
-      detectorResults.push(...detectETBTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectETBTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.LEAVES_BATTLEFIELD:
-      detectorResults.push(...detectLTBTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectLTBTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.LANDFALL:
-      detectorResults.push(...detectLandfallTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectLandfallTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DIES:
     case TriggerEvent.CONTROLLED_CREATURE_DIED:
-      detectorResults.push(...detectDeathTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectDeathTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.ATTACKS:
     case TriggerEvent.ATTACKS_ALONE:
-      detectorResults.push(...detectAttackTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectAttachmentAttackTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectAttackTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectAttachmentAttackTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BLOCKS:
     case TriggerEvent.BECOMES_BLOCKED:
-      detectorResults.push(...detectBlockTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectBlockTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DEALS_COMBAT_DAMAGE:
     case TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER:
-      detectorResults.push(...detectCombatDamageTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectAttachmentAttackTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectCombatDamageTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectAttachmentAttackTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DEALT_DAMAGE:
     case TriggerEvent.DEALT_COMBAT_DAMAGE:
-      detectorResults.push(...detectDealtDamageTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectCombatDamageTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectDealtDamageTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectCombatDamageTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_COMBAT:
-      detectorResults.push(...detectBeginningOfCombatTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectBeginningOfCombatTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.END_OF_COMBAT:
-      detectorResults.push(...detectEndOfCombatTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectEndOfCombatTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_UPKEEP:
-      detectorResults.push(...detectUpkeepTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectUpkeepTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_DRAW_STEP:
-      detectorResults.push(...detectDrawStepTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectDrawStepTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_END_STEP:
     case TriggerEvent.END_OF_TURN:
-      detectorResults.push(...detectEndStepTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectEndStepTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_POSTCOMBAT_MAIN:
-      detectorResults.push(...detectPostcombatMainTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectPostcombatMainTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_PRECOMBAT_MAIN:
-      detectorResults.push(...detectPrecombatMainTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectPrecombatMainTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.PUT_INTO_GRAVEYARD:
-      detectorResults.push(...detectLeftGraveyardTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectLeftGraveyardTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectPutIntoGraveyardTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.COUNTER_PLACED:
-      detectorResults.push(...detectCounterPlacedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectCounterPlacedTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.COUNTER_REMOVED:
-      detectorResults.push(...detectCounterRemovedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectCounterRemovedTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.SPELL_COUNTERED:
-      detectorResults.push(...detectSpellCounteredTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectSpellCounteredTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.MUTATES:
-      detectorResults.push(...detectMutateTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectMutateTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.SACRIFICED:
     case TriggerEvent.CREATURE_SACRIFICED:
     case TriggerEvent.ARTIFACT_SACRIFICED:
-      detectorResults.push(...detectSacrificeTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectSacrificeTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DRAWN:
-      detectorResults.push(...detectCardDrawTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectCardDrawTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DISCARDED:
-      detectorResults.push(...detectDiscardTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectDiscardTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.RETURNED_TO_HAND:
-      detectorResults.push(...detectReturnedToHandTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectReturnedToHandTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.TARGETED:
-      detectorResults.push(...detectTargetedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectTargetedTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.LOST_LIFE:
-      detectorResults.push(...detectLifeLossTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectLifeLossTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.GAINED_LIFE:
-      detectorResults.push(...detectGainedLifeTriggersFromOracle(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectGainedLifeTriggersFromOracle(cardObj, probePermanent));
       break;
     case TriggerEvent.BECOMES_TAPPED:
-      detectorResults.push(...detectTapTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectTapTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BECOMES_UNTAPPED:
-      detectorResults.push(...detectUntapTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectUntapTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.ABILITY_ACTIVATED:
-      detectorResults.push(...detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectAbilityActivatedTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BECAME_MONSTROUS:
-      detectorResults.push(...detectMonstrousTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectMonstrousTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DEALS_DAMAGE:
-      detectorResults.push(...detectCombatDamageTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectDealtDamageTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectCombatDamageTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectDealtDamageTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.TOKEN_CREATED:
-      detectorResults.push(...detectTokenCreatedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectTokenCreatedTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.EXILED:
-      detectorResults.push(...detectExiledFromBattlefieldTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectExiledFromBattlefieldTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.MILLED:
-      detectorResults.push(...detectMillTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectMillTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.TRANSFORMED:
-      detectorResults.push(...detectTransformTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectTransformTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.EQUIPPED:
-      detectorResults.push(...detectEquippedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectEquippedTriggers(cardObj, probePermanent));
       break;
     default:
       break;
@@ -876,54 +893,56 @@ function isOpponentOrAnyPlayerCastCondition(conditionText: string): boolean {
 }
 
 function anyServerTriggerDetectorMatches(cardObj: { name: string; oracle_text?: string; type_line?: string }): boolean {
+  const probePermanent = buildAuditProbePermanent(cardObj.oracle_text || '');
   return (
-    detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectOpponentSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectLandfallTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectAttachmentAttackTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectBeginningOfCombatTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectEndOfCombatTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectDrawStepTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectEndStepTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectCardDrawTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectUntapTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectReturnedToHandTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectEquippedTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectLifeLossTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectGainedLifeTriggersFromOracle(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectSacrificeTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectPostcombatMainTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectPrecombatMainTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectSpellCounteredTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectMutateTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectTransformTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectRoomTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectLeftGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectMonstrousTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectCounterPlacedTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectExiledFromBattlefieldTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectMillTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectTokenCreatedTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectPayLifeTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectCounterRemovedTriggers(cardObj, FAKE_PERMANENT).length > 0
+    detectSpellCastTriggers(cardObj, probePermanent).length > 0 ||
+    detectOpponentSpellCastTriggers(cardObj, probePermanent).length > 0 ||
+    detectETBTriggers(cardObj, probePermanent).length > 0 ||
+    detectLTBTriggers(cardObj, probePermanent).length > 0 ||
+    detectLandfallTriggers(cardObj, probePermanent).length > 0 ||
+    detectDeathTriggers(cardObj, probePermanent).length > 0 ||
+    detectAttackTriggers(cardObj, probePermanent).length > 0 ||
+    detectAttachmentAttackTriggers(cardObj, probePermanent).length > 0 ||
+    detectBlockTriggers(cardObj, probePermanent).length > 0 ||
+    detectCombatDamageTriggers(cardObj, probePermanent).length > 0 ||
+    detectBeginningOfCombatTriggers(cardObj, probePermanent).length > 0 ||
+    detectEndOfCombatTriggers(cardObj, probePermanent).length > 0 ||
+    detectUpkeepTriggers(cardObj, probePermanent).length > 0 ||
+    detectDrawStepTriggers(cardObj, probePermanent).length > 0 ||
+    detectEndStepTriggers(cardObj, probePermanent).length > 0 ||
+    detectCardDrawTriggers(cardObj, probePermanent).length > 0 ||
+    detectTapTriggers(cardObj, probePermanent).length > 0 ||
+    detectUntapTriggers(cardObj, probePermanent).length > 0 ||
+    detectDiscardTriggers(cardObj, probePermanent).length > 0 ||
+    detectReturnedToHandTriggers(cardObj, probePermanent).length > 0 ||
+    detectEquippedTriggers(cardObj, probePermanent).length > 0 ||
+    detectTargetedTriggers(cardObj, probePermanent).length > 0 ||
+    detectLifeLossTriggers(cardObj, probePermanent).length > 0 ||
+    detectGainedLifeTriggersFromOracle(cardObj, probePermanent).length > 0 ||
+    detectSacrificeTriggers(cardObj, probePermanent).length > 0 ||
+    detectPostcombatMainTriggers(cardObj, probePermanent).length > 0 ||
+    detectPrecombatMainTriggers(cardObj, probePermanent).length > 0 ||
+    detectSpellCounteredTriggers(cardObj, probePermanent).length > 0 ||
+    detectMutateTriggers(cardObj, probePermanent).length > 0 ||
+    detectDealtDamageTriggers(cardObj, probePermanent).length > 0 ||
+    detectTransformTriggers(cardObj, probePermanent).length > 0 ||
+    detectRoomTriggers(cardObj, probePermanent).length > 0 ||
+    detectLeftGraveyardTriggers(cardObj, probePermanent).length > 0 ||
+    detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0 ||
+    detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0 ||
+    detectMonstrousTriggers(cardObj, probePermanent).length > 0 ||
+    detectCounterPlacedTriggers(cardObj, probePermanent).length > 0 ||
+    detectExiledFromBattlefieldTriggers(cardObj, probePermanent).length > 0 ||
+    detectMillTriggers(cardObj, probePermanent).length > 0 ||
+    detectTokenCreatedTriggers(cardObj, probePermanent).length > 0 ||
+    detectPayLifeTriggers(cardObj, probePermanent).length > 0 ||
+    detectCounterRemovedTriggers(cardObj, probePermanent).length > 0
   );
 }
 
 export function serverDetectsTrigger(card: OracleCard, trigger: TriggeredAbility): boolean {
   const cardObj = buildCardObj(card);
+  const probePermanent = buildAuditProbePermanent(getCombinedOracleText(card));
   const event = String(trigger.event);
   const conditionText = normalizeText(trigger.condition || trigger.triggerFilter || '').toLowerCase();
 
@@ -938,8 +957,8 @@ export function serverDetectsTrigger(card: OracleCard, trigger: TriggeredAbility
 
   if (CAST_EVENTS.has(event) && isOpponentOrAnyPlayerCastCondition(conditionText)) {
     if (
-      detectOpponentSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-      detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0
+      detectOpponentSpellCastTriggers(cardObj, probePermanent).length > 0 ||
+      detectSpellCastTriggers(cardObj, probePermanent).length > 0
     ) {
       return true;
     }
@@ -952,153 +971,153 @@ export function serverDetectsTrigger(card: OracleCard, trigger: TriggeredAbility
     case TriggerEvent.CREATURE_SPELL_CAST:
     case TriggerEvent.NONCREATURE_SPELL_CAST:
     case TriggerEvent.INSTANT_OR_SORCERY_CAST:
-      detectorResults.push(...detectSpellCastTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectOpponentSpellCastTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectSpellCastTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectOpponentSpellCastTriggers(cardObj, probePermanent));
       if (detectorResults.length === 0 && detectCastTrigger(getCombinedOracleText(card), String(card.type_line || '')).hasCastTrigger) {
         return true;
       }
       break;
     case TriggerEvent.ENTERS_BATTLEFIELD:
-      detectorResults.push(...detectETBTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectETBTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.LEAVES_BATTLEFIELD:
-      detectorResults.push(...detectLTBTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectLTBTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.LANDFALL:
-      detectorResults.push(...detectLandfallTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectLandfallTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DIES:
     case TriggerEvent.CONTROLLED_CREATURE_DIED:
-      detectorResults.push(...detectDeathTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectDeathTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.ATTACKS:
     case TriggerEvent.ATTACKS_ALONE:
-      detectorResults.push(...detectAttackTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectAttachmentAttackTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectETBTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectAttackTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectAttachmentAttackTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectETBTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BLOCKS:
     case TriggerEvent.BECOMES_BLOCKED:
-      detectorResults.push(...detectBlockTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectBlockTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DEALS_COMBAT_DAMAGE:
     case TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER:
-      detectorResults.push(...detectCombatDamageTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectAttachmentAttackTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectCombatDamageTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectAttachmentAttackTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DEALT_DAMAGE:
     case TriggerEvent.DEALT_COMBAT_DAMAGE:
-      detectorResults.push(...detectDealtDamageTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectCombatDamageTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectDealtDamageTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectCombatDamageTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_COMBAT:
-      detectorResults.push(...detectBeginningOfCombatTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectBeginningOfCombatTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.END_OF_COMBAT:
-      detectorResults.push(...detectEndOfCombatTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectEndOfCombatTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_UPKEEP:
-      detectorResults.push(...detectUpkeepTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectUpkeepTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_DRAW_STEP:
-      detectorResults.push(...detectDrawStepTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectDrawStepTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_END_STEP:
     case TriggerEvent.END_OF_TURN:
-      detectorResults.push(...detectEndStepTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectEndStepTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_POSTCOMBAT_MAIN:
-      detectorResults.push(...detectPostcombatMainTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectPostcombatMainTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BEGINNING_OF_PRECOMBAT_MAIN:
-      detectorResults.push(...detectPrecombatMainTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectPrecombatMainTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.PUT_INTO_GRAVEYARD:
-      detectorResults.push(...detectLeftGraveyardTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectLeftGraveyardTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectPutIntoGraveyardTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.COUNTER_PLACED:
-      detectorResults.push(...detectCounterPlacedTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectETBTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectCounterPlacedTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectETBTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.COUNTER_REMOVED:
-      detectorResults.push(...detectCounterRemovedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectCounterRemovedTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.REGENERATED:
-      detectorResults.push(...detectETBTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectETBTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.SPELL_COUNTERED:
-      detectorResults.push(...detectSpellCounteredTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectSpellCounteredTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.MUTATES:
-      detectorResults.push(...detectMutateTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectMutateTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.SACRIFICED:
     case TriggerEvent.CREATURE_SACRIFICED:
     case TriggerEvent.ARTIFACT_SACRIFICED:
-      detectorResults.push(...detectSacrificeTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectSacrificeTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DRAWN:
-      detectorResults.push(...detectCardDrawTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectCardDrawTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DISCARDED:
-      detectorResults.push(...detectDiscardTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectDiscardTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.RETURNED_TO_HAND:
-      detectorResults.push(...detectReturnedToHandTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectReturnedToHandTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.TARGETED:
-      detectorResults.push(...detectTargetedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectTargetedTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.LOST_LIFE:
-      detectorResults.push(...detectLifeLossTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectLifeLossTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.GAINED_LIFE:
-      detectorResults.push(...detectGainedLifeTriggersFromOracle(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectGainedLifeTriggersFromOracle(cardObj, probePermanent));
       break;
     case TriggerEvent.BECOMES_TAPPED:
-      detectorResults.push(...detectTapTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectTapTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BECOMES_UNTAPPED:
-      detectorResults.push(...detectUntapTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectUntapTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.ABILITY_TRIGGERED:
-      if (detectRoomTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+      if (detectRoomTriggers(cardObj, probePermanent).length > 0) return true;
       if (anyServerTriggerDetectorMatches(cardObj)) return true;
       break;
     case TriggerEvent.ABILITY_ACTIVATED:
-      detectorResults.push(...detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectAbilityActivatedTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.BECAME_MONSTROUS:
-      detectorResults.push(...detectMonstrousTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectMonstrousTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.DEALS_DAMAGE:
-      detectorResults.push(...detectCombatDamageTriggers(cardObj, FAKE_PERMANENT));
-      detectorResults.push(...detectDealtDamageTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectCombatDamageTriggers(cardObj, probePermanent));
+      detectorResults.push(...detectDealtDamageTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.TOKEN_CREATED:
-      detectorResults.push(...detectTokenCreatedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectTokenCreatedTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.SCRIED:
     case TriggerEvent.SURVEIL:
     case TriggerEvent.EXPLORED:
-      detectorResults.push(...detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectAbilityActivatedTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.EXILED:
-      detectorResults.push(...detectExiledFromBattlefieldTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectExiledFromBattlefieldTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.MILLED:
-      detectorResults.push(...detectMillTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectMillTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.SEARCHED_LIBRARY:
-      detectorResults.push(...detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectAbilityActivatedTriggers(cardObj, probePermanent));
       break;
     case TriggerEvent.TRANSFORMED:
-      if (detectTransformTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+      if (detectTransformTriggers(cardObj, probePermanent).length > 0) return true;
       if (anyServerTriggerDetectorMatches(cardObj)) return true;
       break;
     case TriggerEvent.EQUIPPED:
-      detectorResults.push(...detectEquippedTriggers(cardObj, FAKE_PERMANENT));
+      detectorResults.push(...detectEquippedTriggers(cardObj, probePermanent));
       break;
     default:
       break;
@@ -1108,2341 +1127,2341 @@ export function serverDetectsTrigger(card: OracleCard, trigger: TriggeredAbility
 
   const oracleLower = String(card.oracle_text || '').toLowerCase();
 
-  if (/\bcommit a crime\b/.test(conditionText) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcommit a crime\b/.test(conditionText) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\bcycle (?:a card|this card|another card)\b/.test(conditionText)) {
-    if (detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectOpponentSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectSpellCastTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectOpponentSpellCastTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\byou play a card\b/.test(conditionText) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou play a card\b/.test(conditionText) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\battacks or blocks\b/.test(conditionText)) {
-    if (detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectAttackTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectBlockTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\benchanted creature becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted creature becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted creature is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted creature is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature an opponent controls attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature an opponent controls attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou crank\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou crank\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature you control becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature you control becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature you control deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature you control deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith a \+1\/\+1 counter on it leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith a \+1\/\+1 counter on it leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith a \+1\/\+1 counter on it deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith a \+1\/\+1 counter on it deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeals combat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeals combat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith a \+1\/\+1 counter on it attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith a \+1\/\+1 counter on it attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battacks alone\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battacks alone\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith power \d+ or less attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith power \d+ or less attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bis dealt combat damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bis dealt combat damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor equipped creature deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor equipped creature deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou or a permanent you control becomes the target\b/.test(conditionText) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou or a permanent you control becomes the target\b/.test(conditionText) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature card is put into an opponent's graveyard from anywhere\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature card is put into an opponent's graveyard from anywhere\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bactivates an ability of an artifact, creature, or land\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bactivates an ability of an artifact, creature, or land\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bat the beginning of your draw step\b/.test(conditionText) && detectDrawStepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bat the beginning of your draw step\b/.test(conditionText) && detectDrawStepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bspell or ability an opponent controls causes you to discard\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bspell or ability an opponent controls causes you to discard\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bday becomes night or night becomes day\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bday becomes night or night becomes day\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bchaos ensues\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bchaos ensues\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bability of equipped creature is activated\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bability of equipped creature is activated\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbecome the monarch\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecome the monarch\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bhave no cards in hand\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bhave no cards in hand\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battacks enchanted player\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battacks enchanted player\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor another creature you control with flying enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor another creature you control with flying enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bland enters.*under an opponent's control\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bland enters.*under an opponent's control\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba permanent leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba permanent leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bone or more dragons you control deal combat damage\b/i.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bone or more dragons you control deal combat damage\b/i.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeal combat damage to one or more players\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeal combat damage to one or more players\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsaddles a mount or crews a vehicle\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsaddles a mount or crews a vehicle\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bfrom their library\b/.test(conditionText) && /\bopponent's graveyard\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bfrom their library\b/.test(conditionText) && /\bopponent's graveyard\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcounter is removed\b/.test(conditionText) && detectCounterRemovedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcounter is removed\b/.test(conditionText) && detectCounterRemovedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bchosen player's upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bchosen player's upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\beach player's first main phase\b/.test(conditionText) && detectPrecombatMainTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\beach player's first main phase\b/.test(conditionText) && detectPrecombatMainTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdiscard this card\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdiscard this card\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bset this scheme in motion\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bset this scheme in motion\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou pay \{/i.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou pay \{/i.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battack with two or more creatures\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battack with two or more creatures\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou don't control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou don't control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battacks a battle\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battacks a battle\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battacks a planeswalker\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battacks a planeswalker\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith flying attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith flying attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bgain control of\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bgain control of\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\blose control of\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\blose control of\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponent creates a token\b/.test(conditionText) && detectTokenCreatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bopponent creates a token\b/.test(conditionText) && detectTokenCreatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeals damage to you\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeals damage to you\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith a \+1\/\+1 counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith a \+1\/\+1 counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou copy a spell\b/.test(conditionText) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou copy a spell\b/.test(conditionText) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou create a token\b/.test(conditionText) && detectTokenCreatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou create a token\b/.test(conditionText) && detectTokenCreatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bpay(?:s)? life\b/.test(conditionText) && detectPayLifeTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bpay(?:s)? life\b/.test(conditionText) && detectPayLifeTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\byou cast\b/.test(conditionText) || /\b(?:an opponent|a player)\s+casts?\b/.test(conditionText)) {
-    if (detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectOpponentSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectSpellCastTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectOpponentSpellCastTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\bwhenever you cast\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhenever you cast\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (event === TriggerEvent.LANDFALL || (/\benters\b/.test(conditionText) && /\bland\b/.test(conditionText))) {
-    if (detectLandfallTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectLandfallTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\bor\s+[a-z]+ you control enters\b/.test(oracleLower) && detectLandfallTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor\s+[a-z]+ you control enters\b/.test(oracleLower) && detectLandfallTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bat the beginning of\b.*\bupkeep\b/.test(oracleLower) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bat the beginning of\b.*\bupkeep\b/.test(oracleLower) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\bleaves(?: the battlefield)?\b/.test(conditionText) || /\bleaves the battlefield\b/.test(oracleLower)) {
-    if (detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectLTBTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\bturned face up\b/.test(conditionText) || /\bturned face up\b/.test(oracleLower)) {
-    if (detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectETBTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\bdiscard/.test(conditionText) || /\bdiscards?\s+(?:a|one)\s+card\b/.test(oracleLower)) {
-    if (detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectDiscardTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\bbecomes the target\b/.test(conditionText) || /\bbecomes the target\b/.test(oracleLower)) {
-    if (detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectTargetedTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\bbecomes blocked\b/.test(conditionText) || /\bbecomes blocked\b/.test(oracleLower)) {
-    if (detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectBlockTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\beach of your upkeeps\b/.test(oracleLower) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\beach of your upkeeps\b/.test(oracleLower) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\b(?:lose|loses)\s+life\b/.test(conditionText) || /\b(?:lose|loses)\s+life\b/.test(oracleLower)) {
-    if (detectLifeLossTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectLifeLossTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\bgain(?:s)?\s+life\b/.test(conditionText) || /\bgain(?:s)?\s+life\b/.test(oracleLower)) {
-    if (detectGainedLifeTriggersFromOracle(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectGainedLifeTriggersFromOracle(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\bdealt damage\b.*\bdies\b/.test(conditionText) || /\bdealt damage\b.*\bdies\b/.test(oracleLower)) {
-    if (detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectDeathTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\bat least two other creatures attack\b/.test(conditionText) || /\bat least two other creatures attack\b/.test(oracleLower)) {
-    if (detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectAttackTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\bwhenever you cast a spell\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhenever you cast a spell\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted player casts?\b/.test(oracleLower) && detectOpponentSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted player casts?\b/.test(oracleLower) && detectOpponentSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthe chosen (?:player )?casts?\b/.test(oracleLower) && detectOpponentSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthe chosen (?:player )?casts?\b/.test(oracleLower) && detectOpponentSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\benters or attacks\b/.test(conditionText) || /\benters or attacks\b/.test(oracleLower)) {
-    if (detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectAttackTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectETBTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\bwhenever you attack\b/.test(oracleLower) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhenever you attack\b/.test(oracleLower) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\bsecond main phase\b/.test(oracleLower) || /\bpostcombat main phase\b/.test(oracleLower)) {
-    if (detectPostcombatMainTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectPostcombatMainTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\bspell\b.*\bcountered\b/.test(oracleLower) && detectSpellCounteredTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bspell\b.*\bcountered\b/.test(oracleLower) && detectSpellCounteredTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\bmutates?\b/.test(conditionText) || /\bmutates?\b/.test(oracleLower)) {
-    if (detectMutateTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectMutateTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\bsacrifices?\b/.test(conditionText) || /\bwhenever you sacrifice\b/.test(oracleLower)) {
-    if (detectSacrificeTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectSacrificeTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\b(?:end step|end of turn)\b/.test(conditionText) || /\bat the beginning of\b.*\bend step\b/.test(oracleLower)) {
-    if (detectEndStepTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectEndStepTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\byou cast a (?:blue|green|red|white|black|cat|dog|kraken|aura|lesson)\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou cast a (?:blue|green|red|white|black|cat|dog|kraken|aura|lesson)\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcast or cycle\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcast or cycle\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bplays a land or casts a spell\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bplays a land or casts a spell\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwhen you cast\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhen you cast\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bat the beginning of the next end step\b/.test(oracleLower) && detectEndStepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bat the beginning of the next end step\b/.test(oracleLower) && detectEndStepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcast.*from anywhere other than\b/.test(oracleLower) && detectOpponentSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcast.*from anywhere other than\b/.test(oracleLower) && detectOpponentSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bfirst noncreature spell of a turn is cast\b/.test(oracleLower) && detectOpponentSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bfirst noncreature spell of a turn is cast\b/.test(oracleLower) && detectOpponentSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwhen you cast\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhen you cast\b/.test(oracleLower) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\bequipped creature\b/.test(oracleLower)) {
-    if (/\battacks\b/.test(oracleLower) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (/\bdeals combat damage\b/.test(oracleLower) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (/\battacks\b/.test(oracleLower) && detectAttackTriggers(cardObj, probePermanent).length > 0) return true;
+    if (/\bdeals combat damage\b/.test(oracleLower) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\bthis land attacks\b/.test(oracleLower) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis land attacks\b/.test(oracleLower) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwhen this creature attacks\b/.test(oracleLower) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhen this creature attacks\b/.test(oracleLower) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bis dealt damage\b/.test(oracleLower) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bis dealt damage\b/.test(oracleLower) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdraws their second card each turn\b/.test(oracleLower) && detectCardDrawTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdraws their second card each turn\b/.test(oracleLower) && detectCardDrawTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou unlock this door\b/.test(conditionText) && detectRoomTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou unlock this door\b/.test(conditionText) && detectRoomTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byour next(?: first)? main phase\b/.test(conditionText) && detectPrecombatMainTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byour next(?: first)? main phase\b/.test(conditionText) && detectPrecombatMainTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba permanent becomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba permanent becomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis siege enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis siege enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor another ally you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor another ally you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor another enchantment you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor another enchantment you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bleaves? your graveyard\b/.test(conditionText) && detectLeftGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bleaves? your graveyard\b/.test(conditionText) && detectLeftGraveyardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benters or dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benters or dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\battacks or dies\b/.test(conditionText)) {
-    if (detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectAttackTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectDeathTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\bmodified creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bmodified creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted creature you control deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted creature you control deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted creature blocks\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted creature blocks\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature or another enchantment you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature or another enchantment you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\breveal a creature card this way\b/.test(conditionText) && detectCardDrawTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\breveal a creature card this way\b/.test(conditionText) && detectCardDrawTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdamage is prevented this way\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdamage is prevented this way\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bput into graveyards from anywhere\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bput into graveyards from anywhere\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\bcreature cards are put into your graveyard from anywhere\b/.test(conditionText)) {
-    if (detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectDeathTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\bland card is put into a graveyard from anywhere\b/.test(conditionText)) {
-    if (detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectDeathTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\bput into (?:a )?graveyard from play\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bput into (?:a )?graveyard from play\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bput into (?:a )?graveyard from your library\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bput into (?:a )?graveyard from your library\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted land is put into (?:a )?graveyard\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted land is put into (?:a )?graveyard\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bput into exile from graveyards?\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bput into exile from graveyards?\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bshuffle (?:their|your) library\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bshuffle (?:their|your) library\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcycle or discard\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcycle or discard\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bone or more nontoken\b.*\bbecome tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bone or more nontoken\b.*\bbecome tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted land is tapped for mana\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted land is tapped for mana\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bis sacrificed\b/.test(conditionText) && detectSacrificeTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bis sacrificed\b/.test(conditionText) && detectSacrificeTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba player taps a land for mana\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba player taps a land for mana\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou have \d+ or less life\b/.test(conditionText) && detectTransformTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou have \d+ or less life\b/.test(conditionText) && detectTransformTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbecomes the target of (?:a |an )?spell\b/.test(conditionText) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecomes the target of (?:a |an )?spell\b/.test(conditionText) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\binstant or sorcery spell\b/.test(conditionText) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\binstant or sorcery spell\b/.test(conditionText) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\blose(?:s)? life for the first time\b/.test(conditionText) && detectLifeLossTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\blose(?:s)? life for the first time\b/.test(conditionText) && detectLifeLossTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdies while\b.*\bin your graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdies while\b.*\bin your graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou control no\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou control no\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bequipped creature deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bequipped creature deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted creature deals combat damage to defending player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted creature deals combat damage to defending player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother player attacks with\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother player attacks with\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother player loses the game\b/.test(conditionText) && detectGainedLifeTriggersFromOracle(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother player loses the game\b/.test(conditionText) && detectGainedLifeTriggersFromOracle(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbecomes the target of a spell an opponent controls\b/.test(conditionText) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecomes the target of a spell an opponent controls\b/.test(conditionText) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou sacrifice a (?:clue|food|treasure)\b/i.test(conditionText) && detectSacrificeTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou sacrifice a (?:clue|food|treasure)\b/i.test(conditionText) && detectSacrificeTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou become the target of\b/.test(conditionText) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou become the target of\b/.test(conditionText) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ban opponent attacks you\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ban opponent attacks you\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bone or more creatures attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bone or more creatures attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwithout flying attacks you\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwithout flying attacks you\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsource you control deals noncombat damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsource you control deals noncombat damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature with power\b.*\bput into your graveyard\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature with power\b.*\bput into your graveyard\b/.test(conditionText) && detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bis exiled from the battlefield\b/.test(conditionText) && detectExiledFromBattlefieldTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bis exiled from the battlefield\b/.test(conditionText) && detectExiledFromBattlefieldTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\b(?:you|an opponent) (?:surveil|scry|proliferate|search(?:es)?|shuffle(?:s)?)\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\b(?:you|an opponent) (?:surveil|scry|proliferate|search(?:es)?|shuffle(?:s)?)\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\b(?:you|an opponent) mill(?:s)?\b/.test(conditionText) && detectMillTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\b(?:you|an opponent) mill(?:s)?\b/.test(conditionText) && detectMillTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwhen there are\b.*\bor more\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhen there are\b.*\bor more\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\beach of your draw steps\b/.test(conditionText) && detectDrawStepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\beach of your draw steps\b/.test(conditionText) && detectDrawStepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbecomes the target of\b/.test(conditionText) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecomes the target of\b/.test(conditionText) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeals combat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeals combat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature becomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature becomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis vehicle dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis vehicle dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ban enchanted creature dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ban enchanted creature dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba creature blocks\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba creature blocks\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature deals damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature deals damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bequipped creature becomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bequipped creature becomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthat land becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthat land becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba creature becomes the target of\b/.test(conditionText) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba creature becomes the target of\b/.test(conditionText) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bartifact creature you control deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bartifact creature you control deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (
     /\bupkeep of enchanted (?:creature|land|enchantment|permanent|artifact)'s controller\b/.test(conditionText) &&
-    detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0
+    detectUpkeepTriggers(cardObj, probePermanent).length > 0
   ) {
     return true;
   }
 
-  if (/\bnontoken creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnontoken creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba creature becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba creature becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted artifact becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted artifact becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bequipped creature becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bequipped creature becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother artifact or creature is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother artifact or creature is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\blegendary creature an opponent controls dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\blegendary creature an opponent controls dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthe creature dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthe creature dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature or another artifact\b.*\benters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature or another artifact\b.*\benters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba creature deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba creature deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\btarget creature deals damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\btarget creature deals damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted land becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted land becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bequipped creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bequipped creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis land deals combat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis land deals combat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\btarget creature dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\btarget creature dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\b(?:a )?land(?: card)? is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\b(?:a )?land(?: card)? is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis artifact or another artifact\b.*\benters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis artifact or another artifact\b.*\benters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthey rate the art\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthey rate the art\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnext combat phase\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnext combat phase\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bput onto the battlefield this way\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bput onto the battlefield this way\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ban attacking creature\b.*\bdies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ban attacking creature\b.*\bdies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthat creature leaves\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthat creature leaves\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwhen a creature dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhen a creature dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwhen a creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhen a creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted creature attacks or blocks\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted creature attacks or blocks\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother creature you control enters or dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother creature you control enters or dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchantment you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchantment you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother artifact or creature you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother artifact or creature you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ban enchantment is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ban enchantment is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwhite creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhite creature you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bfortified land becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bfortified land becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted permanent becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted permanent becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bblocks or becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bblocks or becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthat creature becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthat creature becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bexploits a creature\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bexploits a creature\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou sacrifice this enchantment\b/.test(conditionText) && detectSacrificeTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou sacrifice this enchantment\b/.test(conditionText) && detectSacrificeTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis enchantment or another nontoken enchantment\b.*\benters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis enchantment or another nontoken enchantment\b.*\benters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou put one or more\b.*\bcounters on\b/.test(conditionText) && detectCounterPlacedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou put one or more\b.*\bcounters on\b/.test(conditionText) && detectCounterPlacedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou next activate an exhaust ability\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou next activate an exhaust ability\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature has flying\b/.test(conditionText) && detectTransformTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature has flying\b/.test(conditionText) && detectTransformTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis (?:land|artifact) becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis (?:land|artifact) becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbecomes monstrous\b/.test(conditionText) && detectMonstrousTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecomes monstrous\b/.test(conditionText) && detectMonstrousTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcounters are put on this (?:creature|permanent)\b/.test(conditionText) && detectCounterPlacedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcounters are put on this (?:creature|permanent)\b/.test(conditionText) && detectCounterPlacedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature dealt damage by (?:equipped creature|enchanted creature|this creature)\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature dealt damage by (?:equipped creature|enchanted creature|this creature)\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreatures you control become blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreatures you control become blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor more life,?\s*flip\b/.test(conditionText) && detectTransformTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor more life,?\s*flip\b/.test(conditionText) && detectTransformTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponent activates an ability\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bopponent activates an ability\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou roll a die\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou roll a die\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnext combat\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnext combat\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bit'?s put into a graveyard this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bit'?s put into a graveyard this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis class enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis class enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis spacecraft enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis spacecraft enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byour commander enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byour commander enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bphases in\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bphases in\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bturned face up\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bturned face up\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature or planeswalker you control becomes the target\b/.test(conditionText) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature or planeswalker you control becomes the target\b/.test(conditionText) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwhen you sacrifice this aura\b/.test(conditionText) && detectSacrificeTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhen you sacrifice this aura\b/.test(conditionText) && detectSacrificeTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature or another creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature or another creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bput into a graveyard from anywhere\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bput into a graveyard from anywhere\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\benters or leaves the battlefield\b/.test(conditionText)) {
-    if (detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectETBTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectLTBTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\bland an opponent controls enters\b/.test(conditionText)) {
-    if (detectLandfallTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectLandfallTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectETBTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\benchanted player's upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted player's upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bfirst upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bfirst upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou exert a creature\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou exert a creature\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou expend\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou expend\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\broll one or more dice\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\broll one or more dice\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byour combat step\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byour combat step\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byour next end step\b/.test(conditionText) && detectEndStepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byour next end step\b/.test(conditionText) && detectEndStepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdragon you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdragon you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (!conditionText && /\bbecomes blocked\b/.test(oracleLower) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (!conditionText && /\bbecomes blocked\b/.test(oracleLower) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (!conditionText && /\bbecomes the target\b/.test(oracleLower) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (!conditionText && /\bbecomes the target\b/.test(oracleLower) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\bleaves the battlefield\b/.test(conditionText) && /\benters or leaves\b/.test(oracleLower)) {
-    if (detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectETBTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectLTBTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
   if (/\beach player's draw step\b/.test(conditionText) && /\bdraw(?:s)? (?:an |a )?additional card\b/.test(oracleLower)) {
     return true;
   }
 
-  if (/\benchanted player is attacked\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted player is attacked\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature specializes\b/.test(conditionText) && detectTransformTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature specializes\b/.test(conditionText) && detectTransformTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis card specializes from\b/.test(conditionText) && detectTransformTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis card specializes from\b/.test(conditionText) && detectTransformTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother creature you control becomes the target of a backup ability\b/.test(conditionText) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother creature you control becomes the target of a backup ability\b/.test(conditionText) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou or another permanent you control becomes the target\b/.test(conditionText) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou or another permanent you control becomes the target\b/.test(conditionText) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother \w+ you control becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother \w+ you control becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcombat this turn\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcombat this turn\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (!conditionText && /\benters or leaves the battlefield\b/.test(oracleLower)) {
-    if (detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectETBTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectLTBTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (!conditionText && /\bplay a card with the same name as one of the exiled cards\b/.test(oracleLower) && detectExiledFromBattlefieldTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (!conditionText && /\bplay a card with the same name as one of the exiled cards\b/.test(oracleLower) && detectExiledFromBattlefieldTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (!conditionText && /\bland with the same name as the exiled card is tapped\b/.test(oracleLower) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (!conditionText && /\bland with the same name as the exiled card is tapped\b/.test(oracleLower) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbeginning of the game\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbeginning of the game\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\byou proliferate\b/.test(conditionText) && (
-    detectCounterPlacedTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0
+    detectCounterPlacedTriggers(cardObj, probePermanent).length > 0 ||
+    detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0
   )) {
     return true;
   }
 
-  if (/\ba player loses the game\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba player loses the game\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\bland card is put into your graveyard from anywhere\b/.test(conditionText)) {
-    if (detectPutIntoGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
-    if (detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) return true;
+    if (detectPutIntoGraveyardTriggers(cardObj, probePermanent).length > 0) return true;
+    if (detectDeathTriggers(cardObj, probePermanent).length > 0) return true;
   }
 
-  if (/\benchanted player controls enters\b/.test(conditionText) && detectLandfallTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted player controls enters\b/.test(conditionText) && detectLandfallTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (!conditionText && /\bis exiled from the battlefield\b/.test(oracleLower) && detectExiledFromBattlefieldTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (!conditionText && /\bis exiled from the battlefield\b/.test(oracleLower) && detectExiledFromBattlefieldTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou pay this cost one or more times\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou pay this cost one or more times\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bhorde's first main phase\b/.test(conditionText) && detectPrecombatMainTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bhorde's first main phase\b/.test(conditionText) && detectPrecombatMainTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthat turn's end step\b/.test(conditionText) && detectEndStepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthat turn's end step\b/.test(conditionText) && detectEndStepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcombat on each opponent's turn\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcombat on each opponent's turn\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou discard a (creature|land) card\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou discard a (creature|land) card\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature deals combat damage to you\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature deals combat damage to you\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsource an opponent controls deals damage to you\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsource an opponent controls deals damage to you\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bartifact an opponent controls is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bartifact an opponent controls is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou encounter this phenomenon\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou encounter this phenomenon\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bpermanent is returned to your hand\b/.test(conditionText) && detectReturnedToHandTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bpermanent is returned to your hand\b/.test(conditionText) && detectReturnedToHandTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature you control explores\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature you control explores\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bring-bearer becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bring-bearer becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith menace becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith menace becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbecomes the target of an ability that targets only it\b/.test(conditionText) && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecomes the target of an ability that targets only it\b/.test(conditionText) && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bone or more creatures you control attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bone or more creatures you control attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature or another creature dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature or another creature dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou activate an exhaust ability\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou activate an exhaust ability\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou discard one or more artifact cards\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou discard one or more artifact cards\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou cycle or discard another card\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou cycle or discard another card\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature an opponent controls becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature an opponent controls becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis equipment becomes attached to a creature\b/.test(conditionText) && detectEquippedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis equipment becomes attached to a creature\b/.test(conditionText) && detectEquippedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou roll a \d+ or higher on a die\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou roll a \d+ or higher on a die\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou roll the planar die\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou roll the planar die\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bplays a card exiled with\b/.test(conditionText) && detectExiledFromBattlefieldTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bplays a card exiled with\b/.test(conditionText) && detectExiledFromBattlefieldTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (!conditionText && /\bgains life during their turn\b/.test(oracleLower) && detectGainedLifeTriggersFromOracle(cardObj, FAKE_PERMANENT).length > 0) {
+  if (!conditionText && /\bgains life during their turn\b/.test(oracleLower) && detectGainedLifeTriggersFromOracle(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcomplete a dungeon\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcomplete a dungeon\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bput into an opponent's graveyard from the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bput into an opponent's graveyard from the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bis put into your graveyard from the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bis put into your graveyard from the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bfrom anywhere other than the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bfrom anywhere other than the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature with flying dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature with flying dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwithout flying dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwithout flying dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bface-down creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bface-down creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponent taps an artifact for mana\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bopponent taps an artifact for mana\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponent taps a mountain for mana\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bopponent taps a mountain for mana\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bplayer taps a nonbasic land for mana\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bplayer taps a nonbasic land for mana\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bplayer taps a permanent for mana\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bplayer taps a permanent for mana\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bland of the chosen type an opponent controls becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bland of the chosen type an opponent controls becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith toxic attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith toxic attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\btwo or more creatures attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\btwo or more creatures attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
   if (/\battacks or blocks\b/.test(conditionText) && (
-    detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0 ||
-    detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0
+    detectAttackTriggers(cardObj, probePermanent).length > 0 ||
+    detectBlockTriggers(cardObj, probePermanent).length > 0
   )) {
     return true;
   }
 
-  if (/\bbecomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature an opponent controls is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature an opponent controls is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature with skulk deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature with skulk deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bface-down creatures you control deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bface-down creatures you control deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bpower greater than its base power\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bpower greater than its base power\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdiscard a creature card this way\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdiscard a creature card this way\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdiscard this card\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdiscard this card\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\btarget creature other than this creature dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\btarget creature other than this creature dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benters or another nontoken\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benters or another nontoken\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother zombie dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother zombie dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeals combat damage to a player this combat\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeals combat damage to a player this combat\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeal damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeal damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeals damage,?\s*its controller gains\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeals damage,?\s*its controller gains\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother creature or planeswalker you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother creature or planeswalker you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith deathtouch attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith deathtouch attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith deathtouch deals damage to a planeswalker\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith deathtouch deals damage to a planeswalker\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith deathtouch dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith deathtouch dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreatures a player controls deal combat damage to you\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreatures a player controls deal combat damage to you\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis equipment enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis equipment enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor equipped creature deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor equipped creature deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bfor the first time each turn\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bfor the first time each turn\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\btoken you control leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\btoken you control leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bone or more nontoken creatures die\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bone or more nontoken creatures die\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bplayer taps a swamp for mana\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bplayer taps a swamp for mana\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith power \d+ or less enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith power \d+ or less enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bpower or toughness \d+ or less dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bpower or toughness \d+ or less dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsecond card during their turn\b/.test(conditionText) && detectCardDrawTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsecond card during their turn\b/.test(conditionText) && detectCardDrawTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bgreatest power among creatures that player controls dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bgreatest power among creatures that player controls dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\band at least one other creature attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\band at least one other creature attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnon-angel creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnon-angel creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\blegendary permanent other than\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\blegendary permanent other than\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature or another creature or artifact you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature or another creature or artifact you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bother nontoken creatures you control deal combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bother nontoken creatures you control deal combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bblack card is put into an opponent's graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bblack card is put into an opponent's graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battacking creatures you control die\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battacking creatures you control die\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\belf or berserker you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\belf or berserker you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benter or attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benter or attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bzombies you control deal combat damage to one or more of your opponents\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bzombies you control deal combat damage to one or more of your opponents\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbecomes monstrous\b/.test(conditionText) && detectMonstrousTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecomes monstrous\b/.test(conditionText) && detectMonstrousTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bmutant, ninja, or turtle you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bmutant, ninja, or turtle you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bmana value \d+ or greater becomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bmana value \d+ or greater becomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bgoblin you control is put into a graveyard from the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bgoblin you control is put into a graveyard from the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted player is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted player is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponent activates an ability of an artifact they control\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bopponent activates an ability of an artifact they control\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith the chosen name attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith the chosen name attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou discard an island\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou discard an island\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature of the chosen type dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature of the chosen type dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bof the noted type dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bof the noted type dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnoncombat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnoncombat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted player's postcombat main phases\b/.test(conditionText) && detectPostcombatMainTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted player's postcombat main phases\b/.test(conditionText) && detectPostcombatMainTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bforest an opponent controls becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bforest an opponent controls becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bchosen player draws a card with the chosen name\b/.test(conditionText) && detectCardDrawTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bchosen player draws a card with the chosen name\b/.test(conditionText) && detectCardDrawTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\beach other player's upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\beach other player's upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\beach of that player's upkeeps\b/.test(conditionText) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\beach of that player's upkeeps\b/.test(conditionText) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbounty counter on it is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbounty counter on it is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwin a coin flip\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwin a coin flip\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbeginning of that combat\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbeginning of that combat\b/.test(conditionText) && detectBeginningOfCombatTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis attraction enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis attraction enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcomes into play\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcomes into play\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother creature you control with flying dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother creature you control with flying dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature an opponent controls with a counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature an opponent controls with a counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnonblack card is put into a player's graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnonblack card is put into a player's graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnontoken artifact you control is put into a graveyard from the battlefield or is put into exile\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnontoken artifact you control is put into a graveyard from the battlefield or is put into exile\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature or another zombie enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature or another zombie enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor another nontoken minotaur you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor another nontoken minotaur you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor another nontoken cat you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor another nontoken cat you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis artifact or another artifact enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis artifact or another artifact enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwarrior you control deals combat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwarrior you control deals combat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bred source you control deals damage to one or more permanents\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bred source you control deals damage to one or more permanents\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeals combat damage to defending player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeals combat damage to defending player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwhen this creature deals damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhen this creature deals damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bzombie or mutant you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bzombie or mutant you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature with shadow dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature with shadow dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature token dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature token dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother non-spirit creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother non-spirit creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bmodified creatures you control attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bmodified creatures you control attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith trample attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith trample attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battack in a band\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battack in a band\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bteam attacks with exactly two creatures\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bteam attacks with exactly two creatures\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bvehicle crewed by\b.*\battacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bvehicle crewed by\b.*\battacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor another nontoken vampire you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor another nontoken vampire you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnontoken creature attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnontoken creature attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bit attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bit attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponents control attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bopponents control attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbird is put into your graveyard from the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbird is put into your graveyard from the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsource of the chosen color deals damage to you\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsource of the chosen color deals damage to you\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bface-down permanent you control is turned face up\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bface-down permanent you control is turned face up\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeals damage to this creature\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeals damage to this creature\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bninjas the bosses control deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bninjas the bosses control deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bchosen permanent is put into a graveyard from the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bchosen permanent is put into a graveyard from the battlefield\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcasts their commander or attacks with their commander\b/.test(conditionText) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcasts their commander or attacks with their commander\b/.test(conditionText) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bequipped creature blocks a creature\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bequipped creature blocks a creature\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bhamster, mouse, rat, or squirrel you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bhamster, mouse, rat, or squirrel you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnamed verdant dread enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnamed verdant dread enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bphases out or leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bphases out or leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsource you control deals damage to an opponent\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsource you control deals damage to an opponent\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdies or deals combat damage to a player\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdies or deals combat damage to a player\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\blegendary equipment attached to it deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\blegendary equipment attached to it deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdealt damage this way dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdealt damage this way dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsatoru and\/or one or more other nontoken creatures you control enter\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsatoru and\/or one or more other nontoken creatures you control enter\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeals combat damage to one or more blocking creatures\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeals combat damage to one or more blocking creatures\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcommander leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcommander leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor another nontoken hydra you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor another nontoken hydra you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcontrol but don't own dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcontrol but don't own dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith toxic deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith toxic deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchantment or another nonland permanent you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchantment or another nonland permanent you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponent controls deal combat damage to one or more of your opponents\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bopponent controls deal combat damage to one or more of your opponents\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\baura or equipment you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\baura or equipment you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bupkeep of the exiled card's owner\b/.test(conditionText) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bupkeep of the exiled card's owner\b/.test(conditionText) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bspider you controlled dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bspider you controlled dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bspirit card or a card with disturb is put into your graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bspirit card or a card with disturb is put into your graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bring tempts you\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bring tempts you\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bencounter this phenomenon\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bencounter this phenomenon\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwhen a land you control enters\b/.test(conditionText) && detectLandfallTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwhen a land you control enters\b/.test(conditionText) && detectLandfallTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsp\/\/dr enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsp\/\/dr enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bupkeep of each participant in this game\b/.test(conditionText) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bupkeep of each participant in this game\b/.test(conditionText) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bone land attacks another\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bone land attacks another\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature an opponent controls blocks\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature an opponent controls blocks\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother non-human creature you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother non-human creature you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bentered this turn deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bentered this turn deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bowned by another player is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bowned by another player is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbecomes tapped or is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecomes tapped or is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwith one or more counters on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwith one or more counters on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbecomes tapped or an opponent activates an artifact\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecomes tapped or an opponent activates an artifact\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bassassin you control deals combat damage to an opponent\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bassassin you control deals combat damage to an opponent\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\band at least two other creatures attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\band at least two other creatures attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba reveler attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba reveler attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdiscard an instant or sorcery card this way\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdiscard an instant or sorcery card this way\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bwarrior your team controls enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwarrior your team controls enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature the heroes control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature the heroes control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor another creature with power \d+ or greater enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor another creature with power \d+ or greater enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bequipped creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bequipped creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature the bosses control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature the bosses control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchantment or another permanent you control is turned face up\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchantment or another permanent you control is turned face up\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ball non-wall creatures you control attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ball non-wall creatures you control attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeal combat damage to you\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeal combat damage to you\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\binstant or sorcery spell you control deals damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\binstant or sorcery spell you control deals damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba head leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba head leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bland card leaves your graveyard\b/.test(conditionText) && detectLeftGraveyardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bland card leaves your graveyard\b/.test(conditionText) && detectLeftGraveyardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted player draws a card\b/.test(conditionText) && detectCardDrawTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted player draws a card\b/.test(conditionText) && detectCardDrawTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbecomes untapped or leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecomes untapped or leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba sliver deals combat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba sliver deals combat damage to a creature\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother creature you control leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother creature you control leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bone of the enchanted creatures dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bone of the enchanted creatures dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcountered by a spell or ability you control\b/.test(conditionText) && detectSpellCounteredTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcountered by a spell or ability you control\b/.test(conditionText) && detectSpellCounteredTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\band at least one other warrior attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\band at least one other warrior attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother card is put into a graveyard from anywhere\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother card is put into a graveyard from anywhere\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother goblin you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother goblin you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou discard calim\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou discard calim\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor another creature you control with power \d+ or less enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor another creature you control with power \d+ or less enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsource you control deals damage to another player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsource you control deals damage to another player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature you control with power \d+ or less deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature you control with power \d+ or less deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreatures you control with counters on them deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreatures you control with counters on them deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted creature attacks one of your opponents\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted creature attacks one of your opponents\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ban aura you control is put into your graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ban aura you control is put into your graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bone or more creatures you control die\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bone or more creatures you control die\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byour commander deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byour commander deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bmonarch's end step\b/.test(conditionText) && detectEndStepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bmonarch's end step\b/.test(conditionText) && detectEndStepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\btoughness greater than its power enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\btoughness greater than its power enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba player taps a basic land for mana\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba player taps a basic land for mana\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bmountain an opponent controls becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bmountain an opponent controls becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battacking (?:kithkin|elf).*(?:kithkin|elf).*graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battacking (?:kithkin|elf).*(?:kithkin|elf).*graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis artifact or another nontoken artifact you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis artifact or another nontoken artifact you control is put into a graveyard\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\ba player taps a mountain\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\ba player taps a mountain\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bpermanent cards are put into your graveyard from anywhere while\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bpermanent cards are put into your graveyard from anywhere while\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnontoken historic permanent you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnontoken historic permanent you control enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\btransforms into\b/.test(conditionText) && detectTransformTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\btransforms into\b/.test(conditionText) && detectTransformTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bit enters this way\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bit enters this way\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponent is dealt combat damage by one or more creatures you control\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bopponent is dealt combat damage by one or more creatures you control\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsource you control deals damage to you\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsource you control deals damage to you\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcommander you control attacks alone\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcommander you control attacks alone\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bhuman creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bhuman creature you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature you control with haste attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature you control with haste attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bit was unearthed\b/.test(conditionText) && detectExiledFromBattlefieldTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bit was unearthed\b/.test(conditionText) && detectExiledFromBattlefieldTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponent draws their first card each turn\b/.test(conditionText) && (detectCardDrawTriggers(cardObj, FAKE_PERMANENT).length > 0 || detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0)) {
+  if (/\bopponent draws their first card each turn\b/.test(conditionText) && (detectCardDrawTriggers(cardObj, probePermanent).length > 0 || detectDeathTriggers(cardObj, probePermanent).length > 0)) {
     return true;
   }
 
-  if (/\bwolf or werewolf you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bwolf or werewolf you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother creature you own dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother creature you own dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bturned face up this turn deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bturned face up this turn deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthree or more creatures you control with flying attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthree or more creatures you control with flying attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnext main phase this turn\b/.test(conditionText) && detectPrecombatMainTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnext main phase this turn\b/.test(conditionText) && detectPrecombatMainTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bflash or haste is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bflash or haste is dealt damage\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature token leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature token leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bchosen name deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bchosen name deals combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou roll your third die each turn\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou roll your third die each turn\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsacrifice one or more zombies this way\b/.test(conditionText) && detectSacrificeTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsacrifice one or more zombies this way\b/.test(conditionText) && detectSacrificeTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (!conditionText && event === TriggerEvent.SACRIFICED && detectSacrificeTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (!conditionText && event === TriggerEvent.SACRIFICED && detectSacrificeTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bother attacking legendary creatures you control die\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bother attacking legendary creatures you control die\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bartifact creatures you control die\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bartifact creatures you control die\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bkraken, leviathan, merfolk, octopus, or serpent attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bkraken, leviathan, merfolk, octopus, or serpent attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature you control with reach attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature you control with reach attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bisland an opponent controls becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bisland an opponent controls becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benters from your graveyard\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benters from your graveyard\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\banother elf or berserker you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\banother elf or berserker you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\blegendary creature you control attacks and isn't blocked\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\blegendary creature you control attacks and isn't blocked\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature or a dragon you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature or a dragon you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bor an instant or sorcery spell you control deals damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bor an instant or sorcery spell you control deals damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeal combat damage to a player, create\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeal combat damage to a player, create\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bone or more creatures you control deal combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bone or more creatures you control deal combat damage to a player\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bmagnet counter on it attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bmagnet counter on it attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/^an opponent attacks$/i.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/^an opponent attacks$/i.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\binsect, leech, slug, or worm you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\binsect, leech, slug, or worm you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bone or more non-human creatures you control deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bone or more non-human creatures you control deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnontoken creature you control with a \+1\/\+1 counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnontoken creature you control with a \+1\/\+1 counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted player's end step\b/.test(conditionText) && detectEndStepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted player's end step\b/.test(conditionText) && detectEndStepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou attack with three or more creatures\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou attack with three or more creatures\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bartifact becomes tapped or a player activates an artifact\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bartifact becomes tapped or a player activates an artifact\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature tokens you control deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature tokens you control deal combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthat creature deals combat damage to a player or planeswalker this turn\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthat creature deals combat damage to a player or planeswalker this turn\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdeathtouch deals damage to a player or planeswalker\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdeathtouch deals damage to a player or planeswalker\b/.test(conditionText) && detectDealtDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponent taps a land for mana\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bopponent taps a land for mana\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnoncreature permanents are returned to hand\b/.test(conditionText) && detectReturnedToHandTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnoncreature permanents are returned to hand\b/.test(conditionText) && detectReturnedToHandTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bit dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bit dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\btargeted creature leaves the battlefield this turn\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\btargeted creature leaves the battlefield this turn\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bpermanent you don't control dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bpermanent you don't control dies this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (!conditionText && event === TriggerEvent.BECOMES_UNTAPPED && detectUntapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (!conditionText && event === TriggerEvent.BECOMES_UNTAPPED && detectUntapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthe caffeinated runner enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthe caffeinated runner enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthe caffeinated runner attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthe caffeinated runner attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bit next becomes tapped this turn\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bit next becomes tapped this turn\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis spacecraft attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis spacecraft attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis permanent enters the battlefield\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis permanent enters the battlefield\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature and at least one other creature token attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature and at least one other creature token attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnontoken creature enchanted player controls dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnontoken creature enchanted player controls dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bgoldbug and at least one human attack\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bgoldbug and at least one human attack\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted or equipped attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted or equipped attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted opponent draws\b/.test(conditionText) && detectCardDrawTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted opponent draws\b/.test(conditionText) && detectCardDrawTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bflying dealt damage by this creature this turn dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bflying dealt damage by this creature this turn dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\btargets only a single creature deals damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\btargets only a single creature deals damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou roll a 6\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou roll a 6\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcommander you control deals combat damage to an opponent\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcommander you control deals combat damage to an opponent\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\breveal a nonland card this way\b/.test(conditionText) && detectCardDrawTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\breveal a nonland card this way\b/.test(conditionText) && detectCardDrawTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnontoken creature you control leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnontoken creature you control leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted player's first upkeep each turn\b/.test(conditionText) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted player's first upkeep each turn\b/.test(conditionText) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature you control blocks\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature you control blocks\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bequipped creature blocks or becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bequipped creature blocks or becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnontoken zombie or mutant you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnontoken zombie or mutant you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bno creatures on the battlefield\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bno creatures on the battlefield\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bplaneswalker you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bplaneswalker you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benters or a planeswalker you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benters or a planeswalker you control dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbounty counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbounty counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\b6 is rolled on a six-sided die\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\b6 is rolled on a six-sided die\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bartifact, creature, or enchantment enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bartifact, creature, or enchantment enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\btaps a snow land for mana\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\btaps a snow land for mana\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bit deals combat damage to a player this turn\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bit deals combat damage to a player this turn\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnon-toy creatures you control attack a player\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnon-toy creatures you control attack a player\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bput onto the battlefield with havengul mystery leaves\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bput onto the battlefield with havengul mystery leaves\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bpower 4 or greater enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bpower 4 or greater enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battack with exactly two creatures\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battack with exactly two creatures\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcreature you control with a counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcreature you control with a counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnext cleanup step\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnext cleanup step\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bpermanent enters from a graveyard\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bpermanent enters from a graveyard\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bkraken, leviathan, octopus, or serpent you control deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bkraken, leviathan, octopus, or serpent you control deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcauses you to discard gorilla tactics\b/.test(conditionText) && detectDiscardTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcauses you to discard gorilla tactics\b/.test(conditionText) && detectDiscardTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted opponent's end step\b/.test(conditionText) && detectEndStepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted opponent's end step\b/.test(conditionText) && detectEndStepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battack enchanted opponent or a planeswalker they control\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battack enchanted opponent or a planeswalker they control\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bexploits a creature\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bexploits a creature\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis permanent enters the battlefield\b/.test(conditionText) && /\bexploits a creature\b/.test(oracleLower) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis permanent enters the battlefield\b/.test(conditionText) && /\bexploits a creature\b/.test(oracleLower) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis equipment enters the battlefield\b/.test(conditionText) && /\bfor mirrodin\b/.test(oracleLower) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis equipment enters the battlefield\b/.test(conditionText) && /\bfor mirrodin\b/.test(oracleLower) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou do, choose up to that many\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou do, choose up to that many\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnext turn's upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnext turn's upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byour next upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byour next upkeep\b/.test(conditionText) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bplaneswalk here and at the beginning\b/.test(conditionText) && detectUpkeepTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bplaneswalk here and at the beginning\b/.test(conditionText) && detectUpkeepTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\beach postcombat main phase\b/.test(conditionText) && detectPostcombatMainTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\beach postcombat main phase\b/.test(conditionText) && detectPostcombatMainTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis boss enters\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis boss enters\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthat token leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthat token leaves the battlefield\b/.test(conditionText) && detectLTBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bdies under your control this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bdies under your control this turn\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bturned face up\b/.test(conditionText) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bturned face up\b/.test(conditionText) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bfourth plan counter is put on\b/.test(conditionText) && detectCounterPlacedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bfourth plan counter is put on\b/.test(conditionText) && detectCounterPlacedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bnon-sliver creature spell\b/.test(conditionText) && detectSpellCastTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bnon-sliver creature spell\b/.test(conditionText) && detectSpellCastTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bvehicle you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bvehicle you control attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bimpostor counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bimpostor counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battacking creature you control or a blocking creature\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battacking creature you control or a blocking creature\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bcard is put into your graveyard from anywhere\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bcard is put into your graveyard from anywhere\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bthis creature or enchanted creature deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bthis creature or enchanted creature deals combat damage\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponents control die\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bopponents control die\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bflying and\/or haste attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bflying and\/or haste attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\battacking creature deals combat damage to you\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\battacking creature deals combat damage to you\b/.test(conditionText) && detectCombatDamageTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bsame name as the exiled card enters\b/.test(conditionText) && detectLandfallTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bsame name as the exiled card enters\b/.test(conditionText) && detectLandfallTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bpower equal to its toughness attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bpower equal to its toughness attacks\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\b-1\/-1 counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\b-1\/-1 counter on it dies\b/.test(conditionText) && detectDeathTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bpermanent becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bpermanent becomes tapped\b/.test(conditionText) && detectTapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bpermanent you control becomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bpermanent you control becomes untapped\b/.test(conditionText) && detectUntapTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\benchanted becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\benchanted becomes blocked\b/.test(conditionText) && detectBlockTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bopponents lose life\b/.test(conditionText) && detectLifeLossTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bopponents lose life\b/.test(conditionText) && detectLifeLossTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (!conditionText && event === TriggerEvent.GAINED_LIFE && detectGainedLifeTriggersFromOracle(cardObj, FAKE_PERMANENT).length > 0) {
+  if (!conditionText && event === TriggerEvent.GAINED_LIFE && detectGainedLifeTriggersFromOracle(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (!conditionText && event === TriggerEvent.LOST_LIFE && detectLifeLossTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (!conditionText && event === TriggerEvent.LOST_LIFE && detectLifeLossTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (!conditionText && event === TriggerEvent.TARGETED && detectTargetedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (!conditionText && event === TriggerEvent.TARGETED && detectTargetedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/^you cast a spell$/i.test(conditionText) && /\bwhen this creature enters\b/i.test(oracleLower) && detectETBTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/^you cast a spell$/i.test(conditionText) && /\bwhen this creature enters\b/i.test(oracleLower) && detectETBTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\byou do\b/.test(conditionText) && /\bfights\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\byou do\b/.test(conditionText) && /\bfights\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (event === TriggerEvent.DIES && /\byou do\b/.test(conditionText) && detectAttackTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (event === TriggerEvent.DIES && /\byou do\b/.test(conditionText) && detectAttackTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 
-  if (/\bbecomes saddled\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, FAKE_PERMANENT).length > 0) {
+  if (/\bbecomes saddled\b/.test(conditionText) && detectAbilityActivatedTriggers(cardObj, probePermanent).length > 0) {
     return true;
   }
 

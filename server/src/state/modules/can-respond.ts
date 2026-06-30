@@ -19,8 +19,9 @@ import type { PlayerID } from "../../../../shared/src";
 import { parseManaCost, normalizeParsedManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "./mana-check";
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
+import { hasExhaustedOnceDuringEachGraveyardCastActivation } from "../../../../rules-engine/src/stationPermanentUtils.js";
 import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiveAbilityConditions } from "./game-state-effects";
-import { buildGraveyardCastingPermissionId, getActiveGraveyardCastingPermissions, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo, type GraveyardCastingPermission, type GraveyardCastingPermissionCostMode } from "./graveyard-permissions";
+import { buildGraveyardCastingPermissionId, getActiveGraveyardCastingPermissions, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo, isActivatableStationGraveyardPermissionLine, type GraveyardCastingPermission, type GraveyardCastingPermissionCostMode } from "./graveyard-permissions";
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan, getCostAdjustmentForCard as getSharedCostAdjustmentForCard, type CostAdjustmentPlan } from "./cost-adjustments";
 import { collectStaticEffectSources } from "./static-effect-sources";
@@ -939,6 +940,35 @@ function sourceLeaveBattlefieldLifeGain(oracleText: string): number | undefined 
   return Number.isFinite(amount) && amount > 0 ? amount : undefined;
 }
 
+function firstClassPermissionAdditionalCostToShared(
+  cost: GraveyardCastingPermission['additionalCost'],
+): SharedSourceGrantedAdditionalCost | undefined {
+  if (!cost) return undefined;
+
+  switch (cost.type) {
+    case 'discard':
+    case 'sacrifice':
+    case 'remove_counters':
+      return {
+        type: cost.type,
+        amount: Math.max(1, Number(cost.amount || 0)),
+        ...(cost.filter ? { filter: cost.filter } : {}),
+        ...(cost.counterType ? { counterType: cost.counterType } : {}),
+        ...(cost.distributed ? { distributed: cost.distributed } : {}),
+      };
+    default:
+      return undefined;
+  }
+}
+
+function getFirstClassPermissionGrantedAdditionalCost(
+  permission: GraveyardCastingPermission | undefined,
+): SharedSourceGrantedAdditionalCost | undefined {
+  const structured = firstClassPermissionAdditionalCostToShared(permission?.additionalCost);
+  if (structured) return structured;
+  return getSourceGrantedAdditionalCost(String(permission?.sourceText || ''));
+}
+
 function getSourceGrantedAdditionalCost(oracleText: string): SharedSourceGrantedAdditionalCost | undefined {
   const normalized = normalizeRuleText(oracleText).replace(/\s+/g, ' ').trim();
   const removeCountersMatch = normalized.match(/\bby\s+removing\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(.+?)\s+from\s+among\s+(.+?)\s+you\s+control\s+in\s+addition\s+to\s+paying\s+(?:its|their|that spell's)\s+other\s+costs\b/i);
@@ -1090,7 +1120,7 @@ function getSpecificSpellFromGraveyardPermission(
     const firstClassLeaveBattlefieldDestination = firstClassPermissionLeaveBattlefieldDestination(firstClassPermission);
     const firstClassLeaveBattlefieldLifeGain = firstClassPermissionLeaveBattlefieldLifeGain(firstClassPermission);
     if (firstClassPermission) {
-      const sourceGrantedAdditionalCost = getSourceGrantedAdditionalCost(String((firstClassPermission as any)?.sourceText || ''));
+      const sourceGrantedAdditionalCost = getFirstClassPermissionGrantedAdditionalCost(firstClassPermission);
       if (sourceGrantedAdditionalCost && !canPaySourceGrantedAdditionalCost(state, playerId, card, sourceGrantedAdditionalCost)) {
         return { allowed: false };
       }
@@ -1147,6 +1177,7 @@ function getSpecificSpellFromGraveyardPermission(
         const sourceGrantedAdditionalCost = getSourceGrantedAdditionalCost(line) || getSourceGrantedAdditionalCost(oracleText);
         const sourceCostMode = getGraveyardPermissionCostModeFromText(line || oracleText);
         if (!isStaticGraveyardPermissionLine(line)) continue;
+        if (isActivatableStationGraveyardPermissionLine(rawLine.trim(), oracleText, permanentTypeLine)) continue;
         if (/\bduring(?:\s+each\s+of)?\s+your\s+turns?\b/.test(line) && !isPlayersTurnForPermission(state, playerId)) continue;
 
         const combinedPlayCastMatch = line.match(/you may play ([^.]+?) and cast ([^.]+?) from your graveyard/i);
@@ -2909,6 +2940,13 @@ function hasPlayFromZoneEffect(ctx: GameContext, playerId: PlayerID, zone: strin
               
               // Only allow graveyard casting if threshold is met
               if (chargeCounters >= threshold) {
+                if (
+                  /\bonce during each of your turns\b/i.test(oracleText)
+                  && /\bfrom your graveyard\b/i.test(oracleText)
+                  && hasExhaustedOnceDuringEachGraveyardCastActivation(permanent, state, playerId)
+                ) {
+                  continue;
+                }
                 return true;
               }
               // Threshold not met - continue checking other permanents

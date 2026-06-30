@@ -1,0 +1,79 @@
+---
+description: Compiled Oracle IR overlays for new/custom cards when the regex parser has gaps
+alwaysApply: false
+---
+
+# Oracle IR compiled overlays
+
+Use when **parser gaps** block a new/custom card but the effect decomposes into **wired `OracleEffectStep` verbs**. Do not add card-name server handlers.
+
+## Architecture
+
+```
+oracle text
+  → parseOracleTextToIR (try first)
+  → if unknown / incomplete → lookup oracle_ir_compiled_overlay (SQLite)
+  → collectOracleEffectStepsWithOverlay
+  → applyOracleIRStepsOnServer / tryResolveSpellViaOracleIR / tryApplyOracleIRToActivatedAbility
+```
+
+Overlays are **not** a replacement for the parser on the ~47k-card corpus. Use for new-set phrasing, custom cards, or until a parser batch lands.
+
+## Compiler output (required shape)
+
+Emit **native `OracleEffectStep`** in the import wrapper:
+
+```json
+{
+  "card_id": "<scryfall-oracle-uuid>",
+  "name": "Card Name",
+  "envelope": {
+    "card_id": "<uuid>",
+    "fallback_to_bespoke": false,
+    "abilities": [{
+      "ability_type": "SPELL_EFFECT | ACTIVATED | TRIGGERED | STATIC",
+      "effect_text": "...",
+      "steps": [{ "kind": "draw", "who": { "kind": "you" }, "amount": { "kind": "number", "value": 1 }, "raw": "..." }]
+    }]
+  }
+}
+```
+
+- Never emit `kind: "unknown"` in overlay steps.
+- Set `fallback_to_bespoke: true` with empty steps when mechanics are unwired.
+- Use `thisWayAntecedentStepIndex` for "this way" / "it" references (step index in same `steps` array).
+- Prefer `look_select_top` for reveal-land-to-hand / else-graveyard patterns.
+
+Agent: `.github/agents/OracleIRCompiler.agent.md`
+
+## Key code paths
+
+| Layer | File |
+|-------|------|
+| Envelope types + merge | `rules-engine/src/oracleIRCompilerEnvelope.ts` |
+| SQLite store | `server/src/services/oracleIrCompiledOverlayStore.ts` |
+| Runtime lookup | `server/src/state/modules/oracleIrCompiledOverlayLookup.ts` |
+| Step collection hook | `server/src/state/modules/trigger-runtime-wiring.ts` → `collectOracleEffectSteps` |
+
+## Operator commands (`cd server`)
+
+```powershell
+npm run oracle-ir:overlay:probe -- --name "Card Name"
+npm run oracle-ir:overlay:validate -- --file data/compiled-oracle-ir-overlays/<card>.json --compare-parser
+npm run oracle-ir:overlay:import
+npm run oracle-ir:overlay:upsert -- --file path.json --name "Card Name" --card-id <uuid>
+```
+
+- JSON files go in `server/data/compiled-oracle-ir-overlays/`
+- `*.example.json` templates are **skipped** on bulk import
+
+## Tests
+
+- `server/tests/oracle-ir-compiled-overlay*.test.ts`
+- `server/tests/oracle-ir-overlay-*.test.ts`
+
+## Forbidden
+
+- Card-name routing in server code to fix one card when an overlay or parser extension would work
+- Simplified 7-verb DSL as the primary output (native `OracleEffectStep` only)
+- Putting deterministic steps on the Resolution Queue (choices only)

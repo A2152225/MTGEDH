@@ -6,6 +6,7 @@ import {
 import { commitCardDraws } from './oracleIRExecutorDrawTransitionCommit';
 import type { OraclePlayerSelector, OracleQuantity } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { cardHasCreatureType } from '../../shared/src/creatureTypes';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
 import { stripPlayableFromGraveyardTags } from './playableFromGraveyard';
 import { parseManaSymbols } from './types/numbers';
@@ -642,13 +643,68 @@ function cardMatchesRevealUntilCriterion(card: any, criterion: string): boolean 
   return typeLine.includes(normalized);
 }
 
+function countControlledCreaturesOfChosenType(
+  state: GameState,
+  controllerId: PlayerID,
+  chosenType: string,
+): number {
+  const normalizedType = String(chosenType || '').trim();
+  if (!normalizedType) return 0;
+  return ((state.battlefield || []) as any[]).filter((perm) => {
+    if (String(perm?.controller || '').trim() !== controllerId) return false;
+    const card = perm?.card || perm;
+    const typeLine = getCardTypeLineLower(card);
+    if (!typeLine.includes('creature')) return false;
+    const oracleText = String(card?.oracle_text || '');
+    return cardHasCreatureType(typeLine, oracleText, normalizedType);
+  }).length;
+}
+
+function libraryCardMatchesChosenCreatureType(card: any, chosenType: string): boolean {
+  const normalizedType = String(chosenType || '').trim();
+  if (!normalizedType) return false;
+  const typeLine = getCardTypeLineLower(card);
+  if (!typeLine.includes('creature')) return false;
+  const oracleText = String(card?.oracle_text || '');
+  return cardHasCreatureType(typeLine, oracleText, normalizedType);
+}
+
 export function resolveRevealUntilReferenceAmountForPlayer(
   state: GameState,
   playerId: PlayerID,
-  qty: OracleQuantity
+  qty: OracleQuantity,
+  ctx?: OracleIRExecutionContext,
 ): { readonly count: number; readonly cards: readonly any[] } | null {
   if (qty.kind !== 'reference_amount') return null;
   const raw = normalizeOracleText(String((qty as any).raw || ''));
+
+  if (
+    /^until you reveal x creature cards of the chosen type(?:,\s*where x is the number of creatures you control of that type)?$/i.test(
+      raw,
+    )
+  ) {
+    const chosenType = String(ctx?.selectorContext?.chosenCreatureType || '').trim();
+    if (!chosenType) return null;
+    const targetCount = countControlledCreaturesOfChosenType(state, ctx?.controllerId || playerId, chosenType);
+    if (targetCount <= 0) return { count: 0, cards: [] };
+
+    const player = state.players.find(p => p.id === playerId) as any;
+    if (!player) return null;
+    const library: any[] = Array.isArray(player.library) ? player.library : [];
+    const revealedCards: any[] = [];
+    let found = 0;
+
+    for (let i = 0; i < library.length && found < targetCount; i += 1) {
+      const card = library[i];
+      revealedCards.push(card);
+      if (libraryCardMatchesChosenCreatureType(card, chosenType)) {
+        found += 1;
+      }
+    }
+
+    return revealedCards.length > 0 ? { count: revealedCards.length, cards: revealedCards } : { count: 0, cards: [] };
+  }
+
   const untilMatch = raw.match(/^until you reveal an? (.+)$/i);
   if (!untilMatch) return null;
 

@@ -9,6 +9,10 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePower, getEffectiveToughness, broadcastManaPoolUpdate, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, millUntilLand, getMaxGenericManaAvailable } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
+import {
+  isStationPermanentCreatureNow,
+  isStationPermanentTypeLine,
+} from "../../../rules-engine/src/stationPermanentUtils.js";
 import { getLandwalkUnblockableReason } from "../../../shared/src/combatLandwalk.js";
 import { getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
 import { buildTapTriggeredStackItem, collectTapTriggersForTapEvent, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
@@ -622,7 +626,7 @@ function processTapTriggersForAttackers(
  * - Animation effects (e.g., Tezzeret making artifacts creatures, Nissa animating lands)
  * - Granted types from effects
  * - Vehicles (only creatures when crewed this turn)
- * - Spacecraft with Station (creatures when charge counter threshold met)
+ * - Spacecraft / Planet with Station (creatures when charge counter threshold met)
  * - Bestow creatures (may be Auras when attached to another creature)
  * - Gods with devotion requirements
  * 
@@ -740,26 +744,12 @@ function isCurrentlyCreature(permanent: any, battlefield?: any[], controllerId?:
     return false;
   }
   
-  // Handle Spacecraft with Station mechanic
-  // Spacecraft become creatures when they have enough charge counters
-  if (typeLine.includes('spacecraft')) {
-    // Check if the spacecraft has met its station threshold
-    // This is tracked by the game when station ability resolves
-    if (permanent.stationed === true) {
+  // Handle Spacecraft / Planet permanents with Station mechanic
+  if (isStationPermanentTypeLine(typeLine)) {
+    if (isStationPermanentCreatureNow(permanent, oracleText)) {
       return true;
     }
-    // Also check for granted creature type from station effect
-    if (permanent.grantedTypes && Array.isArray(permanent.grantedTypes)) {
-      if (permanent.grantedTypes.includes('Creature')) return true;
-    }
-    // Check if counters meet the threshold (simplified check)
-    // The game should manage this, but we can check for charge counters
-    const chargeCounters = permanent.counters?.charge || permanent.counters?.['charge'] || 0;
-    const stationThreshold = permanent.stationThreshold || 0;
-    if (stationThreshold > 0 && chargeCounters >= stationThreshold) {
-      return true;
-    }
-    // Spacecraft not stationed - not a creature
+    // Station permanent not yet a creature
     return false;
   }
   

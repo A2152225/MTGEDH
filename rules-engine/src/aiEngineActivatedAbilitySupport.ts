@@ -2,6 +2,10 @@ import type { BattlefieldPermanent, GameState, KnownCardRef, PlayerID } from '..
 import { cardAnalyzer, CardCategory, SynergyArchetype } from './CardAnalyzer';
 import type { AIPlayerConfig } from './AIEngine';
 import { getCombinedPermanentText } from './permanentText';
+import {
+  isStationPermanentTypeLine,
+  readStationChargeCreatureThresholdFromOracleText,
+} from './stationPermanentUtils';
 
 type HasPermanentType = (perm: BattlefieldPermanent, type: string) => boolean;
 type GetPrimaryArchetypes = (config: AIPlayerConfig) => readonly SynergyArchetype[];
@@ -111,12 +115,12 @@ function getAIActivatedAbilityCandidates(perm: BattlefieldPermanent): AIActivate
     });
   }
 
-  const stationMatch = nativeOracleText.match(/station\s*(\d+)/i);
-  if (stationMatch && (typeLine.includes('spacecraft') || lowerOracleText.includes('station'))) {
+  const stationThreshold = readStationChargeCreatureThresholdFromOracleText(nativeOracleText);
+  if (isStationPermanentTypeLine(typeLine) || lowerOracleText.includes('station')) {
     candidates.push({
       abilityId: `${cardId}-station-0`,
-      abilityText: `Station ${stationMatch[1]}`,
-      effectText: `station ${stationMatch[1]}`,
+      abilityText: stationThreshold > 0 ? `Station ${stationThreshold}` : 'Station',
+      effectText: stationThreshold > 0 ? `station ${stationThreshold}` : 'station',
     });
   }
 

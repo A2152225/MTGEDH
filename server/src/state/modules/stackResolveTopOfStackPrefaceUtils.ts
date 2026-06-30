@@ -1,7 +1,7 @@
 import type { GameContext } from '../context.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 import { applyExplicitDayNightChangeFromText } from './day-night.js';
-import { isMoxDiamondCard, queueMoxDiamondChoiceForStackItem } from './mox-diamond-choice.js';
+import { hasWouldEnterDiscardLandReplacement, queueWouldEnterDiscardLandChoiceForStackItem } from './land-would-enter-replacement.js';
 import { popStackItem } from './stackPushUtils.js';
 import { resolveStackItemEffectiveCard } from './stackResolveEffectiveCardUtils.js';
 import {
@@ -16,8 +16,8 @@ export function tryPrepareResolveTopOfStackContext(ctx: GameContext): ResolveTop
   const stack = ctx.state?.stack;
   const pendingTop =
     Array.isArray(stack) && stack.length > 0 ? stack[stack.length - 1] : null;
-  if (pendingTop && isMoxDiamondCard(pendingTop.card)) {
-    if (queueMoxDiamondChoiceForStackItem(ctx, pendingTop)) {
+  if (pendingTop && hasWouldEnterDiscardLandReplacement(pendingTop.card)) {
+    if (queueWouldEnterDiscardLandChoiceForStackItem(ctx, pendingTop)) {
       ctx.bumpSeq();
       return { handled: true };
     }

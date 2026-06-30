@@ -1284,6 +1284,14 @@ export type OracleEffectStep =
       readonly battlefieldSetOracleText?: string;
       /** Clear the moved card's printed abilities before applying battlefield overrides. */
       readonly battlefieldLoseAllAbilities?: boolean;
+      /**
+       * When spell X is at least `threshold`, player chooses among `destinations`
+       * instead of using the default `to` zone (e.g. battlefield or hand).
+       */
+      readonly xAtLeastAlternate?: {
+        readonly threshold: number;
+        readonly destinations: readonly OracleZone[];
+      };
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -1541,6 +1549,8 @@ export interface OracleIRAbility {
   readonly type: AbilityType;
   readonly text: string;
   readonly cost?: string;
+  /** Station / Spacecraft charge-counter gate (N in `N+ | {cost}: effect`). */
+  readonly stationChargeThreshold?: number;
   readonly triggerCondition?: string;
   readonly interveningIf?: string;
   readonly effectText: string;
