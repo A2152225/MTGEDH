@@ -11,6 +11,7 @@
  */
 
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { detectTeamworkAdditionalCost } from '../state/modules/marvelMechanicsHelpers.js';
 
 // ============================================================================
 // Additional Cost Detection
@@ -23,7 +24,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * Examples include discarding cards (Faithless Looting), sacrificing permanents,
  * or paying life.
  * 
- * @property type - The type of additional cost required ('discard', 'sacrifice', 'pay_life', 'remove_counters', 'reveal', 'squad', or 'strive')
+ * @property type - The type of additional cost required ('discard', 'sacrifice', 'pay_life', 'remove_counters', 'reveal', 'squad', 'strive', or 'teamwork')
  * @property amount - How many of the cost type must be paid (e.g., 1 card, 2 life)
  * @property filter - Optional filter for sacrifice costs (e.g., "creature", "artifact")
  * @property cost - For squad/strive: the mana cost to pay per copy/target (e.g., "{1}{W}")
@@ -31,7 +32,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
  * @property costPerTarget - For strive: indicates this cost is per additional target beyond the first
  */
 export interface AdditionalCostResult {
-  type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'reveal' | 'squad' | 'strive' | 'blight' | 'collect_evidence' | 'behold_chosen_type';
+  type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'reveal' | 'squad' | 'strive' | 'blight' | 'collect_evidence' | 'behold_chosen_type' | 'teamwork';
   amount: number;
   filter?: string;
   counterType?: string;
@@ -52,6 +53,10 @@ export interface AdditionalCostResult {
 
   // Behold + chosen creature type additional-cost support
   beholdIsOptional?: boolean;
+
+  // Teamwork additional-cost support (Marvel / CR 702.194)
+  teamworkMinPower?: number;
+  teamworkIsOptional?: boolean;
 }
 
 /**
@@ -64,6 +69,16 @@ export interface AdditionalCostResult {
  * Strive pattern: "Strive — This spell costs {X}{Y} more to cast for each target beyond the first"
  */
 export function detectAdditionalCost(oracleText: string): AdditionalCostResult | null {
+  const teamwork = detectTeamworkAdditionalCost(oracleText);
+  if (teamwork) {
+    return {
+      type: 'teamwork',
+      amount: 0,
+      teamworkMinPower: teamwork.teamworkMinPower,
+      teamworkIsOptional: teamwork.teamworkIsOptional,
+    };
+  }
+
   const lowerText = (oracleText || "").toLowerCase();
 
   // Collect evidence as an additional cost (MKM keyword action)

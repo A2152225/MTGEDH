@@ -3316,6 +3316,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 applyToStackItem('bargainResolved', true);
               }
             }
+
+            const rawTeamworkWasPaid =
+              (e as any).teamworkWasPaid ??
+              (e as any).card?.teamworkWasPaid ??
+              (e as any).card?.card?.teamworkWasPaid;
+            if (typeof rawTeamworkWasPaid === 'boolean') {
+              applyToStackItem('teamworkWasPaid', rawTeamworkWasPaid);
+              if ((e as any).teamworkResolved === true) {
+                applyToStackItem('teamworkResolved', true);
+              }
+            }
           }
         } catch {
           // best-effort only

@@ -8,7 +8,7 @@ import { executeSpellEffect } from './executeSpellEffect.js';
 import { wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
 import { applySupplementalOracleIRForResolvedSpell } from './oracleIrSpellLegacySupplemental.js';
 import { applyInstantSorceryItsControllerCreatesToken } from './stackResolveSpellTargetMetadataUtils.js';
-import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
+import { shouldSkipLegacySpellCategorizeExecution, skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 import { parseNumberWord } from './oracleIrSpellLegacySpellShapeUtils.js';
 
 export function executeInstantSorceryLegacyCategorizedSpell(
@@ -29,6 +29,9 @@ export function executeInstantSorceryLegacyCategorizedSpell(
 ): void {
   const spellName = String(options.effectiveCard?.name || options.card?.name || 'spell');
   if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
+    return;
+  }
+  if (shouldSkipLegacySpellCategorizeExecution(options.oracleText, spellName)) {
     return;
   }
 

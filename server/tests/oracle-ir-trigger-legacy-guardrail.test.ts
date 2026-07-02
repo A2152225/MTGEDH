@@ -670,24 +670,11 @@ describe('oracle IR trigger legacy guardrail', () => {
 
   it('defines retired trigger regex handlers in the legacy module', () => {
     expect(handlersSource.includes('applyRetiredTriggerLegacyDrawAndLifeCombinedEffects')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyDealsDamageToEachOpponent')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyEachOpponentDiscards')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyTargetPlayerLoseYouGainLife')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyEachPlayerDraws')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyDealEachOpponentAndGainLife')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyMayGainLife')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyCreatureControllerLosesLife')).toBe(true);
     expect(handlersSource.includes('applyRetiredTriggerLegacyEnergyEffects')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyEachOpponentDraws')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyCounterAndDealsOpponentDamage')).toBe(true);
     expect(handlersSource.includes('applyRetiredTriggerLegacyPutThatManyCountersOnSelf')).toBe(true);
     expect(handlersSource.includes('applyRetiredTriggerLegacyTokenCounters')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyTargetPlayerDraws')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyUntapTapLands')).toBe(true);
     expect(handlersSource.includes('applyRetiredTriggerLegacyElspethCounterFromAmong')).toBe(true);
     expect(handlersSource.includes('applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyPlusOneCounterEachCreatureYouControl')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyDoublePlusOneCountersOnSelf')).toBe(true);
     expect(handlersSource.includes('applyRetiredTriggerLegacyLootStyleTopLibrary')).toBe(true);
     expect(handlersSource.includes('applyRetiredTriggerLegacyEachPlayerCounterPlacement')).toBe(true);
     expect(searchHandlersSource.includes('applyRetiredTriggerLegacyProteanHulkSearch')).toBe(true);
@@ -707,7 +694,6 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(combatEvasionHandlersSource.includes('applyRetiredTriggerLegacySelfCantBeBlocked')).toBe(true);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken')).toBe(true);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyCreateXTokensByControlledTypeCount')).toBe(true);
-    expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyCounterThenDraw')).toBe(true);
     expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyOptionalDiscardThenDraw')).toBe(true);
     expect(combinedHandlersSource.includes('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit')).toBe(true);
     expect(searchHandlersSource.includes('applyRetiredTriggerLegacyRevealUntilEquipment')).toBe(true);

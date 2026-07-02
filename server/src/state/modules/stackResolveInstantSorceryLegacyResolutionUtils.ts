@@ -17,6 +17,7 @@ import {
 import { finalizeResolvedInstantOrSorceryResolution } from './stackResolveSpellZoneUtils.js';
 import { applyGraveyardPermissionEffectsFromText } from './graveyard-permissions.js';
 import { resyncPreparedExileCopiesWithControllers } from './prepared.js';
+import { ResolutionQueueManager } from '../resolution/index.js';
 import type {
   InstantSorceryPrefaceContinuation,
   InstantSorceryStackResolveOptions,
@@ -43,6 +44,36 @@ export function tryResolveInstantSorceryLegacyResolution(
     oracleIrSpellHandled,
     skipLegacySpellCategorization,
   } = preface;
+
+  if (oracleIrSpellHandled) {
+    const gameId = String((ctx as any).gameId || 'unknown');
+    const pendingResolutionSteps = gameId !== 'unknown'
+      ? ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0
+      : 0;
+    if (pendingResolutionSteps > 0) {
+      const state = (ctx as any).state;
+      state.stack = state.stack || [];
+      state.stack.push({ ...item, oracleIrDeferredFinalize: true });
+      resyncPreparedExileCopiesWithControllers(state);
+      return true;
+    }
+  }
+
+  if ((item as any)?.oracleIrDeferredFinalize === true) {
+    if (finalizeResolvedInstantOrSorceryResolution(ctx, {
+      controller,
+      card,
+      effectiveCard,
+      item,
+      oracleText,
+      oracleTextLower,
+    })) {
+      bumpSeq?.();
+      return true;
+    }
+    resyncPreparedExileCopiesWithControllers((ctx as any).state);
+    return true;
+  }
 
   applyInstantSorcerySpecialCaseSpellEffects(ctx, {
     controller,

@@ -1,6 +1,6 @@
 # MTGEDH Oracle IR Architecture & Execution Loop
 
-**Version:** 2026-06-13 (batch 280 server damage bridge; step ledger Phases A–Z, Post-Z through AV)  
+**Version:** 2026-07-02 (batch 466: D1 delta CI, D2 gap telemetry, legacy ratchet, replay guardrail; architecture review §15)  
 **Repository:** MTGEDH  
 **Audience:** Contributors working on card behavior, server integration, or migration off legacy handlers
 
@@ -14,7 +14,9 @@ Oracle IR (Intermediate Representation) is the project's canonical pipeline for 
 oracle text → parse → OracleEffectStep[] → execute → server sync → resolution UI → resume
 ```
 
-Today this pipeline is **complete in the rules-engine** (Layers 1–2) and **partially integrated on the server** (Layer 3). Production runs IR-primary for spells, triggers, and activated abilities. Zone-affecting steps on the server path increasingly use a **pre-commit transition pipeline** and indexed **step ledger** for "this way" memory and replacement interception; legacy fallbacks still run when IR returns incomplete.
+**Corpus status (2026-07-02):** Layers **1–2 are complete** for commander-legal scope. Layer **3 is beta-ready** — production runs IR-primary for spells, triggers, and activated abilities; migration bar **797/797**. Zone steps use the pre-commit transition pipeline and step ledger; legacy fallbacks remain as migration debt (Phase 4) but are gated when IR primary owns the effect.
+
+**New cards not in the parser:** **Compiled overlays are the default ingestion path** (atomic native steps); the delta audit (`npm run oracle-ir:delta`) finds the gaps and emits the work queue — see §15 and [oracle-ir-track-e-remaining-work.md § Goal: Semantic atomic parsing](./oracle-ir-track-e-remaining-work.md#goal-semantic-atomic-parsing--seamless-effect-automation-new-cards).
 
 ---
 
@@ -22,9 +24,9 @@ Today this pipeline is **complete in the rules-engine** (Layers 1–2) and **par
 
 | Layer | Location | Responsibility | Status |
 |-------|----------|----------------|--------|
-| **1 — Parse** | `rules-engine/src/oracleIRParser.ts` | `parseOracleTextToIR()` → `OracleEffectStep[]` | Green (~30k cards) |
-| **2 — Execute** | `rules-engine/src/oracleIRExecutor.ts` | `applyOracleIRStepsToGameState()` dry-run | Green (triggers 100% assisted) |
-| **3 — Integrate** | `server/src/state/modules/oracleIr*.ts` | Live state, queue prompts, resume, pre-commit transitions | Partial (step ledger wired) |
+| **1 — Parse** | `rules-engine/src/oracleIRParser.ts` | `parseOracleTextToIR()` → `OracleEffectStep[]`; overlay merge for gaps | ✅ Corpus green; overlay path for new cards |
+| **2 — Execute** | `rules-engine/src/oracleIRExecutor.ts` | `applyOracleIRStepsToGameState()` dry-run | ✅ Green (full_card 100% assisted) |
+| **3 — Integrate** | `server/src/state/modules/oracleIr*.ts` | Live state, queue prompts, resume, pre-commit transitions | ✅ Beta-ready (**797/797**); Phase 4 legacy debt remains |
 
 **Never call** `applyOracleIRStepsToGameState` directly on live server state. Always use **`applyOracleIRStepsOnServer`**.
 
@@ -410,6 +412,59 @@ Some live gameplay still bypasses `applyOracleIRStepsOnServer`:
 Long-term goal: delegate combat damage to rules-engine `executeCombatDamage` or route all damage through one module.
 
 **Session handoff:** [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)
+
+---
+
+## 15. Architecture direction (2026-07-02 review)
+
+The pipeline in §1–§14 is confirmed as the end-state architecture. The review produced five standing decisions that shape all future work:
+
+### 15.1 Overlay-first new-card ingestion
+
+The regex parser (Layer 1) is a **frozen bootstrapping asset**: it earned the 47k-card corpus, but every extension risks regressing existing parses and its maintenance cost grows with its size. New/changed cards default to **compiled overlays** (reviewable JSON step programs, validated by the same executor dry-run). A parser batch is justified only when overlay clusters prove a phrasing recurs across many cards — and the redundant overlays are deleted after the batch lands. Decision tree: [track-e §C](./oracle-ir-track-e-remaining-work.md).
+
+### 15.2 Delta CI (D1 — shipped)
+
+`npm run oracle-ir:delta` (`server/scripts/oracle-delta-coverage-audit.ts`):
+
+```
+oracle-cards.json → per-card sha1(name + oracle text)
+  → diff vs committed baseline (scripts/oracle-delta-baseline.json)
+  → executor dry-run + trigger detection on NEW/CHANGED cards only
+  → overlayWorkQueue (suggested action per gap reason)
+  → non-zero exit on gaps (CI gate); --update-baseline accepts a green set
+```
+
+New-set support cost is now proportional to the **delta**, not the corpus.
+
+### 15.3 Production gap telemetry (D2 — shipped)
+
+`server/src/state/modules/oracleIrGapTelemetry.ts` records three event kinds, always on (independent of `DEBUG_STATE`), with counters + a 200-event ring buffer exposed at **`GET /api/oracle-ir/telemetry`**:
+
+| Kind | Emitted when | Consumer |
+|------|--------------|----------|
+| `all_or_nothing_failure` | `logOracleIrAllOrNothingFailure` — IR attempted, gate failed | gap triage; legacy fallback may still cover it |
+| `owned_but_unhandled` | IR primary owns text, did not apply, legacy path skipped (trigger tail / spell categorize gates) | **silent no-op risk — the highest-priority live signal** |
+| `legacy_handled` | legacy handler executed while IR primary enabled (per handler family) | Phase 4 retirement triage (§15.4) |
+
+### 15.4 Legacy retirement ratchet (Phase 4 / D3)
+
+The dual execution path (IR primary + 86 `applyRetiredTriggerLegacy*` exports) is the main correctness risk for all-or-nothing and undo/replay. Two mechanisms make it shrink-only:
+
+- `server/tests/oracle-ir-legacy-handler-ratchet.unit.test.ts` — fails if legacy handler export counts rise; slack check keeps ceilings honest after deletions.
+- `legacy_handled` telemetry — after a soak, handlers whose families never fire are dead code; delete them evidence-driven instead of auditing 86 handlers speculatively.
+
+### 15.5 Undo/replay divergence guardrail
+
+Undo rebuilds state by replaying the event log; that is only correct if every mutation flows through events. `server/tests/helpers/replayDivergence.ts` replays a live game's persisted events into a fresh context and asserts a normalized projection (life, zones, battlefield, stack) is deep-equal to the live state. First adoption: `replay-divergence.guardrail.integration.test.ts` (IR-primary spell). **Adopt opportunistically** in socket integration tests that fully resolve an effect.
+
+### 15.6 Generic choice primitives (D6 direction)
+
+Server-side IR queues novel resolution steps faster than the client grows bespoke modals. Rather than mirroring each new `ResolutionStepType` with a new component, converge on generic primitives the client already renders — select-N-from-list (cards/permanents/players/options), order-list, yes/no, number pick — parameterized by the step payload. A new step kind should require **zero client work** unless it introduces a genuinely new interaction geometry.
+
+### 15.7 Phase 5 ceiling
+
+Continuous and replacement effects are the one class the step IR cannot express; they remain in scattered event-specific hooks. Design (declarative `StaticEffectSpec` / `ReplacementEffectSpec`, single replacement registry, derived-view statics): [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md).
 
 ---
 

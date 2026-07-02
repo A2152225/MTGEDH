@@ -187,4 +187,14 @@ describe('triggered ability parsing', () => {
     expect(abilities).toHaveLength(1);
     expect(abilities[0]?.event).toBe(TriggerEvent.DIES);
   });
+
+  it('stops trigger effect before waterbend activated line', () => {
+    const oracle =
+      "Whenever a creature you control deals combat damage to a player, put a quest counter on this enchantment. Then if it has four or more quest counters on it, draw a card.\nWaterbend {4}: Target creature can't be blocked this turn.";
+    const abilities = parseTriggeredAbilitiesFromText(oracle, 'SRC', 'P1', 'Waterbender Ascension');
+    expect(abilities).toHaveLength(1);
+    expect(abilities[0]?.effect?.toLowerCase()).toContain('quest counter');
+    expect(abilities[0]?.effect?.toLowerCase()).not.toContain('waterbend');
+    expect(abilities[0]?.effect?.toLowerCase()).not.toContain("can't be blocked");
+  });
 });

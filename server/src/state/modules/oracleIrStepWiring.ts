@@ -1,6 +1,7 @@
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import type { OracleIRExecutionResult } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
 import { debugWarn } from '../../utils/debug.js';
+import { recordOracleIrGapTelemetry } from './oracleIrGapTelemetry.js';
 import { isSupportedCopyPermanentTriggerPattern } from './trigger-copy-permanent.js';
 import {
   ORACLE_IR_FALLBACK_STEP_KINDS,
@@ -318,10 +319,20 @@ export function formatOracleIrAllOrNothingFailure(
 export function logOracleIrAllOrNothingFailure(
   scope: OracleIrAllOrNothingScope,
   label: string,
-  reasons: readonly string[],
+  reasons: readonly string[] | string,
   stats?: { applied?: number; parsed?: number; mandatory?: number },
 ): void {
-  debugWarn(1, formatOracleIrAllOrNothingFailure(scope, label, reasons, stats));
+  const normalizedReasons: readonly string[] = Array.isArray(reasons)
+    ? reasons
+    : [String(reasons)];
+  debugWarn(1, formatOracleIrAllOrNothingFailure(scope, label, normalizedReasons, stats));
+  recordOracleIrGapTelemetry({
+    kind: 'all_or_nothing_failure',
+    scope,
+    label,
+    reasons: normalizedReasons,
+    stats,
+  });
 }
 
 /**

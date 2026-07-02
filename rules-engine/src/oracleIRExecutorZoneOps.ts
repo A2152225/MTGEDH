@@ -6618,6 +6618,27 @@ export function parseMoveZoneEachCreatureWithPowerOfChosenQuality(what: {
   return raw === 'each creature with power of the chosen quality';
 }
 
+export type DestroyChosenQualityMetric = 'power' | 'mana_value';
+
+export function parseDestroyChosenQualityTarget(target: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): { readonly metric: DestroyChosenQualityMetric; readonly excludeSource: boolean } | null {
+  if (target.kind !== 'raw') return null;
+  const raw = String((target as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  if (raw === 'each creature with power of the chosen quality') {
+    return { metric: 'power', excludeSource: false };
+  }
+  if (raw === 'each other creature with mana value of the chosen quality') {
+    return { metric: 'mana_value', excludeSource: true };
+  }
+  if (raw === 'each creature with mana value of the chosen quality') {
+    return { metric: 'mana_value', excludeSource: false };
+  }
+  return null;
+}
+
 export function parseMoveZoneEachOpponentCreatureToughnessXOrLess(what: {
   readonly kind: string;
   readonly text?: string;

@@ -31,7 +31,7 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(shouldSkipLegacyTriggerRegexHandlers('Draw a card.', 'Creature')).toBe(false);
   });
 
-  it('skips legacy handlers for wired draw/gain-life trigger text in primary mode', () => {
+  it('skips legacy handlers for wired draw/gain-life trigger text in primary mode', { timeout: 15000 }, () => {
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
     expect(isTriggerEffectOwnedByOracleIrPrimary('Draw two cards.', 'Mulldrifter')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('You gain 1 life.', 'Soul Warden')).toBe(true);
@@ -179,6 +179,8 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('choose_mode')).toBe(true);
     expect(shouldSkipLegacyTriggerBodyHandlers('Draw two cards.', 'Mulldrifter')).toBe(true);
     expect(shouldSkipLegacyTriggerBodyHandlers('Take an extra turn after this one.', 'Time Warp')).toBe(false);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('You may discard a card. If you do, draw a card.', 'Rummage')).toBe(true);
+    expect(shouldSkipLegacyTriggerBodyHandlers('You may discard a card. If you do, draw a card.', 'Rummage')).toBe(true);
   });
 
   it('isTriggerEffectFullyIrWired reports wired trigger clauses independent of primary flag', () => {

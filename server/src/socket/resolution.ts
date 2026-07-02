@@ -140,7 +140,7 @@ import {
 } from "../state/modules/triggers/targeted.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
-import { resolveOracleIrOptionalPaymentPromptFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution, processPendingOracleIrCompoundResumeOnContext } from '../state/modules/oracleIrServerZoneSync.js';
+import { resolveOracleIrOptionalPaymentPromptFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution, processPendingOracleIrCompoundResumeOnContext, syncAllOracleIRPlayerZonesAfterResolution } from '../state/modules/oracleIrServerZoneSync.js';
 import { tryApplyStationChargeCountersViaOracleIR } from '../state/modules/oracleIrAbilityExecution.js';
 import { readOracleIrLedgerPersistFields, readOracleIrCompoundResumePersistFields, persistOracleIrCompoundDrawAfterResolution } from '../state/modules/oracleIrTransitionPipeline.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
@@ -173,6 +173,10 @@ import {
   buildDungeonRoomPromptSteps,
 } from "../state/modules/dungeon-effects.js";
 import { parseMadnessCost } from "../state/modules/alternate-costs.js";
+import {
+  applyPowerUpDiscountsToActivationManaCost,
+  maybeMarkPowerUpAbilityUsedFromActivationContext,
+} from "../state/modules/marvelMechanicsHelpers.js";
 import { applyGraveyardPermissionEffectsFromText } from "../state/modules/graveyard-permissions.js";
 import { createEffectProgramChoiceResponse, readEffectProgramQueueMetadata, resumeEffectProgramResolution } from "../state/effects/index.js";
 
@@ -5312,7 +5316,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     if (step.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT) {
       const stepAny = step as any;
       const mandatory = Boolean(stepAny.mandatory);
-      const costType = String(stepAny.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal' | 'behold';
+      const costType = String(stepAny.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal' | 'behold' | 'teamwork';
       const amount = Math.max(0, Number(stepAny.amount ?? 0));
 
       if (cancelled) {
@@ -5346,12 +5350,47 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             return;
           }
 
-          if (mandatory && selectedIds.length !== amount) {
+          if (mandatory && costType !== 'teamwork' && selectedIds.length !== amount) {
             socket.emit('error', { code: 'INVALID_SELECTION', message: `Must select exactly ${amount} item(s).` });
             return;
           }
 
-          if (costType === 'discard' || costType === 'reveal') {
+          if (costType === 'teamwork') {
+            const minPower = Math.max(0, Number(stepAny.teamworkMinPower || 0));
+            if (selectedIds.length === 0) {
+              if (mandatory) {
+                socket.emit('error', { code: 'INVALID_SELECTION', message: 'Must tap creatures to pay teamwork.' });
+                return;
+              }
+            } else {
+              const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+              let totalPower = 0;
+              for (const id of selectedIds) {
+                const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === String(id));
+                if (!permanent || String(permanent.controller || '') !== String(pid)) {
+                  socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected creature is not a valid teamwork choice' });
+                  return;
+                }
+                if ((permanent as any).tapped) {
+                  socket.emit('error', { code: 'ALREADY_TAPPED', message: 'Selected creature is already tapped' });
+                  return;
+                }
+                const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+                if (!typeLine.includes('creature')) {
+                  socket.emit('error', { code: 'INVALID_SELECTION', message: 'Teamwork can only tap creatures' });
+                  return;
+                }
+                totalPower += getEffectivePower(permanent);
+              }
+              if (totalPower < minPower) {
+                socket.emit('error', {
+                  code: 'INSUFFICIENT_POWER',
+                  message: `Selected creatures have total power ${totalPower}, but teamwork requires ${minPower} or more.`,
+                });
+                return;
+              }
+            }
+          } else if (costType === 'discard' || costType === 'reveal') {
             const zones = (game.state as any)?.zones?.[pid];
             const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
             const handIdSet = new Set(hand.map((c: any) => String(c?.id || '')).filter(Boolean));
@@ -10029,6 +10068,10 @@ async function handleStepResponse(
 
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
+        maybeMarkPowerUpAbilityUsedFromActivationContext(game, controllerId, permanentId, {
+          activatedAbilityText: activatedAbilityText || `${manaCost}: ${abilityText}`,
+          abilityId,
+        });
         fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
         const exertedPermanentIdForCost = finalizeBattlefieldAbilitySelfExertCost(
@@ -10135,7 +10178,6 @@ async function handleStepResponse(
         const abilityId = String(stepAny?.abilityId || '').trim();
         const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
         const abilityText = String(stepAny?.abilityText || step.description || '');
-        const manaCost = String(stepAny?.manaCost || '');
         const requiresTap = Boolean(stepAny?.requiresTap);
         const lifeToPayForCost = stepAny?.lifeToPayForCost !== undefined ? Number(stepAny.lifeToPayForCost) : 0;
 
@@ -10150,6 +10192,15 @@ async function handleStepResponse(
           emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
           break;
         }
+        const activatedAbilityTextForDiscount = String(stepAny?.activatedAbilityText || '').trim()
+          || `${String(stepAny?.manaCost || '')}: ${abilityText}`;
+        const manaCost = applyPowerUpDiscountsToActivationManaCost(
+          String(stepAny?.manaCost || ''),
+          sourcePerm,
+          game.state,
+          controllerId,
+          { activatedAbilityText: activatedAbilityTextForDiscount, abilityId },
+        );
         if (String(sourcePerm.controller || '') !== controllerId) {
           emitToPlayer(io, controllerId, 'error', { code: 'NOT_CONTROLLER', message: 'You no longer control that permanent' });
           break;
@@ -10342,6 +10393,10 @@ async function handleStepResponse(
 
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
+        maybeMarkPowerUpAbilityUsedFromActivationContext(game, controllerId, permanentId, {
+          activatedAbilityText: activatedAbilityText || `${manaCost}: ${abilityText}`,
+          abilityId,
+        });
         fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
         io.to(gameId).emit('chat', {
@@ -11595,6 +11650,10 @@ async function handleStepResponse(
 
           game.state.stack = game.state.stack || [];
           game.state.stack.push(stackItem);
+          maybeMarkPowerUpAbilityUsedFromActivationContext(game, controllerId, permanentId, {
+            activatedAbilityText: activatedAbilityText || undefined,
+            abilityId,
+          });
           fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
           io.to(gameId).emit('chat', {
@@ -11910,6 +11969,10 @@ async function handleStepResponse(
 
           game.state.stack = game.state.stack || [];
           game.state.stack.push(stackItem);
+          maybeMarkPowerUpAbilityUsedFromActivationContext(game, controllerId, permanentId, {
+            activatedAbilityText: activatedAbilityText || undefined,
+            abilityId,
+          });
           fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
           io.to(gameId).emit('chat', {
@@ -12350,6 +12413,10 @@ async function handleStepResponse(
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
         stackItemId = String(stackItem.id || '').trim() || undefined;
+        maybeMarkPowerUpAbilityUsedFromActivationContext(game, String(pid), permanentId, {
+          activatedAbilityText,
+          abilityId: stepData.abilityId,
+        });
         fireBattlefieldAbilityActivatedTriggers(game, pid, permanentId, abilityText, gameId, stackItem.id);
 
         io.to(gameId).emit('chat', {
@@ -13424,7 +13491,7 @@ async function handleStepResponse(
       const castArgs = stepData.castSpellFromHandArgs as any;
       const cardId = String(stepData.cardId || stepData.sourceId || castArgs?.cardId || '');
       const cardName = String(stepData.cardName || stepData.sourceName || 'Spell');
-      const costType = String(stepData.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal' | 'behold';
+      const costType = String(stepData.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal' | 'behold' | 'teamwork';
       const additionalCostKeyword = String(stepData.additionalCostKeyword || '').toLowerCase().trim();
       const isBargain = additionalCostKeyword === 'bargain';
 
@@ -13493,11 +13560,78 @@ async function handleStepResponse(
       }
 
       // Optional steps can be declined (empty selection or cancel) without error.
-      // Currently only used for Bargain.
+      // Used for Bargain and Teamwork.
       const noSelectionsProvided = costType === 'remove_counters'
         ? removedCountersForCost.length === 0
         : selectedIds.length === 0;
       if ((response.cancelled || noSelectionsProvided) && !mandatory) {
+        if (costType === 'teamwork') {
+          (spellCard as any).teamworkResolved = true;
+          (spellCard as any).teamworkWasPaid = false;
+          (spellCard as any).additionalCostPaid = true;
+          (spellCard as any).additionalCostMethod = 'teamwork';
+          if (requestCastPending) {
+            requestCastPending.teamworkResolved = true;
+            requestCastPending.teamworkWasPaid = false;
+            requestCastPending.additionalCostPaid = true;
+            requestCastPending.additionalCostMethod = 'teamwork';
+          }
+
+          const continuationPayload: Record<string, unknown> = {
+            playerId: pid,
+            resolvedStepId: String((step as any).id || ''),
+            resolvedStepType: String((step as any).type || ''),
+            cardId,
+            ...(spellSourceZone === 'hand'
+              ? {
+                  cardUpdates: {
+                    teamworkResolved: true,
+                    teamworkWasPaid: false,
+                    additionalCostPaid: true,
+                  },
+                }
+              : {}),
+            ...(requestCastPending
+              ? {
+                  effectId: requestCastEffectId,
+                  pendingSpellCast: {
+                    ...(requestCastPending || {}),
+                  },
+                }
+              : {}),
+          };
+
+          appendCastSpellContinuationEvent(gameId, game, continuationPayload);
+
+          if (requestCastPending && requestCastEffectId) {
+            delete (game.state as any).pendingSpellCasts[requestCastEffectId];
+          }
+
+          const { socket: restartCastSocket } = createForwardingGameActionSocket(io, gameId, String(pid));
+          await requestCastSpellForSocket(
+            io,
+            restartCastSocket as any,
+            {
+              gameId,
+              cardId,
+              faceIndex: Number.isFinite(castArgs?.faceIndex)
+                ? Number(castArgs.faceIndex)
+                : (Number.isFinite(requestCastPending?.faceIndex) ? Number(requestCastPending.faceIndex) : undefined),
+              fromZone: spellSourceZone as any,
+            },
+            {
+              xValue: Number.isFinite(castArgs?.xValue)
+                ? Number(castArgs.xValue)
+                : (Number.isFinite(requestCastPending?.xValue) ? Number(requestCastPending.xValue) : undefined),
+              forcedAlternateCostId: String(castArgs?.alternateCostId || requestCastPending?.forcedAlternateCostId || '').trim() || undefined,
+              castWithoutPayingManaCost: castArgs?.castWithoutPayingManaCost === true || requestCastPending?.castWithoutPayingManaCost === true,
+              bypassExilePermissionCheck: castArgs?.bypassExilePermissionCheck === true || requestCastPending?.bypassExilePermissionCheck === true,
+              ignoreTimingRestrictions: castArgs?.ignoreTimingRestrictions === true || requestCastPending?.ignoreTimingRestrictions === true,
+            },
+          );
+          break;
+        }
+
         if (!isBargain) break;
         // Mark Bargain as resolved (declined).
         (spellCard as any).bargainResolved = true;
@@ -13758,6 +13892,42 @@ async function handleStepResponse(
             requestCastPending.chosenCreatureType = chosenType;
           }
         }
+      } else if (costType === 'teamwork') {
+        const minPower = Math.max(0, Number(stepData.teamworkMinPower || 0));
+        const battlefield = Array.isArray((game.state as any).battlefield) ? (game.state as any).battlefield : [];
+        const tappedNames: string[] = [];
+        let totalPower = 0;
+        for (const permId of selectedIds) {
+          const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === String(permId));
+          if (!permanent) continue;
+          (permanent as any).tapped = true;
+          totalPower += getEffectivePower(permanent);
+          tappedNames.push(String(permanent?.card?.name || 'Creature'));
+        }
+        const paid = selectedIds.length > 0 && totalPower >= minPower;
+        (spellCard as any).teamworkResolved = true;
+        (spellCard as any).teamworkWasPaid = paid;
+        if (requestCastPending) {
+          requestCastPending.teamworkResolved = true;
+          requestCastPending.teamworkWasPaid = paid;
+        }
+        if (paid) {
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${getPlayerName(game, pid)} taps ${tappedNames.join(', ')} using teamwork to cast ${cardName}.`,
+            ts: Date.now(),
+          });
+        } else {
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${getPlayerName(game, pid)} declines teamwork for ${cardName}.`,
+            ts: Date.now(),
+          });
+        }
       }
 
       if (isBargain) {
@@ -13821,6 +13991,12 @@ async function handleStepResponse(
                     bargainResolved: true,
                     wasBargained: true,
                   }
+                : costType === 'teamwork'
+                  ? {
+                      additionalCostPaid: true,
+                      teamworkResolved: true,
+                      teamworkWasPaid: (spellCard as any)?.teamworkWasPaid === true,
+                    }
                 : costType === 'behold'
                   ? {
                       additionalCostPaid: true,
@@ -16472,6 +16648,29 @@ async function handleDiscardResponse(
 
   // Cleanup-step integration: after the discard is applied, advance through the
   // normal cleanup/turn transition logic (clears damage, ends EOT effects, Sundial pause).
+  if (String((step as any)?.oracleIrResumeStepsJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const handIdsBefore = new Set(
+      ((game.state as any).zones?.[pid]?.hand || [])
+        .map((card: any) => String(card?.id || '').trim())
+        .filter(Boolean),
+    );
+    const compoundDrawResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
+    if (compoundDrawResult) {
+      persistOracleIrCompoundDrawAfterResolution(ctx, {
+        controller: pid,
+        result: compoundDrawResult,
+        sourceId: (step as any).oracleIrSourceId,
+        sourceName: (step as any).oracleIrSourceName,
+        handIdsBefore,
+      });
+    }
+  }
+
+  maybeResumeDeferredOracleIrStackSpell(game, gameId);
+
   if (isCleanupDiscard) {
     try {
       appendEvent(gameId, (game as any).seq ?? 0, 'cleanupDiscard', {
@@ -18403,13 +18602,20 @@ async function handleTargetSelectionResponse(
         )
       );
       if (hasTargetingManaCost) {
+        const discountedTargetingCost = applyPowerUpDiscountsToActivationManaCost(
+          targetingCost,
+          sourcePerm,
+          game.state,
+          controllerId,
+          { activatedAbilityText, abilityId },
+        );
         const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MANA_PAYMENT_CHOICE,
           playerId: controllerId as PlayerID,
           sourceId: permanentId,
           sourceName: cardName,
           sourceImage: step.sourceImage,
-          description: `Choose how to pay ${targetingCost} for ${cardName}.`,
+          description: `Choose how to pay ${discountedTargetingCost} for ${cardName}.`,
           mandatory: true,
           activationPaymentChoice: true,
           activationPaymentContext: 'battlefield_targeted',
@@ -18417,7 +18623,7 @@ async function handleTargetSelectionResponse(
           permanentId,
           abilityId,
           cardName,
-          manaCost: targetingCost,
+          manaCost: discountedTargetingCost,
           abilityText,
           activatedAbilityText,
           targetIds: selectedTargetIds,
@@ -19043,6 +19249,10 @@ async function handleTargetSelectionResponse(
 
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
+        maybeMarkPowerUpAbilityUsedFromActivationContext(game, controllerId, permanentId, {
+          activatedAbilityText: activatedAbilityText || `${manaCost}: ${abilityText}`,
+          abilityId,
+        });
         fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
         io.to(gameId).emit('chat', {
@@ -22773,6 +22983,8 @@ function handleScryResponse(
     }
   }
   
+  maybeResumeDeferredOracleIrStackSpell(game, gameId);
+
   // Log to event history
   try {
     appendEvent(gameId, game.seq ?? 0, "scryResolve", { 
@@ -23033,6 +23245,8 @@ function handleSurveilResponse(
       broadcastGame(io, game, gameId);
     }
   }
+
+  maybeResumeDeferredOracleIrStackSpell(game, gameId);
   
   // Log to event history
   try {
@@ -24035,7 +24249,11 @@ function oracleIrLibrarySearchResumeApplied(resumed: unknown): boolean {
   if (!resumed || typeof resumed !== 'object') return false;
   const appliedSteps = (resumed as { appliedSteps?: unknown }).appliedSteps;
   if (!Array.isArray(appliedSteps) || appliedSteps.length === 0) return false;
-  return appliedSteps.some((step) => String((step as { kind?: string })?.kind || '') === 'search_library');
+  return appliedSteps.some((step) => {
+    const kind = String((step as { kind?: string })?.kind || '');
+    // Among-them reveal/player_choice steps queue as LIBRARY_SEARCH but resume as player_choice.
+    return kind === 'search_library' || kind === 'player_choice';
+  });
 }
 
 function oracleIrTopLibraryChoiceResumeApplied(
@@ -25828,8 +26046,24 @@ export function processPendingOracleIrCompoundResume(
     if (resumed?.appliedSteps?.length) {
       broadcastGame(io, game, gameId);
     }
+    maybeResumeDeferredOracleIrStackSpell(game, gameId);
   } catch (err) {
     debugWarn(1, '[processPendingOracleIrCompoundResume] Error:', err);
+  }
+}
+
+function maybeResumeDeferredOracleIrStackSpell(game: any, gameId: string): void {
+  const pendingSteps = ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0;
+  if (pendingSteps > 0) return;
+
+  const stack = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+  if (stack.length === 0) return;
+
+  const top = stack[stack.length - 1] as any;
+  if (!top || top.oracleIrDeferredFinalize !== true) return;
+
+  if (typeof game.resolveTopOfStack === 'function') {
+    game.resolveTopOfStack();
   }
 }
 
@@ -26851,6 +27085,19 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  if (String(stepData?.oracleIrChoiceStepJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, response);
+    if (resumed) {
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+  }
 
   if (stepData?.spellBeholdCastPrompt === true) {
     const cardId = String(stepData?.spellBeholdCastCardId || stepData?.sourceId || '').trim();
@@ -28570,6 +28817,8 @@ async function handleOptionChoiceResponse(
         debugWarn(1, '[Resolution] appendEvent(optionalPaymentPromptResolve oracleIR) failed:', err);
       }
       broadcastGame(io, game, gameId);
+      maybeResumeDeferredOracleIrStackSpell(game, gameId);
+      syncAllOracleIRPlayerZonesAfterResolution(oracleIrPaymentCtx);
       return;
     }
 

@@ -45,7 +45,7 @@ import {
   extractModalModesFromOracleText,
   matchModalModeOptions,
 } from "../utils/oraclePromptContext.js";
-import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
+import { spellOracleUsesTeamworkChooseBoth } from "../state/modules/marvelMechanicsHelpers.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
@@ -5973,7 +5973,7 @@ export async function requestCastSpellForSocket(
       return;
     }
 
-    const modalSpellInfo = isInstantOrSorcery
+    const modalSpellInfo = isInstantOrSorcery && !spellOracleUsesTeamworkChooseBoth(baseOracleText)
       ? adjustModalSpellInfoForCurrentCast(extractModalModesForSpellCast(baseOracleText, cardName), game.state, String(playerId), baseOracleText)
       : undefined;
     if (modalSpellInfo && (!Array.isArray(selectedModes) || selectedModes.length === 0)) {
@@ -6493,6 +6493,64 @@ export async function requestCastSpellForSocket(
             },
           } as any);
           preTargetQueuedSteps.push({ ...(counterRemovalCostStep as any) });
+        } else if (!requestCastAdditionalCostPaid && additionalCost?.type === 'teamwork') {
+          const minPower = Math.max(0, Number((additionalCost as any).teamworkMinPower || 0));
+          const teamworkCreatures = (game.state?.battlefield || []).filter((p: any) => {
+            if (!p || String(p.controller || '') !== String(playerId)) return false;
+            if ((p as any).tapped) return false;
+            const typeLine = String(p?.card?.type_line || '').toLowerCase();
+            return typeLine.includes('creature');
+          });
+          const totalUntappedPower = teamworkCreatures.reduce(
+            (sum: number, permanent: any) => sum + getEffectivePower(permanent),
+            0,
+          );
+
+          if (minPower > 0 && totalUntappedPower >= minPower) {
+            const teamworkCostStep = ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+              playerId: playerId as any,
+              sourceId: effectId,
+              sourceName: cardName,
+              sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: `Teamwork (optional): Tap creatures with total power ${minPower} or more to cast ${cardName}. Submit with no selections to decline.`,
+              mandatory: false,
+              cardId,
+              cardName,
+              costType: 'teamwork',
+              amount: 0,
+              teamworkMinPower: minPower,
+              title: `Teamwork — ${cardName}`,
+              imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              availableTargets: teamworkCreatures.map((p: any) => ({
+                id: p.id,
+                name: p.card?.name || 'Creature',
+                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+                typeLine: p.card?.type_line,
+                power: getEffectivePower(p),
+              })),
+              castSpellFromHandArgs: {
+                cardId,
+                faceIndex: selectedFaceIndex,
+                fromZone: castSourceZone,
+                xValue: chosenXValue,
+                alternateCostId: options?.forcedAlternateCostId,
+                castWithoutPayingManaCost: isFreeCast,
+                bypassExilePermissionCheck,
+                ignoreTimingRestrictions,
+                skipPriorityCheck: true,
+              },
+            } as any);
+            preTargetQueuedSteps.push({ ...(teamworkCostStep as any) });
+          } else {
+            (cardInHand as any).teamworkResolved = true;
+            (cardInHand as any).teamworkWasPaid = false;
+            const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
+            if (pendingCast) {
+              pendingCast.teamworkResolved = true;
+              pendingCast.teamworkWasPaid = false;
+            }
+          }
         } else if (additionalCost?.type === 'blight') {
           const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
           if (!pendingCast) {
@@ -7120,6 +7178,80 @@ export async function requestCastSpellForSocket(
 
       debug(2, `[requestCastSpell] Queued counter-removal additional-cost step for no-target spell ${cardName}`);
       return;
+    }
+
+    if (!requestCastAdditionalCostPaid && additionalCost?.type === 'teamwork') {
+      const minPower = Math.max(0, Number((additionalCost as any).teamworkMinPower || 0));
+      const teamworkCreatures = (game.state?.battlefield || []).filter((p: any) => {
+        if (!p || String(p.controller || '') !== String(playerId)) return false;
+        if ((p as any).tapped) return false;
+        const typeLine = String(p?.card?.type_line || '').toLowerCase();
+        return typeLine.includes('creature');
+      });
+      const totalUntappedPower = teamworkCreatures.reduce(
+        (sum: number, permanent: any) => sum + getEffectivePower(permanent),
+        0,
+      );
+
+      if (minPower > 0 && totalUntappedPower >= minPower) {
+        const teamworkCostStep = ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+          playerId: playerId as any,
+          sourceId: effectId,
+          sourceName: cardName,
+          sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          description: `Teamwork (optional): Tap creatures with total power ${minPower} or more to cast ${cardName}. Submit with no selections to decline.`,
+          mandatory: false,
+          cardId,
+          cardName,
+          costType: 'teamwork',
+          amount: 0,
+          teamworkMinPower: minPower,
+          title: `Teamwork — ${cardName}`,
+          imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          availableTargets: teamworkCreatures.map((p: any) => ({
+            id: p.id,
+            name: p.card?.name || 'Creature',
+            imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+            typeLine: p.card?.type_line,
+            power: getEffectivePower(p),
+          })),
+          castSpellFromHandArgs: {
+            cardId,
+            faceIndex: selectedFaceIndex,
+            fromZone: castSourceZone,
+            xValue: chosenXValue,
+            alternateCostId: options?.forcedAlternateCostId,
+            castWithoutPayingManaCost: isFreeCast,
+            bypassExilePermissionCheck,
+            ignoreTimingRestrictions,
+            skipPriorityCheck: true,
+          },
+        } as any);
+
+        persistQueuedSpellCastStepContinuation(gameId, game, {
+          playerId,
+          cardId,
+          effectId,
+          pendingSpellCast: {
+            ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+          },
+          queuedResolutionStep: {
+            ...(teamworkCostStep as any),
+          },
+        });
+
+        debug(2, `[requestCastSpell] Queued teamwork additional-cost step for no-target spell ${cardName}`);
+        return;
+      }
+
+      (cardInHand as any).teamworkResolved = true;
+      (cardInHand as any).teamworkWasPaid = false;
+      const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
+      if (pendingCast) {
+        pendingCast.teamworkResolved = true;
+        pendingCast.teamworkWasPaid = false;
+      }
     }
 
     if (additionalCost?.type === 'blight') {
@@ -8662,7 +8794,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Pattern: "Choose two ΓÇö" or "Choose one ΓÇö" followed by bullet points
       // IMPORTANT: Only apply to INSTANTS and SORCERIES, not to permanents with triggered abilities
       // Permanents like Glorious Sunrise have "At the beginning of combat on your turn, choose one ΓÇö" which is a TRIGGER, not a modal spell
-      const modalSpellInfo = isInstantOrSorcery
+      const modalSpellInfo = isInstantOrSorcery && !spellOracleUsesTeamworkChooseBoth(baseOracleText)
         ? adjustModalSpellInfoForCurrentCast(extractModalModesForSpellCast(baseOracleText, String(cardInHand.name || '')), game.state, String(playerId), baseOracleText)
         : undefined;
       const modesAlreadySelected = (cardInHand as any).selectedModes || (targets as any)?.selectedModes;
@@ -8941,6 +9073,17 @@ export function registerGameActions(io: Server, socket: Socket) {
         (cardInHand as any)?.bargained;
       let wasBargained = typeof rawWasBargained === 'boolean' ? rawWasBargained : null;
 
+      const teamworkMarker = (payment as any[])?.find((p: any) => p && p.teamworkResolved === true);
+      let teamworkResolved =
+        teamworkMarker?.teamworkResolved === true ||
+        (targets as any)?.teamworkResolved === true ||
+        (cardInHand as any)?.teamworkResolved === true;
+      const rawTeamworkWasPaid =
+        teamworkMarker?.teamworkWasPaid ??
+        (targets as any)?.teamworkWasPaid ??
+        (cardInHand as any)?.teamworkWasPaid;
+      let teamworkWasPaid = typeof rawTeamworkWasPaid === 'boolean' ? rawTeamworkWasPaid : null;
+
       // Collect-evidence additional cost markers (optional costs must avoid re-prompt loops).
       const collectEvidenceMarker = (payment as any[])?.find((p: any) =>
         p && (p.collectEvidenceResolved === true || p.evidenceCollected === true || p.evidenceWasCollected === true || p.collectedEvidence === true)
@@ -9102,6 +9245,81 @@ export function registerGameActions(io: Server, socket: Socket) {
 
         debug(2, `[castSpellFromHand] Queued collect evidence ${required} prompt for ${cardInHand.name}`);
         return; // Wait for graveyard selection via Resolution Queue
+      }
+
+      if (!shouldSkipAllPrompts && additionalCost?.type === 'teamwork' && !teamworkResolved) {
+        const minPower = Math.max(0, Number((additionalCost as any).teamworkMinPower || 0));
+        const teamworkCreatures = (game.state?.battlefield || []).filter((p: any) => {
+          if (!p || String(p.controller || '') !== String(playerId)) return false;
+          if ((p as any).tapped) return false;
+          const typeLine = String(p?.card?.type_line || '').toLowerCase();
+          return typeLine.includes('creature');
+        });
+        const totalUntappedPower = teamworkCreatures.reduce(
+          (sum: number, permanent: any) => sum + getEffectivePower(permanent),
+          0,
+        );
+
+        if (minPower <= 0 || totalUntappedPower < minPower) {
+          (targets as any) = (targets as any) || {};
+          (targets as any).teamworkResolved = true;
+          (targets as any).teamworkWasPaid = false;
+          teamworkResolved = true;
+          teamworkWasPaid = false;
+        } else {
+          const existing = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) =>
+              s?.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT &&
+              String((s as any)?.sourceId || '') === String(cardId) &&
+              String((s as any)?.costType || '') === 'teamwork',
+            );
+
+          if (!existing) {
+            const teamworkStep = ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: `Teamwork (optional): Tap creatures with total power ${minPower} or more to cast ${cardInHand.name}. Submit with no selections to decline.`,
+              mandatory: false,
+              cardId,
+              cardName: cardInHand.name,
+              costType: 'teamwork',
+              amount: 0,
+              teamworkMinPower: minPower,
+              title: `Teamwork — ${cardInHand.name}`,
+              imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              availableTargets: teamworkCreatures.map((p: any) => ({
+                id: p.id,
+                name: p.card?.name || 'Creature',
+                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+                typeLine: p.card?.type_line,
+                power: getEffectivePower(p),
+              })),
+              castSpellFromHandArgs: {
+                cardId,
+                payment,
+                targets,
+                xValue,
+                alternateCostId,
+                convokeTappedCreatures,
+              },
+            } as any);
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              queuedResolutionStep: {
+                ...(teamworkStep as any),
+              },
+            });
+          }
+
+          debug(2, `[castSpellFromHand] Queued Teamwork (optional) prompt for ${cardInHand.name}`);
+          return;
+        }
       }
 
       if (!shouldSkipAllPrompts && additionalCost?.type === 'behold_chosen_type') {
@@ -11552,6 +11770,12 @@ export function registerGameActions(io: Server, socket: Socket) {
                     wasBargained,
                   }
                 : {}),
+              ...(teamworkResolved === true && typeof teamworkWasPaid === 'boolean'
+                ? {
+                    teamworkResolved: true,
+                    teamworkWasPaid,
+                  }
+                : {}),
               ...(gainsHasteUntilEndOfTurnFromManaSpent === true
                 ? {
                     gainsHasteUntilEndOfTurnFromManaSpent: true,
@@ -11798,6 +12022,15 @@ export function registerGameActions(io: Server, socket: Socket) {
                 }
               }
 
+              if (teamworkResolved === true && typeof teamworkWasPaid === 'boolean') {
+                (topStackItem as any).teamworkResolved = true;
+                (topStackItem as any).teamworkWasPaid = teamworkWasPaid;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.teamworkResolved = true;
+                  (topStackItem as any).card.teamworkWasPaid = teamworkWasPaid;
+                }
+              }
+
               // Intervening-if support: "if evidence was collected" (Collect evidence additional cost).
               // Be conservative: only set `true` on positive evidence.
               if (evidenceCollected === true) {
@@ -11906,6 +12139,15 @@ export function registerGameActions(io: Server, socket: Socket) {
                 if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
                   (topStackItem as any).card.bargainResolved = true;
                   (topStackItem as any).card.wasBargained = wasBargained;
+                }
+              }
+
+              if (teamworkResolved === true && typeof teamworkWasPaid === 'boolean') {
+                (topStackItem as any).teamworkResolved = true;
+                (topStackItem as any).teamworkWasPaid = teamworkWasPaid;
+                if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
+                  (topStackItem as any).card.teamworkResolved = true;
+                  (topStackItem as any).card.teamworkWasPaid = teamworkWasPaid;
                 }
               }
 

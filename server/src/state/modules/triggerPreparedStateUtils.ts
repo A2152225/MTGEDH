@@ -31,6 +31,11 @@ function parsePreparedConditionCountToken(token: string): number | null {
 }
 
 function getPreparedHandCount(state: any, playerId: string): number {
+  const player = (state?.players || []).find((entry: any) => String(entry?.id || '') === playerId);
+  if (typeof player?.handCount === 'number' && Number.isFinite(player.handCount) && player.handCount >= 0) {
+    return player.handCount;
+  }
+
   const zone = state?.zones?.[playerId];
   if (!zone) {
     return 0;

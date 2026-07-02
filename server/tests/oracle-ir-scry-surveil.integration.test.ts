@@ -647,7 +647,7 @@ describe('oracle IR Opt stack resolve E2E', () => {
     const zones = (game.state as any).zones?.[playerId];
     expect((zones?.hand || []).map((card: any) => card.id)).toEqual(['draw-me']);
     expect(game.libraries.get(playerId).map((card: any) => card.id)).toEqual([]);
-    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual(['consider_1', 'top-1']);
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual(['top-1', 'consider_1']);
     expect(ResolutionQueueManager.getStepsForPlayer(considerGameId, playerId)).toHaveLength(0);
     expect((game.state as any).stack || []).toHaveLength(0);
 

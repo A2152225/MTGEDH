@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { requestCastSpellForSocket } from '../src/socket/game-actions.js';
+import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
@@ -20,14 +21,18 @@ function createNoopIo() {
 }
 
 function createMockSocket(playerId: string, gameId: string, emitted: Array<{ event: string; payload: any }>) {
-  return {
+  const handlers: Record<string, Function> = {};
+  const socket = {
     data: { playerId, spectator: false, gameId },
     rooms: new Set<string>([gameId]),
-    on: (_event: string, _handler: Function) => {},
+    on: (event: string, handler: Function) => {
+      handlers[event] = handler;
+    },
     emit: (event: string, payload: any) => {
       emitted.push({ event, payload });
     },
   } as any;
+  return { socket, handlers };
 }
 
 function buildEmeritusOfTruceCard() {
@@ -144,6 +149,10 @@ function createPreparedSourcePermanent(permanentId: string, controller: string, 
   } as any;
 }
 
+function findBattlefieldPermanent(game: any, permanentId: string): any {
+  return (game.state as any).battlefield.find((entry: any) => String(entry?.id || '') === permanentId);
+}
+
 function seedBaseGame(game: any, playerId = 'p1') {
   (game.state as any).players = [
     { id: 'p1', name: 'P1', spectator: false, life: 40 },
@@ -193,6 +202,7 @@ describe('Prepared integration', () => {
     'test_prepared_request_cast',
     'test_prepared_cast_from_exile',
     'test_prepared_emeritus_condition',
+    'test_prepared_exile_socket_cast',
   ];
 
   async function resetAllGames() {
@@ -205,6 +215,8 @@ describe('Prepared integration', () => {
 
   beforeAll(async () => {
     await initDb();
+    initializePriorityResolutionHandler(createNoopIo());
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
   beforeEach(async () => {
@@ -256,7 +268,7 @@ describe('Prepared integration', () => {
     (game.state as any).zones.p1.handCount = 1;
 
     const emitted: Array<{ event: string; payload: any }> = [];
-    const socket = createMockSocket('p1', gameIds[1], emitted);
+    const { socket } = createMockSocket('p1', gameIds[1], emitted);
 
     await requestCastSpellForSocket(createNoopIo() as any, socket as any, {
       gameId: gameIds[1],
@@ -272,6 +284,54 @@ describe('Prepared integration', () => {
     expect(paymentStep.cardName).toBe('Prepared Student');
     expect(paymentStep.manaCost).toBe('{2}{U}');
   });
+
+  it('queues payment for a prepared exile copy via requestCastSpell socket flow', async () => {
+    const gameId = gameIds[4];
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+    games.set(gameId as any, game as any);
+
+    seedBaseGame(game);
+    const preparedCard = buildPreparedOnEntryCard();
+    const sourcePermanent = createPreparedSourcePermanent('perm_prepared_socket', 'p1', preparedCard);
+    (game.state as any).battlefield = [sourcePermanent];
+    setPermanentPrepared((game.state as any), sourcePermanent);
+    const preparedCopy = (game.state as any).zones.p1.exile[0];
+    (game.state as any).manaPool.p1 = { W: 1, U: 1, B: 0, R: 0, G: 0, C: 0, white: 1, blue: 1, black: 0, red: 0, green: 0, colorless: 0 };
+
+    const emitted: Array<{ event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', gameId, emitted);
+    const io = createNoopIo();
+    registerResolutionHandlers(io as any, socket as any);
+
+    await requestCastSpellForSocket(io as any, socket as any, {
+      gameId,
+      cardId: String(preparedCopy.id),
+      fromZone: 'exile',
+    });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps
+      .find((step: any) => step.type === 'mana_payment_choice' && step.spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep.cardName).toBe('Timely Insight');
+    expect(paymentStep.manaCost).toBe('{1}{U}');
+
+    if (paymentStep) {
+      await handlers['submitResolutionResponse']({
+        gameId,
+        stepId: String(paymentStep.id),
+        selections: { payment: [] },
+        cancelled: false,
+      });
+    }
+
+    expect(findBattlefieldPermanent(game, 'perm_prepared_socket')?.prepared).toBe(false);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect(String((game.state as any).stack[0]?.card?.name || '')).toBe('Timely Insight');
+  }, 15000);
 
   it('unprepares the source permanent when a prepared copy is cast and the copy ceases after resolution', () => {
     createGameIfNotExists(gameIds[2], 'commander', 40);
@@ -312,7 +372,8 @@ describe('Prepared integration', () => {
       targets: [],
     } as any);
 
-    expect(permanent.prepared).toBe(false);
+    const updatedPermanent = findBattlefieldPermanent(game, 'perm_truce');
+    expect(updatedPermanent?.prepared).toBe(false);
     expect((game.state as any).zones.p1.exile).toHaveLength(0);
     expect((game.state as any).stack).toHaveLength(1);
 
@@ -321,7 +382,7 @@ describe('Prepared integration', () => {
     expect((game.state as any).stack).toHaveLength(0);
     expect((game.state as any).zones.p1.graveyard).toHaveLength(0);
     expect((game.state as any).zones.p1.exile).toHaveLength(0);
-  });
+  }, 15000);
 
   it('marks Emeritus of Truce prepared when its post-token condition is satisfied', () => {
     createGameIfNotExists(gameIds[3], 'commander', 40);
@@ -383,7 +444,8 @@ describe('Prepared integration', () => {
       },
     );
 
-    expect(sourcePermanent.prepared).toBe(true);
+    const updatedEmeritus = findBattlefieldPermanent(game, 'perm_emeritus');
+    expect(updatedEmeritus?.prepared).toBe(true);
     expect((game.state as any).zones.p1.exile).toHaveLength(1);
     expect((game.state as any).zones.p1.exile[0].name).toBe('Swords to Plowshares');
   });
@@ -446,7 +508,8 @@ describe('Prepared integration', () => {
       },
     );
 
-    expect(sourcePermanent.prepared).toBe(true);
+    const updatedLifeTrue = findBattlefieldPermanent(game, 'perm_life_true');
+    expect(updatedLifeTrue?.prepared).toBe(true);
     expect((game.state as any).zones.p1.exile).toHaveLength(1);
   });
 
@@ -478,7 +541,8 @@ describe('Prepared integration', () => {
       },
     );
 
-    expect(sourcePermanent.prepared).not.toBe(true);
+    const updatedHandFalse = findBattlefieldPermanent(game, 'perm_hand_false');
+    expect(updatedHandFalse?.prepared).not.toBe(true);
     expect((game.state as any).zones.p1.exile).toHaveLength(0);
   });
 

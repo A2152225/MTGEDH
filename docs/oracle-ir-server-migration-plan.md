@@ -2,7 +2,7 @@
 
 **Purpose:** Plan the full supersession of handwritten spell/trigger/ability resolution with Oracle IR execution and the Effect Program orchestrator.
 
-**Last updated:** 2026-06-29 (audit refresh; **Track E6 Layer 3** primary; batches 431–435 would-enter arc complete)  
+**Last updated:** 2026-07-02 (Layer 3 beta-ready — migration **797/797**; new-card overlay path documented)  
 **Owner:** Project maintainers  
 
 > **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** for remaining Layer 2 work and the copy-paste starting prompt. Batches 264–280 + Track D (368–380) are **uncommitted** locally unless otherwise noted.
@@ -21,15 +21,15 @@
 
 ## Executive summary
 
-The project has **three distinct layers**. Layers 1–2 are in strong shape; **Layer 3 (server integration) is only partially migrated**.
+The project has **three distinct layers**. Layers 1–2 are **complete** for commander-legal scope; **Layer 3 is beta-ready** with ongoing Phase 4–5 cleanup.
 
 | Layer | What it is | Status |
 |-------|------------|--------|
-| **1 — Parse** | `parseOracleTextToIR` → `OracleEffectStep[]` | **Complete** for practical Commander scope (~30k cards, 0 non-joke IR gaps on triggers) |
-| **2 — Execute** | `applyOracleIRStepsToGameState` in rules-engine | **Complete for practical scope** — `full_card`: **100%** assisted (47,514/47,514); parse→execute **0**; `partial` **0**; `ir_gap` **0** |
-| **3 — Integrate** | Server routes live gameplay through IR + resolution UI | **In progress** — **752/752** migration tests pass; E6 P0–P2 + would-enter arc (431–435) done |
+| **1 — Parse** | `parseOracleTextToIR` → `OracleEffectStep[]` (+ compiled overlay merge for gaps) | **Complete** for corpus; **overlay path** for new/custom cards |
+| **2 — Execute** | `applyOracleIRStepsToGameState` in rules-engine | **Complete** — `full_card`: **100%** assisted (47,514/47,514); parse→execute **0**; `ir_gap` **0** |
+| **3 — Integrate** | Server routes live gameplay through IR + resolution UI | **Beta-ready** — **797/797** migration tests; IR primary on; legacy shims gated (Phase 4 deletion in progress) |
 
-**Goal:** Make Layer 3 match Layer 2 — every spell, trigger, and activated ability that parses and executes in the rules-engine should resolve through a **single server pipeline**, not parallel handwritten shims.
+**Goal:** Make Layer 3 match Layer 2 for every effect that decomposes into wired atomic steps — including **new-set cards** via overlays or parser batches. See [oracle-ir-track-e-remaining-work.md § Goal: Semantic atomic parsing](./oracle-ir-track-e-remaining-work.md#goal-semantic-atomic-parsing--seamless-effect-automation-new-cards).
 
 ---
 
@@ -48,7 +48,7 @@ The project has **three distinct layers**. Layers 1–2 are in strong shape; **L
 | Assisted (`full_card`) | 100% (47557/47570) | **100%** (47570/47570) |
 | `ir_gap` | 0 | **0** |
 
-**Next:** **Track E6 — Layer 3 server integration** (patterns beyond completed P0–P2). Migration bar: `npm run test:oracle-ir-migration` (**752/752** pass). Optional E2 polish: Waterbender Ascension targeted unblockable grant (1 cluster).
+**Next:** **Track E6 — Layer 3 server integration** (socket submit/resume gaps beyond P0–P2). Migration bar: `npm run test:oracle-ir-migration` (**764/764**). See [oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md) next-batch table.
 
 ### Track D summary (2026-06-14)
 
@@ -1477,6 +1477,8 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
 
 **Objective:** Remove redundant code paths after parity proof.
 
+**Ratchet + telemetry (batch 466):** the legacy surface is now mechanically shrink-only — `server/tests/oracle-ir-legacy-handler-ratchet.unit.test.ts` fails if `applyRetiredTriggerLegacy*` / spell legacy export counts rise (ceilings 86 / 1; lower them when deleting). Deletion is **evidence-driven**: `legacy_handled` events from `oracleIrGapTelemetry` (`GET /api/oracle-ir/telemetry`) show which handler families still fire under IR primary in live play; families that never fire after a soak are dead code.
+
 **Progress (batch 172):** Exert attack-reward corridor validated end-to-end under test harness (primary OFF) and primary-ON suites. Copy-token `create_token` steps with `"copy of …"` hints now resolve correctly in rules-engine (regex fix). Remaining exert-adjacent legacy: `grant_temporary_ability` combat evasion handlers, counter-scaled `modify_pt` (see session handoff).
 
 **Delete or gut:**
@@ -1502,6 +1504,7 @@ Trigger effects: **100% assisted execution**, 0 parse→execute gaps (2026-06-09
 - Planeswalker loyalty → IR + Effect Program (`buildEffectProgramsFromOracleText` per loyalty ability)
 - Supplemental oracle (`applySupplementalOracleIRForResolvedSpell`) → parser postprocess
 - Card-specific stack branches (Rite of Harmony, Divine Reckoning, Summons of Saruman) → IR or explicit `unknown` + manual ack
+- **Continuous & replacement effects** — declarative `StaticEffectSpec` / `ReplacementEffectSpec` + single replacement registry; design: [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md)
 
 ---
 

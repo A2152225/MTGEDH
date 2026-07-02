@@ -103,7 +103,12 @@ export function resolvePreparedTargetPermanent(
     return targetedPermanent || triggerSourcePermanent;
   }
 
-  if (normalizedDescription.includes('it becomes prepared') || normalizedDescription.includes('it becomes unprepared')) {
+  if (
+    normalizedDescription.includes('it becomes prepared')
+    || normalizedDescription.includes('it becomes unprepared')
+    || normalizedDescription.includes('this creature becomes prepared')
+    || normalizedDescription.includes('this creature becomes unprepared')
+  ) {
     return targetedPermanent || triggerSourcePermanent;
   }
 

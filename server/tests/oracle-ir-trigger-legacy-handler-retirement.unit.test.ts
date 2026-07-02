@@ -5,13 +5,8 @@ import { createInitialGameState } from '../src/state/gameState.js';
 import { skipRetiredTriggerLegacyHandler } from '../src/state/modules/oracleIrTriggerLegacyRouting.js';
 import * as oracleIrUncategorizedSpellFallback from '../src/state/modules/oracleIrUncategorizedSpellFallback.js';
 import {
-  applyRetiredTriggerLegacyDrawAndLifeCombinedEffects,
-  applyRetiredTriggerLegacyEachOpponentDiscards,
-  applyRetiredTriggerLegacyScry,
-  applyRetiredTriggerLegacySingleDraw,
-  applyRetiredTriggerLegacySingleGainLife,
-} from '../src/state/modules/oracleIrTriggerLegacyRegexHandlers.js';
-import { applyRetiredTriggerLegacyTargetPlayerMills } from '../src/state/modules/oracleIrTriggerLegacyMillHandlers.js';
+  applyRetiredTriggerLegacyTargetPlayerMills,
+} from '../src/state/modules/oracleIrTriggerLegacyMillHandlers.js';
 import { applyRetiredTriggerLegacyGraveyardZoneChangeBatch } from '../src/state/modules/oracleIrTriggerLegacyGraveyardZoneHandlers.js';
 import { applyRetiredTriggerLegacyExtraTurnAfterThisOne } from '../src/state/modules/oracleIrTriggerLegacyTurnAndZoneHandlers.js';
 import { applyRetiredTriggerLegacySacrificeThisCreature } from '../src/state/modules/oracleIrTriggerLegacySpecialTriggerHandlers.js';
@@ -35,29 +30,9 @@ describe('retired trigger legacy handler defense-in-depth', () => {
     }
   });
 
-  it('legacy draw/gain/scry handlers defer to orchestrator skip under primary mode', () => {
+  it('legacy each-opponent discard stub removed; IR primary queues discard via executeTriggerEffect', () => {
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
-    expect(skipRetiredTriggerLegacyHandler('Draw 2 cards.', 'Mulldrifter')).toBe(false);
-    expect(skipRetiredTriggerLegacyHandler('You gain 1 life.', 'Soul Warden')).toBe(false);
-    expect(skipRetiredTriggerLegacyHandler('Scry 1.', 'Opt')).toBe(false);
-    expect(skipRetiredTriggerLegacyHandler('You lose 2 life.', 'Shock')).toBe(false);
-  });
-
-  it('legacy discard/damage/counter regex handlers no-op when invoked directly under primary mode', () => {
-    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
-
-    const game = createInitialGameState('handler_retired_discard_damage');
-    const p1 = 'p1' as PlayerID;
-    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-    (game.state as any).pendingDiscard = {};
-
-    expect(applyRetiredTriggerLegacyEachOpponentDiscards({
-      desc: 'Each opponent discards a card.',
-      state: game.state,
-      opponents: [{ id: 'p2' }],
-      sourceName: 'Liliana',
-    })).toBe(false);
-    expect((game.state as any).pendingDiscard.p2).toBeUndefined();
+    expect(skipRetiredTriggerLegacyHandler('Each opponent discards a card.', 'Liliana')).toBe(false);
   });
 
   it('retired predefined artifact token regex handler no-ops when invoked directly under primary mode', () => {
@@ -260,7 +235,7 @@ describe('retired trigger legacy handler defense-in-depth', () => {
     expect(skipRetiredTriggerLegacyHandler('Draw a card.', 'Test')).toBe(false);
   });
 
-  it('legacy draw/gain/scry/mill regex handlers no-op when invoked directly under primary mode', () => {
+  it('legacy mill regex handler no-op when invoked directly under primary mode', () => {
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
 
     const game = createInitialGameState('handler_retired_draw_gain');
@@ -274,25 +249,6 @@ describe('retired trigger legacy handler defense-in-depth', () => {
     const ctx = game as any;
     ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
 
-    expect(applyRetiredTriggerLegacySingleDraw({
-      ctx,
-      controller: p1,
-      desc: 'Draw a card.',
-      isKynaiosEffect: false,
-      sourceName: 'ETB Creature',
-    })).toBe(false);
-    expect(applyRetiredTriggerLegacySingleGainLife({
-      desc: 'You gain 1 life.',
-      controller: p1,
-      state: game.state,
-      sourceName: 'Soul Warden',
-    })).toBe(false);
-    expect(applyRetiredTriggerLegacyScry({
-      desc: 'Scry 1.',
-      controller: p1,
-      state: game.state,
-      sourceName: 'Opt',
-    })).toBe(false);
     expect(applyRetiredTriggerLegacyTargetPlayerMills({
       ctx,
       controller: p1,
@@ -301,31 +257,6 @@ describe('retired trigger legacy handler defense-in-depth', () => {
       opponents: [{ id: 'p2' }],
       state: game.state,
       triggerItem: { targets: ['p2'] },
-    })).toBe(false);
-    expect(player.hand).toHaveLength(0);
-  });
-
-  it('retired trigger draw regex handler no-ops even when primary mode is off', () => {
-    process.env.ORACLE_IR_TRIGGER_PRIMARY = '0';
-    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
-
-    const game = createInitialGameState('handler_legacy_draw');
-    const p1 = 'p1' as PlayerID;
-    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-
-    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
-    player.library = [{ id: 'lib-1', name: 'Island', zone: 'library' }];
-    player.hand = [];
-
-    const ctx = game as any;
-    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
-
-    expect(applyRetiredTriggerLegacySingleDraw({
-      ctx,
-      controller: p1,
-      desc: 'Draw a card.',
-      isKynaiosEffect: false,
-      sourceName: 'ETB Creature',
     })).toBe(false);
     expect(player.hand).toHaveLength(0);
   });

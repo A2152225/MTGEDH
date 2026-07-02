@@ -1268,6 +1268,9 @@ function inferGrantTemporaryAbilityTargetFromRaw(raw: string): string {
   }
   const subtypeMassMatch = normalized.match(/^([a-z][a-z -]+) creatures you control(?: also)?$/i);
   if (subtypeMassMatch) return `${String(subtypeMassMatch[1] || '').trim()} creatures you control`;
+  if (/^target creature$/i.test(normalized)) return 'target creature';
+  if (/^target permanent$/i.test(normalized)) return 'target permanent';
+  if (/^target planeswalker$/i.test(normalized)) return 'target planeswalker';
   const subtypeYouControlMatch = normalized.match(/^([a-z][a-z -]+) you control(?: also)?$/i);
   if (subtypeYouControlMatch && !/creatures?$/i.test(String(subtypeYouControlMatch[1] || ''))) {
     return `${String(subtypeYouControlMatch[1] || '').trim()} you control`;
@@ -5027,6 +5030,25 @@ export function applyGrantTemporaryAbilityStep(
     }
   }
 
+  if (/^target creature can't be blocked this turn$/i.test(stepRaw.trim())) {
+    const boundIds = collectBoundBattlefieldIds(ctx);
+    const targets = battlefield.filter((perm: any) => {
+      const id = String((perm as any)?.id || '').trim();
+      return boundIds.includes(id) && permanentMatchesType(perm, 'creature');
+    });
+    if (targets.length > 0) {
+      const nextState = applyTemporaryEffectToPermanents(state, targets.slice(0, 1), ctx, {
+        descriptions: ["can't be blocked"],
+        expiresAt: 'end_of_turn',
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [`Granted can't-be-blocked to ${targets[0]?.card?.name || 'target creature'} until end of turn`],
+      };
+    }
+  }
+
   if (/two target creatures you control that share a creature type can't be blocked this turn/i.test(stepRaw)) {
     const boundIds = collectBoundBattlefieldIds(ctx);
     const targets = battlefield.filter((perm: any) => {
@@ -5630,6 +5652,17 @@ export function applyGrantTemporaryAbilityStep(
   }
   const attachedTargets = resolveAttachedStaticAbilityGrantTargets(battlefield, { kind: 'raw', text: normalizedTargetText }, ctx);
   const explicitTargetId = String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
+  const contextualTargetIds = /^target\b/.test(targetText)
+    ? buildContextualBattlefieldTargetIds(
+        battlefield,
+        ctx,
+        false,
+        parseSimplePermanentTypeFromText(normalizedTargetText) || undefined,
+      )
+    : [];
+  const boundTargetIds = contextualTargetIds.length > 0
+    ? contextualTargetIds
+    : (explicitTargetId ? [explicitTargetId] : []);
   const recentTokenTargets = resolveRecentlyCreatedTokenPermanents(battlefield, step.target as any, runtime);
   const recentMovedTargets = recentTokenTargets.length > 0
     ? []
@@ -5637,11 +5670,11 @@ export function applyGrantTemporaryAbilityStep(
   const directTargets =
     attachedTargets.length > 0
       ? []
-      : explicitTargetId && /^target\b/.test(targetText)
-      ? battlefield.filter((perm: any) => String((perm?.id || '')).trim() === explicitTargetId)
-      : recentTokenTargets.length > 0 || recentMovedTargets.length > 0
-        ? []
-        : resolveDirectBattlefieldPermanents(battlefield, { kind: 'raw', text: normalizedTargetText }, ctx);
+      : boundTargetIds.length > 0 && /^target\b/.test(targetText)
+        ? battlefield.filter((perm: any) => boundTargetIds.includes(String((perm?.id || '')).trim()))
+        : recentTokenTargets.length > 0 || recentMovedTargets.length > 0
+          ? []
+          : resolveDirectBattlefieldPermanents(battlefield, { kind: 'raw', text: normalizedTargetText }, ctx);
   const targets = attachedTargets.length > 0
     ? attachedTargets
     : recentTokenTargets.length > 0
@@ -8622,7 +8655,8 @@ function resolveCopyPermanentSourceObject(
   const reference = String(step.source.text || '')
     .trim()
     .toLowerCase()
-    .replace(/\s+for as long as\b.*$/i, '');
+    .replace(/\s+for as long as\b.*$/i, '')
+    .replace(/\s+until this aura leaves the battlefield\b.*$/i, '');
   const movedCards = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
 
   if (reference === 'that card' || reference === 'it' || reference === 'the exiled card') {
@@ -8723,7 +8757,7 @@ function resolveCopyPermanentSourceObject(
 
 function normalizeCopyPermanentTargetText(value: string): string {
   const trimmed = normalizeBattlefieldTargetReferenceText(value)
-    .replace(/^until end of turn,\s*/i, '')
+    .replace(/^until (?:end of turn|your next turn),\s*/i, '')
     .replace(/^as this creature transforms into this permanent,\s*it becomes a copy of .+$/i, 'this permanent')
     .replace(/\s+becomes a copy of .+$/i, '')
     .trim();
@@ -11538,6 +11572,37 @@ export function applyExileStep(
       state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx),
       log: result.log,
       ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+    };
+  }
+
+  if (/^any number of other target permanents you control$/i.test(normalizedExileTargetText)) {
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const sourceId = String(ctx.sourceId || '').trim();
+    const controllerId = String(ctx.controllerId || '').trim();
+    const boundIds = new Set(collectBoundBattlefieldIds(ctx));
+    const toRemove = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (sourceId && permanentId === sourceId) return false;
+      if (!boundIds.has(permanentId)) return false;
+      if (controllerId && String((perm as any)?.controller || '').trim() !== controllerId) return false;
+      return true;
+    });
+    if (toRemove.length === 0) {
+      return { applied: true, state, log: ['No other target permanents to exile'] };
+    }
+    const removedIds = new Set<string>(toRemove.map((perm) => String((perm as any)?.id || '').trim()));
+    const kept = battlefield.filter((perm) => !removedIds.has(String((perm as any)?.id || '').trim()));
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
+    const movedCards = toRemove
+      .filter((perm) => !(perm as any).isToken)
+      .map((perm) => buildPermanentCardWithStats(perm, 'exile'));
+    return {
+      applied: true,
+      state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx),
+      log: result.log,
+      ...(movedCards.length > 0
+        ? { lastMovedCards: movedCards, lastExiledCards: movedCards, lastExiledCardCount: movedCards.length }
+        : {}),
     };
   }
 

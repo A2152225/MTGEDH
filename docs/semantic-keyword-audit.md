@@ -2,7 +2,7 @@
 
 Living reference for keyword ability parsing quality — distinct from **`ir_gap`** (unknown IR steps). Update after parser changes and re-run the audit.
 
-**Last updated: 2026-06-09 (P7 closed — trigger generic metadata at 0)**
+**Last updated: 2026-07-02** (corpus green; new-set keyword onboarding — see [oracle-ir-track-e-remaining-work.md § B](./oracle-ir-track-e-remaining-work.md#b-new-keyword-from-comprehensive-rules-implementation-tasks))
 
 ---
 

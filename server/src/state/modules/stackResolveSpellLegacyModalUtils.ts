@@ -6,6 +6,7 @@ import {
   extractModalModesFromOracleText,
   matchModalModeOptions,
 } from '../../utils/oraclePromptContext.js';
+import { spellOracleUsesTeamworkChooseBoth } from './marvelMechanicsHelpers.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { applyOracleIRUncategorizedSpellFallback } from './oracleIrUncategorizedSpellFallback.js';
 import { executeInstantSorceryLegacyCategorizedSpell } from './stackResolveSpellLegacySpecUtils.js';
@@ -93,6 +94,12 @@ export function tryQueueInstantSorceryLegacyModalModeSelection(
     }
   }
 
+  const teamworkChooseBoth = spellOracleUsesTeamworkChooseBoth(oracleText);
+  const teamworkWasPaid = Boolean(options.item?.teamworkWasPaid ?? options.item?.card?.teamworkWasPaid);
+  const resolvedMaxModes = teamworkChooseBoth && teamworkWasPaid
+    ? Math.min(2, modalInfo.options.length)
+    : modalInfo.maxModes;
+
   queueResolveTopOfStackPrompt(ctx, {
     type: ResolutionStepType.MODE_SELECTION,
     playerId: options.controller,
@@ -109,12 +116,18 @@ export function tryQueueInstantSorceryLegacyModalModeSelection(
       description: option.description,
     })),
     minModes: modalInfo.minModes,
-    maxModes: modalInfo.maxModes,
+    maxModes: resolvedMaxModes,
     normalMinModes: modalInfo.normalMinModes,
     normalMaxModes: modalInfo.normalMaxModes,
     entwineCost: modalInfo.entwineCost,
     allowDuplicates: false,
     modeSelectionPurpose: LEGACY_MODAL_SPELL_RESOLVE_PURPOSE,
+    ...(teamworkChooseBoth
+      ? {
+          teamworkChooseBoth: true,
+          teamworkWasPaid,
+        }
+      : {}),
   } as any);
 
   debug(

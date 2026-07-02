@@ -5,7 +5,7 @@ alwaysApply: false
 
 # Oracle IR compiled overlays
 
-Use when **parser gaps** block a new/custom card but the effect decomposes into **wired `OracleEffectStep` verbs**. Do not add card-name server handlers.
+**Overlays are the default ingestion path for new/changed cards** (architecture review 2026-07-02 — see `docs/oracle-ir-architecture-guide.md` §15). Use when the effect decomposes into **wired `OracleEffectStep` verbs**. Do not add card-name server handlers. Parser batches are the exception, reserved for phrasing that recurs across many cards (then delete the redundant overlays).
 
 ## Architecture
 
@@ -17,7 +17,9 @@ oracle text
   → applyOracleIRStepsOnServer / tryResolveSpellViaOracleIR / tryApplyOracleIRToActivatedAbility
 ```
 
-Overlays are **not** a replacement for the parser on the ~47k-card corpus. Use for new-set phrasing, custom cards, or until a parser batch lands.
+The regex parser owns the existing ~47k-card corpus (frozen bootstrapping asset); overlays own **new-set phrasing, custom cards, and preview cards** by default.
+
+**New-set workflow:** `npm run oracle-ir:delta` (D1) audits new/changed cards vs the committed baseline and emits an `overlayWorkQueue` with per-card suggested actions. Full workflow: [docs/oracle-ir-track-e-remaining-work.md § Goal: Semantic atomic parsing](../docs/oracle-ir-track-e-remaining-work.md#goal-semantic-atomic-parsing--seamless-effect-automation-new-cards)
 
 ## Compiler output (required shape)
 
@@ -58,10 +60,12 @@ Agent: `.github/agents/OracleIRCompiler.agent.md`
 ## Operator commands (`cd server`)
 
 ```powershell
+npm run oracle-ir:delta                # D1: find new/changed cards with gaps (overlayWorkQueue)
 npm run oracle-ir:overlay:probe -- --name "Card Name"
 npm run oracle-ir:overlay:validate -- --file data/compiled-oracle-ir-overlays/<card>.json --compare-parser
 npm run oracle-ir:overlay:import
 npm run oracle-ir:overlay:upsert -- --file path.json --name "Card Name" --card-id <uuid>
+npm run oracle-ir:delta -- --update-baseline   # accept green delta into baseline
 ```
 
 - JSON files go in `server/data/compiled-oracle-ir-overlays/`

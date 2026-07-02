@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
+import { recordOracleIrGapTelemetry } from './oracleIrGapTelemetry.js';
 import { tryResolveThassasOracleWin } from './game-state-effects.js';
 import { applyOracleIRFallbackForTriggeredEffect } from './stackExecuteTriggerEffectIrFallbackUtils.js';
 import type { TriggerEffectLegacyBodyContinuation } from './stackResolveSharedTypes.js';
@@ -131,6 +132,14 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
       1,
       `[executeTriggerEffect] ${sourceName}: IR primary owns trigger effect but did not apply; skipping legacy regex tail handlers: ${String(descriptionForOracleFallback || '').trim()}`,
     );
+    recordOracleIrGapTelemetry({
+      kind: 'owned_but_unhandled',
+      scope: 'trigger',
+      label: sourceName,
+      reasons: ['ir_primary_owns_effect_but_did_not_apply; legacy regex tail skipped'],
+      effectText: descriptionForOracleFallback,
+      gameId: String((ctx as any)?.gameId || '') || undefined,
+    });
   } else {
     const combinedEffectsHandled = applyRetiredTriggerLegacyCombinedEffectsRegexBatch({
       ctx,

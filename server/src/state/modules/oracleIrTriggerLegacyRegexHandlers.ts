@@ -115,74 +115,6 @@ export function applyRetiredTriggerLegacyDrawAndLifeCombinedEffects(
   return false;
 }
 
-export function applyRetiredTriggerLegacySingleGainLife(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacySingleDraw(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'controller' | 'desc' | 'isKynaiosEffect' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyScry(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyEachOpponentLosesLife(
-  _params: TriggerLegacyOpponentEffectParams,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyDealsDamageToEachOpponent(
-  _params: TriggerLegacyOpponentEffectParams,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyEachOpponentDiscards(
-  _params: Pick<TriggerLegacyOpponentEffectParams, 'desc' | 'state' | 'opponents' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyTargetPlayerLoseYouGainLife(
-  _params: Pick<TriggerLegacyOpponentEffectParams, 'desc' | 'controller' | 'triggerItem' | 'opponents' | 'state' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyEachPlayerDraws(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'sourceName' | 'desc'> & {
-    readonly players: readonly any[];
-  },
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyDealEachOpponentAndGainLife(
-  _params: Pick<TriggerLegacyOpponentEffectParams, 'desc' | 'opponents' | 'controller' | 'state' | 'ctx' | 'battlefield' | 'triggerItem' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyMayGainLife(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyCreatureControllerLosesLife(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'triggerItem' | 'state' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
 /**
  * Legacy energy gain patterns (Guide of Souls, etc.). Returns true when applied;
  * caller may continue for follow-up effects in the same description.
@@ -215,20 +147,6 @@ export function applyRetiredTriggerLegacyEnergyEffects(
   const amount = parseEnergyAmountFromEnergyGroups(energyMatch[1], energyMatch[2]);
   addEnergyCounters(params.state, params.controller, amount, params.sourceName);
   return true;
-}
-
-export function applyRetiredTriggerLegacyEachOpponentDraws(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'desc' | 'sourceName'> & {
-    readonly opponents: readonly any[];
-  },
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyCounterAndDealsOpponentDamage(
-  _params: Pick<TriggerLegacyOpponentEffectParams, 'ctx' | 'controller' | 'sourceName' | 'desc' | 'triggerItem' | 'state' | 'opponents' | 'battlefield'>,
-): boolean {
-  return false;
 }
 
 export function applyRetiredTriggerLegacyPutThatManyCountersOnSelf(
@@ -276,18 +194,6 @@ export function applyRetiredTriggerLegacyTokenCounters(
 
   addTokenCounters(params.state, params.controller, amount, params.sourceName);
   return true;
-}
-
-export function applyRetiredTriggerLegacyTargetPlayerDraws(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'ctx' | 'controller' | 'desc' | 'triggerItem' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyUntapTapLands(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'sourceName' | 'desc' | 'controller' | 'triggerItem' | 'state'>,
-): boolean {
-  return false;
 }
 
 export function applyRetiredTriggerLegacyElspethCounterFromAmong(
@@ -446,42 +352,6 @@ export function applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget(
   }
 
   return true;
-}
-
-export function applyRetiredTriggerLegacyPowerBasedCountersEachCreatureYouControl(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'triggerItem' | 'state' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyPlusOneCounterEachCreatureYouControl(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'state' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyPlusOneCounterEachOtherType(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'controller' | 'triggerItem' | 'state' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyPlusOneCounterOnSelf(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'triggerItem' | 'state' | 'sourceName'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyIndestructibleCounterOnSelf(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'sourceName' | 'triggerItem' | 'state'>,
-): boolean {
-  return false;
-}
-
-export function applyRetiredTriggerLegacyDoublePlusOneCountersOnSelf(
-  _params: Pick<TriggerLegacyDrawLifeParams, 'desc' | 'triggerItem' | 'state' | 'sourceName'>,
-): boolean {
-  return false;
 }
 
 export function applyRetiredTriggerLegacyLootStyleTopLibrary(

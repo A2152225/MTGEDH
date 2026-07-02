@@ -4123,6 +4123,19 @@ export function resolveActivatedAbilityLineById(permanent: any, abilityId?: stri
 
   let genericAbilityIndex = 0;
   for (const line of lines) {
+    const powerUpMatch = line.match(/^Power-up\s*[—-]\s*((?:\{[^}]+\})+)\s*:\s*(.+)$/i);
+    if (powerUpMatch) {
+      if (genericAbilityIndex === targetIndex) {
+        return {
+          lineText: line,
+          costText: String(powerUpMatch[1] || '').trim(),
+          effectText: String(powerUpMatch[2] || '').trim(),
+        };
+      }
+      genericAbilityIndex += 1;
+      continue;
+    }
+
     const activatedMatch = line.match(activatedAbilityPattern);
     if (activatedMatch) {
       if (genericAbilityIndex === targetIndex) {

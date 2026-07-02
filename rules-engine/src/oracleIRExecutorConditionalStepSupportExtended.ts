@@ -330,7 +330,17 @@ function getControllerLife(nextState: GameState, controllerId: PlayerID): number
 }
 
 function getPlayerHandCount(nextState: GameState, playerId: PlayerID): number {
+  const zones = (nextState as any)?.zones;
+  const zoneHandCount = zones?.[playerId]?.handCount;
+  if (typeof zoneHandCount === 'number' && Number.isFinite(zoneHandCount) && zoneHandCount >= 0) {
+    return zoneHandCount;
+  }
+
   const player = (nextState.players || []).find((p: any) => String(p?.id || '').trim() === playerId) as any;
+  if (typeof player?.handCount === 'number' && Number.isFinite(player.handCount) && player.handCount >= 0) {
+    return player.handCount;
+  }
+
   return Array.isArray(player?.hand) ? player.hand.length : 0;
 }
 

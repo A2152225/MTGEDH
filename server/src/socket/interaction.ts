@@ -64,6 +64,13 @@ import { countArtifacts, getActiveAbilityConditions, getTotalCreaturePower } fro
 import { detectActivatedAbilityConditionRequirement, type ActivatedAbilityConditionRequirement } from "../state/modules/activated-ability-conditions.js";
 import { buildCastFromGraveyardCard, buildGraveyardCastingPermissionId, getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedSelfCastPermissionInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { detectAdditionalCost } from "./land-helpers.js";
+import {
+  applyPowerUpEnteredThisTurnDiscount,
+  applyPowerUpActivationCostReductions,
+  hasUsedPowerUpAbility,
+  markPowerUpAbilityUsed,
+  parsePowerUpActivatedAbility,
+} from "../state/modules/marvelMechanicsHelpers.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -8977,6 +8984,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     let sacrificeCount = 1;
     let mustBeOther = false;
     let requiredChargeCounters: number | null = null;
+    let isPowerUpActivation = false;
+    let powerUpAbilityIndex = -1;
     const abilityOracleText = String(scopedAbilityFullText || oracleText || '').trim();
     const selectedAbilityIndex = scopedAbilityFullText && scopedAbilityFullText.trim() && scopedAbilityFullText.trim() !== String(oracleText || '').trim()
       ? 0
@@ -9052,6 +9061,33 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         abilityText = abilityOracleText;
         requiresTap = abilityOracleText.includes('{T}:') || abilityOracleText.toLowerCase().includes('tap:');
       }
+    }
+
+    const powerUpLineText = String(scopedAbilityFullText || selectedAbilityIndex < abilities.length
+      ? abilities[selectedAbilityIndex]?.fullText
+      : abilityOracleText || '').trim();
+    const powerUpInfo = parsePowerUpActivatedAbility(powerUpLineText);
+    if (powerUpInfo) {
+      powerUpAbilityIndex = selectedAbilityIndex < abilities.length ? selectedAbilityIndex : abilityIndex;
+      if (hasUsedPowerUpAbility(permanent, powerUpAbilityIndex)) {
+        socket.emit('error', {
+          code: 'POWER_UP_ALREADY_USED',
+          message: `Each power-up ability on ${cardName} can only be activated once.`,
+        });
+        return;
+      }
+      isPowerUpActivation = true;
+      abilityText = powerUpInfo.effectText;
+      manaCost = applyPowerUpEnteredThisTurnDiscount(powerUpInfo.manaCost, permanent);
+      manaCost = applyPowerUpActivationCostReductions(manaCost, game.state, pid, String(permanent?.id || ''));
+      requiresTap = false;
+      requiresUntap = false;
+      requiresSelfExert = false;
+      sacrificeType = null;
+      sacrificeSubtype = undefined;
+      sacrificeCount = 1;
+      mustBeOther = false;
+      requiredChargeCounters = null;
     }
 
     const selectedAbilityFullText = selectedAbilityIndex < abilities.length
@@ -12624,6 +12660,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       // Not a tutor - put the ability on the stack normally
+      if (isPowerUpActivation && powerUpAbilityIndex >= 0) {
+        markPowerUpAbilityUsed(permanent, powerUpAbilityIndex);
+      }
+
       const stackItem = {
         id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         type: 'ability' as const,

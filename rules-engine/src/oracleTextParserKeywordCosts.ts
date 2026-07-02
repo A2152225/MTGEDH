@@ -115,7 +115,7 @@ export function parseKeywordPrefixedActivatedAbility(text: string): ExpandedKeyw
   const normalized = normalizeDashPunctuation(text).trim();
   if (!normalized.includes(':')) return null;
 
-  const directActivatedKeywords = ['boast', 'channel', 'exhaust', 'forecast'];
+  const directActivatedKeywords = ['boast', 'channel', 'exhaust', 'forecast', 'power-up'];
   for (const keyword of directActivatedKeywords) {
     const match = normalized.match(new RegExp(`^${keyword}\\s+(?:\\u2014\\s*)?(.+?):\\s*([\\s\\S]+)$`, 'i'));
     if (!match) continue;

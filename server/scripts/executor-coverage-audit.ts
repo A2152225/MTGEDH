@@ -2360,6 +2360,7 @@ export function enrichAuditStateAndContextForTargets(
       (step.kind === 'cant_attack' && /^otherwise, it can't attack/i.test(raw)) ||
       (step.kind === 'cant_block' && /nonartifact creatures can't block/i.test(raw)) ||
       (step.kind === 'grant_temporary_ability' && /two target creatures you control that share a creature type can't be blocked/i.test(raw)) ||
+      (step.kind === 'grant_temporary_ability' && /target creature can't be blocked this turn/i.test(raw)) ||
       (step.kind === 'grant_temporary_ability' && /during your turn, zurgo has indestructible/i.test(raw)) ||
       (step.kind === 'grant_temporary_ability' && /those creatures also gain trample until end of turn/i.test(raw)) ||
       (step.kind === 'exile' && /exile that creature$/i.test(raw)) ||
@@ -10932,6 +10933,11 @@ export function enrichAuditStateAndContextForTargets(
   const needsEnchantedCreatureRestriction = steps.some((step) =>
     /enchanted creature can't|enchanted permanent doesn't untap|its activated abilities can't be activated/i.test(String(step.raw || ''))
   );
+  const needsEnchantedCreatureHost = steps.some(
+    (step) =>
+      /enchanted creature/i.test(String(step.raw || '')) &&
+      (step.kind === 'copy_permanent' || /other than enchanted creature/i.test(String(step.raw || ''))),
+  );
   const matchesCopyTokenRaw = (raw: string): boolean =>
     /create a token that'?s a copy of|create a token copy of|create (?:x |two |that many )?tokens? that are copies of/i.test(raw) &&
     /copy of (?:target|up to one target|another target|the sacrificed creature|target artifact|target creature|target artifact or creature|target artifact creature|target artifact token|target artifact, creature, or land|target artifact or enchantment|a card you exiled|that artifact or creature|that creature|that artifact|(?:it\b|this creature|this permanent|that creature|that permanent|that wizard|this equipment|this enchantment|that artifact|enchanted creature|one of them|one of those permanents|blighted creature))/i.test(
@@ -10978,7 +10984,7 @@ export function enrichAuditStateAndContextForTargets(
   const needsMinusOneCounterCantBlock = steps.some((step) =>
     step.kind === 'cant_block' && /-1\/-1 counters on them/i.test(String(step.raw || ''))
   );
-  if (needsEnchantedLand || needsEnchantedCreatureSacrifice || needsRegenerateEnchanted || needsEnchantedCreatureRestriction || needsCopyTokenSource) {
+  if (needsEnchantedLand || needsEnchantedCreatureSacrifice || needsRegenerateEnchanted || needsEnchantedCreatureRestriction || needsCopyTokenSource || needsEnchantedCreatureHost) {
     nextState = {
       ...nextState,
       battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
@@ -17359,6 +17365,181 @@ export function enrichAuditStateAndContextForTargets(
             'gy-source-self',
             'bf-creature-1',
           ])
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsSelfBattlefieldOrGyCopy = steps.some(
+    (step) =>
+      step.kind === 'copy_permanent' &&
+      /this permanent becomes a copy of up to one target creature on the battlefield or creature card in a graveyard/i.test(
+        String(step.raw || ''),
+      ),
+  );
+  if (needsSelfBattlefieldOrGyCopy) {
+    nextState = {
+      ...nextState,
+      players: (nextState.players || []).map((player: any) =>
+        String(player?.id || '').trim() === 'p1'
+          ? {
+              ...player,
+              graveyard: [
+                ...(Array.isArray(player.graveyard) ? player.graveyard : []),
+                {
+                  id: 'gy-audit-copy-creature',
+                  name: 'Audit Graveyard Creature',
+                  type_line: 'Creature — Human',
+                  power: '2',
+                  toughness: '2',
+                },
+              ],
+            }
+          : player,
+      ),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPermanentId: 'bf-creature-1',
+      targetCreatureId: 'bf-creature-1',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: 'bf-creature-1',
+        targetCreatureId: 'bf-creature-1',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-creature-1',
+            'gy-audit-copy-creature',
+          ]),
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsSelfArtifactEnchantLandCopy = steps.some(
+    (step) =>
+      step.kind === 'copy_permanent' &&
+      /this permanent becomes a copy of up to one target artifact, non-aura enchantment, or land/i.test(
+        String(step.raw || ''),
+      ),
+  );
+  if (needsSelfArtifactEnchantLandCopy) {
+    nextCtx = {
+      ...nextCtx,
+      targetPermanentId: 'bf-artifact-1',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPermanentId: 'bf-artifact-1',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-artifact-1',
+          ]),
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsOtherTargetPermanentsExile = steps.some(
+    (step) =>
+      step.kind === 'exile' &&
+      /exile any number of other target permanents you control/i.test(String(step.raw || '')),
+  );
+  if (needsOtherTargetPermanentsExile) {
+    nextCtx = {
+      ...nextCtx,
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-creature-1',
+            'bf-artifact-1',
+          ]),
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsMonarchTappedDestroy = steps.some(
+    (step) =>
+      step.kind === 'destroy' &&
+      /destroy target tapped nonland permanent that player controls/i.test(String(step.raw || '')),
+  );
+  if (needsMonarchTappedDestroy) {
+    nextState = {
+      ...nextState,
+      monarch: 'p2',
+      battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+        if (String(perm?.id || '').trim() === 'bf-opponent-artifact') {
+          return { ...perm, tapped: true };
+        }
+        return perm;
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetPlayerId: 'p2',
+      targetOpponentId: 'p2',
+      targetPermanentId: 'bf-opponent-artifact',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        targetPermanentId: 'bf-opponent-artifact',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-opponent-artifact',
+          ]),
+        ),
+      },
+    } as typeof nextCtx;
+  }
+
+  const needsEnchantedCreatureCopy = steps.some(
+    (step) =>
+      step.kind === 'copy_permanent' &&
+      /enchanted creature becomes a copy of that creature/i.test(String(step.raw || '')),
+  );
+  if (needsEnchantedCreatureCopy) {
+    const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
+    nextState = {
+      ...nextState,
+      battlefield: ((nextState.battlefield || []) as any[]).map((perm: any) => {
+        if (String(perm?.id || '').trim() !== sourceId) return perm;
+        return {
+          ...perm,
+          attachedTo: 'bf-creature-1',
+          type_line: perm?.type_line || 'Enchantment — Aura',
+        };
+      }),
+    } as GameState;
+    nextCtx = {
+      ...nextCtx,
+      targetCreatureId: 'bf-creature-1',
+      targetPermanentId: 'bf-opponent-creature',
+      selectorContext: {
+        ...(nextCtx.selectorContext || {}),
+        targetCreatureId: 'bf-creature-1',
+        targetPermanentId: 'bf-opponent-creature',
+        chosenObjectIds: Array.from(
+          new Set([
+            ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+              ? nextCtx.selectorContext.chosenObjectIds
+              : []),
+            'bf-creature-1',
+            'bf-opponent-creature',
+          ]),
         ),
       },
     } as typeof nextCtx;

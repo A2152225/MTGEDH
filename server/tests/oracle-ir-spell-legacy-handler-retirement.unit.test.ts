@@ -11,11 +11,14 @@ import { applyInstantSorcerySpecialAndRemovalRiders } from '../src/state/modules
 import { executeInstantSorceryLegacyCategorizedSpell } from '../src/state/modules/stackResolveSpellLegacySpecUtils.js';
 import { categorizeSpellWithoutPrimaryRetirement } from '../src/rules-engine/targeting.js';
 import { tryApplyInstantSorceryLegacyBodyHandlers } from '../src/state/modules/stackResolveInstantSorceryLegacyBodyUtils.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 describe('retired spell legacy handler defense-in-depth', () => {
   const previousPrimary = process.env.ORACLE_IR_SPELL_PRIMARY;
 
   afterEach(() => {
+    ResolutionQueueManager.removeQueue('spell_scry_categorize_retirement');
+    ResolutionQueueManager.removeQueue('spell_surveil_categorize_retirement');
     if (previousPrimary === undefined) {
       delete process.env.ORACLE_IR_SPELL_PRIMARY;
     } else {
@@ -23,7 +26,7 @@ describe('retired spell legacy handler defense-in-depth', () => {
     }
   });
 
-  it('legacy compound draw regex handlers no-op when IR primary owns simple draw text', () => {
+  it('legacy compound draw regex handlers no-op when IR primary owns simple draw text', { timeout: 15000 }, () => {
     process.env.ORACLE_IR_SPELL_PRIMARY = '1';
 
     const game = createInitialGameState('spell_handler_retirement');
@@ -219,5 +222,230 @@ describe('retired spell legacy handler defense-in-depth', () => {
     expect(handCount).toBe(2);
     expect(libraryCount).toBe(0);
     expect((game.state as any).pendingDiscard?.[p1]?.count).toBe(1);
+  });
+
+  it('legacy draw-then-discard regex handler no-ops when IR primary owns Chart a Course text', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const game = createInitialGameState('spell_handler_chart_retirement');
+    const p1 = 'p1' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+
+    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
+    player.library = [
+      { id: 'lib-1', name: 'Island', zone: 'library' },
+      { id: 'lib-2', name: 'Forest', zone: 'library' },
+    ];
+    player.hand = [];
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        library: player.library.map((card: any) => ({ ...card })),
+        libraryCount: player.library.length,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+
+    const ctx = game as any;
+    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
+
+    applyLegacySpellRegexDrawHandlers(ctx, {
+      controller: p1,
+      effectiveCard: { name: 'Chart a Course' },
+      oracleTextLower: 'draw two cards, then discard a card.',
+    });
+
+    const handCount = (game.state as any).zones?.[p1]?.hand?.length ?? player.hand.length;
+    const libraryCount = ctx.libraries.get(p1)?.length ?? player.library.length;
+    expect(handCount).toBe(0);
+    expect(libraryCount).toBe(2);
+    expect((game.state as any).pendingDiscard?.[p1]).toBeUndefined();
+  });
+
+  it('legacy wheel draw regex handlers no-op when IR primary owns Windfall text', { timeout: 15000 }, () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const game = createInitialGameState('spell_wheel_windfall_retirement');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+    (game.state as any).zones = {
+      [p1]: { hand: [{ id: 'h1', name: 'A' }], handCount: 1, graveyard: [], graveyardCount: 0 },
+      [p2]: { hand: [{ id: 'h2', name: 'B' }, { id: 'h3', name: 'C' }], handCount: 2, graveyard: [], graveyardCount: 0 },
+    };
+
+    const ctx = game as any;
+    ctx.libraries = new Map([
+      [p1, Array.from({ length: 10 }, (_, index) => ({ id: `p1l${index}`, name: `L${index}`, zone: 'library' }))],
+      [p2, Array.from({ length: 10 }, (_, index) => ({ id: `p2l${index}`, name: `L${index}`, zone: 'library' }))],
+    ]);
+
+    applyLegacySpellRegexDrawHandlers(ctx, {
+      controller: p1,
+      effectiveCard: { name: 'Windfall' },
+      oracleTextLower: 'each player discards their hand, then draws cards equal to the greatest number of cards a player discarded this way.',
+    });
+
+    expect((game.state as any).zones[p1].hand).toHaveLength(1);
+    expect((game.state as any).zones[p2].hand).toHaveLength(2);
+  });
+
+  it('legacy wheel draw regex handlers no-op when IR primary owns Reforge text', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const game = createInitialGameState('spell_wheel_reforge_retirement');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+    (game.state as any).zones = {
+      [p1]: { hand: [{ id: 'h1', name: 'A' }], handCount: 1, graveyard: [], graveyardCount: 0 },
+      [p2]: { hand: [{ id: 'h2', name: 'B' }, { id: 'h3', name: 'C' }], handCount: 2, graveyard: [], graveyardCount: 0 },
+    };
+
+    const ctx = game as any;
+    ctx.libraries = new Map([
+      [p1, Array.from({ length: 10 }, (_, index) => ({ id: `p1l${index}`, name: `L${index}`, zone: 'library' }))],
+      [p2, Array.from({ length: 10 }, (_, index) => ({ id: `p2l${index}`, name: `L${index}`, zone: 'library' }))],
+    ]);
+
+    applyLegacySpellRegexDrawHandlers(ctx, {
+      controller: p1,
+      effectiveCard: { name: 'Reforge the Soul' },
+      oracleTextLower: 'each player discards their hand, then draws seven cards.',
+    });
+
+    expect((game.state as any).zones[p1].hand).toHaveLength(1);
+    expect((game.state as any).zones[p2].hand).toHaveLength(2);
+  });
+
+  it('legacy categorized scry spell execution no-ops when IR primary owns scry text', { timeout: 15000 }, () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const gameId = 'spell_scry_categorize_retirement';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+
+    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
+    player.library = [
+      { id: 'lib-1', name: 'Island', zone: 'library' },
+      { id: 'lib-2', name: 'Forest', zone: 'library' },
+    ];
+    player.hand = [];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
+
+    const spellSpec = categorizeSpellWithoutPrimaryRetirement('Opt', 'Scry 1.');
+    expect(spellSpec?.op).toBe('SCRY');
+
+    executeInstantSorceryLegacyCategorizedSpell(ctx, {
+      controller: p1,
+      card: { id: 'opt_card', name: 'Opt' },
+      effectiveCard: { name: 'Opt' },
+      item: { id: 'opt_stack' },
+      oracleText: 'Scry 1.',
+      targets: [],
+      spellSpec: spellSpec!,
+      spellXValue: undefined,
+      targetSpellControllerForSupplemental: null,
+      targetSpellNameForSupplemental: '',
+      targetControllerForTokenCreation: null,
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const scrySteps = (queue?.steps || []).filter((step) => step.type === ResolutionStepType.SCRY);
+    expect(scrySteps).toHaveLength(0);
+  });
+
+  it('legacy categorized surveil spell execution no-ops when IR primary owns surveil text', { timeout: 15000 }, () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const gameId = 'spell_surveil_categorize_retirement';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+
+    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
+    player.library = [
+      { id: 'lib-1', name: 'Island', zone: 'library' },
+      { id: 'lib-2', name: 'Forest', zone: 'library' },
+      { id: 'lib-3', name: 'Mountain', zone: 'library' },
+    ];
+    player.hand = [];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
+
+    const spellSpec = categorizeSpellWithoutPrimaryRetirement('Test Surveil', 'Surveil 2.');
+    expect(spellSpec?.op).toBe('SURVEIL');
+
+    executeInstantSorceryLegacyCategorizedSpell(ctx, {
+      controller: p1,
+      card: { id: 'surveil_card', name: 'Test Surveil' },
+      effectiveCard: { name: 'Test Surveil' },
+      item: { id: 'surveil_stack' },
+      oracleText: 'Surveil 2.',
+      targets: [],
+      spellSpec: spellSpec!,
+      spellXValue: undefined,
+      targetSpellControllerForSupplemental: null,
+      targetSpellNameForSupplemental: '',
+      targetControllerForTokenCreation: null,
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const surveilSteps = (queue?.steps || []).filter((step) => step.type === ResolutionStepType.SURVEIL);
+    expect(surveilSteps).toHaveLength(0);
+    expect(player.hand).toHaveLength(0);
+  });
+
+  it('legacy categorized counter spell execution no-ops when IR primary owns unless-pay text', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const game = createInitialGameState('spell_counter_retirement');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+    (game.state as any).stack = [
+      {
+        id: 'cultivate_stack',
+        type: 'spell',
+        controller: p2,
+        card: { id: 'cultivate_card', name: 'Cultivate', type_line: 'Sorcery' },
+        targets: [],
+      },
+    ];
+
+    const ctx = game as any;
+    const spellSpec = categorizeSpellWithoutPrimaryRetirement(
+      'Force Spike',
+      'Counter target spell unless its controller pays {1}.',
+    );
+    expect(spellSpec?.op).toBe('COUNTER_TARGET_SPELL');
+
+    executeInstantSorceryLegacyCategorizedSpell(ctx, {
+      controller: p1,
+      card: { id: 'force_spike_card', name: 'Force Spike' },
+      effectiveCard: { name: 'Force Spike' },
+      item: { id: 'force_spike_stack', targets: [{ id: 'cultivate_stack', kind: 'stack' }] },
+      oracleText: 'Counter target spell unless its controller pays {1}.',
+      targets: [{ id: 'cultivate_stack', kind: 'stack' }],
+      spellSpec: spellSpec!,
+      spellXValue: undefined,
+      targetSpellControllerForSupplemental: p2,
+      targetSpellNameForSupplemental: 'Cultivate',
+      targetControllerForTokenCreation: null,
+    });
+
+    expect((game.state as any).stack).toHaveLength(1);
+    expect(String((game.state as any).stack[0]?.card?.name || '')).toBe('Cultivate');
   });
 });

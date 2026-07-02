@@ -6,7 +6,7 @@
 import { normalizeGameplayEffectText } from './oracleReminderText.js';
 
 const ABILITY_LINE_BOUNDARY =
-  /\n\s*(?=(?:when|whenever|at the beginning of)\b|\{[0-9WUBRGC/P]+\}|(?:[A-Za-z]+(?: [A-Za-z]+)*—))/i;
+  /\n\s*(?=(?:when|whenever|at the beginning of)\b|\{[0-9WUBRGC/P]+\}|[A-Za-z][A-Za-z0-9' ,-]*\{[0-9WUBRGC/P]+\}\s*:|(?:[A-Za-z]+(?: [A-Za-z]+)*—))/i;
 
 const NEW_TRIGGER_TIMING_SENTENCE = /^(?:when|whenever|at the beginning of)\b/i;
 
@@ -56,7 +56,7 @@ function joinSentences(left: string, right: string): string {
   return `${leftEnds} ${b}`.replace(/\.\s+\./g, '.').trim();
 }
 
-function truncateAtAbilityBoundary(text: string): string {
+export function truncateAtAbilityBoundary(text: string): string {
   const boundary = text.match(ABILITY_LINE_BOUNDARY);
   if (boundary?.index != null && boundary.index > 0) {
     return text.slice(0, boundary.index).trim();

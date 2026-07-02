@@ -2,6 +2,7 @@ import { parseTriggeredAbility } from './oracleTextParser';
 import { parseKeywordTriggeredAbility } from './oracleTextParserKeywordTriggers';
 import { detectTriggeredAbilityEvent } from './triggeredAbilitiesEventDetection';
 import { normalizeGameplayEffectText } from './oracleReminderText.js';
+import { truncateAtAbilityBoundary } from './triggerEffectTextExtraction.js';
 import { TriggerEvent, TriggerKeyword, type TriggeredAbility } from './triggeredAbilitiesTypes';
 
 function escapeRegex(value: string): string {
@@ -211,8 +212,8 @@ function isOnLoyaltyAbilityLine(text: string, matchIndex: number): boolean {
 
 function truncateTriggeredAbilityText(text: string): string {
   const loyaltyBreak = text.search(/\n[+−\-]\d+\s*:/u);
-  if (loyaltyBreak >= 0) return text.slice(0, loyaltyBreak).trim();
-  return text.trim();
+  const withoutLoyalty = loyaltyBreak >= 0 ? text.slice(0, loyaltyBreak) : text;
+  return truncateAtAbilityBoundary(withoutLoyalty);
 }
 
 function splitCompoundTriggerConditions(condition: string): string[] {

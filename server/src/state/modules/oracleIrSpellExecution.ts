@@ -88,8 +88,10 @@ function inferTargetBinding(state: any, targetIds: readonly string[], controller
   const stack = Array.isArray(state?.stack) ? state.stack : [];
   const controllerId = String(controller || '').trim();
 
-  for (const targetId of targetIds) {
-    const id = String(targetId || '').trim();
+  for (const targetEntry of targetIds) {
+    const id = typeof targetEntry === 'string'
+      ? String(targetEntry || '').trim()
+      : String((targetEntry as any)?.id || (targetEntry as any)?.targetId || '').trim();
     if (!id) continue;
     if (battlefield.some((permanent: any) => String(permanent?.id || '') === id)) {
       return { targetPermanentId: id, chosenObjectIds: targetIds };

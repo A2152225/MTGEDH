@@ -15,6 +15,7 @@ import {
   collectContextualCardsLedgerFirst,
   collectExiledCardsLedgerFirst,
 } from './oracleIRLedgerCardAccess';
+import { parseDestroyChosenQualityTarget } from './oracleIRExecutorZoneOps';
 import {
   tryBatch386CopyPermanentStep,
   tryBatch386DealDamageStep,
@@ -399,6 +400,29 @@ export function trySpecialExileStep(
 
   const raw = normalizeRaw(step);
   const target = normalizeTargetText(step);
+
+  if (/exile up to one target creature other than enchanted creature/.test(raw)) {
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const host = resolveEnchantedHost(battlefield, ctx);
+    const hostId = String((host as any)?.id || '').trim();
+    const boundIds = new Set(collectBoundIds(ctx));
+    const targets = battlefield.filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (hostId && id === hostId) return false;
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      if (boundIds.size > 0 && !boundIds.has(id)) return false;
+      return true;
+    });
+    if (targets.length === 0) {
+      return { applied: true, state, log: ['No target creature to exile'] };
+    }
+    const preferredId = String(
+      ctx.targetPermanentId || ctx.selectorContext?.targetPermanentId || ''
+    ).trim();
+    const picked =
+      targets.find((perm) => String((perm as any)?.id || '').trim() === preferredId) || targets[0];
+    return exileBattlefieldPermanents(state, [picked], ctx, 'creature other than enchanted');
+  }
 
   if (
     target === 'them instead of putting them anywhere else' ||
@@ -1289,6 +1313,38 @@ export function trySpecialDestroyStep(
   const raw = normalizeRaw(step);
   const target = normalizeClause(String((step.target as any)?.text || ''));
 
+  const chosenQualityDestroy = parseDestroyChosenQualityTarget(step.target as any);
+  if (chosenQualityDestroy) {
+    const chosenParity = String(ctx.selectorContext?.chosenOddEven || '').trim().toLowerCase();
+    if (chosenParity !== 'odd' && chosenParity !== 'even') {
+      return {
+        applied: false,
+        message: `Skipped destroy (no deterministic parity choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+    const sourceId = String(ctx.sourceId || '').trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const matches = battlefield.filter((perm: any) => {
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      const id = String(perm?.id || '').trim();
+      if (chosenQualityDestroy.excludeSource && id && sourceId && id === sourceId) return false;
+      let value: number | null = null;
+      if (chosenQualityDestroy.metric === 'power') {
+        const power = Number(perm?.effectivePower ?? perm?.power ?? perm?.basePower ?? perm?.card?.power);
+        value = Number.isFinite(power) ? power : null;
+      } else {
+        const manaValue = getCardManaValue((perm as any)?.card || perm);
+        value = Number.isFinite(manaValue) ? manaValue : null;
+      }
+      if (value === null) return false;
+      const isEven = value % 2 === 0;
+      return chosenParity === 'even' ? isEven : !isEven;
+    });
+    return exileBattlefieldPermanents(state, matches, ctx, 'destroy chosen quality');
+  }
+
   if (target === 'this enchantment' || /^destroy this enchantment$/.test(raw)) {
     const sourceId = String(ctx.sourceId || '').trim();
     const perm = ((state.battlefield || []) as any[]).find((entry) => String(entry?.id || '').trim() === sourceId);
@@ -1360,6 +1416,25 @@ export function trySpecialDestroyStep(
       return true;
     });
     return exileBattlefieldPermanents(state, matches, ctx, 'any number of target planeswalkers');
+  }
+
+  if (/destroy target tapped nonland permanent that player controls/.test(raw)) {
+    const playerId = String(
+      ctx.selectorContext?.targetPlayerId || ctx.selectorContext?.targetOpponentId || 'p2'
+    ).trim();
+    const boundIds = new Set(collectBoundIds(ctx));
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const matches = battlefield.filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (boundIds.size > 0 && !boundIds.has(id)) return false;
+      if (String(perm?.controller || '').trim() !== playerId) return false;
+      if (!Boolean(perm?.tapped)) return false;
+      return permanentMatchesType(perm, 'nonland_permanent');
+    });
+    if (matches.length === 0) {
+      return { applied: true, state, log: ['No matching tapped permanent to destroy'] };
+    }
+    return exileBattlefieldPermanents(state, matches.slice(0, 1), ctx, 'destroy tapped nonland');
   }
 
   if (/destroy any number of target artifacts and\/or enchantments with total mana value x or less/.test(raw)) {
@@ -2665,6 +2740,57 @@ export function trySpecialCopyPermanentStep(
     });
     if (!artifact || !sourceId) return null;
     return applyCopyToTargets([sourceId], (artifact as any)?.card || artifact);
+  }
+
+  if (/enchanted creature becomes a copy of that creature/.test(raw)) {
+    const host = resolveEnchantedHost(battlefield, ctx);
+    if (!host) return null;
+    const contextualCards = readContextualCardsFromRuntime(ctx, runtime);
+    const sourceCard =
+      contextualCards.find((card: any) => /\bcreature\b/i.test(String(card?.type_line || ''))) ||
+      contextualCards[0];
+    if (!sourceCard) return null;
+    return applyCopyToTargets([String((host as any)?.id || '').trim()], sourceCard);
+  }
+
+  if (/this permanent becomes a copy of up to one target creature on the battlefield or creature card in a graveyard/.test(raw)) {
+    if (!sourceId) return null;
+    const boundIds = collectBoundIds(ctx);
+    const creatureTarget = battlefield.find((perm) => {
+      const id = String((perm as any)?.id || '').trim();
+      if (!boundIds.includes(id)) return false;
+      return permanentMatchesType(perm, 'creature');
+    });
+    const gyCard = (state.players || [])
+      .flatMap((player: any) => (Array.isArray(player?.graveyard) ? player.graveyard : []))
+      .find((card: any) => {
+        const id = String(card?.id || '').trim();
+        if (boundIds.length > 0 && id && !boundIds.includes(id)) return false;
+        return /\bcreature\b/i.test(String(card?.type_line || ''));
+      });
+    const sourceCard = creatureTarget
+      ? ((creatureTarget as any)?.card || creatureTarget)
+      : gyCard;
+    if (!sourceCard) return null;
+    return applyCopyToTargets([sourceId], sourceCard);
+  }
+
+  if (/this permanent becomes a copy of up to one target artifact, non-aura enchantment, or land/.test(raw)) {
+    if (!sourceId) return null;
+    const boundIds = collectBoundIds(ctx);
+    const copyTarget = battlefield.find((perm) => {
+      const id = String((perm as any)?.id || '').trim();
+      if (!boundIds.includes(id)) return false;
+      if (permanentMatchesType(perm, 'artifact')) return true;
+      if (permanentMatchesType(perm, 'land')) return true;
+      if (permanentMatchesType(perm, 'enchantment')) {
+        const typeLine = getExecutorTypeLineLower(perm);
+        return !/\baura\b/i.test(typeLine);
+      }
+      return false;
+    });
+    if (!copyTarget) return null;
+    return applyCopyToTargets([sourceId], (copyTarget as any)?.card || copyTarget);
   }
 
   return null;

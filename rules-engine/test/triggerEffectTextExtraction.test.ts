@@ -44,6 +44,17 @@ describe('triggerEffectTextExtraction', () => {
     expect(effect).toBe('draw a card.');
   });
 
+  it('truncates at keyword-cost activated lines (Waterbend)', () => {
+    const oracle =
+      "Whenever a creature you control deals combat damage to a player, put a quest counter on this enchantment. Then if it has four or more quest counters on it, draw a card.\nWaterbend {4}: Target creature can't be blocked this turn.";
+    const prefix = 'Whenever a creature you control deals combat damage to a player, ';
+    const effect = extractTriggerEffectAfterPrefix(oracle, prefix.length);
+    expect(effect.toLowerCase()).toContain('put a quest counter');
+    expect(effect.toLowerCase()).toContain('draw a card');
+    expect(effect.toLowerCase()).not.toContain('waterbend');
+    expect(effect.toLowerCase()).not.toContain("can't be blocked");
+  });
+
   it('strips Escape suffix from extracted ETB effects', () => {
     const oracle =
       'When this creature enters, it deals 4 damage divided as you choose among any number of target creatures and/or planeswalkers. Escape—{3}{R}{R}, exile four other cards from your graveyard.';

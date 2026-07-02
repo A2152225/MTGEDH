@@ -4,6 +4,7 @@ import {
   createEffectProgramRuntime,
   runEffectProgram,
   type EffectProgram,
+  type EffectProgramChoicePause,
   type EffectProgramHandlers,
   type EffectProgramRunResult,
   type EffectProgramRuntime,
@@ -124,6 +125,32 @@ export function getEffectProgramRuntimeForStep(
   return getRuntimeForStep(gameId, stepId)?.runtime;
 }
 
+function buildTeamworkChooseBothQueueExtras(
+  pause: EffectProgramChoicePause<any>,
+  oracleIrBridge?: EffectProgramOracleIrBridgeConfig,
+): EffectProgramQueueExtraConfig {
+  if ((oracleIrBridge?.irCtx as any)?.teamworkWasPaid !== true) {
+    return {};
+  }
+  const payload = (pause.choiceEvent as any)?.payload || pause.step?.choiceRequest?.payload;
+  const oracleStepKind = String((payload as any)?.oracleStepKind || '');
+  const oracleStep = (payload as any)?.oracleStep as any;
+  if (oracleStepKind !== 'choose_mode' || !oracleStep?.teamworkChooseBoth) {
+    return {};
+  }
+  const modes = Array.isArray((payload as any)?.modes)
+    ? (payload as any).modes
+    : Array.isArray(oracleStep?.modes)
+      ? oracleStep.modes
+      : [];
+  const modeCount = modes.length > 0 ? modes.length : 2;
+  return {
+    maxModes: Math.min(2, modeCount),
+    teamworkChooseBoth: true,
+    teamworkWasPaid: true,
+  };
+}
+
 function continueEffectProgramResolution(args: {
   readonly game: any;
   readonly gameId: string;
@@ -162,7 +189,11 @@ function continueEffectProgramResolution(args: {
   }
 
   if (runResult.status === 'waiting_for_choice' && runResult.pendingChoice) {
-    const queuedStep = queueEffectProgramChoice(args.gameId, runResult.pendingChoice, args.queueExtraConfig);
+    const teamworkExtras = buildTeamworkChooseBothQueueExtras(runResult.pendingChoice, args.oracleIrBridge);
+    const queuedStep = queueEffectProgramChoice(args.gameId, runResult.pendingChoice, {
+      ...(args.queueExtraConfig || {}),
+      ...teamworkExtras,
+    });
     storeRuntimeForStep(args.gameId, queuedStep.id, {
       runtime: runResult.pendingChoice.runtime,
       handlers: args.handlers,

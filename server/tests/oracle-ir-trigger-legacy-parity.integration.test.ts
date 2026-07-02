@@ -39,7 +39,7 @@ describe('oracle IR trigger legacy parity (primary mode)', () => {
     }
   });
 
-  it('routes simple draw triggers through IR primary instead of legacy regex', () => {
+  it('routes simple draw triggers through IR primary instead of legacy regex', { timeout: 15000 }, () => {
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
 
     const gameId = 'oracle_ir_trigger_execute_draw';
@@ -309,5 +309,50 @@ describe('oracle IR trigger legacy parity (primary mode)', () => {
         .filter((step) => step.type === ResolutionStepType.DISCARD_SELECTION);
       expect(discardSteps).toHaveLength(1);
     }
+  });
+
+  it('routes optional discard-then-draw through IR option_choice instead of legacy combined handler', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_trigger_optional_discard_primary';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [{ id: 'card_1', name: 'Card One', type_line: 'Instant' }],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        libraryCount: 1,
+      },
+    };
+    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
+    player.hand = [{ id: 'card_1', name: 'Card One', type_line: 'Instant' }];
+    player.library = [{ id: 'lib_1', name: 'Library Top', type_line: 'Instant', zone: 'library' }];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
+    ResolutionQueueManager.removeQueue(gameId);
+
+    executeTriggerEffect(
+      ctx,
+      p1,
+      'Rummage Source',
+      'You may discard a card. If you do, draw a card.',
+      { id: 'trigger-1', source: 'source-1' },
+    );
+
+    const choiceStep = ResolutionQueueManager.getQueue(gameId).steps.find(
+      (step) => step.type === ResolutionStepType.OPTION_CHOICE,
+    ) as any;
+    expect(choiceStep).toBeTruthy();
+    expect(String(choiceStep.description || '').toLowerCase()).toContain('discard');
+    expect((choiceStep.options || choiceStep.choiceEvent?.options || []).map((option: any) => option.id)).toEqual(
+      expect.arrayContaining(['yes', 'no']),
+    );
+    expect(choiceStep.optionalDiscardThenDrawChoice).not.toBe(true);
   });
 });

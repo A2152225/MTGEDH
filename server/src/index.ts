@@ -34,6 +34,7 @@ import { initCLI, setHttpServer } from "./cli"; // CLI support for server manage
 import { games as socketGames, priorityTimers } from "./socket/socket.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import { BOOT_ID } from "./utils/bootId.js";
+import { getOracleIrGapTelemetrySnapshot } from "./state/modules/oracleIrGapTelemetry.js";
 
 // Get the equivalent of __dirname in ES modules
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -282,6 +283,19 @@ app.get("/api/games", (req, res) => {
   } catch (err) {
     debugError(1, "GET /api/games failed:", err);
     res.status(500).json({ error: "Failed to list games" });
+  }
+});
+
+// API: Oracle IR production gap telemetry (task D2).
+// Live soak dashboard: counts + recent events for IR primary misses and
+// legacy-handled effects. See docs/oracle-ir-track-e-remaining-work.md §D2.
+app.get("/api/oracle-ir/telemetry", (_req, res) => {
+  res.set({ "Cache-Control": "no-store" });
+  try {
+    res.json(getOracleIrGapTelemetrySnapshot());
+  } catch (err) {
+    debugError(1, "GET /api/oracle-ir/telemetry failed:", err);
+    res.status(500).json({ error: "Failed to read oracle IR telemetry" });
   }
 });
 

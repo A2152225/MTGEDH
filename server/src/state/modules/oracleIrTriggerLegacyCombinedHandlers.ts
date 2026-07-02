@@ -38,12 +38,6 @@ export interface TriggerLegacyCombinedParams {
   readonly state: any;
 }
 
-export function applyRetiredTriggerLegacyCounterThenDraw(
-  _params: TriggerLegacyCombinedParams,
-): boolean {
-  return false;
-}
-
 export function applyRetiredTriggerLegacyOptionalDiscardThenDraw(
   params: TriggerLegacyCombinedParams,
 ): boolean {

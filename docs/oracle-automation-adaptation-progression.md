@@ -1,9 +1,9 @@
 # Oracle Automation — Adaptation Progression Plan
 
 Living plan for finishing card-effect adaptation **without bucket interference**.  
-Companion docs: `oracle-automation-remaining-work.md` (metrics), `oracle-ir-gap-backlog.md` (parser clusters), `semantic-keyword-audit.md` (keyword shape).
+Companion docs: `oracle-automation-remaining-work.md` (metrics), `oracle-ir-gap-backlog.md` (parser clusters), `semantic-keyword-audit.md` (keyword shape), **`oracle-ir-track-e-remaining-work.md` § Goal: Semantic atomic parsing** (new-set / overlay workflow).
 
-**Last updated: 2026-06-09**
+**Last updated: 2026-07-02** (corpus L1–L2 complete; new-card path via overlays documented in track doc)
 
 ---
 

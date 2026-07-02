@@ -1,4 +1,5 @@
 import type { GameContext } from '../context.js';import { resolveGiftAwareOracleText } from '../../utils/gift.js';
+import { ResolutionQueueManager } from '../resolution/index.js';
 import { detectInstantSorcerySpellShapeFlags } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { tryResolveInstantSorceryPreResolutionChoices } from './stackResolveSpellChoiceUtils.js';
 import { tryResolveAcademicProbationSpellEffects } from './stackResolveSpellAcademicProbationUtils.js';
@@ -76,19 +77,27 @@ export function tryResolveInstantSorceryPreface(
     targetSpellNameForSupplemental,
   } = removalTargetMetadata;
 
-  const oracleIrSpellOutcome = tryResolveInstantSorceryOracleIrSpell(ctx, {
-    controller,
-    card,
-    effectiveCard,
-    item,
-    oracleText,
-    targets,
-    spellXValue,
-    selectedModes,
-    existingChosenColor,
-    existingChosenCreatureType,
-    skipLegacySpellCategorization,
-  });
+  const isDeferredOracleIrFinalize = (item as any)?.oracleIrDeferredFinalize === true;
+  const gameId = String((ctx as any).gameId || 'unknown');
+  const pendingResolutionSteps = gameId !== 'unknown'
+    ? ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0
+    : 0;
+
+  const oracleIrSpellOutcome = (isDeferredOracleIrFinalize && pendingResolutionSteps === 0)
+    ? { oracleIrSpellHandled: true, spellSpec: null }
+    : tryResolveInstantSorceryOracleIrSpell(ctx, {
+      controller,
+      card,
+      effectiveCard,
+      item,
+      oracleText,
+      targets,
+      spellXValue,
+      selectedModes,
+      existingChosenColor,
+      existingChosenCreatureType,
+      skipLegacySpellCategorization,
+    });
 
   if (oracleIrSpellOutcome.spellSpec && !oracleIrSpellOutcome.oracleIrSpellHandled) {
     executeInstantSorceryLegacyCategorizedSpell(ctx, {

@@ -1,18 +1,77 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-06-29 (audit refresh — Layer 2 **100%**, triggers **15,741/15,741**, migration **752/752**)
+Last updated: 2026-07-02 (E9 batch 466 — **D1 delta CI + D2 gap telemetry shipped**; overlay-first ingestion; legacy ratchet; replay guardrail)
+
+## New-card automation (read this for set releases)
+
+**Goal:** Semantic **atomic** `OracleEffectStep` programs for cards not yet in the parser corpus, with live automation and choices only where oracle requires them.
+
+| Status | Detail |
+|--------|--------|
+| **Corpus (L1–L2)** | ✅ 47,514/47,514 assisted; triggers 15,741/15,741 |
+| **Live path (L3)** | ✅ IR primary on; **797/797** migration tests |
+| **Gap path** | ✅ Compiled overlays + `@OracleIRCompiler` — **default ingestion path** (overlay-first, §C inverted) |
+| **Delta CI (D1)** | ✅ `npm run oracle-ir:delta` — hash-baseline diff → audit delta cards only → `overlayWorkQueue` → CI exit code |
+| **Gap telemetry (D2)** | ✅ `oracleIrGapTelemetry.ts` + `GET /api/oracle-ir/telemetry` — all-or-nothing / owned-but-unhandled / legacy-handled |
+| **Still needed** | New-keyword onboarding (**B1–B8**), Phase 4 legacy deletion (ratcheted), Phase 5 continuous/replacement design ([design doc](./oracle-ir-phase5-continuous-effects-design.md)) |
+
+Full checklist, decision tree, and task IDs **A–E**: [oracle-ir-track-e-remaining-work.md § Goal: Semantic atomic parsing](./oracle-ir-track-e-remaining-work.md#goal-semantic-atomic-parsing--seamless-effect-automation-new-cards). Architecture direction: [oracle-ir-architecture-guide.md §15](./oracle-ir-architecture-guide.md).
+
+```powershell
+cd server
+npm run card-lookup:refresh
+npm run oracle-ir:delta                          # audit new/changed cards vs baseline
+npm run oracle-ir:overlay:probe -- --name "Card Name"
+npm run oracle-ir:delta -- --update-baseline     # accept green delta
+```
 
 ## Next session
 
-**Audit refresh complete (2026-06-29).** All coverage reports regenerated after batches 431–435.
+**E9 batch 466 done** (D1 delta CI, D2 telemetry + `/api/oracle-ir/telemetry`, legacy ratchet test, replay-divergence guardrail; docs: architecture guide §15, Phase 5 design doc, §C overlay-first). Next candidates: soak with telemetry → evidence-driven legacy deletion (lower ratchet ceilings); adopt `assertNoReplayDivergence` in more socket tests; generic choice primitives when the next novel choice shape appears.
+
+**⚠ Known pre-existing migration failures (2026-07-02, NOT from batch 466 — isolated by stashing):** `npm run test:oracle-ir-migration -- --pool=threads --maxWorkers=1 --testTimeout=30000` → **790/795**; 5 assertion failures reproduce with batch-466 files reverted to HEAD but disappear when the *entire* uncommitted working tree is stashed, so they come from earlier uncommitted session work (Marvel/E9 arc):
+
+| Test | Symptom |
+|------|---------|
+| `oracle-ir-scry-surveil` × 3 (Chart a Course stack E2E ×2, library-search compound draw) | Graveyard order `['draw-1','chart_1']` vs expected `['chart_1','draw-1']`; stack not empty after search resume |
+| `oracle-ir-kindred-summons` (live stack path) | Stack not empty after EP creature-type choice queue |
+| `oracle-ir-reveal-player-choice` (Green Sun's Twilight) | Stack not empty after LIBRARY_SEARCH queue |
+
+Also: many first-tests-per-file exceed the 5s default timeout under full-suite load (module warm-up) — run the suite with `--testTimeout=30000` (and `--maxWorkers=1`) until tightened.
+
+**Marvel mechanics (Teamwork / Power-up / Preparation)** — core + Layer 3 sockets done. See [marvel-mechanics-handoff.md](./marvel-mechanics-handoff.md).
 
 | Bar | Result |
 |-----|--------|
 | Executor (`full_card`) | **47,514/47,514** assisted — parse→execute **0**, `partial` **0**, `ir_gap` **0** |
 | Trigger coverage | **15,741/15,741** fully covered — `not_detected` **0** |
-| Selector / condition / amount gaps | **0** clusters each |
-| Target gaps | **1** optional cluster — Waterbender Ascension (`no_deterministic_target`) |
-| Migration | **752/752** (`npm run test:oracle-ir-migration`) |
+| Selector / condition / amount / target gaps | **0** clusters each |
+| Migration | **797/797** (`npm run test:oracle-ir-migration`) |
+
+### Layer 3 — completed beta-prep (batches 445–453)
+
+| Batch | Pattern | Key deliverable |
+|-------|---------|-----------------|
+| 445–449 | Socket arc | Trigger reveal, scry/surveil, unless-pay, prepared trigger, compound resume |
+| 450 | Legacy categorize gate | `shouldSkipLegacySpellCategorizeExecution` + wheel/counter unit guardrails |
+| 451 | Wheel reconnect E2E | Reforge/Windfall/Echo/Big Score/Inspiring Call `joinGame` zones |
+| 452 | Unless-pay zone sync | Graveyard sync without `ctx.libraries`; `syncAllOracleIRPlayerZonesAfterResolution` |
+| 453 | Prepared cast socket | Exile copy `requestCastSpellForSocket` + mana payment |
+| 454 | Scry/surveil legacy categorize | `SCRY`/`SURVEIL` categorize no-op guardrails; deleted `applyRetiredTriggerLegacyScry` stub |
+| 455–457 | Trigger draw stub deletion | Dead `return false` regex stubs removed; wheel + counter-then-draw cleanup |
+| 458 | Overlay migration gate | `oracle-ir-compiled-overlay*.integration` in migration suite |
+| 459 | Optional discard trigger socket (legacy) | `optional-discard-then-draw.trigger.socket` under `ORACLE_IR_TRIGGER_LEGACY=1` |
+| E8 460–461 | Effect Program sockets | `oracle-ir-fateseal-clash.socket`, `oracle-ir-choose-mode-effect-program.socket` |
+| 462 | Clash EP socket | `oracle-ir-fateseal-clash.socket` — `CLASH` resume via `submitResolutionResponse` |
+| 463 | Optional discard IR-primary socket | `optional-discard-then-draw.trigger.socket` — IR `OPTION_CHOICE` decline |
+| 464 | Draw-then-discard spell guardrail | Chart a Course no-op under `ORACLE_IR_SPELL_PRIMARY=1` |
+| 465 | Optional discard IR parity | `oracle-ir-trigger-legacy-parity` — IR path vs legacy `optionalDiscardThenDrawChoice` |
+
+```powershell
+cd server
+npm run test:oracle-ir-migration   # 797 tests; run with --maxWorkers=1 if timeouts
+npx vitest run tests/oracle-ir-wheel-reconnect.integration.test.ts tests/oracle-ir-unless-pay.socket.integration.test.ts tests/prepared.cast.socket.integration.test.ts --pool=threads --maxWorkers=1
+```
 
 Use `@OracleIRCompiler` (`.github/agents/OracleIRCompiler.agent.md`) to compile overlays, then:
 
@@ -26,6 +85,17 @@ npm run oracle-ir:overlay:import
 Overlays live in `server/data/compiled-oracle-ir-overlays/` (`*.example.json` templates are skipped on import). Runtime lookup: `oracle_ir_compiled_overlay` SQLite table + `collectOracleEffectSteps` overlay hook.
 
 ## What was completed this session
+
+### Marvel mechanics — Teamwork / Power-up / Preparation (2026-06-29) ✅
+
+| Area | Outcome |
+|------|---------|
+| **Teamwork** | Cast additional-cost queue + stack metadata; IR `teamworkChooseBoth` / `teamworkWasPaid` |
+| **Power-up** | Activate path discounts (118.7), once-per tracking, static reductions; Thanos odd/even destroy IR |
+| **Preparation** | IR `becomes prepared` → server `setPermanentPrepared`; handCount-safe zone sync; 10/10 integration tests |
+| **Tests** | `marvel-mechanics.test.ts` 10/10; `prepared.integration.test.ts` 10/10; rules-engine Marvel IR 4/4 |
+
+Handoff: [marvel-mechanics-handoff.md](./marvel-mechanics-handoff.md)
 
 ### Audit refresh (2026-06-29) ✅
 
