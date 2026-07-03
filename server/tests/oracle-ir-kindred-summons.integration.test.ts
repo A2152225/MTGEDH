@@ -171,7 +171,11 @@ describe('oracle IR Kindred Summons live stack path', () => {
       .find((step) => step.type === ResolutionStepType.CREATURE_TYPE_CHOICE);
     expect(typeStep).toBeTruthy();
     expect((typeStep as any)?.effectProgramPrompt).toBe(true);
-    expect((g.state as any).stack || []).toHaveLength(0);
+    // CR 608.2m: the spell stays on the stack (deferred finalize) until its
+    // queued resolution choices complete.
+    const stack = (g.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect((stack[0] as any)?.oracleIrDeferredFinalize).toBe(true);
   });
 
   it('completes Merfolk reveal-until via resumeEffectProgramResolution under production default', () => {

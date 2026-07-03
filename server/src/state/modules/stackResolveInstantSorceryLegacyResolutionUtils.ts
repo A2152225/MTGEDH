@@ -51,6 +51,10 @@ export function tryResolveInstantSorceryLegacyResolution(
       ? ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0
       : 0;
     if (pendingResolutionSteps > 0) {
+      // CR 608.2m: a spell finishes resolving (and moves to the graveyard) only after
+      // all of its instructions are carried out. While IR-queued choices are pending,
+      // keep the item on the stack; maybeResumeDeferredOracleIrStackSpell finalizes it
+      // once the resolution queue empties.
       const state = (ctx as any).state;
       state.stack = state.stack || [];
       state.stack.push({ ...item, oracleIrDeferredFinalize: true });

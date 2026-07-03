@@ -22,7 +22,7 @@
 ## Completed (Layer 3 socket arc — batches 438–441)
 
 ### Teamwork (batch 438)
-- `stackResolveInstantSorceryLegacyResolutionUtils.ts` — re-push stack when IR queues pending resolution under spell-primary EP
+- `stackResolveInstantSorceryLegacyResolutionUtils.ts` — re-push stack (`oracleIrDeferredFinalize`) when IR queues pending resolution under spell-primary EP; finalize now resumes centrally after every `handleStepResponse` (see session-handoff "5 migration failures root-caused")
 - `teamwork-choose-mode.socket.integration.test.ts` — legacy + spell-primary describe (3/3)
 
 ### Power-up (batches 440–441)

@@ -2655,7 +2655,9 @@ describe('oracle IR Chart a Course stack resolve E2E', () => {
     });
 
     expect((game.state as any).zones?.[playerId]?.hand?.map((entry: any) => entry.id)).toEqual(['draw-2']);
-    expect((game.state as any).zones?.[playerId]?.graveyard?.map((entry: any) => entry.id)).toEqual(['chart_1', 'draw-1']);
+    // Discarded card hits the graveyard during resolution; the spell card follows
+    // once resolution finishes (CR 608.2m deferred finalize).
+    expect((game.state as any).zones?.[playerId]?.graveyard?.map((entry: any) => entry.id)).toEqual(['draw-1', 'chart_1']);
     expect(ResolutionQueueManager.getStepsForPlayer(chartGameId, playerId)).toHaveLength(0);
     expect((game.state as any).stack || []).toHaveLength(0);
   });
@@ -2848,7 +2850,9 @@ describe('oracle IR Chart a Course stack resolve E2E', () => {
     });
 
     expect((game.state as any).zones?.[playerId]?.hand?.map((entry: any) => entry.id)).toEqual(['draw-2']);
-    expect((game.state as any).zones?.[playerId]?.graveyard?.map((entry: any) => entry.id)).toEqual(['chart_join_1', 'draw-1']);
+    // Discarded card hits the graveyard during resolution; the spell card follows
+    // once resolution finishes (CR 608.2m deferred finalize).
+    expect((game.state as any).zones?.[playerId]?.graveyard?.map((entry: any) => entry.id)).toEqual(['draw-1', 'chart_join_1']);
     expect(ResolutionQueueManager.getStepsForPlayer(chartJoinGameId, playerId)).toHaveLength(0);
     expect((game.state as any).stack || []).toHaveLength(0);
 

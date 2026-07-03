@@ -29,13 +29,12 @@ npm run oracle-ir:delta -- --update-baseline     # accept green delta
 
 **E9 batch 466 done** (D1 delta CI, D2 telemetry + `/api/oracle-ir/telemetry`, legacy ratchet test, replay-divergence guardrail; docs: architecture guide §15, Phase 5 design doc, §C overlay-first). Next candidates: soak with telemetry → evidence-driven legacy deletion (lower ratchet ceilings); adopt `assertNoReplayDivergence` in more socket tests; generic choice primitives when the next novel choice shape appears.
 
-**⚠ Known pre-existing migration failures (2026-07-02, NOT from batch 466 — isolated by stashing):** `npm run test:oracle-ir-migration -- --pool=threads --maxWorkers=1 --testTimeout=30000` → **790/795**; 5 assertion failures reproduce with batch-466 files reverted to HEAD but disappear when the *entire* uncommitted working tree is stashed, so they come from earlier uncommitted session work (Marvel/E9 arc):
+**✅ 5 migration failures root-caused and fixed (2026-07-02):** the Marvel/E9 arc introduced **deferred spell finalize** (`oracleIrDeferredFinalize` in `stackResolveInstantSorceryLegacyResolutionUtils.ts`): when an IR-handled spell queues resolution steps, the item is re-pushed onto the stack and the finalize (stack pop + spell → graveyard) runs only after the queue empties — per CR 608.2m, matching the Consider/teamwork expectations. The 5 failing tests encoded the *old* immediate-finalize semantics and had two real gaps:
 
-| Test | Symptom |
-|------|---------|
-| `oracle-ir-scry-surveil` × 3 (Chart a Course stack E2E ×2, library-search compound draw) | Graveyard order `['draw-1','chart_1']` vs expected `['chart_1','draw-1']`; stack not empty after search resume |
-| `oracle-ir-kindred-summons` (live stack path) | Stack not empty after EP creature-type choice queue |
-| `oracle-ir-reveal-player-choice` (Green Sun's Twilight) | Stack not empty after LIBRARY_SEARCH queue |
+1. **Stranded stack items** — `maybeResumeDeferredOracleIrStackSpell` was only wired into a few handlers (discard/scry/surveil/optional-payment), so LIBRARY_SEARCH and EP-choice responses never finalized the deferred spell. Fixed by calling it centrally after `handleStepResponse` in both `submitResolutionResponse` and the AI resolution path (`socket/resolution.ts`).
+2. **IR re-execution hazard** — the deferred second pass re-ran `tryResolveInstantSorceryOracleIrSpell` whenever the queue was non-empty. The preface (`stackResolveInstantSorceryPrefaceUtils.ts`) now short-circuits *any* `oracleIrDeferredFinalize` item so IR steps can never double-apply.
+
+Test expectations updated to the CR-correct semantics: Chart a Course graveyard order is now `['draw-1','chart_1']` (discard lands during resolution, spell after); Kindred Summons / Green Sun's Twilight assert the deferred item stays on the stack (`toHaveLength(1)` + `oracleIrDeferredFinalize`) while the choice is pending. Migration suite: **795/795** (the only 2 fails in a full run were first-test-per-file 30s warm-up timeouts; both pass solo).
 
 Also: many first-tests-per-file exceed the 5s default timeout under full-suite load (module warm-up) — run the suite with `--testTimeout=30000` (and `--maxWorkers=1`) until tightened.
 

@@ -227,7 +227,11 @@ describe("oracle IR Green Sun's Twilight live stack path", () => {
     expect(choiceStep).toBeTruthy();
     expect((choiceStep as any)?.effectProgramPrompt).toBeFalsy();
     expect((choiceStep as any)?.availableCards).toHaveLength(2);
-    expect(((g.state as any).stack || [])).toHaveLength(0);
+    // CR 608.2m: the spell stays on the stack (deferred finalize) until its
+    // queued resolution choices complete.
+    const stack = (g.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect((stack[0] as any)?.oracleIrDeferredFinalize).toBe(true);
   });
 
   it('completes hand path via stack resolve and LIBRARY_SEARCH resume', () => {

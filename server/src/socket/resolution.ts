@@ -4412,6 +4412,7 @@ async function handleAIResolutionStep(
         // handleStepResponse already resumes spell casts after mana_payment_choice
         // (resumePlayerSpellCastAfterPayment). Do not call completeCastSpell again here.
         await handleStepResponse(io, game, gameId, step, response);
+        maybeResumeDeferredOracleIrStackSpell(game, gameId);
 
         // NOTE: Don't broadcast here - let the STEP_COMPLETED event handler broadcast
         // after exitResolutionMode has restored priority. This prevents a race condition
@@ -8165,7 +8166,12 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       
       // Handle the response based on step type
       await handleStepResponse(io, game, gameId, completedStep, response);
-      
+
+      // Finish any IR spell whose finalize (stack pop + graveyard move) was deferred
+      // while its resolution choices were pending. No-op unless the queue is empty
+      // and the top of the stack carries oracleIrDeferredFinalize.
+      maybeResumeDeferredOracleIrStackSpell(game, gameId);
+
       // Broadcast updated game state
       broadcastGame(io, game, gameId);
       
