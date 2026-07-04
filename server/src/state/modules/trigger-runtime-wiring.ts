@@ -40,6 +40,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'discard',
   'mill',
   'create_token',
+  'register_lose_game_replacement',
   'investigate',
   'blight',
   'destroy',

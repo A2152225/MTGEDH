@@ -1076,6 +1076,16 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'register_lose_game_replacement';
+      readonly who: OraclePlayerSelector;
+      readonly drawCount: number;
+      readonly lifeTotal: number;
+      readonly expiresAt?: 'end_of_turn';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'tap_or_untap';
       readonly target: OracleObjectSelector;
       readonly mode?: 'tap' | 'untap';
@@ -1123,6 +1133,8 @@ export type OracleEffectStep =
       readonly entersTapped?: boolean;
       /** Whether created tokens enter attacking a deterministic opponent selection. */
       readonly attacking?: 'defending_player' | 'each_opponent' | 'each_other_opponent';
+      /** Whether created tokens enter blocking a referenced creature (e.g. Brimaz block trigger). */
+      readonly blocking?: 'that_creature';
       /** Counters the token enters with (deterministic, single-clause only). */
       readonly withCounters?: Record<string, number>;
       /** For Aura-style token creation that enters attached to a deterministic object. */

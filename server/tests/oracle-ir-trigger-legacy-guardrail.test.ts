@@ -39,9 +39,8 @@ const keywordHandlersSource = readFileSync(
   join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyKeywordHandlers.ts'),
   'utf8',
 );
-const lifeAndGameHandlersSource = readFileSync(
+const lifeAndGameHandlersSourceExists = existsSync(
   join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyLifeAndGameHandlers.ts'),
-  'utf8',
 );
 const turnAndZoneHandlersSource = readFileSync(
   join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyTurnAndZoneHandlers.ts'),
@@ -555,7 +554,6 @@ const RETIRED_INLINE_MARKERS = [
   '/^curse defending player/i.test(desc)',
   '/then, if you have 1,000 or more life, you lose the game/i.test(desc)',
   'sourcePermanent.upkeepEffectDoubling = true',
-  'state.pendingLoseGameReplacements.push',
   '/you and that player may each put a permanent card from your hand onto the battlefield/i.test(desc)',
   'take an extra turn after this one',
   'gain control of target opponent',
@@ -583,7 +581,6 @@ const RETIRED_INLINE_MARKERS = [
   'const putCounterOnTargetMatch = desc.match(/put (?:a|an|one',
   'const selfGetsMatch =',
   'const creatureGetsMatch = desc.match(/(?:until end of turn',
-  'const tappedAttackingCopyMatch = desc.match(/^create a tapped and attacking token',
   'desc.includes(\'untap all other creatures you control\') && !desc.includes(\'combat phase\')',
   'const targetLosesMatch = desc.match(/target (?:player|opponent) loses',
   'const dealsTargetDamageMatch = desc.match(/deals?',
@@ -643,13 +640,13 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyPutCreatureFromHandOntoBattlefield')).toBe(true);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyCreateCreatureToken')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyPredefinedArtifactTokens')).toBe(false);
-    expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken')).toBe(true);
-    expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken')).toBe(true);
+    expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken')).toBe(false);
+    expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyEquippedCreatureCopyToken')).toBe(false);
     expect(singleEffectRegexBatchSource.includes('applyRetiredTriggerLegacyTargetCreatureCantBeBlocked')).toBe(false);
     expect(singleEffectRegexBatchSource.includes('applyRetiredTriggerLegacySelfCantBeBlocked')).toBe(false);
     expect(singleEffectRegexBatchSource.includes('applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget')).toBe(false);
-    expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken')).toBe(true);
+    expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyCreateXTokensByControlledTypeCount')).toBe(false);
     expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyOptionalDiscardThenDraw')).toBe(true);
     expect(combinedHandlersSource.includes('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit')).toBe(true);
@@ -664,9 +661,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyCallTheCoppercoatsTokens')).toBe(false);
     expect(keywordHandlersSource.includes('applyRetiredTriggerLegacyKeywordTriggerFallback')).toBe(true);
     expect(cardSpecificHandlersSource.includes('applyRetiredTriggerLegacyCurseDefendingPlayer')).toBe(false);
-    expect(lifeAndGameHandlersSource.includes('applyRetiredTriggerLegacyThousandLifeLoseGame')).toBe(false);
-    expect(lifeAndGameHandlersSource.includes('applyRetiredTriggerLegacyUpkeepEffectDoubling')).toBe(false);
-    expect(lifeAndGameHandlersSource.includes('applyRetiredTriggerLegacyLoseGameReplacement')).toBe(true);
+    expect(lifeAndGameHandlersSourceExists).toBe(false);
     expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyBothPlayersPutPermanentFromHand')).toBe(false);
     expect(turnAndZoneHandlersSource.includes('applyRetiredTriggerLegacyExtraTurnAfterThisOne')).toBe(false);
     expect(turnAndZoneHandlersSource.includes('applyRetiredTriggerLegacyExileTargetPlayerGraveyard')).toBe(false);
@@ -680,7 +675,6 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(libraryHandlersSource.includes('applyRetiredTriggerLegacyChosenTypeTopCardReveal')).toBe(true);
     expect(cardSpecificHandlersSource.includes('applyRetiredTriggerLegacyEachMerfolkExplores')).toBe(false);
     expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife')).toBe(true);
-    expect(lifeAndGameHandlersSource.includes('applyRetiredTriggerLegacyHandSizeLifeGain')).toBe(false);
     expect(stackSpecialTriggerHandlersSource.includes('applyStackReboundTrigger')).toBe(true);
     expect(stackSpecialTriggerHandlersSource.includes('applyStackParadigmTrigger')).toBe(true);
     expect(sacrificeHandlersSource.includes('applyRetiredTriggerLegacyUpkeepSacrificeCreatureOrSelf')).toBe(true);
@@ -696,8 +690,8 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyTapUntapInlineBatch')).toBe(false);
     expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyGraveyardZoneChangeBatch')).toBe(false);
     expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyManaAndCombatBatch')).toBe(false);
-    expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyInterveningSubjectCopyToken')).toBe(true);
-    expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyTappedAttackingCopyToken')).toBe(true);
+    expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyInterveningSubjectCopyToken')).toBe(false);
+    expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyTappedAttackingCopyToken')).toBe(false);
     expect(singleEffectRegexBatchSource.includes('applyRetiredTriggerLegacySingleEffectRegexBatch')).toBe(true);
     expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyLateEffectRegexBatch')).toBe(true);
     expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyKeywordTriggerFallback')).toBe(false);
@@ -707,9 +701,9 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacySingleEffectRegexBatch')).toBe(false);
     expect(stackExecuteTriggerEffectTailUtilsSource.includes('applyRetiredTriggerLegacySingleEffectRegexBatch')).toBe(true);
     expect(stackExecuteTriggerEffectTailUtilsSource.includes('applyRetiredTriggerLegacyLateEffectRegexBatch')).toBe(true);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken')).toBe(true);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken')).toBe(true);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken')).toBe(true);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken')).toBe(false);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken')).toBe(false);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyCounterThenDraw')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyOptionalDiscardThenDraw')).toBe(true);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit')).toBe(true);
@@ -781,8 +775,8 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(handlersSource.includes("from './triggerLifeDamageUtils.js'")).toBe(true);
     expect(stackSource.includes('function queueDealsDamageToPlayerTriggersFromPermanent')).toBe(false);
     expect(stackSource.includes("from './triggerLifeDamageUtils.js'")).toBe(true);
-    expect(tokenHandlersSource.includes("from './triggerMyriadTokenUtils.js'")).toBe(true);
-    expect(tokenHandlersSource.includes("from './counters_tokens.js'")).toBe(true);
+    expect(tokenHandlersSource.includes("from './triggerMyriadTokenUtils.js'")).toBe(false);
+    expect(tokenHandlersSource.includes("from './counters_tokens.js'")).toBe(false);
     expect(counterHandlersSource.includes("from './triggerChosenTypeCounterUtils.js'")).toBe(false);
     expect(stackSource.includes('function applyMyriadTokenCopies')).toBe(false);
     expect(stackSource.includes('function resolveChosenTypeCounterEachCreature')).toBe(false);
@@ -956,7 +950,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(artifactTokenUtilsSource.includes('export const PREDEFINED_TRIGGER_ARTIFACT_TOKEN_KINDS')).toBe(true);
     expect(artifactTokenUtilsSource.includes('export function resolveCommonArtifactTokenKind')).toBe(true);
     expect(tokenHandlersSource.includes('PREDEFINED_ARTIFACT_TOKEN_TYPES')).toBe(false);
-    expect(tokenHandlersSource.includes("from './oracleIrSpellLegacyArtifactTokenUtils.js'") || tokenHandlersSource.includes('from "./oracleIrSpellLegacyArtifactTokenUtils.js"')).toBe(true);
+    expect(tokenHandlersSource.includes("from './oracleIrSpellLegacyArtifactTokenUtils.js'") || tokenHandlersSource.includes('from "./oracleIrSpellLegacyArtifactTokenUtils.js"')).toBe(false);
     expect(removalRiderUtilsSource.includes('export function applySpellLegacyRemovalArtifactRiders')).toBe(true);
     expect(stackSource.includes('function isFatefulAbsence')).toBe(false);
     expect(stackSource.includes('function isGetLost')).toBe(false);

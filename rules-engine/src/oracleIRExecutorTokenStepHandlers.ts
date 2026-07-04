@@ -1528,7 +1528,8 @@ function addTokensToBattlefield(
   withCounters?: Record<string, number>,
   attackTargetPlayerId?: string,
   temporaryGrantedAbilities?: readonly string[],
-  permanentGrantedAbilities?: readonly string[]
+  permanentGrantedAbilities?: readonly string[],
+  blockTargetPermanentId?: string,
 ): StepApplyResult | StepSkipResult {
   const hasOverrides = Boolean(entersTapped) || (withCounters && Object.keys(withCounters).length > 0);
   const copySource = resolveCopyTokenSource(state, tokenHint, ctx, runtime);
@@ -1592,7 +1593,7 @@ function addTokensToBattlefield(
         }) as any;
 
       if (attackTargetPlayerId) {
-        token.tapped = true;
+        token.tapped = Boolean(entersTapped);
         token.summoningSickness = false;
         token.attacking = attackTargetPlayerId;
         token.attackingPlayerId = controllerId;
@@ -1683,7 +1684,7 @@ function addTokensToBattlefield(
         const tokensToAdd = result.tokens.map(token => {
           const createdToken = token.token as any;
           if (attackTargetPlayerId) {
-            createdToken.tapped = true;
+            createdToken.tapped = Boolean(entersTapped);
             createdToken.summoningSickness = false;
             createdToken.attacking = attackTargetPlayerId;
             createdToken.attackingPlayerId = controllerId;
@@ -1785,7 +1786,7 @@ function addTokensToBattlefield(
         const tokensToAdd = commonParsed.tokens.map(token => {
           const createdToken = token.token as any;
           if (attackTargetPlayerId) {
-            createdToken.tapped = true;
+            createdToken.tapped = Boolean(entersTapped);
             createdToken.summoningSickness = false;
             createdToken.attacking = attackTargetPlayerId;
             createdToken.attackingPlayerId = controllerId;
@@ -1841,7 +1842,7 @@ function addTokensToBattlefield(
   const tokensToAdd = created.tokens.map(token => {
     const createdToken = token.token as any;
     if (attackTargetPlayerId) {
-      createdToken.tapped = true;
+      createdToken.tapped = Boolean(entersTapped);
       createdToken.summoningSickness = false;
       createdToken.attacking = attackTargetPlayerId;
       createdToken.attackingPlayerId = controllerId;
@@ -2091,6 +2092,65 @@ function tryApplyForEachAttackingCopyTokenStep(
   return { applied: true, state: nextState, log, createdTokenIds };
 }
 
+function applyBlockingEntryToCreatedTokens(
+  state: GameState,
+  createdTokenIds: readonly string[],
+  blockTargetPermanentId: string,
+): GameState {
+  const normalizedBlockTarget = String(blockTargetPermanentId || '').trim();
+  if (!normalizedBlockTarget || createdTokenIds.length === 0) return state;
+
+  const battlefield = [...(state.battlefield || [])] as any[];
+  for (const tokenId of createdTokenIds) {
+    const normalizedTokenId = String(tokenId || '').trim();
+    if (!normalizedTokenId) continue;
+    const token = battlefield.find((perm) => String(perm?.id || '').trim() === normalizedTokenId);
+    if (!token) continue;
+    token.blocking = [normalizedBlockTarget];
+    token.summoningSickness = false;
+    const attacker = battlefield.find((perm) => String(perm?.id || '').trim() === normalizedBlockTarget);
+    if (attacker) {
+      attacker.blockedBy = Array.isArray(attacker.blockedBy) ? attacker.blockedBy : [];
+      if (!attacker.blockedBy.includes(normalizedTokenId)) {
+        attacker.blockedBy.push(normalizedTokenId);
+      }
+    }
+  }
+
+  return { ...state, battlefield } as GameState;
+}
+
+function resolveBlockTargetPermanentId(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'create_token' }>,
+  ctx: OracleIRExecutionContext,
+): string | undefined {
+  if (step.blocking !== 'that_creature') return undefined;
+
+  const explicitTarget = String(
+    ctx.selectorContext?.targetPermanentId ||
+      ctx.targetPermanentId ||
+      ctx.selectorContext?.targetCreatureId ||
+      ctx.targetCreatureId ||
+      '',
+  ).trim();
+  if (explicitTarget) return explicitTarget;
+
+  const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+    ? ctx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (chosenIds.length === 1) return chosenIds[0];
+
+  const sourceId = String(ctx.sourceId || '').trim();
+  const sourcePermanent = (state.battlefield || []).find(
+    (perm: any) => String(perm?.id || '').trim() === sourceId,
+  ) as any;
+  const blockingTarget = Array.isArray(sourcePermanent?.blocking)
+    ? String(sourcePermanent.blocking[0] || '').trim()
+    : '';
+  return blockingTarget || undefined;
+}
+
 export function applyCreateTokenStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'create_token' }>,
@@ -2132,6 +2192,7 @@ export function applyCreateTokenStep(
       (ctx as any).targetPlayerId ||
       ''
   ).trim();
+  const blockTargetPermanentId = resolveBlockTargetPermanentId(state, step, ctx);
 
   let nextState = state;
   const log: string[] = [];
@@ -2166,10 +2227,13 @@ export function applyCreateTokenStep(
           step.withCounters,
           attackTarget,
           step.grantsHaste === 'until_end_of_turn' ? ['haste'] : step.grantsAbilitiesUntilEndOfTurn,
-          step.grantsHaste === 'permanent' ? ['haste'] : undefined
+          step.grantsHaste === 'permanent' ? ['haste'] : undefined,
+          blockTargetPermanentId,
         );
         if (!result.applied) return result;
-        nextState = result.state;
+        nextState = blockTargetPermanentId
+          ? applyBlockingEntryToCreatedTokens(result.state, result.createdTokenIds, blockTargetPermanentId)
+          : result.state;
         log.push(...result.log);
         allCreatedTokenIds.push(...result.createdTokenIds);
         createdForAttackTarget.push(...result.createdTokenIds);

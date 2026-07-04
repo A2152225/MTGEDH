@@ -1,4 +1,5 @@
 import { normalizeClauseForParse, normalizeOracleText, parseQuantity } from './oracleIRParserUtils';
+import type { OracleEffectStep } from './oracleIR';
 
 export type CreateTokenFollowupModifier = {
   entersTapped?: true;
@@ -231,4 +232,31 @@ export function tryParseCreateTokenFollowupModifier(rawClause: string): CreateTo
   }
 
   return out;
+}
+
+export function enrichCreateTokenCombatEntryFromRaw(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind !== 'create_token') return step;
+
+  const raw = normalizeOracleText(String(step.raw || ''));
+  let attacking = step.attacking;
+  let blocking = step.blocking;
+
+  if (
+    !attacking
+    && /\bthat(?:'s|' s|\u2019s| is| are)\s+attacking\b/i.test(raw)
+    && !/\btapped\s+and\s+attacking\b/i.test(raw)
+  ) {
+    attacking = 'defending_player';
+  }
+
+  if (!blocking && /\bthat(?:'s|' s|\u2019s| is| are)\s+blocking\s+that\s+creature\b/i.test(raw)) {
+    blocking = 'that_creature';
+  }
+
+  if (attacking === step.attacking && blocking === step.blocking) return step;
+  return {
+    ...step,
+    ...(attacking ? { attacking } : {}),
+    ...(blocking ? { blocking } : {}),
+  };
 }

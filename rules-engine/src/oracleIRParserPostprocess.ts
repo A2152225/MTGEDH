@@ -23,6 +23,7 @@ import { tryParseRulesTextClause } from './oracleIRParserStaticAbilityClauses';
 import { parseQuantityWithOptionalWhereX, tryParseExileTopClause, tryParseLookTopClause } from './oracleIRParserQuantityHelpers';
 import { tryParseSimpleActionClause } from './oracleIRParserSimpleActionClauses';
 import { tryParseSimpleCreateTokenClause } from './oracleIRParserTokenSimpleClauses';
+import { enrichCreateTokenCombatEntryFromRaw } from './oracleIRParserTokenFollowup';
 import { tryParseTokenCreationReplacementClause } from './oracleIRParserTokenReplacementClauses';
 import { tryParseZoneAndRemovalClause } from './oracleIRParserZoneAndRemovalActions';
 import { normalizeBoundPlayerZoneSelectorText } from './oracleIRExecutorZoneOps';
@@ -2119,7 +2120,7 @@ function splitCommaChainedPlayerEffectStep(step: OracleEffectStep): readonly Ora
         rawClause: segment,
         withMeta: <T extends OracleEffectStep>(value: T) => value,
       });
-      if (tokenParsed && tokenParsed.kind !== 'unknown') parsed = tokenParsed;
+      if (tokenParsed && tokenParsed.kind !== 'unknown') parsed = enrichCreateTokenCombatEntryFromRaw(tokenParsed);
     }
     if (!parsed || parsed.kind === 'unknown') return null;
     parsedSteps.push(parsed);
@@ -6449,17 +6450,34 @@ function parseStructuredTriggerResidualGrant(
     } as OracleEffectStep];
   }
 
-  if (/^the next time you would lose the game this turn, instead draw three cards and your life total becomes 5$/i.test(raw)) {
-    return [
-      { kind: 'draw', who: { kind: 'you' }, amount: { kind: 'number', value: 3 }, raw, ...sequence } as OracleEffectStep,
-      {
-        kind: 'set_life_total',
-        who: { kind: 'you' },
-        amount: { kind: 'number', value: 5 },
-        raw,
-        sequence: 'then',
-      } as OracleEffectStep,
-    ];
+  if (/^the next time you would lose the game this turn, instead draw (one|\d+|two|three|four|five|six|seven|eight|nine|ten) cards? and your life total becomes (\d+)$/i.test(raw)) {
+    const loseGameReplacementMatch = raw.match(
+      /^the next time you would lose the game this turn, instead draw (one|\d+|two|three|four|five|six|seven|eight|nine|ten) cards? and your life total becomes (\d+)$/i,
+    );
+    const drawWord = String(loseGameReplacementMatch?.[1] || '').trim().toLowerCase();
+    const drawCountMap: Record<string, number> = {
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      six: 6,
+      seven: 7,
+      eight: 8,
+      nine: 9,
+      ten: 10,
+    };
+    const drawCount = drawCountMap[drawWord] ?? Number.parseInt(drawWord, 10) ?? 0;
+    const lifeTotal = Number.parseInt(String(loseGameReplacementMatch?.[2] || ''), 10) || 0;
+    return [{
+      kind: 'register_lose_game_replacement',
+      who: { kind: 'you' },
+      drawCount,
+      lifeTotal,
+      expiresAt: 'end_of_turn',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   if (/^you and that player may each put a permanent card from your hand onto the battlefield$/i.test(raw)) {
@@ -22100,7 +22118,7 @@ function parseTokenCreationMetadataStep(rawText: string): OracleEffectStep | nul
         rawClause: rawText,
         withMeta: <T extends OracleEffectStep>(step: T): T => step,
       });
-      if (parsed) return parsed;
+      if (parsed) return enrichCreateTokenCombatEntryFromRaw(parsed);
     }
   }
 
@@ -22186,6 +22204,10 @@ function annotateTokenCreationMetadataOnStep(step: OracleEffectStep): OracleEffe
     const parsed = parseTokenCreationMetadataStep(step.raw) ?? parseMyriadTokenCreationMetadataStep(step.raw);
     if (!parsed) return step;
     return { ...(step as any), steps: [parsed] } as OracleEffectStep;
+  }
+
+  if (step.kind === 'create_token') {
+    return enrichCreateTokenCombatEntryFromRaw(step);
   }
 
   return step;

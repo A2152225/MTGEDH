@@ -126,6 +126,7 @@ import {
   applyModifyTokenCreationStep,
   evaluateUnlessPaysLifeStep,
   evaluateUnlessPaysManaStep,
+  applyRegisterLoseGameReplacementStep,
   applyGainLifeStep,
   applyLoseLifeStep,
   applyLookHandStep,
@@ -2476,6 +2477,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'look_hand': {
         const result = applyLookHandStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'register_lose_game_replacement': {
+        const result = applyRegisterLoseGameReplacementStep(nextState, step, currentCtx, controllerId);
         applyHandledStepResult(step, result);
         break;
       }

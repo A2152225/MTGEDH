@@ -19,11 +19,6 @@ import {
   applyRetiredTriggerLegacyUpkeepSacrificeCreatureOrSelf,
 } from './oracleIrTriggerLegacySacrificeHandlers.js';
 import {
-  applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken,
-  applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken,
-  applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken,
-} from './oracleIrTriggerLegacyTokenHandlers.js';
-import {
   applyRetiredTriggerLegacyOptionalDiscardThenDraw,
   applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit,
   applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife,
@@ -246,41 +241,6 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
 
   const triggerType = (triggerItem as any).triggerType;
   debug(2, `[executeTriggerEffect] triggerType=${triggerType}, sourceName=${sourceName}`);
-  if (applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken');
-  }
-
-  if (applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken');
-  }
-
-  if (applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken');
-  }
 
   if (applyRetiredTriggerLegacyJoinForcesAttack({
     ctx,

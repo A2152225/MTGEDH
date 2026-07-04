@@ -916,7 +916,7 @@ describe('Oracle IR current audit batch support', () => {
       expect.objectContaining({ label: 'you may put a Construct, Robot, or Vehicle card from your hand onto the battlefield' }),
     ]));
     expect(stunningSteps).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'draw', amount: { kind: 'number', value: 7 } }),
+      expect.objectContaining({ kind: 'register_lose_game_replacement', drawCount: 7, lifeTotal: 1 }),
     ]));
   });
 

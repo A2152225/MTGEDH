@@ -126,6 +126,14 @@ export function applyOracleIRFallbackForTriggeredEffect(
     .map((id: unknown) => String(id || '').trim())
     .filter(Boolean);
 
+  const interveningSubjectPermanentId = String(
+    triggerItem?.interveningIfSubjectPermanentId || '',
+  ).trim();
+  const chosenObjectIds = Array.from(new Set([
+    ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
+    ...normalizedTargetIds,
+  ]));
+
   const irCtx = buildStackOracleIRContext(controller, {
     xValue: typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined,
     sourceId: sourcePermanentId || sourceId,
@@ -137,8 +145,8 @@ export function applyOracleIRFallbackForTriggeredEffect(
           ? losingPlayerId
           : undefined
     ) as PlayerID | undefined,
-    targetPermanentId,
-    chosenObjectIds: normalizedTargetIds.length > 0 ? normalizedTargetIds : undefined,
+    targetPermanentId: targetPermanentId || interveningSubjectPermanentId || undefined,
+    chosenObjectIds: chosenObjectIds.length > 0 ? chosenObjectIds : undefined,
     referenceAmount:
       Number.isFinite(lifeLostReference) && lifeLostReference > 0
         ? lifeLostReference
@@ -147,7 +155,9 @@ export function applyOracleIRFallbackForTriggeredEffect(
           : undefined,
     ...(lastAntecedentBattlefieldPermanentIds.length > 0
       ? { lastAntecedentBattlefieldPermanentIds }
-      : {}),
+      : interveningSubjectPermanentId
+        ? { lastAntecedentBattlefieldPermanentIds: [interveningSubjectPermanentId] }
+        : {}),
   });
 
   const applied = applyOracleIRTriggerUncategorizedFallback(

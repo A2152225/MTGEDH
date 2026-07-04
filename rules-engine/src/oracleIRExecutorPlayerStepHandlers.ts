@@ -6547,6 +6547,47 @@ export function applyConniveStep(
   };
 }
 
+export function applyRegisterLoseGameReplacementStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'register_lose_game_replacement' }>,
+  ctx: OracleIRExecutionContext,
+  controllerId: PlayerID,
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped lose-game replacement registration (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const drawCount = Math.max(0, Number(step.drawCount) || 0);
+  const lifeTotal = Math.max(0, Number(step.lifeTotal) || 0);
+  const sourceName = String(ctx.sourceName || '').trim() || 'Unknown source';
+  const nextState = { ...(state as any) } as GameState;
+  const pending = Array.isArray((nextState as any).pendingLoseGameReplacements)
+    ? [...(nextState as any).pendingLoseGameReplacements]
+    : [];
+
+  for (const playerId of players) {
+    pending.push({
+      playerId,
+      drawCount,
+      lifeTotal,
+      sourceName,
+      expiresAt: step.expiresAt || 'end_of_turn',
+    });
+  }
+
+  (nextState as any).pendingLoseGameReplacements = pending;
+  return {
+    applied: true,
+    state: nextState,
+    log: [`Registered lose-the-game replacement for ${players.join(', ')}`],
+  };
+}
+
 export function applyGainLifeStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'gain_life' }>,

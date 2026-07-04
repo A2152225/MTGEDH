@@ -60,7 +60,15 @@ function tokenEntersTapped(rawTapped: string | undefined, clauseText: string): b
 }
 
 function tokenIsAttacking(rawTapped: string | undefined, clauseText: string): boolean {
-  return /\battacking\b/i.test(String(rawTapped || '')) || hasTappedAndAttackingClause(clauseText);
+  return (
+    /\battacking\b/i.test(String(rawTapped || ''))
+    || hasTappedAndAttackingClause(clauseText)
+    || /\bthat(?:'s|' s|\u2019s| is| are)\s+attacking\b/i.test(clauseText)
+  );
+}
+
+function tokenIsBlockingThatCreature(clauseText: string): boolean {
+  return /\bthat(?:'s|' s|\u2019s| is| are)\s+blocking\s+that\s+creature\b/i.test(clauseText);
 }
 
 function tokenDelayedCleanupFromRaw(rawText: string): 'exile' | 'sacrifice' | undefined {
@@ -75,9 +83,21 @@ function tokenDelayedCleanupFromRaw(rawText: string): 'exile' | 'sacrifice' | un
 }
 
 function appendCreateTokenWithTail(token: string, clauseText: string): string {
-  const withTail = normalizeOracleText(clauseText).match(/\btokens?\s+(with\s+.+)$/i);
+  const withTail = normalizeOracleText(clauseText).match(
+    /\btokens?\s+(with\s+.+?)(?:\s+that(?:'s|' s|\u2019s| is| are)\s+(?:attacking|blocking(?:\s+that\s+creature)?))?(?:\.|$)/i,
+  );
   if (!withTail) return token;
-  return `${token}, ${String(withTail[1] || '').trim()}`.trim();
+  const tail = String(withTail[1] || '').trim();
+  return tail ? `${token}, ${tail}`.trim() : token;
+}
+
+function createTokenCombatEntryModifiers(clauseText: string): {
+  readonly attacking?: 'defending_player';
+  readonly blocking?: 'that_creature';
+} {
+  const attacking = tokenIsAttacking(undefined, clauseText) ? ('defending_player' as const) : undefined;
+  const blocking = tokenIsBlockingThatCreature(clauseText) ? ('that_creature' as const) : undefined;
+  return { ...(attacking ? { attacking } : {}), ...(blocking ? { blocking } : {}) };
 }
 
 function buildSimpleCreateTokenLeadPattern(): RegExp {
@@ -371,13 +391,15 @@ export function tryParseSimpleCreateTokenClause(args: {
     const withCounters = parseWithCountersFromClause(clause);
     const battlefieldAttachedTo = parseAttachmentTargetFromClause(clause);
     const atNextEndStep = tokenDelayedCleanupFromRaw(rawClause);
+    const combatEntry = createTokenCombatEntryModifiers(clause);
     return withMeta({
       kind: 'create_token',
       who,
       amount,
       token,
       entersTapped: entersTapped || undefined,
-      ...(tappedAndAttacking ? { attacking: 'defending_player' as const } : {}),
+      ...(tappedAndAttacking || combatEntry.attacking ? { attacking: combatEntry.attacking ?? ('defending_player' as const) } : {}),
+      ...(combatEntry.blocking ? { blocking: combatEntry.blocking } : {}),
       withCounters,
       battlefieldAttachedTo,
       ...(atNextEndStep ? { atNextEndStep } : {}),
@@ -413,13 +435,15 @@ export function tryParseSimpleCreateTokenClause(args: {
     const battlefieldAttachedTo = parseAttachmentTargetFromClause(clause);
     const token = appendCreateTokenWithTail(String(createDefault[3] || '').trim(), clause);
     const atNextEndStep = tokenDelayedCleanupFromRaw(rawClause);
+    const combatEntry = createTokenCombatEntryModifiers(clause);
     return withMeta({
       kind: 'create_token',
       who: { kind: 'you' },
       amount: parseTokenQuantity(createDefault[1]),
       token,
       entersTapped: entersTapped || undefined,
-      ...(tappedAndAttacking ? { attacking: 'defending_player' as const } : {}),
+      ...(tappedAndAttacking || combatEntry.attacking ? { attacking: combatEntry.attacking ?? ('defending_player' as const) } : {}),
+      ...(combatEntry.blocking ? { blocking: combatEntry.blocking } : {}),
       withCounters,
       battlefieldAttachedTo,
       ...(atNextEndStep ? { atNextEndStep } : {}),
