@@ -1,14 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   getOracleIrGapTelemetrySnapshot,
+  isOracleIrGapTelemetryLegacySoakEnabled,
+  loadOracleIrGapTelemetrySnapshotFromAppendLog,
   recordOracleIrGapTelemetry,
   resetOracleIrGapTelemetry,
 } from '../src/state/modules/oracleIrGapTelemetry.js';
 import { logOracleIrAllOrNothingFailure } from '../src/state/modules/oracleIrStepWiring.js';
 
 describe('oracle IR gap telemetry (D2)', () => {
+  let savedTelemetrySnapshot: string | undefined;
+
   beforeEach(() => {
+    savedTelemetrySnapshot = process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT;
+    delete process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT;
+    delete process.env.ORACLE_IR_TELEMETRY_APPEND_PATH;
     resetOracleIrGapTelemetry();
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -16,6 +26,11 @@ describe('oracle IR gap telemetry (D2)', () => {
   afterEach(() => {
     resetOracleIrGapTelemetry();
     vi.restoreAllMocks();
+    if (savedTelemetrySnapshot !== undefined) {
+      process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT = savedTelemetrySnapshot;
+    } else {
+      delete process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT;
+    }
   });
 
   it('records events with counters and a ring buffer snapshot', () => {
@@ -113,5 +128,34 @@ describe('oracle IR gap telemetry (D2)', () => {
     ).not.toThrow();
     const snapshot = getOracleIrGapTelemetrySnapshot();
     expect(snapshot.recentEvents[0].reasons).toEqual(['single reason string']);
+  });
+
+  it('isOracleIrGapTelemetryLegacySoakEnabled is true when env is set', () => {
+    process.env.ORACLE_IR_GAP_TELEMETRY_LEGACY_SOAK = '1';
+    expect(isOracleIrGapTelemetryLegacySoakEnabled()).toBe(true);
+    delete process.env.ORACLE_IR_GAP_TELEMETRY_LEGACY_SOAK;
+    expect(isOracleIrGapTelemetryLegacySoakEnabled()).toBe(false);
+  });
+
+  it('appends soak events to jsonl when ORACLE_IR_TELEMETRY_APPEND_PATH is set', () => {
+    const appendPath = path.join(os.tmpdir(), `oracle-ir-telemetry-${process.pid}.jsonl`);
+    fs.rmSync(appendPath, { force: true });
+    process.env.ORACLE_IR_TELEMETRY_APPEND_PATH = appendPath;
+
+    recordOracleIrGapTelemetry({
+      kind: 'legacy_handled',
+      scope: 'trigger',
+      label: 'Append Card',
+      reasons: ['legacy_family:legacy_tail'],
+    });
+    resetOracleIrGapTelemetry();
+
+    const merged = loadOracleIrGapTelemetrySnapshotFromAppendLog(appendPath);
+    expect(merged.totalEvents).toBe(1);
+    expect(merged.byKind.legacy_handled).toBe(1);
+    expect(merged.recentEvents[0].label).toBe('Append Card');
+
+    delete process.env.ORACLE_IR_TELEMETRY_APPEND_PATH;
+    fs.rmSync(appendPath, { force: true });
   });
 });

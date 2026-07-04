@@ -31,6 +31,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'surveil',
   'gain_life',
   'lose_life',
+  'lose_game',
   'sacrifice',
   'add_counter',
   'deal_damage',
@@ -59,6 +60,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'shuffle_zones_into_library',
   'look_choose_from_top',
   'look_select_top',
+  'look_top',
   'reveal_top',
   'choose_pile',
   'change_target',
@@ -79,6 +81,8 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'modify_graveyard_permissions',
   'copy_spell',
   'pay_mana',
+  'add_extra_combat',
+  'take_extra_turn',
 ]);
 
 /** Optional trigger steps with explicit runtime handlers outside the spell fallback. */
@@ -183,6 +187,8 @@ export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean
     lower.includes('blight') ||
     lower.includes('explore') ||
     lower.includes('connive') ||
+    lower.includes('additional combat') ||
+    lower.includes('extra combat') ||
     lower.includes('search your library') ||
     (lower.includes('cost') && (lower.includes('less') || lower.includes('more')))
   );
@@ -202,6 +208,24 @@ const TRIGGER_CHOICE_STEP_KINDS = new Set<string>([
   'choose_target_creature',
 ]);
 
+/** gain_control steps with server executor + prepared-sync coverage in applyOracleIRStepsOnServer. */
+export function isSupportedGainControlTriggerPattern(
+  step: OracleEffectStep,
+): boolean {
+  if (step.kind !== 'gain_control') return false;
+  const raw = String(step.raw || '')
+    .replace(/\u2019/g, "'")
+    .trim()
+    .toLowerCase();
+  if (!raw) return false;
+  return (
+    /each player gains control of all creatures they own/.test(raw)
+    || /each player gains control of all permanents they own/.test(raw)
+    || /each player gains control of all nontoken permanents they own/.test(raw)
+    || /the attacking player gains control of this artifact and untaps it/.test(raw)
+  );
+}
+
 export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
   if (step.kind === 'unknown') return true;
 
@@ -215,6 +239,10 @@ export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
 
   if (step.kind === 'copy_permanent') {
     return isSupportedCopyPermanentTriggerPattern(step);
+  }
+
+  if (step.kind === 'gain_control') {
+    return isSupportedGainControlTriggerPattern(step);
   }
 
   if (isOptionalTriggerStep(step)) {

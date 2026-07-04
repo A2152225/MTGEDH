@@ -186,9 +186,10 @@ describe('oracle IR step wiring guardrails', () => {
     };
 
     const oracleText =
-      'Return target creature card from your graveyard to the battlefield. Take an extra turn after this one.';
+      'Return target creature card from your graveyard to the battlefield. Venture into the dungeon.';
 
     const steps = collectActivatedAbilitySteps(oracleText, 'Test Source');
+    expect(steps.some((step) => step.kind === 'venture_into_dungeon')).toBe(true);
     expect(isActivatedAbilityEffectFullyWired(steps)).toBe(false);
 
     const result = tryApplyOracleIRToActivatedAbility(ctx as any, {
@@ -202,6 +203,14 @@ describe('oracle IR step wiring guardrails', () => {
     expect(result.handled).toBe(false);
     expect(result.applied).toBe(0);
     expect((ctx.state as any).battlefield.some((perm: any) => perm?.card?.id === 'whip_target_1')).toBe(false);
+  });
+
+  it('treats reanimate plus take_extra_turn as fully wired activated steps', () => {
+    const oracleText =
+      'Return target creature card from your graveyard to the battlefield. Take an extra turn after this one.';
+    const steps = collectActivatedAbilitySteps(oracleText, 'Test Source');
+    expect(steps.some((step) => step.kind === 'take_extra_turn')).toBe(true);
+    expect(isActivatedAbilityEffectFullyWired(steps)).toBe(true);
   });
 
   it('applies fully wired Whip activated effect without partial drop', () => {

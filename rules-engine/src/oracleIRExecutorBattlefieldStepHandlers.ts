@@ -2046,7 +2046,7 @@ function parseContextualBattlefieldReference(
   const normalized = normalizeBattlefieldTargetReferenceText(raw);
 
   if (
-    /^(?:it|he|him|her|this creature|this artifact|this enchantment|this aura|this land|this planet|this planeswalker|this battle|this vehicle|this permanent|this token|this card|this saga)$/i.test(
+    /^(?:it|he|him|her|this creature|this artifact|this enchantment|this aura|this land|this planet|this spacecraft|this planeswalker|this battle|this vehicle|this permanent|this token|this card|this saga)$/i.test(
       normalized
     )
   ) {
@@ -8171,6 +8171,49 @@ export function applyGainControlStep(
     .replace(/\u2019/g, "'")
     .trim()
     .toLowerCase();
+  if (/the attacking player gains control of this artifact and untaps it/.test(raw)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const attackingPlayerId = String(
+      (ctx as any).attackingPlayerId ||
+      (ctx.selectorContext as any)?.attackingPlayerId ||
+      ctx.selectorContext?.targetPlayerId ||
+      ctx.targetPlayerId ||
+      ''
+    ).trim();
+    if (!sourceId || !attackingPlayerId) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (missing attacking player or source artifact): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const targetIndex = battlefield.findIndex(
+      (permanent) => String((permanent as any)?.id || '').trim() === sourceId,
+    );
+    if (targetIndex < 0) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (source artifact not on battlefield): ${step.raw}`,
+        reason: 'impossible_action',
+      };
+    }
+
+    const targetPermanent = battlefield[targetIndex] as any;
+    battlefield[targetIndex] = {
+      ...targetPermanent,
+      controller: attackingPlayerId,
+      tapped: false,
+    } as BattlefieldPermanent;
+
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield } as GameState,
+      log: [`${sourceId} changes control to ${attackingPlayerId} and untaps`],
+    };
+  }
+
   if (/each player gains control of all creatures they own/.test(raw)) {
     const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
     const nextBattlefield = battlefield.map((permanent: any) => {

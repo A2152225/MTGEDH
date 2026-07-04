@@ -10,6 +10,10 @@
  *    (`legacy_handled` — retirement triage: which effect texts still rely
  *    on the legacy path in production).
  *
+ * Migration soak: set ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT to also append each
+ * event to `<path>.jsonl` so vitest resets in oracle-ir-gap-telemetry.unit.test
+ * do not wipe the soak log.
+ *
  * Unlike `debug()`, telemetry counters are always recorded regardless of
  * DEBUG_STATE so live soaks surface misses without verbose logging. Console
  * emission is deduped per fingerprint and can be disabled with
@@ -21,6 +25,9 @@
  * consumed by oracleIrStepWiring.ts and the execution orchestrators, and any
  * state-module import here would create a cycle.
  */
+
+import fs from 'node:fs';
+import path from 'node:path';
 
 export type OracleIrGapTelemetryKind =
   | 'all_or_nothing_failure'
@@ -72,10 +79,90 @@ function telemetryLoggingEnabled(): boolean {
   return true;
 }
 
+/** When set, record legacy_handled even if IR primary is off (forced-legacy soak triage). */
+export function isOracleIrGapTelemetryLegacySoakEnabled(): boolean {
+  const raw = String(process.env.ORACLE_IR_GAP_TELEMETRY_LEGACY_SOAK || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
 function normalizeReasons(reasons: readonly string[] | string | undefined): readonly string[] {
   if (Array.isArray(reasons)) return reasons.map((reason) => String(reason));
   if (typeof reasons === 'string' && reasons.trim()) return [reasons.trim()];
   return [];
+}
+
+function telemetryAppendPath(): string | undefined {
+  const explicit = String(process.env.ORACLE_IR_TELEMETRY_APPEND_PATH || '').trim();
+  if (explicit) return explicit;
+  const snapshotPath = String(process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT || '').trim();
+  if (snapshotPath) return `${snapshotPath}.jsonl`;
+  return undefined;
+}
+
+function appendTelemetryEventToSoakLog(record: OracleIrGapTelemetryEvent): void {
+  const appendPath = telemetryAppendPath();
+  if (!appendPath) return;
+  try {
+    fs.mkdirSync(path.dirname(appendPath), { recursive: true });
+    fs.appendFileSync(appendPath, `${JSON.stringify(record)}\n`, 'utf8');
+  } catch {
+    // Soak append must never break game logic.
+  }
+}
+
+function buildSnapshotFromEvents(events: readonly OracleIrGapTelemetryEvent[]): OracleIrGapTelemetrySnapshot {
+  const kindCounts = new Map<string, number>();
+  const scopeKindCounts = new Map<string, number>();
+  const labels = new Map<string, number>();
+
+  for (const event of events) {
+    kindCounts.set(event.kind, (kindCounts.get(event.kind) || 0) + 1);
+    const scopeKindKey = `${event.scope}:${event.kind}`;
+    scopeKindCounts.set(scopeKindKey, (scopeKindCounts.get(scopeKindKey) || 0) + 1);
+    const labelKey = `${event.kind}|${event.label}`;
+    labels.set(labelKey, (labels.get(labelKey) || 0) + 1);
+  }
+
+  const topLabels = [...labels.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 50)
+    .map(([key, count]) => {
+      const sep = key.indexOf('|');
+      return { kind: key.slice(0, sep), label: key.slice(sep + 1), count };
+    });
+
+  const recent = events.length > MAX_RECENT_EVENTS
+    ? events.slice(events.length - MAX_RECENT_EVENTS)
+    : [...events];
+
+  return {
+    totalEvents: events.length,
+    byKind: Object.fromEntries(kindCounts.entries()),
+    byScopeKind: Object.fromEntries(scopeKindCounts.entries()),
+    topLabels,
+    recentEvents: recent,
+  };
+}
+
+export function loadOracleIrGapTelemetrySnapshotFromAppendLog(
+  appendPath: string,
+): OracleIrGapTelemetrySnapshot {
+  const resolved = path.resolve(appendPath);
+  if (!fs.existsSync(resolved)) {
+    return buildSnapshotFromEvents([]);
+  }
+
+  const events: OracleIrGapTelemetryEvent[] = [];
+  for (const line of fs.readFileSync(resolved, 'utf8').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      events.push(JSON.parse(trimmed) as OracleIrGapTelemetryEvent);
+    } catch {
+      // skip malformed lines
+    }
+  }
+  return buildSnapshotFromEvents(events);
 }
 
 export function recordOracleIrGapTelemetry(event: {
@@ -114,6 +201,8 @@ export function recordOracleIrGapTelemetry(event: {
     if (recentEvents.length > MAX_RECENT_EVENTS) {
       recentEvents.splice(0, recentEvents.length - MAX_RECENT_EVENTS);
     }
+
+    appendTelemetryEventToSoakLog(record);
 
     // Console emission: gaps only (legacy_handled is triage data, not an error),
     // once per fingerprint per process, independent of DEBUG_STATE.

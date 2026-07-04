@@ -20,7 +20,7 @@ import {
   syncOracleIRPlayerZonesToContext,
 } from './oracleIrServerZoneSync.js';
 import { debug, debugWarn } from '../../utils/debug.js';
-import { isEachPlayerMayPutLandFromHandStep, isControllerMayPutLandFromHandStep } from './triggerLandPlayPromptUtils.js';
+import { isEachPlayerMayPutLandFromHandStep, isControllerMayPutLandFromHandStep, isBothPlayersMayPutPermanentFromHandStep } from './triggerLandPlayPromptUtils.js';
 
 const EFFECT_PROGRAM_ORCHESTRATION_KINDS = new Set<string>([
   'choose_mode',
@@ -69,6 +69,8 @@ function stepOptionalRequiresChoice(step: OracleEffectStep): boolean {
   if ((step as { optional?: boolean }).optional !== true) return false;
   if (isEachPlayerMayPutLandFromHandStep(step)) return false;
   if (isControllerMayPutLandFromHandStep(step)) return false;
+  if (isBothPlayersMayPutPermanentFromHandStep(step)) return false;
+  if (step.kind === 'create_token' && (step as { optional?: boolean }).optional === true) return false;
   return !OPTIONAL_NO_CHOICE_KINDS.has(String(step.kind || ''));
 }
 

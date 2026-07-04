@@ -55,6 +55,7 @@ async function resetGame(gameId: string) {
 
 describe('Hakbal of the Surging Soul beginning-of-combat explore', () => {
   const gameId = 'test_hakbal_begin_combat_explore';
+  let previousTriggerPrimary: string | undefined;
 
   beforeAll(async () => {
     await initDb();
@@ -63,10 +64,17 @@ describe('Hakbal of the Surging Soul beginning-of-combat explore', () => {
   });
 
   beforeEach(async () => {
+    previousTriggerPrimary = process.env.ORACLE_IR_TRIGGER_PRIMARY;
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
     await resetGame(gameId);
   });
 
   afterEach(async () => {
+    if (previousTriggerPrimary === undefined) {
+      delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
+    } else {
+      process.env.ORACLE_IR_TRIGGER_PRIMARY = previousTriggerPrimary;
+    }
     await resetGame(gameId);
   });
 

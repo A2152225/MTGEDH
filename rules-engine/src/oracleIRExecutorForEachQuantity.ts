@@ -34,6 +34,21 @@ function parseCountWord(raw: string): number | null {
   return Number.isFinite(numeric) ? Math.max(0, numeric) : null;
 }
 
+function getPlayerHandCount(state: GameState, playerId: PlayerID): number {
+  const zones = (state as any)?.zones;
+  const zoneHandCount = zones?.[playerId]?.handCount;
+  if (typeof zoneHandCount === 'number' && Number.isFinite(zoneHandCount) && zoneHandCount >= 0) {
+    return zoneHandCount;
+  }
+
+  const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === String(playerId || '').trim()) as any;
+  if (typeof player?.handCount === 'number' && Number.isFinite(player.handCount) && player.handCount >= 0) {
+    return player.handCount;
+  }
+
+  return Array.isArray(player?.hand) ? player.hand.length : 0;
+}
+
 function evaluateCountExpression(
   state: GameState,
   controllerId: PlayerID,
@@ -94,6 +109,25 @@ export function tryResolveForEachReferenceAmount(
   if (normalized === 'that many' || normalized === 'that much') {
     const runtimeAmount = Number(options?.runtime?.lastReferenceAmount ?? ctx.referenceAmount);
     return Number.isFinite(runtimeAmount) ? Math.max(0, runtimeAmount) : null;
+  }
+
+  const handSizePlayerId = String(options?.targetPlayerId || controllerId || '').trim() as PlayerID;
+
+  {
+    const lifeForEachAbove = normalized.match(
+      /^(?:(\d+)|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:life\s+)?for\s+each\s+cards?\s+in\s+your\s+hand\s+above\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)$/i,
+    );
+    if (lifeForEachAbove) {
+      const multiplier = parseCountWord(String(lifeForEachAbove[1] || '1').toLowerCase()) ?? 1;
+      const threshold = parseCountWord(String(lifeForEachAbove[2] || '').toLowerCase());
+      if (threshold === null) return null;
+      const handSize = getPlayerHandCount(state, handSizePlayerId);
+      return Math.max(0, multiplier * Math.max(0, handSize - threshold));
+    }
+  }
+
+  if (/^(?:equal to )?the number of cards? in your hand$/i.test(normalized)) {
+    return getPlayerHandCount(state, handSizePlayerId);
   }
 
   const cardForEach = normalized.match(/^(?:a\s+)?cards?\s+for\s+each\s+(.+)$/i);

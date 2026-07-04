@@ -1025,6 +1025,17 @@ export function resolveCreatureTargetIds(
     });
   }
 
+  const eachSubtypeTeamMatch = targetText.match(/^each ([a-z][a-z -]+?) you control$/i);
+  if (eachSubtypeTeamMatch) {
+    const subtype = String(eachSubtypeTeamMatch[1] || '').trim().toLowerCase();
+    if (subtype !== 'creature' && subtype !== 'permanent' && subtype !== 'other creature') {
+      return controlledCreatureIds.filter((permanentId) => {
+        const permanent = findControlledCreature(permanentId);
+        return permanent ? permanentHasSubtype(permanent, subtype) : false;
+      });
+    }
+  }
+
   return [];
 }
 

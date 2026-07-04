@@ -7,7 +7,6 @@ import {
   applyRetiredTriggerLegacyEnergyEffects,
   applyRetiredTriggerLegacyPutThatManyCountersOnSelf,
   applyRetiredTriggerLegacyTokenCounters,
-  applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget,
 } from '../src/state/modules/oracleIrTriggerLegacyRegexHandlers.js';
 import * as triggerLifeDamageUtils from '../src/state/modules/triggerLifeDamageUtils.js';
 
@@ -80,23 +79,5 @@ describe('oracleIrTriggerLegacyRegexHandlers', () => {
     })).toBe(true);
 
     expect((game.state as any).tokenCounters?.[p1] ?? (game.state as any).tokens?.[p1]).toBeDefined();
-  });
-
-  it('applies two +1/+1 counters on target via legacy regex handler', () => {
-    const state = {
-      battlefield: [{
-        id: 'target-1',
-        card: { name: 'Grizzly Bears', type_line: 'Creature — Bear' },
-        counters: {},
-      }],
-    };
-
-    expect(applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget({
-      desc: 'Put two +1/+1 counters on target creature.',
-      triggerItem: { targets: ['target-1'] },
-      state,
-    })).toBe(true);
-
-    expect(state.battlefield[0].counters['+1/+1']).toBe(2);
   });
 });

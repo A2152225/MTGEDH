@@ -191,7 +191,11 @@ function resolveTriggerTargetBinding(
   }
 
   if (!targetPlayerId) {
-    const defendingPlayerId = String(triggerItem?.defendingPlayer || '').trim();
+    const defendingPlayerId = String(
+      triggerItem?.defendingPlayer
+        || triggerItem?.effectData?.defendingPlayer
+        || '',
+    ).trim();
     if (defendingPlayerId && !defendingPlayerId.startsWith('perm_')) {
       targetPlayerId = defendingPlayerId as PlayerID;
     }
@@ -204,6 +208,9 @@ function resolveTriggerTargetBinding(
     || '',
   ).trim();
   const lifeLostReference = Number(triggerItem?.effectData?.lifeLost ?? 0);
+  const damageReference = Number(
+    triggerItem?.damageAmount ?? triggerItem?.effectData?.damageAmount ?? 0,
+  );
   const losingPlayerId = String(
     triggerItem?.effectData?.losingPlayerId
       || triggerItem?.triggeringPlayer
@@ -246,7 +253,12 @@ function resolveTriggerTargetBinding(
     chosenObjectIds: normalizedTargetIds.length > 0 ? normalizedTargetIds : undefined,
     sourcePermanentId: sourcePermanentId || undefined,
     sourceId: sourceId || undefined,
-    referenceAmount: Number.isFinite(lifeLostReference) && lifeLostReference > 0 ? lifeLostReference : undefined,
+    referenceAmount:
+      Number.isFinite(lifeLostReference) && lifeLostReference > 0
+        ? lifeLostReference
+        : Number.isFinite(damageReference) && damageReference > 0
+          ? damageReference
+          : undefined,
     xValue: typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined,
   };
 }
@@ -269,6 +281,10 @@ function buildTriggerIrContext(
     || params.triggerItem?.card?.chosenCreatureType
     || '',
   ).trim();
+  const attackingPlayerId = String(
+    params.triggerItem?.attackingPlayerId
+    || '',
+  ).trim();
 
   return buildOracleIRExecutionContext(
     {
@@ -278,6 +294,7 @@ function buildTriggerIrContext(
       sourceObjectType: 'ability',
       xValue: binding.xValue,
       ...(typeof binding.referenceAmount === 'number' ? { referenceAmount: binding.referenceAmount } : {}),
+      ...(attackingPlayerId ? { attackingPlayerId } : {}),
       selectorContext: {
         ...(binding.chosenObjectIds ? { chosenObjectIds: binding.chosenObjectIds } : {}),
         ...(binding.targetPlayerId ? { targetPlayerId: binding.targetPlayerId } : {}),
@@ -290,7 +307,7 @@ function buildTriggerIrContext(
     },
     {
       targetPermanentId: binding.targetPermanentId,
-      targetPlayerId: binding.targetPlayerId,
+      targetPlayerId: (attackingPlayerId || binding.targetPlayerId) as PlayerID | undefined,
       targetOpponentId: defendingOpponentId,
       targetSpellId: binding.targetSpellId,
       chosenObjectIds: binding.chosenObjectIds,
@@ -355,8 +372,10 @@ function drawEffectSynced(
   effectText: string,
   libraryCountBefore: number,
   queueBridged: boolean,
+  result?: OracleIRExecutionResult,
 ): boolean {
   const normalized = String(effectText || '').replace(/\u2019/g, "'").trim();
+  const hasDeferredDraw = /draw (?:a card|\d+ cards?)/i.test(normalized);
   if (
     queueBridged
     && /you may put a land card from your hand onto the battlefield/i.test(normalized)
@@ -366,9 +385,40 @@ function drawEffectSynced(
     return true;
   }
 
-  if (!/draw (?:a card|(\d+) cards?)/i.test(normalized)) {
+  const hasScrySurveilCompound =
+    /(?:scry|surveil)\s+\d+/i.test(normalized) && hasDeferredDraw;
+  if (hasScrySurveilCompound) {
+    if (queueBridged) {
+      // Draw resumes via oracleIrResumeStepsJson after SCRY/SURVEIL resolution.
+      return true;
+    }
+    const pendingDraw = (result?.pendingContinuationSteps || []).some(
+      (step) => String(step.kind || '') === 'draw',
+    );
+    const scrySurveilDeferred = (result?.skippedSteps || []).some(
+      (step) => step.kind === 'scry' || step.kind === 'surveil',
+    );
+    if (pendingDraw && scrySurveilDeferred) {
+      return true;
+    }
+  }
+
+  if (!hasDeferredDraw) {
     return true;
   }
+
+  const drawStepApplied = (result?.appliedSteps || []).some((step) => step.kind === 'draw');
+  const drawStepPending = (result?.pendingContinuationSteps || []).some((step) => step.kind === 'draw');
+  const chooseModeApplied = (result?.appliedSteps || []).some((step) => step.kind === 'choose_mode');
+  if (chooseModeApplied && !drawStepApplied && !drawStepPending) {
+    // Modal selected a branch without draw (e.g. gain life); oracle text still mentions draw.
+    return true;
+  }
+
+  if (!drawStepApplied && !drawStepPending) {
+    return true;
+  }
+
   const drawMatch = normalized.match(/draw (?:a card|(\d+) cards?)/i);
   const expectedDrawn = drawMatch?.[1] ? parseInt(drawMatch[1], 10) : 1;
   if (!Number.isFinite(expectedDrawn) || expectedDrawn <= 0) {
@@ -540,7 +590,7 @@ export function tryResolveTriggerViaOracleIR(
       handled = false;
     }
 
-    if (handled && !drawEffectSynced(ctx, params.controller, effectText, libraryCountBefore, queueBridged)) {
+    if (handled && !drawEffectSynced(ctx, params.controller, effectText, libraryCountBefore, queueBridged, result)) {
       handled = false;
       logOracleIrAllOrNothingFailure(
         'trigger',

@@ -9,9 +9,15 @@ import {
   applyRetiredTriggerLegacyDelayedCleanupTriggers,
 } from './oracleIrTriggerLegacyDelayedCleanupHandlers.js';
 import {
-  applyRetiredTriggerLegacyExtraTurnAfterThisOne,
   applyRetiredTriggerLegacyGainControlOfTargetOpponent,
 } from './oracleIrTriggerLegacyTurnAndZoneHandlers.js';
+import {
+  legacyPrefaceHandled,
+  legacyPrefaceNotHandled,
+  type TriggerPrefaceResult,
+} from './oracleIrTriggerLegacyHandlerTelemetry.js';
+
+export type { TriggerPrefaceResult };
 
 export function tryApplyTriggerEffectPrefaceHandlers(
   ctx: GameContext,
@@ -21,7 +27,7 @@ export function tryApplyTriggerEffectPrefaceHandlers(
   triggerItem: any,
   state: any,
   battlefield: any[],
-): boolean {
+): TriggerPrefaceResult {
   if (applyRetiredTriggerLegacyPlaneswalkerLoyaltyCounters({
     ctx,
     controller,
@@ -31,16 +37,7 @@ export function tryApplyTriggerEffectPrefaceHandlers(
     state,
     battlefield,
   })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyExtraTurnAfterThisOne({
-    ctx,
-    controller,
-    sourceName,
-    description,
-  })) {
-    return true;
+    return legacyPrefaceHandled('applyRetiredTriggerLegacyPlaneswalkerLoyaltyCounters');
   }
 
   if (applyRetiredTriggerLegacyGainControlOfTargetOpponent({
@@ -51,7 +48,7 @@ export function tryApplyTriggerEffectPrefaceHandlers(
     triggerItem,
     state,
   })) {
-    return true;
+    return legacyPrefaceHandled('applyRetiredTriggerLegacyGainControlOfTargetOpponent');
   }
 
   if (applyRetiredTriggerLegacyCastingModifierGrants({
@@ -63,7 +60,7 @@ export function tryApplyTriggerEffectPrefaceHandlers(
     state,
     battlefield,
   })) {
-    return true;
+    return legacyPrefaceHandled('applyRetiredTriggerLegacyCastingModifierGrants');
   }
 
   if (applyRetiredTriggerLegacyGraveyardPermissionEffects({
@@ -75,7 +72,7 @@ export function tryApplyTriggerEffectPrefaceHandlers(
     state,
     battlefield,
   })) {
-    return true;
+    return legacyPrefaceHandled('applyRetiredTriggerLegacyGraveyardPermissionEffects');
   }
 
   // Scheduled delayed effects (upkeep draw, end-step exile, etc.) must run before Oracle IR
@@ -87,8 +84,8 @@ export function tryApplyTriggerEffectPrefaceHandlers(
     triggerItem,
     state,
   })) {
-    return true;
+    return legacyPrefaceHandled('applyRetiredTriggerLegacyDelayedCleanupTriggers');
   }
 
-  return false;
+  return legacyPrefaceNotHandled();
 }

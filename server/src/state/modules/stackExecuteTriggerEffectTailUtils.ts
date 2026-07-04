@@ -4,11 +4,17 @@ import { debug } from '../../utils/debug.js';
 import { recordOracleIrGapTelemetry } from './oracleIrGapTelemetry.js';
 import { tryResolveThassasOracleWin } from './game-state-effects.js';
 import { applyOracleIRFallbackForTriggeredEffect } from './stackExecuteTriggerEffectIrFallbackUtils.js';
-import type { TriggerEffectLegacyBodyContinuation } from './stackResolveSharedTypes.js';
+import type { TriggerEffectLegacyBodyContinuation, TriggerLegacyTailResult } from './stackResolveSharedTypes.js';
+import {
+  legacyTailHandled,
+  legacyTailHandledWithoutHandler,
+  legacyTailNotHandled,
+} from './oracleIrTriggerLegacyHandlerTelemetry.js';
 import { maybeApplyPreparedStateChange } from './triggerPreparedStateUtils.js';
 import { getTriggerSourcePermanent } from './triggerSourceUtils.js';
 import {
   isTriggerEffectOwnedByOracleIrPrimary,
+  isTriggerEffectFullyIrWired,
   shouldSkipLegacyTriggerRegexHandlers,
   shouldSkipTriggerUncategorizedFallback,
 } from './oracleIrTriggerLegacyRouting.js';
@@ -111,7 +117,7 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
   triggerCard: any,
   state: any,
   continuation: TriggerEffectLegacyBodyContinuation,
-): boolean {
+): TriggerLegacyTailResult {
   const {
     desc,
     descriptionForOracleFallback,
@@ -141,7 +147,7 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
       gameId: String((ctx as any)?.gameId || '') || undefined,
     });
   } else {
-    const combinedEffectsHandled = applyRetiredTriggerLegacyCombinedEffectsRegexBatch({
+    const combinedEffectsHit = applyRetiredTriggerLegacyCombinedEffectsRegexBatch({
       ctx,
       controller,
       sourceName,
@@ -163,12 +169,12 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
       triggerItem,
       state,
     })) {
-      return true;
+      return legacyTailHandled('applyRetiredTriggerLegacyPutLandFromHand');
     }
 
-    if (combinedEffectsHandled) {
+    if (combinedEffectsHit) {
       tryResolveThassasOracleWin(ctx, controller, sourceName);
-      return true;
+      return legacyTailHandled(combinedEffectsHit);
     }
   }
 
@@ -205,21 +211,24 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
     && /create a tapped and attacking token that's a copy of target creature you control/i.test(normalizedFallbackText)
   ) {
     tryResolveThassasOracleWin(ctx, controller, sourceName);
-    return true;
+    return legacyTailHandledWithoutHandler();
   }
 
   if (
     triggeredOracleIRApplied > 0
     && createTokenBattlefieldSynced
     && drawLibrarySynced
-    && isTriggerEffectOwnedByOracleIrPrimary(descriptionForOracleFallback, sourceName)
+    && (
+      isTriggerEffectOwnedByOracleIrPrimary(descriptionForOracleFallback, sourceName)
+      || isTriggerEffectFullyIrWired(descriptionForOracleFallback, sourceName)
+    )
   ) {
     tryResolveThassasOracleWin(ctx, controller, sourceName);
-    return true;
+    return legacyTailHandledWithoutHandler();
   }
 
   if (!skipLegacyRegexTail) {
-    if (applyRetiredTriggerLegacySingleEffectRegexBatch({
+    const singleHandler = applyRetiredTriggerLegacySingleEffectRegexBatch({
       ctx,
       controller,
       sourceName,
@@ -232,11 +241,12 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
       players,
       battlefield,
       isKynaiosEffect,
-    })) {
-      return true;
+    });
+    if (singleHandler) {
+      return legacyTailHandled(singleHandler);
     }
 
-    if (applyRetiredTriggerLegacyLateEffectRegexBatch({
+    const lateHandler = applyRetiredTriggerLegacyLateEffectRegexBatch({
       ctx,
       controller,
       sourceName,
@@ -248,14 +258,15 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
       opponents,
       players,
       battlefield,
-    })) {
-      return true;
+    });
+    if (lateHandler) {
+      return legacyTailHandled(lateHandler);
     }
   }
 
   if (maybeApplyPreparedStateChange(ctx, controller, description, triggerItem, getTriggerSourcePermanent(state, triggerItem))) {
-    return true;
+    return legacyTailHandledWithoutHandler();
   }
 
-  return false;
+  return legacyTailNotHandled();
 }

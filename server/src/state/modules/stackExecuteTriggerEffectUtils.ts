@@ -1,7 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
-import { recordOracleIrGapTelemetry } from './oracleIrGapTelemetry.js';
+import { recordLegacyTriggerHandlerTelemetry } from './oracleIrTriggerLegacyHandlerTelemetry.js';
 import { tryApplyRoomDoorStateFromResolvedEffect } from './triggers/room.js';
 import { tryApplyTriggerEffectPrefaceHandlers } from './stackExecuteTriggerEffectPrefaceUtils.js';
 import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
@@ -13,12 +13,8 @@ import { maybeApplyPreparedStateChange } from './triggerPreparedStateUtils.js';
 import { getTriggerSourcePermanent } from './triggerSourceUtils.js';
 import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
 import { applyRetiredTriggerLegacyKeywordTriggerFallback } from './oracleIrTriggerLegacyKeywordHandlers.js';
-import { applyRetiredTriggerLegacyCreateCreatureToken } from './oracleIrTriggerLegacyTokenHandlers.js';
 import { tryApplyPresetTriggerChosenTypeEffects } from './stackExecuteTriggerChosenTypeUtils.js';
-
-function isCreateCreatureTokenTriggerText(text: string): boolean {
-  return /create (?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+).*?\s+tokens?/i.test(String(text || ''));
-}
+import { applyStackParadigmTrigger, applyStackReboundTrigger } from './stackSpecialTriggerHandlers.js';
 
 /** Retirement triage (D2): tag legacy trigger executions while IR primary is enabled. */
 function recordLegacyTriggerHandled(
@@ -26,16 +22,9 @@ function recordLegacyTriggerHandled(
   sourceName: string,
   effectText: string,
   handlerFamily: string,
+  legacyHandler?: string,
 ): void {
-  if (!isOracleIrTriggerPrimaryEnabled()) return;
-  recordOracleIrGapTelemetry({
-    kind: 'legacy_handled',
-    scope: 'trigger',
-    label: sourceName,
-    reasons: [`legacy_family:${handlerFamily}`],
-    effectText,
-    gameId: String((ctx as any)?.gameId || '') || undefined,
-  });
+  recordLegacyTriggerHandlerTelemetry(ctx, sourceName, effectText, handlerFamily, legacyHandler);
 }
 
 export function executeTriggerEffect(
@@ -45,7 +34,9 @@ export function executeTriggerEffect(
   description: string,
   triggerItem: any
 ): void {
-  const resolvedFromItem = resolveTriggerStackItemEffectText(triggerItem);
+  const resolvedFromItem = resolveTriggerStackItemEffectText(triggerItem, {
+    state: (ctx as any).state,
+  });
   const normalizedDescription = normalizeTriggerEffectDescriptionForExecution(
     String(resolvedFromItem || description || '').trim(),
   );
@@ -54,11 +45,49 @@ export function executeTriggerEffect(
   const triggerCard = (triggerItem as any)?.card || {};
   const battlefield = state.battlefield || [];
 
-  if (tryApplyTriggerEffectPrefaceHandlers(ctx, controller, sourceName, normalizedDescription, triggerItem, state, battlefield)) {
+  const prefaceResult = tryApplyTriggerEffectPrefaceHandlers(
+    ctx,
+    controller,
+    sourceName,
+    normalizedDescription,
+    triggerItem,
+    state,
+    battlefield,
+  );
+  if (prefaceResult.handled) {
+    recordLegacyTriggerHandled(
+      ctx,
+      sourceName,
+      normalizedDescription,
+      'legacy_preface',
+      prefaceResult.legacyHandler,
+    );
     return;
   }
 
   if (tryApplyPresetTriggerChosenTypeEffects(ctx, controller, sourceName, normalizedDescription, triggerItem)) {
+    return;
+  }
+
+  if (applyStackReboundTrigger({
+    ctx,
+    controller,
+    sourceName,
+    desc: normalizedDescription,
+    triggerItem,
+    state,
+  })) {
+    return;
+  }
+
+  if (applyStackParadigmTrigger({
+    ctx,
+    controller,
+    sourceName,
+    desc: normalizedDescription,
+    triggerItem,
+    state,
+  })) {
     return;
   }
 
@@ -87,22 +116,6 @@ export function executeTriggerEffect(
     return;
   }
 
-  const normalizedDesc = String(normalizedDescription || '').replace(/[\u2019]/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
-  if (isCreateCreatureTokenTriggerText(normalizedDesc)) {
-    if (applyRetiredTriggerLegacyCreateCreatureToken({
-      ctx,
-      controller,
-      sourceName,
-      desc: normalizedDesc,
-      description: normalizedDescription,
-      triggerItem,
-      state,
-    })) {
-      recordLegacyTriggerHandled(ctx, sourceName, normalizedDescription, 'create_creature_token');
-      return;
-    }
-  }
-
   if (applyRetiredTriggerLegacyKeywordTriggerFallback({
     ctx,
     controller,
@@ -113,7 +126,13 @@ export function executeTriggerEffect(
     triggerCard,
     battlefield,
   })) {
-    recordLegacyTriggerHandled(ctx, sourceName, normalizedDescription, 'keyword_trigger_fallback');
+    recordLegacyTriggerHandled(
+      ctx,
+      sourceName,
+      normalizedDescription,
+      'keyword_trigger_fallback',
+      'applyRetiredTriggerLegacyKeywordTriggerFallback',
+    );
     return;
   }
 
@@ -127,12 +146,18 @@ export function executeTriggerEffect(
     triggerCard,
   );
   if (legacyBodyResult.handled) {
-    recordLegacyTriggerHandled(ctx, sourceName, normalizedDescription, 'legacy_body');
+    recordLegacyTriggerHandled(
+      ctx,
+      sourceName,
+      normalizedDescription,
+      'legacy_body',
+      legacyBodyResult.legacyHandler,
+    );
     tryApplyRoomDoorStateFromResolvedEffect(ctx, controller, normalizedDescription, triggerItem);
     return;
   }
 
-  if (tryApplyTriggerEffectLegacyTailHandlers(
+  const legacyTailResult = tryApplyTriggerEffectLegacyTailHandlers(
     ctx,
     controller,
     sourceName,
@@ -141,8 +166,17 @@ export function executeTriggerEffect(
     triggerCard,
     state,
     legacyBodyResult,
-  )) {
-    recordLegacyTriggerHandled(ctx, sourceName, normalizedDescription, 'legacy_tail');
+  );
+  if (legacyTailResult.handled) {
+    if (legacyTailResult.legacyHandler) {
+      recordLegacyTriggerHandled(
+        ctx,
+        sourceName,
+        normalizedDescription,
+        'legacy_tail',
+        legacyTailResult.legacyHandler,
+      );
+    }
     tryApplyRoomDoorStateFromResolvedEffect(ctx, controller, normalizedDescription, triggerItem);
     return;
   }

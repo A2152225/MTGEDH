@@ -37,6 +37,7 @@ import { tryEvaluateModifyPtWhereReferenceStats } from './oracleIRExecutorModify
 import { tryEvaluateModifyPtWhereSpecializedExtrema } from './oracleIRExecutorModifyPtWhereSpecializedExtrema';
 import { tryEvaluateModifyPtWhereTurnStats } from './oracleIRExecutorModifyPtWhereTurnStats';
 import { tryEvaluateModifyPtWhereZoneCardCounts } from './oracleIRExecutorModifyPtWhereZoneCardCounts';
+import { tryEvaluateModifyPtWhereCombatDamageCounts } from './oracleIRExecutorModifyPtWhereCombatDamageCounts';
 
 export function evaluateModifyPtWhereX(
   state: GameState,
@@ -156,6 +157,16 @@ export function evaluateModifyPtWhereX(
       normalizeOracleText,
     });
     if (miscCounts !== null) return miscCounts;
+  }
+
+  {
+    const combatDamageCounts = tryEvaluateModifyPtWhereCombatDamageCounts({
+      state,
+      controllerId,
+      raw,
+      ctx,
+    });
+    if (combatDamageCounts !== null) return combatDamageCounts;
   }
 
   {

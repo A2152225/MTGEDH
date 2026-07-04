@@ -1,57 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import {
   applyRetiredTriggerLegacyLoseGameReplacement,
-  applyRetiredTriggerLegacyThousandLifeLoseGame,
-  applyRetiredTriggerLegacyUpkeepEffectDoubling,
 } from '../src/state/modules/oracleIrTriggerLegacyLifeAndGameHandlers.js';
 
 describe('oracleIrTriggerLegacyLifeAndGameHandlers', () => {
-  it('sets life to 0 when controller has 1,000 or more life', () => {
-    const state = { life: { p1: 1200 } };
-
-    expect(applyRetiredTriggerLegacyThousandLifeLoseGame({
-      controller: 'p1' as PlayerID,
-      sourceName: 'Test Source',
-      desc: 'then, if you have 1,000 or more life, you lose the game.',
-      triggerItem: {},
-      state,
-    })).toBe(true);
-
-    expect(state.life.p1).toBe(0);
-  });
-
-  it('does not change life when below 1,000', () => {
-    const state = { life: { p1: 999 } };
-
-    expect(applyRetiredTriggerLegacyThousandLifeLoseGame({
-      controller: 'p1' as PlayerID,
-      sourceName: 'Test Source',
-      desc: 'then, if you have 1,000 or more life, you lose the game.',
-      triggerItem: {},
-      state,
-    })).toBe(true);
-
-    expect(state.life.p1).toBe(999);
-  });
-
-  it('enables upkeep effect doubling on the source permanent', () => {
-    const perm = { id: 'perm-1' };
-    const state = { battlefield: [perm] };
-
-    expect(applyRetiredTriggerLegacyUpkeepEffectDoubling({
-      controller: 'p1' as PlayerID,
-      sourceName: 'Test Source',
-      desc: 'double the amount of life you lose and cards you draw for the rest of the game from this ability.',
-      triggerItem: { source: 'perm-1' },
-      state,
-      battlefield: state.battlefield,
-    })).toBe(true);
-
-    expect(perm.upkeepEffectDoubling).toBe(true);
-  });
-
   it('registers a lose-the-game replacement effect', () => {
     const state = { pendingLoseGameReplacements: [] as any[] };
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState';
 import { ResolutionQueueManager } from '../src/state/resolution';
@@ -31,6 +31,14 @@ function setupToMain1(game: any, players: PlayerID[]) {
 }
 
 describe('Combat-damage-to-you regressions', () => {
+  beforeEach(() => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+  });
+
+  afterEach(() => {
+    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
+  });
+
   it('recognizes and resolves Swarmborn Giant combat-damage-to-you triggers', () => {
     const game = createInitialGameState('combat_damage_to_you_swarmborn');
     const p2 = 'p2' as PlayerID;

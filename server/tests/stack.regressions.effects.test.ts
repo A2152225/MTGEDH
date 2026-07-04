@@ -119,6 +119,9 @@ describe('Stack / zone regression effects', () => {
   });
 
   it("Venser's Journal gains life equal to its controller's hand size on upkeep", () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+
     const g = createInitialGameState('vensers_journal_upkeep_life');
 
     const p1 = 'p1' as PlayerID;
@@ -149,7 +152,7 @@ describe('Stack / zone regression effects', () => {
         controller: p1,
         source: 'journal_1',
         sourceName: "Venser's Journal",
-        description: 'Gain life equal to cards in hand',
+        description: 'You gain life equal to the number of cards in your hand.',
         triggerType: 'upkeep',
       },
     ];
@@ -160,6 +163,9 @@ describe('Stack / zone regression effects', () => {
   });
 
   it('Ivory Tower gains life for cards above four in hand on upkeep', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+
     const g = createInitialGameState('ivory_tower_upkeep_life');
 
     const p1 = 'p1' as PlayerID;
@@ -193,7 +199,7 @@ describe('Stack / zone regression effects', () => {
         controller: p1,
         source: 'tower_1',
         sourceName: 'Ivory Tower',
-        description: 'Gain 1 life for each card in hand above 4',
+        description: 'You gain 1 life for each card in your hand above 4.',
         triggerType: 'upkeep',
       },
     ];

@@ -301,6 +301,9 @@ describe('Eldrazi on-cast triggers (integration)', () => {
   });
 
   it('queues Emrakul, the Aeons Torn on-cast trigger on the stack and adds extra turn on resolution', async () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+
     const persistentGameId = trackGameId(`${gameId}_emrakul_torn`);
     createGameIfNotExists(persistentGameId, 'commander', 40);
     const game = ensureGame(persistentGameId);

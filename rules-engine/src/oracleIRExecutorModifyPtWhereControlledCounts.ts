@@ -131,6 +131,46 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
   }
 
   {
+    const m = raw.match(/^x is the number of (.+) target opponents control$/i);
+    if (m) {
+      const spec = parseColorQualifiedClassSpec(String(m[1] || ''));
+      if (spec) {
+        const playerIdSet = new Set(
+          (state.players || [])
+            .map((p: any) => String((p as any)?.id || '').trim())
+            .filter(Boolean),
+        );
+        let targetOpponentIds = Array.isArray(ctx?.selectorContext?.eachOfThoseOpponents)
+          ? (ctx?.selectorContext?.eachOfThoseOpponents || [])
+              .map((id) => String(id || '').trim())
+              .filter(Boolean)
+          : [];
+        if (targetOpponentIds.length === 0 && Array.isArray(ctx?.selectorContext?.chosenObjectIds)) {
+          targetOpponentIds = (ctx?.selectorContext?.chosenObjectIds || [])
+            .map((id) => String(id || '').trim())
+            .filter((id) => id && playerIdSet.has(id) && id !== controllerId);
+        }
+        if (targetOpponentIds.length === 0) {
+          const singleton = String(
+            ctx?.selectorContext?.targetOpponentId || ctx?.selectorContext?.targetPlayerId || '',
+          ).trim();
+          if (singleton && singleton !== controllerId && playerIdSet.has(singleton)) {
+            targetOpponentIds = [singleton];
+          }
+        }
+        if (targetOpponentIds.length === 0) {
+          targetOpponentIds = (state.players || [])
+            .map((p: any) => String((p as any)?.id || '').trim())
+            .filter((pid) => pid && pid !== controllerId);
+        }
+        const idSet = new Set(targetOpponentIds);
+        const pool = battlefield.filter((p: any) => idSet.has(String((p as any)?.controller || '').trim()));
+        return countByClasses(pool, spec.classes, spec.requiredColor);
+      }
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of (.+) (?:the )?defending player controls$/i);
     if (m) {
       const spec = parseColorQualifiedClassSpec(String(m[1] || ''));

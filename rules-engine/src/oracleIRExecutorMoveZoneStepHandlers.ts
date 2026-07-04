@@ -2364,11 +2364,17 @@ export function applyMoveZoneStep(
     step.optional === true
     && step.to === 'battlefield'
     && /^you may put a land card from your hand onto the battlefield$/i.test(optionalLandPlayRaw);
-  if (isEachPlayerOptionalLandPlay || isControllerOptionalLandPlay) {
+  const isBothPlayersOptionalPermanentFromHand =
+    step.optional === true
+    && step.to === 'battlefield'
+    && /^you and that player may each put a permanent card from your hand onto the battlefield$/i.test(optionalLandPlayRaw);
+  if (isEachPlayerOptionalLandPlay || isControllerOptionalLandPlay || isBothPlayersOptionalPermanentFromHand) {
     if (ctx.interactivePlayerChoices === true) {
       return {
         applied: false,
-        message: `Optional land play requires player choice: ${step.raw}`,
+        message: isBothPlayersOptionalPermanentFromHand
+          ? `Optional permanent play requires player choice: ${step.raw}`
+          : `Optional land play requires player choice: ${step.raw}`,
         reason: 'player_choice_required',
         options: { classification: 'player_choice' },
       };
@@ -2376,7 +2382,11 @@ export function applyMoveZoneStep(
     return {
       applied: true,
       state,
-      log: [`Skipped non-interactive optional land play: ${step.raw}`],
+      log: [
+        isBothPlayersOptionalPermanentFromHand
+          ? `Skipped non-interactive optional permanent play: ${step.raw}`
+          : `Skipped non-interactive optional land play: ${step.raw}`,
+      ],
     };
   }
 

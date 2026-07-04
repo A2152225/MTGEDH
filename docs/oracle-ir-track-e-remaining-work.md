@@ -2,7 +2,7 @@
 
 **Purpose:** Track post–Track D executor/Layer 3 work and document the path to **seamless automation for cards not yet in the corpus** (new sets, custom cards, novel phrasing).
 
-**Last updated:** 2026-07-02 (E9 batch 466 — **D1 delta CI + D2 gap telemetry shipped**; architecture review: overlay-first ingestion, legacy ratchet, replay guardrail)
+**Last updated:** 2026-07-03 (E9 batch 469 — telemetry soak IR gap fixes; batch 468 D3/D6; migration **811/811**)
 
 **Read first:** [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) · [oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md) · `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` · `.cursor/rules/oracle-ir-compiled-overlay.mdc`
 
@@ -52,7 +52,7 @@ For **new cards**, step collection may hit the overlay **before** a parser batch
 | **L2 Execute** | Dry-run applies all wired step kinds; trigger + full_card audits | ✅ 100% assisted, 0 `ir_gap` |
 | **L2 Keywords** | Keyword semantic audit (static vs triggered shape) | ✅ 0 open clusters on corpus |
 | **L3 Integrate** | IR primary for spells/triggers/activated (`ORACLE_IR_*_PRIMARY` on) | ✅ Beta-ready |
-| **L3 Choices** | Queue + resume for scry/surveil/discard/unless-pay/library search/EP (fateseal, clash, choose_mode) | ✅ Migration **797/797** + ~26 socket tests |
+| **L3 Choices** | Queue + resume for scry/surveil/discard/unless-pay/library search/EP (fateseal, clash, choose_mode) | ✅ Migration **811/811** + ~26 socket tests |
 | **L3 Overlays** | Probe / validate / import / upsert scripts; `@OracleIRCompiler` agent | ✅ In migration suite (batch 458) |
 | **Data refresh** | `npm run card-lookup:refresh` — oracle index + local SQLite rebuild | ✅ Script exists |
 | **Trigger detect** | `trigger:coverage` — timing phrases fire on server | ✅ 15,741/15,741 |
@@ -120,10 +120,10 @@ These are the **main engineering tasks** still open for the *overall* new-card e
 |----|-----|---------------------|----------------|
 | **D1** | ✅ **Done (batch 466)** — delta CI: `npm run oracle-ir:delta` | Regressions on new cards caught automatically | `scripts/oracle-delta-coverage-audit.ts` — hash baseline diff → executor dry-run + trigger detection on delta only → `overlayWorkQueue` → non-zero exit on gaps. Baseline: `scripts/oracle-delta-baseline.json` (committed); `--update-baseline` to accept |
 | **D2** | ✅ **Done (batch 466)** — production gap telemetry | Live misses visible without player reports | `oracleIrGapTelemetry.ts`: `all_or_nothing_failure` (from `logOracleIrAllOrNothingFailure`), `owned_but_unhandled` (trigger tail + spell categorize gates), `legacy_handled` (retirement triage). Snapshot: `GET /api/oracle-ir/telemetry`; deduped console warns independent of `DEBUG_STATE` |
-| **D3** | **Phase 4 legacy shims** (86 `applyRetiredTriggerLegacy*` exports) | Rare double-apply or silent skip if routing wrong | **Ratchet in place:** `oracle-ir-legacy-handler-ratchet.unit.test.ts` fails on count increase. Delete evidence-driven: handlers whose text never appears in `legacy_handled` telemetry after soak are dead — remove per family (E9+) |
+| **D3** | **Phase 4 legacy shims** (71 `applyRetiredTriggerLegacy*` exports, ratchet **71**) | Rare double-apply or silent skip if routing wrong | **In progress:** batches 478–479 deleted combat-evasion + PT modification handlers (IR-owned) |
 | **D4** | **Unwired step kinds** | Overlay must set `fallback_to_bespoke` | Extend executor + server queue; document in OracleIRCompiler “allowed kinds” |
 | **D5** | **Trigger timing not in detector tables** | Card parses but never fires | Extend `detect*Triggers` + trigger coverage for new `when/whenever/at` templates; delta audit flags these as `trigger_not_detected` |
-| **D6** | **Client UI for novel choice types** | Server queues step client cannot render | **Direction: generic choice primitives, not per-shape modals.** Nearly all IR choices reduce to: select-N-from-list (cards/permanents/players/options), order-list, yes/no, number pick. Next novel shape should extend a generic `ResolutionStepType` payload the client already renders, so new step kinds need zero client work |
+| **D6** | **Client UI for novel choice types** | Server queues step client cannot render | **Partial (batch 468):** `resolutionChoicePrimitives.ts` — `number_choice` → X modal; `options[]` → generic option fallback. Extend generic primitives for future shapes; avoid per-step modals |
 | **D7** | **Phase 5 special systems** | PW loyalty, supplemental oracle, continuous/replacement layers | Design doc: [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md); migration plan Phase 5 |
 | **D8** | **Overlay storage ops** | Overlays not in repo by default (`server/data/compiled-oracle-ir-overlays/`) | Process for committing set overlays vs per-environment SQLite; optional bulk import in deploy |
 | **D9** | **Rules txt ↔ keywordActions sync** | New CR keyword without code path | Checklist tying `docs/rules/MagicCompRules_*.txt` §702 entries to B1–B8 |
@@ -134,7 +134,7 @@ These are the **main engineering tasks** still open for the *overall* new-card e
 |------|-------|--------|
 | **Layers 1–2** | Parse + execute corpus | ✅ Complete |
 | **Layer 3 E6–E8** | Live IR + sockets + EP | ✅ Beta-ready |
-| **E9+** | Legacy cleanup + soak | Open-ended, optional |
+| **E9+** | Legacy cleanup + soak | **In progress** (batches 467–472); post-471 migration soak **0** telemetry events |
 | **Phase 4** | Delete duplicate shims | In progress |
 | **Phase 5** | PW / supplemental / special stack | Not started |
 
@@ -171,8 +171,35 @@ Implements the 2026-07-02 architecture-review decisions:
 | **D2 hooks** | `logOracleIrAllOrNothingFailure` (all scopes; now also tolerates string `reasons`), trigger tail `owned_but_unhandled` (`stackExecuteTriggerEffectTailUtils.ts`), spell categorize `owned_but_unhandled` + `legacy_handled` (`stackResolveSpellOracleIrUtils.ts`), trigger `legacy_handled` per family (`stackExecuteTriggerEffectUtils.ts`, gated on IR primary) | same |
 | **D2 endpoint** | `GET /api/oracle-ir/telemetry` (`server/src/index.ts`) | manual / live soak |
 | **D1 delta audit** | `scripts/oracle-delta-coverage-audit.ts` + `scripts/oracleDeltaAuditUtils.ts`; npm script `oracle-ir:delta`; baseline `scripts/oracle-delta-baseline.json` (31,318 cards, committed ~2.4 MB); report + `overlayWorkQueue` → `scripts/out/oracle-delta-coverage-audit.json` | `tests/oracle-delta-audit-utils.unit.test.ts`; bootstrap + simulated 3-card delta runs green |
-| **D3 ratchet** | `tests/oracle-ir-legacy-handler-ratchet.unit.test.ts` — ceilings 86 trigger / 1 spell legacy exports; fails on rise; slack forces ceiling lowering after deletions | ratchet test |
+| **D3 ratchet** | `tests/oracle-ir-legacy-handler-ratchet.unit.test.ts` — ceiling **76** trigger legacy exports (lowered from 86); fails on rise | ratchet test |
 | **Replay guardrail** | `tests/helpers/replayDivergence.ts` (projection compare + `toReplayEvents`) + `tests/replay-divergence.guardrail.integration.test.ts` (IR-primary draw spell: live vs replayed event log) | guardrail test |
+
+---
+
+## Track E — batch 469 (telemetry soak IR gap fixes)
+
+Fixes from pre-soak telemetry (`all_or_nothing_failure` / `owned_but_unhandled` on prepared, Opt/Consider, station, Broodship):
+
+| Gap | Fix | Verification |
+|-----|-----|--------------|
+| **Conditional wrapper** | Push outer `conditional` to `appliedSteps` when condition true; treat false branch as applied (not skipped mandatory) | `prepared.trigger-primary.integration.test.ts` (4/4); Broodship (11/11) |
+| **Scry/surveil + draw** | `drawEffectSynced()` exempts queue-bridged compound (draw deferred to resume JSON) | `oracle-ir-scry-surveil.integration.test.ts` (43/43) |
+| **Station `this spacecraft`** | Self-target reference in `parseContextualBattlefieldReference` | `oracle-ir-station-charge-counters.integration.test.ts` (2/2) |
+| **Station threshold** | Re-fetch permanent after IR apply before `stationed` / threshold check | same |
+
+**Next:** re-run soak with `ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT` and compare event counts vs pre-469 baseline.
+
+---
+
+## Track E — batch 468 (D3 legacy deletion start + D6 choice primitives)
+
+| Deliverable | Files | Verification |
+|-------------|-------|--------------|
+| **D3 deletions (10)** | Orphan mill/target handlers; unreachable stubs; wired no-ops (`CreateCreatureToken`, `DistributeCounters`, etc.) | Ratchet **86 → 76** |
+| **D3 triage** | `scripts/oracle-ir-legacy-triage.ts`, `oracle-ir-legacy-triage-soak.ts`; transitive closure from execution roots | `npm run oracle-ir:legacy-triage` |
+| **D2 JSONL soak** | `oracleIrGapTelemetry.ts` append log survives test reset | `oracle-ir-gap-telemetry.unit.test.ts` |
+| **D6 client** | `client/src/utils/resolutionChoicePrimitives.ts`, `App.tsx`, 5 unit tests | `client/tests/resolutionChoicePrimitives.test.ts` |
+| **Migration** | Full suite | **811/811** |
 
 ---
 
@@ -188,7 +215,7 @@ Regenerated all coverage reports after batches 431–435 (would-enter arc).
 | **Condition gaps** | **0** clusters (`executor-fullcard-condition-gap-analysis.ts`) |
 | **Amount gaps** | **0** clusters (`executor-amount-gap-analysis.ts`) |
 | **Target gaps** | **0** clusters (`executor-target-gap-analysis.ts`, batch 437) |
-| **Migration bar** | **797/797** (`npm run test:oracle-ir-migration`, batches 454–465 + E8) |
+| **Migration bar** | **811/811** (`npm run test:oracle-ir-migration`, batches 454–469 + E8/E9) |
 
 Reports: `server/scripts/out/executor-coverage-audit.json`, `trigger-coverage-audit.json`, `executor-*-gap-analysis.json` (gitignored; regenerate locally).
 
@@ -459,56 +486,58 @@ See [marvel-mechanics-handoff.md](./marvel-mechanics-handoff.md). Teamwork / pow
 
 ---
 
-## Copy-paste starting prompt (next session — Track E6 Layer 3)
+## Copy-paste starting prompt (next session — Track E9)
 
-Use this verbatim (adjust batch target as needed):
+Use this verbatim:
+
+```
+Continue MTGEDH Oracle IR Track E9 — post batch 469 (telemetry soak gap fixes + D3 legacy retirement).
+
+Read first:
+- docs/oracle-ir-session-handoff.md (§ Next session — batches 467–469)
+- docs/oracle-ir-track-e-remaining-work.md (§ D3, D6, E9+)
+- .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
+
+Current status (2026-07-03):
+- Migration: 811/811 green (npm run test:oracle-ir-migration, ~13 min; do NOT pass duplicate --pool=threads)
+- Legacy ratchet: 76 wired applyRetiredTriggerLegacy* exports
+- D6: client resolutionChoicePrimitives shipped
+- Batch 469: conditional appliedSteps, scry/surveil+draw deferral, this spacecraft target, station threshold re-fetch
+- Pre-469 soak: 34 telemetry events (22 all_or_nothing_failure, 10 owned_but_unhandled, 2 legacy_handled)
+- Triage: 76 wired / 0 orphaned
+
+Priority 1 — Re-run telemetry soak and compare:
+  cd server
+  $env:ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT='D:\Git\MTGEDH\server\scripts\out\telemetry-snapshot-post469.json'
+  npm run test:oracle-ir-migration
+  npm run oracle-ir:legacy-triage -- --snapshot scripts/out/telemetry-snapshot-post469.json
+
+Priority 2 — Continue D3 evidence-driven legacy deletion (only when legacy_handled proves dead):
+  npm run oracle-ir:legacy-triage:soak
+  Lower ratchet after each deletion batch
+
+Priority 3 — Remaining owned_but_unhandled (spell/trigger tail, generic IR fixes only)
+
+Targeted regression:
+  npx vitest run tests/prepared.trigger-primary.integration.test.ts tests/oracle-ir-scry-surveil.integration.test.ts tests/oracle-ir-station-charge-counters.integration.test.ts tests/oracle-ir-broodship-graveyard-cast.socket.integration.test.ts tests/oracle-ir-legacy-handler-ratchet.unit.test.ts --pool=threads --maxWorkers=1
+
+Do not commit unless asked. Windows: chain with ; not &&.
+```
+
+---
+
+## Copy-paste starting prompt (archived — Track E6 Layer 3)
+
+<details>
+<summary>Superseded 2026-07-03 — E9 is primary track</summary>
 
 ```
 Proceed with Oracle IR Track E6 — Layer 3 server integration (primary track).
-
-Context (read first):
-- docs/oracle-ir-track-e-remaining-work.md — batches 438–443 done; migration **764/764**
-- docs/oracle-ir-session-handoff.md — audit metrics + Layer 3 socket inventory
-- docs/oracle-ir-server-migration-plan.md — Phase 4 / integration batches
-- Marvel polish: docs/marvel-mechanics-handoff.md (core done; only optional follow-ups)
-- Rules: .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
-
-Layer 2 is complete (executor 100%, triggers 15,741/15,741, target gaps 0).
-Layer 3 bottleneck: live gameplay must match dry-run — parser → applyOracleIRStepsOnServer → resolution queue → submitResolutionResponse resume.
-
-Recent Layer 3 fixes (batch 441):
-- handleOptionChoiceResponse bridges oracleIrChoiceStepJson (odd/even, letter, etc.)
-- maybeApplyOracleIrChoiceStepFromResolution: player_choice no longer mis-routed to chosenObjectIds
-- buildOracleIrResumeContextFromResolutionStep passes chosenOddEven into compound destroy steps
-
-Recent socket tests (438–443):
-- teamwork-choose-mode.socket (spell-primary EP)
-- prepared.trigger-primary.integration (4/4; trigger-primary bridge)
-- power-up-activated.socket, thanos-odd-even-destroy.socket
-- waterbender-activated.socket, reveal-player-choice.socket (Green Sun X=1)
-
-Pick one Layer 3 batch (suggested order):
-A) Green Sun's Twilight X≥5 — OPTION_CHOICE destination socket after LIBRARY_SEARCH (integration exists in oracle-ir-reveal-player-choice.integration.test.ts)
-B) Trigger reveal→player_choice socket — tryResolveTriggerViaOracleIR + submitResolutionResponse (spell socket pattern for triggers)
-C) Scry/surveil IR submit resume socket — oracle-ir-scry-surveil.integration.test.ts → full socket submit path
-D) Unless-pay / optional payment prompt socket — oracle-ir-unless-pay.integration.test.ts
-E) Prepared trigger full socket — ETB “becomes prepared” under ORACLE_IR_TRIGGER_PRIMARY=1 end-to-end (beyond prepared.trigger-primary.integration.test.ts)
-F) Legacy regex retirement — grep applyRetiredTriggerLegacy* / applyRetiredSpellLegacy*; delete when IR + socket green
-
-Workflow per batch:
-1. Read existing integration test for the pattern; identify missing socket step (usually submitResolutionResponse).
-2. Probe with server/scripts/_tmp-probe-*.ts if needed; delete after use.
-3. Fix server only if integration passes but socket fails (queue bridge, resume context, env flags).
-4. Add *.socket.integration.test.ts; append to test:oracle-ir-migration in server/package.json.
-5. Update docs/oracle-ir-track-e-remaining-work.md batch NNN.
-
-Validate:
-cd server
-npx vitest run tests/<new-socket-test>.socket.integration.test.ts
-npm run test:oracle-ir-migration   # expect 764+N
-
-Do not commit unless I ask.
+Layer 2 complete; Layer 3 socket + resume was the bottleneck (batches 438–465).
+See git history for full E6 prompt.
 ```
+
+</details>
 
 ---
 

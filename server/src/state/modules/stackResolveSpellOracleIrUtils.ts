@@ -1,6 +1,6 @@
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
-import { recordOracleIrGapTelemetry } from './oracleIrGapTelemetry.js';
+import { recordOracleIrGapTelemetry, isOracleIrGapTelemetryLegacySoakEnabled } from './oracleIrGapTelemetry.js';
 import { categorizeSpell } from '../../rules-engine/targeting.js';
 import { isOracleIrSpellPrimaryEnabled, tryResolveSpellViaOracleIR } from './oracleIrSpellExecution.js';
 import { shouldSkipLegacySpellCategorizeExecution } from './oracleIrSpellLegacyRouting.js';
@@ -59,44 +59,47 @@ export function tryResolveInstantSorceryOracleIrSpell(
   const oracleIrSpellHandled = irSpellOutcome.handled;
 
   if (!oracleIrSpellHandled) {
-    if (shouldSkipLegacySpellCategorizeExecution(oracleText, effectiveCard?.name || 'spell')) {
+    const irOwnsSpell = shouldSkipLegacySpellCategorizeExecution(oracleText, effectiveCard?.name || 'spell');
+    if (irOwnsSpell) {
       debug(
         1,
-        `[tryResolveInstantSorceryOracleIrSpell] ${effectiveCard?.name || 'spell'}: IR primary owns spell but did not apply; falling through to legacy categorize: ${String(oracleText || '').trim()}`,
+        `[tryResolveInstantSorceryOracleIrSpell] ${effectiveCard?.name || 'spell'}: IR primary owns spell but did not apply; legacy categorize skipped: ${String(oracleText || '').trim()}`,
       );
       recordOracleIrGapTelemetry({
         kind: 'owned_but_unhandled',
         scope: 'spell',
         label: String(effectiveCard?.name || 'spell'),
-        reasons: ['ir_primary_owns_spell_but_did_not_apply; legacy categorize will run'],
+        reasons: ['ir_primary_owns_spell_but_did_not_apply; legacy categorize skipped'],
         effectText: oracleText,
         gameId: String((ctx as any)?.gameId || '') || undefined,
       });
-    }
-    spellSpec = categorizeSpell(effectiveCard?.name || '', oracleText);
-    if (
-      spellSpec
-      && !isOracleIrSpellPrimaryEnabled()
-      && legacyCategorizeSpecMissesZoneIntent(oracleText, spellSpec)
-    ) {
       spellSpec = null;
-    }
-    if (irSpellOutcome.shadowWouldHandle && spellSpec) {
-      debug(
-        1,
-        `[oracleIR-shadow] ${effectiveCard?.name || 'spell'}: IR would handle but legacy categorizeSpell matched op=${String((spellSpec as any)?.op || 'unknown')}`,
-      );
-    }
-    if (spellSpec && isOracleIrSpellPrimaryEnabled()) {
-      // Retirement triage: which spells still resolve via legacy categorize in production.
-      recordOracleIrGapTelemetry({
-        kind: 'legacy_handled',
-        scope: 'spell',
-        label: String(effectiveCard?.name || 'spell'),
-        reasons: [`legacy_categorize_op:${String((spellSpec as any)?.op || 'unknown')}`],
-        effectText: oracleText,
-        gameId: String((ctx as any)?.gameId || '') || undefined,
-      });
+    } else {
+      spellSpec = categorizeSpell(effectiveCard?.name || '', oracleText);
+      if (
+        spellSpec
+        && !isOracleIrSpellPrimaryEnabled()
+        && legacyCategorizeSpecMissesZoneIntent(oracleText, spellSpec)
+      ) {
+        spellSpec = null;
+      }
+      if (irSpellOutcome.shadowWouldHandle && spellSpec) {
+        debug(
+          1,
+          `[oracleIR-shadow] ${effectiveCard?.name || 'spell'}: IR would handle but legacy categorizeSpell matched op=${String((spellSpec as any)?.op || 'unknown')}`,
+        );
+      }
+      if (spellSpec && (isOracleIrSpellPrimaryEnabled() || isOracleIrGapTelemetryLegacySoakEnabled())) {
+        // Retirement triage: which spells still resolve via legacy categorize in production.
+        recordOracleIrGapTelemetry({
+          kind: 'legacy_handled',
+          scope: 'spell',
+          label: String(effectiveCard?.name || 'spell'),
+          reasons: [`legacy_categorize_op:${String((spellSpec as any)?.op || 'unknown')}`],
+          effectText: oracleText,
+          gameId: String((ctx as any)?.gameId || '') || undefined,
+        });
+      }
     }
   } else if (isOracleIrSpellPrimaryEnabled()) {
     debug(2, `[tryResolveInstantSorceryOracleIrSpell] ${effectiveCard?.name || 'spell'} resolved via Oracle IR primary path (${irSpellOutcome.applied} step(s))`);

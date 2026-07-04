@@ -9,9 +9,6 @@ import {
   applyRetiredTriggerLegacyJoinForcesAttack,
 } from './oracleIrTriggerLegacyResolutionHandlers.js';
 import {
-  applyRetiredTriggerLegacyHandSizeLifeGain,
-} from './oracleIrTriggerLegacyLifeAndGameHandlers.js';
-import {
   applyRetiredTriggerLegacyGameStateOracleHooks,
 } from './oracleIrTriggerLegacyGameStateHooks.js';
 import {
@@ -19,27 +16,8 @@ import {
   applyRetiredTriggerLegacySelfExileCreateToken,
 } from './oracleIrTriggerLegacySelfReflexiveHandlers.js';
 import {
-  applyRetiredTriggerLegacyExileTargetPlayerGraveyard,
-  applyRetiredTriggerLegacyExileTopTwoPlayableChoice,
-} from './oracleIrTriggerLegacyTurnAndZoneHandlers.js';
-import {
-  applyRetiredTriggerLegacyAgentOfShadowThievesAttack,
-  applyRetiredTriggerLegacyEachMerfolkExplores,
-  applyRetiredTriggerLegacyElixirOfImmortality,
-} from './oracleIrTriggerLegacyCardSpecificHandlers.js';
-import {
   applyRetiredTriggerLegacyUpkeepSacrificeCreatureOrSelf,
 } from './oracleIrTriggerLegacySacrificeHandlers.js';
-import {
-  applyRetiredTriggerLegacyAttackingPlayerGainsControlOfArtifact,
-  applyRetiredTriggerLegacyParadigmTrigger,
-  applyRetiredTriggerLegacyReboundTrigger,
-  applyRetiredTriggerLegacySacrificeThisCreature,
-} from './oracleIrTriggerLegacySpecialTriggerHandlers.js';
-import {
-  applyRetiredTriggerLegacyDelayedDrawAtNextUpkeep,
-  applyRetiredTriggerLegacyUntapAllCreatureType,
-} from './oracleIrTriggerLegacyTimingHandlers.js';
 import {
   applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken,
   applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken,
@@ -57,9 +35,6 @@ import {
   stripTriggerLegacyInterveningIfPrefix,
 } from './oracleIrTriggerLegacyDescPrepHandlers.js';
 import {
-  applyRetiredTriggerLegacyCombatDamageDrawEffects,
-} from './oracleIrTriggerLegacyCombatDamageHandlers.js';
-import {
   applyRetiredTriggerLegacyBoundGraveyardReturnEffect,
   applyRetiredTriggerLegacyDiscardTriggeredCastFromGraveyard,
   applyRetiredTriggerLegacyTargetedPlayFromGraveyard,
@@ -68,6 +43,7 @@ import {
   applyRetiredTriggerLegacyChosenTypeTopCardReveal,
   applyRetiredTriggerLegacyRevealTopCreatureOfChosenType,
 } from './oracleIrTriggerLegacyLibraryHandlers.js';
+import { legacyBodyHandled } from './oracleIrTriggerLegacyHandlerTelemetry.js';
 import { shouldSkipLegacyTriggerBodyHandlers } from './oracleIrTriggerLegacyRouting.js';
 
 export type { TriggerEffectLegacyBodyContinuation, TriggerEffectLegacyBodyResult } from './stackResolveSharedTypes.js';
@@ -128,7 +104,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     state,
     triggerCard,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyDiscardTriggeredCastFromGraveyard');
   }
 
   if (applyRetiredTriggerLegacyTargetedPlayFromGraveyard({
@@ -140,25 +116,11 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     state,
     triggerCard,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyTargetedPlayFromGraveyard');
   }
 
   let desc = String(description || '').replace(/[â€™]/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
   let descriptionForOracleFallback = String(description || '');
-  if (applyRetiredTriggerLegacyExileTargetPlayerGraveyard({ desc, triggerItem, state })) {
-    return { handled: true };
-  }
-  if (applyRetiredTriggerLegacyExileTopTwoPlayableChoice({
-    ctx,
-    controller,
-    sourceName,
-    description,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return { handled: true };
-  }
 
   const {
     sourceNameLower,
@@ -175,7 +137,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
     state,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyInterveningSubjectKeywordGrant');
   }
 
   const resolvedBoundGraveyardReturn = applyRetiredTriggerLegacyBoundGraveyardReturnEffect({
@@ -186,7 +148,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
   });
   if (resolvedBoundGraveyardReturn) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyBoundGraveyardReturnEffect');
   }
 
   const sourcePermanentIdForSelf = String(
@@ -205,7 +167,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     state,
     sourcePermanentIdForSelf,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacySelfExileCreateToken');
   }
 
   if (applyRetiredTriggerLegacyAttachToTargetCreatureYouControl({
@@ -217,7 +179,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     state,
     sourcePermanentIdForSelf,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyAttachToTargetCreatureYouControl');
   }
 
   if (applyRetiredTriggerLegacyGameStateOracleHooks({
@@ -229,23 +191,12 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     state,
     triggerSourceId,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyGameStateOracleHooks');
   }
 
   const players = state.players || [];
   const opponents = players.filter((p: any) => p.id !== controller && !p.hasLost);
   const battlefield = state.battlefield || [];
-
-  if (applyRetiredTriggerLegacyEachMerfolkExplores({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return { handled: true };
-  }
 
   if (applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife({
     ctx,
@@ -257,18 +208,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     state,
     triggerCard,
   })) {
-    return { handled: true };
-  }
-
-  if (applyRetiredTriggerLegacyHandSizeLifeGain({
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-    sourceNameLower,
-  })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife');
   }
 
   if (applyRetiredTriggerLegacyChosenTypeTopCardReveal({
@@ -279,7 +219,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
     state,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyChosenTypeTopCardReveal');
   }
 
   if (applyRetiredTriggerLegacyRevealTopCreatureOfChosenType({
@@ -290,75 +230,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
     state,
   })) {
-    return { handled: true };
-  }
-
-  if (applyRetiredTriggerLegacyCombatDamageDrawEffects({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-    sourceNameLower,
-    triggerSourceNameLower,
-  })) {
-    return { handled: true };
-  }
-
-  if (applyRetiredTriggerLegacySacrificeThisCreature({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return { handled: true };
-  }
-
-  if (applyRetiredTriggerLegacyAttackingPlayerGainsControlOfArtifact({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return { handled: true };
-  }
-
-  if (applyRetiredTriggerLegacyReboundTrigger({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return { handled: true };
-  }
-
-  if (applyRetiredTriggerLegacyParadigmTrigger({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return { handled: true };
-  }
-
-  if (applyRetiredTriggerLegacyElixirOfImmortality({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyRevealTopCreatureOfChosenType');
   }
 
   if (applyRetiredTriggerLegacyUpkeepSacrificeCreatureOrSelf({
@@ -369,7 +241,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
     state,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyUpkeepSacrificeCreatureOrSelf');
   }
 
   const triggerType = (triggerItem as any).triggerType;
@@ -383,7 +255,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
     state,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken');
   }
 
   if (applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken({
@@ -395,7 +267,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
     state,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken');
   }
 
   if (applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken({
@@ -407,16 +279,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
     state,
   })) {
-    return { handled: true };
-  }
-
-  if (applyRetiredTriggerLegacyAgentOfShadowThievesAttack({
-    controller,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken');
   }
 
   if (applyRetiredTriggerLegacyJoinForcesAttack({
@@ -430,7 +293,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     players,
     battlefield,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyJoinForcesAttack');
   }
 
   if (applyRetiredTriggerLegacyOptionalDiscardThenDraw({
@@ -442,7 +305,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
     state,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyOptionalDiscardThenDraw');
   }
 
   if (applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit({
@@ -454,7 +317,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
     state,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit');
   }
 
   if (applyRetiredTriggerLegacyGenericSearchLibrary({
@@ -465,7 +328,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
     state,
   })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyGenericSearchLibrary');
   }
 
   if (applyRetiredTriggerLegacyRevealUntilEquipment({
@@ -476,42 +339,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
     triggerItem,
     state,
   })) {
-    return { handled: true };
-  }
-
-  const delayedDrawResult = applyRetiredTriggerLegacyDelayedDrawAtNextUpkeep({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    descriptionForOracleFallback,
-    triggerItem,
-    state,
-  });
-  if (delayedDrawResult.matched) {
-    if (delayedDrawResult.stopProcessing) {
-      return { handled: true };
-    }
-    if (delayedDrawResult.updatedDesc !== undefined) {
-      desc = delayedDrawResult.updatedDesc;
-    }
-    if (delayedDrawResult.updatedDescriptionForOracleFallback !== undefined) {
-      descriptionForOracleFallback = delayedDrawResult.updatedDescriptionForOracleFallback;
-    }
-  }
-
-  if (applyRetiredTriggerLegacyUntapAllCreatureType({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    descriptionForOracleFallback,
-    triggerItem,
-    state,
-  })) {
-    return { handled: true };
+    return legacyBodyHandled('applyRetiredTriggerLegacyRevealUntilEquipment');
   }
 
   return {

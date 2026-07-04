@@ -3371,6 +3371,27 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
     } as OracleEffectStep];
   }
 
+  if (
+    /^(?:when you do, )?untap all other creatures you control and after this phase, there is an additional combat phase\.?$/i.test(
+      normalized,
+    )
+  ) {
+    return [
+      {
+        kind: 'tap_or_untap',
+        target: parseObjectSelector('all other creatures you control'),
+        mode: 'untap',
+        raw: 'untap all other creatures you control',
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'add_extra_combat',
+        raw: 'after this phase, there is an additional combat phase',
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
   const greasefangMatch = normalized.match(
     /^return target vehicle card from your graveyard to the battlefield\.\s*it gains haste\.\s*return it to its owner's hand at the beginning of your next end step\.?$/i
   );
@@ -6409,9 +6430,9 @@ function parseStructuredTriggerResidualGrant(
 
   if (/^then, if you have 1,000 or more life, you lose the game$/i.test(raw)) {
     return [{
-      kind: 'lose_game',
-      who: { kind: 'you' },
-      conditionText: 'if you have 1,000 or more life',
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you have 1,000 or more life' },
+      steps: [{ kind: 'lose_game', raw: 'you lose the game' }],
       raw,
       ...sequence,
     } as OracleEffectStep];
@@ -6462,6 +6483,45 @@ function parseStructuredTriggerResidualGrant(
       raw,
       ...sequence,
     } as OracleEffectStep];
+  }
+
+  if (/^the attacking player gains control of this artifact and untaps it\.?$/i.test(raw)) {
+    return [{
+      kind: 'gain_control',
+      what: parseObjectSelector('this artifact'),
+      newController: { kind: 'target_player' },
+      duration: 'indefinite',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  const drawAndLoseWhereMatch = raw.match(
+    /^you draw x cards and lose x life,? where x is (.+)$/i,
+  );
+  if (drawAndLoseWhereMatch) {
+    const whereX = {
+      kind: 'where',
+      raw: String(drawAndLoseWhereMatch[1] || '').trim(),
+    } as OracleClauseCondition;
+    return [
+      {
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'x' },
+        whereX,
+        raw: 'you draw x cards',
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'lose_life',
+        who: { kind: 'you' },
+        amount: { kind: 'x' },
+        whereX,
+        raw: `lose x life, where x is ${whereX.raw}`,
+        ...sequence,
+      } as OracleEffectStep,
+    ];
   }
 
   const bareStaticCostReduction = tryParseBareStaticCostReductionSteps(raw, sequence);

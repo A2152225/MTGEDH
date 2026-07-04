@@ -323,10 +323,22 @@ function countBasicLandTypesAmongLandsYouControl(nextState: GameState, controlle
   return types.size;
 }
 
-function getControllerLife(nextState: GameState, controllerId: PlayerID): number | null {
-  const player = (nextState.players || []).find((p: any) => String(p?.id || '').trim() === controllerId) as any;
-  const life = Number(player?.life);
+function getPlayerLife(nextState: GameState, playerId: PlayerID | string): number | null {
+  const normalizedId = String(playerId || '').trim();
+  if (!normalizedId) return null;
+
+  const lifeMap = (nextState as any)?.life;
+  if (lifeMap && typeof lifeMap === 'object' && Number.isFinite(Number(lifeMap[normalizedId]))) {
+    return Number(lifeMap[normalizedId]);
+  }
+
+  const player = (nextState.players || []).find((p: any) => String(p?.id || '').trim() === normalizedId) as any;
+  const life = Number(player?.life ?? (nextState as any)?.startingLife);
   return Number.isFinite(life) ? life : null;
+}
+
+function getControllerLife(nextState: GameState, controllerId: PlayerID): number | null {
+  return getPlayerLife(nextState, controllerId);
 }
 
 function getPlayerHandCount(nextState: GameState, playerId: PlayerID): number {
@@ -2127,6 +2139,16 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
       return life === null || !Number.isFinite(threshold) ? false : life <= threshold;
     }
   }
+
+  {
+    const lifeAtLeastMatch = normalizedRaw.match(/^you have ([\d,]+) or more life$/i);
+    if (lifeAtLeastMatch) {
+      const threshold = Number.parseInt(String(lifeAtLeastMatch[1] || '').replace(/,/g, ''), 10);
+      const life = getControllerLife(nextState, controllerId);
+      return life === null || !Number.isFinite(threshold) ? false : life >= threshold;
+    }
+  }
+
   if (normalizedRaw === 'your life total is greater than or equal to the last noted life total for this enchantment') {
     const life = getControllerLife(nextState, controllerId);
     const noted = Number((nextState as any)?.lastNotedLifeTotal?.[String(ctx.sourceId || 'bf-source')] ?? life);
@@ -3856,8 +3878,27 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
     return (nextState.players || []).some((player: any) => {
       const playerId = String(player?.id || '').trim();
       if (!playerId || playerId === String(controllerId || '').trim()) return false;
-      const opponentLife = Number(player?.life);
-      return Number.isFinite(opponentLife) && opponentLife > yourLife;
+      const opponentLife = getPlayerLife(nextState, playerId);
+      return opponentLife !== null && opponentLife > yourLife;
+    });
+  }
+
+  if (normalizedRaw === 'no opponent has more life than that player') {
+    const thatPlayerId = String(
+      ctx.selectorContext?.targetPlayerId ||
+        ctx.selectorContext?.targetOpponentId ||
+        ctx.targetPlayerId ||
+        '',
+    ).trim();
+    if (!thatPlayerId) return false;
+    const thatPlayerLife = getPlayerLife(nextState, thatPlayerId);
+    if (thatPlayerLife === null) return false;
+    return (nextState.players || []).every((player: any) => {
+      const playerId = String(player?.id || '').trim();
+      if (!playerId || playerId === String(controllerId || '').trim()) return true;
+      const opponentLife = getPlayerLife(nextState, playerId);
+      if (opponentLife === null) return true;
+      return opponentLife <= thatPlayerLife;
     });
   }
 

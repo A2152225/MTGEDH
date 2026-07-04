@@ -361,6 +361,7 @@ import { markEchoPaid, sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { restoreOracleIrLedgerOnState, restoreOracleIrPendingCompoundResumeOnState, clearOracleIrPendingCompoundResumeOnState } from "./oracleIrTransitionPipeline.js";
 import { processPendingOracleIrCompoundResumeOnContext } from "./oracleIrServerZoneSync.js";
+import { ensureDeferredOracleIrStackItem } from "./oracleIrDeferredStackFinalize.js";
 import { finalizeGameStateAfterReplay } from "./replay-prompt-cleanup.js";
 import { parseManaCost } from "./mana-check.js";
 import { addRestrictedManaToPool, calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
@@ -3485,6 +3486,33 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               : queuedStep
           ));
 
+          for (const queuedStep of queuedStepsToReplay) {
+            const stepPlayerId = String((queuedStep as any)?.playerId || playerId || '').trim();
+            const handSnapshot = Array.isArray((queuedStep as any)?.hand) ? (queuedStep as any).hand : null;
+            if (stepPlayerId && handSnapshot) {
+              const stateAny = ctx.state as any;
+              const zones = stateAny.zones = stateAny.zones || {};
+              const z = zones[stepPlayerId] = zones[stepPlayerId] || {};
+              z.hand = handSnapshot.map((card: any) => ({ ...card, zone: 'hand' }));
+              z.handCount = z.hand.length;
+              stateMutated = true;
+            }
+          }
+
+          const deferredSourceId = String(
+            (e as any).sourceId
+            || (queuedStepsToReplay[0] as any)?.sourceId
+            || (queuedStepsToReplay[0] as any)?.oracleIrSourceId
+            || '',
+          ).trim();
+          const hasOracleIrQueuedChoice = queuedStepsToReplay.some(
+            (step: any) => String(step?.oracleIrChoiceStepJson || step?.oracleIrResumeStepsJson || '').trim(),
+          );
+          if (hasOracleIrQueuedChoice) {
+            ensureDeferredOracleIrStackItem(ctx, deferredSourceId || undefined);
+            stateMutated = true;
+          }
+
           const pendingCascadeEntry = (e as any).pendingCascadeEntry && typeof (e as any).pendingCascadeEntry === 'object' && !Array.isArray((e as any).pendingCascadeEntry)
             ? { ...((e as any).pendingCascadeEntry as Record<string, any>) }
             : undefined;
@@ -3492,7 +3520,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ? cloneLibraryCards((e as any).libraryAfter as any[])
             : undefined;
 
-          if (playerId && (pendingCascadeEntry || cascadeLibraryAfter)) {
+          if (playerId && (pendingCascadeEntry || cascadeLibraryAfter || Array.isArray((e as any).libraryAfter))) {
             const stateAny = ctx.state as any;
             const zones = stateAny.zones = stateAny.zones || {};
             const z = zones[playerId] = zones[playerId] || {
@@ -3506,11 +3534,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               exileCount: 0,
             };
 
-            if (cascadeLibraryAfter) {
-              z.library = cloneLibraryCards(cascadeLibraryAfter);
-              z.libraryCount = cascadeLibraryAfter.length;
+            const libraryAfter = Array.isArray((e as any).libraryAfter)
+              ? cloneLibraryCards((e as any).libraryAfter as any[])
+              : cascadeLibraryAfter;
+            if (libraryAfter) {
+              z.library = cloneLibraryCards(libraryAfter);
+              z.libraryCount = libraryAfter.length;
               if (ctx.libraries?.set) {
-                ctx.libraries.set(playerId as any, cloneLibraryCards(cascadeLibraryAfter));
+                ctx.libraries.set(playerId as any, cloneLibraryCards(libraryAfter));
               }
               stateMutated = true;
             }
@@ -5252,6 +5283,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (e as any).oracleIrAppliedStepKinds,
           );
           restoreOracleIrPendingCompoundResumeOnState(ctx.state, e);
+          ensureDeferredOracleIrStackItem(ctx, String((e as any).oracleIrSourceId || (e as any).sourceId || '').trim() || undefined);
         } catch (err) {
           debugWarn(1, 'applyEvent(scryResolve): failed', err);
         }
@@ -5317,6 +5349,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (e as any).oracleIrAppliedStepKinds,
           );
           restoreOracleIrPendingCompoundResumeOnState(ctx.state, e);
+          ensureDeferredOracleIrStackItem(ctx, String((e as any).oracleIrSourceId || (e as any).sourceId || '').trim() || undefined);
         } catch (err) {
           debugWarn(1, 'applyEvent(surveilResolve): failed', err);
         }
@@ -6413,6 +6446,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
 
           ctx.bumpSeq();
+          ensureDeferredOracleIrStackItem(ctx, String((e as any).sourceId || '').trim() || undefined);
         } catch (err) {
           debugWarn(1, 'applyEvent(discardEffect): failed', err);
         }
@@ -11337,6 +11371,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           restoreOracleIrPendingCompoundResumeOnState(ctx.state, e);
 
           ctx.bumpSeq();
+          ensureDeferredOracleIrStackItem(ctx, String((e as any).oracleIrSourceId || (e as any).sourceId || '').trim() || undefined);
         } catch (err) {
           debugWarn(1, 'applyEvent(librarySearchResolve): failed', err);
         }

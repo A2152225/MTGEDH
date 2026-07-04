@@ -117,3 +117,68 @@ export function extractTriggeredEffectFromTimingMatch(
   const extracted = extractTriggerEffectAfterPrefix(oracleText, effectStartIndex);
   return normalizeGameplayEffectText(extracted || captured.trim());
 }
+
+function normalizeEffectClauseForCompare(text: string): string {
+  return normalizeGameplayEffectText(String(text || ''))
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/\.$/, '')
+    .trim();
+}
+
+function triggerEffectClauseMatchesFragment(fullEffect: string, fragment: string): boolean {
+  const full = normalizeEffectClauseForCompare(fullEffect);
+  const frag = normalizeEffectClauseForCompare(fragment);
+  if (!full || !frag) return false;
+  if (full === frag) return true;
+  if (full.startsWith(`${frag}.`)) return true;
+  if (full.startsWith(frag)) return true;
+  const firstSentence = full.split(/\.\s+/)[0]?.trim() || '';
+  return firstSentence === frag;
+}
+
+function resolveEffectStartIndexAfterTiming(oracleText: string, timingStart: number): number {
+  const afterTiming = String(oracleText || '').slice(timingStart);
+  const commaIdx = afterTiming.indexOf(',');
+  if (commaIdx >= 0) {
+    let effectStart = timingStart + commaIdx + 1;
+    while (oracleText[effectStart] === ' ') effectStart += 1;
+    return effectStart;
+  }
+  return timingStart;
+}
+
+/**
+ * Given card oracle text and a truncated trigger effect fragment (e.g. from a stack
+ * item description), return the full multi-sentence effect clause when the fragment
+ * matches the start of a triggered ability on that card.
+ */
+export function findTriggerEffectClauseMatchingFragment(
+  oracleText: string,
+  fragment: string,
+): string | null {
+  const source = String(oracleText || '').trim();
+  const fragNorm = normalizeEffectClauseForCompare(fragment);
+  if (!source || !fragNorm) return null;
+
+  const timingPattern = /\b(?:when|whenever|at the beginning of)\b/gi;
+  let bestMatch: string | null = null;
+  let bestLength = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = timingPattern.exec(source)) !== null) {
+    const timingStart = match.index ?? -1;
+    if (timingStart < 0) continue;
+
+    const effectStart = resolveEffectStartIndexAfterTiming(source, timingStart);
+    const extracted = extractTriggerEffectAfterPrefix(source, effectStart);
+    if (!extracted || !triggerEffectClauseMatchesFragment(extracted, fragment)) continue;
+
+    if (extracted.length > bestLength) {
+      bestMatch = extracted;
+      bestLength = extracted.length;
+    }
+  }
+
+  return bestMatch;
+}

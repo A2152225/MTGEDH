@@ -143,6 +143,7 @@ import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, is
 import { resolveOracleIrOptionalPaymentPromptFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution, processPendingOracleIrCompoundResumeOnContext, syncAllOracleIRPlayerZonesAfterResolution } from '../state/modules/oracleIrServerZoneSync.js';
 import { tryApplyStationChargeCountersViaOracleIR } from '../state/modules/oracleIrAbilityExecution.js';
 import { readOracleIrLedgerPersistFields, readOracleIrCompoundResumePersistFields, persistOracleIrCompoundDrawAfterResolution } from '../state/modules/oracleIrTransitionPipeline.js';
+import { maybeResumeDeferredOracleIrStackSpellOnGame } from '../state/modules/oracleIrDeferredStackFinalize.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
@@ -4412,7 +4413,7 @@ async function handleAIResolutionStep(
         // handleStepResponse already resumes spell casts after mana_payment_choice
         // (resumePlayerSpellCastAfterPayment). Do not call completeCastSpell again here.
         await handleStepResponse(io, game, gameId, step, response);
-        maybeResumeDeferredOracleIrStackSpell(game, gameId);
+        maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
 
         // NOTE: Don't broadcast here - let the STEP_COMPLETED event handler broadcast
         // after exitResolutionMode has restored priority. This prevents a race condition
@@ -8170,7 +8171,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       // Finish any IR spell whose finalize (stack pop + graveyard move) was deferred
       // while its resolution choices were pending. No-op unless the queue is empty
       // and the top of the stack carries oracleIrDeferredFinalize.
-      maybeResumeDeferredOracleIrStackSpell(game, gameId);
+      maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
 
       // Broadcast updated game state
       broadcastGame(io, game, gameId);
@@ -10848,14 +10849,15 @@ async function handleStepResponse(
         (station as any).counters[counterType] = currentCounters + countersToAdd;
       }
 
-      const newCounterCount = Number((station as any).counters?.[counterType] || 0);
+      const stationAfterCounters = (game.state as any).battlefield?.find((p: any) => p?.id === stationId) || station;
+      const newCounterCount = Number((stationAfterCounters as any).counters?.[counterType] || 0);
 
       // Check if threshold is met
-      if (stationThreshold > 0 && newCounterCount >= stationThreshold && !(station as any).stationed) {
-        (station as any).stationed = true;
-        (station as any).grantedTypes = (station as any).grantedTypes || [];
-        if (!(station as any).grantedTypes.includes('Creature')) {
-          (station as any).grantedTypes.push('Creature');
+      if (stationThreshold > 0 && newCounterCount >= stationThreshold && !(stationAfterCounters as any).stationed) {
+        (stationAfterCounters as any).stationed = true;
+        (stationAfterCounters as any).grantedTypes = (stationAfterCounters as any).grantedTypes || [];
+        if (!(stationAfterCounters as any).grantedTypes.includes('Creature')) {
+          (stationAfterCounters as any).grantedTypes.push('Creature');
         }
 
         io.to(gameId).emit('chat', {
@@ -10885,7 +10887,7 @@ async function handleStepResponse(
         countersAdded,
         totalCounters: newCounterCount,
         threshold: stationThreshold,
-        stationed: Boolean((station as any).stationed),
+        stationed: Boolean((stationAfterCounters as any).stationed),
         ts: Date.now(),
       });
 
@@ -15880,7 +15882,9 @@ async function handleDiscardResponse(
 
   if (!isDiscardCostActivation && !isExileFromHandCostActivation && !isGraveyardCastDiscardActivation && !isCleanupDiscard) {
     try {
-      const shouldPersistResolvedDiscardStepId = dungeonRoomPayment || (step as any)?.reflexiveDiscardWhenYouDo === true;
+      const shouldPersistResolvedDiscardStepId = dungeonRoomPayment
+        || (step as any)?.reflexiveDiscardWhenYouDo === true
+        || step.type === ResolutionStepType.DISCARD_SELECTION;
       const persistedSharedPayload = {
         playerId: pid,
         ...(shouldPersistResolvedDiscardStepId
@@ -16675,7 +16679,7 @@ async function handleDiscardResponse(
     }
   }
 
-  maybeResumeDeferredOracleIrStackSpell(game, gameId);
+  maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
 
   if (isCleanupDiscard) {
     try {
@@ -17467,7 +17471,7 @@ async function handleTargetSelectionResponse(
       targets: triggerTargets,
       triggerType: stepAny?.triggerItem?.triggerType || stepAny?.targetedTriggeredAbilityTriggerType,
     };
-    const effectText = resolveTriggerStackItemEffectText(triggerItem);
+    const effectText = resolveTriggerStackItemEffectText(triggerItem, { state: game.state });
     const ctx = ((game as any).ctx || game) as any;
     const lowerDescription = description.toLowerCase();
 
@@ -22989,7 +22993,7 @@ function handleScryResponse(
     }
   }
   
-  maybeResumeDeferredOracleIrStackSpell(game, gameId);
+  maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
 
   // Log to event history
   try {
@@ -23252,7 +23256,7 @@ function handleSurveilResponse(
     }
   }
 
-  maybeResumeDeferredOracleIrStackSpell(game, gameId);
+  maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
   
   // Log to event history
   try {
@@ -26052,27 +26056,11 @@ export function processPendingOracleIrCompoundResume(
     if (resumed?.appliedSteps?.length) {
       broadcastGame(io, game, gameId);
     }
-    maybeResumeDeferredOracleIrStackSpell(game, gameId);
+    maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
   } catch (err) {
     debugWarn(1, '[processPendingOracleIrCompoundResume] Error:', err);
   }
 }
-
-function maybeResumeDeferredOracleIrStackSpell(game: any, gameId: string): void {
-  const pendingSteps = ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0;
-  if (pendingSteps > 0) return;
-
-  const stack = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
-  if (stack.length === 0) return;
-
-  const top = stack[stack.length - 1] as any;
-  if (!top || top.oracleIrDeferredFinalize !== true) return;
-
-  if (typeof game.resolveTopOfStack === 'function') {
-    game.resolveTopOfStack();
-  }
-}
-
 
 /**
  * Process pending proliferate from legacy state and migrate to resolution queue
@@ -28823,7 +28811,7 @@ async function handleOptionChoiceResponse(
         debugWarn(1, '[Resolution] appendEvent(optionalPaymentPromptResolve oracleIR) failed:', err);
       }
       broadcastGame(io, game, gameId);
-      maybeResumeDeferredOracleIrStackSpell(game, gameId);
+      maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
       syncAllOracleIRPlayerZonesAfterResolution(oracleIrPaymentCtx);
       return;
     }

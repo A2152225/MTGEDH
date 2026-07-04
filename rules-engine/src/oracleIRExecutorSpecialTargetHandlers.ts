@@ -1,4 +1,5 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
+import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { finalizeBattlefieldRemoval, permanentMatchesType, resolveZoneCardIdFromPermanent } from './oracleIRExecutorBattlefieldOps';
@@ -2954,7 +2955,40 @@ export function trySpecialTapOrUntapStep(
       log: ['Untapped other creatures and scheduled additional combat phase'],
     };
   }
-  if (!/untap all creatures you control/.test(raw)) return null;
+  if (!/untap all creatures you control/.test(raw)) {
+    const untapAllSubtypeMatch = raw.match(/^untap all (\w+(?:\s+\w+)*) you control\.?$/i);
+    if (untapAllSubtypeMatch) {
+      const rawType = String(untapAllSubtypeMatch[1] || '').toLowerCase().trim();
+      const standardBulkTypes = new Set([
+        'land', 'lands', 'creature', 'creatures', 'artifact', 'artifacts',
+        'enchantment', 'enchantments', 'permanent', 'permanents',
+        'other creature', 'other creatures',
+      ]);
+      if (!standardBulkTypes.has(rawType) && !rawType.startsWith('other ')) {
+        const irregularPlurals: Record<string, string> = {
+          elves: 'elf', wolves: 'wolf', dwarves: 'dwarf', halves: 'half',
+          leaves: 'leaf', knives: 'knife', lives: 'life', selves: 'self', calves: 'calf',
+        };
+        const creatureType = irregularPlurals[rawType]
+          || (rawType.endsWith('s') && rawType.length > 1 ? rawType.slice(0, -1) : rawType);
+        const controllerId = String(ctx.controllerId || '').trim();
+        let untappedCount = 0;
+        const battlefield = ((state.battlefield || []) as BattlefieldPermanent[]).map((perm: any) => {
+          if (String(perm?.controller || '').trim() !== controllerId) return perm;
+          if (!perm?.tapped && !perm?.isTapped) return perm;
+          if (!permanentHasCreatureType(perm, creatureType)) return perm;
+          untappedCount += 1;
+          return { ...perm, tapped: false, isTapped: false };
+        });
+        return {
+          applied: true,
+          state: { ...(state as any), battlefield } as GameState,
+          log: [`Untapped ${untappedCount} ${rawType} you control`],
+        };
+      }
+    }
+    return null;
+  }
   const controllerId = String(ctx.controllerId || 'p1').trim();
   const battlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
     if (String(perm?.controller || '').trim() !== controllerId) return perm;

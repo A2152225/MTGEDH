@@ -1,19 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 
-vi.mock('../src/state/modules/triggerLandPlayPromptUtils.js', () => ({
-  queueLandPlayFromHandPrompt: vi.fn(() => true),
-}));
-
 import {
   applyRetiredTriggerLegacyBelbePortalPutFromHand,
-  applyRetiredTriggerLegacyBothPlayersPutPermanentFromHand,
   applyRetiredTriggerLegacyKynaiosLandDrawChoice,
   applyRetiredTriggerLegacyPutCreatureFromHandOntoBattlefield,
 } from '../src/state/modules/oracleIrTriggerLegacyResolutionHandlers.js';
-import { queueLandPlayFromHandPrompt } from '../src/state/modules/triggerLandPlayPromptUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 describe('oracleIrTriggerLegacyResolutionHandlers', () => {
@@ -115,24 +109,5 @@ describe('oracleIrTriggerLegacyResolutionHandlers', () => {
     const modalSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p1)
       .filter((step) => step.type === ResolutionStepType.MODAL_CHOICE);
     expect(modalSteps).toHaveLength(1);
-  });
-
-  it('queues land-play prompts for controller and target player', () => {
-    vi.mocked(queueLandPlayFromHandPrompt).mockClear();
-
-    expect(applyRetiredTriggerLegacyBothPlayersPutPermanentFromHand({
-      ctx: {} as any,
-      controller: 'p1' as PlayerID,
-      sourceName: 'Test Source',
-      desc: 'you and that player may each put a permanent card from your hand onto the battlefield.',
-      triggerItem: { targetPlayerId: 'p2' },
-      state: {},
-      players: [{ id: 'p1' }, { id: 'p2' }],
-      battlefield: [],
-    })).toBe(true);
-
-    expect(queueLandPlayFromHandPrompt).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(queueLandPlayFromHandPrompt).mock.calls[0]).toEqual([{}, 'p1', 'Test Source', { targetPlayerId: 'p2' }]);
-    expect(vi.mocked(queueLandPlayFromHandPrompt).mock.calls[1]).toEqual([{}, 'p2', 'Test Source', { targetPlayerId: 'p2' }]);
   });
 });

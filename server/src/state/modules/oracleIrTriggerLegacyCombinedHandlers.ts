@@ -12,6 +12,14 @@ import {
   applyRetiredTriggerLegacyPutThatManyCountersOnSelf,
 } from './oracleIrTriggerLegacyRegexHandlers.js';
 import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
+import {
+  retiredLegacyHandlerHit,
+  type RetiredTriggerLegacyHandlerHit,
+} from './oracleIrTriggerLegacyHandlerTelemetry.js';
+
+function combinedEffectsHit(clause: string): string {
+  return retiredLegacyHandlerHit(`applyRetiredTriggerLegacyCombinedEffectsRegexBatch$${clause}`);
+}
 
 const WORD_TO_NUMBER: Record<string, number> = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
@@ -147,10 +155,8 @@ export function applyRetiredTriggerLegacyCombinedEffectsRegexBatch(
     readonly opponents: readonly any[];
     readonly battlefield: readonly any[];
   },
-): boolean {
-  let handled = false;
-
-  handled = applyRetiredTriggerLegacyDrawAndLifeCombinedEffects({
+): RetiredTriggerLegacyHandlerHit {
+  if (applyRetiredTriggerLegacyDrawAndLifeCombinedEffects({
     ctx: params.ctx,
     controller: params.controller,
     sourceName: params.sourceName,
@@ -158,17 +164,19 @@ export function applyRetiredTriggerLegacyCombinedEffectsRegexBatch(
     triggerItem: params.triggerItem,
     state: params.state,
     isKynaiosEffect: params.isKynaiosEffect,
-  }) || handled;
+  })) {
+    return combinedEffectsHit('you_gain_that_much_life');
+  }
 
   if (applyRetiredTriggerLegacyPutThatManyCountersOnSelf({
     desc: params.desc,
     triggerItem: params.triggerItem,
     state: params.state,
   })) {
-    handled = true;
+    return combinedEffectsHit('put_that_many_counters_on_self');
   }
 
-  return handled;
+  return false;
 }
 
 export function applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife(

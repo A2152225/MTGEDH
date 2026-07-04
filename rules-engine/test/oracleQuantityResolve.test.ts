@@ -137,6 +137,34 @@ describe('resolveOracleQuantity', () => {
     const count = resolveOracleQuantity(state, 'p1' as PlayerID, amount, { controllerId: 'p1' as PlayerID }, { whereX });
     expect(count).toBe(3);
   });
+
+  it('resolves Ivory Tower hand-size-above reference gain_life amount', () => {
+    const state = makeState({
+      zones: {
+        p1: { handCount: 6 },
+      },
+    } as any);
+    const amount = {
+      kind: 'reference_amount',
+      raw: '1 life for each card in your hand above 4',
+    } as const;
+    const count = resolveOracleQuantity(state, 'p1' as PlayerID, amount, { controllerId: 'p1' as PlayerID });
+    expect(count).toBe(2);
+  });
+
+  it('resolves Venser Journal equal-to-hand-size gain_life amount', () => {
+    const state = makeState({
+      zones: {
+        p1: { handCount: 3 },
+      },
+    } as any);
+    const amount = {
+      kind: 'reference_amount',
+      raw: 'the number of cards in your hand',
+    } as const;
+    const count = resolveOracleQuantity(state, 'p1' as PlayerID, amount, { controllerId: 'p1' as PlayerID });
+    expect(count).toBe(3);
+  });
 });
 
 describe('quantity step parsing', () => {

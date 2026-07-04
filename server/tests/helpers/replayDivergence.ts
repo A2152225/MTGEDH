@@ -26,14 +26,34 @@ import { expect } from 'vitest';
 
 import { getEvents } from '../../src/db/index.js';
 
+/** Persist order can differ from causal order (e.g. drawCards before scryResolve). */
+const REPLAY_CAUSAL_ORDER: Record<string, number> = {
+  resolveTopOfStackPrompt: 10,
+  scryResolve: 20,
+  surveilResolve: 20,
+  librarySearchResolve: 20,
+  ponderResolve: 20,
+  bottomOrderResolve: 20,
+  discardEffect: 25,
+  cleanupDiscard: 25,
+  drawCards: 40,
+};
+
+function replayCausalRank(eventType: string): number {
+  return REPLAY_CAUSAL_ORDER[eventType] ?? 30;
+}
+
 export function toReplayEvents(gameId: string, startIndex = 0): Array<Record<string, unknown>> {
-  return getEvents(gameId)
+  const events = getEvents(gameId)
     .slice(startIndex)
     .map((event: any) =>
       event?.payload && typeof event.payload === 'object'
         ? { type: event.type, ...(event.payload as Record<string, unknown>) }
         : { type: event.type },
     );
+  return [...events].sort(
+    (a, b) => replayCausalRank(String(a.type || '')) - replayCausalRank(String(b.type || '')),
+  );
 }
 
 type ReplayCompareProjection = {
@@ -54,13 +74,20 @@ type ReplayCompareProjection = {
   stack: string[];
 };
 
-function cardNames(cards: unknown): string[] {
-  if (!Array.isArray(cards)) return [];
-  return cards.map((card: any) => String(card?.name || card?.card?.name || card?.id || ''));
+function cardIdentity(card: any): string {
+  const id = String(card?.id || card?.card?.id || '').trim();
+  if (id) return id;
+  return String(card?.name || card?.card?.name || '');
 }
 
-function sortedCardNames(cards: unknown): string[] {
-  return cardNames(cards).sort();
+function cardNames(cards: unknown): string[] {
+  if (!Array.isArray(cards)) return [];
+  return cards.map((card: any) => cardIdentity(card));
+}
+
+function zoneCardKeys(cards: unknown): string[] {
+  if (!Array.isArray(cards)) return [];
+  return cards.map((card: any) => cardIdentity(card)).sort();
 }
 
 /**
@@ -85,13 +112,13 @@ export function projectStateForReplayCompare(game: any): ReplayCompareProjection
     const zone = state.zones?.[player.id] || {};
     const library = game?.libraries?.get?.(player.id) ?? zone.library ?? [];
     zones[player.id] = {
-      hand: sortedCardNames(zone.hand),
+      hand: zoneCardKeys(zone.hand),
       handCount: Number(zone.handCount ?? (Array.isArray(zone.hand) ? zone.hand.length : 0)),
-      graveyard: sortedCardNames(zone.graveyard),
+      graveyard: zoneCardKeys(zone.graveyard),
       graveyardCount: Number(
         zone.graveyardCount ?? (Array.isArray(zone.graveyard) ? zone.graveyard.length : 0),
       ),
-      exile: sortedCardNames(zone.exile),
+      exile: zoneCardKeys(zone.exile),
       library: cardNames(library),
       libraryCount: Number(
         zone.libraryCount ?? (Array.isArray(library) ? library.length : 0),
@@ -110,9 +137,11 @@ export function projectStateForReplayCompare(game: any): ReplayCompareProjection
         a.name.localeCompare(b.name) || a.controller.localeCompare(b.controller),
     );
 
-  const stack = (Array.isArray(state.stack) ? state.stack : []).map((item: any) =>
-    String(item?.card?.name || item?.sourceName || item?.type || ''),
-  );
+  const stack = (Array.isArray(state.stack) ? state.stack : []).map((item: any) => {
+    const cardId = String(item?.card?.id || item?.id || '').trim();
+    if (cardId) return cardId;
+    return String(item?.card?.name || item?.sourceName || item?.type || '');
+  });
 
   return { players, zones, battlefield, stack };
 }

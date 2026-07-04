@@ -132,12 +132,37 @@ function splitAbilityLineIntoSentences(line: string): string[] {
   return sentences;
 }
 
+const CREATE_TOKEN_DESCRIPTOR_MASK = '\uE000CTT';
+
+function maskCreateTokenDescriptors(text: string): { readonly masked: string; readonly parts: readonly string[] } {
+  const parts: string[] = [];
+  const masked = text.replace(
+    /\bcreate(?:s)?\s+[\s\S]*?\bcreature\s+tokens?\b(?=[\s,;]|where\b|\.|$)/gi,
+    (match) => {
+      const index = parts.length;
+      parts.push(match);
+      return `${CREATE_TOKEN_DESCRIPTOR_MASK}${index}${CREATE_TOKEN_DESCRIPTOR_MASK}`;
+    },
+  );
+  return { masked, parts };
+}
+
+function unmaskCreateTokenDescriptors(masked: string, parts: readonly string[]): string {
+  if (parts.length === 0) return masked;
+  return masked.replace(
+    new RegExp(`${CREATE_TOKEN_DESCRIPTOR_MASK}(\\d+)${CREATE_TOKEN_DESCRIPTOR_MASK}`, 'g'),
+    (_full, indexText) => parts[Number(indexText)] ?? _full,
+  );
+}
+
 export function normalizeOracleTextSelfReferences(oracleText: string, cardName?: string): string {
-  return buildSelfReferenceAliases(cardName).reduce((text, alias) => {
+  const { masked, parts } = maskCreateTokenDescriptors(oracleText);
+  const normalized = buildSelfReferenceAliases(cardName).reduce((text, alias) => {
     if (/^ascend\s+magiccon\b/i.test(alias)) return text;
     const pattern = new RegExp(`(^|[^a-z0-9])(${escapeRegex(alias)})(?=[^a-z0-9]|$)`, 'gi');
     return text.replace(pattern, '$1this permanent');
-  }, oracleText);
+  }, masked);
+  return unmaskCreateTokenDescriptors(normalized, parts);
 }
 
 function isStationThresholdActivatedLine(line: string): boolean {

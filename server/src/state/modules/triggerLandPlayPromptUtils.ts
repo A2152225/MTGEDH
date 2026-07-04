@@ -18,6 +18,13 @@ export function isControllerMayPutLandFromHandStep(step: OracleEffectStep): bool
   return /^you may put a land card from your hand onto the battlefield$/i.test(raw);
 }
 
+export function isBothPlayersMayPutPermanentFromHandStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'move_zone') return false;
+  if (!(step as { optional?: boolean }).optional) return false;
+  const raw = String(step.raw || '').replace(/\u2019/g, "'").trim();
+  return /^you and that player may each put a permanent card from your hand onto the battlefield$/i.test(raw);
+}
+
 function landsInPlayerHand(state: any, playerId: PlayerID): any[] {
   const hand = Array.isArray(state?.zones?.[playerId]?.hand)
     ? (state.zones[playerId].hand as any[])
@@ -221,4 +228,28 @@ export function queueLandPlayFromHandPrompt(
   } as any);
 
   return true;
+}
+
+export function queueBothPlayersMayPutPermanentFromHandPrompts(
+  ctx: GameContext,
+  params: {
+    controller: PlayerID;
+    targetPlayerId: PlayerID;
+    sourceName: string;
+    triggerItem?: any;
+  },
+): boolean {
+  const queuedController = queueLandPlayFromHandPrompt(
+    ctx,
+    params.controller,
+    params.sourceName,
+    params.triggerItem,
+  );
+  const queuedTarget = queueLandPlayFromHandPrompt(
+    ctx,
+    params.targetPlayerId,
+    params.sourceName,
+    params.triggerItem,
+  );
+  return queuedController || queuedTarget;
 }

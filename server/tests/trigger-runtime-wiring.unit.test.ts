@@ -4,6 +4,7 @@ import {
   collectOracleEffectSteps,
   getTriggerRuntimeWiringGaps,
   isSupportedCopyPermanentTriggerPattern,
+  isSupportedGainControlTriggerPattern,
   isTriggerStepRuntimeWired,
   normalizeTriggerEffectDescriptionForExecution,
   parseTriggerEffectSteps,
@@ -56,5 +57,39 @@ describe('trigger runtime wiring assessment', () => {
     const effect =
       'you may search your library for a creature card with mana value 6 or greater, reveal it, put it into your hand, then shuffle';
     expect(getTriggerRuntimeWiringGaps(effect, 'Fierce Empath')).toEqual([]);
+  });
+
+  it('treats each-player owned-creature gain_control as wired', () => {
+    const effect = 'Each player gains control of all creatures they own.';
+    const steps = collectOracleEffectSteps(effect, 'Test');
+    expect(steps).toEqual([expect.objectContaining({ kind: 'gain_control' })]);
+    expect(isSupportedGainControlTriggerPattern(steps[0]!)).toBe(true);
+    expect(isTriggerStepRuntimeWired(steps[0]!)).toBe(true);
+    expect(getTriggerRuntimeWiringGaps(effect, 'Test')).toEqual([]);
+  });
+
+  it('treats attacking-player artifact gain_control as wired', () => {
+    const effect = 'the attacking player gains control of this artifact and untaps it';
+    const steps = collectOracleEffectSteps(effect, 'Test Artifact');
+    expect(steps).toEqual([
+      expect.objectContaining({
+        kind: 'gain_control',
+        what: expect.objectContaining({ text: 'this artifact' }),
+        newController: { kind: 'target_player' },
+      }),
+    ]);
+    expect(isSupportedGainControlTriggerPattern(steps[0]!)).toBe(true);
+    expect(isTriggerStepRuntimeWired(steps[0]!)).toBe(true);
+    expect(getTriggerRuntimeWiringGaps(effect, 'Test Artifact')).toEqual([]);
+  });
+
+  it('treats combat-damage opponent draw counts as wired', () => {
+    const effect = 'draw cards equal to the number of opponents who were dealt combat damage this turn';
+    expect(getTriggerRuntimeWiringGaps(effect, 'Moonshae Pixie')).toEqual([]);
+  });
+
+  it('treats subtype bulk untap as wired', () => {
+    const effect = 'untap all elves you control';
+    expect(getTriggerRuntimeWiringGaps(effect, 'Source')).toEqual([]);
   });
 });

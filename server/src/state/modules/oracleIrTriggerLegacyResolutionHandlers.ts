@@ -2,7 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debug, debugError, debugWarn } from '../../utils/debug.js';
-import { queueLandPlayFromHandPrompt, queueEachPlayerMayPutLandOrDrawBatch } from './triggerLandPlayPromptUtils.js';
+import { queueEachPlayerMayPutLandOrDrawBatch } from './triggerLandPlayPromptUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { filterHandCreatureCardsOfChosenType } from './chosen-creature-type.js';
 import { drawCards as drawCardsFromZone } from './zones.js';
@@ -276,33 +276,5 @@ export function applyRetiredTriggerLegacyJoinForcesAttack(
   }
 
   debug(1, `[executeTriggerEffect] Join Forces attack trigger from ${params.sourceName} - created ${params.players.length} resolution steps`);
-  return true;
-}
-
-export function applyRetiredTriggerLegacyBothPlayersPutPermanentFromHand(
-  params: TriggerLegacyResolutionParams,
-): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  if (!/you and that player may each put a permanent card from your hand onto the battlefield/i.test(String(params.desc || ''))) {
-    return false;
-  }
-
-  const targetPlayerId = String(
-    params.triggerItem?.targetPlayerId ||
-    params.triggerItem?.effectData?.targetPlayerId ||
-    params.triggerItem?.targets?.[0]?.id ||
-    params.triggerItem?.targets?.[0] ||
-    '',
-  ).trim();
-
-  if (!targetPlayerId) {
-    return true;
-  }
-
-  queueLandPlayFromHandPrompt(params.ctx, params.controller, params.sourceName, params.triggerItem);
-  queueLandPlayFromHandPrompt(params.ctx, targetPlayerId as PlayerID, params.sourceName, params.triggerItem);
   return true;
 }

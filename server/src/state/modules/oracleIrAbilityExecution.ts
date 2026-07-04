@@ -351,6 +351,7 @@ export function tryApplyOracleIRToActivatedAbility(
       controller: params.controller,
       targetPlayerId: targetBinding.targetPlayerId,
       applyMillReplacements: true,
+      sourceItem: params.sourceItem,
     });
 
     const queueAfter = gameId !== 'unknown'

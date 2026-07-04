@@ -90,8 +90,12 @@ export type TriggerEffectLegacyBodyContinuation = {
 };
 
 export type TriggerEffectLegacyBodyResult =
-  | { handled: true }
+  | { handled: true; legacyHandler: string }
   | ({ handled: false } & TriggerEffectLegacyBodyContinuation);
+
+export type TriggerLegacyTailResult =
+  | { handled: true; legacyHandler?: string }
+  | { handled: false };
 
 export type InstantSorceryStackResolveOptions = {
   controller: PlayerID;

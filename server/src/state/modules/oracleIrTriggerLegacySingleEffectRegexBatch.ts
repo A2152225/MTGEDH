@@ -6,7 +6,6 @@ import {
   applyRetiredTriggerLegacyEnergyEffects,
   applyRetiredTriggerLegacyLootStyleTopLibrary,
   applyRetiredTriggerLegacyTokenCounters,
-  applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget,
 } from './oracleIrTriggerLegacyRegexHandlers.js';
 import {
   applyRetiredTriggerLegacyBelbePortalPutFromHand,
@@ -16,12 +15,7 @@ import {
 import {
   applyRetiredTriggerLegacyProteanHulkSearch,
 } from './oracleIrTriggerLegacySearchHandlers.js';
-import {
-  applyRetiredTriggerLegacySelfCantBeBlocked,
-  applyRetiredTriggerLegacySelfCantBeBlockedByLowPower,
-  applyRetiredTriggerLegacySelfPreventCombatDamage,
-  applyRetiredTriggerLegacyTargetCreatureCantBeBlocked,
-} from './oracleIrTriggerLegacyCombatEvasionHandlers.js';
+import { retiredLegacyHandlerHit, type RetiredTriggerLegacyHandlerHit } from './oracleIrTriggerLegacyHandlerTelemetry.js';
 import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacySingleEffectBatchParams {
@@ -41,7 +35,7 @@ export interface TriggerLegacySingleEffectBatchParams {
 
 export function applyRetiredTriggerLegacySingleEffectRegexBatch(
   params: TriggerLegacySingleEffectBatchParams,
-): boolean {
+): RetiredTriggerLegacyHandlerHit {
   const {
     ctx,
     controller,
@@ -67,7 +61,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     sourceName,
     state,
   })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyEnergyEffects');
   }
 
   if (applyRetiredTriggerLegacyTokenCounters({
@@ -76,7 +70,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     sourceName,
     state,
   })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyTokenCounters');
   }
 
   if (applyRetiredTriggerLegacyElspethCounterFromAmong({
@@ -87,11 +81,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     triggerItem,
     state,
   })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget({ desc, triggerItem, state, sourceName })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyElspethCounterFromAmong');
   }
 
   if (applyRetiredTriggerLegacyKynaiosLandDrawChoice({
@@ -105,7 +95,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     battlefield,
     isKynaiosEffect,
   })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyKynaiosLandDrawChoice');
   }
 
   if (applyRetiredTriggerLegacyEachPlayerCounterPlacement({
@@ -117,7 +107,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     state,
     players,
   })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyEachPlayerCounterPlacement');
   }
 
   if (applyRetiredTriggerLegacyLootStyleTopLibrary({
@@ -127,7 +117,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     desc,
     state,
   })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyLootStyleTopLibrary');
   }
 
   if (applyRetiredTriggerLegacyProteanHulkSearch({
@@ -138,7 +128,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     triggerItem,
     state,
   })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyProteanHulkSearch');
   }
 
   if (applyRetiredTriggerLegacyBelbePortalPutFromHand({
@@ -151,7 +141,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     players,
     battlefield,
   })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyBelbePortalPutFromHand');
   }
 
   if (applyRetiredTriggerLegacyPutCreatureFromHandOntoBattlefield({
@@ -164,47 +154,7 @@ export function applyRetiredTriggerLegacySingleEffectRegexBatch(
     players,
     battlefield,
   })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyTargetCreatureCantBeBlocked({
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacySelfCantBeBlocked({
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacySelfPreventCombatDamage({
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacySelfCantBeBlockedByLowPower({
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyPutCreatureFromHandOntoBattlefield');
   }
 
   return false;

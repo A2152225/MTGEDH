@@ -2,6 +2,7 @@ import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import { exitResolutionMode } from './priority.js';
 import { clearOptionalPaymentCallbacks } from '../../socket/optional-payment-prompts.js';
+import { maybeResumeDeferredOracleIrStackSpell } from './oracleIrDeferredStackFinalize.js';
 
 /**
  * Legacy / in-flight prompt state that must not survive event replay.
@@ -74,6 +75,12 @@ export function finalizeGameStateAfterReplay(ctx: GameContext): void {
     if ((ctx.state as any)?.priority === null) {
       exitResolutionMode(ctx);
     }
+  } catch {
+    // best-effort only
+  }
+
+  try {
+    maybeResumeDeferredOracleIrStackSpell(ctx);
   } catch {
     // best-effort only
   }

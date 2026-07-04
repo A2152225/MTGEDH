@@ -4,20 +4,9 @@ import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { skipRetiredTriggerLegacyHandler } from '../src/state/modules/oracleIrTriggerLegacyRouting.js';
 import * as oracleIrUncategorizedSpellFallback from '../src/state/modules/oracleIrUncategorizedSpellFallback.js';
-import {
-  applyRetiredTriggerLegacyTargetPlayerMills,
-} from '../src/state/modules/oracleIrTriggerLegacyMillHandlers.js';
-import { applyRetiredTriggerLegacyGraveyardZoneChangeBatch } from '../src/state/modules/oracleIrTriggerLegacyGraveyardZoneHandlers.js';
-import { applyRetiredTriggerLegacyExtraTurnAfterThisOne } from '../src/state/modules/oracleIrTriggerLegacyTurnAndZoneHandlers.js';
-import { applyRetiredTriggerLegacySacrificeThisCreature } from '../src/state/modules/oracleIrTriggerLegacySpecialTriggerHandlers.js';
 import { applyRetiredTriggerLegacySingleEffectRegexBatch } from '../src/state/modules/oracleIrTriggerLegacySingleEffectRegexBatch.js';
 import { tryApplyTriggerEffectLegacyBodyHandlers } from '../src/state/modules/stackExecuteTriggerEffectLegacyBodyUtils.js';
 import { tryApplyTriggerEffectLegacyTailHandlers } from '../src/state/modules/stackExecuteTriggerEffectTailUtils.js';
-import {
-  applyRetiredTriggerLegacyCreateCreatureToken,
-  applyRetiredTriggerLegacyPredefinedArtifactTokens,
-  applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken,
-} from '../src/state/modules/oracleIrTriggerLegacyTokenHandlers.js';
 
 describe('retired trigger legacy handler defense-in-depth', () => {
   const previousPrimary = process.env.ORACLE_IR_TRIGGER_PRIMARY;
@@ -35,61 +24,25 @@ describe('retired trigger legacy handler defense-in-depth', () => {
     expect(skipRetiredTriggerLegacyHandler('Each opponent discards a card.', 'Liliana')).toBe(false);
   });
 
-  it('retired predefined artifact token regex handler no-ops when invoked directly under primary mode', () => {
-    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
-
-    const game = createInitialGameState('handler_token_search_combat');
-    const p1 = 'p1' as PlayerID;
-    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-    (game.state as any).battlefield = [{
-      id: 'source_1',
-      controller: p1,
-      card: { name: 'Source', type_line: 'Creature' },
-    }];
-
-    const baseParams = {
-      ctx: game as any,
-      controller: p1,
-      sourceName: 'Smothering Tithe',
-      desc: 'Create a Treasure token.',
-      description: 'Create a Treasure token.',
-      triggerItem: { source: 'source_1' },
-      state: game.state,
-    };
-
-    const battlefieldBefore = (game.state as any).battlefield.length;
-
-    expect(applyRetiredTriggerLegacyPredefinedArtifactTokens(baseParams)).toBe(false);
-    expect((game.state as any).battlefield.length).toBe(battlefieldBefore);
-  });
-
   it('legacy special handlers still apply when invoked directly under primary mode', () => {
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
 
-    const game = createInitialGameState('handler_special_graveyard');
+    const game = createInitialGameState('handler_special_rebound');
     const p1 = 'p1' as PlayerID;
     game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-    (game.state as any).battlefield = [{
-      id: 'source_1',
-      controller: p1,
-      card: { name: 'Source', type_line: 'Creature' },
-    }];
 
-    expect(applyRetiredTriggerLegacySacrificeThisCreature({
+    expect(applyRetiredTriggerLegacySingleEffectRegexBatch({
       ctx: game as any,
       controller: p1,
-      sourceName: 'Fling',
-      desc: 'sacrifice this creature',
-      triggerItem: { source: 'source_1' },
+      sourceName: 'Test',
+      desc: 'draw two cards.',
+      description: 'draw two cards.',
+      triggerItem: {},
       state: game.state,
-    })).toBe(true);
-
-    expect(applyRetiredTriggerLegacyExtraTurnAfterThisOne({
-      ctx: game as any,
-      controller: p1,
-      sourceName: 'Time Warp',
-      description: 'Take an extra turn after this one.',
-    })).toBe(true);
+      isKynaiosEffect: false,
+      opponents: [],
+      battlefield: [],
+    })).toBe(false);
   });
 
   it('legacy regex batch defers to orchestrator skip under primary mode', () => {
@@ -130,6 +83,8 @@ describe('retired trigger legacy handler defense-in-depth', () => {
 
   it('legacy tail regex batches skip when IR primary owns effect text', () => {
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    const savedSoakSnapshot = process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT;
+    delete process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT;
 
     const game = createInitialGameState('handler_tail_regex_skip');
     const p1 = 'p1' as PlayerID;
@@ -168,13 +123,18 @@ describe('retired trigger legacy handler defense-in-depth', () => {
       bodyResult,
     );
 
-    expect(tailHandled).toBe(false);
+    expect(tailHandled.handled).toBe(false);
     expect(player.hand).toHaveLength(0);
     expect(player.library).toHaveLength(2);
+    if (savedSoakSnapshot !== undefined) {
+      process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT = savedSoakSnapshot;
+    }
   });
 
   it('legacy tail skips uncategorized spell fallback when IR primary owns draw text', () => {
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    const savedSoakSnapshot = process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT;
+    delete process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT;
 
     const spellFallbackSpy = vi.spyOn(
       oracleIrUncategorizedSpellFallback,
@@ -218,12 +178,15 @@ describe('retired trigger legacy handler defense-in-depth', () => {
       bodyResult,
     );
 
-    expect(tailHandled).toBe(false);
+    expect(tailHandled.handled).toBe(false);
     expect(spellFallbackSpy).not.toHaveBeenCalled();
     expect(player.hand).toHaveLength(0);
     expect(player.library).toHaveLength(2);
 
     spellFallbackSpy.mockRestore();
+    if (savedSoakSnapshot !== undefined) {
+      process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT = savedSoakSnapshot;
+    }
   });
 
   it('skipRetiredTriggerLegacyHandler defers duplicate prevention to orchestrators', () => {
@@ -233,31 +196,5 @@ describe('retired trigger legacy handler defense-in-depth', () => {
     expect(skipRetiredTriggerLegacyHandler('Draw a card.', 'Test')).toBe(false);
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
     expect(skipRetiredTriggerLegacyHandler('Draw a card.', 'Test')).toBe(false);
-  });
-
-  it('legacy mill regex handler no-op when invoked directly under primary mode', () => {
-    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
-
-    const game = createInitialGameState('handler_retired_draw_gain');
-    const p1 = 'p1' as PlayerID;
-    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-
-    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
-    player.library = [{ id: 'lib-1', name: 'Island', zone: 'library' }];
-    player.hand = [];
-
-    const ctx = game as any;
-    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
-
-    expect(applyRetiredTriggerLegacyTargetPlayerMills({
-      ctx,
-      controller: p1,
-      sourceName: 'Glimpse',
-      desc: 'Target player mills three cards.',
-      opponents: [{ id: 'p2' }],
-      state: game.state,
-      triggerItem: { targets: ['p2'] },
-    })).toBe(false);
-    expect(player.hand).toHaveLength(0);
   });
 });

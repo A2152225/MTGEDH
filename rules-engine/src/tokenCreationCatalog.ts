@@ -267,6 +267,15 @@ export const COMMON_TOKENS: Record<string, TokenCharacteristics> = {
     toughness: 1,
     abilities: [],
   },
+  '1/1 white Human Soldier': {
+    name: 'Human Soldier',
+    colors: ['W'],
+    types: ['Creature'],
+    subtypes: ['Human', 'Soldier'],
+    power: 1,
+    toughness: 1,
+    abilities: [],
+  },
   '1/1 Warrior': {
     name: 'Warrior',
     colors: ['R'],

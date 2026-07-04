@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractTriggerEffectAfterPrefix,
   extractTriggeredEffectFromTimingMatch,
+  findTriggerEffectClauseMatchingFragment,
 } from '../src/triggerEffectTextExtraction';
 
 describe('triggerEffectTextExtraction', () => {
@@ -65,5 +66,14 @@ describe('triggerEffectTextExtraction', () => {
     expect(effect.toLowerCase()).toBe(
       'it deals 4 damage divided as you choose among any number of target creatures and/or planeswalkers.',
     );
+  });
+
+  it('finds full trigger clauses from truncated stack fragments', () => {
+    const oracle =
+      "At the beginning of your end step, draw a card. Each player may put a land card from their hand onto the battlefield, then each opponent who didn't draws a card.";
+
+    const hydrated = findTriggerEffectClauseMatchingFragment(oracle, 'draw a card.');
+    expect(hydrated?.toLowerCase()).toContain('each player may put a land');
+    expect(hydrated?.toLowerCase()).toContain("each opponent who didn't");
   });
 });

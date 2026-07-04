@@ -71,6 +71,11 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(isTriggerEffectOwnedByOracleIrPrimary('Exile all creatures your opponents control.', 'Test Opp Terminus')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Exile target nonland permanent.', 'Test Oblivion Ring')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary("Return target creature to its owner's hand.", 'Test Unsummon')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Exile up to one target card from a graveyard.', 'Test Scavenging Ooze')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Return target creature card from a graveyard to the battlefield.', 'Test Reanimate')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Return target instant or sorcery card from your graveyard to your hand.', 'Test Regrowth')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Exile the top card of your library.', 'Test Impulse')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Exile target creature until ~ leaves the battlefield.', 'Test Flickerwisp')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary("Exile all cards from target player's graveyard.", 'Test Bojuka Bog')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Sacrifice target creature.', 'Test Edict')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Counter target spell.', 'Test Counterspell')).toBe(true);
@@ -78,8 +83,12 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(isTriggerEffectOwnedByOracleIrPrimary('Untap target creature.', 'Test Vitalize')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Put a +1/+1 counter on target creature.', 'Test Incubate')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Put a +1/+1 counter on each creature you control.', 'Test Collective Growth')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Put two +1/+1 counters on target creature.', 'Forge Room')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Put an indestructible counter on this creature.', 'Mondrak')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Untap all lands you control.', 'Bear Umbra')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Untap all other creatures you control.', 'Combat Celebrant')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Untap all creatures you control.', 'Eomer')).toBe(true);
+    expect(isTriggerEffectOwnedByOracleIrPrimary('Each player gains control of all creatures they own.', 'Test')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Put a +1/+1 counter on each other creature you control.', 'Test Growth')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Put a +1/+1 counter on each creature you control with power 4 or greater.', 'Test Devotion')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Put a +1/+1 counter on each creature you control of the chosen type.', 'Kindred Discovery')).toBe(true);
@@ -89,6 +98,43 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(shouldSkipLegacyTriggerRegexHandlers('Untap all lands you control.', 'Bear Umbra')).toBe(true);
     expect(shouldSkipLegacyTriggerRegexHandlers('Deal 1 damage to each creature you control.', 'Test Self Sweep')).toBe(true);
     expect(shouldSkipLegacyTriggerRegexHandlers('Put a +1/+1 counter on each creature you control.', 'Test Collective Growth')).toBe(true);
+    expect(isTriggerEffectFullyIrWired('Proliferate.', 'Test Source')).toBe(true);
+    expect(isTriggerEffectFullyIrWired('After this combat phase, there is an additional combat phase.', 'Test Source')).toBe(true);
+    expect(isTriggerEffectFullyIrWired('Add {G}{G}{G}.', 'Test Source')).toBe(true);
+    expect(isTriggerEffectFullyIrWired('That player adds {U}.', 'Test Source')).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'Exile the top two cards of your library. Choose one of them. You may play that card this turn.',
+      'Test Source',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'Exile the top two cards of your library. Choose one of them. Until the end of your next turn, you may play that card.',
+      'Anep, Vizier of Hazoret',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'untap all other creatures you control and after this phase, there is an additional combat phase',
+      'Combat Celebrant',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'then, if you have 1,000 or more life, you lose the game.',
+      'Test Source',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'double the amount of life you lose and cards you draw for the rest of the game from this ability.',
+      'Test Source',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired('sacrifice this creature', 'Fling')).toBe(true);
+    expect(isTriggerEffectFullyIrWired('sacrifice this creature.', 'Fling')).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'the attacking player gains control of this artifact and untaps it',
+      'Test Source',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'draw cards equal to the number of opponents who were dealt combat damage this turn',
+      'Moonshae Pixie',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired('untap all elves you control', 'Source')).toBe(true);
+    expect(shouldSkipLegacyTriggerRegexHandlers('Proliferate.', 'Test Source')).toBe(true);
+    expect(shouldSkipLegacyTriggerRegexHandlers('After this combat phase, there is an additional combat phase.', 'Test Source')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('Deal 3 damage to target creature an opponent controls.', 'Test Scoped Burn')).toBe(true);
     expect(skipRetiredTriggerLegacyHandler('Lightning Bolt deals 3 damage to any target.', 'Lightning Bolt')).toBe(false);
     expect(skipRetiredTriggerLegacyHandler('Deal 3 damage to target creature.', 'Shock')).toBe(false);
@@ -106,12 +152,14 @@ describe('oracleIrTriggerLegacyRouting', () => {
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('draw')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('gain_life')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('lose_game')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('lose_life')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('scry')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('surveil')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('investigate')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('goad')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('proliferate')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('add_extra_combat')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('populate')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('create_token')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('destroy')).toBe(true);
@@ -177,8 +225,11 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(isTriggerStepKindRetiredUnderOracleIrPrimary('deal_damage')).toBe(true);
     expect(isTriggerStepKindRetiredUnderOracleIrPrimary('choose_mode')).toBe(true);
     expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('choose_mode')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('add_extra_combat')).toBe(true);
+    expect(ORACLE_IR_TRIGGER_RETIRED_STEP_KINDS.has('take_extra_turn')).toBe(true);
     expect(shouldSkipLegacyTriggerBodyHandlers('Draw two cards.', 'Mulldrifter')).toBe(true);
-    expect(shouldSkipLegacyTriggerBodyHandlers('Take an extra turn after this one.', 'Time Warp')).toBe(false);
+    expect(isTriggerEffectFullyIrWired('Take an extra turn after this one.', 'Time Warp')).toBe(true);
+    expect(shouldSkipLegacyTriggerBodyHandlers('Take an extra turn after this one.', 'Time Warp')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('You may discard a card. If you do, draw a card.', 'Rummage')).toBe(true);
     expect(shouldSkipLegacyTriggerBodyHandlers('You may discard a card. If you do, draw a card.', 'Rummage')).toBe(true);
   });
@@ -658,6 +709,18 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(collectOracleEffectSteps('put X +1/+1 counters on it.', 'Generic')[0]?.kind).toBe('add_counter');
     expect(collectOracleEffectSteps('put X +1/+1 counters on enchanted permanent.', 'Generic')[0]?.kind).toBe('add_counter');
     expect(collectOracleEffectSteps(
+      'put two +1/+1 counters on target creature.',
+      'Generic',
+    )[0]?.kind).toBe('add_counter');
+    expect(isTriggerEffectFullyIrWired(
+      'put two +1/+1 counters on target creature.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'put two +1/+1 counters on target creature. that creature becomes an angel in addition to its other types and gains flying.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
       'distribute X +1/+1 counters among any number of target elves.',
       'Generic',
     )[0]?.kind).toBe('add_counter');
@@ -701,6 +764,38 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(parseBareTriggerEffectFragmentSteps(
       'another target creature you control gains deathtouch until end of turn.',
     )?.[0]?.kind).toBe('grant_temporary_ability');
+    expect(isTriggerEffectFullyIrWired(
+      'untap all other creatures you control.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'untap all creatures you control.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'each player gains control of all creatures they own.',
+      'Generic',
+    )).toBe(true);
+    expect(collectOracleEffectSteps(
+      'untap all other creatures you control.',
+      'Generic',
+    )[0]?.kind).toBe('tap_or_untap');
+    expect(isTriggerEffectFullyIrWired(
+      'Put a number of +1/+1 counters on this creature equal to your devotion to green.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'Put X +1/+1 counters on it equal to the number of artifacts you control.',
+      'Generic',
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'You gain life equal to the number of cards in your hand.',
+      "Venser's Journal",
+    )).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'You gain 1 life for each card in your hand above 4.',
+      'Ivory Tower',
+    )).toBe(true);
     expect(isTriggerEffectFullyIrWired('Do something utterly non-oracular.', 'Creature')).toBe(false);
   });
 });

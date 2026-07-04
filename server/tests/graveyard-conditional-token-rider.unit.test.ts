@@ -11,7 +11,6 @@ import {
   applyInstantSorceryFracturedIdentityAndFallbackRiders,
   applyInstantSorceryGraveyardConditionalTokenRider,
 } from '../src/state/modules/stackResolveSpellPostCategorizeRidersUtils.js';
-import { applyRetiredTriggerLegacyCreateCreatureToken } from '../src/state/modules/oracleIrTriggerLegacyTokenHandlers.js';
 import { applyOracleIRUncategorizedSpellFallback } from '../src/state/modules/oracleIrUncategorizedSpellFallback.js';
 import { collectOracleEffectSteps } from '../src/state/modules/trigger-runtime-wiring.js';
 import * as uncategorizedUtils from '../src/state/modules/stackResolveSpellUncategorizedUtils.js';
@@ -276,25 +275,6 @@ describe('graveyard conditional token rider', () => {
       (perm: any) => String(perm?.card?.name || '').toLowerCase() === 'goat',
     );
     expect(goatToken).toBeDefined();
-  });
-
-  it('retired trigger create handler defers to IR uncategorized fallback', () => {
-    const playerId = 'p1';
-    const description = 'create a 0/1 white Goat creature token';
-    const ctx: any = { state: { battlefield: [] }, bumpSeq: () => {} };
-
-    const handled = applyRetiredTriggerLegacyCreateCreatureToken({
-      ctx,
-      controller: playerId,
-      sourceName: 'Woe Strider',
-      desc: description.toLowerCase(),
-      description,
-      triggerItem: { source: 'woe_1' },
-      state: ctx.state,
-    });
-
-    expect(handled).toBe(false);
-    expect(ctx.state.battlefield).toHaveLength(0);
   });
 
   it('integration-style escape Woe Strider queues ETB and creates a Goat token', async () => {

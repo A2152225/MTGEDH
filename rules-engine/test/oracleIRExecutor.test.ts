@@ -9745,6 +9745,56 @@ describe('Oracle IR Executor', () => {
     expect((result.state as any).status).toBe('finished');
   });
 
+  it('applies conditional lose_game when controller has at least 1,000 life', () => {
+    const steps = [
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you have 1,000 or more life' },
+        steps: [{ kind: 'lose_game', raw: 'you lose the game' }],
+        raw: 'then, if you have 1,000 or more life, you lose the game.',
+      },
+    ] as any;
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 1200, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(player => player.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['conditional']);
+    expect(p1?.hasLost).toBe(true);
+    expect((result.state as any).winner).toBe('p2');
+  });
+
+  it('skips conditional lose_game when controller is below 1,000 life', () => {
+    const steps = [
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you have 1,000 or more life' },
+        steps: [{ kind: 'lose_game', raw: 'you lose the game' }],
+        raw: 'then, if you have 1,000 or more life, you lose the game.',
+      },
+    ] as any;
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 999, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(player => player.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['conditional']);
+    expect(p1?.hasLost).not.toBe(true);
+    expect((result.state as any).winner).toBeUndefined();
+  });
+
   it('applies choose_creature_type when execution context supplies the choice', () => {
     const steps = [
       {

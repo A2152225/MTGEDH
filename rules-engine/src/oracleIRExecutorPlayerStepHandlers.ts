@@ -47,7 +47,7 @@ import {
 } from './oracleIRExecutorPlayerUtils';
 import { countManaSymbolsInManaCost } from './oracleIRExecutorManaUtils';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
-import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
+import { resolveSingleCreatureTargetId, resolveCreatureTargetIds } from './oracleIRExecutorCreatureStepUtils';
 import {
   resolveOracleQuantity,
   resolveOracleQuantityForPlayer,
@@ -6111,7 +6111,11 @@ export function buildExploreDecisionFromStep(
   };
   readonly isLand: boolean;
 } | null {
-  const targetId = resolveSingleCreatureTargetId(state, step.target, ctx);
+  let targetId = resolveSingleCreatureTargetId(state, step.target, ctx);
+  if (!targetId) {
+    const targetIds = resolveCreatureTargetIds(state, step.target, ctx);
+    targetId = targetIds[0];
+  }
   if (!targetId) return null;
 
   const target = (state.battlefield || []).find(
@@ -6128,7 +6132,6 @@ export function buildExploreDecisionFromStep(
 
   const topCard = library[0];
   const isLand = getCardTypeLineLower(topCard).includes('land');
-  if (isLand) return null;
 
   return {
     playerId: controllerId,
@@ -6150,8 +6153,12 @@ export function applyExploreStep(
   step: Extract<OracleEffectStep, { kind: 'explore' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const targetId = resolveSingleCreatureTargetId(state, step.target, ctx);
-  if (!targetId) {
+  let targetIds = resolveCreatureTargetIds(state, step.target, ctx);
+  if (targetIds.length === 0) {
+    const singleTargetId = resolveSingleCreatureTargetId(state, step.target, ctx);
+    if (singleTargetId) targetIds = [singleTargetId];
+  }
+  if (targetIds.length === 0) {
     return {
       applied: false,
       message: `Skipped explore (requires deterministic target): ${step.raw}`,
@@ -6159,6 +6166,9 @@ export function applyExploreStep(
       options: { classification: 'ambiguous' },
     };
   }
+
+  const remainingPermanentIds = targetIds.length > 1 ? targetIds.slice(1) : [];
+  const targetId = targetIds[0];
 
   const battlefield = [...((state.battlefield || []) as any[])];
   const targetIndex = battlefield.findIndex((perm: any) => String(perm?.id || '').trim() === targetId);
@@ -6207,7 +6217,7 @@ export function applyExploreStep(
   }
 
   const log: string[] = [`${targetId} explored and revealed ${String(topCard?.name || 'a card')}`];
-  if (typeLine.includes('land')) {
+  if (typeLine.includes('land') && remainingPermanentIds.length === 0) {
     library.shift();
     hand.push(topCard);
     nextPlayers[playerIndex] = {
@@ -6233,7 +6243,8 @@ export function applyExploreStep(
         metadata: {
           permanentId: targetId,
           revealedCardId: String(topCard?.id || topCard?.card?.id || ''),
-          isLand: false,
+          isLand: typeLine.includes('land'),
+          ...(remainingPermanentIds.length > 0 ? { remainingPermanentIds } : {}),
         },
       },
     };

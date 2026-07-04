@@ -1485,6 +1485,37 @@ function resolveTokenBattlefieldEntry(
   };
 }
 
+function isCurseTokenAttachedToDefendingPlayerHint(tokenHint: string): boolean {
+  const normalized = String(tokenHint || '').trim().toLowerCase();
+  return normalized.includes('curse') && normalized.includes('defending player');
+}
+
+function createCurseTokenAttachedToPlayer(
+  controllerId: PlayerID,
+  enchantedPlayerId: string,
+  ctx: OracleIRExecutionContext,
+): BattlefieldPermanent {
+  const curseId = `curse_token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return {
+    id: curseId,
+    controller: controllerId,
+    owner: controllerId,
+    isToken: true,
+    enchantedPlayerId,
+    attachedTo: enchantedPlayerId,
+    card: {
+      id: curseId,
+      name: 'Curse',
+      type_line: 'Token Enchantment — Aura Curse',
+      oracle_text: 'Enchant player\nAt the beginning of your upkeep, you lose 1 life.',
+    },
+    type_line: 'Token Enchantment — Aura Curse',
+    cardType: 'Token Enchantment — Aura Curse',
+    createdBySourceId: ctx.sourceId ? String(ctx.sourceId).trim() || undefined : undefined,
+    createdBySourceName: ctx.sourceName ? String(ctx.sourceName).trim() || undefined : undefined,
+  } as BattlefieldPermanent;
+}
+
 function addTokensToBattlefield(
   state: GameState,
   controllerId: PlayerID,
@@ -1677,6 +1708,31 @@ function addTokensToBattlefield(
         };
       }
     }
+  }
+
+  if (isCurseTokenAttachedToDefendingPlayerHint(tokenHint)) {
+    const enchantedPlayerId = String(
+      attackTargetPlayerId ||
+        ctx.selectorContext?.targetOpponentId ||
+        ctx.selectorContext?.targetPlayerId ||
+        (ctx as any).targetOpponentId ||
+        (ctx as any).targetPlayerId ||
+        ''
+    ).trim();
+    if (!enchantedPlayerId) {
+      return { applied: true, state, log: ['Skipped curse token (no defending player)'], createdTokenIds: [] };
+    }
+    const count = Math.max(1, amount | 0);
+    const tokensToAdd: BattlefieldPermanent[] = [];
+    for (let idx = 0; idx < count; idx += 1) {
+      tokensToAdd.push(createCurseTokenAttachedToPlayer(controllerId, enchantedPlayerId, ctx));
+    }
+    return {
+      applied: true,
+      state: { ...state, battlefield: [...(state.battlefield || []), ...tokensToAdd] },
+      log: [`Created curse token attached to ${enchantedPlayerId}`],
+      createdTokenIds: tokensToAdd.map((token) => String(token.id || '').trim()).filter(Boolean),
+    };
   }
 
   const tokenParse = parseTokenCreationFromText(clauseRaw);

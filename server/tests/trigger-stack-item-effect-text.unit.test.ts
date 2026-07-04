@@ -34,4 +34,25 @@ describe('resolveTriggerStackItemEffectText', () => {
       triggerType: 'draw',
     })).toBe('draw a card');
   });
+
+  it('hydrates truncated trigger fragments from card oracle text', () => {
+    const kynaiosOracle =
+      "At the beginning of your end step, draw a card. Each player may put a land card from their hand onto the battlefield, then each opponent who didn't draws a card.";
+
+    expect(resolveTriggerStackItemEffectText({
+      sourceName: 'Kynaios and Tiro of Meletis',
+      description: 'draw a card.',
+      triggerType: 'end_step',
+      permanentId: 'kynaios_perm_1',
+    }, {
+      state: {
+        battlefield: [{
+          id: 'kynaios_perm_1',
+          card: { name: 'Kynaios and Tiro of Meletis', oracle_text: kynaiosOracle },
+        }],
+      },
+    })).toBe(
+      "draw a card. Each player may put a land card from their hand onto the battlefield, then each opponent who didn't draws a card.",
+    );
+  });
 });

@@ -3204,7 +3204,7 @@ export function applyOracleIRStepsToGameStateImpl(
 
         if (conditionEvaluation === false) {
           lastConditionalEvaluation = false;
-          skippedSteps.push(step);
+          appliedSteps.push(step);
           log.push(`Skipped conditional step (condition false): ${step.raw}`);
           break;
         }
@@ -3322,6 +3322,7 @@ export function applyOracleIRStepsToGameStateImpl(
         automationGaps.push(...result.automationGaps);
         pendingOptionalSteps.push(...result.pendingOptionalSteps);
         mergeNestedExecutionOutcome(result);
+        appliedSteps.push(step);
         break;
       }
       case 'unless_pays_life': {

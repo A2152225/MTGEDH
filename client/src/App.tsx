@@ -71,6 +71,13 @@ import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/Opp
 import { MayAbilityModal, type MayAbilityModalData } from "./components/MayAbilityModal";
 import { ResolutionMinimizedChip, ResolutionPromptMinimizeButton } from "./components/ResolutionMinimizedChip";
 import { isResolutionStepMandatory } from "./utils/resolutionStepUtils";
+import {
+  buildGenericOptionChoiceRequestFromStep,
+  buildPendingSpellXSelectionFromStep,
+  isGenericNumberChoiceStep,
+  isGenericOptionChoiceFallbackStep,
+  isNamedGenericOptionChoiceStep,
+} from "./utils/resolutionChoicePrimitives";
 import { MutateTargetModal, type MutateTarget } from "./components/MutateTargetModal";
 import { GraveyardSelectionModal, type GraveyardCard } from "./components/GraveyardSelectionModal";
 import { XValueSelectionModal } from "./components/XValueSelectionModal";
@@ -2674,15 +2681,8 @@ export function App() {
         setKynaiosChoiceModalOpen(true);
       }
       
-      // Handle Option Choice resolution step
-      else if (
-        step.type === 'option_choice' ||
-        step.type === 'modal_choice' ||
-        step.type === 'riot_choice' ||
-        step.type === 'unleash_choice' ||
-        step.type === 'fabricate_choice' ||
-        step.type === 'tribute_choice'
-      ) {
+      // Handle Option Choice resolution step (named primitives + generic fallback)
+      else if (isNamedGenericOptionChoiceStep(step) || isGenericOptionChoiceFallbackStep(step)) {
         // Deck import wipe confirmations are handled via the existing confirm modal UI.
         if (step.importWipeConfirm === true || step.judgeConfirm === true) {
           openConfirmFromResolutionStep(step);
@@ -2727,20 +2727,13 @@ export function App() {
           return;
         }
 
-        // Generic option choice modal (Agitator Ant and similar)
-        const request: OptionChoiceRequest = {
-          gameId: payload.gameId,
-          stepId: step.id,
-          sourceId: step.sourceId,
-          sourceName: step.sourceName || 'Make a Choice',
-          sourceImage: step.sourceImage,
-          description: step.description || '',
-          options: step.options || [],
-          minSelections: step.minSelections || 0,
-          maxSelections: step.maxSelections || 1,
-          mandatory: isResolutionStepMandatory(step),
-        };
-        
+        // Generic option choice modal (Agitator Ant, future IR steps, and similar)
+        const request: OptionChoiceRequest = buildGenericOptionChoiceRequestFromStep(
+          step,
+          payload.gameId,
+          isResolutionStepMandatory(step),
+        );
+
         setOptionChoiceRequest(request);
         setOptionChoiceModalOpen(true);
       }
@@ -2806,16 +2799,8 @@ export function App() {
         setCounterDistributionModalOpen(true);
       }
 
-      else if (step.type === 'x_value_selection') {
-        setPendingSpellXSelection({
-          stepId: String(step.id),
-          cardName: String(step.sourceName || step.cardName || 'Spell'),
-          description: String(step.description || ''),
-          minValue: Math.max(0, Number(step.minValue ?? 0)),
-          maxValue: Math.max(0, Number(step.maxValue ?? 20)),
-          xCount: Number.isFinite(step.xCount) ? Math.max(1, Number(step.xCount)) : undefined,
-          affordableXHint: Number.isFinite(step.affordableXHint) ? Math.max(0, Number(step.affordableXHint)) : undefined,
-        });
+      else if (isGenericNumberChoiceStep(step)) {
+        setPendingSpellXSelection(buildPendingSpellXSelectionFromStep(step));
       }
 
       // Phyrexian mana payment choice via Resolution Queue

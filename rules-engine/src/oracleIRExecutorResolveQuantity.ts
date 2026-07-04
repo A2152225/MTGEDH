@@ -17,6 +17,7 @@ import {
   readPermanentPower,
 } from './oracleIRExecutorCreatureStepUtils';
 import { tryResolveForEachReferenceAmount } from './oracleIRExecutorForEachQuantity';
+import { tryEvaluateCombatDamageReferenceCount } from './oracleIRExecutorCombatDamageCounts';
 
 import type { OracleEffectStep } from './oracleIR';
 import { findAntecedentStepIndex } from './oracleIRStepLedger';
@@ -188,6 +189,9 @@ export function resolveOracleQuantity(
       targetPlayerId,
     });
     if (forEachAmount !== null) return forEachAmount;
+
+    const combatDamageAmount = tryEvaluateCombatDamageReferenceCount(state, controllerId, normalized, ctx);
+    if (combatDamageAmount !== null) return combatDamageAmount;
 
     const spellsCastMatch = normalized.match(
       /^(?:(\d+)\s+)?for each spells? (?:you(?:'ve| have)?|you) cast this turn$|^(\d+)\s+for each spells? (?:you(?:'ve| have)?|you) cast this turn$|^the number of spells? (?:you(?:'ve| have)?|you) cast this turn$/i

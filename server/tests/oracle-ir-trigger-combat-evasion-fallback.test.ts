@@ -4,92 +4,6 @@ import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { applyOracleIRFallbackForTriggeredEffect } from '../src/state/modules/stackExecuteTriggerEffectIrFallbackUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
-import {
-  applyRetiredTriggerLegacySelfCantBeBlocked,
-  applyRetiredTriggerLegacySelfCantBeBlockedByLowPower,
-  applyRetiredTriggerLegacySelfPreventCombatDamage,
-  applyRetiredTriggerLegacyTargetCreatureCantBeBlocked,
-} from '../src/state/modules/oracleIrTriggerLegacyCombatEvasionHandlers.js';
-import { applyRetiredTriggerLegacyPTModificationBatch } from '../src/state/modules/oracleIrTriggerLegacyPTModificationHandlers.js';
-
-describe('oracleIrTriggerLegacyCombatEvasionHandlers', () => {
-  it('skips target unblockable legacy when IR fully wires the effect', () => {
-    const state = {
-      turnNumber: 3,
-      battlefield: [{
-        id: 'target-1',
-        card: { name: 'Giant', type_line: 'Creature — Giant' },
-      }],
-    };
-
-    expect(applyRetiredTriggerLegacyTargetCreatureCantBeBlocked({
-      controller: 'p1' as PlayerID,
-      sourceName: 'Source',
-      desc: "Up to one target creature can't be blocked this turn.",
-      triggerItem: { targets: ['target-1'] },
-      state,
-    })).toBe(false);
-  });
-
-  it('retires target unblockable regex when IR primary owns the effect', () => {
-    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
-    expect(applyRetiredTriggerLegacyTargetCreatureCantBeBlocked({
-      controller: 'p1' as PlayerID,
-      sourceName: 'Source',
-      desc: "Up to one target creature can't be blocked this turn.",
-      triggerItem: { targets: ['target-1'] },
-      state: { battlefield: [{ id: 'target-1', card: { type_line: 'Creature' } }] },
-    })).toBe(false);
-  });
-
-  it('skips self unblockable legacy when IR fully wires the effect', () => {
-    const state = {
-      turnNumber: 2,
-      battlefield: [{
-        id: 'self-1',
-        card: { name: 'Slippery Bogle' },
-      }],
-    };
-
-    expect(applyRetiredTriggerLegacySelfCantBeBlocked({
-      controller: 'p1' as PlayerID,
-      sourceName: 'Clockwork Droid',
-      desc: "It can't be blocked this turn and you scry 1.",
-      triggerItem: { source: 'self-1' },
-      state,
-    })).toBe(false);
-  });
-
-  it('skips self combat prevention legacy when IR fully wires the effect', () => {
-    const state = {
-      turnNumber: 1,
-      battlefield: [{ id: 'self-1', card: { name: 'Fog Bank' } }],
-    };
-
-    expect(applyRetiredTriggerLegacySelfPreventCombatDamage({
-      controller: 'p1' as PlayerID,
-      sourceName: "Oketra's Avenger",
-      desc: 'prevent all combat damage that would be dealt to it this turn.',
-      triggerItem: { source: 'self-1' },
-      state,
-    })).toBe(false);
-  });
-
-  it('skips low-power unblockable legacy when IR fully wires the effect', () => {
-    const state = {
-      turnNumber: 1,
-      battlefield: [{ id: 'self-1', card: { name: 'Slippery Bogle' } }],
-    };
-
-    expect(applyRetiredTriggerLegacySelfCantBeBlockedByLowPower({
-      controller: 'p1' as PlayerID,
-      sourceName: 'Trueheart Twins',
-      desc: "This creature can't be blocked by creatures with power 2 or less this turn.",
-      triggerItem: { source: 'self-1' },
-      state,
-    })).toBe(false);
-  });
-});
 
 describe('oracle IR trigger fallback — combat evasion + counter-scaled modify_pt', () => {
   it('applies counter-scaled +X/+X via uncategorized IR fallback (Hydra Trainer exert reward)', () => {
@@ -263,24 +177,6 @@ describe('oracle IR trigger fallback — combat evasion + counter-scaled modify_
 });
 
 describe('oracle IR trigger fallback — modify_pt exert rewards', () => {
-  it('skips legacy PT batch when IR fully wires the effect', () => {
-    const state = {
-      turnNumber: 2,
-      battlefield: [{
-        id: 'self-1',
-        card: { name: 'Glory-Bound Initiate', type_line: 'Creature' },
-      }],
-    };
-
-    expect(applyRetiredTriggerLegacyPTModificationBatch({
-      controller: 'p1' as PlayerID,
-      sourceName: 'Glory-Bound Initiate',
-      desc: 'it gets +1/+3 and gains lifelink until end of turn.',
-      triggerItem: { source: 'self-1' },
-      state,
-    })).toBe(false);
-  });
-
   it('applies self +1/+3 and lifelink via uncategorized IR fallback (Glory-Bound Initiate exert reward)', () => {
     const p1 = 'p1' as PlayerID;
     const game = createInitialGameState('glory_bound_fallback');

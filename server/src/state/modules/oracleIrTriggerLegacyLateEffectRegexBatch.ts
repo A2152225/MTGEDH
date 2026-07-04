@@ -1,29 +1,13 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
-import { applyRetiredTriggerLegacyCounterInlineBatch, applyRetiredTriggerLegacyDistributeCounters } from './oracleIrTriggerLegacyCounterHandlers.js';
-import { applyRetiredTriggerLegacyPTModificationBatch } from './oracleIrTriggerLegacyPTModificationHandlers.js';
-import { applyRetiredTriggerLegacyTapUntapInlineBatch } from './oracleIrTriggerLegacyTapUntapHandlers.js';
-import { applyRetiredTriggerLegacyGraveyardZoneChangeBatch } from './oracleIrTriggerLegacyGraveyardZoneHandlers.js';
-import { applyRetiredTriggerLegacyManaAndCombatBatch } from './oracleIrTriggerLegacyManaAndCombatHandlers.js';
 import {
-  applyRetiredTriggerLegacyCallTheCoppercoatsTokens,
-  applyRetiredTriggerLegacyCreateXTokensByControlledTypeCount,
-  applyRetiredTriggerLegacyDeployToTheFrontTokens,
   applyRetiredTriggerLegacyInterveningSubjectCopyToken,
   applyRetiredTriggerLegacyTappedAttackingCopyToken,
-  applyRetiredTriggerLegacyTypedCountTokenFallbacks,
 } from './oracleIrTriggerLegacyTokenHandlers.js';
 import {
-  applyRetiredTriggerLegacyCurseDefendingPlayer,
-  applyRetiredTriggerLegacyDarienDamageTokens,
-} from './oracleIrTriggerLegacyCardSpecificHandlers.js';
-import { applyRetiredTriggerLegacyKeywordTriggerFallback } from './oracleIrTriggerLegacyKeywordHandlers.js';
-import {
   applyRetiredTriggerLegacyLoseGameReplacement,
-  applyRetiredTriggerLegacyThousandLifeLoseGame,
-  applyRetiredTriggerLegacyUpkeepEffectDoubling,
 } from './oracleIrTriggerLegacyLifeAndGameHandlers.js';
-import { applyRetiredTriggerLegacyBothPlayersPutPermanentFromHand } from './oracleIrTriggerLegacyResolutionHandlers.js';
+import { retiredLegacyHandlerHit, type RetiredTriggerLegacyHandlerHit } from './oracleIrTriggerLegacyHandlerTelemetry.js';
 import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export interface TriggerLegacyLateEffectBatchParams {
@@ -42,7 +26,7 @@ export interface TriggerLegacyLateEffectBatchParams {
 
 export function applyRetiredTriggerLegacyLateEffectRegexBatch(
   params: TriggerLegacyLateEffectBatchParams,
-): boolean {
+): RetiredTriggerLegacyHandlerHit {
   const {
     ctx,
     controller,
@@ -61,27 +45,6 @@ export function applyRetiredTriggerLegacyLateEffectRegexBatch(
     return false;
   }
 
-  if (applyRetiredTriggerLegacyCounterInlineBatch({
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyDistributeCounters({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
   if (applyRetiredTriggerLegacyInterveningSubjectCopyToken({
     ctx,
     controller,
@@ -90,17 +53,7 @@ export function applyRetiredTriggerLegacyLateEffectRegexBatch(
     triggerItem,
     state,
   })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyPTModificationBatch({
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyInterveningSubjectCopyToken');
   }
 
   if (applyRetiredTriggerLegacyTappedAttackingCopyToken({
@@ -111,143 +64,7 @@ export function applyRetiredTriggerLegacyLateEffectRegexBatch(
     triggerItem,
     state,
   })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyTapUntapInlineBatch({
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyGraveyardZoneChangeBatch({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyManaAndCombatBatch({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyCreateXTokensByControlledTypeCount({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyTypedCountTokenFallbacks({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyDarienDamageTokens({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyDeployToTheFrontTokens({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyCallTheCoppercoatsTokens({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyKeywordTriggerFallback({
-    ctx,
-    controller,
-    sourceName,
-    description,
-    triggerItem,
-    state,
-    triggerCard,
-    battlefield,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyCurseDefendingPlayer({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyThousandLifeLoseGame({
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyUpkeepEffectDoubling({
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-    battlefield,
-  })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyTappedAttackingCopyToken');
   }
 
   if (applyRetiredTriggerLegacyLoseGameReplacement({
@@ -257,20 +74,7 @@ export function applyRetiredTriggerLegacyLateEffectRegexBatch(
     triggerItem,
     state,
   })) {
-    return true;
-  }
-
-  if (applyRetiredTriggerLegacyBothPlayersPutPermanentFromHand({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-    players,
-    battlefield,
-  })) {
-    return true;
+    return retiredLegacyHandlerHit('applyRetiredTriggerLegacyLoseGameReplacement');
   }
 
   return false;

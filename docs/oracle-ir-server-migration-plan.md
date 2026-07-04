@@ -5,7 +5,7 @@
 **Last updated:** 2026-07-02 (Layer 3 beta-ready — migration **797/797**; new-card overlay path documented)  
 **Owner:** Project maintainers  
 
-> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** for remaining Layer 2 work and the copy-paste starting prompt. Batches 264–280 + Track D (368–380) are **uncommitted** locally unless otherwise noted.
+> **New session?** Read **[oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md)** first, then **[oracle-ir-track-e-remaining-work.md](./oracle-ir-track-e-remaining-work.md)** for E9+ legacy retirement and the copy-paste starting prompt. Latest: **batch 469** (telemetry soak IR gaps); migration **811/811**.
 
 **Rules for new work:** `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` — **no card-name routing**, **no new `KNOWN_*` table rows**; extend parser → executor → `applyOracleIRStepsOnServer` → resolution queue.
 

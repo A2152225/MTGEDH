@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
 import { registerPermanentTriggers } from '../src/state/modules/triggered-abilities';
@@ -29,6 +29,11 @@ function setupToMain1(g: any, players: PlayerID[]) {
 }
 
 describe('Postcombat main combat-damage regressions', () => {
+  beforeEach(() => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+  });
+
   it('queues and resolves second-main combat-damage count triggers from permanents', () => {
     const g = createInitialGameState('postcombat_main_estinien_regression');
     const p1 = 'p1' as PlayerID;

@@ -28,7 +28,7 @@ export function resolveTriggeredAbilityStackItem(
   const triggerController = (item as any).controller || controller;
   const triggerType = (item as any).triggerType;
   const sourceId = (item as any).id;
-  const effectText = resolveTriggerStackItemEffectText(item);
+  const effectText = resolveTriggerStackItemEffectText(item, { state: (ctx as any).state });
   const optionalTriggeredAbilityDecisionApplied = (item as any).optionalTriggeredAbilityDecisionApplied === true;
 
   debug(2, `[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);

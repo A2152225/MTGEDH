@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, afterAll, beforeEach } from 'vitest';
+import { getOracleIrGapTelemetrySnapshot, loadOracleIrGapTelemetrySnapshotFromAppendLog } from '../src/state/modules/oracleIrGapTelemetry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workerId =
@@ -39,6 +40,20 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  const telemetrySnapshotPath = String(process.env.ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT || '').trim();
+  if (telemetrySnapshotPath) {
+    try {
+      const appendPath = `${telemetrySnapshotPath}.jsonl`;
+      const snapshot = fs.existsSync(appendPath)
+        ? loadOracleIrGapTelemetrySnapshotFromAppendLog(appendPath)
+        : getOracleIrGapTelemetrySnapshot();
+      fs.mkdirSync(path.dirname(telemetrySnapshotPath), { recursive: true });
+      fs.writeFileSync(telemetrySnapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+    } catch {
+      // ignore — telemetry dump is best-effort
+    }
+  }
+
   // Best-effort cleanup; DB handle may keep WAL around on Windows.
   rmIfExists(testDbFile);
   rmIfExists(`${testDbFile}-wal`);

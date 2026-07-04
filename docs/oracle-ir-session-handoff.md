@@ -1,6 +1,6 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-07-02 (E9 batch 466 — **D1 delta CI + D2 gap telemetry shipped**; overlay-first ingestion; legacy ratchet; replay guardrail)
+Last updated: 2026-07-03 (E9 batch 469 — **telemetry soak IR gap fixes**; batch 468 D3/D6 + migration **811/811**)
 
 ## New-card automation (read this for set releases)
 
@@ -9,7 +9,7 @@ Last updated: 2026-07-02 (E9 batch 466 — **D1 delta CI + D2 gap telemetry ship
 | Status | Detail |
 |--------|--------|
 | **Corpus (L1–L2)** | ✅ 47,514/47,514 assisted; triggers 15,741/15,741 |
-| **Live path (L3)** | ✅ IR primary on; **797/797** migration tests |
+| **Live path (L3)** | ✅ IR primary on; **811/811** migration tests |
 | **Gap path** | ✅ Compiled overlays + `@OracleIRCompiler` — **default ingestion path** (overlay-first, §C inverted) |
 | **Delta CI (D1)** | ✅ `npm run oracle-ir:delta` — hash-baseline diff → audit delta cards only → `overlayWorkQueue` → CI exit code |
 | **Gap telemetry (D2)** | ✅ `oracleIrGapTelemetry.ts` + `GET /api/oracle-ir/telemetry` — all-or-nothing / owned-but-unhandled / legacy-handled |
@@ -27,7 +27,390 @@ npm run oracle-ir:delta -- --update-baseline     # accept green delta
 
 ## Next session
 
-**E9 batch 466 done** (D1 delta CI, D2 telemetry + `/api/oracle-ir/telemetry`, legacy ratchet test, replay-divergence guardrail; docs: architecture guide §15, Phase 5 design doc, §C overlay-first). Next candidates: soak with telemetry → evidence-driven legacy deletion (lower ratchet ceilings); adopt `assertNoReplayDivergence` in more socket tests; generic choice primitives when the next novel choice shape appears.
+**E9 batch 469 done** (telemetry soak IR gap fixes — conditional / scry+draw / station):
+
+| Gap | Fix | Key files |
+|-----|-----|-----------|
+| **Prepared conditional** (Scheming Silvertongue, Eccentric Pestfinder, Emeritus) | Outer `conditional` step now counts as applied when condition evaluates true or false (was missing from `appliedSteps`, tripping all-or-nothing) | `rules-engine/src/oracleIRExecutorMainLoop.ts` |
+| **Opt/Consider scry+draw** | `drawEffectSynced()` treats queue-bridged scry/surveil + draw as deferred (draw resumes via `oracleIrResumeStepsJson`) | `server/src/state/modules/oracleIrTriggerExecution.ts` |
+| **Spacecraft station `add_counter`** | `this spacecraft` added to self-target references (Planet already had `this planet`) | `rules-engine/src/oracleIRExecutorBattlefieldStepHandlers.ts` |
+| **Station threshold / `stationed`** | Re-fetch station permanent after IR counter apply (stale reference skipped threshold when IR succeeded) | `server/src/socket/resolution.ts` |
+| **Broodship graveyard cast** | Same conditional wrapper fix; inner `grant_graveyard_permission` + `modify_graveyard_permissions` now satisfy all-or-nothing | (same MainLoop change) |
+
+**Targeted tests:** **60/60** green — `prepared.trigger-primary`, `oracle-ir-scry-surveil`, `oracle-ir-station-charge-counters`, `oracle-ir-broodship-graveyard-cast.socket`.
+
+**E9 batch 468 done** (D3 evidence-driven legacy deletion start + D6 generic choice primitives):
+
+| Deliverable | Detail |
+|-------------|--------|
+| **D3 deletion** | Removed **10** dead exports (orphan files, unreachable stubs, wired no-ops); ratchet **86 → 76**; triage uses **transitive closure** from execution roots (initial “38 orphaned” count was wrong) |
+| **D3 triage tooling** | `npm run oracle-ir:legacy-triage` + `oracle-ir:legacy-triage:soak`; JSONL append in `oracleIrGapTelemetry.ts` survives `resetOracleIrGapTelemetry()` in unit tests |
+| **D6 primitives** | `client/src/utils/resolutionChoicePrimitives.ts` + `client/tests/resolutionChoicePrimitives.test.ts` (5 tests); `App.tsx` wired |
+**E9 batch 471 (spell categorize suppression + forced-legacy soak tooling):**
+
+| Gap | Fix | Verification |
+|-----|-----|--------------|
+| **Spell IR owns but fails** | `stackResolveSpellOracleIrUtils.ts` skips `categorizeSpell` when IR owns spell (no false `legacy_handled`) | spell retirement + gap telemetry tests |
+| **Forced-legacy soak** | `oracle-ir-legacy-triage-soak.ts --legacy` runs 126-test legacy subset | `telemetry-snapshot-legacy-forced.json` |
+| **Note on D3 telemetry** | `recordLegacyTriggerHandled` only fires when IR primary is ON (by design); forced-legacy soak will not populate `legacy_handled` | triage-forced: 0 legacy_handled |
+
+**Migration soak (post-471, 2026-07-03):** **811/811** green; telemetry **0 events** (clean integration soak after unit-test isolation + batches 469–471). Snapshot: `scripts/out/telemetry-snapshot-post471.json`. Compare: pre-469 **34** → post-471 **0**.
+
+**E9 batch 472 (soak hygiene):**
+
+| Gap | Fix | Verification |
+|-----|-----|--------------|
+| **Unit-test soak pollution** | `oracle-ir-gap-telemetry.unit.test.ts` + handler-retirement tail tests unset `ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT` during fixture runs | post-471 soak **0** events |
+
+**E9 batch 470 (post-soak hardening):**
+
+| Gap | Fix | Verification |
+|-----|-----|--------------|
+| **Telemetry snapshot empty JSON** | `vitest.setup.ts` afterAll writes aggregate from `.jsonl` append log | post-469 snapshot has 15 events |
+| **Modal `choose_mode` + draw text** | `drawEffectSynced` skips library check when modal branch has no applied/pending `draw` | `oracle-ir-trigger-modal-primary-default.integration.test.ts` (6/6) |
+| **Scry/surveil compound (belt)** | `drawEffectSynced` also accepts pending draw + deferred scry/surveil without queue bridge | targeted regression 62/62 |
+
+**E9 batch 473 (forced-legacy soak telemetry):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **`ORACLE_IR_GAP_TELEMETRY_LEGACY_SOAK`** | Records `legacy_handled` when IR primary is off (forced-legacy regression soak) |
+| **`npm run oracle-ir:legacy-triage:soak:forced`** | 126 tests, ~33s; snapshot `telemetry-snapshot-legacy-forced.json` |
+| **Forced soak signal** | **60** `legacy_handled` (56 spell categorize, 4 trigger `legacy_body`/`legacy_tail`) — proves legacy regression paths still work; **not** deletion candidates while forced-legacy tests exist |
+| **Migration soak (post-471)** | **0** events under IR primary — integration gaps cleared |
+
+## Next session prompt (copy-paste)
+
+```
+Track E9 / D3 legacy handler retirement — continue from batch 506.
+
+Current metrics:
+- TRIGGER_LEGACY_EXPORT_CEILING = 43 (forced legacy soak 126/126; migration 812/812; telemetry 0)
+- Rebound/Paradigm moved to stackSpecialTriggerHandlers.ts (not legacy exports)
+- All session deferred items from batch 505 are resolved
+
+Architecture: no bespoke card-name handlers; delete legacy only with triage/IR proof; full trigger effect text via extractTriggerEffectAfterPrefix.
+
+Next deletion candidates (forced-legacy triage / late-effect batch):
+1. applyRetiredTriggerLegacyInterveningSubjectCopyToken — interveningIfSubjectPermanentId + copy token; probe IR copy_token/create_token
+2. applyRetiredTriggerLegacyTappedAttackingCopyToken — attack trigger copy token pattern
+3. applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken / BlockTrigger / AttackCountBased — structured triggerType paths; may need stack metadata bridge like rebound
+4. applyRetiredTriggerLegacyLoseGameReplacement — probe conditional/replacement IR
+5. grant_exile_permission for rebound effect text (optional IR path; stack handler already primary)
+
+Verification per batch:
+cd server
+npx vitest run tests/oracle-ir-legacy-handler-ratchet.unit.test.ts tests/oracle-ir-trigger-legacy-guardrail.test.ts
+npm run oracle-ir:legacy-triage:soak:forced
+$env:ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT='D:\Git\MTGEDH\server\scripts\out\telemetry-snapshot-post507.json'
+npm run test:oracle-ir-migration
+
+cd rules-engine
+npx vitest run test/<new-executor-test>.test.ts
+```
+
+**E9 batch 506 (D3 — deferred items closure):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `TypedCountTokenFallbacks`, `AgentOfShadowThievesAttack`, legacy `ReboundTrigger`/`ParadigmTrigger` exports |
+| **Wired** | Self-ref mask for create-token clauses; `no opponent has more life than that player` conditional; `Human Soldier` catalog entry; `stackSpecialTriggerHandlers.ts` for rebound/paradigm before IR |
+| **Evidence** | `oracleTextParserPreprocess.test.ts`, `oracleIRExecutorCreateXControlledType.test.ts`, `oracleIRExecutorAgentShadowThieves.test.ts`, `rebound-may-ability.integration.test.ts`, `paradigm.integration.test.ts` |
+| **Ratchet** | **47 → 43** |
+| **Forced legacy soak** | **126/126**; **43** exports |
+
+**E9 batch 505 (D3 — CreateXTokensByControlledTypeCount deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyCreateXTokensByControlledTypeCount` |
+| **Wired** | Existing `create_token` + where-X = number of {type} you control |
+| **Evidence** | `oracleIRExecutorCreateXControlledType.test.ts` (Krenko Goblin, Myrel Soldier artifact) |
+| **Ratchet** | **48 → 47** |
+| **Forced legacy soak** | **126/126**; **47** exports |
+| **Migration soak (post-505)** | **812/812** green (same post-500 telemetry snapshot; **0 events**) |
+
+**E9 batch 504 (D3 — CallTheCoppercoatsTokens deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyCallTheCoppercoatsTokens` |
+| **Wired** | Where-X evaluator: `X is the number of creatures target opponents control` (uses `chosenObjectIds` / `eachOfThoseOpponents`; falls back to all opponents) |
+| **Evidence** | `oracleIRExecutorCallTheCoppercoats.test.ts` |
+| **Ratchet** | **49 → 48** |
+| **Forced legacy soak** | **126/126**; **48** exports |
+| **Migration soak (post-504)** | **812/812** green (re-run after Windows OOM crash; telemetry **0 events** on post-500 snapshot) |
+
+**E9 batch 503 (D3 — DeployToTheFrontTokens deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyDeployToTheFrontTokens` |
+| **Wired** | Existing `create_token` with `amount: x` and where-X = creatures on battlefield |
+| **Evidence** | `oracleIRExecutorDeployToTheFront.test.ts`, `stack.regressions.effects.test.ts` Deploy case |
+| **Ratchet** | **50 → 49** |
+| **Forced legacy soak** | **126/126**; **49** exports |
+
+**E9 batch 502 (D3 — DarienDamageTokens deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyDarienDamageTokens` |
+| **Wired** | Optional `create_token` with `reference_amount` ("that many"); `damageAmount` bridged to `referenceAmount` in trigger IR context |
+| **Evidence** | `oracleIRExecutorDarienDamageTokens.test.ts`, `combat-damage-to-you.regression.integration.test.ts` under IR primary |
+| **Ratchet** | **51 → 50** |
+| **Migration soak (post-502)** | pending re-run (prior soak crashed mid-suite on Windows) |
+| **Forced legacy soak** | **126/126**; **50** exports |
+
+**E9 batch 501 (D3 — BothPlayersPutPermanentFromHand deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyBothPlayersPutPermanentFromHand` |
+| **Wired** | `move_zone` executor defers optional permanent-from-hand; `queueBothPlayersMayPutPermanentFromHandPromptsFromOracleIRResult` queues KYNAIOS land-play prompts for controller + target player |
+| **Evidence** | `oracleIRExecutorBothPlayersPutPermanent.test.ts`, `both-players-put-permanent-oracle-ir.integration.test.ts` |
+| **Ratchet** | **52 → 51** |
+| **Migration soak (post-501)** | **812/812** green; telemetry **0 events** → `telemetry-snapshot-post501.json` |
+| **Forced legacy soak** | **126/126**; **51** exports |
+
+**E9 batch 500 (D3 — CurseDefendingPlayer deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyCurseDefendingPlayer` |
+| **Wired** | `create_token` executor recognizes `Curse enchantment token attached to defending player`; sets `enchantedPlayerId`/`attachedTo` from defending-player selector context |
+| **Evidence** | `oracleIRExecutorCurseDefendingPlayer.test.ts`, routing/guardrail/ratchet tests |
+| **Ratchet** | **53 → 52** |
+| **Migration soak (post-500)** | **812/812** green; telemetry **0 events** → `telemetry-snapshot-post500.json` |
+| **Forced legacy soak** | **126/126**; **52** exports |
+
+**E9 batch 499 (D3 — ElixirOfImmortality deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyElixirOfImmortality` |
+| **Wired** | Existing `gain_life` + `move_zone` (`shuffleSourcePermanentAndGraveyardIntoLibrary`) on activated-ability IR path |
+| **Evidence** | `oracleIRExecutorElixirShuffle.test.ts`, `elixir-of-immortality-oracle-ir.integration.test.ts` |
+| **Ratchet** | **54 → 53** |
+| **Migration soak (post-499)** | **812/812** green; telemetry **0 events** → `telemetry-snapshot-post499.json` |
+| **Forced legacy soak** | **126/126**; **53** exports |
+
+**E9 batch 498 (D3 — EachMerfolkExplores deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyEachMerfolkExplores` |
+| **Wired** | `resolveCreatureTargetIds` handles `each {subtype} you control`; `applyExploreStep` APANAP via `remainingPermanentIds` metadata; server explore bridge passes chain to `EXPLORE_DECISION` |
+| **Evidence** | `oracleIRExecutorEachSubtypeExplore.test.ts`, `hakbal.begin-combat-explore.integration.test.ts` under IR primary |
+| **Ratchet** | **55 → 54** |
+| **Migration soak (post-498)** | **812/812** green; telemetry **0 events** → `telemetry-snapshot-post498.json` |
+| **Forced legacy soak** | **126/126**; **54** exports |
+
+**E9 batch 497 (D3 — DelayedDrawAtNextUpkeep deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyDelayedDrawAtNextUpkeep` (+ `oracleIrTriggerLegacyTimingHandlers.ts` module) |
+| **Wired** | `bridgeScheduleDelayedDrawAtNextUpkeepFromOracleIRResult` maps `schedule_delayed_trigger` (`next_upkeep` + draw) → `scheduleDelayedDrawAtNextUpkeep`; `look_top` added to fallback kinds for Mishra's Bauble compounds |
+| **Evidence** | `delayed-upkeep-draw.integration.test.ts`, routing/guardrail/ratchet tests |
+| **Ratchet** | **56 → 55** |
+| **Migration soak (post-497)** | **812/812** green; telemetry **0 events** → `telemetry-snapshot-post497.json` |
+| **Forced legacy soak** | **126/126**; **55** exports |
+
+**E9 batch 496 (D3 — UntapAllCreatureType deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyUntapAllCreatureType` |
+| **Wired** | `trySpecialTapOrUntapStep` handles `untap all {creature subtype} you control` via `permanentHasCreatureType` |
+| **Evidence** | `oracleIRExecutorUntapSubtype.test.ts`, routing/wiring tests |
+| **Ratchet** | **57 → 56** |
+| **Migration soak (post-496)** | **812/812** green; telemetry **0 events** → `telemetry-snapshot-post496.json` |
+| **Forced legacy soak** | **126/126**; **56** exports |
+
+**E9 batch 495 (D3 — CombatDamageDrawEffects deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyCombatDamageDrawEffects` (+ module) |
+| **Wired** | `oracleIRExecutorCombatDamageCounts.ts` resolves opponent/player combat-damage reference amounts; parser attaches shared `whereX` on draw+lose compounds |
+| **Evidence** | `oracleIRExecutorCombatDamageDraw.test.ts`, `postcombat-main.combat-damage.regression.integration.test.ts` under IR primary |
+| **Ratchet** | **58 → 57** |
+| **Migration soak (post-495)** | **811/811** green; telemetry **0 events** → `telemetry-snapshot-post495.json` |
+| **Forced legacy soak** | **126/126**; **57** exports |
+
+**E9 batch 494 (D3 — AttackingPlayerGainsControlOfArtifact deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyAttackingPlayerGainsControlOfArtifact` |
+| **Wired** | Bare fragment → `gain_control` (`what: this artifact`, `newController: target_player`); executor transfers `ctx.sourceId` to `attackingPlayerId` and untaps |
+| **Evidence** | `trigger-runtime-wiring.unit.test.ts`, `oracleIRExecutorGainControlAttackingPlayer.test.ts`, `combat-damage-to-you.regression.integration.test.ts` (Contested Game Ball) |
+| **Ratchet** | **59 → 58** |
+| **Migration soak (post-494)** | **810/810** green; telemetry **0 events** → `telemetry-snapshot-post494.json` |
+| **Forced legacy soak** | **126/126**; **58** exports |
+
+**E9 batch 493 (D3 — SacrificeThisCreature deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacySacrificeThisCreature` |
+| **Evidence** | `isTriggerEffectFullyIrWired` for `sacrifice this creature`; IR `sacrifice` step binds `this creature` via `sourceId` |
+| **Ratchet** | **60 → 59** |
+| **Migration soak (post-493)** | **809/809** green; telemetry **0 events** → `telemetry-snapshot-post493.json` |
+
+**E9 batch 492 (D3 — ThousandLife + UpkeepEffectDoubling deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyThousandLifeLoseGame`, `applyRetiredTriggerLegacyUpkeepEffectDoubling` |
+| **Wired** | `lose_game` in `ORACLE_IR_FALLBACK_STEP_KINDS`; thousand-life clause → `conditional` + inner `lose_game` |
+| **Executor** | `you have N or more life` condition in `oracleIRExecutorConditionalStepSupportExtended.ts` |
+| **Evidence** | `oracleIRExecutor.test.ts` conditional lose_game cases; routing tests |
+| **Ratchet** | **62 → 60** |
+| **Migration soak (post-492)** | **809/809** green; telemetry **0 events** → `telemetry-snapshot-post492.json` |
+
+**E9 batch 491 (D3 — ExileTopTwoPlayableChoice deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyExileTopTwoPlayableChoice` |
+| **Evidence** | `isTriggerEffectFullyIrWired` for `impulse_exile_top` (Anep exert + planeswalker "this turn" variants); Anep integration/replay tests |
+| **Parser fix** | Combat Celebrant combined untap+extra-combat now splits to `tap_or_untap` + `add_extra_combat` (regression from batch 487 mana/combat deletion) |
+| **Ratchet** | **63 → 62** |
+| **Migration soak (post-491)** | **809/809** green; telemetry **0 events** → `telemetry-snapshot-post491.json` |
+
+**E9 batch 490 (D3 — HandSizeLifeGain deletion + hand-size reference_amount executor):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyHandSizeLifeGain` |
+| **Executor** | `tryResolveForEachReferenceAmount` resolves hand-size and Ivory Tower "above N" gain_life amounts |
+| **Evidence** | `rules-engine/test/oracleQuantityResolve.test.ts`; Venser/Ivory stack regressions under IR primary |
+| **Ratchet** | **64 → 63** |
+| **Migration soak (post-490)** | **809/809** green; telemetry **0 events** → `telemetry-snapshot-post490.json` |
+
+**E9 batch 489 (D3 — counter inline batch deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `oracleIrTriggerLegacyCounterHandlers.ts` / `applyRetiredTriggerLegacyCounterInlineBatch` |
+| **Evidence** | `isTriggerEffectFullyIrWired` for devotion-scaled and artifact-count `add_counter` clauses |
+| **Ratchet** | **65 → 64** |
+| **Migration soak (post-489)** | **809/809** green; telemetry **0 events** → `telemetry-snapshot-post489.json` |
+
+**E9 batch 488 (D3 — ExtraTurnAfterThisOne preface handler deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyExtraTurnAfterThisOne` from `oracleIrTriggerLegacyTurnAndZoneHandlers.ts` + preface dispatch |
+| **Evidence** | `take_extra_turn` in `ORACLE_IR_FALLBACK_STEP_KINDS`; `isTriggerEffectFullyIrWired` for Time Warp clause |
+| **Ratchet** | **66 → 65** |
+| **Emrakul integration** | Test opts into `ORACLE_IR_TRIGGER_PRIMARY=1` (legacy preface was only path under default-off vitest) |
+| **Migration soak (post-488)** | **809/809** green; telemetry **0 events** → `telemetry-snapshot-post488.json` |
+| **Forced-legacy soak** | **126/126**; **56** `legacy_handled`; **65** exports |
+
+**E9 batch 487 (D3 — mana/combat batch deletion + add_extra_combat wiring):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `oracleIrTriggerLegacyManaAndCombatHandlers.ts` / `applyRetiredTriggerLegacyManaAndCombatBatch` |
+| **Wired** | `add_extra_combat`, `take_extra_turn` in `ORACLE_IR_FALLBACK_STEP_KINDS` |
+| **Evidence** | Combat Celebrant exert integration; `isTriggerEffectFullyIrWired` for extra-combat clauses |
+| **Ratchet** | **67 → 66** |
+| **Step-wiring test** | Negative case uses `venture_into_dungeon` (still unwired); added positive case for `take_extra_turn` |
+| **Migration soak (post-487)** | **809/809** green; telemetry **0 events** → `telemetry-snapshot-post487.json` |
+| **Forced-legacy soak** | **126/126**; **56** `legacy_handled`; **66** exports |
+
+**E9 batch 486 (D3 — mana/combat batch partial deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted clauses** | proliferate, add_mana, dynamic_power_mana, draw-trigger damage, that_player_adds_mana, deals_damage_to_that_player, graveyard_to_library |
+| **Retained** | `extra_combat_phase` / `extra_combat_phase_skip` (`add_extra_combat` not trigger-runtime-wired) |
+| **Evidence** | `isTriggerEffectFullyIrWired` probe + `oracle-ir-proliferate.integration.test.ts`; forced triage **0** mana/combat handler hits |
+| **Oracle hydration** | `resolveTriggerStackItemEffectText` hydrates truncated fragments from permanent/card oracle (replaces Kynaios name guard) |
+| **Ratchet** | unchanged at **67** (same export, fewer clauses) |
+
+**E9 batch 485 (D3 — full graveyard zone-change batch deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `oracleIrTriggerLegacyGraveyardZoneHandlers.ts` / `applyRetiredTriggerLegacyGraveyardZoneChangeBatch` (all remaining clauses) |
+| **Evidence** | `isTriggerEffectFullyIrWired` for exile-from-graveyard, reanimation, exile_top, linked exile, Whip-style delayed exile, aura attach, cast-from-graveyard copy |
+| **Routing** | Added graveyard zone-change patterns to `oracle-ir-trigger-legacy-routing.test.ts` |
+| **Live soak tooling** | `scripts/oracle-ir-telemetry-fetch.ts` → `GET /api/oracle-ir/telemetry` |
+| **Ratchet** | **68 → 67** |
+| **Migration soak (post-485)** | **806/807** green (1 pre-existing Kynaios flake); telemetry **0 events** → `telemetry-snapshot-post485.json` |
+| **Kynaios + Keen-Eyed fixes** | Generic oracle hydration in `resolveTriggerStackItemEffectText` (permanent → card lookup); graveyard→exile IR sync restores `permanent.exiledCards` ledger |
+| **Forced-legacy soak** | **126/126**; **56** `legacy_handled`; **`firedLegacyHandlers` → 0** (no graveyard batch hits) |
+| **Live beta soak** | Fetched from local server: **0 events** → `telemetry-snapshot-live-beta.json` (no beta traffic yet) |
+
+**E9 batch 484 (D3 — simple zone-change graveyard clause deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted clauses** | `$destroy_target`, `$exile_target_creature`, `$bounce_target` from graveyard batch |
+| **Deleted export** | `applyRetiredTriggerLegacyExileTargetPlayerGraveyard` (body handler) |
+| **Tail fix** | Short-circuit late batch when IR fallback applied fully-wired text (forced-legacy path) |
+| **Evidence** | destroy/exile/move_zone IR-wired; forced-legacy integration tests route via IR fallback |
+| **Ratchet** | **69 → 68** |
+
+**E9 batch 483 (D3 — tap/untap inline batch deletion + gain_control wiring):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `oracleIrTriggerLegacyTapUntapHandlers.ts` / `applyRetiredTriggerLegacyTapUntapInlineBatch` |
+| **Wired** | `isSupportedGainControlTriggerPattern` for each-player owned creature/permanent control (`gain_control` step) |
+| **Evidence** | Executor + `syncPreparedCopiesAfterBattlefieldControllerChanges`; routing + runtime wiring tests |
+| **Ratchet** | **70 → 69** |
+
+**E9 batch 482 (D3 — untap inline branch deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted clauses** | `untap_other_creatures_you_control`, `untap_all_creatures_you_control` from tap/untap inline batch |
+| **Retained** | `each_player_gains_control_owned_creatures` (`gain_control` not IR-wired) |
+| **Evidence** | `isTriggerEffectFullyIrWired` for plain + compound exert untap clauses (`tap_or_untap`); IR tail fallback covers forced-legacy path |
+| **Ratchet** | unchanged at **70** (same export, fewer clauses) |
+
+**E9 batch 481 (combined regex `$clause` telemetry):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Telemetry** | `applyRetiredTriggerLegacyCombinedEffectsRegexBatch$you_gain_that_much_life`, `$put_that_many_counters_on_self` |
+| **Tail dispatch** | `legacyTailHandled(combinedEffectsHit)` passes clause tag to triage |
+| **Routing** | Documented `untap all * creatures you control` as IR-wired (`tap_or_untap`); `each player gains control…` still not wired |
+
+**E9 batch 480 (D3 — two +1/+1 counter-on-target handler deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget` (+ Elspeth Angel/flying helpers) |
+| **Evidence** | `isTriggerEffectFullyIrWired` for plain, Angel, and multi-step forge-room clauses (`add_counter` + `grant_*`) |
+| **Ratchet** | **71 → 70** |
+
+**E9 batch 479 (D3 — PT modification batch deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted** | `applyRetiredTriggerLegacyPTModificationBatch` (+ file `oracleIrTriggerLegacyPTModificationHandlers.ts`) |
+| **Evidence** | Batch skipped when `isTriggerEffectFullyIrWired`; IR fallback tests cover modify_pt / grant_temporary_ability |
+| **Ratchet** | **72 → 71** |
+
+**E9 batch 478 (D3 pilot — combat evasion handler deletion):**
+
+| Deliverable | Detail |
+|-------------|--------|
+| **Deleted 4 exports** | `applyRetiredTriggerLegacyTargetCreatureCantBeBlocked`, `SelfCantBeBlocked`, `SelfPreventCombatDamage`, `SelfCantBeBlockedByLowPower` |
+| **Evidence** | `isTriggerEffectFullyIrWired` + routing tests; legacy handlers were no-ops for wired text |
+| **Ratchet** | **76 → 72** (`TRIGGER_LEGACY_EXPORT_CEILING`) |
+| **File removed** | `oracleIrTriggerLegacyCombatEvasionHandlers.ts` |
+
+**Next candidates:**
+
+1. **D3 batch 8** — next late-effect regex batch families from forced-legacy triage (token inline, combined, etc.).
+2. **Live EDH beta soak** — run manual games on beta, then `npx tsx scripts/oracle-ir-telemetry-fetch.ts --url <beta-host>/api/oracle-ir/telemetry` and triage.
 
 **✅ 5 migration failures root-caused and fixed (2026-07-02):** the Marvel/E9 arc introduced **deferred spell finalize** (`oracleIrDeferredFinalize` in `stackResolveInstantSorceryLegacyResolutionUtils.ts`): when an IR-handled spell queues resolution steps, the item is re-pushed onto the stack and the finalize (stack pop + spell → graveyard) runs only after the queue empties — per CR 608.2m, matching the Consider/teamwork expectations. The 5 failing tests encoded the *old* immediate-finalize semantics and had two real gaps:
 
@@ -45,7 +428,7 @@ Also: many first-tests-per-file exceed the 5s default timeout under full-suite l
 | Executor (`full_card`) | **47,514/47,514** assisted — parse→execute **0**, `partial` **0**, `ir_gap` **0** |
 | Trigger coverage | **15,741/15,741** fully covered — `not_detected` **0** |
 | Selector / condition / amount / target gaps | **0** clusters each |
-| Migration | **797/797** (`npm run test:oracle-ir-migration`) |
+| Migration | **807/807** (`npm run test:oracle-ir-migration`) |
 
 ### Layer 3 — completed beta-prep (batches 445–453)
 
@@ -1942,37 +2325,48 @@ Pick one track:
 ## Copy-paste prompt for next session
 
 ```
-Continue MTGEDH Track D Oracle IR executor gap closure — post batch 354 (full_card scope).
+Continue MTGEDH Oracle IR Track E9 — post batch 469 (telemetry soak gap fixes + D3 legacy retirement).
 
-Read first: docs/oracle-ir-session-handoff.md, docs/oracle-ir-server-migration-plan.md § Current status.
-Rules: .cursor/rules/oracle-ir-no-bespoke-handlers.mdc (generic parser/executor only; no card-name handlers).
+Read first:
+- docs/oracle-ir-session-handoff.md (§ Next session — batches 467–469)
+- docs/oracle-ir-track-e-remaining-work.md (§ D3, D6, E9+)
+- .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 
-Current metrics (full_card, post batch 354):
-- unsupported_selector: 0 (cleared batch 339)
-- unsupported_condition_clause: 603 (572 unique clusters)
-- ir_gap: 132
-- Assisted: 97.3% (46674/47969)
-- All batches 264–354 uncommitted unless user asks to commit
+Current status (2026-07-03):
+- Migration: 811/811 green (npm run test:oracle-ir-migration, ~13 min; do NOT pass duplicate --pool=threads)
+- Legacy ratchet: 76 wired applyRetiredTriggerLegacy* exports (oracle-ir-legacy-handler-ratchet.unit.test.ts)
+- D6: client resolutionChoicePrimitives shipped (number_choice → X modal; options[] fallback)
+- Batch 469: conditional appliedSteps, scry/surveil+draw deferral, this spacecraft target, station threshold re-fetch
+- Pre-469 soak: 34 telemetry events (22 all_or_nothing_failure, 10 owned_but_unhandled, 2 legacy_handled)
+- Triage: 76 wired / 0 orphaned (transitive closure from stackExecuteTriggerEffect* roots)
 
-Next batch (355) — condition clusters from executor-fullcard-condition-gap-analysis.json:
-1. that player controls more lands than you — Keeper of the Accord / Archaeomancer's Map
-2. you have fewer than seven cards in hand — Kozilek, the Great Distortion / Damia, Sage of Stone
-3. its surge cost was paid — Reckless Bushwhacker / Tyrant of Valakut
-4. you put a counter on a creature this turn — Lord Jyscal Guado / Lasting Tarfire
+Priority 1 — Re-run telemetry soak and compare:
+  cd server
+  $env:ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT='D:\Git\MTGEDH\server\scripts\out\telemetry-snapshot-post469.json'
+  npm run test:oracle-ir-migration
+  npm run oracle-ir:legacy-triage -- --snapshot scripts/out/telemetry-snapshot-post469.json
+  Compare event counts vs pre-469 (expect fewer all_or_nothing_failure / owned_but_unhandled).
 
-Workflow per batch:
-1. npx tsx scripts/executor-fullcard-condition-gap-analysis.ts (or read server/scripts/out/executor-fullcard-condition-gap-analysis.json)
-2. server/scripts/_tmp-probe-batchNNN.ts probe (delete after batch)
-3. Generic evaluators in rules-engine/src/oracleIRExecutorConditionalStepSupport*.ts; audit enrich in server/scripts/executor-coverage-audit.ts
-4. rules-engine/test/oracleIRGapBatchNNN.test.ts (≈5–6 tests)
-5. npx vitest run test/oracleIRGapBatchNNN.test.ts
-6. EXECUTOR_COVERAGE_SCOPE=full_card npm run executor:coverage
-7. npx tsx scripts/executor-fullcard-condition-gap-analysis.ts
-8. Update docs/oracle-ir-session-handoff.md
-9. Do not commit unless asked
+Priority 2 — Continue D3 evidence-driven legacy deletion:
+  - Only delete handlers whose legacy_family NEVER appears in legacy_handled telemetry after soak
+  - Optional richer signal: ORACLE_IR_TRIGGER_LEGACY=1 forced migration subset before triage
+  - npm run oracle-ir:legacy-triage:soak
+  - Lower ratchet ceiling after each deletion batch; never delete without triage proof
+
+Priority 3 — Remaining owned_but_unhandled triage:
+  - Spell path: stackResolveSpellOracleIrUtils.ts (IR primary owns spell but categorize fallback)
+  - Trigger tail: stackExecuteTriggerEffectTailUtils.ts
+  - Fix generic IR gaps; no new card-name handlers
+
+Targeted regression (after changes):
+  npx vitest run tests/prepared.trigger-primary.integration.test.ts tests/oracle-ir-scry-surveil.integration.test.ts tests/oracle-ir-station-charge-counters.integration.test.ts tests/oracle-ir-broodship-graveyard-cast.socket.integration.test.ts tests/oracle-ir-legacy-handler-ratchet.unit.test.ts --pool=threads --maxWorkers=1
 
 Key paths:
-- Condition evaluators: rules-engine/src/oracleIRExecutorConditionalStepSupport.ts, oracleIRExecutorConditionalStepSupportExtended.ts
-- Audit: server/scripts/executor-coverage-audit.ts
-- Gap scripts: server/scripts/executor-fullcard-condition-gap-analysis.ts
+- All-or-nothing / telemetry: server/src/state/modules/oracleIrStepWiring.ts, oracleIrGapTelemetry.ts
+- Conditional executor: rules-engine/src/oracleIRExecutorMainLoop.ts (case 'conditional')
+- Legacy triage: server/scripts/oracle-ir-legacy-triage.ts, oracle-ir-legacy-triage-soak.ts
+- Station IR: server/src/state/modules/oracleIrAbilityExecution.ts (tryApplyStationChargeCountersViaOracleIR)
+- Draw deferral: server/src/state/modules/oracleIrTriggerExecution.ts (drawEffectSynced)
+
+Do not commit unless asked. Windows: chain with ; not &&.
 ```

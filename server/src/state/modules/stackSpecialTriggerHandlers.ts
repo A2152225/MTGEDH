@@ -3,14 +3,11 @@ import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
 import { cleanupCardLeavingExile } from './playable-from-exile.js';
 import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
-import { movePermanentToGraveyard } from './counters_tokens.js';
-import { syncPreparedPermanentAfterControlChange } from './prepared.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueCastFromExileResolutionPrompt } from './triggerCastFromExileUtils.js';
-import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
-export interface TriggerLegacySpecialParams {
+export interface StackSpecialTriggerParams {
   readonly ctx: GameContext;
   readonly controller: PlayerID;
   readonly sourceName: string;
@@ -19,61 +16,8 @@ export interface TriggerLegacySpecialParams {
   readonly state: any;
 }
 
-export function applyRetiredTriggerLegacySacrificeThisCreature(
-  params: TriggerLegacySpecialParams,
-): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  if (params.desc !== 'sacrifice this creature' && params.desc !== 'sacrifice this creature.') {
-    return false;
-  }
-
-  const sourceId = String(params.triggerItem?.source || params.triggerItem?.permanentId || '').trim();
-  if (sourceId) {
-    movePermanentToGraveyard(params.ctx, sourceId, true);
-  }
-  return true;
-}
-
-export function applyRetiredTriggerLegacyAttackingPlayerGainsControlOfArtifact(
-  params: TriggerLegacySpecialParams,
-): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  if (params.desc !== 'the attacking player gains control of this artifact and untaps it') {
-    return false;
-  }
-
-  const sourceId = String(params.triggerItem?.source || params.triggerItem?.permanentId || '').trim();
-  const attackingPlayerId = String(params.triggerItem?.attackingPlayerId || '').trim();
-  if (!sourceId || !attackingPlayerId) {
-    return true;
-  }
-
-  const sourcePerm = Array.isArray(params.state.battlefield)
-    ? params.state.battlefield.find((perm: any) => perm && String(perm.id || '') === sourceId)
-    : null;
-  if (sourcePerm) {
-    const previousController = String((sourcePerm as any).controller || '');
-    (sourcePerm as any).controller = attackingPlayerId;
-    syncPreparedPermanentAfterControlChange(params.state, sourcePerm, previousController);
-    (sourcePerm as any).tapped = false;
-  }
-  return true;
-}
-
-export function applyRetiredTriggerLegacyReboundTrigger(
-  params: TriggerLegacySpecialParams,
-): boolean {
+export function applyStackReboundTrigger(params: StackSpecialTriggerParams): boolean {
   if (params.triggerItem?.triggerType !== 'rebound') {
-    return false;
-  }
-
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
     return false;
   }
 
@@ -169,14 +113,8 @@ export function applyRetiredTriggerLegacyReboundTrigger(
   return true;
 }
 
-export function applyRetiredTriggerLegacyParadigmTrigger(
-  params: TriggerLegacySpecialParams,
-): boolean {
+export function applyStackParadigmTrigger(params: StackSpecialTriggerParams): boolean {
   if (params.triggerItem?.triggerType !== 'paradigm') {
-    return false;
-  }
-
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
     return false;
   }
 

@@ -6,6 +6,7 @@ import { isSupportedCopyPermanentTriggerPattern } from './trigger-copy-permanent
 import {
   ORACLE_IR_FALLBACK_STEP_KINDS,
   TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS,
+  isSupportedGainControlTriggerPattern,
 } from './trigger-runtime-wiring.js';
 
 /**
@@ -46,6 +47,10 @@ export function isOracleEffectStepRuntimeWired(step: OracleEffectStep): boolean 
     return isSupportedCopyPermanentTriggerPattern(step);
   }
 
+  if (step.kind === 'gain_control') {
+    return isSupportedGainControlTriggerPattern(step);
+  }
+
   if (isOptionalOracleEffectStep(step)) {
     return (
       TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS.has(String(step.kind))
@@ -73,10 +78,7 @@ export function getUnwiredOracleEffectStepKinds(steps: readonly OracleEffectStep
       kinds.push('unknown');
       continue;
     }
-    if (ORACLE_IR_ACTIVATED_STEP_KINDS.has(String(step.kind))) continue;
-    if (ORACLE_IR_FALLBACK_STEP_KINDS.has(String(step.kind))) continue;
-    if (ORACLE_IR_ACTIVATED_ONLY_STEP_KINDS.has(String(step.kind))) continue;
-    if (TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS.has(String(step.kind)) && isOptionalOracleEffectStep(step)) continue;
+    if (isOracleEffectStepRuntimeWired(step)) continue;
     const optionalSuffix = isOptionalOracleEffectStep(step) ? ' (optional)' : '';
     kinds.push(`${String(step.kind || 'unknown')}${optionalSuffix}`);
   }
@@ -84,11 +86,7 @@ export function getUnwiredOracleEffectStepKinds(steps: readonly OracleEffectStep
 }
 
 export function isActivatedAbilityEffectFullyWired(steps: readonly OracleEffectStep[]): boolean {
-  if (steps.length === 0) return false;
-  return steps.every((step) => {
-    if (step.kind === 'unknown') return false;
-    return ORACLE_IR_ACTIVATED_STEP_KINDS.has(String(step.kind));
-  });
+  return areAllOracleEffectStepsRuntimeWired(steps);
 }
 
 export function hasUnqueuedPlayerChoiceGap(
