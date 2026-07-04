@@ -635,6 +635,73 @@ describe('effect-program queue adapter', () => {
     });
   });
 
+  it('syncs effect-program life changes into authoritative state.life on resume', () => {
+    const game = {
+      state: {
+        players: [{ id: 'p1', name: 'P1', life: 40 }],
+        life: { p1: 40 },
+        zones: {},
+      } as any,
+      seq: 1,
+      libraries: new Map<string, any[]>(),
+      bumpSeq() {
+        this.seq += 1;
+      },
+    };
+
+    const program = buildEffectProgramFromOracleIR({
+      id: 'optional-gain-life',
+      controllerId: 'p1',
+      sourceId: 'auriok-1',
+      sourceName: 'Auriok Champion',
+      steps: [
+        {
+          kind: 'gain_life',
+          who: { kind: 'you' },
+          amount: { kind: 'number', value: 1 },
+          optional: true,
+          raw: 'you may gain 1 life.',
+        } as any,
+      ],
+    });
+
+    const started = startEffectProgramResolution({
+      game,
+      gameId,
+      program,
+      handlers: createOracleIREffectProgramHandlers({
+        controllerId: 'p1',
+        sourceId: 'auriok-1',
+        sourceName: 'Auriok Champion',
+      }) as any,
+      persistPrompt: false,
+    });
+
+    expect(started.status).toBe('waiting_for_choice');
+    expect(started.queuedStep).toBeDefined();
+    expect((game.state as any).life.p1).toBe(40);
+
+    const completedStep = ResolutionQueueManager.completeStep(gameId, started.queuedStep!.id, {
+      stepId: started.queuedStep!.id,
+      playerId: 'p1',
+      selections: ['yes'],
+      cancelled: false,
+      timestamp: 100,
+    });
+
+    const resumed = resumeEffectProgramResolution({
+      game,
+      gameId,
+      step: completedStep!,
+      response: completedStep!.response!,
+      persistPrompt: false,
+    });
+
+    expect(resumed.status).toBe('completed');
+    expect((game.state as any).life.p1).toBe(41);
+    expect((game.state as any).players.find((p: any) => p.id === 'p1')?.life).toBe(41);
+  });
+
   it('starts and resumes effect programs through queued responses', () => {
     const game = {
       state: { count: 0 } as any,

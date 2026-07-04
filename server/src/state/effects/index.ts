@@ -2,6 +2,7 @@ export {
   appendEffectProgramPromptEvent,
   buildEffectProgramPromptSnapshot,
   createEffectProgramChoiceResponse,
+  persistEffectProgramChoiceResolutionEvent,
   queueEffectProgramChoice,
   getEffectProgramQueueMetadata,
   readEffectProgramQueueMetadata,
@@ -20,3 +21,9 @@ export {
   type ResumeEffectProgramResolutionArgs,
   type StartEffectProgramResolutionArgs,
 } from './effectProgramResolutionService.js';
+
+export {
+  applyEffectProgramChoiceBindingOnReplay,
+  restoreAllPendingEffectProgramRuntimes,
+  restoreEffectProgramRuntimeForPendingStep,
+} from './effectProgramReplayRestore.js';

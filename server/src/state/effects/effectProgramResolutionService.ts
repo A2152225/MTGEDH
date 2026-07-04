@@ -9,18 +9,28 @@ import {
   type EffectProgramRunResult,
   type EffectProgramRuntime,
 } from '../../../../rules-engine/src/effectProgram.js';
+import type { PlayerID } from '../../../../shared/src/index.js';
 import type { ResolutionStep, ResolutionStepResponse } from '../resolution/index.js';
+import { ResolutionQueueManager } from '../resolution/index.js';
 import {
   appendEffectProgramPromptEvent,
   createEffectProgramChoiceResponse,
+  persistEffectProgramChoiceResolutionEvent,
   type EffectProgramQueueExtraConfig,
   queueEffectProgramChoice,
   readEffectProgramQueueMetadata,
 } from './effectProgramQueueAdapter.js';
+import { restoreEffectProgramRuntimeForPendingStep } from './effectProgramReplayRestore.js';
+import {
+  isOptionalEffectProgramChoiceStep,
+  resolveOptionalAutoChoice,
+} from './effectProgramOptionalAutoResolveUtils.js';
+import { debug, debugWarn } from '../../utils/debug.js';
 import {
   bridgeOracleIrEffectProgramRunEvents,
   maybeEmitDeclinedOptionalAbilityCopyFromEffectProgram,
   maybeEmitPaidOptionalManaFromEffectProgram,
+  persistEffectProgramStateMutationsFromRun,
   type EffectProgramOracleIrBridgeConfig,
 } from '../modules/oracleIrEffectProgramBridge.js';
 import { mirrorGraveyardCastingPermissionsToDurable } from '../modules/graveyard-permissions.js';
@@ -50,6 +60,7 @@ export interface ResumeEffectProgramResolutionArgs {
   readonly step: ResolutionStep;
   readonly response: ResolutionStepResponse;
   readonly persistPrompt?: boolean;
+  readonly queuePendingChoices?: boolean;
 }
 
 export interface EffectProgramResolutionResult {
@@ -61,6 +72,54 @@ export interface EffectProgramResolutionResult {
 }
 
 const runtimeStore = new Map<string, Map<string, StoredEffectProgramRuntime>>();
+
+function tryAutoResolveOptionalEffectProgramStep(
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+): boolean {
+  if ((game as any)?.isReplaying) return false;
+  if (!isOptionalEffectProgramChoiceStep(step)) return false;
+
+  const playerId = String(step.playerId || '').trim() as PlayerID;
+  if (!playerId) return false;
+
+  const choice = resolveOptionalAutoChoice((game as any).state, playerId, step);
+  if (!choice) return false;
+
+  restoreEffectProgramRuntimeForPendingStep(game, gameId, step);
+
+  const response: ResolutionStepResponse = {
+    stepId: String(step.id || ''),
+    playerId,
+    selections: [choice],
+    cancelled: false,
+    timestamp: Date.now(),
+  };
+
+  const completedStep = ResolutionQueueManager.completeStep(gameId, step.id, response);
+  if (!completedStep) {
+    debugWarn(1, `[EffectProgram] Auto-${choice} could not complete step ${step.id}`);
+    return false;
+  }
+
+  const resumed = resumeEffectProgramResolution({
+    game,
+    gameId,
+    step: completedStep,
+    response,
+    persistPrompt: false,
+  });
+
+  if (!resumed.resumed) {
+    debugWarn(1, `[EffectProgram] Auto-${choice} could not resume step ${step.id}:`, resumed.reason || resumed.status);
+    return false;
+  }
+
+  void persistEffectProgramChoiceResolutionEvent(game, gameId, completedStep, response, choice);
+  debug(2, `[EffectProgram] Auto-${choice} for ${step.sourceName || 'Ability'} (${playerId})`);
+  return true;
+}
 
 export function startEffectProgramResolution(args: StartEffectProgramResolutionArgs): EffectProgramResolutionResult {
   const runtime = createEffectProgramRuntime({
@@ -87,7 +146,11 @@ export function resumeEffectProgramResolution(args: ResumeEffectProgramResolutio
     return { resumed: false, status: 'not_effect_program_prompt' };
   }
 
-  const stored = getRuntimeForStep(args.gameId, args.step.id);
+  let stored = getRuntimeForStep(args.gameId, args.step.id);
+  if (!stored) {
+    restoreEffectProgramRuntimeForPendingStep(args.game, args.gameId, args.step);
+    stored = getRuntimeForStep(args.gameId, args.step.id);
+  }
   if (!stored) {
     return {
       resumed: false,
@@ -107,6 +170,7 @@ export function resumeEffectProgramResolution(args: ResumeEffectProgramResolutio
     runtime,
     handlers: stored.handlers,
     persistPrompt: args.persistPrompt ?? true,
+    queuePendingChoices: args.queuePendingChoices,
     queueExtraConfig: stored.queueExtraConfig,
     oracleIrBridge: stored.oracleIrBridge,
     resumed: true,
@@ -123,6 +187,14 @@ export function getEffectProgramRuntimeForStep(
   stepId: string
 ): EffectProgramRuntime<GameState> | undefined {
   return getRuntimeForStep(gameId, stepId)?.runtime;
+}
+
+export function restoreEffectProgramRuntimeStoreEntry(
+  gameId: string,
+  stepId: string,
+  entry: StoredEffectProgramRuntime,
+): void {
+  storeRuntimeForStep(gameId, stepId, entry);
 }
 
 function buildTeamworkChooseBothQueueExtras(
@@ -157,6 +229,7 @@ function continueEffectProgramResolution(args: {
   readonly runtime: EffectProgramRuntime<GameState>;
   readonly handlers: EffectProgramHandlers<GameState>;
   readonly persistPrompt: boolean;
+  readonly queuePendingChoices?: boolean;
   readonly queueExtraConfig?: EffectProgramQueueExtraConfig;
   readonly oracleIrBridge?: EffectProgramOracleIrBridgeConfig;
   readonly resumed: boolean;
@@ -166,6 +239,11 @@ function continueEffectProgramResolution(args: {
   applyRunResultState(args.game, runResult);
 
   if (args.oracleIrBridge) {
+    persistEffectProgramStateMutationsFromRun(
+      args.game,
+      runResult.events,
+      args.oracleIrBridge,
+    );
     bridgeOracleIrEffectProgramRunEvents(
       args.game,
       (args.game as any).state,
@@ -189,6 +267,15 @@ function continueEffectProgramResolution(args: {
   }
 
   if (runResult.status === 'waiting_for_choice' && runResult.pendingChoice) {
+    if (args.queuePendingChoices === false) {
+      return {
+        resumed: args.resumed,
+        status: runResult.status,
+        runResult,
+        reason: 'choice_still_pending_without_queue',
+      };
+    }
+
     const teamworkExtras = buildTeamworkChooseBothQueueExtras(runResult.pendingChoice, args.oracleIrBridge);
     const queuedStep = queueEffectProgramChoice(args.gameId, runResult.pendingChoice, {
       ...(args.queueExtraConfig || {}),
@@ -200,6 +287,15 @@ function continueEffectProgramResolution(args: {
       queueExtraConfig: args.queueExtraConfig,
       oracleIrBridge: args.oracleIrBridge,
     });
+
+    if (tryAutoResolveOptionalEffectProgramStep(args.game, args.gameId, queuedStep)) {
+      return {
+        resumed: args.resumed,
+        status: 'completed',
+        runResult,
+        reason: 'auto_resolved_optional_choice',
+      };
+    }
 
     if (args.persistPrompt) {
       appendEffectProgramPromptEvent(args.game, args.gameId, queuedStep);
@@ -271,6 +367,8 @@ function syncEffectProgramStateToGame(game: any, state: GameState): GameState {
   );
   const zones = { ...((state as any).zones || {}) } as Record<string, any>;
   let didSyncZones = false;
+  let didSyncLife = false;
+  const life = { ...(((state as any).life || {}) as Record<string, number>) };
 
   const players = (state.players || []).map(player => {
     const playerId = String((player as any)?.id || '').trim();
@@ -280,6 +378,11 @@ function syncEffectProgramStateToGame(game: any, state: GameState): GameState {
 
     const originalPlayer = originalPlayers.get(playerId);
     let nextPlayer = player as any;
+
+    if (typeof (player as any).life === 'number') {
+      life[playerId] = (player as any).life;
+      didSyncLife = true;
+    }
 
     if (Array.isArray((player as any).hand)) {
       const hand = ((player as any).hand as any[]).map(card => ({ ...card, zone: 'hand' }));
@@ -330,14 +433,15 @@ function syncEffectProgramStateToGame(game: any, state: GameState): GameState {
     return nextPlayer;
   });
 
-  if (!didSyncZones) {
+  if (!didSyncZones && !didSyncLife) {
     return state;
   }
 
   return {
     ...state,
     players,
-    zones,
+    ...(didSyncLife ? { life } : {}),
+    ...(didSyncZones ? { zones } : {}),
   };
 }
 

@@ -8,6 +8,7 @@ import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
 import { appendCopyTriggeredAbilityResolveEvent } from './triggerAbilityCopyUtils.js';
 import { queueCopySpellStackPushFromOracleIRResult } from './oracleIrServerCopySpellSync.js';
+import { persistEffectProgramReplayMutationsFromRun } from '../effects/effectProgramReplayMutationPersistence.js';
 
 export interface EffectProgramOracleIrBridgeConfig {
   readonly irCtx: OracleIRExecutionContext;
@@ -203,4 +204,13 @@ export function maybeEmitDeclinedOptionalAbilityCopyFromEffectProgram(
     triggerStackItemId: String(triggerItem?.id || '').trim() || undefined,
     triggeringStackItemId: triggeringStackItemId || undefined,
   });
+}
+
+/** Persist replay-sourced mutations from effect-program oracle_ir_execution events. */
+export function persistEffectProgramStateMutationsFromRun(
+  ctx: GameContext,
+  events: readonly unknown[],
+  bridge?: EffectProgramOracleIrBridgeConfig,
+): void {
+  persistEffectProgramReplayMutationsFromRun(ctx, events, bridge);
 }

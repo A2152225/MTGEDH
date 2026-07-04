@@ -360,4 +360,6 @@ export interface OracleIRExecutionResult {
   /** Step carry-over for chained selectors (e.g. reveal_top → move_zone "those cards"). */
   readonly lastMovedCards?: readonly any[];
   readonly lastRevealedCardCount?: number;
+  /** Structured replay events for server persistence after effect-program IR runs. */
+  readonly replayMutations?: readonly import('./oracleIRReplayMutations').OracleIRReplayMutation[];
 }

@@ -1343,6 +1343,11 @@ export const SHORTCUT_ELIGIBLE_TRIGGERS: Record<string, {
     type: 'mandatory',
     defaultPreference: 'always_resolve'
   },
+  'auriok champion': {
+    description: 'You may gain 1 life when a creature enters',
+    type: 'may_ability',
+    defaultPreference: 'always_yes'
+  },
   'altar of the brood': {
     description: 'Each opponent mills 1 when a permanent enters',
     type: 'mandatory',

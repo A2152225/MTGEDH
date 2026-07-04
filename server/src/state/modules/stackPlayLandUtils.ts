@@ -288,6 +288,9 @@ export function finishPlayLandBattlefieldEntry(
     markPermanentEnteredFromZone(newPermanent, 'exile');
   }
 
+  // During event-log replay, ETB/landfall triggers are restored via pushTriggeredAbility
+  // and resolveTopOfStack events — re-pushing them here duplicates stack work and drifts zones.
+  if (!(ctx as any).isReplaying) {
   try {
     const etbTriggers = getETBTriggersForPermanent(card, newPermanent);
 
@@ -426,6 +429,7 @@ export function finishPlayLandBattlefieldEntry(
     }
   } catch (err) {
     debugWarn(1, '[playLand] Failed to process landfall triggers:', err);
+  }
   }
 
   try {

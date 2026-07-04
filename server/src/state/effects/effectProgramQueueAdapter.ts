@@ -112,6 +112,65 @@ export function buildEffectProgramPromptSnapshot(step: ResolutionStep): EffectPr
   };
 }
 
+export async function persistEffectProgramChoiceResolutionEvent(
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+  choice: 'yes' | 'no',
+): Promise<boolean> {
+  if (!gameId || (game as any)?.isReplaying) {
+    return false;
+  }
+
+  const metadata = readEffectProgramQueueMetadata(step);
+  const stepData = step as any;
+  const isOptionalTriggeredPrompt =
+    stepData?.optionalTriggeredAbilityPrompt === true
+    || stepData?.deferredTriggeredAbilityItem
+    || metadata?.effectProgramFamily === 'optional_triggered_ability'
+    || metadata?.effectProgramFamily === 'trigger_resolution';
+
+  if (!metadata && !isOptionalTriggeredPrompt) {
+    return false;
+  }
+
+  const seq = Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0);
+  const choiceTurnNumber = Number((game as any)?.state?.turnNumber ?? (game as any)?.state?.turn ?? 0) || 0;
+  const deferredTriggeredAbilityItem = stepData?.deferredTriggeredAbilityItem;
+
+  try {
+    await appendEvent(gameId, seq, 'optionalTriggeredAbilityChoice', {
+      playerId: response.playerId,
+      sourceId: String(stepData?.sourceId || step.sourceId || '').trim(),
+      sourceName: String(stepData?.sourceName || step.sourceName || 'Ability'),
+      resolvedStepId: String(step.id || '').trim(),
+      ...(metadata ? { effectProgram: metadata } : {}),
+      ...(metadata
+        ? {
+            choiceBinding: {
+              bindingKey: metadata.effectProgramBindingKey,
+              response: createEffectProgramChoiceResponse(step, response),
+            },
+          }
+        : {}),
+      choice,
+      ...(choiceTurnNumber > 0 ? { turnNumber: choiceTurnNumber } : {}),
+      ...(deferredTriggeredAbilityItem && typeof deferredTriggeredAbilityItem === 'object'
+        ? {
+            deferredTriggeredAbilityItem: {
+              ...(deferredTriggeredAbilityItem as any),
+              optionalTriggeredAbilityDecisionApplied: true,
+            },
+          }
+        : {}),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function appendEffectProgramPromptEvent(
   game: any,
   gameId: string,

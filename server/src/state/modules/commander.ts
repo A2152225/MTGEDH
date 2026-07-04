@@ -315,48 +315,54 @@ export function setCommander(
     (state.commandZone as any)[playerId] = info;
   }
 
-  // If player was marked for pending opening draw, do shuffle + draw(7) but only if hand is empty.
-  if (pendingInitialDraw && pendingInitialDraw.has(playerId)) {
-    try {
-      const z = zones[playerId] || null;
-      const handCount = z ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0)) : 0;
+  // Opening draw during replay is handled by explicit shuffleLibrary/drawCards events
+  // (or replay() backward-compat immediately after setCommander).
+  if (!(ctx as any).isReplaying) {
+    // If player was marked for pending opening draw, do shuffle + draw(7) but only if hand is empty.
+    if (pendingInitialDraw && pendingInitialDraw.has(playerId)) {
+      try {
+        const z = zones[playerId] || null;
+        const handCount = z ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0)) : 0;
 
-      // Idempotency: only perform opening draw if hand is empty (handCount === 0)
-      if (handCount === 0) {
-        // Shuffle then draw 7 using existing zone helpers
-        shuffleLibrary(ctx, playerId);
-        const drawn = drawCards(ctx, playerId, 7);
-        // Clear pending flag
-        pendingInitialDraw.delete(playerId);
-        // bump seq to reflect visible changes
-        bumpSeq();
-      } else {
-        // If hand already has cards, just clear pending flag (avoid double-draw)
-        pendingInitialDraw.delete(playerId);
-        bumpSeq();
+        // Idempotency: only perform opening draw if hand is empty (handCount === 0)
+        if (handCount === 0) {
+          // Shuffle then draw 7 using existing zone helpers
+          shuffleLibrary(ctx, playerId);
+          const drawn = drawCards(ctx, playerId, 7);
+          // Clear pending flag
+          pendingInitialDraw.delete(playerId);
+          // bump seq to reflect visible changes
+          bumpSeq();
+        } else {
+          // If hand already has cards, just clear pending flag (avoid double-draw)
+          pendingInitialDraw.delete(playerId);
+          bumpSeq();
+        }
+      } catch (err) {
+        debugWarn(1, "setCommander: failed to perform opening draw for", playerId, err);
       }
-    } catch (err) {
-      debugWarn(1, "setCommander: failed to perform opening draw for", playerId, err);
+    } else {
+      try {
+        const stateAny = state as any;
+        const phase = String(stateAny?.phase || '').trim().toLowerCase();
+        const isPreGame = phase === '' || phase === 'pre_game' || phase.includes('pre');
+        if (isPreGame) {
+          const z = zones[playerId] || null;
+          const handCount = z
+            ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0))
+            : 0;
+          const libraryCount = (libraries.get(playerId) || []).length;
+          if (handCount === 0 && libraryCount > 0) {
+            shuffleLibrary(ctx, playerId);
+            drawCards(ctx, playerId, 7);
+          }
+        }
+      } catch (err) {
+        debugWarn(1, "setCommander: pre-game opening draw safety net failed for", playerId, err);
+      }
+      bumpSeq();
     }
   } else {
-    try {
-      const stateAny = state as any;
-      const phase = String(stateAny?.phase || '').trim().toLowerCase();
-      const isPreGame = phase === '' || phase === 'pre_game' || phase.includes('pre');
-      if (isPreGame) {
-        const z = zones[playerId] || null;
-        const handCount = z
-          ? (typeof z.handCount === "number" ? z.handCount : (Array.isArray(z.hand) ? z.hand.length : 0))
-          : 0;
-        const libraryCount = (libraries.get(playerId) || []).length;
-        if (handCount === 0 && libraryCount > 0) {
-          shuffleLibrary(ctx, playerId);
-          drawCards(ctx, playerId, 7);
-        }
-      }
-    } catch (err) {
-      debugWarn(1, "setCommander: pre-game opening draw safety net failed for", playerId, err);
-    }
     bumpSeq();
   }
 }

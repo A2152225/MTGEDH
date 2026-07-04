@@ -6,6 +6,7 @@ import { computeDiff } from "../utils/diff";
 import { games } from "./socket.js";
 import { emitResolutionStepPrompt, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingOracleIrCompoundResume, processPendingPonder, processPendingScry, processPendingSurveil } from "./resolution.js";
 import { ResolutionQueueManager } from "../state/resolution/index.js";
+import { restoreAllPendingEffectProgramRuntimes } from "../state/effects/index.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
@@ -1076,6 +1077,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
 
             try {
               if (!spectator && playerId) {
+                restoreAllPendingEffectProgramRuntimes(game, gameId);
                 const nextStep = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any)[0];
                 if (nextStep) {
                   emitResolutionStepPrompt(socket, gameId, nextStep);

@@ -1,5 +1,6 @@
 import type { GameState, PlayerID, BattlefieldPermanent, OracleAutomationGap } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
+import { collectReplayMutationsFromAppliedStep, mergeReplayMutations, type OracleIRReplayMutation } from './oracleIRReplayMutations';
 import { parseOracleTextToIR } from './oracleIRParser';
 import {
   appendOracleAutomationGapRecords,
@@ -716,6 +717,7 @@ export function applyOracleIRStepsToGameStateImpl(
     readonly count?: number;
   } | null = null;
   let lastConditionalEvaluation: boolean | null = null;
+  let replayMutations: OracleIRReplayMutation[] = [];
 
   let nextState = state;
   const pendingOptionalSteps: OracleEffectStep[] = [];
@@ -726,6 +728,12 @@ export function applyOracleIRStepsToGameStateImpl(
   const appliedStepKinds = new Map<number, string>(
     ctx.appliedStepKinds ? [...ctx.appliedStepKinds] : [],
   );
+
+  const absorbExecutionReplayMutations = (execution: { readonly replayMutations?: readonly OracleIRReplayMutation[] }): void => {
+    if (Array.isArray(execution.replayMutations) && execution.replayMutations.length > 0) {
+      replayMutations = mergeReplayMutations(replayMutations, execution.replayMutations);
+    }
+  };
 
   const setLastStepOutcome = (step: OracleEffectStep, kind: StepOutcomeKind, metadata?: { readonly count?: number }): void => {
     lastStepOutcome = { kind, stepKind: step.kind, ...(metadata?.count !== undefined ? { count: metadata.count } : {}) };
@@ -883,6 +891,10 @@ export function applyOracleIRStepsToGameStateImpl(
     };
     log.push(...result.log);
     appliedSteps.push(step);
+    replayMutations = mergeReplayMutations(
+      replayMutations,
+      collectReplayMutationsFromAppliedStep(step, result, nextState, currentCtx),
+    );
     return true;
   };
 
@@ -1285,6 +1297,7 @@ export function applyOracleIRStepsToGameStateImpl(
         appliedSteps.push(step);
         automationGaps.push(...branchResult.automationGaps);
         pendingOptionalSteps.push(...branchResult.pendingOptionalSteps);
+        absorbExecutionReplayMutations(branchResult);
         break;
       }
       case 'draw': {
@@ -1507,6 +1520,7 @@ export function applyOracleIRStepsToGameStateImpl(
           skippedSteps.push(...visitResult.skippedSteps);
           automationGaps.push(...visitResult.automationGaps);
           pendingOptionalSteps.push(...visitResult.pendingOptionalSteps);
+          absorbExecutionReplayMutations(visitResult);
         }
         break;
       }
@@ -1542,6 +1556,7 @@ export function applyOracleIRStepsToGameStateImpl(
         skippedSteps.push(...roomResult.skippedSteps);
         automationGaps.push(...roomResult.automationGaps);
         pendingOptionalSteps.push(...roomResult.pendingOptionalSteps);
+        absorbExecutionReplayMutations(roomResult);
         break;
       }
       case 'planeswalk': {
@@ -1609,6 +1624,7 @@ export function applyOracleIRStepsToGameStateImpl(
         skippedSteps.push(...schemeResult.skippedSteps);
         automationGaps.push(...schemeResult.automationGaps);
         pendingOptionalSteps.push(...schemeResult.pendingOptionalSteps);
+        absorbExecutionReplayMutations(schemeResult);
         break;
       }
       case 'search_library': {
@@ -2832,6 +2848,7 @@ export function applyOracleIRStepsToGameStateImpl(
         appliedSteps.push(step);
         automationGaps.push(...replayResult.automationGaps);
         pendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
+        absorbExecutionReplayMutations(replayResult);
         break;
       }
       case 'copy_spell': {
@@ -2914,6 +2931,7 @@ export function applyOracleIRStepsToGameStateImpl(
             log.push(...replayResult.log);
             automationGaps.push(...replayResult.automationGaps);
             pendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
+            absorbExecutionReplayMutations(replayResult);
           }
 
           nextState = workingState;
@@ -2998,6 +3016,7 @@ export function applyOracleIRStepsToGameStateImpl(
             log.push(...replayResult.log);
             automationGaps.push(...replayResult.automationGaps);
             pendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
+            absorbExecutionReplayMutations(replayResult);
           }
 
           nextState = workingState;
@@ -3091,6 +3110,7 @@ export function applyOracleIRStepsToGameStateImpl(
           combinedLog.push(...replayResult.log);
           combinedGaps.push(...replayResult.automationGaps);
           combinedPendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
+          absorbExecutionReplayMutations(replayResult);
           appliedCopyCount += 1;
         }
 
@@ -3327,6 +3347,7 @@ export function applyOracleIRStepsToGameStateImpl(
         skippedSteps.push(...result.skippedSteps);
         automationGaps.push(...result.automationGaps);
         pendingOptionalSteps.push(...result.pendingOptionalSteps);
+        absorbExecutionReplayMutations(result);
         mergeNestedExecutionOutcome(result);
         appliedSteps.push(step);
         break;
@@ -3354,6 +3375,7 @@ export function applyOracleIRStepsToGameStateImpl(
         skippedSteps.push(...nestedResult.skippedSteps);
         automationGaps.push(...nestedResult.automationGaps);
         pendingOptionalSteps.push(...nestedResult.pendingOptionalSteps);
+        absorbExecutionReplayMutations(nestedResult);
         mergeNestedExecutionOutcome(nestedResult);
         appliedSteps.push(step);
         break;
@@ -3381,6 +3403,7 @@ export function applyOracleIRStepsToGameStateImpl(
         skippedSteps.push(...nestedResult.skippedSteps);
         automationGaps.push(...nestedResult.automationGaps);
         pendingOptionalSteps.push(...nestedResult.pendingOptionalSteps);
+        absorbExecutionReplayMutations(nestedResult);
         mergeNestedExecutionOutcome(nestedResult);
         appliedSteps.push(step);
         break;
@@ -3440,5 +3463,6 @@ export function applyOracleIRStepsToGameStateImpl(
     lastStepOutcome,
     ...(lastMovedCards.length > 0 ? { lastMovedCards } : {}),
     ...(lastRevealedCardCount > 0 ? { lastRevealedCardCount } : {}),
+    ...(replayMutations.length > 0 ? { replayMutations } : {}),
   };
 }

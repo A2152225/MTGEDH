@@ -276,7 +276,7 @@ export function tryResolveInstantSorceryPreResolutionChoices(
       sourceName: effectiveCard.name || 'Spell',
       sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
       colors: ['white', 'blue', 'black', 'red', 'green'],
-      spellId: card?.id,
+      spellId: item?.id || card?.id,
       oracleText,
     } as any);
 

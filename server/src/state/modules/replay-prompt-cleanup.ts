@@ -1,8 +1,9 @@
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
-import { exitResolutionMode } from './priority.js';
+import { enterResolutionMode, exitResolutionMode } from './priority.js';
 import { clearOptionalPaymentCallbacks } from '../../socket/optional-payment-prompts.js';
 import { maybeResumeDeferredOracleIrStackSpell } from './oracleIrDeferredStackFinalize.js';
+import { restoreAllPendingEffectProgramRuntimes } from '../effects/effectProgramReplayRestore.js';
 
 /**
  * Legacy / in-flight prompt state that must not survive event replay.
@@ -65,6 +66,29 @@ export function finalizeGameStateAfterReplay(ctx: GameContext): void {
     // best-effort only
   }
 
+  let hasPendingResolutionSteps = false;
+  try {
+    hasPendingResolutionSteps = ResolutionQueueManager.getPendingSummary(gameId).hasPending;
+  } catch {
+    // best-effort only
+  }
+
+  if (hasPendingResolutionSteps) {
+    try {
+      restoreAllPendingEffectProgramRuntimes(ctx as any, gameId);
+    } catch {
+      // best-effort only
+    }
+
+    try {
+      if ((ctx.state as any)?.priority !== null) {
+        enterResolutionMode(ctx);
+      }
+    } catch {
+      // best-effort only
+    }
+  }
+
   try {
     clearReplayTransientPromptState(ctx.state as any);
   } catch {
@@ -72,7 +96,7 @@ export function finalizeGameStateAfterReplay(ctx: GameContext): void {
   }
 
   try {
-    if ((ctx.state as any)?.priority === null) {
+    if (!hasPendingResolutionSteps && (ctx.state as any)?.priority === null) {
       exitResolutionMode(ctx);
     }
   } catch {
@@ -80,7 +104,9 @@ export function finalizeGameStateAfterReplay(ctx: GameContext): void {
   }
 
   try {
-    maybeResumeDeferredOracleIrStackSpell(ctx);
+    if (!hasPendingResolutionSteps) {
+      maybeResumeDeferredOracleIrStackSpell(ctx);
+    }
   } catch {
     // best-effort only
   }

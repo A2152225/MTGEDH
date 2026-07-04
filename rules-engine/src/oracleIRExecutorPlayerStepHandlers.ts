@@ -3,6 +3,7 @@ import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
 import type { OracleEffectStep, OracleObjectSelector } from './oracleIR';
 import { createCustomEmblem } from './emblemSupport';
 import type { OracleIRExecutionContext, OracleIRExecutionOptions } from './oracleIRExecutionTypes';
+import type { OracleIRReplayMutation } from './oracleIRReplayMutations';
 import { omitBridgedStepCarryOver, usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
@@ -114,6 +115,7 @@ type StepApplyResult = {
   readonly lastSetInMotionScheme?: any;
   readonly lastAntecedentBattlefieldPermanentIds?: readonly string[];
   readonly skipLedgerFlush?: boolean;
+  readonly replayMutations?: readonly OracleIRReplayMutation[];
 };
 
 function sanitizeGrantedGraveyardPermissionIdPart(value: unknown): string {
@@ -5376,6 +5378,9 @@ export function applyMillStep(
   const lastRevealedCardCount = isRevealThisWay
     ? Array.from(millCountByPlayer.values()).reduce((sum, count) => sum + (Number(count) || 0), 0)
     : undefined;
+  const replayMutations: OracleIRReplayMutation[] = Array.from(millCountByPlayer.entries())
+    .filter(([, count]) => Number(count) > 0)
+    .map(([playerId, count]) => ({ kind: 'mill', playerId, count: Number(count) }));
 
   return withDiscardLedgerFlags({
     applied: true,
@@ -5383,6 +5388,7 @@ export function applyMillStep(
     log,
     lastRevealedCardCount,
     ...(lastMilledCards.length > 0 ? { lastMilledCards } : {}),
+    ...(replayMutations.length > 0 ? { replayMutations } : {}),
   }, ledgerRecordedViaBridge);
 }
 
@@ -6616,6 +6622,7 @@ export function applyGainLifeStep(
         let nextState = state;
         const log: string[] = [];
         let totalGained = 0;
+        const replayMutations: OracleIRReplayMutation[] = [];
         for (const card of cards) {
           const playerId = String(card?.controller || card?.controllerId || controllerId || '').trim() as PlayerID;
           const amount = Math.max(0, getCardManaValue(card) ?? (Number(card?.cmc ?? card?.manaValue ?? 0) || 0));
@@ -6624,9 +6631,16 @@ export function applyGainLifeStep(
           nextState = result.state;
           log.push(...result.log);
           totalGained += amount;
+          replayMutations.push({ kind: 'adjustLife', playerId, delta: amount });
         }
         if (totalGained > 0) {
-          return { applied: true, state: nextState, log, count: totalGained };
+          return {
+            applied: true,
+            state: nextState,
+            log,
+            count: totalGained,
+            replayMutations,
+          };
         }
       }
     }
@@ -6644,6 +6658,7 @@ export function applyGainLifeStep(
   let nextState = state;
   const log: string[] = [];
   let lastCount = 0;
+  const replayMutations: OracleIRReplayMutation[] = [];
   for (const playerId of players) {
     const amount =
       resolveStepAmountForPlayer(state, controllerId, step.amount, ctx, playerId, {
@@ -6663,9 +6678,18 @@ export function applyGainLifeStep(
     const result = adjustLife(nextState, playerId, amount);
     nextState = result.state;
     log.push(...result.log);
+    if (amount > 0) {
+      replayMutations.push({ kind: 'adjustLife', playerId, delta: amount });
+    }
   }
 
-  return { applied: true, state: nextState, log, count: lastCount };
+  return {
+    applied: true,
+    state: nextState,
+    log,
+    count: lastCount,
+    ...(replayMutations.length > 0 ? { replayMutations } : {}),
+  };
 }
 
 export function applyLoseLifeStep(
@@ -6695,6 +6719,7 @@ export function applyLoseLifeStep(
   let nextState = state;
   const log: string[] = [];
   let totalLifeLost = 0;
+  const replayMutations: OracleIRReplayMutation[] = [];
   for (const playerId of players) {
     const amount =
       resolveStepAmountForPlayer(state, controllerId, step.amount, ctx, playerId, {
@@ -6722,9 +6747,18 @@ export function applyLoseLifeStep(
     if (Number.isFinite(previousLife) && Number.isFinite(nextLife)) {
       totalLifeLost += Math.max(0, previousLife - nextLife);
     }
+    if (amount > 0) {
+      replayMutations.push({ kind: 'adjustLife', playerId, delta: -amount });
+    }
   }
 
-  return { applied: true, state: nextState, log, count: totalLifeLost };
+  return {
+    applied: true,
+    state: nextState,
+    log,
+    count: totalLifeLost,
+    ...(replayMutations.length > 0 ? { replayMutations } : {}),
+  };
 }
 
 export function applyAddPlayerCounterStep(
@@ -6852,6 +6886,7 @@ export function applyDrawStep(
   const log: string[] = [];
   let lastCount = 0;
   let lastAntecedentBattlefieldPermanentIds: string[] | undefined;
+  const replayMutations: OracleIRReplayMutation[] = [];
   const bridgeOptions = buildEffectBridgeOptions(ctx, 'draw');
   let ledgerRecordedViaBridge = false;
   for (const playerId of players) {
@@ -6896,6 +6931,9 @@ export function applyDrawStep(
     nextState = result.state;
     log.push(...result.log);
     if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
+    if (amount > 0) {
+      replayMutations.push({ kind: 'drawCards', playerId, count: amount });
+    }
   }
 
   return withDiscardLedgerFlags({
@@ -6906,6 +6944,7 @@ export function applyDrawStep(
     ...(lastAntecedentBattlefieldPermanentIds
       ? { lastAntecedentBattlefieldPermanentIds }
       : {}),
+    ...(replayMutations.length > 0 ? { replayMutations } : {}),
   }, ledgerRecordedViaBridge);
 }
 

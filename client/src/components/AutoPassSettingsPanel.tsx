@@ -10,6 +10,8 @@ interface Props {
   isSinglePlayer?: boolean;
   onToggleAutoPassForTurn?: () => void;
   autoPassForTurnEnabled?: boolean;
+  autoYesOptionalEnabled?: boolean;
+  onToggleAutoYesOptional?: (enabled: boolean) => void;
 }
 
 /**
@@ -38,7 +40,9 @@ export function AutoPassSettingsPanel({
   defaultCollapsed = false,
   isSinglePlayer,
   onToggleAutoPassForTurn,
-  autoPassForTurnEnabled
+  autoPassForTurnEnabled,
+  autoYesOptionalEnabled = false,
+  onToggleAutoYesOptional,
 }: Props) {
   const hasAnyAutoPass = autoPassSteps.size > 0;
   const hasAllAutoPass = autoPassSteps.size >= CONFIGURABLE_STEPS.length;
@@ -294,6 +298,73 @@ export function AutoPassSettingsPanel({
                 </>
               )}
             </button>
+          )}
+
+          {onToggleAutoYesOptional && (
+            <div
+              style={{
+                background: '#252525',
+                border: '1px solid #333',
+                borderRadius: 6,
+                padding: '10px 12px',
+                marginBottom: 10,
+              }}
+            >
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span style={{ fontSize: 12, color: '#ddd', fontWeight: 500 }}>
+                  Auto-Yes Optional Triggers
+                </span>
+                <div
+                  style={{ position: 'relative' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleAutoYesOptional(!autoYesOptionalEnabled);
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={autoYesOptionalEnabled}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      onToggleAutoYesOptional(e.target.checked);
+                    }}
+                    style={{
+                      cursor: 'pointer',
+                      width: 40,
+                      height: 20,
+                      appearance: 'none',
+                      background: autoYesOptionalEnabled ? '#10b981' : '#444',
+                      borderRadius: 10,
+                      position: 'relative',
+                      transition: 'background 0.2s',
+                      outline: 'none',
+                    }}
+                  />
+                  <span style={{
+                    position: 'absolute',
+                    top: 2,
+                    left: autoYesOptionalEnabled ? 22 : 2,
+                    width: 16,
+                    height: 16,
+                    background: 'white',
+                    borderRadius: '50%',
+                    transition: 'left 0.2s',
+                    pointerEvents: 'none',
+                  }} />
+                </div>
+              </label>
+              <p style={{ fontSize: 9, color: '#666', margin: '6px 0 0', lineHeight: 1.3 }}>
+                Automatically accept optional &quot;you may&quot; triggers (e.g. gain 1 life). Per-card Always Yes/No is still available on each prompt.
+              </p>
+            </div>
           )}
           
           {/* Advanced Options - Collapsible */}

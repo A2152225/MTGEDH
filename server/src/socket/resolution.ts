@@ -179,7 +179,7 @@ import {
   maybeMarkPowerUpAbilityUsedFromActivationContext,
 } from "../state/modules/marvelMechanicsHelpers.js";
 import { applyGraveyardPermissionEffectsFromText } from "../state/modules/graveyard-permissions.js";
-import { createEffectProgramChoiceResponse, readEffectProgramQueueMetadata, resumeEffectProgramResolution } from "../state/effects/index.js";
+import { createEffectProgramChoiceResponse, readEffectProgramQueueMetadata, restoreAllPendingEffectProgramRuntimes, restoreEffectProgramRuntimeForPendingStep, resumeEffectProgramResolution, persistEffectProgramChoiceResolutionEvent } from "../state/effects/index.js";
 
 type ResolutionPaymentItem = {
   permanentId: string;
@@ -4473,6 +4473,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     try {
       const game = ensureGame(gameId);
       if (game) {
+        restoreAllPendingEffectProgramRuntimes(game, gameId);
         await processPendingCascades(io, game, gameId);
         processPendingScry(io, game, gameId);
         processPendingSurveil(io, game, gameId);
@@ -7734,7 +7735,11 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
 
         if (spellId) {
           const stack: any[] = Array.isArray(stateAny?.stack) ? stateAny.stack : [];
-          const spellOnStack = stack.find((s: any) => s && (String(s.id) === spellId || String(s.cardId) === spellId));
+          const spellOnStack = stack.find((s: any) => s && (
+            String(s.id) === spellId
+            || String(s.cardId) === spellId
+            || String(s.card?.id) === spellId
+          ));
           if (!spellOnStack) {
             socket.emit('error', { code: 'INVALID_STEP', message: 'Spell no longer on stack' });
             return;
@@ -8152,6 +8157,10 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     }
     
     // Complete the step
+    if ((step as any)?.effectProgramPrompt === true) {
+      restoreEffectProgramRuntimeForPendingStep(game, gameId, step);
+    }
+
     const completedStep = ResolutionQueueManager.completeStep(gameId, stepId, response);
     
     if (completedStep) {
@@ -8383,6 +8392,16 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     } else {
       state.mayAutoPreferences[pid][effectKey] = value as 'yes' | 'no' | number;
       debug(2, `[May] ${pid} set auto-pref "${effectKey}" = ${value}`);
+    }
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'mayAutoPreferenceSet', {
+        playerId: pid,
+        effectKey,
+        value: value === null ? null : value,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(mayAutoPreferenceSet) failed:', err);
     }
   });
 
@@ -9284,6 +9303,92 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
  * Handle the response to a completed resolution step
  * This executes the game logic based on the player's choice
  */
+/**
+ * After an Effect Program spell color choice completes, sync the chosen color onto the
+ * stack item and resume stack resolution (legacy handleColorChoiceResponse parity).
+ */
+async function finalizeEffectProgramSpellColorChoiceAfterResume(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+  resumed: { status?: string; runResult?: { status?: string } },
+): Promise<void> {
+  if (step.type !== ResolutionStepType.COLOR_CHOICE) return;
+
+  const status = resumed.status || resumed.runResult?.status;
+  if (status !== 'completed') return;
+
+  const metadata = readEffectProgramQueueMetadata(step);
+  const stepAny = step as any;
+  const spellLookupId = String(
+    stepAny.spellId
+    || metadata?.effectProgramSourceId
+    || step.sourceId
+    || '',
+  ).trim();
+  if (!spellLookupId) return;
+
+  const rawSelection = response.selections as any;
+  const selection = Array.isArray(rawSelection) ? rawSelection[0] : rawSelection;
+  const colorLower = String(selection || '').toLowerCase();
+  const validColors = ['white', 'blue', 'black', 'red', 'green'];
+  if (!validColors.includes(colorLower)) return;
+
+  const state = game.state || {};
+  const stack: any[] = Array.isArray(state.stack) ? state.stack : [];
+  const spellOnStack = stack.find((s: any) =>
+    s && (
+      String(s.id || '') === spellLookupId
+      || String(s.cardId || '') === spellLookupId
+      || String(s.card?.id || '') === spellLookupId
+    ),
+  );
+  if (!spellOnStack) {
+    debugWarn(1, `[Resolution] EffectProgram color choice completed but spell not on stack (${spellLookupId})`);
+    return;
+  }
+
+  spellOnStack.chosenColor = colorLower;
+  if (spellOnStack.card && typeof spellOnStack.card === 'object') {
+    spellOnStack.card.chosenColor = colorLower;
+  }
+
+  const cardName = String(stepAny.cardName || step.sourceName || spellOnStack.card?.name || 'Spell');
+  const pid = response.playerId;
+
+  try {
+    await appendEvent(gameId, (game as any).seq || 0, 'colorChoice', {
+      playerId: pid,
+      resolvedStepId: String(step.id || '').trim(),
+      resolvedStepType: String(step.type || '').trim(),
+      spellId: String(spellOnStack.id || spellLookupId),
+      cardName,
+      color: colorLower,
+    });
+  } catch (e) {
+    debugWarn(1, '[Resolution] Failed to persist EffectProgram spell color choice event:', e);
+  }
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${getPlayerName(game, pid)} chose ${colorLower} for ${cardName}.`,
+    ts: Date.now(),
+  });
+
+  if (typeof (game as any).bumpSeq === 'function') {
+    (game as any).bumpSeq();
+  }
+
+  if (typeof (game as any).resolveTopOfStack === 'function') {
+    (game as any).resolveTopOfStack();
+    debug(2, `[Resolution] Resumed stack resolution after EffectProgram spell color choice for ${cardName}`);
+  }
+}
+
 async function handleStepResponse(
   io: Server,
   game: any,
@@ -9292,6 +9397,7 @@ async function handleStepResponse(
   response: ResolutionStepResponse
 ): Promise<void> {
   if ((step as any)?.effectProgramPrompt === true) {
+    restoreEffectProgramRuntimeForPendingStep(game, gameId, step);
     const resumed = resumeEffectProgramResolution({ game, gameId, step, response });
     if (!resumed.resumed) {
       if (isOptionalTriggeredEffectProgramStep(step)) {
@@ -9302,6 +9408,15 @@ async function handleStepResponse(
       return;
     }
 
+    if (step.type === ResolutionStepType.OPTION_CHOICE) {
+      const choiceId = extractFirstResolutionSelectionId(response.selections) || (response.cancelled ? 'no' : 'no');
+      const choice: 'yes' | 'no' = !response.cancelled && choiceId === 'yes' ? 'yes' : 'no';
+      await persistEffectProgramChoiceResolutionEvent(game, gameId, step, response, choice);
+    }
+
+    await finalizeEffectProgramSpellColorChoiceAfterResume(io, game, gameId, step, response, resumed);
+
+    let resolvedDeferredStack = step.type === ResolutionStepType.COLOR_CHOICE && resumed.status === 'completed';
     for (const event of resumed.runResult?.events || []) {
       const eventKind = String((event as any)?.kind || '');
       if (eventKind !== 'resolve_top_of_stack') {
@@ -9311,10 +9426,15 @@ async function handleStepResponse(
       const sourceName = String((event as any)?.sourceName || step.sourceName || 'Ability');
       if (typeof (game as any).resolveTopOfStack === 'function') {
         (game as any).resolveTopOfStack();
+        resolvedDeferredStack = true;
         debug(2, `[Resolution] Resolved deferred EffectProgram stack item for ${sourceName}`);
       } else {
         debugWarn(1, `[Resolution] Game missing resolveTopOfStack while handling ${sourceName}`);
       }
+    }
+
+    if (!resolvedDeferredStack && resumed.status === 'completed') {
+      maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
     }
     return;
   }
@@ -25248,11 +25368,18 @@ async function handleColorChoiceResponse(
   if (spellId) {
     // This is a spell on the stack that needs color choice (e.g., Brave the Elements)
     const stack = state.stack || [];
-    const spellOnStack = stack.find((s: any) => s.id === spellId || s.cardId === spellId);
+    const spellOnStack = stack.find((s: any) =>
+      s.id === spellId
+      || s.cardId === spellId
+      || s.card?.id === spellId
+    );
     
     if (spellOnStack) {
       // Store chosen color on the spell
       spellOnStack.chosenColor = colorLower;
+      if (spellOnStack.card && typeof spellOnStack.card === 'object') {
+        spellOnStack.card.chosenColor = colorLower;
+      }
       
       debug(2, `[Resolution] Spell color choice: ${cardName} -> ${colorLower}, will re-resolve`);
       
@@ -25283,11 +25410,17 @@ async function handleColorChoiceResponse(
       if (typeof (game as any).bumpSeq === "function") {
         (game as any).bumpSeq();
       }
-      
-      // Now the spell has its chosen color - the stack processing will continue
-      // The spell resolution will be retried by the main game loop
+
+      if (typeof (game as any).resolveTopOfStack === 'function') {
+        (game as any).resolveTopOfStack();
+        debug(2, `[Resolution] Resumed stack resolution after spell color choice for ${cardName}`);
+      } else {
+        debugWarn(1, `[Resolution] Game missing resolveTopOfStack after spell color choice for ${cardName}`);
+      }
       return;
     }
+
+    debugWarn(2, `[Resolution] Spell color choice: spell ${spellId} not found on stack for ${cardName}`);
   }
   
   // Default case: permanent ETB color choice
@@ -35721,34 +35854,13 @@ async function handleOptionalTriggeredAbilityChoiceResponse(
   const sourceName = String(stepData?.sourceName || step.sourceName || 'Ability');
   const effectProgramMetadata = readEffectProgramQueueMetadata(step);
 
-  try {
-    const choiceTurnNumber = Number((game.state as any)?.turnNumber ?? (game.state as any)?.turn ?? 0) || 0;
-    await appendEvent(gameId, (game as any).seq ?? 0, 'optionalTriggeredAbilityChoice', {
-      playerId,
-      sourceId: String(stepData?.sourceId || step.sourceId || '').trim(),
-      sourceName,
-      resolvedStepId: String(step.id || '').trim(),
-      ...(effectProgramMetadata ? { effectProgram: effectProgramMetadata } : {}),
-      ...(effectProgramMetadata
-        ? {
-            choiceBinding: {
-              bindingKey: effectProgramMetadata.effectProgramBindingKey,
-              response: createEffectProgramChoiceResponse(step, response),
-            },
-          }
-        : {}),
-      choice: shouldResolve ? 'yes' : 'no',
-      ...(choiceTurnNumber > 0 ? { turnNumber: choiceTurnNumber } : {}),
-      deferredTriggeredAbilityItem: deferredTriggeredAbilityItem && typeof deferredTriggeredAbilityItem === 'object'
-        ? {
-            ...(deferredTriggeredAbilityItem as any),
-            optionalTriggeredAbilityDecisionApplied: true,
-          }
-        : undefined,
-    });
-  } catch (err) {
-    debugWarn(1, '[Resolution] appendEvent(optionalTriggeredAbilityChoice) failed:', err);
-  }
+  await persistEffectProgramChoiceResolutionEvent(
+    game,
+    gameId,
+    step,
+    response,
+    shouldResolve ? 'yes' : 'no',
+  );
 
   if (!shouldResolve) {
     debug(2, `[Resolution] Declined deferred optional triggered ability for ${sourceName}`);

@@ -22,13 +22,13 @@ describe('resolveTopOfStack prompt persistence (integration)', () => {
   });
 
   beforeEach(async () => {
-    for (const gameId of [targetTriggerGameId, merrowGameId, bounceLandGameId, spellColorChoiceGameId]) {
+    for (const gameId of [targetTriggerGameId, merrowGameId, bounceLandGameId, spellColorChoiceGameId, `${spellColorChoiceGameId}_resolve`]) {
       await resetGame(gameId);
     }
   });
 
   afterEach(async () => {
-    for (const gameId of [targetTriggerGameId, merrowGameId, bounceLandGameId, spellColorChoiceGameId]) {
+    for (const gameId of [targetTriggerGameId, merrowGameId, bounceLandGameId, spellColorChoiceGameId, `${spellColorChoiceGameId}_resolve`]) {
       await resetGame(gameId);
     }
   });
@@ -225,7 +225,7 @@ describe('resolveTopOfStack prompt persistence (integration)', () => {
         controller: 'p1',
         targets: [],
         card: {
-          id: 'spell_stack_1',
+          id: 'brave_card_instance_1',
           name: 'Brave the Elements',
           type_line: 'Instant',
           oracle_text: 'Choose a color. White creatures you control gain protection from the chosen color until end of turn.',
@@ -246,13 +246,76 @@ describe('resolveTopOfStack prompt persistence (integration)', () => {
     expect(promptEvent).toBeDefined();
     expect(promptEvent.payload).toMatchObject({
       playerId: 'p1',
-      sourceId: 'spell_stack_1',
+      sourceId: 'brave_card_instance_1',
       queuedResolutionStep: {
         type: ResolutionStepType.COLOR_CHOICE,
         playerId: 'p1',
-        sourceId: 'spell_stack_1',
+        sourceId: 'brave_card_instance_1',
         spellId: 'spell_stack_1',
       },
     });
+  });
+
+  it('resolves spell color choice when stack item id differs from card id', () => {
+    createGameIfNotExists(`${spellColorChoiceGameId}_resolve`, 'commander', 40);
+    const gameId = `${spellColorChoiceGameId}_resolve`;
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game as any).gameId = gameId;
+    (game.state as any).players = [{ id: 'p1', name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).battlefield = [
+      {
+        id: 'white_creature_1',
+        controller: 'p1',
+        card: {
+          id: 'soldier_card',
+          name: 'Soldier',
+          type_line: 'Creature — Soldier',
+          colors: ['W'],
+        },
+      },
+    ];
+    (game.state as any).stack = [
+      {
+        id: 'stack_item_abc',
+        type: 'spell',
+        controller: 'p1',
+        targets: [],
+        card: {
+          id: 'brave_card_instance_1',
+          name: 'Brave the Elements',
+          type_line: 'Instant',
+          oracle_text: 'Choose a color. White creatures you control gain protection from the chosen color until end of turn.',
+        },
+      },
+    ];
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const step = queue.steps[0] as any;
+    expect(step.spellId).toBe('stack_item_abc');
+
+    game.applyEvent({
+      type: 'colorChoice',
+      playerId: 'p1',
+      resolvedStepId: step.id,
+      resolvedStepType: ResolutionStepType.COLOR_CHOICE,
+      spellId: step.spellId,
+      cardName: 'Brave the Elements',
+      color: 'green',
+    } as any);
+
+    expect(((game.state as any).stack || [])[0]?.chosenColor).toBe('green');
+
+    game.resolveTopOfStack();
+
+    expect((game.state as any).stack).toHaveLength(0);
+    const permanent = (game.state as any).battlefield.find((entry: any) => entry.id === 'white_creature_1');
+    expect(permanent.temporaryProtection).toEqual([
+      expect.objectContaining({ from: 'green', untilEndOfTurn: true }),
+    ]);
   });
 });

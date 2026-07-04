@@ -1192,6 +1192,34 @@ export function App() {
   // Auto-pass for rest of turn setting
   // When enabled, forces auto-pass for all remaining priority windows this turn
   const [autoPassForTurn, setAutoPassForTurn] = useState(false);
+
+  const [autoYesOptional, setAutoYesOptional] = useState(() => {
+    try {
+      return localStorage.getItem('mtgedh:autoYesOptional') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleAutoYesOptional = React.useCallback((enabled: boolean) => {
+    setAutoYesOptional(enabled);
+    try {
+      if (enabled) {
+        localStorage.setItem('mtgedh:autoYesOptional', '1');
+      } else {
+        localStorage.removeItem('mtgedh:autoYesOptional');
+      }
+    } catch {
+      /* ignore */
+    }
+
+    if (safeView?.id) {
+      socket.emit('setAutoYesOptional', {
+        gameId: safeView.id,
+        enabled,
+      });
+    }
+  }, [safeView?.id, socket]);
   
   // Toggle auto-pass for rest of turn
   const handleToggleAutoPassForTurn = React.useCallback(() => {
@@ -1239,7 +1267,12 @@ export function App() {
       enabled: hasAutoPass,
       syncOnly: true,
     } as any);
-  }, [safeView?.id, you, socket]);
+    socket.emit('setAutoYesOptional', {
+      gameId: targetGameId,
+      enabled: autoYesOptional,
+      syncOnly: true,
+    } as any);
+  }, [safeView?.id, you, socket, autoYesOptional]);
 
   // Sync when game/player identity is ready and whenever step preferences change.
   React.useEffect(() => {
@@ -2708,19 +2741,33 @@ export function App() {
         const isMayAbilityPrompt = (step as any).mayAbilityPrompt === true;
         const isOptionalTriggeredAbilityPrompt =
           (step as any).optionalTriggeredAbilityPrompt === true ||
-          ((step as any).effectProgramPrompt === true && (step as any).effectProgramFamily === 'optional_triggered_ability');
+          ((step as any).effectProgramPrompt === true && (
+            (step as any).effectProgramFamily === 'optional_triggered_ability' ||
+            (
+              (step as any).effectProgramFamily === 'trigger_resolution' &&
+              !isResolutionStepMandatory(step)
+            )
+          ));
 
         if (isMayAbilityPrompt || isOptionalTriggeredAbilityPrompt) {
+          const optionalEffectText = String(
+            (step as any).effectText
+            || step.description?.replace(/^[^:]+:\s*/i, '').replace(/^you may[:\s]*/i, '').trim()
+            || step.description
+            || ''
+          );
+          const normalizedSourceName = String(step.sourceName || 'Ability');
+          const effectKey = String((step as any).effectKey || `${normalizedSourceName.toLowerCase()}:${optionalEffectText.toLowerCase()}`);
           setMayAbilityModalData({
             stepId: step.id,
-            sourceName: step.sourceName || 'Ability',
+            sourceName: normalizedSourceName,
             sourceImage: step.sourceImage,
-            effectText: (step as any).effectText || step.description,
-            fullAbilityText: (step as any).fullAbilityText,
-            effectKey: (step as any).effectKey || '',
+            effectText: optionalEffectText,
+            fullAbilityText: (step as any).fullAbilityText || step.description,
+            effectKey,
             gameId: (safeViewRef.current as any)?.id || payload.gameId || '',
-            shortcutCardName: step.sourceName || undefined,
-            persistMayAutoPreference: isMayAbilityPrompt,
+            shortcutCardName: normalizedSourceName,
+            persistMayAutoPreference: true,
             persistTriggerShortcut: isOptionalTriggeredAbilityPrompt,
           });
           setMayAbilityModalOpen(true);
@@ -6161,6 +6208,8 @@ export function App() {
                     }
                     onToggleAutoPassForTurn={handleToggleAutoPassForTurn}
                     autoPassForTurnEnabled={autoPassForTurn}
+                    autoYesOptionalEnabled={autoYesOptional}
+                    onToggleAutoYesOptional={handleToggleAutoYesOptional}
                   />
 
                   <button

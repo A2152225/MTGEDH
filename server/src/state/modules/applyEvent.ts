@@ -359,8 +359,8 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./
 import { processLifeChange, resolveOpponentDirectedDamage } from "./game-state-effects";
 import { markEchoPaid, sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
+import { applyEffectProgramChoiceBindingOnReplay } from "../effects/effectProgramReplayRestore.js";
 import { restoreOracleIrLedgerOnState, restoreOracleIrPendingCompoundResumeOnState, clearOracleIrPendingCompoundResumeOnState } from "./oracleIrTransitionPipeline.js";
-import { processPendingOracleIrCompoundResumeOnContext } from "./oracleIrServerZoneSync.js";
 import { ensureDeferredOracleIrStackItem } from "./oracleIrDeferredStackFinalize.js";
 import { finalizeGameStateAfterReplay } from "./replay-prompt-cleanup.js";
 import { parseManaCost } from "./mana-check.js";
@@ -2777,7 +2777,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "resolveTopOfStack": {
-        resolveTopOfStack(ctx as any);
+        // Stack resolution during event replay re-runs live IR/triggers and drifts zones.
+        // Outcomes are captured in subsequent persisted events (pushTriggeredAbility, colorChoice, etc.).
+        if (!(ctx as any).isReplaying) {
+          resolveTopOfStack(ctx as any);
+        }
         break;
       }
 
@@ -3627,9 +3631,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const choice = String((e as any).choice || 'no').trim().toLowerCase();
           const deferredTriggeredAbilityItem = (e as any).deferredTriggeredAbilityItem;
           const sourceName = String((e as any).sourceName || 'Ability').trim() || 'Ability';
+          const effectProgramMetadata = normalizeReplayEffectProgramMetadata((e as any).effectProgram);
 
           if (replayGameId) {
-            const effectProgramMetadata = normalizeReplayEffectProgramMetadata((e as any).effectProgram);
             clearReplayQueuedSteps(replayGameId, (step: any) => {
               if (!step) return false;
               const stepId = String((step as any)?.id || '').trim();
@@ -3654,6 +3658,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
 
           if (choice !== 'yes') {
+            ctx.bumpSeq();
+            break;
+          }
+
+          const choiceBinding = (e as any).choiceBinding;
+          if (
+            !deferredTriggeredAbilityItem
+            && effectProgramMetadata
+            && choiceBinding
+            && typeof choiceBinding === 'object'
+          ) {
+            applyEffectProgramChoiceBindingOnReplay(ctx, replayGameId, {
+              playerId: String((e as any).playerId || '').trim(),
+              sourceId,
+              sourceName,
+              resolvedStepId,
+              effectProgram: effectProgramMetadata as any,
+              choiceBinding,
+              deferredTriggeredAbilityItem,
+            }, { queuePendingChoices: false });
             ctx.bumpSeq();
             break;
           }
@@ -13656,6 +13680,49 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "mayAutoPreferenceSet": {
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          const effectKey = String((e as any).effectKey || '').trim();
+          const value = (e as any).value;
+          if (!playerId || !effectKey) break;
+
+          const stateAny = ctx.state as any;
+          stateAny.mayAutoPreferences = stateAny.mayAutoPreferences || {};
+          stateAny.mayAutoPreferences[playerId] = stateAny.mayAutoPreferences[playerId] || {};
+
+          if (value === null || value === undefined) {
+            delete stateAny.mayAutoPreferences[playerId][effectKey];
+          } else {
+            stateAny.mayAutoPreferences[playerId][effectKey] = value;
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(mayAutoPreferenceSet): failed', err);
+        }
+        break;
+      }
+
+      case "setAutoYesOptional": {
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          const enabled = (e as any).enabled === true;
+          if (!playerId) break;
+
+          const stateAny = ctx.state as any;
+          stateAny.autoYesOptional = stateAny.autoYesOptional || {};
+          if (enabled) {
+            stateAny.autoYesOptional[playerId] = true;
+          } else {
+            delete stateAny.autoYesOptional[playerId];
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(setAutoYesOptional): failed', err);
+        }
+        break;
+      }
+
       case "setTriggerShortcut": {
         try {
           const playerId = String((e as any).playerId || '').trim();
@@ -14434,7 +14501,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
           const stack = Array.isArray(ctx.state?.stack) ? ctx.state.stack : [];
           const stackItem = stack.find((item: any) =>
-            item && (String(item.id || '') === String(spellId || '') || String(item.cardId || '') === String(spellId || ''))
+            item && (
+              String(item.id || '') === String(spellId || '')
+              || String(item.cardId || '') === String(spellId || '')
+              || String(item.card?.id || '') === String(spellId || '')
+            )
           );
 
           if (stackItem && color) {
@@ -14894,6 +14965,130 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "effectProgramZoneMove": {
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          const fromPlayerId = String((e as any).fromPlayerId || playerId || '').trim();
+          const cardId = String((e as any).cardId || '').trim();
+          const fromZone = String((e as any).fromZone || '').trim().toLowerCase();
+          const toZone = String((e as any).toZone || '').trim().toLowerCase();
+          const permanentId = String((e as any).permanentId || '').trim();
+          const fromPermanentId = String((e as any).fromPermanentId || '').trim();
+          const cardSnapshot = (e as any).card && typeof (e as any).card === 'object' && !Array.isArray((e as any).card)
+            ? { ...((e as any).card as any) }
+            : null;
+
+          if (!playerId || !fromZone || !toZone) break;
+
+          if (toZone === 'battlefield' && permanentId) {
+            const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+            if (battlefield.some((perm: any) => perm && String(perm.id || '') === permanentId)) {
+              break;
+            }
+          } else if (cardId && toZone !== 'library' && toZone !== 'battlefield') {
+            const zones = (ctx.state as any).zones || {};
+            const dest = zones[playerId] || {};
+            const destList = Array.isArray(dest[toZone]) ? dest[toZone] as any[] : [];
+            if (destList.some((entry: any) => entry && String(entry.id || '') === cardId)) {
+              break;
+            }
+          }
+
+          let card: any = cardSnapshot ? { ...cardSnapshot } : null;
+
+          if (fromZone === 'battlefield' && fromPermanentId) {
+            const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+            const permIndex = battlefield.findIndex((perm: any) => perm && String(perm.id || '') === fromPermanentId);
+            if (permIndex !== -1) {
+              const [permanent] = battlefield.splice(permIndex, 1);
+              if (!card && permanent?.card) {
+                card = { ...permanent.card };
+              }
+            }
+          } else if (fromZone === 'library') {
+            const lib = ctx.libraries.get(fromPlayerId) || [];
+            const libIndex = cardId
+              ? lib.findIndex((entry: any) => entry && String(entry.id || '') === cardId)
+              : -1;
+            if (libIndex !== -1) {
+              [card] = lib.splice(libIndex, 1);
+              ctx.libraries.set(fromPlayerId, lib);
+              const zones = (ctx.state as any).zones || {};
+              const z = zones[fromPlayerId] || {};
+              z.libraryCount = lib.length;
+            }
+          } else if (fromZone === 'hand' || fromZone === 'graveyard' || fromZone === 'exile') {
+            const zones = (ctx.state as any).zones || {};
+            const z = zones[fromPlayerId] || {};
+            const sourceList = Array.isArray(z[fromZone]) ? z[fromZone] as any[] : [];
+            const sourceIndex = cardId
+              ? sourceList.findIndex((entry: any) => entry && String(entry.id || '') === cardId)
+              : -1;
+            if (sourceIndex !== -1) {
+              [card] = sourceList.splice(sourceIndex, 1);
+              z[`${fromZone}Count`] = sourceList.length;
+            }
+          }
+
+          if (!card && cardSnapshot) {
+            card = { ...cardSnapshot };
+          }
+
+          if (toZone === 'battlefield' && permanentId && card) {
+            const battlefield = Array.isArray(ctx.state.battlefield)
+              ? ctx.state.battlefield
+              : ((ctx.state as any).battlefield = []);
+            const typeLine = String(card.type_line || '').toLowerCase();
+            const isCreature = typeLine.includes('creature');
+            battlefield.push({
+              id: permanentId,
+              controller: playerId,
+              owner: playerId,
+              tapped: false,
+              counters: {},
+              basePower: isCreature ? parsePT(card.power) : undefined,
+              baseToughness: isCreature ? parsePT(card.toughness) : undefined,
+              summoningSickness: isCreature,
+              card: { ...card, zone: 'battlefield' },
+            } as any);
+          } else if (toZone === 'library' && card) {
+            const lib = ctx.libraries.get(playerId) || [];
+            if (!lib.some((entry: any) => entry && String(entry.id || '') === String(card.id || ''))) {
+              lib.unshift({ ...card, zone: 'library' });
+              ctx.libraries.set(playerId, lib);
+              const zones = (ctx.state as any).zones || {};
+              const z = zones[playerId] = zones[playerId] || {};
+              z.libraryCount = lib.length;
+            }
+          } else if ((toZone === 'hand' || toZone === 'graveyard' || toZone === 'exile') && card) {
+            const zones = (ctx.state as any).zones = (ctx.state as any).zones || {};
+            const z = zones[playerId] = zones[playerId] || {
+              hand: [],
+              handCount: 0,
+              graveyard: [],
+              graveyardCount: 0,
+              exile: [],
+              exileCount: 0,
+            };
+            z[toZone] = Array.isArray(z[toZone]) ? z[toZone] : [];
+            const destList = z[toZone] as any[];
+            if (!destList.some((entry: any) => entry && String(entry.id || '') === String(card.id || ''))) {
+              if (toZone === 'graveyard') {
+                pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, card, destList);
+              } else {
+                destList.push({ ...card, zone: toZone });
+              }
+              z[`${toZone}Count`] = destList.length;
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(effectProgramZoneMove): failed', err);
+        }
+        break;
+      }
+
       case "putCardFromHandOntoBattlefield": {
         try {
           const playerId = String((e as any).playerId || '').trim();
@@ -15103,11 +15298,6 @@ export function replay(
       delete (ctx as any)._replayNextEventType;
     } catch {
       // ignore
-    }
-    try {
-      processPendingOracleIrCompoundResumeOnContext(ctx);
-    } catch {
-      // best-effort only
     }
     try {
       finalizeGameStateAfterReplay(ctx);

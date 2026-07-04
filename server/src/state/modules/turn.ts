@@ -4776,6 +4776,10 @@ function getMaxHandSize(ctx: GameContext, playerId: string): number {
  */
 function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInteraction: boolean; discardCount: number } {
   try {
+    if ((ctx as any).isReplaying) {
+      return { needsInteraction: false, discardCount: 0 };
+    }
+
     const state = (ctx as any).state;
     if (!state) return { needsInteraction: false, discardCount: 0 };
 

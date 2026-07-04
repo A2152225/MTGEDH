@@ -1,5 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import { canAct, canRespond } from "../state/modules/can-respond.js";
+import { appendEvent } from "../db/index.js";
 import { debug, debugError } from "../utils/debug.js";
 import { broadcastGame, clearPriorityTimer, ensureGame, schedulePriorityTimeout, checkAndTriggerAutoPass } from "./util";
 
@@ -175,6 +176,49 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
     if (enabled && stateAny.priority === pid) {
       rerunAutoPassEvaluation(gameIdValue, game);
     }
+  });
+
+  socket.on("setAutoYesOptional", (payload?: { gameId?: unknown; enabled?: unknown; syncOnly?: unknown }) => {
+    const gameId = payload?.gameId;
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
+    const enabled = !!payload?.enabled;
+    const syncOnly = payload?.syncOnly === true;
+    const ctx = gameIdValue ? ensureInRoomAndSeated(gameIdValue) : null;
+    if (!ctx) return;
+
+    const { game, pid } = ctx;
+    const stateAny = game.state as any;
+    if (!stateAny.autoYesOptional || typeof stateAny.autoYesOptional !== 'object') {
+      stateAny.autoYesOptional = {};
+    }
+
+    if (enabled) {
+      stateAny.autoYesOptional[pid] = true;
+    } else {
+      delete stateAny.autoYesOptional[pid];
+    }
+
+    if (!syncOnly) {
+      try {
+        appendEvent(gameIdValue, (game as any).seq ?? 0, 'setAutoYesOptional', {
+          playerId: pid,
+          enabled,
+        });
+      } catch (err) {
+        debugError(1, `[Priority] appendEvent(setAutoYesOptional) failed:`, err);
+      }
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    socket.emit('autoYesOptionalToggled', {
+      gameId: gameIdValue,
+      playerId: pid,
+      enabled,
+      success: true,
+    });
   });
 
   socket.on("claimPriority", (payload?: { gameId?: unknown }) => {
