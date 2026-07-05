@@ -7,6 +7,7 @@ import {
   TRIGGER_OPTIONAL_RUNTIME_STEP_KINDS,
 } from './trigger-runtime-wiring.js';
 import { isOracleIrTriggerPrimaryEnabled } from './oracleIrTriggerExecution.js';
+import { isJoinForcesEffectText } from './joinForcesResolutionQueue.js';
 
 /**
  * Oracle IR step kinds with trigger parity proof under ORACLE_IR_TRIGGER_PRIMARY.
@@ -46,6 +47,7 @@ export function isTriggerEffectOwnedByOracleIrPrimary(
   sourceName: string,
 ): boolean {
   if (!isOracleIrTriggerPrimaryEnabled()) return false;
+  if (isJoinForcesEffectText(effectText)) return false;
   return isTriggerEffectFullyIrWired(effectText, sourceName);
 }
 

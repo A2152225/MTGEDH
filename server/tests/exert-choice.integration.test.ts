@@ -350,7 +350,9 @@ describe('supported exert attack automation (integration)', () => {
     expect((step as any).exertAttackerId).toBe('controlled_combat_celebrant');
   });
 
-  it('exerting Champion of Rhonas marks the attacker and pushes a reflexive trigger that resolves into the existing hand-to-battlefield modal flow', async () => {
+  it('exerting Champion of Rhonas marks the attacker and pushes a reflexive trigger that resolves into the IR hand-to-battlefield choice flow', async () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
     const gameId = createGameId();
     trackedGameIds.add(gameId);
     const attackerId = 'p1' as PlayerID;
@@ -429,11 +431,41 @@ describe('supported exert attack automation (integration)', () => {
 
     game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
-    const modalStep = ResolutionQueueManager.getStepsForPlayer(gameId, attackerId).find(
-      (entry: any) => entry?.type === ResolutionStepType.MODAL_CHOICE && entry?.putFromHandData,
+    let pendingSteps = ResolutionQueueManager.getStepsForPlayer(gameId, attackerId);
+    const optionalYesNoStep = pendingSteps.find(
+      (entry: any) =>
+        entry?.type === ResolutionStepType.OPTION_CHOICE
+        && /you may:/i.test(String(entry?.description || '')),
     ) as any;
-    expect(modalStep).toBeDefined();
-    expect((modalStep.options || []).some((entry: any) => entry.id === 'hand_beast')).toBe(true);
+    if (optionalYesNoStep) {
+      expect(String(optionalYesNoStep.description || '')).toMatch(/put a creature card from your hand onto the battlefield/i);
+      await attackerHandlers.submitResolutionResponse({
+        gameId,
+        stepId: String(optionalYesNoStep.id),
+        selections: ['yes'],
+      });
+
+      const stackAfterYes = ((game.state as any).stack || []) as any[];
+      if (stackAfterYes.length > 0) {
+        game.applyEvent({ type: 'resolveTopOfStack' } as any);
+      }
+      pendingSteps = ResolutionQueueManager.getStepsForPlayer(gameId, attackerId);
+    }
+
+    const librarySearchStep = pendingSteps.find(
+      (entry: any) => entry?.type === ResolutionStepType.LIBRARY_SEARCH && entry?.destination === 'battlefield',
+    ) as any;
+    expect(librarySearchStep).toBeDefined();
+    expect((librarySearchStep.availableCards || []).some((card: any) => card?.id === 'hand_beast')).toBe(true);
+
+    await attackerHandlers.submitResolutionResponse({
+      gameId,
+      stepId: String(librarySearchStep.id),
+      selections: ['hand_beast'],
+    });
+
+    expect(((game.state as any).battlefield || []).some((perm: any) => perm?.card?.id === 'hand_beast')).toBe(true);
+    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
   });
 
   it('replays exertChoice state and the persisted reflexive trigger deterministically', () => {

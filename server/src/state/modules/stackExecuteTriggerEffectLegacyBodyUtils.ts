@@ -6,25 +6,12 @@ import {
   applyRetiredTriggerLegacyGenericSearchLibrary,
 } from './oracleIrTriggerLegacySearchHandlers.js';
 import {
-  applyRetiredTriggerLegacyJoinForcesAttack,
-} from './oracleIrTriggerLegacyResolutionHandlers.js';
-import {
   applyRetiredTriggerLegacyGameStateOracleHooks,
 } from './oracleIrTriggerLegacyGameStateHooks.js';
-import {
-  applyRetiredTriggerLegacyAttachToTargetCreatureYouControl,
-  applyRetiredTriggerLegacySelfExileCreateToken,
-} from './oracleIrTriggerLegacySelfReflexiveHandlers.js';
 import {
   applyRetiredTriggerLegacyUpkeepSacrificeCreatureOrSelf,
 } from './oracleIrTriggerLegacySacrificeHandlers.js';
 import {
-  applyRetiredTriggerLegacyOptionalDiscardThenDraw,
-  applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit,
-  applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife,
-} from './oracleIrTriggerLegacyCombinedHandlers.js';
-import {
-  applyRetiredTriggerLegacyInterveningSubjectKeywordGrant,
   computeTriggerLegacyIsKynaiosEffect,
   computeTriggerLegacySourceNames,
   stripTriggerLegacyInterveningIfPrefix,
@@ -126,15 +113,6 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
 
   desc = stripTriggerLegacyInterveningIfPrefix(desc);
 
-  if (applyRetiredTriggerLegacyInterveningSubjectKeywordGrant({
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyInterveningSubjectKeywordGrant');
-  }
-
   const resolvedBoundGraveyardReturn = applyRetiredTriggerLegacyBoundGraveyardReturnEffect({
     ctx,
     state,
@@ -144,37 +122,6 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
   });
   if (resolvedBoundGraveyardReturn) {
     return legacyBodyHandled('applyRetiredTriggerLegacyBoundGraveyardReturnEffect');
-  }
-
-  const sourcePermanentIdForSelf = String(
-    (triggerItem as any)?.source ||
-    (triggerItem as any)?.permanentId ||
-    (triggerItem as any)?.sourceId ||
-    ''
-  ).trim();
-
-  if (applyRetiredTriggerLegacySelfExileCreateToken({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-    sourcePermanentIdForSelf,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacySelfExileCreateToken');
-  }
-
-  if (applyRetiredTriggerLegacyAttachToTargetCreatureYouControl({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-    sourcePermanentIdForSelf,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyAttachToTargetCreatureYouControl');
   }
 
   if (applyRetiredTriggerLegacyGameStateOracleHooks({
@@ -192,19 +139,6 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
   const players = state.players || [];
   const opponents = players.filter((p: any) => p.id !== controller && !p.hasLost);
   const battlefield = state.battlefield || [];
-
-  if (applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-    triggerCard,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife');
-  }
 
   if (applyRetiredTriggerLegacyChosenTypeTopCardReveal({
     ctx,
@@ -242,46 +176,7 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
   const triggerType = (triggerItem as any).triggerType;
   debug(2, `[executeTriggerEffect] triggerType=${triggerType}, sourceName=${sourceName}`);
 
-  if (applyRetiredTriggerLegacyJoinForcesAttack({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-    players,
-    battlefield,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyJoinForcesAttack');
-  }
-
-  if (applyRetiredTriggerLegacyOptionalDiscardThenDraw({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyOptionalDiscardThenDraw');
-  }
-
-  if (applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    description,
-    triggerItem,
-    state,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit');
-  }
-
-  if (applyRetiredTriggerLegacyGenericSearchLibrary({
-    ctx,
+  if (applyRetiredTriggerLegacyGenericSearchLibrary({    ctx,
     controller,
     sourceName,
     desc,

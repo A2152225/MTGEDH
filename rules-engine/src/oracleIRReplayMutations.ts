@@ -7,7 +7,17 @@ export type EffectProgramCardZone = 'hand' | 'library' | 'graveyard' | 'exile' |
 
 export type OracleIRReplayMutation =
   | { readonly kind: 'mill'; readonly playerId: PlayerID; readonly count: number }
-  | { readonly kind: 'drawCards'; readonly playerId: PlayerID; readonly count: number }
+  | {
+      readonly kind: 'drawCards';
+      readonly playerId: PlayerID;
+      readonly count: number;
+      readonly drawnCardIds?: readonly string[];
+    }
+  | {
+      readonly kind: 'shuffleLibrary';
+      readonly playerId: PlayerID;
+      readonly shuffledLibraryIds: readonly string[];
+    }
   | { readonly kind: 'adjustLife'; readonly playerId: PlayerID; readonly delta: number }
   | {
       readonly kind: 'createToken';
@@ -47,6 +57,12 @@ export type OracleIRReplayMutation =
       readonly card: unknown;
       readonly permanentId?: string;
       readonly fromPermanentId?: string;
+    }
+  | {
+      readonly kind: 'exilePermanent';
+      readonly permanentId: string;
+      readonly sourcePermanentId?: string;
+      readonly sourceName?: string;
     };
 
 function normalizeReplayZone(value: unknown): EffectProgramCardZone | null {
@@ -88,6 +104,82 @@ function resolveMoveZoneDestination(step: Extract<OracleEffectStep, { kind: 'mov
 
 function resolveCardOwnerId(card: any, fallbackPlayerId: PlayerID): PlayerID {
   return String(card?.owner || card?.ownerId || card?.controller || card?.controllerId || fallbackPlayerId || '').trim() as PlayerID;
+}
+
+export function buildMoveZoneReplayMutations(args: {
+  readonly step?: Extract<OracleEffectStep, { kind: 'move_zone' }>;
+  readonly fromZone?: EffectProgramCardZone;
+  readonly toZone?: EffectProgramCardZone;
+  readonly movedCards?: readonly any[];
+  readonly movedPermanentIds?: readonly string[];
+  readonly state: GameState;
+  readonly ctx: OracleIRExecutionContext;
+}): OracleIRReplayMutation[] {
+  const fromZone = args.fromZone ?? (args.step ? inferMoveZoneSourceFromWhat(args.step) : null);
+  const toZone = args.toZone ?? (args.step ? resolveMoveZoneDestination(args.step) : null);
+  if (!fromZone || !toZone) return [];
+
+  const movedCards = Array.isArray(args.movedCards) ? args.movedCards : [];
+  if (movedCards.length === 0) return [];
+
+  const step = args.step;
+  const permanentIds = Array.isArray(args.movedPermanentIds)
+    ? args.movedPermanentIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const controllerId = step
+    ? resolvePlayers(args.state, step.battlefieldController || { kind: 'you' }, args.ctx)[0] || args.ctx.controllerId
+    : args.ctx.controllerId;
+  const mutations: OracleIRReplayMutation[] = [];
+
+  movedCards.forEach((card, index) => {
+    const cardId = String(card?.id || '').trim();
+    if (!cardId) return;
+
+    const fromPlayerId = resolveCardOwnerId(card, args.ctx.controllerId);
+    const playerId = toZone === 'battlefield'
+      ? (permanentIds[index]
+        ? String((args.state.battlefield || []).find((perm: any) => String(perm?.id || '') === permanentIds[index])?.controller || controllerId).trim() as PlayerID
+        : controllerId)
+      : fromPlayerId;
+
+    if (fromZone === 'hand' && toZone === 'battlefield') {
+      const permanentId = permanentIds[index] || cardId;
+      const permanent = (args.state.battlefield || []).find((entry: any) => String(entry?.id || '') === permanentId);
+      mutations.push({
+        kind: 'putCardFromHandOntoBattlefield',
+        playerId: fromPlayerId,
+        cardId,
+        permanentId,
+        card,
+        tappedAndAttacking: permanent?.isAttacking === true,
+      });
+      return;
+    }
+
+    if (fromZone === 'hand' && toZone === 'graveyard') {
+      mutations.push({
+        kind: 'discardEffect',
+        playerId: fromPlayerId,
+        cardIds: [cardId],
+        destination: 'graveyard',
+      });
+      return;
+    }
+
+    mutations.push({
+      kind: 'effectProgramZoneMove',
+      playerId,
+      fromPlayerId,
+      cardId,
+      fromZone,
+      toZone,
+      card,
+      ...(toZone === 'battlefield' && permanentIds[index] ? { permanentId: permanentIds[index] } : {}),
+      ...(fromZone === 'battlefield' && permanentIds[index] ? { fromPermanentId: permanentIds[index] } : {}),
+    });
+  });
+
+  return mutations;
 }
 
 export function buildCreateTokenReplayMutations(
@@ -165,68 +257,46 @@ function collectMoveZoneReplayMutations(
   state: GameState,
   ctx: OracleIRExecutionContext,
 ): OracleIRReplayMutation[] {
-  const fromZone = inferMoveZoneSourceFromWhat(step);
-  const toZone = resolveMoveZoneDestination(step);
-  if (!fromZone || !toZone) return [];
-
-  const movedCards = Array.isArray(appliedResult.lastMovedCards) ? appliedResult.lastMovedCards as any[] : [];
-  if (movedCards.length === 0) return [];
-
-  const permanentIds = Array.isArray(appliedResult.lastMovedBattlefieldPermanentIds)
-    ? (appliedResult.lastMovedBattlefieldPermanentIds as unknown[]).map((id) => String(id || '').trim()).filter(Boolean)
-    : [];
-  const controllerId = resolvePlayers(state, step.battlefieldController || { kind: 'you' }, ctx)[0] || ctx.controllerId;
-  const mutations: OracleIRReplayMutation[] = [];
-
-  movedCards.forEach((card, index) => {
-    const cardId = String(card?.id || '').trim();
-    if (!cardId) return;
-
-    const fromPlayerId = resolveCardOwnerId(card, ctx.controllerId);
-    const playerId = toZone === 'battlefield'
-      ? (permanentIds[index]
-        ? String((state.battlefield || []).find((perm: any) => String(perm?.id || '') === permanentIds[index])?.controller || controllerId).trim() as PlayerID
-        : controllerId)
-      : fromPlayerId;
-
-    if (fromZone === 'hand' && toZone === 'battlefield') {
-      const permanentId = permanentIds[index] || cardId;
-      const permanent = (state.battlefield || []).find((entry: any) => String(entry?.id || '') === permanentId);
-      mutations.push({
-        kind: 'putCardFromHandOntoBattlefield',
-        playerId: fromPlayerId,
-        cardId,
-        permanentId,
-        card,
-        tappedAndAttacking: permanent?.isAttacking === true,
-      });
-      return;
-    }
-
-    if (fromZone === 'hand' && toZone === 'graveyard') {
-      mutations.push({
-        kind: 'discardEffect',
-        playerId: fromPlayerId,
-        cardIds: [cardId],
-        destination: 'graveyard',
-      });
-      return;
-    }
-
-    mutations.push({
-      kind: 'effectProgramZoneMove',
-      playerId,
-      fromPlayerId,
-      cardId,
-      fromZone,
-      toZone,
-      card,
-      ...(toZone === 'battlefield' && permanentIds[index] ? { permanentId: permanentIds[index] } : {}),
-      ...(fromZone === 'battlefield' && permanentIds[index] ? { fromPermanentId: permanentIds[index] } : {}),
-    });
+  return buildMoveZoneReplayMutations({
+    step,
+    fromZone: normalizeReplayZone((appliedResult as any).fromZone) ?? undefined,
+    toZone: normalizeReplayZone((appliedResult as any).toZone) ?? undefined,
+    movedCards: Array.isArray(appliedResult.lastMovedCards) ? appliedResult.lastMovedCards as any[] : [],
+    movedPermanentIds: Array.isArray(appliedResult.lastMovedBattlefieldPermanentIds)
+      ? appliedResult.lastMovedBattlefieldPermanentIds as string[]
+      : [],
+    state,
+    ctx,
   });
+}
 
-  return mutations;
+function collectExileReplayMutations(
+  appliedResult: Record<string, unknown>,
+  ctx: OracleIRExecutionContext,
+): OracleIRReplayMutation[] {
+  const permanentIds = Array.from(new Set(
+    [
+      ...(Array.isArray(appliedResult.lastExiledBattlefieldPermanentIds)
+        ? appliedResult.lastExiledBattlefieldPermanentIds as readonly string[]
+        : []),
+      ...(Array.isArray(appliedResult.lastMovedBattlefieldPermanentIds)
+        ? appliedResult.lastMovedBattlefieldPermanentIds as readonly string[]
+        : []),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  ));
+  if (permanentIds.length === 0) return [];
+
+  const sourcePermanentId = String(ctx.sourceId || '').trim() || undefined;
+  const sourceName = String(ctx.sourceName || '').trim() || undefined;
+
+  return permanentIds.map((permanentId) => ({
+    kind: 'exilePermanent' as const,
+    permanentId,
+    ...(sourcePermanentId ? { sourcePermanentId } : {}),
+    ...(sourceName ? { sourceName } : {}),
+  }));
 }
 
 export function collectReplayMutationsFromAppliedStep(
@@ -246,6 +316,8 @@ export function collectReplayMutationsFromAppliedStep(
       return collectDiscardReplayMutations(step, appliedResult, state, ctx);
     case 'move_zone':
       return collectMoveZoneReplayMutations(step, appliedResult, state, ctx);
+    case 'exile':
+      return collectExileReplayMutations(appliedResult, ctx);
     default:
       return [];
   }

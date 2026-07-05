@@ -67,6 +67,8 @@ describe("Belbe's Portal chosen-type activation (integration)", () => {
   });
 
   it('puts a matching creature from hand onto the battlefield when the ability resolves', async () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
     const persistentGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
     trackedGameIds.add(persistentGameId);
     await resetGame(persistentGameId);
@@ -154,19 +156,25 @@ describe("Belbe's Portal chosen-type activation (integration)", () => {
 
     game.resolveTopOfStack();
 
-    const modalStep = ResolutionQueueManager.getQueue(persistentGameId).steps[0] as any;
-    expect(modalStep?.type).toBe('modal_choice');
-    expect(modalStep?.putFromHandData?.validCardIds).toContain('gob_hand_1');
-    expect(modalStep?.putFromHandData?.validCardIds).not.toContain('elf_hand_1');
+    const searchStep = ResolutionQueueManager.getQueue(persistentGameId).steps[0] as any;
+    expect(searchStep?.type).toBe('library_search');
+    expect(searchStep?.destination).toBe('battlefield');
+    const nonSelectableIds = (searchStep?.nonSelectableCards || []).map((card: any) => card.id);
+    const selectableIds = (searchStep?.availableCards || [])
+      .map((card: any) => card.id)
+      .filter((id: string) => !nonSelectableIds.includes(id));
+    expect(selectableIds).toContain('gob_hand_1');
+    expect(selectableIds).not.toContain('elf_hand_1');
 
     await handlers['submitResolutionResponse']({
       gameId: persistentGameId,
-      stepId: String(modalStep.id),
+      stepId: String(searchStep.id),
       selections: ['gob_hand_1'],
     });
 
     const goblinOnBattlefield = ((game.state as any).battlefield || []).find((perm: any) => perm?.card?.name === 'Goblin Guide');
     expect(goblinOnBattlefield).toBeTruthy();
     expect(((game.state as any).zones?.[playerId]?.hand || []).some((card: any) => card?.id === 'gob_hand_1')).toBe(false);
+    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
   });
 });

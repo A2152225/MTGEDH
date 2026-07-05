@@ -142,11 +142,22 @@ export function tryParseTemporaryAbilityClause(args: {
   {
     const m = workingClause.match(/^(it|that creature|that permanent|that card|they)\s+gains?\s+(haste|trample|vigilance|lifelink|deathtouch|menace|reach|flying|first strike|double strike|indestructible|hexproof|infect)(?:\s+this\s+turn)?$/i);
     if (m) {
+      const ability = String(m[2] || '').trim().toLowerCase();
+      const target = parseObjectSelector(String(m[1] || '').trim());
+      if (/\bthis\s+turn$/i.test(workingClause)) {
+        return withMeta({
+          kind: 'grant_temporary_ability',
+          target,
+          duration: 'this_turn',
+          abilities: [ability],
+          raw: rawClause,
+        });
+      }
       return withMeta({
-        kind: 'grant_temporary_ability',
-        target: parseObjectSelector(String(m[1] || '').trim()),
-        duration: 'end_of_turn',
-        abilities: [String(m[2] || '').trim().toLowerCase()],
+        kind: 'grant_static_ability',
+        target,
+        abilities: [ability],
+        duration: 'static',
         raw: rawClause,
       });
     }

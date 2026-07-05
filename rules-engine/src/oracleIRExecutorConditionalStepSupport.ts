@@ -694,9 +694,28 @@ function getReferencedConditionalObject(
 }
 
 function getConditionalObjectZoneProvenance(object: any): { castFromZone?: string; enteredFromZone?: string } {
-  const castFromZone = String(object?.castFromZone || object?.card?.castFromZone || '').trim().toLowerCase() || undefined;
+  const castFromZone =
+    String(
+      object?.castFromZone ||
+        object?.castSourceZone ||
+        object?.card?.castFromZone ||
+        object?.card?.castSourceZone ||
+        object?.source ||
+        object?.card?.source ||
+        '',
+    )
+      .trim()
+      .toLowerCase() || undefined;
   const enteredFromZone =
-    String(object?.enteredFromZone || object?.card?.enteredFromZone || '').trim().toLowerCase() || undefined;
+    String(
+      object?.enteredFromZone ||
+        (object?.enteredFromGraveyard ? 'graveyard' : '') ||
+        object?.card?.enteredFromZone ||
+        (object?.card?.enteredFromGraveyard ? 'graveyard' : '') ||
+        '',
+    )
+      .trim()
+      .toLowerCase() || undefined;
   return { castFromZone, enteredFromZone };
 }
 
@@ -2712,12 +2731,19 @@ export function evaluateConditionalWrapperCondition(params: {
     normalizedRaw === 'this spell was cast from a graveyard' ||
     normalizedRaw === 'it entered from your graveyard'
   ) {
-    const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
+    const sourceId = String(ctx.sourceId || '').trim();
+    const referencedObject = sourceId
+      ? findObjectByIdInState(nextState, battlefield as any, sourceId)
+      : getReferencedConditionalObject(nextState, battlefield, ctx);
     const provenance = referencedObject
       ? getConditionalObjectZoneProvenance(referencedObject)
       : {
-          castFromZone: String(ctx.castFromZone || '').trim().toLowerCase() || undefined,
-          enteredFromZone: String(ctx.enteredFromZone || '').trim().toLowerCase() || undefined,
+          castFromZone: String(ctx.castFromZone || ctx.selectorContext?.castFromZone || '')
+            .trim()
+            .toLowerCase() || undefined,
+          enteredFromZone: String(ctx.enteredFromZone || ctx.selectorContext?.enteredFromZone || '')
+            .trim()
+            .toLowerCase() || undefined,
         };
     if (normalizedRaw === 'it entered from your graveyard') {
       return provenance.enteredFromZone === 'graveyard';
@@ -2782,15 +2808,24 @@ export function evaluateConditionalWrapperCondition(params: {
     normalizedRaw === "you didn't cast it from your hand" ||
     normalizedRaw === 'you did not cast it from your hand'
   ) {
+    const interveningSubjectId = String(
+      ctx.selectorContext?.chosenObjectIds?.[0]
+        || ctx.targetPermanentId
+        || '',
+    ).trim();
+    const referencedObject = interveningSubjectId
+      ? findObjectByIdInState(nextState, battlefield as any, interveningSubjectId)
+      : getReferencedConditionalObject(nextState, battlefield, ctx);
+    const provenance = referencedObject
+      ? getConditionalObjectZoneProvenance(referencedObject)
+      : null;
+    if (provenance?.castFromZone) return provenance.castFromZone !== 'hand';
     const castFromZone = String(
       ctx.castFromZone || ctx.selectorContext?.castFromZone || ''
     )
       .trim()
       .toLowerCase();
     if (castFromZone) return castFromZone !== 'hand';
-    const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
-    const provenance = referencedObject ? getConditionalObjectZoneProvenance(referencedObject) : null;
-    if (provenance?.castFromZone) return provenance.castFromZone !== 'hand';
     return null;
   }
 

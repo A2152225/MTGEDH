@@ -1,6 +1,60 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-07-03 (E9 batch 469 — **telemetry soak IR gap fixes**; batch 468 D3/D6 + migration **811/811**)
+Last updated: 2026-07-04 (E9 batch 508 — **replay/undo source-event migration complete**; migration soak pending)
+
+## Next session prompt (copy-paste)
+
+```
+Track E9 / D3 legacy handler retirement — continue from batch 508 (replay complete).
+
+Replay/undo (DONE — do not re-open unless a new divergence test fails):
+- Source events: drawCards (+ drawnCardIds), shuffleLibrary (+ shuffledLibraryIds), moveResolvedInstantOrSorcery, remainingLibraryIds on library search, legacy libraryAfter backward compat only
+- Guardrail: tests/helpers/replayDivergence.ts + replay-divergence.guardrail + deferred-finalize + cultivate/kodama/scry Opt adoption
+- Key files: effectProgramReplayMutationPersistence.ts, stackResolveSpellZoneUtils.ts, applyEvent.ts, resolution.ts (library search persist timing)
+
+Current metrics (verify at session start):
+- TRIGGER_LEGACY_EXPORT_CEILING = 37 (oracle-ir-legacy-handler-ratchet.unit.test.ts)
+- npm run test:oracle-ir-migration — re-run after replay batch; expect 812+ green
+- Telemetry under IR primary should remain 0 events post-soak
+
+Main work branches (priority order):
+
+1. D3 legacy deletion (evidence-driven)
+   Next candidates from batch 506 handoff:
+   - applyRetiredTriggerLegacyInterveningSubjectCopyToken
+   - applyRetiredTriggerLegacyTappedAttackingCopyToken
+   - applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken / BlockTrigger / AttackCountBased
+   - applyRetiredTriggerLegacyLoseGameReplacement
+   Per batch: probe IR → delete handler → lower ratchet → forced-legacy soak 126/126
+
+2. Per-set overlay workflow (§A track E)
+   npm run card-lookup:refresh → npm run oracle-ir:delta → overlay probe per work-queue card
+
+3. Platform gaps (when blocked on overlays)
+   D4 unwired step kinds, D5 trigger detection, D6 client choice primitives, D7 Phase 5 design
+
+Verification per D3 batch:
+cd server
+npx vitest run tests/oracle-ir-legacy-handler-ratchet.unit.test.ts tests/oracle-ir-trigger-legacy-guardrail.test.ts
+npm run oracle-ir:legacy-triage:soak:forced
+$env:ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT='D:\Git\MTGEDH\server\scripts\out\telemetry-snapshot-post508.json'
+npm run test:oracle-ir-migration
+
+Architecture: no bespoke card-name handlers; delete legacy only with triage/IR proof; full trigger effect text via extractTriggerEffectAfterPrefix.
+```
+
+## Replay / undo migration (batch 508 — complete)
+
+| Deliverable | Detail |
+|-------------|--------|
+| **IR replayMutations pipeline** | mill, drawCards (+ drawnCardIds), shuffleLibrary (+ shuffledLibraryIds), adjustLife, createToken, discardEffect, putCardFromHandOntoBattlefield, effectProgramZoneMove |
+| **Spell finalize event** | `moveResolvedInstantOrSorcery` — stack → graveyard/exile on replay without re-running IR |
+| **Library search persist** | `remainingLibraryIds` captured **before** compound resume; trailing shuffle/draw via source events + causal reorder in `toReplayEvents` |
+| **Legacy snapshot removal** | New persist paths use source fields; `libraryAfter` replay only when key explicitly present (`eventHasOwnField`) |
+| **Guardrail adoption** | `replay-divergence.guardrail`, `oracle-ir-deferred-finalize.replay`, Cultivate/Kodama library search, Opt scry+draw |
+| **Docs** | `oracle-ir-step-ledger-migration.md` Phase AS updated (no new `libraryAfter`) |
+
+**Intentionally unchanged (live sync only, not replay events):** in-memory zone snapshots in `applyOracleIRStepsOnServer` (`graveyardBefore`, `exileBefore`, etc.); `handIdsBefore` compound-draw fallback when replayMutations lacks drawCards.
 
 ## New-card automation (read this for set releases)
 
@@ -9,7 +63,7 @@ Last updated: 2026-07-03 (E9 batch 469 — **telemetry soak IR gap fixes**; batc
 | Status | Detail |
 |--------|--------|
 | **Corpus (L1–L2)** | ✅ 47,514/47,514 assisted; triggers 15,741/15,741 |
-| **Live path (L3)** | ✅ IR primary on; **811/811** migration tests |
+| **Live path (L3)** | ✅ IR primary on; migration tests + replay guardrail |
 | **Gap path** | ✅ Compiled overlays + `@OracleIRCompiler` — **default ingestion path** (overlay-first, §C inverted) |
 | **Delta CI (D1)** | ✅ `npm run oracle-ir:delta` — hash-baseline diff → audit delta cards only → `overlayWorkQueue` → CI exit code |
 | **Gap telemetry (D2)** | ✅ `oracleIrGapTelemetry.ts` + `GET /api/oracle-ir/telemetry` — all-or-nothing / owned-but-unhandled / legacy-handled |

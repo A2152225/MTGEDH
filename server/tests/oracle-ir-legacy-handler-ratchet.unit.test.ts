@@ -25,7 +25,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const modulesDir = path.join(__dirname, '..', 'src', 'state', 'modules');
 
 // Lower these when legacy handlers are deleted. NEVER raise them.
-const TRIGGER_LEGACY_EXPORT_CEILING = 37; // 2026-07-03 — batch 507: combat token IR, copy-token late effects, lose-game replacement
+const TRIGGER_LEGACY_EXPORT_CEILING = 16; // 2026-07-05 — batch 529: BelbePortalPutFromHand (IR move_zone + chosenCreatureType LIBRARY_SEARCH bridge)
 const SPELL_LEGACY_EXPORT_CEILING = 1; // applyLegacySpellRegexDrawHandlers
 const RATCHET_SLACK = 5;
 

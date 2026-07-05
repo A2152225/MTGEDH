@@ -1693,14 +1693,22 @@ export function adjustPlayerCounter(
       normalizedCounter === 'poison'
         ? player?.poisonCounters ?? (state as any)?.poisonCounters?.[playerId] ?? nextCounters.poison
         : normalizedCounter === 'energy'
-          ? player?.energyCounters ?? player?.energy ?? nextCounters.energy
+          ? (state as any)?.energy?.[playerId]
+            ?? player?.energyCounters
+            ?? player?.energy
+            ?? nextCounters.energy
           : normalizedCounter === 'experience'
             ? player?.experienceCounters ?? player?.experience ?? (state as any)?.experienceCounters?.[playerId] ?? nextCounters.experience
             : normalizedCounter === 'rad'
               ? player?.radCounters ?? nextCounters.rad
               : normalizedCounter === 'ticket'
                 ? player?.ticketCounters ?? nextCounters.ticket
-                : nextCounters[normalizedCounter]
+                : normalizedCounter === 'token'
+                  ? (state as any)?.tokenCounters?.[playerId]
+                    ?? (state as any)?.tokenCounterCount?.[playerId]
+                    ?? player?.tokenCounters
+                    ?? nextCounters.token
+                  : nextCounters[normalizedCounter]
     ) || 0
   );
   const nextValue = Math.max(0, currentValue + delta);
@@ -1721,6 +1729,14 @@ export function adjustPlayerCounter(
   } else if (normalizedCounter === 'energy') {
     nextPlayer.energyCounters = nextValue;
     nextPlayer.energy = nextValue;
+    nextState.energy = {
+      ...((nextState.energy || {}) as Record<string, number>),
+      [playerId]: nextValue,
+    };
+    nextState.energyCount = {
+      ...((nextState.energyCount || {}) as Record<string, number>),
+      [playerId]: nextValue,
+    };
   } else if (normalizedCounter === 'experience') {
     nextPlayer.experienceCounters = nextValue;
     nextPlayer.experience = nextValue;
@@ -1732,6 +1748,16 @@ export function adjustPlayerCounter(
     nextPlayer.radCounters = nextValue;
   } else if (normalizedCounter === 'ticket') {
     nextPlayer.ticketCounters = nextValue;
+  } else if (normalizedCounter === 'token') {
+    nextPlayer.tokenCounters = nextValue;
+    nextState.tokenCounters = {
+      ...((nextState.tokenCounters || {}) as Record<string, number>),
+      [playerId]: nextValue,
+    };
+    nextState.tokenCounterCount = {
+      ...((nextState.tokenCounterCount || {}) as Record<string, number>),
+      [playerId]: nextValue,
+    };
   }
 
   nextState.players = state.players.map(p => (p.id === playerId ? nextPlayer : p));

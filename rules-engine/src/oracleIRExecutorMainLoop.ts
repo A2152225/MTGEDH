@@ -2042,6 +2042,27 @@ export function applyOracleIRStepsToGameStateImpl(
         }
 
         {
+          const isKeywordCounterFromAmongChoice =
+            step.choice === 'generic'
+            && /counter from among/i.test(String(step.raw || ''))
+            && Array.isArray(step.options)
+            && step.options.length > 0;
+          if (isKeywordCounterFromAmongChoice) {
+            recordSkippedStep(
+              step,
+              `Skipped player choice (${step.choice}): ${step.raw}`,
+              'player_choice_required',
+              {
+                classification: 'player_choice',
+                metadata: {
+                  choice: step.choice,
+                  options: Array.isArray(step.options) ? [...step.options] : undefined,
+                },
+              },
+            );
+            break;
+          }
+
           const chosenObjectIds = Array.isArray(currentCtx.selectorContext?.chosenObjectIds)
             ? currentCtx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
             : [];

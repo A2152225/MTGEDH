@@ -4,7 +4,8 @@ import type { PlayerID } from '../../shared/src/index.js';
 import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutor.js';
 import { evaluateConditionalWrapperCondition } from '../../rules-engine/src/oracleIRExecutorConditionalStepSupport.js';
 import { isSearchedLibraryThisWayLedgerFirst } from '../../rules-engine/src/oracleIRLedgerCardAccess.js';
-import { createInitialGameState } from '../src/state/gameState.js';
+import { assertNoReplayDivergence, toReplayEvents } from './helpers/replayDivergence.js';
+import { createInitialGameState } from '../src/state/index.js';
 import {
   readAppliedStepKindsFromState,
   readStepLedgerFromState,
@@ -204,6 +205,7 @@ describe("Kodama's Reach Oracle IR library search", () => {
     expect(step).toBeDefined();
     expect(step.oracleIrChoiceStepJson).toBeTruthy();
 
+    const eventStart = getEvents(gameId).length;
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: String(step.id),
@@ -256,53 +258,51 @@ describe("Kodama's Reach Oracle IR library search", () => {
     });
     expect((resolvedEvent.payload?.selectedCardIds || [])).toEqual(['f1', 'p1']);
 
-    const replayGame = createInitialGameState('test_kodama_reach_library_search_replay_apply');
-    const replayPlayerId = playerId as PlayerID;
-    replayGame.applyEvent({ type: 'join', playerId: replayPlayerId, name: 'P1' });
+    const replayGameId = `${gameId}_replay_divergence`;
+    const replayGame = createInitialGameState(replayGameId);
+    (replayGame as any).gameId = replayGameId;
+    (replayGame.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
     (replayGame.state as any).zones = {
       [playerId]: {
         hand: [],
         handCount: 0,
-        library: [],
-        libraryCount: 0,
         graveyard: [],
         graveyardCount: 0,
         exile: [],
         exileCount: 0,
+        library: [],
+        libraryCount: 4,
       },
     };
+    (replayGame as any).libraries = new Map([
+      [playerId, [
+        { id: 'f1', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: { normal: 'forest.png' } },
+        { id: 'p1', name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '', image_uris: { normal: 'plains.png' } },
+        { id: 'island', name: 'Island', type_line: 'Basic Land — Island', oracle_text: '', image_uris: { normal: 'island.png' } },
+        { id: 'bolt', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: '', image_uris: { normal: 'bolt.png' } },
+      ]],
+    ]);
+    (replayGame.state as any).stack = [
+      {
+        id: 'kodamas_reach_stack_2',
+        type: 'spell',
+        controller: playerId,
+        card: {
+          id: 'kodamas_reach_2',
+          name: "Kodama's Reach",
+          type_line: 'Sorcery',
+          oracle_text: oracleText,
+          mana_cost: '{2}{G}',
+        },
+        targets: [],
+      },
+    ];
+    replayGame.replay(toReplayEvents(gameId, eventStart) as any);
+    assertNoReplayDivergence(game, replayGame);
 
-    replayGame.applyEvent({
-      type: 'librarySearchResolve',
-      ...resolvedEvent.payload,
-    });
-
-    const replayZones = (replayGame.state as any).zones?.[playerId];
-    const replayBattlefield = (replayGame.state as any).battlefield || [];
-    expect((replayZones?.hand || []).map((card: any) => card.id)).toEqual(['p1']);
-    expect(replayBattlefield.some((permanent: any) => permanent?.card?.id === 'f1' && permanent?.tapped === true)).toBe(true);
-    expect((replayZones?.library || []).map((card: any) => card.id)).toEqual(
-      ((resolvedEvent.payload?.libraryAfter || []) as any[]).map((card: any) => card.id),
-    );
-    expect((replayGame.state as any).oracleIrStepLedger?.size).toBeGreaterThan(0);
-    expect([...((replayGame.state as any).oracleIrAppliedStepKinds?.values() || [])]).toContain('search_library');
-
-    const replayIrCtx = buildOracleIRExecutionContext({
-      controllerId: replayPlayerId,
-      sourceId: 'kodamas_reach_2',
-      sourceName: "Kodama's Reach",
-      stepLedger: readStepLedgerFromState(replayGame.state),
-      appliedStepKinds: readAppliedStepKindsFromState(replayGame.state),
-      currentStepIndex: 1,
-    });
-    expect(isSearchedLibraryThisWayLedgerFirst(replayIrCtx, searchedConditionalStep as any)).toBe(true);
-    expect(evaluateConditionalWrapperCondition({
-      condition: { kind: 'if', raw: 'you searched your library this way' },
-      nextState: replayGame.state as any,
-      controllerId: replayPlayerId,
-      ctx: replayIrCtx,
-      lastActionOutcome: null,
-      step: searchedConditionalStep as any,
-    })).toBe(true);
+    const shuffleEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'shuffleLibrary') as any;
+    expect(shuffleEvent).toBeDefined();
+    expect(Array.isArray(shuffleEvent.payload?.shuffledLibraryIds)).toBe(true);
+    expect(shuffleEvent.payload?.shuffledLibraryIds.length).toBeGreaterThan(0);
   });
 });

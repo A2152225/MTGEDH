@@ -317,6 +317,16 @@ export function tryApplyOracleIRToActivatedAbility(
 
     const state = (ctx as any).state;
     const targetBinding = inferTargetBinding(state, params.targets || []);
+    const sourcePermanentId = String(params.sourcePermanentId || params.stackItemId || '').trim();
+    const sourcePermanent = (state?.battlefield || []).find(
+      (perm: any) => perm && String(perm.id || '') === sourcePermanentId,
+    );
+    const chosenCreatureType = String(
+      sourcePermanent?.chosenCreatureType
+      || params.sourceItem?.chosenCreatureType
+      || params.card?.chosenCreatureType
+      || '',
+    ).trim();
     const irCtx = buildOracleIRExecutionContext(
       {
         controllerId: params.controller,
@@ -328,14 +338,17 @@ export function tryApplyOracleIRToActivatedAbility(
         selectorContext: {
           ...(targetBinding.chosenObjectIds ? { chosenObjectIds: targetBinding.chosenObjectIds } : {}),
           ...(targetBinding.targetPlayerId ? { targetPlayerId: targetBinding.targetPlayerId } : {}),
+          ...(chosenCreatureType ? { chosenCreatureType } : {}),
         },
         ...(targetBinding.targetPermanentId ? { targetPermanentId: targetBinding.targetPermanentId } : {}),
+        ...(chosenCreatureType ? { chosenCreatureType } : {}),
       },
       {
         targetPermanentId: targetBinding.targetPermanentId,
         targetPlayerId: targetBinding.targetPlayerId,
         chosenObjectIds: targetBinding.chosenObjectIds,
         sourceObjectType: 'ability',
+        ...(chosenCreatureType ? { chosenCreatureType } : {}),
       },
     );
 

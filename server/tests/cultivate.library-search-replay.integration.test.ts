@@ -6,6 +6,7 @@ import { evaluateConditionalWrapperCondition } from '../../rules-engine/src/orac
 import { evaluateModifyPtWhereX } from '../../rules-engine/src/oracleIRExecutorModifyPtWhereEvaluator.js';
 import { isRevealedThisWayLedgerFirst, isSearchedLibraryThisWayLedgerFirst } from '../../rules-engine/src/oracleIRLedgerCardAccess.js';
 import { createInitialGameState } from '../src/state/gameState.js';
+import { assertNoReplayDivergence, toReplayEvents } from './helpers/replayDivergence.js';
 import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -140,6 +141,7 @@ describe('Cultivate library search replay', () => {
     expect(step.maxSelections).toBe(2);
     expect((step.availableCards || []).map((card: any) => card.id)).toEqual(['forest_a', 'plains_b']);
 
+    const eventStart = getEvents(gameId).length;
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: String(step.id),
@@ -206,12 +208,58 @@ describe('Cultivate library search replay', () => {
       undefined,
       0,
       revealedModifyStep as any,
-    )).toBe(2);
+    )    ).toBe(2);
 
-    const replayGame = createInitialGameState('test_cultivate_library_search_replay_apply');
-    const replayPlayerId = playerId as PlayerID;
-    replayGame.applyEvent({ type: 'join', playerId: replayPlayerId, name: 'P1' });
+    const replayGameId = `${gameId}_replay_divergence`;
+    const replayGame = createInitialGameState(replayGameId);
+    replayGame.applyEvent({ type: 'join', playerId: playerId as PlayerID, name: 'P1' });
+    (replayGame.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (replayGame.state as any).startingLife = 40;
+    (replayGame.state as any).life = { [playerId]: 40 };
     (replayGame.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 3,
+      },
+    };
+    (replayGame as any).libraries = new Map([
+      [playerId, [
+        { id: 'forest_a', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: { normal: 'forest.png' } },
+        { id: 'plains_b', name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '', image_uris: { normal: 'plains.png' } },
+        { id: 'spell_c', name: 'Giant Growth', type_line: 'Instant', oracle_text: '', image_uris: { normal: 'growth.png' } },
+      ]],
+    ]);
+    (replayGame.state as any).stack = [
+      {
+        id: 'cultivate_stack_1',
+        type: 'spell',
+        controller: playerId,
+        card: {
+          id: 'cultivate_1',
+          name: 'Cultivate',
+          type_line: 'Sorcery',
+          oracle_text: 'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.',
+          mana_cost: '{2}{G}',
+        },
+        targets: [],
+      },
+    ];
+    replayGame.replay(toReplayEvents(gameId, eventStart) as any);
+    assertNoReplayDivergence(game, replayGame);
+
+    const shuffleEvent = [...getEvents(gameId)].reverse().find((event) => event.type === 'shuffleLibrary') as any;
+    expect(shuffleEvent).toBeDefined();
+
+    const replayApplyGame = createInitialGameState('test_cultivate_library_search_replay_apply');
+    const replayPlayerId = playerId as PlayerID;
+    replayApplyGame.applyEvent({ type: 'join', playerId: replayPlayerId, name: 'P1' });
+    (replayApplyGame.state as any).zones = {
       [playerId]: {
         hand: [],
         handCount: 0,
@@ -223,37 +271,46 @@ describe('Cultivate library search replay', () => {
         exileCount: 0,
       },
     };
+    (replayApplyGame as any).libraries = new Map([
+      [playerId, [
+        { id: 'forest_a', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: { normal: 'forest.png' } },
+        { id: 'plains_b', name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '', image_uris: { normal: 'plains.png' } },
+        { id: 'spell_c', name: 'Giant Growth', type_line: 'Instant', oracle_text: '', image_uris: { normal: 'growth.png' } },
+      ]],
+    ]);
 
-    replayGame.applyEvent({
+    const liveLibraryIds = ((game as any).libraries?.get?.(playerId) || []).map((card: any) => card.id);
+
+    replayApplyGame.applyEvent({
       type: 'librarySearchResolve',
       ...resolvedEvent.payload,
     });
+    replayApplyGame.applyEvent({
+      type: 'shuffleLibrary',
+      ...shuffleEvent.payload,
+    });
 
-    const replayZones = (replayGame.state as any).zones?.[playerId];
-    const replayBattlefield = (replayGame.state as any).battlefield || [];
+    const replayZones = (replayApplyGame.state as any).zones?.[playerId];
+    const replayBattlefield = (replayApplyGame.state as any).battlefield || [];
     expect((replayZones?.hand || []).map((card: any) => card.id)).toEqual(['plains_b']);
     expect(replayBattlefield.some((permanent: any) => permanent?.card?.id === 'forest_a' && permanent?.tapped === true)).toBe(true);
-    expect((replayZones?.library || []).map((card: any) => card.id)).toEqual(
-      ((resolvedEvent.payload?.libraryAfter || []) as any[]).map((card: any) => card.id),
-    );
-    expect(replayGame.peekTopN(replayPlayerId, 10).map((card: any) => card.id)).toEqual(
-      ((resolvedEvent.payload?.libraryAfter || []) as any[]).map((card: any) => card.id),
-    );
-    expect((replayGame.state as any).oracleIrStepLedger?.size).toBeGreaterThan(0);
-    expect([...((replayGame.state as any).oracleIrAppliedStepKinds?.values() || [])]).toContain('search_library');
+    expect((replayZones?.library || []).map((card: any) => card.id)).toEqual(liveLibraryIds);
+    expect(replayApplyGame.peekTopN(replayPlayerId, 10).map((card: any) => card.id)).toEqual(liveLibraryIds);
+    expect((replayApplyGame.state as any).oracleIrStepLedger?.size).toBeGreaterThan(0);
+    expect([...((replayApplyGame.state as any).oracleIrAppliedStepKinds?.values() || [])]).toContain('search_library');
 
     const replayIrCtx = buildOracleIRExecutionContext({
       controllerId: replayPlayerId,
       sourceId: 'cultivate_1',
       sourceName: 'Cultivate',
-      stepLedger: readStepLedgerFromState(replayGame.state),
-      appliedStepKinds: readAppliedStepKindsFromState(replayGame.state),
+      stepLedger: readStepLedgerFromState(replayApplyGame.state),
+      appliedStepKinds: readAppliedStepKindsFromState(replayApplyGame.state),
       currentStepIndex: 1,
     });
     expect(isSearchedLibraryThisWayLedgerFirst(replayIrCtx, searchedConditionalStep as any)).toBe(true);
     expect(evaluateConditionalWrapperCondition({
       condition: { kind: 'if', raw: 'you searched your library this way' },
-      nextState: replayGame.state as any,
+      nextState: replayApplyGame.state as any,
       controllerId: replayPlayerId,
       ctx: replayIrCtx,
       lastActionOutcome: null,
@@ -261,7 +318,7 @@ describe('Cultivate library search replay', () => {
     })).toBe(true);
     expect(isRevealedThisWayLedgerFirst(replayIrCtx, revealedModifyStep as any)).toBe(true);
     expect(evaluateModifyPtWhereX(
-      replayGame.state as any,
+      replayApplyGame.state as any,
       replayPlayerId,
       'X is the number of cards revealed this way',
       undefined,

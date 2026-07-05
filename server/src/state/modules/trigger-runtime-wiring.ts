@@ -34,6 +34,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'lose_game',
   'sacrifice',
   'add_counter',
+  'add_player_counter',
   'deal_damage',
   'prevent_damage',
   'double_counters',

@@ -117,7 +117,7 @@ describe('life-loss triggers (integration)', () => {
       triggerType: 'opponent_loses_life',
       sourceName: 'Exquisite Blood',
       triggeringPlayer: p2,
-      effect: 'you gain that much life',
+      effect: 'you gain that much life.',
     }));
     expect(lifeLossStackItems[0]?.effectData?.lifeLost).toBe(4);
     expect(lifeLossStackItems[0]?.sourcePermanentSnapshot).toEqual(expect.objectContaining({
@@ -289,7 +289,7 @@ describe('life-loss triggers (integration)', () => {
     expect(stackItems).toHaveLength(1);
     expect(stackItems[0]).toEqual(expect.objectContaining({
       sourceName: 'Targeted Life Loss Trigger',
-      effect: 'target player loses 1 life and you gain 1 life',
+      effect: 'target player loses 1 life and you gain 1 life.',
       requiresTarget: true,
       needsTargetSelection: true,
       targetType: 'player',

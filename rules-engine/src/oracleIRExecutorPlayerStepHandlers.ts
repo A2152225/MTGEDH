@@ -13,6 +13,7 @@ import {
   cardMatchesMoveZoneSingleTargetCriteria,
   cardMatchesType,
   parseMoveZoneSingleTargetCriteria,
+  parseMoveZoneTypedCardFromYourHand,
   parseSimpleCardTypeFromText,
   type MoveZoneSingleTargetCriteria,
 } from './oracleIRExecutorZoneOps';
@@ -634,15 +635,47 @@ function cardMatchesLookChooseTerm(card: any, term: string): boolean {
   return typeLine.includes(normalizedTerm) || name.includes(normalizedTerm);
 }
 
-function cardMatchesLookChooseSelector(card: any, selectorText: string): boolean {
+function resolveLookChooseManaValueLimit(
+  state: GameState,
+  playerId: PlayerID,
+  selectorText: string,
+): number | null {
+  const normalizedSelector = normalizeLookChooseSelectorText(selectorText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalizedSelector) return null;
+
+  if (/with mana value less than or equal to the number of lands you control/i.test(normalizedSelector)) {
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    return battlefield.filter((permanent: any) => {
+      if (!permanent || String(permanent.controller || '') !== playerId) return false;
+      return String(permanent.card?.type_line || '').toLowerCase().includes('land');
+    }).length;
+  }
+
+  const manaValueMatch = normalizedSelector.match(/^(.+?)\s+with\s+mana\s+value\s+(\d+)\s+or\s+less$/i);
+  if (!manaValueMatch) return null;
+  const parsed = Number.parseInt(String(manaValueMatch[2] || ''), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function cardMatchesLookChooseSelector(
+  card: any,
+  selectorText: string,
+  manaValueLimitOverride?: number | null,
+): boolean {
   const normalizedSelector = normalizeLookChooseSelectorText(selectorText)
     .replace(/\s+/g, ' ')
     .trim();
   if (!normalizedSelector) return false;
 
   const manaValueMatch = normalizedSelector.match(/^(.+?)\s+with\s+mana\s+value\s+(\d+)\s+or\s+less$/i);
-  const selectorWithoutManaLimit = manaValueMatch ? String(manaValueMatch[1] || '').trim() : normalizedSelector;
-  const manaValueLimit = manaValueMatch ? Number.parseInt(String(manaValueMatch[2] || ''), 10) : null;
+  const selectorWithoutManaLimit = manaValueMatch
+    ? String(manaValueMatch[1] || '').trim()
+    : normalizedSelector.replace(/\s+with\s+mana\s+value\s+less than or equal to the number of lands you control$/i, '').trim();
+  const manaValueLimit = manaValueLimitOverride !== undefined
+    ? manaValueLimitOverride
+    : (manaValueMatch ? Number.parseInt(String(manaValueMatch[2] || ''), 10) : null);
   if (manaValueLimit !== null && (!Number.isFinite(manaValueLimit) || Number(getCardManaValue(card) ?? 0) > manaValueLimit)) {
     return false;
   }
@@ -745,9 +778,10 @@ export function buildLookChooseFromTopSelectionOptions(
   readonly selectableCardIds: readonly string[];
   readonly minSelections: number;
   readonly maxSelections: number;
-  readonly destination: 'hand' | 'exile';
+  readonly destination: 'hand' | 'exile' | 'battlefield';
   readonly filter: ReturnType<typeof buildLookChooseLibrarySearchFilter>;
   readonly restOrder?: 'any';
+  readonly contextValue?: number;
 } | null {
   const amount = resolveLookChooseAmount(state, step, ctx, runtime);
   if (amount === null || amount <= 0) return null;
@@ -764,8 +798,9 @@ export function buildLookChooseFromTopSelectionOptions(
   if (lookedCount <= 0) return null;
 
   const lookedCards = library.slice(0, lookedCount);
+  const manaValueLimit = resolveLookChooseManaValueLimit(state, playerId, step.selectorText);
   const selectableCardIds = lookedCards
-    .filter(card => cardMatchesLookChooseSelector(card, step.selectorText))
+    .filter(card => cardMatchesLookChooseSelector(card, step.selectorText, manaValueLimit))
     .map(card => String(card?.id || '').trim())
     .filter(Boolean);
   const limits = parseLookChooseSelectionLimits(step.selectorText, step.optional === true);
@@ -780,6 +815,9 @@ export function buildLookChooseFromTopSelectionOptions(
     destination: step.destination,
     filter: buildLookChooseLibrarySearchFilter(step.selectorText),
     ...(step.restOrder === 'any' ? { restOrder: 'any' as const } : {}),
+    ...(step.destination === 'battlefield' && manaValueLimit !== null
+      ? { contextValue: manaValueLimit }
+      : {}),
   };
 }
 
@@ -867,7 +905,7 @@ function lookChooseFromTopRequiresPlayerChoice(
   ctx: OracleIRExecutionContext,
   runtime?: ModifyPtRuntime
 ): boolean {
-  if (!ctx.interactivePlayerChoices) return false;
+  if (ctx.interactivePlayerChoices === false) return false;
   if (getNormalizedChosenIds(ctx).length > 0) return false;
   const built = buildLookChooseFromTopSelectionOptions(state, step, ctx, runtime);
   if (!built) return false;
@@ -881,7 +919,7 @@ function lookSelectTopRequiresPlayerChoice(
   ctx: OracleIRExecutionContext,
   runtime?: ModifyPtRuntime
 ): boolean {
-  if (!ctx.interactivePlayerChoices) return false;
+  if (ctx.interactivePlayerChoices === false) return false;
   if (getNormalizedChosenIds(ctx).length > 0) return false;
   const built = buildLookSelectTopSelectionOptions(state, step, ctx, runtime);
   if (!built) return false;
@@ -2091,17 +2129,20 @@ export function buildSearchLibrarySelectionOptions(
   const matches = getSearchLibraryMatches(library, step, state, ctx);
   if (!matches || matches.length === 0) return null;
 
-  const maxResults = Math.max(1, Number(step.maxResults || 1) || 1);
+  const isAnyNumber = step.maxResults === 'any_number';
+  const maxResults = isAnyNumber
+    ? matches.length
+    : Math.max(1, Number(step.maxResults || 1) || 1);
   const isOptional = Boolean((step as { optional?: boolean }).optional);
   const splitPlan = inferSplitLibrarySearchPlan(String(step.raw || ''));
-  if (matches.length <= maxResults && !isOptional && !splitPlan) return null;
+  if (!isAnyNumber && matches.length <= maxResults && !isOptional && !splitPlan) return null;
 
   return {
     playerId,
     matches,
     maxResults,
-    minSelections: isOptional ? 0 : 1,
-    maxSelections: isOptional ? Math.min(maxResults, matches.length) : maxResults,
+    minSelections: isOptional || isAnyNumber ? 0 : 1,
+    maxSelections: isAnyNumber ? matches.length : (isOptional ? Math.min(maxResults, matches.length) : maxResults),
     destination: String(step.destination || 'hand'),
   };
 }
@@ -2163,6 +2204,7 @@ function normalizeMoveZoneWhatCriteriaText(whatText: string): string {
 function filterMoveZoneSelectionCandidates(
   pool: readonly any[],
   step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
+  ctx?: OracleIRExecutionContext,
 ): any[] {
   const whatText = String((step.what as any)?.text || (step.what as any)?.raw || '').trim();
   const raw = String(step.raw || '').trim();
@@ -2172,12 +2214,31 @@ function filterMoveZoneSelectionCandidates(
     return [];
   }
 
+  const typedFromHand = parseMoveZoneTypedCardFromYourHand({ kind: 'raw', text: whatText });
+  if (typedFromHand) {
+    let resolvedCriteria = typedFromHand;
+    if (resolvedCriteria.usesChosenCreatureType) {
+      const chosenType = String(ctx?.selectorContext?.chosenCreatureType || '').trim();
+      if (chosenType) {
+        resolvedCriteria = { ...resolvedCriteria, creatureTypesAnyOf: [chosenType] };
+      }
+    }
+    return pool.filter((card) => cardMatchesMoveZoneSingleTargetCriteria(card, resolvedCriteria));
+  }
+
   const normalizedCriteria = normalizeMoveZoneWhatCriteriaText(whatText);
   const structured = parseMoveZoneSingleTargetCriteria(
     normalizedCriteria.replace(/^(?:a|an)\s+/i, ''),
   );
   if (structured) {
-    return pool.filter((card) => cardMatchesMoveZoneSingleTargetCriteria(card, structured));
+    let resolvedCriteria = structured;
+    if (resolvedCriteria.usesChosenCreatureType) {
+      const chosenType = String(ctx?.selectorContext?.chosenCreatureType || '').trim();
+      if (chosenType) {
+        resolvedCriteria = { ...resolvedCriteria, creatureTypesAnyOf: [chosenType] };
+      }
+    }
+    return pool.filter((card) => cardMatchesMoveZoneSingleTargetCriteria(card, resolvedCriteria));
   }
   const articleCriteria = normalizedCriteria.match(/^(?:a|an)\s+(.+)$/i);
   if (articleCriteria) {
@@ -2247,7 +2308,7 @@ export function buildMoveZoneSelectionOptions(
   const pool = resolveMoveZoneSelectionPool(state, step, ctx, playerId);
   if (pool.length === 0) return null;
 
-  const candidates = filterMoveZoneSelectionCandidates(pool, step);
+  const candidates = filterMoveZoneSelectionCandidates(pool, step, ctx);
   const optional = step.optional === true || /^you may\b/i.test(String(step.raw || ''));
   if (candidates.length === 0 && !optional) return null;
 
@@ -3857,7 +3918,9 @@ export function applySearchLibraryStep(
       };
     }
 
-    const maxResults = Math.max(1, Number(step.maxResults || 1) || 1);
+    const maxResults = step.maxResults === 'any_number'
+      ? matches.length
+      : Math.max(1, Number(step.maxResults || 1) || 1);
     const matchById = new Map(
       matches.map((card) => [String(card?.id || card?.cardId || '').trim(), card] as const),
     );
@@ -3868,7 +3931,7 @@ export function applySearchLibraryStep(
       selected = chosenIds
         .map((id) => matchById.get(String(id || '').trim()))
         .filter(Boolean) as any[];
-    } else if (matches.length > maxResults) {
+    } else if (matches.length > maxResults || step.maxResults === 'any_number') {
       return {
         applied: false,
         message: `Skipped library search (requires card choice): ${step.raw}`,
@@ -4380,6 +4443,7 @@ export function applyShuffleLibraryStep(
 
   let nextState = state;
   const log: string[] = [];
+  const replayMutations: OracleIRReplayMutation[] = [];
 
   for (const playerId of players) {
     const player = nextState.players.find(p => p.id === playerId) as any;
@@ -4390,6 +4454,9 @@ export function applyShuffleLibraryStep(
 
     const library = Array.isArray(player.library) ? [...player.library] : [];
     const shuffledLibrary = shuffleArray(library);
+    const shuffledLibraryIds = shuffledLibrary
+      .map((card: any) => String(card?.id || '').trim())
+      .filter(Boolean);
     nextState = {
       ...(nextState as any),
       players: nextState.players.map((entry: any) =>
@@ -4397,9 +4464,21 @@ export function applyShuffleLibraryStep(
       ),
     } as GameState;
     log.push(`${playerId} shuffled their library`);
+    if (shuffledLibraryIds.length > 0) {
+      replayMutations.push({
+        kind: 'shuffleLibrary',
+        playerId,
+        shuffledLibraryIds,
+      });
+    }
   }
 
-  return { applied: true, state: nextState, log };
+  return {
+    applied: true,
+    state: nextState,
+    log,
+    ...(replayMutations.length > 0 ? { replayMutations } : {}),
+  };
 }
 
 export function applyShuffleZonesIntoLibraryStep(
@@ -5076,18 +5155,21 @@ export function applyLookChooseFromTopStep(
     const lookedCount = Math.max(0, Math.min(library.length, amount | 0));
     let lookedCards = library.slice(0, lookedCount);
     const chosenCards: any[] = [];
+    const manaValueLimit = resolveLookChooseManaValueLimit(nextState, playerId, step.selectorText);
 
     if (chosenIds.size > 0) {
       for (const card of lookedCards) {
         const cardId = String(card?.id || '').trim();
         if (!cardId || !chosenIds.has(cardId)) continue;
-        if (!cardMatchesLookChooseSelector(card, step.selectorText)) continue;
+        if (!cardMatchesLookChooseSelector(card, step.selectorText, manaValueLimit)) continue;
         chosenCards.push(card);
       }
       const chosenCardIds = new Set(chosenCards.map(card => String(card?.id || '').trim()).filter(Boolean));
       lookedCards = lookedCards.filter(card => !chosenCardIds.has(String(card?.id || '').trim()));
     } else {
-      const chosenIndex = lookedCards.findIndex(card => cardMatchesLookChooseSelector(card, step.selectorText));
+      const chosenIndex = lookedCards.findIndex(
+        card => cardMatchesLookChooseSelector(card, step.selectorText, manaValueLimit),
+      );
       if (chosenIndex >= 0) {
         chosenCards.push(lookedCards.splice(chosenIndex, 1)[0]);
       }
@@ -5096,7 +5178,7 @@ export function applyLookChooseFromTopStep(
     const restCards = [...lookedCards];
     const bottomedRest = step.restOrder === 'any' ? restCards : shuffleArray(restCards);
     const stepIndex = bridgeOptions?.stepIndex;
-    const canBridgeZone = (step.destination === 'hand' || step.destination === 'exile')
+    const canBridgeZone = (step.destination === 'hand' || step.destination === 'exile' || step.destination === 'battlefield')
       && bridgeOptions?.ctx?.serverBridge
       && Number.isFinite(stepIndex);
     const canBridgeChosen = canBridgeZone && chosenCards.length > 0;
@@ -5107,7 +5189,7 @@ export function applyLookChooseFromTopStep(
         state: nextState,
         playerId,
         rest: restCards,
-        destination: step.destination === 'hand' ? 'hand' : 'exile',
+        destination: step.destination === 'hand' ? 'hand' : step.destination === 'exile' ? 'exile' : 'battlefield',
         restDestination: 'library',
         restLibraryPlacement: 'bottom',
         restRandomOrder: step.restOrder !== 'any',
@@ -5130,7 +5212,11 @@ export function applyLookChooseFromTopStep(
         playerId,
         cards: chosenCards.map((card: any) => ({ ...card, ownerId: playerId, owner: playerId })),
         sourceZone: 'library',
-        intendedDestination: step.destination === 'hand' ? 'hand' : 'exile',
+        intendedDestination: step.destination === 'hand'
+          ? 'hand'
+          : step.destination === 'exile'
+            ? 'exile'
+            : 'battlefield',
         stepIndex: Number(stepIndex),
         stepKind: String(bridgeOptions?.stepKind || 'look_choose_from_top'),
         cause: 'oracle_ir:look_choose_from_top',
@@ -6919,6 +7005,12 @@ export function applyDrawStep(
       }
     }
     lastCount = amount;
+    const playerBeforeDraw = nextState.players.find((entry: any) => String(entry?.id || '').trim() === playerId) as any;
+    const handIdsBeforeDraw = new Set(
+      readPlayerZoneCards(nextState, playerId, playerBeforeDraw, 'hand')
+        .map((card: any) => String(card?.id || '').trim())
+        .filter(Boolean),
+    );
     const result = drawCardsForPlayer(nextState, playerId, amount, bridgeOptions);
     if (result.halted) {
       return withDiscardLedgerFlags({
@@ -6932,7 +7024,16 @@ export function applyDrawStep(
     log.push(...result.log);
     if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
     if (amount > 0) {
-      replayMutations.push({ kind: 'drawCards', playerId, count: amount });
+      const playerAfterDraw = nextState.players.find((entry: any) => String(entry?.id || '').trim() === playerId) as any;
+      const drawnCardIds = readPlayerZoneCards(nextState, playerId, playerAfterDraw, 'hand')
+        .map((card: any) => String(card?.id || '').trim())
+        .filter((id: string) => id && !handIdsBeforeDraw.has(id));
+      replayMutations.push({
+        kind: 'drawCards',
+        playerId,
+        count: amount,
+        ...(drawnCardIds.length > 0 ? { drawnCardIds } : {}),
+      });
     }
   }
 

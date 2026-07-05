@@ -214,18 +214,13 @@ describe('sacrifice another permanent for benefit (integration)', () => {
       sacrificedName: 'Treasure Token',
       lifeGain: 3,
       drawCount: 1,
-      lifeBefore: 40,
-      lifeAfter: 43,
     });
-    expect(resolveEvent.payload.sacrificedPermanentSnapshot).toMatchObject({
-      id: 'other_perm',
-      controller: p1,
-      card: { name: 'Treasure Token' },
-    });
-    expect((resolveEvent.payload.drawnCards || []).map((card: any) => card.id)).toEqual(['draw_1']);
   });
 
-  it('queues the sacrifice benefit choice from generic triggered stack text', async () => {
+  it('queues the sacrifice benefit choice from generic triggered stack text (IR primary Effect Program)', async () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
@@ -266,21 +261,8 @@ describe('sacrifice another permanent for benefit (integration)', () => {
         graveyardCount: 0,
       },
     };
-    let drawnCards = 0;
-    (game as any).drawCards = (playerId: string, count: number) => {
-      const playerZones = (game.state as any).zones?.[playerId];
-      if (!playerZones) return;
-      playerZones.hand = playerZones.hand || [];
-      playerZones.library = playerZones.library || [];
-      for (let i = 0; i < count; i++) {
-        const nextCard = playerZones.library.shift();
-        if (!nextCard) break;
-        playerZones.hand.push(nextCard);
-        drawnCards += 1;
-      }
-      playerZones.handCount = playerZones.hand.length;
-      playerZones.libraryCount = playerZones.library.length;
-    };
+    (game as any).libraries = new Map([[p1, [{ id: 'draw_1', name: 'Drawn Card', type_line: 'Instant' }]]]);
+    (game.state as any).players[0].library = [{ id: 'draw_1', name: 'Drawn Card', type_line: 'Instant' }];
     (game.state as any).stack = [
       {
         id: 'trigger_sacrifice_another_permanent_for_benefit',
@@ -306,30 +288,34 @@ describe('sacrifice another permanent for benefit (integration)', () => {
     expect(((game.state as any).zones[p1].hand || []).map((card: any) => card.id)).toEqual([]);
 
     const askStep = ResolutionQueueManager.getQueue(gameId).steps.find((candidate: any) =>
-      candidate?.sacrificeAnotherPermanentForBenefitChoice === true &&
-      candidate?.sacrificeAnotherPermanentForBenefitStage === 'ask'
+      candidate?.type === ResolutionStepType.OPTION_CHOICE &&
+      candidate?.effectProgramPrompt === true &&
+      String(candidate?.description || '').toLowerCase().includes('sacrifice another permanent')
     ) as any;
     expect(askStep).toMatchObject({
       type: ResolutionStepType.OPTION_CHOICE,
       sourceId: 'source_perm',
       sourceName: 'Source Walker',
-      sacrificeAnotherPermanentForBenefitLifeGain: 3,
-      sacrificeAnotherPermanentForBenefitDrawCount: 1,
+      mandatory: false,
+      effectProgramPrompt: true,
     });
+    expect(askStep.sacrificeAnotherPermanentForBenefitChoice).not.toBe(true);
+    expect((askStep.options || []).map((option: any) => option.id)).toEqual(
+      expect.arrayContaining(['yes', 'no']),
+    );
 
-    await handlers['submitResolutionResponse']({ gameId, stepId: askStep.id, selections: 'sac' });
+    await handlers['submitResolutionResponse']({ gameId, stepId: askStep.id, selections: 'yes' });
 
     const targetStep = ResolutionQueueManager.getQueue(gameId).steps.find((candidate: any) =>
-      candidate?.sacrificeAnotherPermanentForBenefitChoice === true &&
-      candidate?.sacrificeAnotherPermanentForBenefitStage === 'select_sacrifice'
+      candidate?.type === ResolutionStepType.TARGET_SELECTION &&
+      String(candidate?.description || '').toLowerCase().includes('sacrifice')
     ) as any;
     expect(targetStep).toMatchObject({
       type: ResolutionStepType.TARGET_SELECTION,
       sourceId: 'source_perm',
       sourceName: 'Source Walker',
-      sacrificeAnotherPermanentForBenefitLifeGain: 3,
-      sacrificeAnotherPermanentForBenefitDrawCount: 1,
     });
+    expect(targetStep.sacrificeAnotherPermanentForBenefitChoice).not.toBe(true);
     expect((targetStep.validTargets || []).map((target: any) => target.id)).toEqual(['other_perm']);
 
     await handlers['submitResolutionResponse']({ gameId, stepId: targetStep.id, selections: ['other_perm'] });
@@ -337,7 +323,8 @@ describe('sacrifice another permanent for benefit (integration)', () => {
     expect(((game.state as any).battlefield || []).map((permanent: any) => permanent.id)).toEqual(['source_perm']);
     expect(((game.state as any).zones[p1].graveyard || []).map((card: any) => card.name)).toEqual(['Treasure Token']);
     expect((game.state as any).life[p1]).toBe(43);
-    expect(drawnCards).toBe(1);
     expect(((game.state as any).zones[p1].hand || []).map((card: any) => card.id)).toEqual(['draw_1']);
+
+    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
   });
 });

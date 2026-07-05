@@ -56,8 +56,10 @@ import {
   isBothPlayersMayPutPermanentFromHandStep,
   queueEachPlayerMayPutLandOrDrawBatch,
   queueControllerLandPlayOrDrawPrompt,
+  queueLandPlayFromHandPrompt,
   queueBothPlayersMayPutPermanentFromHandPrompts,
 } from './triggerLandPlayPromptUtils.js';
+import { queueEachPlayerCounterPlacementPromptsFromOracleIRResult } from './triggerCounterPlacementPromptUtils.js';
 import {
   applyCounterModifications,
   updateCounters,
@@ -75,6 +77,7 @@ import {
   resolveOracleIrChoiceStepIndex,
   resolveOracleIrContinuationStepIndex,
 } from './oracleIrTransitionPipeline.js';
+import { persistOracleIrReplayMutationsFromExecution } from '../effects/effectProgramReplayMutationPersistence.js';
 import { createEmptyStepLedger } from '../../../../rules-engine/src/oracleIRStepLedger.js';
 import type { OracleIRTransitionHaltState } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
 
@@ -635,12 +638,26 @@ function queueControllerMayPutLandFromHandPromptsFromOracleIRResult(
     .find((step) => isControllerMayPutLandFromHandStep(step));
   if (!landStep) return;
 
-  queueControllerLandPlayOrDrawPrompt(
-    ctx,
-    params.controller,
-    String(params.sourceName || 'Ability').trim() || 'Ability',
-    params.triggerItem,
-  );
+  const landStepRaw = String((landStep as any).raw || '').replace(/\u2019/g, "'");
+  const hasDrawFallback = /if you don(?:'|')?t,?\s*draw a card/i.test(landStepRaw)
+    || (result.pendingContinuationSteps || []).some((step) => isControllerDrawIfDidntPutLandConditional(step));
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+
+  if (hasDrawFallback) {
+    queueControllerLandPlayOrDrawPrompt(
+      ctx,
+      params.controller,
+      sourceName,
+      params.triggerItem,
+    );
+  } else {
+    queueLandPlayFromHandPrompt(
+      ctx,
+      params.controller,
+      sourceName,
+      params.triggerItem,
+    );
+  }
 
   if (Array.isArray(result.pendingContinuationSteps) && result.pendingContinuationSteps.length > 0) {
     const filtered = result.pendingContinuationSteps.filter(
@@ -889,6 +906,24 @@ function queueTopLibraryChoicePromptsFromOracleIRResult(
   }
 }
 
+function mergeOracleIrContinuationResult(
+  target: OracleIRExecutionResult,
+  continuation: OracleIRExecutionResult,
+): void {
+  const mutable = target as {
+    appliedSteps: OracleEffectStep[];
+    skippedSteps: OracleEffectStep[];
+    pendingOptionalSteps: OracleEffectStep[];
+    pendingContinuationSteps?: OracleEffectStep[];
+    automationGaps: OracleIRExecutionResult['automationGaps'];
+  };
+  mutable.appliedSteps = [...mutable.appliedSteps, ...continuation.appliedSteps];
+  mutable.skippedSteps = continuation.skippedSteps;
+  mutable.pendingOptionalSteps = continuation.pendingOptionalSteps;
+  mutable.pendingContinuationSteps = continuation.pendingContinuationSteps;
+  mutable.automationGaps = continuation.automationGaps;
+}
+
 function queueSacrificeChoicePromptsFromOracleIRResult(
   ctx: GameContext,
   state: any,
@@ -898,7 +933,9 @@ function queueSacrificeChoicePromptsFromOracleIRResult(
     sourceName?: string;
     sourceId?: string;
     irCtx: OracleIRExecutionContext;
-  }
+    targetPlayerId?: PlayerID;
+    triggerItem?: any;
+  },
 ): void {
   const gameId = String((ctx as any).gameId || '').trim();
   if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
@@ -906,6 +943,8 @@ function queueSacrificeChoicePromptsFromOracleIRResult(
   const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
   const sourceId = String(params.sourceId || '').trim() || undefined;
   const queuedKeys = new Set<string>();
+  let hadUnqueueableSacrificeGap = false;
+  const fizzledSacrificeSteps: OracleEffectStep[] = [];
 
   for (const gap of result.automationGaps || []) {
     if (gap.reasonCode !== 'player_choice_required') continue;
@@ -919,7 +958,11 @@ function queueSacrificeChoicePromptsFromOracleIRResult(
     if (!step || step.kind !== 'sacrifice') continue;
 
     const built = buildSacrificeTargetSelectionOptions(state, step, params.irCtx);
-    if (!built || built.options.length === 0) continue;
+    if (!built || built.options.length === 0) {
+      hadUnqueueableSacrificeGap = true;
+      fizzledSacrificeSteps.push(step);
+      continue;
+    }
 
     const queueKey = `sacrifice:${String((step as any).raw || '')}`;
     if (queuedKeys.has(queueKey)) continue;
@@ -965,6 +1008,27 @@ function queueSacrificeChoicePromptsFromOracleIRResult(
       oracleIrSourceId: sourceId,
       oracleIrSourceName: sourceName,
     } as any, result, params) as any);
+  }
+
+  if (!hadUnqueueableSacrificeGap) return;
+
+  const pending = result.pendingContinuationSteps;
+  if (!Array.isArray(pending) || pending.length === 0) return;
+
+  const continuationResult = resumeOracleIRRemainingStepsFromResolution(ctx, {
+    controller: params.controller,
+    sourceId,
+    sourceName,
+    steps: pending,
+    targetPlayerId: params.targetPlayerId,
+    triggerItem: params.triggerItem,
+  });
+  if (!continuationResult) return;
+
+  mergeOracleIrContinuationResult(result, continuationResult);
+  if (fizzledSacrificeSteps.length > 0) {
+    const mutable = result as { appliedSteps: OracleEffectStep[] };
+    mutable.appliedSteps = [...mutable.appliedSteps, ...fizzledSacrificeSteps];
   }
 }
 
@@ -1347,10 +1411,16 @@ function queueLookChooseChoicePromptsFromOracleIRResult(
         mandatory: (step as any).optional !== true,
         sourceId,
         sourceName,
-        searchCriteria: String((step as any).raw || 'Look at the top cards of your library'),
+        searchCriteria: built.destination === 'battlefield' && built.contextValue !== undefined
+          ? `Top ${built.lookedCount} cards - creature card with mana value ${built.contextValue} or less`
+          : String((step as any).raw || 'Look at the top cards of your library'),
         minSelections: built.minSelections,
         maxSelections: built.maxSelections,
-        destination: built.destination === 'exile' ? 'exile' : 'hand',
+        destination: built.destination === 'exile'
+          ? 'exile'
+          : built.destination === 'battlefield'
+            ? 'battlefield'
+            : 'hand',
         reveal: Boolean((step as any).reveal),
         shuffleAfter: false,
         remainderDestination: 'bottom',
@@ -1359,6 +1429,7 @@ function queueLookChooseChoicePromptsFromOracleIRResult(
         availableCards,
         nonSelectableCards,
         filter: built.filter,
+        ...(built.contextValue !== undefined ? { contextValue: built.contextValue } : {}),
         oracleIrChoiceStepJson: JSON.stringify([step]),
         oracleIrControllerId: params.controller,
         oracleIrSourceId: sourceId,
@@ -1458,8 +1529,13 @@ function queueSearchLibraryChoicePromptsFromOracleIRResult(
     const criteriaText = String((step as any).criteria?.text || tutorInfo.searchCriteria || '');
     const filter = parseLibrarySearchFilter(criteriaText);
     const criteriaLower = criteriaText.toLowerCase();
+    const totalManaValueCapMatch = criteriaLower.match(/total mana value (\d+) or less/);
+    const maxTotalManaValue = totalManaValueCapMatch
+      ? Math.max(0, Number(totalManaValueCapMatch[1]) || 0)
+      : undefined;
     if (
       typeof filter.maxCmc !== 'number'
+      && maxTotalManaValue === undefined
       && /(?:mana value|converted mana cost|cmc)\s+x\s+or\s+less/.test(criteriaLower)
     ) {
       const xValue = Number(params.irCtx.xValue);
@@ -1506,6 +1582,7 @@ function queueSearchLibraryChoicePromptsFromOracleIRResult(
       availableCards: built.matches.map(normalizeTopLibraryPromptCard),
       persistLibrarySearchResolve: true,
       persistLibrarySearchResolveReason: 'stack_resolution',
+      ...(maxTotalManaValue !== undefined ? { maxTotalManaValue } : {}),
       ...(chosenTypeBattlefieldIfPaid ? { chosenTypeBattlefieldIfPaid } : {}),
       ...(splitDestination
         ? {
@@ -1984,6 +2061,111 @@ function buildConniveDiscardPrompt(
       mana_cost: card?.mana_cost || card?.card?.mana_cost,
       cmc: card?.cmc ?? card?.card?.cmc,
     })).filter((card) => card.id),
+  };
+}
+
+const KEYWORD_COUNTER_FROM_AMONG_PATTERN = /counter from among/i;
+
+function isKeywordCounterFromAmongPlayerChoice(
+  step: Extract<OracleEffectStep, { kind: 'player_choice' }>,
+): boolean {
+  if (step.choice !== 'generic') return false;
+  if (!KEYWORD_COUNTER_FROM_AMONG_PATTERN.test(String(step.raw || ''))) return false;
+  const options = Array.isArray(step.options) ? step.options : [];
+  return options.length > 0;
+}
+
+function resolveKeywordCounterTargetPermanent(
+  state: any,
+  step: Extract<OracleEffectStep, { kind: 'player_choice' }>,
+  irCtx: OracleIRExecutionContext,
+  triggerItem?: any,
+): { id: string; name: string } | null {
+  const targetId = String(
+    resolveSingleCreatureTargetId(state, step.target, irCtx)
+    || triggerItem?.targets?.[0]?.id
+    || triggerItem?.targets?.[0]
+    || irCtx.targetPermanentId
+    || irCtx.targetCreatureId
+    || '',
+  ).trim();
+  if (!targetId) return null;
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const targetPermanent = battlefield.find((perm: any) => String(perm?.id || '') === targetId);
+  if (!targetPermanent) return null;
+
+  return {
+    id: targetId,
+    name: String(targetPermanent?.card?.name || targetPermanent?.name || 'the creature').trim() || 'the creature',
+  };
+}
+
+function precedingPlusOneCounterAlreadyApplied(result: OracleIRExecutionResult): boolean {
+  return (result.appliedSteps || []).some((applied) =>
+    applied.kind === 'add_counter'
+    && String((applied as any).counter || '') === '+1/+1',
+  );
+}
+
+function buildKeywordCounterFromAmongModalPrompt(
+  state: any,
+  step: Extract<OracleEffectStep, { kind: 'player_choice' }>,
+  irCtx: OracleIRExecutionContext,
+  params: {
+    controller: PlayerID;
+    sourceName: string;
+    sourceId?: string;
+    triggerItem?: any;
+    result: OracleIRExecutionResult;
+  },
+): Record<string, unknown> | null {
+  if (!isKeywordCounterFromAmongPlayerChoice(step)) return null;
+
+  const target = resolveKeywordCounterTargetPermanent(state, step, irCtx, params.triggerItem);
+  if (!target) return null;
+
+  const counterOptions = (Array.isArray(step.options) ? step.options : [])
+    .map((opt) => String(opt || '').trim())
+    .filter(Boolean);
+  if (counterOptions.length === 0) return null;
+
+  const plusOneAlreadyApplied = precedingPlusOneCounterAlreadyApplied(params.result);
+  const sourceImage = params.triggerItem?.card?.image_uris?.small
+    || params.triggerItem?.card?.image_uris?.normal
+    || undefined;
+
+  return {
+    type: ResolutionStepType.MODAL_CHOICE,
+    playerId: params.controller,
+    description: `${params.sourceName}: Choose a counter type to put on ${target.name}`,
+    mandatory: step.optional !== true,
+    sourceId: params.sourceId,
+    sourceName: params.sourceName,
+    sourceImage,
+    promptTitle: 'Choose Counter Type',
+    promptDescription: plusOneAlreadyApplied
+      ? `Which keyword counter to put on ${target.name}?`
+      : `Put a +1/+1 counter and which keyword counter on ${target.name}?`,
+    options: counterOptions.map((opt) => ({
+      id: opt.toLowerCase().replace(/\s+/g, '_'),
+      label: opt.charAt(0).toUpperCase() + opt.slice(1),
+    })),
+    minSelections: 1,
+    maxSelections: 1,
+    keywordCounterChoiceData: {
+      targetPermanentId: target.id,
+      targetName: target.name,
+      allowedKeywords: counterOptions,
+      ...(plusOneAlreadyApplied ? {} : { extraCounters: { '+1/+1': 1 } }),
+      sourceName: params.sourceName,
+    },
+    oracleIrChoiceStepJson: JSON.stringify([step]),
+    oracleIrControllerId: params.controller,
+    oracleIrSourceId: params.sourceId,
+    oracleIrSourceName: params.sourceName,
+    oracleIrPlayerChoiceKind: step.choice,
+    oracleIrTargetPermanentId: target.id,
   };
 }
 
@@ -2497,6 +2679,7 @@ function queuePlayerChoicePromptsFromOracleIRResult(
     sourceName?: string;
     sourceId?: string;
     irCtx: OracleIRExecutionContext;
+    triggerItem?: any;
   },
 ): void {
   const gameId = String((ctx as any).gameId || '').trim();
@@ -2562,6 +2745,26 @@ function queuePlayerChoicePromptsFromOracleIRResult(
         oracleIrSourceId: sourceId,
         oracleIrSourceName: sourceName,
       } as any, result, { ...params, controller: params.controller }) as any);
+      continue;
+    }
+
+    const keywordCounterPrompt = buildKeywordCounterFromAmongModalPrompt(
+      state,
+      step,
+      irCtxForChoice,
+      {
+        controller: params.controller,
+        sourceName,
+        sourceId,
+        triggerItem: params.triggerItem,
+        result,
+      },
+    );
+    if (keywordCounterPrompt) {
+      ResolutionQueueManager.addStep(
+        gameId,
+        attachOracleIrResumeMetadata(keywordCounterPrompt, result, params) as any,
+      );
       continue;
     }
 
@@ -3347,18 +3550,42 @@ export function resumeOracleIRRemainingStepsFromResolution(
     },
   );
 
-  return applyOracleIRStepsOnServer(
+  const controller = String(params.controller || '').trim() as PlayerID;
+  if (!controller) {
+    return null;
+  }
+
+  const handIdsBefore = new Set(
+    ((ctx as any).state?.zones?.[controller]?.hand || [])
+      .map((card: any) => String(card?.id || '').trim())
+      .filter(Boolean),
+  );
+
+  const result = applyOracleIRStepsOnServer(
     ctx,
     state,
     params.steps,
     irCtx,
     { allowOptional: false },
     {
-      controller: params.controller,
+      controller,
       targetPlayerId: params.targetPlayerId,
       triggerItem: params.triggerItem,
+      compoundResume: true,
     },
   );
+
+  if (result && !(ctx as any).isReplaying) {
+    persistOracleIrCompoundDrawAfterResolution(ctx, {
+      controller,
+      result,
+      sourceId: params.sourceId,
+      sourceName: params.sourceName,
+      handIdsBefore,
+    });
+  }
+
+  return result;
 }
 
 export function resumeOracleIRStepWithChoiceFromResolution(
@@ -3657,6 +3884,9 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
     ...(chosenObjectIds ? { chosenObjectIds } : {}),
     ...(Object.keys(mergedSelectorContext).length > 0 ? { selectorContext: mergedSelectorContext } : {}),
     ...(Number.isFinite(Number(step?.oracleIrXValue)) ? { xValue: Number(step.oracleIrXValue) } : {}),
+    allowOptional:
+      (firstStep as { optional?: boolean })?.optional === true
+      || /^you may\b/i.test(String((firstStep as any)?.raw || '')),
   });
 }
 
@@ -3892,12 +4122,6 @@ export function resumeOracleIrPendingCompoundStepsFromState(
   const sourceId = String(state?.oracleIrPendingResumeSourceId || '').trim() || undefined;
   const sourceName = String(state?.oracleIrPendingResumeSourceName || '').trim() || undefined;
 
-  const handIdsBefore = new Set(
-    ((state as any)?.zones?.[controller]?.hand || [])
-      .map((card: any) => String(card?.id || '').trim())
-      .filter(Boolean),
-  );
-
   const result = resumeOracleIRRemainingStepsFromResolution(ctx, {
     controller,
     sourceId,
@@ -3905,13 +4129,6 @@ export function resumeOracleIrPendingCompoundStepsFromState(
     steps: remainingSteps,
   });
   if (result) {
-    persistOracleIrCompoundDrawAfterResolution(ctx, {
-      controller,
-      result,
-      sourceId,
-      sourceName,
-      handIdsBefore,
-    });
     clearOracleIrPendingCompoundResumeOnState(state);
   }
   return result;
@@ -3940,6 +4157,7 @@ export function applyOracleIRStepsOnServer(
     triggerItem?: any;
     sourceItem?: any;
     oracleText?: string;
+    compoundResume?: boolean;
   },
 ): OracleIRExecutionResult {
   hydrateOracleIRPlayerZonesFromContext(ctx, state);
@@ -4030,6 +4248,8 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
+    targetPlayerId: params?.targetPlayerId,
+    triggerItem: params?.triggerItem,
   });
   queueUnlessPayChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
@@ -4073,11 +4293,18 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
   });
+  queueEachPlayerCounterPlacementPromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    triggerItem: params?.triggerItem,
+  });
   queuePlayerChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
+    triggerItem: params?.triggerItem,
   });
   queueMoveZoneChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
@@ -4225,6 +4452,13 @@ export function applyOracleIRStepsOnServer(
     irCtx,
     params,
   );
+  if (!(ctx as any).isReplaying) {
+    persistOracleIrReplayMutationsFromExecution(ctx, result, {
+      sourceId: String(irCtx.sourceId || '').trim() || undefined,
+      sourceName: String(irCtx.sourceName || '').trim() || undefined,
+      ...(params?.compoundResume ? { compoundResume: true } : {}),
+    });
+  }
   return result;
 }
 

@@ -156,6 +156,8 @@ describe('generic stack resolution regressions', () => {
   });
 
   it('queues a top-library selection for Loot style activated abilities', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
     const ctx: any = {
       gameId,
       state: {
@@ -197,11 +199,13 @@ describe('generic stack resolution regressions', () => {
     expect(step).toBeDefined();
     expect(step.destination).toBe('battlefield');
     expect(step.maxSelections).toBe(1);
-    expect(step.availableCards).toHaveLength(1);
-    expect(step.availableCards[0]?.id).toBe('eligible_creature');
+    expect(step.availableCards).toHaveLength(6);
+    expect(step.availableCards.map((card: any) => card.id)).toContain('eligible_creature');
     expect(step.nonSelectableCards).toHaveLength(5);
+    expect(step.nonSelectableCards.map((card: any) => card.id)).not.toContain('eligible_creature');
     expect(step.remainderDestination).toBe('bottom');
     expect(step.remainderRandomOrder).toBe(true);
+    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
   });
 
   it('grants firebending without front-loading reminder-text mana', () => {

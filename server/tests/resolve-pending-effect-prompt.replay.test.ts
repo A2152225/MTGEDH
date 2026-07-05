@@ -38,7 +38,7 @@ describe('pending-effect prompt replay semantics', () => {
       type: 'resolveTopOfStackPrompt',
       playerId: p1,
       sourceId: 'bloodbraid_elf',
-      libraryAfter: [],
+      remainingLibraryIds: [],
       pendingCascadeEntry: {
         sourceName: 'Bloodbraid Elf',
         sourceCardId: 'bloodbraid_elf',

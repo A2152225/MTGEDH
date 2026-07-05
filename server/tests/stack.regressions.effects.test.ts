@@ -11,6 +11,8 @@ import { viewFor } from '../src/state/modules/view';
 
 describe('Stack / zone regression effects', () => {
   it('Kynaios creates queued land-or-draw choices even when the trigger description is truncated', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
     const gameId = 'kynaios_truncated_description_regression';
     ResolutionQueueManager.removeQueue(gameId);
 
@@ -56,6 +58,7 @@ describe('Stack / zone regression effects', () => {
     expect(queue.steps.filter((step: any) => step.type === 'kynaios_choice')).toHaveLength(3);
 
     ResolutionQueueManager.removeQueue(gameId);
+    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
   });
 
   it("Nature's Claim grants 4 life to destroyed permanent's controller", () => {

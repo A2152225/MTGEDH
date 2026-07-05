@@ -57,7 +57,7 @@ describe('librarySearchResolve replay semantics', () => {
       createdPermanentIds: ['searched_perm_1'],
       destination: 'battlefield',
       entersTapped: false,
-      libraryAfter: [],
+      remainingLibraryIds: [],
     } as any);
 
     const battlefield = (game.state as any).battlefield || [];
@@ -102,7 +102,7 @@ describe('librarySearchResolve replay semantics', () => {
       ],
       destination: 'battlefield',
       entersTapped: true,
-      libraryAfter: [],
+      remainingLibraryIds: [],
     } as any);
 
     const battlefield = (game.state as any).battlefield || [];
@@ -110,5 +110,63 @@ describe('librarySearchResolve replay semantics', () => {
     expect(String(battlefield[0]?.id || '')).toContain('perm_legacy_library_card_1');
     expect(battlefield[0]?.tapped).toBe(true);
     expect(battlefield[0]?.card?.id).toBe('legacy_library_card_1');
+  });
+
+  it('does not re-shuffle library on replay finalize when libraryAfter snapshot is present', () => {
+    const gameId = 't_library_search_library_after_no_reshuffle';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game as any).libraries = new Map([
+      [p1, [
+        { id: 'island', name: 'Island', type_line: 'Basic Land — Island', zone: 'library' },
+        { id: 'bolt', name: 'Lightning Bolt', type_line: 'Instant', zone: 'library' },
+      ]],
+    ]);
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 2,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const libraryAfter = [
+      { id: 'bolt', name: 'Lightning Bolt', type_line: 'Instant', zone: 'library' },
+      { id: 'island', name: 'Island', type_line: 'Basic Land — Island', zone: 'library' },
+    ];
+
+    game.replay([{
+      type: 'librarySearchResolve',
+      playerId: p1,
+      searchOwnerId: p1,
+      sourceName: "Kodama's Reach",
+      selectedCardIds: ['f1', 'p1'],
+      selectedCards: [
+        { id: 'f1', name: 'Forest', type_line: 'Basic Land — Forest', zone: 'library' },
+        { id: 'p1', name: 'Plains', type_line: 'Basic Land — Plains', zone: 'library' },
+      ],
+      splitAssignments: { toBattlefield: ['f1'], toHand: ['p1'] },
+      destination: 'split',
+      entersTapped: true,
+      remainingLibraryIds: ['bolt', 'island'],
+      libraryAfter,
+      oracleIrResumeStepsJson: JSON.stringify([
+        { kind: 'shuffle_library', who: { kind: 'you' }, raw: 'then shuffle' },
+      ]),
+      oracleIrControllerId: p1,
+      oracleIrSourceId: 'kodamas_reach_2',
+      oracleIrSourceName: "Kodama's Reach",
+    } as any]);
+
+    const lib = ((game as any).libraries?.get(p1) || []).map((card: any) => String(card?.id || ''));
+    expect(lib).toEqual(['bolt', 'island']);
+    expect((game.state as any).oracleIrPendingResumeStepsJson).toBeUndefined();
   });
 });

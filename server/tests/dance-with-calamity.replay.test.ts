@@ -97,6 +97,12 @@ describe('Dance with Calamity live/replay semantics', () => {
     addPlayer(game, p1, 'P1');
     initZones(game, p1);
 
+    game.importDeckResolved(p1, [
+      { id: 'spell_a', name: 'Spell A', type_line: 'Sorcery', cmc: 6, zone: 'library' },
+      { id: 'b', name: 'B', cmc: 2, zone: 'library' },
+      { id: 'c', name: 'C', cmc: 3, zone: 'library' },
+    ] as any);
+
     (game.state as any).pendingDanceWithCalamity = {
       [p1]: {
         effectId: 'dance_1',
@@ -128,10 +134,7 @@ describe('Dance with Calamity live/replay semantics', () => {
       exiledCards: [
         { id: 'spell_a', name: 'Spell A', type_line: 'Sorcery', cmc: 6, zone: 'exile' },
       ],
-      libraryAfter: [
-        { id: 'b', name: 'B', cmc: 2, zone: 'library' },
-        { id: 'c', name: 'C', cmc: 3, zone: 'library' },
-      ],
+      remainingLibraryIds: ['b', 'c'],
     } as any);
 
     expect((game as any).libraries.get(p1)?.map((card: any) => card.id)).toEqual(['b', 'c']);
@@ -204,6 +207,10 @@ describe('Dance with Calamity live/replay semantics', () => {
     addPlayer(game, p1, 'P1');
     initZones(game, p1);
 
+    game.importDeckResolved(p1, [
+      { id: 'rest_1', name: 'Rest 1', zone: 'library' },
+    ] as any);
+
     (game.state as any).pendingDanceWithCalamity = {
       [p1]: {
         effectId: 'dance_3',
@@ -241,9 +248,7 @@ describe('Dance with Calamity live/replay semantics', () => {
       exiledCards: [
         { id: 'spell_a', name: 'Spell A', type_line: 'Sorcery', cmc: 6, zone: 'exile' },
       ],
-      libraryAfter: [
-        { id: 'rest_1', name: 'Rest 1', zone: 'library' },
-      ],
+      remainingLibraryIds: ['rest_1'],
     } as any);
 
     expect((game.state as any).pendingDanceWithCalamity).toBeUndefined();

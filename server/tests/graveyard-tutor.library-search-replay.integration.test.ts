@@ -205,9 +205,10 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     const resolvedEvent = [...events].reverse().find(event => event.type === 'librarySearchResolve');
     expect(resolvedEvent).toBeDefined();
     expect((((resolvedEvent as any).payload?.selectedCardIds) || [])).toEqual(['forest_lib_1']);
-    expect(((((resolvedEvent as any).payload?.libraryAfter) || []) as any[]).map(card => card.id)).not.toContain('forest_lib_1');
+    expect((resolvedEvent as any).payload).not.toHaveProperty('libraryAfter');
 
     const liveZones = (game.state as any).zones?.[playerId];
+    const liveLibraryIds = ((game as any).libraries?.get?.(playerId) || []).map((card: any) => card.id);
     expect((liveZones?.hand || []).map((card: any) => card.id)).toEqual(['forest_lib_1']);
     expect((liveZones?.graveyard || []).map((card: any) => card.id)).toEqual(['grave_tutor_1']);
 
@@ -221,9 +222,7 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     const replayZones = (replayGame.state as any).zones?.[playerId];
     expect((replayZones?.hand || []).map((card: any) => card.id)).toEqual(['forest_lib_1']);
     expect((replayZones?.graveyard || []).map((card: any) => card.id)).toEqual(['grave_tutor_1']);
-    expect(((replayGame as any).libraries?.get?.(playerId) || []).map((card: any) => card.id)).toEqual(
-      (((resolvedEvent as any).payload?.libraryAfter) || []).map((card: any) => card.id),
-    );
+    expect(((replayGame as any).libraries?.get?.(playerId) || []).map((card: any) => card.id)).toEqual(liveLibraryIds);
   });
 
   it('replays unresolved graveyard tutor activation by rebuilding the pending library search step and mana spend', async () => {

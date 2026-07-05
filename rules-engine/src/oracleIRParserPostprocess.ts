@@ -714,7 +714,7 @@ function parseLookChooseFromTopTriple(
     };
   }
 
-  if (next?.kind === 'move_zone' && next.optional === true && (next.to === 'hand' || next.to === 'exile')) {
+  if (next?.kind === 'move_zone' && next.optional === true && (next.to === 'hand' || next.to === 'exile' || next.to === 'battlefield')) {
     const selectorText = String((next.what as any)?.text || '').trim();
     const cleanedSelectorText = selectorText
       .replace(/\s+from\s+among\s+them$/i, '')
@@ -838,6 +838,13 @@ export function mergeLookChooseFromTopAbilities(
         continue;
       }
 
+      const lootBattlefield = parseLookTopLootStyleBattlefieldTriple(current, next, after);
+      if (lootBattlefield) {
+        merged.push(lootBattlefield);
+        i += 2;
+        continue;
+      }
+
       const paired = parseLookChooseFromTopPair(current, next);
       if (paired) {
         merged.push(paired);
@@ -940,19 +947,61 @@ export function mergeConditionalLookChooseFromTopAbilities(
 }
 
 function getBottomLibraryRestOrder(step: OracleEffectStep | undefined): 'random' | 'any' | null {
-  if (!step || (step.kind !== 'unknown' && step.kind !== 'move_zone')) return null;
+  if (!step || (step.kind !== 'unknown' && step.kind !== 'move_zone' && step.kind !== 'grant_static_ability')) {
+    return null;
+  }
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
     .replace(/[.]+$/g, '')
     .trim();
-  if (/^put the rest on the bottom of your library in a random order$/i.test(normalized)) {
+  if (/^put the rest on the bottom(?: of your library)? in a random order$/i.test(normalized)) {
     return 'random';
   }
-  if (/^put the rest on the bottom of your library in any order$/i.test(normalized)) {
+  if (/^put the rest on the bottom(?: of your library)? in any order$/i.test(normalized)) {
     return 'any';
   }
   return null;
+}
+
+function parseLookTopLootStyleBattlefieldTriple(
+  current: OracleEffectStep,
+  next: OracleEffectStep | undefined,
+  after: OracleEffectStep | undefined
+): OracleEffectStep | null {
+  if (current.kind !== 'look_top') return null;
+  if (next?.kind !== 'grant_static_ability' && next?.kind !== 'unknown') return null;
+
+  const amount = (current as { amount?: ReturnType<typeof parseQuantity> }).amount;
+  if (!amount || amount.kind !== 'number') return null;
+
+  const normalizedChoose = normalizeOracleText(String(next.raw || '')).replace(/[.]+$/g, '').trim();
+  const chooseMatch = normalizedChoose.match(
+    /^you may reveal (.+?) from among them and put (?:it|that card) onto the battlefield$/i
+  );
+  if (!chooseMatch) return null;
+
+  const restOrder = getBottomLibraryRestOrder(after);
+  if (!restOrder) return null;
+
+  let selectorText = String(chooseMatch[1] || '').trim().replace(/^an?\s+/i, '');
+  selectorText = selectorText.replace(/\s+card(?=\s+with\b)/i, '');
+
+  const normalizedLook = normalizeOracleText(String(current.raw || '')).replace(/[.]+$/g, '').trim();
+  const normalizedRest = normalizeOracleText(String(after?.raw || '')).replace(/[.]+$/g, '').trim();
+
+  return {
+    kind: 'look_choose_from_top',
+    who: (current as { who?: { kind: 'you' } }).who ?? { kind: 'you' },
+    amount,
+    selectorText,
+    destination: 'battlefield',
+    reveal: true,
+    ...(restOrder === 'any' ? { restOrder: 'any' as const } : {}),
+    optional: true,
+    ...(current.sequence ? { sequence: current.sequence } : {}),
+    raw: `${normalizedLook}. ${normalizedChoose}. ${normalizedRest}`.trim(),
+  };
 }
 
 function isTopLibrarySelectionLeadUnknownStep(step: OracleEffectStep | undefined): boolean {
@@ -2509,9 +2558,9 @@ function parseSearchResultCount(raw: string): number | undefined {
   }
 }
 
-function normalizeLibrarySearchCriteria(rawCriteria: string): { text: string; maxResults?: number } {
+function normalizeLibrarySearchCriteria(rawCriteria: string): { text: string; maxResults?: number | 'any_number' } {
   let criteria = String(rawCriteria || '').trim();
-  let maxResults: number | undefined;
+  let maxResults: number | 'any_number' | undefined;
 
   const upToMatch = criteria.match(/^up to\s+([a-z0-9]+)\s+(.+)$/i);
   if (upToMatch) {
@@ -2522,6 +2571,7 @@ function normalizeLibrarySearchCriteria(rawCriteria: string): { text: string; ma
   const anyNumberMatch = criteria.match(/^any number of\s+(.+)$/i);
   if (anyNumberMatch) {
     criteria = String(anyNumberMatch[1] || '').trim();
+    maxResults = 'any_number';
   }
 
   const exactCountMatch = criteria.match(/^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s+(.+)$/i);
@@ -3332,6 +3382,35 @@ function parseBlightActionFragmentSteps(
   return null;
 }
 
+function parseConditionalAttachFragmentSteps(
+  normalized: string,
+  sequence: { sequence?: 'then' },
+): readonly OracleEffectStep[] | null {
+  const match = normalized.match(
+    /^if\s+(.+?),\s*(attach\s+(?:it|~|this(?:\s+(?:equipment|artifact|permanent))?)\s+to\s+.+?)(?:\.(?:\s|$)|$)/i,
+  );
+  if (!match) return null;
+
+  const conditionRaw = normalizeLeadingConditionalCondition(String(match[1] || '').trim());
+  const attachClause = String(match[2] || '').trim();
+  const attachBody = attachClause.replace(/^attach\s+/i, '').trim();
+  const attachSplit = splitAttachClauseBody(attachBody);
+  if (!attachSplit) return null;
+
+  return [{
+    kind: 'conditional',
+    condition: { kind: 'if', raw: conditionRaw },
+    steps: [{
+      kind: 'attach',
+      attachment: parseObjectSelector(attachSplit.attachmentRaw),
+      to: parseObjectSelector(attachSplit.toRaw),
+      raw: attachClause,
+    } as OracleEffectStep],
+    raw: normalized,
+    ...sequence,
+  } as OracleEffectStep];
+}
+
 export function parseBareTriggerEffectFragmentSteps(raw: string): readonly OracleEffectStep[] | null {
   const normalized = normalizeOracleText(String(raw || ''))
     .replace(/^•\s*/, '')
@@ -3340,8 +3419,17 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
   if (!normalized) return null;
 
   const sequence = {} as { sequence?: 'then' };
+  const energySteps = parseBareEnergyGainSteps(normalized, raw, sequence);
+  if (energySteps) return energySteps;
+
+  const counterFromAmongSteps = parseBareCounterFromAmongSteps(normalized, raw, sequence);
+  if (counterFromAmongSteps) return counterFromAmongSteps;
+
   const blightAction = parseBlightActionFragmentSteps(normalized, sequence);
   if (blightAction) return blightAction;
+
+  const conditionalAttach = parseConditionalAttachFragmentSteps(normalized, sequence);
+  if (conditionalAttach) return conditionalAttach;
 
   const keywordGrant = parseStructuredKeywordActionGrant(normalized, sequence);
   if (keywordGrant) return keywordGrant;
@@ -3427,6 +3515,126 @@ export function parseBareTriggerEffectFragmentSteps(raw: string): readonly Oracl
         sequence: 'then',
       } as OracleEffectStep,
     ];
+  }
+
+  return null;
+}
+
+function parseCounterFromAmongOptions(optionsText: string): string[] {
+  return String(optionsText || '')
+    .replace(/\u2019/g, "'")
+    .replace(/,?\s*or\s+/gi, ', ')
+    .replace(/,?\s*and\s+/gi, ', ')
+    .split(/,\s*/)
+    .map((opt) => opt.trim())
+    .filter(Boolean);
+}
+
+function parseBareCounterFromAmongSteps(
+  normalized: string,
+  raw: string,
+  sequence: { sequence?: 'then' },
+): readonly OracleEffectStep[] | null {
+  const compoundMatch = normalized.match(
+    /^put a \+1\/\+1 counter and a counter from among (.+?) on it$/i,
+  );
+  if (compoundMatch) {
+    const options = parseCounterFromAmongOptions(String(compoundMatch[1] || ''));
+    if (options.length === 0) return null;
+    return [
+      {
+        kind: 'add_counter',
+        target: parseObjectSelector('it'),
+        counter: '+1/+1',
+        amount: { kind: 'number', value: 1 },
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'player_choice',
+        choice: 'generic',
+        target: parseObjectSelector('it'),
+        options,
+        raw: `a counter from among ${String(compoundMatch[1] || '').trim()} on it`,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const choiceMatch = normalized.match(
+    /^put your choice of a counter from among (.+?) on (?:it|this permanent)$/i,
+  );
+  if (choiceMatch) {
+    const options = parseCounterFromAmongOptions(String(choiceMatch[1] || ''));
+    if (options.length === 0) return null;
+    const targetText = /this permanent$/i.test(normalized) ? 'this permanent' : 'it';
+    return [{
+      kind: 'player_choice',
+      choice: 'generic',
+      target: parseObjectSelector(targetText),
+      options,
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  return null;
+}
+
+function parseBareEnergyGainSteps(
+  normalized: string,
+  raw: string,
+  sequence: { sequence?: 'then' },
+): readonly OracleEffectStep[] | null {
+  const ENERGY_WORD: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+  const parseEnergyAmount = (wordOrDigit: string | undefined, symbolGroup: string | undefined): number => {
+    const symbolCount = (String(symbolGroup || '').match(/\{e\}/gi) || []).length;
+    let amount = symbolCount > 0 ? symbolCount : 1;
+    if (wordOrDigit) {
+      const lower = String(wordOrDigit).toLowerCase();
+      amount = ENERGY_WORD[lower] ?? (Number.parseInt(lower, 10) || amount);
+    }
+    return amount;
+  };
+
+  const lifeAndEnergyMatch = normalized.match(
+    /^you gain (\d+) life and get (?:(one|two|three|four|five|\d+) )?((?:\{e\}\s*)+|energy)$/i,
+  );
+  if (lifeAndEnergyMatch) {
+    const lifeAmount = Math.max(0, Number.parseInt(String(lifeAndEnergyMatch[1] || '0'), 10) || 0);
+    const energyAmount = parseEnergyAmount(lifeAndEnergyMatch[2], lifeAndEnergyMatch[3]);
+    return [
+      {
+        kind: 'gain_life',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: lifeAmount },
+        raw,
+        ...sequence,
+      } as OracleEffectStep,
+      {
+        kind: 'add_player_counter',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: energyAmount },
+        counter: 'energy',
+        raw,
+        sequence: 'then',
+      } as OracleEffectStep,
+    ];
+  }
+
+  const energyGetMatch = normalized.match(
+    /^you get (?:(one|two|three|four|five|\d+) )?((?:\{e\}\s*)+|energy)$/i,
+  );
+  if (energyGetMatch) {
+    const energyAmount = parseEnergyAmount(energyGetMatch[1], energyGetMatch[2]);
+    return [{
+      kind: 'add_player_counter',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: energyAmount },
+      counter: 'energy',
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   return null;

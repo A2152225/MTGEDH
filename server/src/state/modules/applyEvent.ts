@@ -363,6 +363,7 @@ import { applyEffectProgramChoiceBindingOnReplay } from "../effects/effectProgra
 import { restoreOracleIrLedgerOnState, restoreOracleIrPendingCompoundResumeOnState, clearOracleIrPendingCompoundResumeOnState } from "./oracleIrTransitionPipeline.js";
 import { ensureDeferredOracleIrStackItem } from "./oracleIrDeferredStackFinalize.js";
 import { finalizeGameStateAfterReplay } from "./replay-prompt-cleanup.js";
+import { applyJoinForcesPaidManaPowerPump } from "./joinForcesResolutionQueue.js";
 import { parseManaCost } from "./mana-check.js";
 import { addRestrictedManaToPool, calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../../rules-engine/src/creatureUpgradeAbilities.js";
@@ -1552,6 +1553,209 @@ function cloneLibraryCards(cards: any[]): any[] {
   return Array.isArray(cards) ? cards.map((card: any) => ({ ...card, zone: 'library' })) : [];
 }
 
+function getPlayerLibraryFromContext(ctx: any, playerId: string): any[] {
+  const pid = String(playerId || '').trim();
+  if (!pid) return [];
+  const fromMap = ctx?.libraries?.get?.(pid);
+  if (Array.isArray(fromMap) && fromMap.length > 0) {
+    return fromMap.map((card: any) => ({ ...card }));
+  }
+  const fromZones = (ctx?.state as any)?.zones?.[pid]?.library;
+  return Array.isArray(fromZones) ? fromZones.map((card: any) => ({ ...card })) : [];
+}
+
+function extractLibraryCardsByIds(library: readonly any[], ids: readonly string[]): {
+  remainder: any[];
+  extracted: any[];
+} {
+  const lib = Array.isArray(library) ? library.map((card: any) => ({ ...card })) : [];
+  const extracted: any[] = [];
+  for (const rawId of ids) {
+    const id = String(rawId || '').trim();
+    if (!id) continue;
+    const idx = lib.findIndex((card: any) => String(card?.id || '') === id);
+    if (idx < 0) continue;
+    extracted.push({ ...lib.splice(idx, 1)[0], zone: 'library' });
+  }
+  return {
+    remainder: lib.map((card: any) => ({ ...card, zone: 'library' })),
+    extracted,
+  };
+}
+
+function buildLibraryAfterPutOnBottom(library: readonly any[], orderedBottomIds: readonly string[]): any[] {
+  const { remainder, extracted } = extractLibraryCardsByIds(library, orderedBottomIds);
+  return [...remainder, ...extracted];
+}
+
+function buildLibraryAfterPutOnTop(
+  library: readonly any[],
+  orderedTopIds: readonly string[],
+  shuffledRemainderIds?: readonly string[],
+): any[] {
+  const { remainder, extracted: topCards } = extractLibraryCardsByIds(library, orderedTopIds);
+  if (Array.isArray(shuffledRemainderIds) && shuffledRemainderIds.length > 0) {
+    const { remainder: leftover, extracted: remainderOrdered } = extractLibraryCardsByIds(remainder, shuffledRemainderIds);
+    return [...topCards, ...remainderOrdered, ...leftover];
+  }
+  return [...topCards, ...remainder];
+}
+
+function buildLibraryAfterAppendOrderedBottom(
+  library: readonly any[],
+  orderedCardIds: readonly string[],
+  bottomCards: readonly any[],
+): any[] {
+  const lib = Array.isArray(library) ? library.map((card: any) => ({ ...card, zone: 'library' })) : [];
+  const byId = new Map<string, any>(
+    (Array.isArray(bottomCards) ? bottomCards : []).map((card: any) => [String(card?.id || ''), card]),
+  );
+  for (const rawId of orderedCardIds) {
+    const id = String(rawId || '').trim();
+    if (!id) continue;
+    const card = byId.get(id);
+    if (card) {
+      lib.push({ ...card, zone: 'library' });
+    }
+  }
+  return lib;
+}
+
+function reorderLibraryByIdList(library: readonly any[], orderedIds: readonly string[]): any[] {
+  const byId = new Map<string, any>();
+  for (const card of Array.isArray(library) ? library : []) {
+    const id = String(card?.id || '').trim();
+    if (id) byId.set(id, card);
+  }
+  const ordered: any[] = [];
+  const seen = new Set<string>();
+  for (const rawId of orderedIds) {
+    const id = String(rawId || '').trim();
+    if (!id || seen.has(id)) continue;
+    const card = byId.get(id);
+    if (card) {
+      ordered.push({ ...card, zone: 'library' });
+      seen.add(id);
+    }
+  }
+  for (const card of Array.isArray(library) ? library : []) {
+    const id = String(card?.id || '').trim();
+    if (id && !seen.has(id)) {
+      ordered.push({ ...card, zone: 'library' });
+    }
+  }
+  return ordered;
+}
+
+function buildLibraryAfterRemovingSelectedCards(
+  library: readonly any[],
+  selectedCardIds: readonly string[],
+): any[] {
+  const removeSet = new Set(
+    selectedCardIds.map((id) => String(id || '').trim()).filter(Boolean),
+  );
+  return (Array.isArray(library) ? library : [])
+    .filter((card: any) => !removeSet.has(String(card?.id || '')))
+    .map((card: any) => ({ ...card, zone: 'library' }));
+}
+
+function buildLibraryAfterSearchResolve(
+  library: readonly any[],
+  selectedCardIds: readonly string[],
+  remainingLibraryIds?: readonly string[],
+): any[] {
+  if (Array.isArray(remainingLibraryIds)) {
+    const { extracted: selectedCards } = extractLibraryCardsByIds(library, selectedCardIds);
+    return buildLibraryFromRemainingIds(library, selectedCards, remainingLibraryIds);
+  }
+  return buildLibraryAfterRemovingSelectedCards(library, selectedCardIds);
+}
+
+function buildLibraryAfterCascadeResolve(
+  library: readonly any[],
+  exiledCards: readonly any[],
+  remainingLibraryIds: readonly string[],
+  bottomCardIds: readonly string[],
+): any[] {
+  const byId = new Map<string, any>();
+  for (const card of [...library, ...exiledCards]) {
+    const id = String(card?.id || '').trim();
+    if (id) byId.set(id, card);
+  }
+  const remaining = remainingLibraryIds
+    .map((id) => byId.get(String(id || '').trim()))
+    .filter(Boolean)
+    .map((card: any) => ({ ...card, zone: 'library' }));
+  const bottom = bottomCardIds
+    .map((id) => byId.get(String(id || '').trim()))
+    .filter(Boolean)
+    .map((card: any) => ({ ...card, zone: 'library' }));
+  return [...remaining, ...bottom];
+}
+
+function buildLibraryAfterPonderResolve(
+  library: readonly any[],
+  params: {
+    lookedAtCardIds: readonly string[];
+    libraryTopOrder?: readonly string[];
+    shuffledLibraryIds?: readonly string[];
+    shouldShuffle?: boolean;
+    toHandCardIds?: readonly string[];
+    drawnCardId?: string;
+    lookedAtCards?: readonly any[];
+  },
+): any[] {
+  const cardById = new Map<string, any>();
+  for (const card of [...library, ...(params.lookedAtCards || [])]) {
+    const id = String(card?.id || '').trim();
+    if (id) cardById.set(id, card);
+  }
+
+  const toHandSet = new Set((params.toHandCardIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+  const drawnId = String(params.drawnCardId || '').trim();
+  const { remainder, extracted } = extractLibraryCardsByIds(library, params.lookedAtCardIds);
+
+  if (params.shouldShuffle && Array.isArray(params.shuffledLibraryIds) && params.shuffledLibraryIds.length > 0) {
+    const shufflePool = [
+      ...remainder,
+      ...extracted.filter((card: any) => {
+        const id = String(card?.id || '').trim();
+        return id && !toHandSet.has(id) && id !== drawnId;
+      }),
+    ];
+    return reorderLibraryByIdList(shufflePool, params.shuffledLibraryIds);
+  }
+
+  const backToLibraryIds = (params.libraryTopOrder || [])
+    .map((id) => String(id || '').trim())
+    .filter((id) => id && !toHandSet.has(id) && id !== drawnId);
+  const backCards = backToLibraryIds
+    .map((id) => cardById.get(id))
+    .filter(Boolean)
+    .map((card: any) => ({ ...card, zone: 'library' }));
+  return [...backCards, ...remainder];
+}
+
+function buildLibraryFromRemainingIds(
+  library: readonly any[],
+  extraCards: readonly any[],
+  remainingLibraryIds: readonly string[],
+): any[] {
+  const byId = new Map<string, any>();
+  for (const card of [...library, ...extraCards]) {
+    const id = String(card?.id || '').trim();
+    if (id) byId.set(id, card);
+  }
+  return remainingLibraryIds
+    .map((id) => byId.get(String(id || '').trim()))
+    .filter(Boolean)
+    .map((card: any) => ({ ...card, zone: 'library' }));
+}
+
+function eventHasOwnField(event: unknown, field: string): boolean {
+  return Boolean(event && typeof event === 'object' && Object.prototype.hasOwnProperty.call(event, field));
+}
+
 /**
  * reset(ctx, preservePlayers)
  * Conservative fallback reset used when no specialized engine reset is available.
@@ -2148,7 +2352,30 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "shuffleLibrary": {
-        shuffleLibrary(ctx as any, (e as any).playerId);
+        const shufflePlayerId = String((e as any).playerId || '').trim();
+        const shuffledLibraryIds = (Array.isArray((e as any).shuffledLibraryIds) ? (e as any).shuffledLibraryIds : [])
+          .map((id: unknown) => String(id || '').trim())
+          .filter(Boolean);
+        if (shufflePlayerId && shuffledLibraryIds.length > 0) {
+          const library = getPlayerLibraryFromContext(ctx, shufflePlayerId);
+          const currentIds = library
+            .map((card: any) => String(card?.id || '').trim())
+            .filter(Boolean);
+          const alreadyOrdered = currentIds.length === shuffledLibraryIds.length
+            && currentIds.every((id, index) => id === shuffledLibraryIds[index]);
+          if (alreadyOrdered) {
+            break;
+          }
+          const libraryAfter = buildLibraryFromRemainingIds(library, [], shuffledLibraryIds);
+          const zones = (ctx.state as any).zones || {};
+          const z = zones[shufflePlayerId] = zones[shufflePlayerId] || {};
+          z.libraryCount = libraryAfter.length;
+          if (ctx.libraries?.set) {
+            ctx.libraries.set(shufflePlayerId, cloneLibraryCards(libraryAfter));
+          }
+        } else if (shufflePlayerId) {
+          shuffleLibrary(ctx as any, shufflePlayerId as any);
+        }
         break;
       }
 
@@ -3520,11 +3747,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const pendingCascadeEntry = (e as any).pendingCascadeEntry && typeof (e as any).pendingCascadeEntry === 'object' && !Array.isArray((e as any).pendingCascadeEntry)
             ? { ...((e as any).pendingCascadeEntry as Record<string, any>) }
             : undefined;
-          const cascadeLibraryAfter = Array.isArray((e as any).libraryAfter)
-            ? cloneLibraryCards((e as any).libraryAfter as any[])
-            : undefined;
+          const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+          const hasRemainingLibraryIdsField = eventHasOwnField(e, 'remainingLibraryIds');
+          const remainingLibraryIds = Array.isArray((e as any).remainingLibraryIds)
+            ? ((e as any).remainingLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+            : [];
+          const shouldSyncCascadeLibrary = Boolean(
+            playerId && (pendingCascadeEntry || hasLibraryAfterField || hasRemainingLibraryIdsField),
+          );
 
-          if (playerId && (pendingCascadeEntry || cascadeLibraryAfter || Array.isArray((e as any).libraryAfter))) {
+          if (shouldSyncCascadeLibrary) {
             const stateAny = ctx.state as any;
             const zones = stateAny.zones = stateAny.zones || {};
             const z = zones[playerId] = zones[playerId] || {
@@ -3538,9 +3770,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               exileCount: 0,
             };
 
-            const libraryAfter = Array.isArray((e as any).libraryAfter)
-              ? cloneLibraryCards((e as any).libraryAfter as any[])
-              : cascadeLibraryAfter;
+            let libraryAfter: any[] | undefined;
+            if (hasLibraryAfterField) {
+              libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+            } else if (hasRemainingLibraryIdsField || pendingCascadeEntry) {
+              const exiledCards = Array.isArray(pendingCascadeEntry?.exiledCards)
+                ? (pendingCascadeEntry.exiledCards as any[])
+                : [];
+              libraryAfter = buildLibraryFromRemainingIds(
+                getPlayerLibraryFromContext(ctx, playerId),
+                exiledCards,
+                remainingLibraryIds,
+              );
+            }
             if (libraryAfter) {
               z.library = cloneLibraryCards(libraryAfter);
               z.libraryCount = libraryAfter.length;
@@ -5386,11 +5628,45 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const effectId = String((e as any).effectId || '').trim();
         const sourceName = String((e as any).sourceName || '').trim();
         const variant = String((e as any).variant || '').trim();
-        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+        const cancelled = (e as any).cancelled === true;
+        const shouldShuffle = (e as any).shouldShuffle === true;
+        const lookedAtCardIds = Array.isArray((e as any).lookedAtCardIds)
+          ? ((e as any).lookedAtCardIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const libraryTopOrder = Array.isArray((e as any).libraryTopOrder)
+          ? ((e as any).libraryTopOrder as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const shuffledLibraryIds = Array.isArray((e as any).shuffledLibraryIds)
+          ? ((e as any).shuffledLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const toHandCardIds = Array.isArray((e as any).toHandCardIds)
+          ? ((e as any).toHandCardIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const lookedAtCards = Array.isArray((e as any).lookedAtCards) ? (e as any).lookedAtCards as any[] : [];
         const toHandCards = Array.isArray((e as any).toHandCards) ? (e as any).toHandCards as any[] : [];
         const drawnCard = (e as any).drawnCard && typeof (e as any).drawnCard === 'object'
           ? { ...(e as any).drawnCard, zone: 'hand' }
           : null;
+        const drawnCardId = String((e as any).drawnCardId || drawnCard?.id || '').trim();
+        const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+        const libraryAfterSnapshot = hasLibraryAfterField
+          ? cloneLibraryCards((e as any).libraryAfter as any[])
+          : [];
+        const libraryAfter = hasLibraryAfterField
+          ? libraryAfterSnapshot
+          : cancelled
+            ? cloneLibraryCards(getPlayerLibraryFromContext(ctx, targetPid))
+            : buildLibraryAfterPonderResolve(getPlayerLibraryFromContext(ctx, targetPid), {
+                lookedAtCardIds,
+                libraryTopOrder,
+                shuffledLibraryIds,
+                shouldShuffle,
+                toHandCardIds: toHandCardIds.length > 0
+                  ? toHandCardIds
+                  : toHandCards.map((card: any) => String(card?.id || '')).filter(Boolean),
+                drawnCardId,
+                lookedAtCards,
+              });
 
         try {
           if (!pid || !targetPid) break;
@@ -5500,7 +5776,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const orderedCardIds = Array.isArray((e as any).orderedCardIds)
           ? ((e as any).orderedCardIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
           : [];
-        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+        const shuffleAfter = (e as any).shuffleAfter === true;
+        const bottomCards = Array.isArray((e as any).bottomCards) ? (e as any).bottomCards as any[] : [];
+        const shuffledLibraryIds = Array.isArray((e as any).shuffledLibraryIds)
+          ? ((e as any).shuffledLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+        const libraryAfterSnapshot = hasLibraryAfterField
+          ? cloneLibraryCards((e as any).libraryAfter as any[])
+          : [];
+        let libraryAfter = libraryAfterSnapshot;
+        if (!hasLibraryAfterField) {
+          libraryAfter = buildLibraryAfterAppendOrderedBottom(
+            getPlayerLibraryFromContext(ctx, pid),
+            orderedCardIds,
+            bottomCards,
+          );
+          if (shuffleAfter && shuffledLibraryIds.length > 0) {
+            libraryAfter = reorderLibraryByIdList(libraryAfter, shuffledLibraryIds);
+          }
+        }
         const matchesCardSet = (cards: any): boolean => {
           const candidateIds = Array.isArray(cards)
             ? cards.map((card: any) => String(card?.id || '')).filter(Boolean)
@@ -5611,9 +5906,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const sourceName = String((e as any).sourceName || "Lim-Dul's Vault").trim();
         const sourceImage = (e as any).sourceImage;
         const lifePaid = Number((e as any).lifePaid || 0);
-        const lifeAfter = Number((e as any).lifeAfter);
         const totalLifePaid = Number((e as any).totalLifePaid || 0);
-        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+        const orderedBottomIds = Array.isArray((e as any).orderedBottomIds)
+          ? ((e as any).orderedBottomIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+        const libraryAfterSnapshot = hasLibraryAfterField
+          ? cloneLibraryCards((e as any).libraryAfter as any[])
+          : [];
+        const libraryAfter = hasLibraryAfterField
+          ? libraryAfterSnapshot
+          : orderedBottomIds.length > 0
+            ? buildLibraryAfterPutOnBottom(getPlayerLibraryFromContext(ctx, pid), orderedBottomIds)
+            : [];
 
         try {
           if (!pid) break;
@@ -5648,9 +5953,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
           const stateAny = ctx.state as any;
           stateAny.life = stateAny.life || {};
-          if (Number.isFinite(lifeAfter)) {
-            stateAny.life[pid] = lifeAfter;
-          } else if (Number.isFinite(lifePaid) && lifePaid > 0) {
+          if (Number.isFinite(lifePaid) && lifePaid > 0) {
             const currentLife = Number(stateAny.life?.[pid] ?? stateAny.startingLife ?? 40);
             stateAny.life[pid] = currentLife - lifePaid;
           }
@@ -5696,7 +5999,25 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "limDulsVaultResolve": {
         const pid = String((e as any).playerId || '').trim();
         const effectId = String((e as any).effectId || '').trim();
-        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+        const orderedTopIds = Array.isArray((e as any).orderedTopIds)
+          ? ((e as any).orderedTopIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const shuffledRemainderIds = Array.isArray((e as any).shuffledRemainderIds)
+          ? ((e as any).shuffledRemainderIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+        const libraryAfterSnapshot = hasLibraryAfterField
+          ? cloneLibraryCards((e as any).libraryAfter as any[])
+          : [];
+        const libraryAfter = hasLibraryAfterField
+          ? libraryAfterSnapshot
+          : orderedTopIds.length > 0
+            ? buildLibraryAfterPutOnTop(
+                getPlayerLibraryFromContext(ctx, pid),
+                orderedTopIds,
+                shuffledRemainderIds.length > 0 ? shuffledRemainderIds : undefined,
+              )
+            : [];
 
         try {
           if (!pid) break;
@@ -5770,7 +6091,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const exiledCards = Array.isArray((e as any).exiledCards)
           ? ((e as any).exiledCards as any[]).map((card: any) => ({ ...card, zone: 'exile' }))
           : [];
-        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+        const remainingLibraryIds = Array.isArray((e as any).remainingLibraryIds)
+          ? ((e as any).remainingLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+        const libraryAfterSnapshot = hasLibraryAfterField
+          ? cloneLibraryCards((e as any).libraryAfter as any[])
+          : [];
+        const libraryAfter = hasLibraryAfterField
+          ? libraryAfterSnapshot
+          : buildLibraryFromRemainingIds(
+              getPlayerLibraryFromContext(ctx, pid),
+              exiledCards,
+              remainingLibraryIds,
+            );
 
         try {
           if (!pid) break;
@@ -5933,7 +6267,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const exiledCards = Array.isArray((e as any).exiledCards)
           ? ((e as any).exiledCards as any[]).map((card: any) => ({ ...card, zone: 'exile' }))
           : [];
-        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+        const remainingLibraryIds = Array.isArray((e as any).remainingLibraryIds)
+          ? ((e as any).remainingLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+        const libraryAfterSnapshot = hasLibraryAfterField
+          ? cloneLibraryCards((e as any).libraryAfter as any[])
+          : [];
+        const libraryAfter = hasLibraryAfterField
+          ? libraryAfterSnapshot
+          : buildLibraryFromRemainingIds(
+              getPlayerLibraryFromContext(ctx, pid),
+              exiledCards,
+              remainingLibraryIds,
+            );
 
         try {
           if (!pid) break;
@@ -7677,9 +8024,27 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const playerId = String((e as any).playerId || '').trim();
         const resolvedStepId = String((e as any).resolvedStepId || '').trim();
         const cardId = String((e as any).cardId || '').trim();
-        const libraryAfter = Array.isArray((e as any).libraryAfter)
+        const remainingLibraryIds = Array.isArray((e as any).remainingLibraryIds)
+          ? ((e as any).remainingLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const bottomCardIds = Array.isArray((e as any).bottomCardIds)
+          ? ((e as any).bottomCardIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const bottomCards = Array.isArray((e as any).bottomCards) ? (e as any).bottomCards as any[] : [];
+        const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+        const libraryAfterSnapshot = hasLibraryAfterField
           ? cloneLibraryCards((e as any).libraryAfter as any[])
           : undefined;
+        const libraryAfter = libraryAfterSnapshot ?? (
+          remainingLibraryIds.length > 0 || bottomCardIds.length > 0
+            ? buildLibraryAfterCascadeResolve(
+                getPlayerLibraryFromContext(ctx, playerId),
+                bottomCards,
+                remainingLibraryIds,
+                bottomCardIds,
+              )
+            : undefined
+        );
         const stackItem = (e as any).stackItem && typeof (e as any).stackItem === 'object' && !Array.isArray((e as any).stackItem)
           ? { ...(e as any).stackItem }
           : undefined;
@@ -11164,10 +11529,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           : [];
         const selectedCards = Array.isArray((e as any).selectedCards) ? (e as any).selectedCards as any[] : [];
         const selectedCardMap = new Map(selectedCards.map((card: any) => [String(card?.id || ''), card]));
-        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+        const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+        const libraryAfterSnapshot = hasLibraryAfterField
+          ? cloneLibraryCards((e as any).libraryAfter as any[])
+          : [];
         const selectedIds = Array.isArray((e as any).selectedCardIds)
           ? ((e as any).selectedCardIds as any[]).map((id: any) => String(id)).filter(Boolean)
           : selectedCards.map((card: any) => String(card?.id || '')).filter(Boolean);
+        const remainingLibraryIds = Array.isArray((e as any).remainingLibraryIds)
+          ? ((e as any).remainingLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const libraryAfter = hasLibraryAfterField
+          ? libraryAfterSnapshot
+          : buildLibraryAfterSearchResolve(
+              getPlayerLibraryFromContext(ctx, searchOwnerId),
+              selectedIds,
+              eventHasOwnField(e, 'remainingLibraryIds') ? remainingLibraryIds : undefined,
+            );
 
         try {
           if (!pid) break;
@@ -11392,7 +11770,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (e as any).oracleIrStepLedger,
             (e as any).oracleIrAppliedStepKinds,
           );
-          restoreOracleIrPendingCompoundResumeOnState(ctx.state, e);
+          if (hasLibraryAfterField && libraryAfterSnapshot.length > 0) {
+            // Shuffle-only compound resume is already captured in libraryAfter; do not
+            // restore pending resume or finalizeGameStateAfterReplay will re-shuffle.
+            clearOracleIrPendingCompoundResumeOnState(ctx.state);
+          } else {
+            restoreOracleIrPendingCompoundResumeOnState(ctx.state, e);
+          }
 
           ctx.bumpSeq();
           ensureDeferredOracleIrStackItem(ctx, String((e as any).oracleIrSourceId || (e as any).sourceId || '').trim() || undefined);
@@ -11412,7 +11796,25 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const hitCard = (e as any).hitCard && typeof (e as any).hitCard === 'object'
             ? { ...(e as any).hitCard }
             : null;
-          const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+          const exiledCards = Array.isArray((e as any).exiledCards) ? (e as any).exiledCards as any[] : [];
+          const remainingLibraryIds = Array.isArray((e as any).remainingLibraryIds)
+            ? ((e as any).remainingLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+            : [];
+          const bottomCardIds = Array.isArray((e as any).bottomCardIds)
+            ? ((e as any).bottomCardIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+            : [];
+          const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+          const libraryAfterSnapshot = hasLibraryAfterField
+            ? cloneLibraryCards((e as any).libraryAfter as any[])
+            : [];
+          const libraryAfter = hasLibraryAfterField
+            ? libraryAfterSnapshot
+            : buildLibraryAfterCascadeResolve(
+                getPlayerLibraryFromContext(ctx, pid),
+                exiledCards,
+                remainingLibraryIds,
+                bottomCardIds,
+              );
 
           try {
             if (!pid) break;
@@ -11951,6 +12353,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 if (!playerId) continue;
                 stateAny.pendingMill[playerId] = (stateAny.pendingMill[playerId] || 0) + totalContributions;
               }
+            } else {
+              applyJoinForcesPaidManaPowerPump(battlefield, {
+                cardName,
+                totalContributions,
+                effectDescription: String((e as any).effectDescription || ''),
+                sourcePermanentId: String((e as any).sourcePermanentId || '').trim() || undefined,
+              });
             }
 
             const stateAny = ctx.state as any;
@@ -13022,7 +13431,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const playerId = String((e as any).playerId || '').trim();
           const selectedCard = (e as any).selectedCard;
           const createdPermanentId = String((e as any).createdPermanentId || '').trim();
-          const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+          const selectedCardId = String((e as any).selectedCardId || selectedCard?.id || '').trim();
+          const remainingLibraryIds = Array.isArray((e as any).remainingLibraryIds)
+            ? ((e as any).remainingLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+            : [];
+          const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+          const libraryAfterSnapshot = hasLibraryAfterField
+            ? cloneLibraryCards((e as any).libraryAfter as any[])
+            : [];
+          const libraryAfter = hasLibraryAfterField
+            ? libraryAfterSnapshot
+            : buildLibraryAfterSearchResolve(
+                getPlayerLibraryFromContext(ctx, playerId),
+                selectedCardId ? [selectedCardId] : [],
+                remainingLibraryIds.length > 0 ? remainingLibraryIds : undefined,
+              );
           const turnApplied = Number((e as any).turnApplied || 0);
           const sourceName = String((e as any).sourceName || 'Throne of the Dead Three').trim() || 'Throne of the Dead Three';
 
@@ -13353,7 +13776,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 exileCount: 0,
               };
               const exiledCards = Array.isArray((e as any).exiledCards) ? (e as any).exiledCards as any[] : [];
-              const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+              const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+              const remainingLibraryIds = Array.isArray((e as any).remainingLibraryIds)
+                ? ((e as any).remainingLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+                : [];
+              const libraryAfter = hasLibraryAfterField
+                ? cloneLibraryCards((e as any).libraryAfter as any[])
+                : buildLibraryFromRemainingIds(
+                    getPlayerLibraryFromContext(ctx, controllerId),
+                    exiledCards,
+                    remainingLibraryIds,
+                  );
               z.exile = Array.isArray(z.exile) ? z.exile : [];
               for (const card of exiledCards) {
                 if (!card || !String(card.id || '').trim()) continue;
@@ -13403,7 +13836,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 exileCount: 0,
               };
               const drawnCards = Array.isArray((e as any).drawnCards) ? (e as any).drawnCards as any[] : [];
-              const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+              const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+              const remainingLibraryIds = Array.isArray((e as any).remainingLibraryIds)
+                ? ((e as any).remainingLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+                : [];
+              const libraryAfter = hasLibraryAfterField
+                ? cloneLibraryCards((e as any).libraryAfter as any[])
+                : buildLibraryFromRemainingIds(
+                    getPlayerLibraryFromContext(ctx, controllerId),
+                    drawnCards,
+                    remainingLibraryIds,
+                  );
               z.hand = Array.isArray(z.hand) ? z.hand : [];
               for (const card of drawnCards) {
                 if (!card || !String(card.id || '').trim()) continue;
@@ -13430,7 +13873,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 exile: [],
                 exileCount: 0,
               };
-              const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+              const hasLibraryAfterField = eventHasOwnField(e, 'libraryAfter');
+              const remainingLibraryIds = Array.isArray((e as any).remainingLibraryIds)
+                ? ((e as any).remainingLibraryIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+                : [];
+              const libraryAfter = hasLibraryAfterField
+                ? cloneLibraryCards((e as any).libraryAfter as any[])
+                : reorderLibraryByIdList(
+                    getPlayerLibraryFromContext(ctx, controllerId),
+                    remainingLibraryIds,
+                  );
               z.libraryCount = libraryAfter.length;
               if (ctx.libraries?.set) {
                 ctx.libraries.set(controllerId, cloneLibraryCards(libraryAfter));
@@ -14961,6 +15413,63 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(retargetSpellCopyResolve): failed', err);
+        }
+        break;
+      }
+
+      case "moveResolvedInstantOrSorcery": {
+        try {
+          const controller = String((e as any).controller || (e as any).playerId || '').trim();
+          const cardId = String((e as any).cardId || '').trim();
+          const destination = String((e as any).destination || 'graveyard').trim().toLowerCase();
+          const cardSnapshot = (e as any).card && typeof (e as any).card === 'object' && !Array.isArray((e as any).card)
+            ? { ...((e as any).card as any) }
+            : null;
+
+          if (!controller || !cardId) break;
+
+          const stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
+          const stackIndex = stack.findIndex(
+            (entry: any) => entry && String(entry?.card?.id || '') === cardId,
+          );
+          if (stackIndex !== -1) {
+            stack.splice(stackIndex, 1);
+          }
+
+          if (destination === 'ceased') {
+            ctx.bumpSeq();
+            break;
+          }
+
+          const zones = (ctx.state as any).zones = (ctx.state as any).zones || {};
+          const playerZones = zones[controller] = zones[controller] || {};
+          const card = cardSnapshot || { id: cardId };
+
+          if (destination === 'graveyard') {
+            playerZones.graveyard = playerZones.graveyard || [];
+            if (!playerZones.graveyard.some((entry: any) => entry && String(entry.id || '') === cardId)) {
+              if (pushCardToPlayerGraveyardWithReplacements(ctx, controller as any, card, playerZones.graveyard)) {
+                playerZones.graveyardCount = playerZones.graveyard.length;
+              }
+            }
+          } else if (destination === 'exile') {
+            playerZones.exile = playerZones.exile || [];
+            if (!playerZones.exile.some((entry: any) => entry && String(entry.id || '') === cardId)) {
+              playerZones.exile.push({ ...card, zone: 'exile' });
+              playerZones.exileCount = playerZones.exile.length;
+            }
+          } else if (destination === 'library') {
+            const lib = ctx.libraries?.get(controller) || [];
+            if (!lib.some((entry: any) => entry && String(entry.id || '') === cardId)) {
+              lib.push({ ...card, zone: 'library' });
+              ctx.libraries?.set(controller, lib);
+              playerZones.libraryCount = lib.length;
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(moveResolvedInstantOrSorcery): failed', err);
         }
         break;
       }

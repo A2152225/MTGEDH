@@ -4,6 +4,7 @@ import type { PlayerID } from '../../shared/src/index.js';
 import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutor.js';
 import { evaluateModifyPtWhereX } from '../../rules-engine/src/oracleIRExecutorModifyPtWhereEvaluator.js';
 import { createInitialGameState } from '../src/state/gameState.js';
+import { assertNoReplayDivergence, toReplayEvents } from './helpers/replayDivergence.js';
 import {
   readAppliedStepKindsFromState,
   readStepLedgerFromState,
@@ -579,6 +580,7 @@ describe('oracle IR Opt stack resolve E2E', () => {
     expect(String(scryStep.oracleIrChoiceStepJson || '')).toContain('scry');
     expect(String(scryStep.oracleIrResumeStepsJson || '')).toContain('draw');
 
+    const eventStart = getEvents(gameId).length;
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: String(scryStep.id),
@@ -595,9 +597,26 @@ describe('oracle IR Opt stack resolve E2E', () => {
     expect((game.state as any).stack || []).toHaveLength(0);
 
     const drawEvent = [...getEvents(gameId)].reverse()
-      .find((event) => event.type === 'drawCards' && event.payload?.oracleIrCompoundResume === true);
+      .find((event) => event.type === 'drawCards' && (
+        event.payload?.oracleIrCompoundResume === true
+        || event.payload?.oracleIrReplayMutation === true
+        || (Array.isArray(event.payload?.drawnCardIds) && event.payload.drawnCardIds.length > 0)
+      ));
     expect(drawEvent).toBeDefined();
     expect(drawEvent?.payload?.drawnCardIds).toEqual(['draw-me']);
+
+    const replayGameId = `${gameId}_replay_divergence`;
+    const replayGame = createInitialGameState(replayGameId);
+    setupStackSpellLibraryGame(replayGame, replayGameId, library);
+    queueStackSpell(replayGame, {
+      id: 'opt_1',
+      name: 'Opt',
+      type_line: 'Instant',
+      oracle_text: 'Scry 1. Draw a card.',
+      mana_cost: '{U}',
+    }, 'opt_stack_1');
+    replayGame.replay(toReplayEvents(gameId, eventStart) as any);
+    assertNoReplayDivergence(game, replayGame);
   });
 
   it('resolveTopOfStack queues IR surveil for Consider then socket response completes the draw', async () => {

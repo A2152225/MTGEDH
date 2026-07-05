@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
-import { debug } from '../../utils/debug.js';
+import { appendEvent } from '../../db/index.js';
+import { debug, debugWarn } from '../../utils/debug.js';
 import { normalizeOracleResolutionText } from './oracleIrSpellLegacySupplemental.js';
 import { shouldExileStackCardInsteadOfGraveyard } from './stack-zone-replacements.js';
 import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
@@ -9,6 +10,45 @@ import {
   queueResolvedSpellCopyChoice,
   shouldQueueResolvedSpellCopyChoice,
 } from './stackResolveSpellCopyChoiceUtils.js';
+
+type ResolvedInstantOrSorceryDestination = 'graveyard' | 'exile' | 'library' | 'ceased';
+
+function persistMoveResolvedInstantOrSorceryEvent(
+  ctx: GameContext,
+  options: {
+    controller: PlayerID;
+    card: any;
+    destination: ResolvedInstantOrSorceryDestination;
+  },
+): void {
+  if ((ctx as any).isReplaying) return;
+
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown') return;
+
+  const cardId = String(options.card?.id || '').trim();
+  if (!cardId) return;
+
+  try {
+    appendEvent(
+      gameId,
+      Number((ctx as any).seq ?? (ctx.state as any)?.seq ?? 0),
+      'moveResolvedInstantOrSorcery',
+      {
+        controller: options.controller,
+        playerId: options.controller,
+        cardId,
+        destination: options.destination,
+        card: { ...options.card },
+      },
+    );
+    if (typeof (ctx as any).bumpSeq === 'function') {
+      (ctx as any).bumpSeq();
+    }
+  } catch (err) {
+    debugWarn(1, '[moveResolvedInstantOrSorcery] appendEvent failed:', err);
+  }
+}
 
 export function tryResolveApproachOfTheSecondSunAfterEffects(
   ctx: GameContext,
@@ -168,6 +208,11 @@ export function moveResolvedInstantOrSorceryAfterResolution(
 
   if ((card as any)?.ceaseOnResolution === true) {
     debug(2, `[moveResolvedInstantOrSorceryAfterResolution] Copied spell ${effectiveCard?.name || 'unnamed'} ceased to exist after resolution`);
+    persistMoveResolvedInstantOrSorceryEvent(ctx, {
+      controller,
+      card,
+      destination: 'ceased',
+    });
     return;
   }
 
@@ -181,6 +226,16 @@ export function moveResolvedInstantOrSorceryAfterResolution(
     });
     playerZones.exileCount = (playerZones.exile as any[]).length;
     debug(2, `[moveResolvedInstantOrSorceryAfterResolution] Adventure spell ${effectiveCard?.name || 'unnamed'} resolved and exiled for ${controller}`);
+    persistMoveResolvedInstantOrSorceryEvent(ctx, {
+      controller,
+      card: {
+        ...card,
+        zone: 'exile',
+        onAdventure: true,
+        adventureCaster: controller,
+      },
+      destination: 'exile',
+    });
     return;
   }
 
@@ -201,6 +256,17 @@ export function moveResolvedInstantOrSorceryAfterResolution(
       2,
       `[moveResolvedInstantOrSorceryAfterResolution] Paradigm spell ${effectiveCard?.name || 'unnamed'} exiled for ${controller}${firstParadigmResolution ? ' and activated for future precombat main phases' : ''}`,
     );
+    persistMoveResolvedInstantOrSorceryEvent(ctx, {
+      controller,
+      card: {
+        ...card,
+        zone: 'exile',
+        paradigmActive: firstParadigmResolution,
+        paradigmController: controller,
+        paradigmNameKey: normalizedParadigmName,
+      },
+      destination: 'exile',
+    });
     return;
   }
 
@@ -212,6 +278,11 @@ export function moveResolvedInstantOrSorceryAfterResolution(
     });
     playerZones.exileCount = (playerZones.exile as any[]).length;
     debug(2, `[moveResolvedInstantOrSorceryAfterResolution] ${castWithAbility || 'graveyard-cast'} spell ${effectiveCard?.name || 'unnamed'} exiled for ${controller} after resolution`);
+    persistMoveResolvedInstantOrSorceryEvent(ctx, {
+      controller,
+      card: { ...card, zone: 'exile' },
+      destination: 'exile',
+    });
     return;
   }
 
@@ -226,6 +297,17 @@ export function moveResolvedInstantOrSorceryAfterResolution(
     });
     playerZones.exileCount = (playerZones.exile as any[]).length;
     debug(2, `[moveResolvedInstantOrSorceryAfterResolution] Rebound spell ${effectiveCard?.name || 'unnamed'} exiled for ${controller} - will trigger at beginning of next upkeep`);
+    persistMoveResolvedInstantOrSorceryEvent(ctx, {
+      controller,
+      card: {
+        ...card,
+        zone: 'exile',
+        reboundPending: true,
+        reboundController: controller,
+        reboundTurn: stateAny.turnNumber || 1,
+      },
+      destination: 'exile',
+    });
     return;
   }
 
@@ -233,7 +315,17 @@ export function moveResolvedInstantOrSorceryAfterResolution(
   if (pushCardToPlayerGraveyardWithReplacements(ctx, controller, card, playerZones.graveyard)) {
     playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
     debug(2, `[moveResolvedInstantOrSorceryAfterResolution] Spell ${card?.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
+    persistMoveResolvedInstantOrSorceryEvent(ctx, {
+      controller,
+      card: { ...card, zone: 'graveyard' },
+      destination: 'graveyard',
+    });
   } else {
     debug(2, `[moveResolvedInstantOrSorceryAfterResolution] ${card?.name} self-shuffled into library instead of graveyard for ${controller}`);
+    persistMoveResolvedInstantOrSorceryEvent(ctx, {
+      controller,
+      card: { ...card, zone: 'library' },
+      destination: 'library',
+    });
   }
 }

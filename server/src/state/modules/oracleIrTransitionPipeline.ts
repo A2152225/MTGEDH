@@ -452,6 +452,12 @@ export function persistOracleIrCompoundDrawAfterResolution(
   },
 ): void {
   if (!params.result) return;
+  const hasDrawReplayMutations = (params.result.replayMutations || []).some(
+    (mutation) => mutation.kind === 'drawCards',
+  );
+  if (hasDrawReplayMutations) {
+    return;
+  }
   const drawnCardIds = params.handIdsBefore
     ? collectOracleIrCompoundDrawnCardIds((ctx as any).state, params.controller, params.handIdsBefore)
     : [];

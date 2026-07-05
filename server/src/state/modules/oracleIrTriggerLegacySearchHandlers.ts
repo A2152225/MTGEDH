@@ -19,42 +19,6 @@ export interface TriggerLegacySearchParams {
   readonly state: any;
 }
 
-export function applyRetiredTriggerLegacyProteanHulkSearch(
-  params: TriggerLegacySearchParams,
-): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  const proteanHulkMatch = params.desc.match(
-    /search your library for any number of creature cards with total mana value (\d+) or less and put them onto the battlefield/i,
-  );
-  if (!proteanHulkMatch) {
-    return false;
-  }
-
-  const maxTotalManaValue = Math.max(0, Number(proteanHulkMatch[1] || 0));
-  enqueueLibrarySearchStep(params.ctx, params.controller, {
-    sourceId: String(params.triggerItem?.source || params.triggerItem?.permanentId || ''),
-    source: params.sourceName,
-    description: `${params.sourceName}: Search your library for any number of creature cards with total mana value ${maxTotalManaValue} or less.`,
-    searchFor: `any number of creature cards with total mana value ${maxTotalManaValue} or less`,
-    destination: 'battlefield',
-    optional: true,
-    maxSelections: Number.MAX_SAFE_INTEGER,
-    minSelections: 0,
-    reveal: true,
-    shuffleAfter: true,
-    filter: { types: ['creature'] },
-    maxTotalManaValue,
-    persistLibrarySearchResolve: true,
-    persistLibrarySearchResolveReason: 'stack_resolution',
-  });
-
-  debug(2, `[executeTriggerEffect] ${params.sourceName}: queued Protean Hulk search with total mana value cap ${maxTotalManaValue}`);
-  return true;
-}
-
 export function applyRetiredTriggerLegacyGenericSearchLibrary(
   params: TriggerLegacySearchParams,
 ): boolean {

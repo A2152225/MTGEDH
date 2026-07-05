@@ -15174,6 +15174,25 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     );
   });
 
+  it('parses Loot-style top-library creature-to-battlefield selection into look_choose_from_top', () => {
+    const ir = parseOracleTextToIR(
+      'Look at the top six cards of your library. You may reveal a creature card with mana value less than or equal to the number of lands you control from among them and put it onto the battlefield. Put the rest on the bottom in a random order.',
+      'Loot, Exuberant Explorer'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'look_choose_from_top',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 6 },
+        selectorText: 'creature with mana value less than or equal to the number of lands you control',
+        destination: 'battlefield',
+        reveal: true,
+        optional: true,
+      }),
+    ]);
+  });
+
   it('parses look-choose-from-top to hand with bottom-any-order tail', () => {
     const ir = parseOracleTextToIR(
       'When Courageous Outrider enters the battlefield, look at the top four cards of your library. You may reveal a Human card from among them and put it into your hand. Put the rest on the bottom of your library in any order.',
@@ -15395,6 +15414,50 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
             kind: 'attach',
             attachment: { kind: 'raw', text: 'it' },
             to: { kind: 'raw', text: 'target creature you control' },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('parses bare ETB attach fragments without the When clause wrapper', () => {
+    const fragment =
+      'if it was cast from your graveyard, attach it to target creature you control. Equipped creature gets +2/+0 and has flying and haste.';
+
+    expect(parseBareTriggerEffectFragmentSteps(fragment)).toMatchObject([
+      {
+        kind: 'conditional',
+        condition: {
+          kind: 'if',
+          raw: 'it was cast from your graveyard',
+        },
+        steps: [
+          {
+            kind: 'attach',
+            attachment: { kind: 'raw', text: 'it' },
+            to: { kind: 'raw', text: 'target creature you control' },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('parses undecorated it gains haste as a permanent static grant', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever a nontoken creature enters the battlefield under your control, if you didn't cast it from your hand, it gains haste.",
+      'Chainer, Nightmare Adept',
+    );
+
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: "you didn't cast it from your hand" },
+        steps: [
+          {
+            kind: 'grant_static_ability',
+            target: { kind: 'raw', text: 'it' },
+            abilities: ['haste'],
+            duration: 'static',
           },
         ],
       },

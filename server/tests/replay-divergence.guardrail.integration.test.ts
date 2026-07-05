@@ -182,7 +182,7 @@ describe('replay divergence guardrail (IR primary draw spell)', () => {
 
     const replayEvents = toReplayEvents(gameId, eventStart);
     expect(replayEvents.map((event: any) => event.type)).toEqual(
-      expect.arrayContaining(['castSpell']),
+      expect.arrayContaining(['castSpell', 'drawCards', 'moveResolvedInstantOrSorcery']),
     );
 
     const replayGame = createInitialGameState(replayGameId);

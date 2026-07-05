@@ -142,8 +142,9 @@ import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilit
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { resolveOracleIrOptionalPaymentPromptFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution, processPendingOracleIrCompoundResumeOnContext, syncAllOracleIRPlayerZonesAfterResolution } from '../state/modules/oracleIrServerZoneSync.js';
 import { tryApplyStationChargeCountersViaOracleIR } from '../state/modules/oracleIrAbilityExecution.js';
-import { readOracleIrLedgerPersistFields, readOracleIrCompoundResumePersistFields, persistOracleIrCompoundDrawAfterResolution } from '../state/modules/oracleIrTransitionPipeline.js';
+import { readOracleIrLedgerPersistFields, readOracleIrCompoundResumePersistFields } from '../state/modules/oracleIrTransitionPipeline.js';
 import { maybeResumeDeferredOracleIrStackSpellOnGame } from '../state/modules/oracleIrDeferredStackFinalize.js';
+import { applyJoinForcesPaidManaPowerPump } from '../state/modules/joinForcesResolutionQueue.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
@@ -16782,21 +16783,7 @@ async function handleDiscardResponse(
     const ctx = ((game as any).ctx || game) as any;
     ctx.gameId = gameId;
     ctx.state = game.state;
-    const handIdsBefore = new Set(
-      ((game.state as any).zones?.[pid]?.hand || [])
-        .map((card: any) => String(card?.id || '').trim())
-        .filter(Boolean),
-    );
-    const compoundDrawResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
-    if (compoundDrawResult) {
-      persistOracleIrCompoundDrawAfterResolution(ctx, {
-        controller: pid,
-        result: compoundDrawResult,
-        sourceId: (step as any).oracleIrSourceId,
-        sourceName: (step as any).oracleIrSourceName,
-        handIdsBefore,
-      });
-    }
+    maybeResumeOracleIRStepsAfterResolution(ctx, step);
   }
 
   maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
@@ -19960,12 +19947,6 @@ async function handleTargetSelectionResponse(
       ts: Date.now(),
     });
 
-    const zonesBeforeDraw = game.state?.zones?.[controllerId];
-    const libBeforeDraw = (game as any).libraries?.get?.(controllerId) || zonesBeforeDraw?.library || [];
-    const drawnCardSnapshots = Array.isArray(libBeforeDraw)
-      ? libBeforeDraw.slice(0, Math.max(0, drawCount)).map((card: any) => ({ ...card, zone: 'hand' }))
-      : [];
-
     if (drawCount > 0 && typeof (game as any).drawCards === 'function') {
       (game as any).drawCards(controllerId, drawCount);
     } else {
@@ -20000,9 +19981,6 @@ async function handleTargetSelectionResponse(
         sacrificedPermanentSnapshot,
         lifeGain,
         drawCount,
-        lifeBefore: currentLife,
-        lifeAfter: game.state.life[controllerId],
-        drawnCards: drawnCardSnapshots,
       });
     } catch (err) {
       debugWarn(1, '[Resolution] Failed to persist sacrificeAnotherPermanentForBenefitResolve event:', err);
@@ -21838,7 +21816,9 @@ function handleJoinForcesResponse(
     total: 0, 
     byPlayer: {},
     initiator,
-    cardName 
+    cardName,
+    effectDescription: String(stepData.effectDescription || ''),
+    sourcePermanentId: String(stepData.sourceId || '').trim() || undefined,
   };
   game.state.joinForcesContributions[cardName].total += contribution;
   game.state.joinForcesContributions[cardName].byPlayer[pid] = contribution;
@@ -21879,7 +21859,10 @@ function handleJoinForcesResponse(
     const contributions = game.state.joinForcesContributions[cardName];
     const total = contributions.total;
     
-    const completionPayload = applyJoinForcesEffect(io, game, gameId, cardName, total, contributions.byPlayer, initiator);
+    const completionPayload = applyJoinForcesEffect(io, game, gameId, cardName, total, contributions.byPlayer, initiator, {
+      effectDescription: contributions.effectDescription,
+      sourcePermanentId: contributions.sourcePermanentId,
+    });
 
     try {
       appendEvent(gameId, (game as any).seq ?? 0, 'joinForcesComplete', {
@@ -21887,6 +21870,8 @@ function handleJoinForcesResponse(
         initiator,
         totalContributions: total,
         byPlayer: { ...(contributions.byPlayer || {}) },
+        effectDescription: contributions.effectDescription,
+        sourcePermanentId: contributions.sourcePermanentId,
         ...(completionPayload || {}),
       });
     } catch (err) {
@@ -21912,7 +21897,11 @@ function applyJoinForcesEffect(
   cardName: string,
   totalContributions: number,
   byPlayer: Record<string, number>,
-  initiator: string
+  initiator: string,
+  metadata?: {
+    effectDescription?: string;
+    sourcePermanentId?: string;
+  },
 ): Record<string, any> | undefined {
   const cardNameLower = cardName.toLowerCase();
   const players = game.state?.players || [];
@@ -22033,6 +22022,19 @@ function applyJoinForcesEffect(
       gameId,
       from: "system",
       message: `💀 Shared Trauma: Each player mills ${totalContributions} cards!`,
+      ts: Date.now(),
+    });
+  } else if (applyJoinForcesPaidManaPowerPump(battlefield, {
+    cardName,
+    totalContributions,
+    effectDescription: metadata?.effectDescription,
+    sourcePermanentId: metadata?.sourcePermanentId,
+  })) {
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `⚡ ${cardName} gets +${totalContributions}/+0 until end of turn!`,
       ts: Date.now(),
     });
   }
@@ -22971,7 +22973,6 @@ async function handleCascadeResponse(
   const bottomCards = randomized
     .filter((card) => !(cast && hitCard && card?.id === hitCard.id))
     .map((card) => cloneCascadeZoneCard(card, 'library'));
-  const libraryAfter = [...remainingLibrary, ...bottomCards];
 
   appendGameEvent(game, gameId, 'cascadeResolve', {
     playerId: pid,
@@ -22983,7 +22984,8 @@ async function handleCascadeResponse(
     cast,
     hitCard: hitCard ? { ...hitCard } : null,
     exiledCards: exiledCards.map((card: any) => ({ ...card })),
-    libraryAfter,
+    remainingLibraryIds: remainingLibrary.map((card: any) => String(card?.id || '')).filter(Boolean),
+    bottomCardIds: bottomCards.map((card: any) => String(card?.id || '')).filter(Boolean),
   });
   
   // Cast the hit card if chosen
@@ -23093,22 +23095,8 @@ function handleScryResponse(
     if (oracleIrTopLibraryChoiceResumeApplied(resumed, 'scry')) {
       compoundResumePersistFields = readOracleIrCompoundResumePersistFields(scryStep);
       ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
-      const handIdsBefore = new Set(
-        ((game.state as any).zones?.[pid]?.hand || [])
-          .map((card: any) => String(card?.id || '').trim())
-          .filter(Boolean),
-      );
       compoundDrawResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
       persistOracleIrLedger = scryStep.persistOracleIrScryResolve === true;
-      if (compoundDrawResult) {
-        persistOracleIrCompoundDrawAfterResolution(ctx, {
-          controller: pid,
-          result: compoundDrawResult,
-          sourceId: scryStep.oracleIrSourceId,
-          sourceName: scryStep.oracleIrSourceName,
-          handIdsBefore,
-        });
-      }
       broadcastGame(io, game, gameId);
     }
   }
@@ -23356,22 +23344,8 @@ function handleSurveilResponse(
     if (oracleIrTopLibraryChoiceResumeApplied(resumed, 'surveil')) {
       compoundResumePersistFields = readOracleIrCompoundResumePersistFields(surveilStep);
       ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
-      const handIdsBefore = new Set(
-        ((game.state as any).zones?.[pid]?.hand || [])
-          .map((card: any) => String(card?.id || '').trim())
-          .filter(Boolean),
-      );
-      const compoundDrawResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
       persistOracleIrLedger = surveilStep.persistOracleIrSurveilResolve === true;
-      if (compoundDrawResult) {
-        persistOracleIrCompoundDrawAfterResolution(ctx, {
-          controller: pid,
-          result: compoundDrawResult,
-          sourceId: surveilStep.oracleIrSourceId,
-          sourceName: surveilStep.oracleIrSourceName,
-          handIdsBefore,
-        });
-      }
       broadcastGame(io, game, gameId);
     }
   }
@@ -24051,8 +24025,9 @@ function handleBottomOrderResponse(
     sourceId: bottomStep.sourceId,
     sourceName: bottomStep.sourceName,
     orderedCardIds: bottomIds,
+    bottomCards: orderedCards.map((card: any) => ({ ...card, zone: 'library' })),
     shuffleAfter,
-    libraryAfter: cloneLibraryStateForEvent(lib),
+    ...(shuffleAfter ? { shuffledLibraryIds: lib.map((card: any) => String(card?.id || '')).filter(Boolean) } : {}),
   });
 
   io.to(gameId).emit('chat', {
@@ -24094,15 +24069,8 @@ function handleLimDulsVaultResponse(
   const orderedResolvedCards = orderedIds.map((id: string) => extractedById.get(id)).filter(Boolean);
   const pendingEntry = ((game.state as any)?.pendingLimDulsVault || {})[pid] || {};
   const totalLifePaidBefore = Number(pendingEntry?.totalLifePaid || vaultStep.totalLifePaid || 0);
-  const currentLife = Number((game.state as any)?.life?.[pid] ?? (game.state as any)?.startingLife ?? 40);
 
   if (action === 'continue') {
-    const lifeAfter = currentLife - 1;
-    const libraryAfter = [
-      ...lib.map((card: any) => ({ ...card, zone: 'library' })),
-      ...orderedResolvedCards.map((card: any) => ({ ...card, zone: 'library' })),
-    ];
-
     appendGameEvent(game, gameId, 'limDulsVaultContinue', {
       playerId: pid,
       effectId: vaultStep.effectId,
@@ -24111,8 +24079,6 @@ function handleLimDulsVaultResponse(
       orderedBottomIds: orderedIds,
       lifePaid: 1,
       totalLifePaid: totalLifePaidBefore + 1,
-      lifeAfter,
-      libraryAfter: cloneLibraryStateForEvent(libraryAfter),
     });
 
     io.to(gameId).emit('chat', {
@@ -24146,19 +24112,14 @@ function handleLimDulsVaultResponse(
     }
   }
 
-  const libraryAfter = [
-    ...orderedResolvedCards.map((card: any) => ({ ...card, zone: 'library' })),
-    ...shuffledRemainder.map((card: any) => ({ ...card, zone: 'library' })),
-  ];
-
   appendGameEvent(game, gameId, 'limDulsVaultResolve', {
     playerId: pid,
     effectId: vaultStep.effectId,
     sourceName: vaultStep.sourceName,
     sourceImage: vaultStep.sourceImage,
     orderedTopIds: orderedIds,
+    shuffledRemainderIds: shuffledRemainder.map((card: any) => String(card?.id || '')).filter(Boolean),
     totalLifePaid: totalLifePaidBefore,
-    libraryAfter: cloneLibraryStateForEvent(libraryAfter),
   });
 
   io.to(gameId).emit('chat', {
@@ -24203,7 +24164,7 @@ function handleDanceWithCalamityResponse(
         outcome: 'no_more_cards',
         totalManaValue: totalManaValueBefore,
         exiledCards: cloneExileStateForEvent(exiledCards),
-        libraryAfter: cloneLibraryStateForEvent(library),
+        remainingLibraryIds: library.map((card: any) => String(card?.id || '')).filter(Boolean),
       });
 
       io.to(gameId).emit('chat', {
@@ -24229,7 +24190,7 @@ function handleDanceWithCalamityResponse(
         outcome: 'bust',
         totalManaValue,
         exiledCards: cloneExileStateForEvent(nextExiledCards),
-        libraryAfter: cloneLibraryStateForEvent(nextLibrary),
+        remainingLibraryIds: nextLibrary.map((card: any) => String(card?.id || '')).filter(Boolean),
       });
 
       io.to(gameId).emit('chat', {
@@ -24249,7 +24210,7 @@ function handleDanceWithCalamityResponse(
       sourceImage,
       totalManaValue,
       exiledCards: cloneExileStateForEvent(nextExiledCards),
-      libraryAfter: cloneLibraryStateForEvent(nextLibrary),
+      remainingLibraryIds: nextLibrary.map((card: any) => String(card?.id || '')).filter(Boolean),
     });
 
     io.to(gameId).emit('chat', {
@@ -24278,7 +24239,7 @@ function handleDanceWithCalamityResponse(
       outcome: exiledCards.length > 0 ? 'no_spells' : 'no_exiles',
       totalManaValue: totalManaValueBefore,
       exiledCards: cloneExileStateForEvent(exiledCards),
-      libraryAfter: cloneLibraryStateForEvent(library),
+      remainingLibraryIds: library.map((card: any) => String(card?.id || '')).filter(Boolean),
     });
 
     io.to(gameId).emit('chat', {
@@ -24339,7 +24300,9 @@ function handleDanceWithCalamityCastSelectionResponse(
       outcome: 'no_casts',
       totalManaValue,
       exiledCards: cloneExileStateForEvent(Array.isArray(pendingEntry?.exiledCards) ? pendingEntry.exiledCards : []),
-      libraryAfter: cloneLibraryStateForEvent(Array.isArray((game as any).libraries?.get(pid)) ? (game as any).libraries.get(pid) : []),
+      remainingLibraryIds: (Array.isArray((game as any).libraries?.get(pid)) ? (game as any).libraries.get(pid) : [])
+        .map((card: any) => String(card?.id || ''))
+        .filter(Boolean),
     });
 
     io.to(gameId).emit('chat', {
@@ -24375,6 +24338,47 @@ function handleDanceWithCalamityCastSelectionResponse(
  * - Where unselected cards go (remainderDestination)
  * - Whether to shuffle after (shuffleAfter)
  */
+function oracleIrResumeStepIncludesDraw(step: unknown): boolean {
+  if (!step || typeof step !== 'object') return false;
+  const kind = String((step as { kind?: string }).kind || '');
+  if (kind === 'draw' || kind === 'draw_cards') return true;
+  if (kind === 'conditional' || kind === 'if') {
+    const thenSteps = (step as { thenSteps?: unknown; steps?: unknown }).thenSteps
+      ?? (step as { thenSteps?: unknown; steps?: unknown }).steps;
+    if (Array.isArray(thenSteps) && thenSteps.some(oracleIrResumeStepIncludesDraw)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function oracleIrCompoundResumeIncludesDraw(searchStep: unknown): boolean {
+  const resumeJson = String((searchStep as any)?.oracleIrResumeStepsJson || '').trim();
+  if (!resumeJson) return false;
+  try {
+    const steps = JSON.parse(resumeJson);
+    return Array.isArray(steps) && steps.some(oracleIrResumeStepIncludesDraw);
+  } catch {
+    return false;
+  }
+}
+
+function readShuffledLibraryIdsFromReplayMutations(
+  result: { readonly replayMutations?: readonly { readonly kind: string; readonly playerId?: string; readonly shuffledLibraryIds?: readonly string[] }[] } | null,
+  playerId: string,
+): readonly string[] | null {
+  if (!result?.replayMutations?.length) return null;
+  const mutation = result.replayMutations.find(
+    (entry) => entry.kind === 'shuffleLibrary' && String(entry.playerId || '').trim() === playerId,
+  );
+  if (!mutation || !Array.isArray(mutation.shuffledLibraryIds) || mutation.shuffledLibraryIds.length === 0) {
+    return null;
+  }
+  return mutation.shuffledLibraryIds
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+}
+
 function oracleIrLibrarySearchResumeApplied(resumed: unknown): boolean {
   if (!resumed || typeof resumed !== 'object') return false;
   const appliedSteps = (resumed as { appliedSteps?: unknown }).appliedSteps;
@@ -24457,27 +24461,36 @@ async function handleLibrarySearchResponse(
       ...response,
       splitAssignments,
     });
-    if (oracleIrLibrarySearchResumeApplied(resumed)) {
+    // Never fall through to legacy library-search handlers when Oracle IR consumed the
+    // choice response — legacy split/battlefield code would duplicate permanents.
+    if (resumed !== null) {
+      if (oracleIrLibrarySearchResumeApplied(resumed)) {
       const compoundResumePersistFields = readOracleIrCompoundResumePersistFields(searchStep);
       const ledgerPersistFields = readOracleIrLedgerPersistFields(game.state);
-      const handIdsBefore = new Set(
-        ((game.state as any).zones?.[searchOwnerId]?.hand || [])
-          .map((card: any) => String(card?.id || '').trim())
-          .filter(Boolean),
+      const remainingLibraryIdsBeforeCompoundResume = ((game as any).libraries?.get(searchOwnerId) || [])
+        .map((card: any) => String(card?.id || ''))
+        .filter(Boolean);
+      const compoundResumeResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
+      game.state = ctx.state;
+      syncAllOracleIRPlayerZonesAfterResolution(ctx);
+      const shuffledLibraryIdsFromMutations = readShuffledLibraryIdsFromReplayMutations(
+        compoundResumeResult,
+        searchOwnerId,
       );
-      const libraryAfterSearchBeforeCompoundDraw = cloneLibraryStateForEvent(
-        (game as any).libraries?.get(searchOwnerId) || [],
-      );
-      const compoundDrawResult = maybeResumeOracleIRStepsAfterResolution(ctx, step);
-      if (compoundDrawResult) {
-        persistOracleIrCompoundDrawAfterResolution(ctx, {
-          controller: searchOwnerId,
-          result: compoundDrawResult,
-          sourceId: searchStep.oracleIrSourceId,
-          sourceName: searchStep.oracleIrSourceName,
-          handIdsBefore,
-        });
-      }
+      const playerLibraryAfterCompound = ((game.state as any).players || []).find(
+        (entry: any) => String(entry?.id || '').trim() === searchOwnerId,
+      ) as any;
+      const libraryIdsFromPlayerState = Array.isArray(playerLibraryAfterCompound?.library)
+        ? playerLibraryAfterCompound.library
+            .map((card: any) => String(card?.id || '').trim())
+            .filter(Boolean)
+        : [];
+      const remainingLibraryIdsAfterCompoundResume = shuffledLibraryIdsFromMutations
+        ?? (libraryIdsFromPlayerState.length > 0
+          ? libraryIdsFromPlayerState
+          : (((game as any).libraries?.get(searchOwnerId) || [])
+            .map((card: any) => String(card?.id || ''))
+            .filter(Boolean)));
 
       if ((searchStep as any).persistLibrarySearchResolve === true) {
         const selectedIds = Array.isArray(selections) ? selections : [];
@@ -24508,7 +24521,41 @@ async function handleLibrarySearchResponse(
                 .filter(Boolean)
             : undefined;
 
+        if (
+          !oracleIrCompoundResumeIncludesDraw(searchStep)
+          && remainingLibraryIdsAfterCompoundResume.length > 0
+          && (game as any).libraries?.set
+        ) {
+          const lib = (game as any).libraries.get(searchOwnerId) || [];
+          const byId = new Map(lib.map((card: any) => [String(card?.id || ''), card]));
+          const reordered = remainingLibraryIdsAfterCompoundResume
+            .map((id) => byId.get(String(id || '')))
+            .filter(Boolean)
+            .map((card: any) => ({ ...card, zone: 'library' }));
+          (game as any).libraries.set(searchOwnerId, reordered);
+          const zones = (game.state as any).zones || {};
+          const z = zones[searchOwnerId] = zones[searchOwnerId] || {};
+          z.library = reordered;
+          z.libraryCount = reordered.length;
+          const player = ((game.state as any).players || []).find((entry: any) => String(entry?.id || '') === searchOwnerId);
+          if (player) (player as any).library = reordered;
+        }
+
         try {
+          const libraryAfterSnapshot = !oracleIrCompoundResumeIncludesDraw(searchStep)
+            ? cloneLibraryStateForEvent(
+                Array.isArray((game as any).libraries?.get(searchOwnerId))
+                  ? (game as any).libraries.get(searchOwnerId)
+                  : [],
+              )
+            : undefined;
+          const remainingLibraryIdsForPersist = oracleIrCompoundResumeIncludesDraw(searchStep)
+            ? remainingLibraryIdsBeforeCompoundResume
+            : (Array.isArray(libraryAfterSnapshot) && libraryAfterSnapshot.length > 0
+              ? libraryAfterSnapshot
+                  .map((card: any) => String(card?.id || '').trim())
+                  .filter(Boolean)
+              : remainingLibraryIdsAfterCompoundResume);
           appendEvent(gameId, game.seq ?? 0, 'librarySearchResolve', {
             playerId: pid,
             resolvedStepId: String((step as any).id || '').trim(),
@@ -24530,16 +24577,31 @@ async function handleLibrarySearchResponse(
             grantPlayableFromExileControllerId,
             grantPlayableFromExileSpendManaAsThoughAnyType,
             playableFromExileTypeKey,
-            libraryAfter: libraryAfterSearchBeforeCompoundDraw,
+            remainingLibraryIds: remainingLibraryIdsForPersist,
+            ...(Array.isArray(libraryAfterSnapshot) && libraryAfterSnapshot.length > 0
+              ? { libraryAfter: libraryAfterSnapshot }
+              : {}),
             lifeLoss: Number(lifeLoss || 0),
             ...ledgerPersistFields,
-            ...compoundResumePersistFields,
+            ...(Array.isArray(libraryAfterSnapshot) && libraryAfterSnapshot.length > 0
+              ? {}
+              : compoundResumePersistFields),
           });
         } catch {
           // Ignore persistence failures.
         }
       }
 
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      return;
+      }
+
+      game.state = ctx.state;
+      syncAllOracleIRPlayerZonesAfterResolution(ctx);
+      maybeResumeOracleIRStepsAfterResolution(ctx, step);
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
@@ -25006,7 +25068,7 @@ async function handleLibrarySearchResponse(
               shuffleAfter: pendingBottomOrderEntry.shuffleAfter === true,
             }
           : undefined,
-        libraryAfter: lib.map((card: any) => ({ ...card, zone: 'library' })),
+        remainingLibraryIds: lib.map((card: any) => String(card?.id || '')).filter(Boolean),
         lifeLoss: Number(lifeLoss || 0),
         ...readOracleIrLedgerPersistFields(game.state),
       });
@@ -25973,7 +26035,8 @@ export async function processPendingCascades(
           cast: false,
           hitCard: null,
           exiledCards: exiled.map((card: any) => ({ ...card })),
-          libraryAfter: [...cloneCascadeLibrary(lib), ...cloneCascadeLibrary(randomized)],
+          remainingLibraryIds: cloneCascadeLibrary(lib).map((card: any) => String(card?.id || '')).filter(Boolean),
+          bottomCardIds: randomized.map((card: any) => String(card?.id || '')).filter(Boolean),
         });
         continue;
       }
@@ -26028,7 +26091,7 @@ export async function processPendingCascades(
         sourceId: String(entry.sourceCardId || '').trim(),
         queuedResolutionStep: step,
         additionalPayload: {
-          libraryAfter: cloneCascadeLibrary(lib),
+          remainingLibraryIds: cloneCascadeLibrary(lib).map((card: any) => String(card?.id || '')).filter(Boolean),
           pendingCascadeEntry: {
             sourceName: entry.sourceName || 'Cascade',
             sourceCardId: entry.sourceCardId,
@@ -26304,7 +26367,6 @@ function handlePonderEffectResponse(
         sourceName: step.sourceName,
         variant: step.variant,
         cancelled: true,
-        libraryAfter: cloneLibraryStateForEvent(lib),
       });
 
       debug(2, `[handlePonderEffectResponse] ${playerId} cancelled ponder`);
@@ -26417,9 +26479,14 @@ function handlePonderEffectResponse(
       sourceName: step.sourceName,
       variant: step.variant,
       shouldShuffle: shouldShuffle === true,
+      lookedAtCardIds: removedCards.map((card: any) => String(card?.id || '')).filter(Boolean),
+      lookedAtCards: removedCards.map((card: any) => ({ ...card })),
+      libraryTopOrder: shouldShuffle ? undefined : (Array.isArray(newOrder) ? newOrder.map((id: any) => String(id || '')).filter(Boolean) : []),
+      shuffledLibraryIds: shouldShuffle ? lib.map((card: any) => String(card?.id || '')).filter(Boolean) : undefined,
       toHandCards: cloneZoneCardsForEvent(toHandCards, 'hand'),
+      toHandCardIds: toHandCards.map((card: any) => String(card?.id || '')).filter(Boolean),
       drawnCard: drawnCard ? { ...drawnCard, zone: 'hand' } : undefined,
-      libraryAfter: cloneLibraryStateForEvent(lib),
+      drawnCardId: drawnCard ? String(drawnCard.id || '') : undefined,
     });
     
     // Log event
@@ -26694,6 +26761,96 @@ export function processPendingLimDulsVault(io: Server, game: any, gameId: string
   }
 }
 
+function advanceDanceWithCalamityCastSequence(
+  io: Server,
+  game: any,
+  gameId: string,
+  playerId: string,
+  options: {
+    effectId: string;
+    sourceName: string;
+    sourceImage?: unknown;
+    totalManaValue: number;
+    orderedSpellIds: string[];
+    nextCastIndex: number;
+  },
+): void {
+  const {
+    effectId,
+    sourceName,
+    sourceImage,
+    totalManaValue,
+    orderedSpellIds,
+    nextCastIndex,
+  } = options;
+
+  const currentExileZone = Array.isArray((game.state as any)?.zones?.[playerId]?.exile)
+    ? (game.state as any).zones[playerId].exile
+    : [];
+  const remainingExiledCards = currentExileZone.map((card: any) => ({ ...card, zone: 'exile' }));
+  const livePendingEntry = ((game.state as any)?.pendingDanceWithCalamity || {})[playerId];
+  if (livePendingEntry && typeof livePendingEntry === 'object') {
+    livePendingEntry.exiledCards = remainingExiledCards;
+  }
+
+  const nextIndex = nextCastIndex + 1;
+  if (nextIndex >= orderedSpellIds.length) {
+    appendGameEvent(game, gameId, 'danceWithCalamityResolve', {
+      playerId,
+      effectId,
+      sourceName,
+      sourceImage,
+      outcome: 'complete',
+      totalManaValue,
+      exiledCards: cloneExileStateForEvent(remainingExiledCards),
+      remainingLibraryIds: (Array.isArray((game as any).libraries?.get(playerId)) ? (game as any).libraries.get(playerId) : [])
+        .map((card: any) => String(card?.id || ''))
+        .filter(Boolean),
+    });
+  } else {
+    appendGameEvent(game, gameId, 'danceWithCalamityAdvanceCast', {
+      playerId,
+      effectId,
+      sourceName,
+      sourceImage,
+      totalManaValue,
+      orderedSpellIds,
+      nextCastIndex: nextIndex,
+    });
+
+    processPendingDanceWithCalamity(io, game, gameId);
+  }
+}
+
+export function completeDanceWithCalamityDeferredAdvance(
+  io: Server,
+  game: any,
+  gameId: string,
+  playerId: string,
+  castCardId: string,
+): void {
+  const pendingEntry = ((game.state as any)?.pendingDanceWithCalamity || {})[playerId];
+  if (!pendingEntry || typeof pendingEntry !== 'object') return;
+
+  const pendingAdvance = pendingEntry.pendingAdvanceAfterCast;
+  if (!pendingAdvance || typeof pendingAdvance !== 'object') return;
+  if (String(pendingAdvance.exiledCardId || '') !== String(castCardId || '')) return;
+
+  delete pendingEntry.pendingAdvanceAfterCast;
+  pendingEntry.queued = false;
+
+  advanceDanceWithCalamityCastSequence(io, game, gameId, playerId, {
+    effectId: String(pendingAdvance.effectId || ''),
+    sourceName: String(pendingAdvance.sourceName || 'Dance with Calamity'),
+    sourceImage: pendingAdvance.sourceImage,
+    totalManaValue: Number(pendingAdvance.totalManaValue || 0),
+    orderedSpellIds: Array.isArray(pendingAdvance.orderedSpellIds)
+      ? pendingAdvance.orderedSpellIds.map((value: any) => String(value || '')).filter(Boolean)
+      : [],
+    nextCastIndex: Math.max(0, Number(pendingAdvance.nextCastIndex || 0)),
+  });
+}
+
 export function processPendingDanceWithCalamity(io: Server, game: any, gameId: string): void {
   try {
     const pendingDance = (game.state as any)?.pendingDanceWithCalamity;
@@ -26768,10 +26925,6 @@ export function processPendingDanceWithCalamity(io: Server, game: any, gameId: s
       }
 
       if (stage === 'cast_sequence') {
-        if (hasPendingSpellCastForPlayer(game, String(playerId))) {
-          continue;
-        }
-
         const orderedSpellIds = Array.isArray(entry.orderedSpellIds)
           ? entry.orderedSpellIds.map((value: any) => String(value || '')).filter(Boolean)
           : [];
@@ -28044,8 +28197,11 @@ async function handleOptionChoiceResponse(
     const lib = (game as any).libraries?.get(controllerId) || [];
     const zones = game.state.zones = game.state.zones || {};
     const z = zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-    const snapshotLibraryCards = (cards: any[]) =>
-      (Array.isArray(cards) ? cards : []).map((card: any) => ({ ...card, zone: 'library' }));
+    const remainingLibraryIds = (Array.isArray(lib) ? lib : [])
+      .map((card: any) => String(card?.id || ''))
+      .filter(Boolean);
+    let bottomCardIds: string[] = [];
+    let bottomCards: any[] = [];
 
     const bottomRandom = (cards: any[]) => {
       const randomized = [...cards];
@@ -28053,7 +28209,9 @@ async function handleOptionChoiceResponse(
         const j = Math.floor(Math.random() * (i + 1));
         [randomized[i], randomized[j]] = [randomized[j], randomized[i]];
       }
-      for (const card of randomized) {
+      bottomCards = randomized.map((card: any) => ({ ...card, zone: 'library' }));
+      bottomCardIds = bottomCards.map((card: any) => String(card?.id || '')).filter(Boolean);
+      for (const card of bottomCards) {
         lib.push({ ...card, zone: 'library' });
       }
       z.libraryCount = lib.length;
@@ -28099,7 +28257,9 @@ async function handleOptionChoiceResponse(
       choice: choiceId === 'cast' ? 'cast' : 'decline',
       sourceName,
       cardId: String(hitCard?.id || ''),
-      libraryAfter: snapshotLibraryCards(lib),
+      remainingLibraryIds,
+      bottomCardIds,
+      bottomCards,
       stackItem: revealedCastStackItem,
     });
 
@@ -30710,7 +30870,9 @@ async function handleOptionChoiceResponse(
         String(queuedStep?.spellCardId || '') === exiledCardId ||
         String(queuedStep?.spellCastContext?.cardId || '') === exiledCardId
       );
-      const progressed = stackLengthAfter > stackLengthBefore || !cardStillInExile || hasPendingCast || hasPendingStep;
+      const castOnStack = stackLengthAfter > stackLengthBefore && !cardStillInExile;
+      const castStillResolving = !castOnStack && (hasPendingCast || hasPendingStep);
+      const progressed = castOnStack || castStillResolving;
 
       if (!progressed) {
         const livePendingEntry = ((game.state as any)?.pendingDanceWithCalamity || {})[playerId];
@@ -30718,6 +30880,23 @@ async function handleOptionChoiceResponse(
           livePendingEntry.queued = false;
         }
         processPendingDanceWithCalamity(io, game, gameId);
+        return;
+      }
+
+      if (castStillResolving) {
+        const livePendingEntry = ((game.state as any)?.pendingDanceWithCalamity || {})[playerId];
+        if (livePendingEntry && typeof livePendingEntry === 'object') {
+          livePendingEntry.queued = false;
+          livePendingEntry.pendingAdvanceAfterCast = {
+            effectId,
+            sourceName,
+            sourceImage,
+            totalManaValue,
+            orderedSpellIds,
+            nextCastIndex,
+            exiledCardId,
+          };
+        }
         return;
       }
 
@@ -30747,33 +30926,14 @@ async function handleOptionChoiceResponse(
       livePendingEntry.exiledCards = remainingExiledCards;
     }
 
-    const nextIndex = nextCastIndex + 1;
-    if (nextIndex >= orderedSpellIds.length) {
-      appendGameEvent(game, gameId, 'danceWithCalamityResolve', {
-        playerId,
-        effectId,
-        sourceName,
-        sourceImage,
-        outcome: 'complete',
-        totalManaValue,
-        exiledCards: cloneExileStateForEvent(remainingExiledCards),
-        libraryAfter: cloneLibraryStateForEvent(Array.isArray((game as any).libraries?.get(playerId)) ? (game as any).libraries.get(playerId) : []),
-      });
-    } else {
-      appendGameEvent(game, gameId, 'danceWithCalamityAdvanceCast', {
-        playerId,
-        effectId,
-        sourceName,
-        sourceImage,
-        totalManaValue,
-        orderedSpellIds,
-        nextCastIndex: nextIndex,
-      });
-
-      if (!hasPendingSpellCastForPlayer(game, playerId)) {
-        processPendingDanceWithCalamity(io, game, gameId);
-      }
-    }
+    advanceDanceWithCalamityCastSequence(io, game, gameId, playerId, {
+      effectId,
+      sourceName,
+      sourceImage,
+      totalManaValue,
+      orderedSpellIds,
+      nextCastIndex,
+    });
 
     if (typeof (game as any).bumpSeq === 'function') {
       (game as any).bumpSeq();
@@ -32079,7 +32239,8 @@ async function handleOptionChoiceResponse(
           selectedCard: { ...libraryCard },
           createdPermanentId,
           turnApplied: Number(state.turnNumber || 0),
-          libraryAfter: cloneLibraryStateForEvent(lib),
+          selectedCardId: String(libraryCard?.id || chosenId || '').trim(),
+          remainingLibraryIds: lib.map((card: any) => String(card?.id || '')).filter(Boolean),
         },
       );
     } catch (err) {

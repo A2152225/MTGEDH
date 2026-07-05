@@ -21,6 +21,7 @@ import {
 } from './oracleIrServerZoneSync.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { isEachPlayerMayPutLandFromHandStep, isControllerMayPutLandFromHandStep, isBothPlayersMayPutPermanentFromHandStep } from './triggerLandPlayPromptUtils.js';
+import { isEachPlayerMayPutCountersOnCreatureTheyControlStep } from './triggerCounterPlacementPromptUtils.js';
 
 const EFFECT_PROGRAM_ORCHESTRATION_KINDS = new Set<string>([
   'choose_mode',
@@ -36,6 +37,11 @@ const OPTIONAL_NO_CHOICE_KINDS = new Set<string>([
   'modify_graveyard_permissions',
   // Optional tutors queue LIBRARY_SEARCH directly (optional flag + filtered cards).
   'search_library',
+  // Optional look-at-top steps queue LIBRARY_SEARCH via applyOracleIRStepsOnServer bridge.
+  'look_choose_from_top',
+  'look_select_top',
+  // Optional put-from-hand queues LIBRARY_SEARCH via move_zone player_choice bridge.
+  'move_zone',
 ]);
 
 const SEQUENTIAL_CHOICE_KINDS = new Set<string>([
@@ -58,6 +64,8 @@ const SEQUENTIAL_CHOICE_KINDS = new Set<string>([
   'proliferate',
   'populate',
   'look_top',
+  'look_choose_from_top',
+  'look_select_top',
   'reveal_top',
   'move_zone',
   'grant_graveyard_permission',
@@ -70,6 +78,7 @@ function stepOptionalRequiresChoice(step: OracleEffectStep): boolean {
   if (isEachPlayerMayPutLandFromHandStep(step)) return false;
   if (isControllerMayPutLandFromHandStep(step)) return false;
   if (isBothPlayersMayPutPermanentFromHandStep(step)) return false;
+  if (isEachPlayerMayPutCountersOnCreatureTheyControlStep(step)) return false;
   if (step.kind === 'create_token' && (step as { optional?: boolean }).optional === true) return false;
   return !OPTIONAL_NO_CHOICE_KINDS.has(String(step.kind || ''));
 }

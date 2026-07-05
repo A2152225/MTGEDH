@@ -1,7 +1,3 @@
-import type { PlayerID } from '../../../../shared/src/index.js';
-
-import { applyPermanentKeywordGrantFromText } from './triggerReanimationRiders.js';
-import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
 export function computeTriggerLegacyIsKynaiosEffect(
   sourceName: string,
@@ -29,40 +25,6 @@ export function stripTriggerLegacyInterveningIfPrefix(desc: string): string {
     }
   }
   return normalizedDesc;
-}
-
-export function applyRetiredTriggerLegacyInterveningSubjectKeywordGrant(
-  params: {
-    readonly sourceName: string;
-    readonly desc: string;
-    readonly triggerItem: any;
-    readonly state: any;
-  },
-): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
-    return false;
-  }
-
-  const interveningSubjectPermanentId = String(params.triggerItem?.interveningIfSubjectPermanentId || '').trim();
-  if (!interveningSubjectPermanentId) {
-    return false;
-  }
-
-  const battlefield = Array.isArray(params.state.battlefield) ? params.state.battlefield : [];
-  const subjectPermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === interveningSubjectPermanentId);
-  const isDirectSubjectKeywordGrant = /^(?:it|that\s+(?:creature|permanent|card))\s+gains?\s+[^.]+\.?$/i.test(params.desc)
-    && !/\buntil end of turn\b/i.test(params.desc);
-
-  if (!subjectPermanent || !isDirectSubjectKeywordGrant) {
-    return false;
-  }
-
-  return applyPermanentKeywordGrantFromText(
-    subjectPermanent,
-    params.sourceName,
-    params.desc,
-    String(subjectPermanent.card?.name || subjectPermanent.id || interveningSubjectPermanentId),
-  );
 }
 
 export function computeTriggerLegacySourceNames(

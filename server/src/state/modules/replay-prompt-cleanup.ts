@@ -4,6 +4,7 @@ import { enterResolutionMode, exitResolutionMode } from './priority.js';
 import { clearOptionalPaymentCallbacks } from '../../socket/optional-payment-prompts.js';
 import { maybeResumeDeferredOracleIrStackSpell } from './oracleIrDeferredStackFinalize.js';
 import { restoreAllPendingEffectProgramRuntimes } from '../effects/effectProgramReplayRestore.js';
+import { resumeOracleIrPendingCompoundStepsFromState } from './oracleIrServerZoneSync.js';
 
 /**
  * Legacy / in-flight prompt state that must not survive event replay.
@@ -87,6 +88,17 @@ export function finalizeGameStateAfterReplay(ctx: GameContext): void {
     } catch {
       // best-effort only
     }
+  }
+
+  // Scry/surveil/library-search compound spells persist resume steps on the
+  // choice event; when the replay batch omits a trailing drawCards event,
+  // finish the draw and append it for event-log determinism.
+  try {
+    if (String((ctx.state as any)?.oracleIrPendingResumeStepsJson || '').trim()) {
+      resumeOracleIrPendingCompoundStepsFromState(ctx);
+    }
+  } catch {
+    // best-effort only
   }
 
   try {

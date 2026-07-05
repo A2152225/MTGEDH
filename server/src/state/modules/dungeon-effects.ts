@@ -27,17 +27,17 @@ export type DungeonRoomExecuteEffectPayload = {
   effectType: 'dungeonExileCards';
   controllerId: string;
   exiledCards: any[];
-  libraryAfter: any[];
+  remainingLibraryIds: string[];
   grantPlayableFromExile: boolean;
 } | {
   effectType: 'dungeonDrawCards';
   controllerId: string;
   drawnCards: any[];
-  libraryAfter: any[];
+  remainingLibraryIds: string[];
 } | {
   effectType: 'dungeonSetLibrary';
   controllerId: string;
-  libraryAfter: any[];
+  remainingLibraryIds: string[];
 };
 
 function cloneZoneCards(cards: any[]): any[] {
@@ -454,7 +454,7 @@ export function applyAutomaticDungeonRoomTokenEffects(
         effectType: 'dungeonExileCards',
         controllerId: String(playerId),
         exiledCards: cloneZoneCards(exiledCards),
-        libraryAfter: cloneZoneCards(library).map((card: any) => ({ ...card, zone: 'library' })),
+        remainingLibraryIds: cloneZoneCards(library).map((card: any) => String(card?.id || '')).filter(Boolean),
         grantPlayableFromExile: true,
       }];
     }
@@ -484,7 +484,7 @@ export function applyAutomaticDungeonRoomTokenEffects(
         effectType: 'dungeonDrawCards',
         controllerId: String(playerId),
         drawnCards: cloneZoneCards(drawnCards),
-        libraryAfter: cloneZoneCards(library).map((card: any) => ({ ...card, zone: 'library' })),
+        remainingLibraryIds: cloneZoneCards(library).map((card: any) => String(card?.id || '')).filter(Boolean),
       }];
     }
 
@@ -507,7 +507,7 @@ export function applyAutomaticDungeonRoomTokenEffects(
       return [{
         effectType: 'dungeonSetLibrary',
         controllerId: String(playerId),
-        libraryAfter: cloneZoneCards(library).map((card: any) => ({ ...card, zone: 'library' })),
+        remainingLibraryIds: cloneZoneCards(library).map((card: any) => String(card?.id || '')).filter(Boolean),
       }];
     }
 

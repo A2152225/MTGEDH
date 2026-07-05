@@ -3,6 +3,12 @@ import { cardHasCreatureType, isValidCreatureType } from '../../shared/src/creat
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import {
+  buildMoveZoneReplayMutations,
+  mergeReplayMutations,
+  type EffectProgramCardZone,
+  type OracleIRReplayMutation,
+} from './oracleIRReplayMutations';
+import {
   collectMostRecentLedgerCards,
   collectRevealedThisWayCardsLedgerFirst,
 } from './oracleIRLedgerCardAccess';
@@ -411,6 +417,8 @@ function enrichMovedCardSnapshot(card: any): any {
   };
 }
 
+let activeMoveZoneStep: Extract<OracleEffectStep, { kind: 'move_zone' }> | undefined;
+
 function buildAppliedResult(
   result: {
     readonly state: GameState;
@@ -419,6 +427,9 @@ function buildAppliedResult(
     readonly movedPermanentIds?: readonly string[];
     readonly lastMovedCards?: readonly any[];
     readonly lastReferenceAmount?: number;
+    readonly fromZone?: EffectProgramCardZone;
+    readonly toZone?: EffectProgramCardZone;
+    readonly replayMutations?: readonly OracleIRReplayMutation[];
   },
   ctx?: OracleIRExecutionContext,
 ): StepApplyResult {
@@ -430,6 +441,21 @@ function buildAppliedResult(
   const enrichedMovedCards = Array.isArray(movedCards)
     ? movedCards.map((card) => enrichMovedCardSnapshot(card))
     : undefined;
+  let replayMutations = Array.isArray(result.replayMutations) ? [...result.replayMutations] : [];
+  if (ctx && activeMoveZoneStep && Array.isArray(enrichedMovedCards) && enrichedMovedCards.length > 0) {
+    replayMutations = mergeReplayMutations(
+      replayMutations,
+      buildMoveZoneReplayMutations({
+        step: activeMoveZoneStep,
+        fromZone: result.fromZone,
+        toZone: result.toZone,
+        movedCards: enrichedMovedCards,
+        movedPermanentIds: result.movedPermanentIds,
+        state: result.state,
+        ctx,
+      }),
+    );
+  }
   return bridgedZoneStepResult(ctx, {
     applied: true,
     state: result.state,
@@ -441,6 +467,7 @@ function buildAppliedResult(
     ...(typeof result.lastReferenceAmount === 'number' && Number.isFinite(result.lastReferenceAmount)
       ? { lastReferenceAmount: Math.max(0, Number(result.lastReferenceAmount) || 0) }
       : {}),
+    ...(replayMutations.length > 0 ? { replayMutations } : {}),
   });
 }
 
@@ -2319,6 +2346,9 @@ export function applyMoveZoneStep(
       reason: 'unsupported_destination',
     };
   }
+
+  activeMoveZoneStep = step;
+  try {
 
   const graveyardCardPerPreventedDamage = String((step.what as any)?.text || step.raw || '')
     .trim()
@@ -4250,6 +4280,19 @@ export function applyMoveZoneStep(
               )
           )
         : matches;
+    const selectableMatches = relaxed.length > 0 ? relaxed : matches;
+    if (
+      ctx.interactivePlayerChoices === true
+      && preferred.size === 0
+      && selectableMatches.length > 0
+    ) {
+      return {
+        applied: false,
+        message: `Hand card selection requires player choice: ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
     const cardId = String((relaxed[0] as any)?.id || '').trim();
     if (!cardId) {
       return {
@@ -16253,4 +16296,7 @@ export function applyMoveZoneStep(
     message: `Skipped move zone (unsupported selector): ${step.raw}`,
     reason: 'unsupported_selector',
   };
+  } finally {
+    activeMoveZoneStep = undefined;
+  }
 }

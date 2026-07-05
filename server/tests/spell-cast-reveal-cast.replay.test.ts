@@ -171,9 +171,10 @@ describe('spell-cast reveal/cast replay semantics', () => {
       resolvedStepId: 'queued_reveal_cast_choice_1',
       choice: 'cast',
       cardId: 'hit_1',
-      libraryAfter: [
-        { id: 'cast_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.' },
-        { id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain' },
+      remainingLibraryIds: ['cast_1'],
+      bottomCardIds: ['land_1'],
+      bottomCards: [
+        { id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain', zone: 'library' },
       ],
       stackItem: {
         id: 'reveal_cast_spell_1',

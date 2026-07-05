@@ -136,6 +136,8 @@ describe('playable-from-exile library-search replay semantics (integration)', ()
     expect(resolvedEvent.payload?.playableFromExileTypeKey).toBe('creature');
     expect((resolvedEvent.payload?.selectedCardIds || [])).toEqual(['creature_lib_1']);
 
+    const liveLibraryIds = ((game as any).libraries?.get?.(playerId) || []).map((card: any) => card.id);
+
     const replayGameId = `${gameId}_replay`;
     const { game: replayGame } = seedGame(replayGameId);
     replayGame.applyEvent({
@@ -147,8 +149,6 @@ describe('playable-from-exile library-search replay semantics (integration)', ()
     expect((replayZones?.exile || []).map((card: any) => card.id)).toEqual(['creature_lib_1']);
     expect(replayZones?.exile?.[0]?.faceDown).toBe(true);
     expect((replayGame.state as any).playableFromExile?.[playerId]?.creature_lib_1).toBe(true);
-    expect(((replayGame as any).libraries?.get?.(playerId) || []).map((card: any) => card.id)).toEqual(
-      (((resolvedEvent as any).payload?.libraryAfter) || []).map((card: any) => card.id),
-    );
+    expect(((replayGame as any).libraries?.get?.(playerId) || []).map((card: any) => card.id)).toEqual(liveLibraryIds);
   });
 });

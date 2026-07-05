@@ -750,7 +750,7 @@ export type OracleEffectStep =
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
       readonly selectorText: string;
-      readonly destination: 'hand' | 'exile';
+      readonly destination: 'hand' | 'exile' | 'battlefield';
       readonly reveal?: boolean;
       readonly restOrder?: 'any';
       readonly optional?: boolean;

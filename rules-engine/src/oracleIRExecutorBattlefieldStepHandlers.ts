@@ -11272,6 +11272,30 @@ function exileAllOpponentGraveyards(
   };
 }
 
+function buildExileBattlefieldAppliedMetadata(
+  toRemove: readonly BattlefieldPermanent[],
+): Record<string, unknown> {
+  const permanentIds = toRemove
+    .map((perm) => String((perm as any)?.id || '').trim())
+    .filter(Boolean);
+  if (permanentIds.length === 0) return {};
+
+  const movedCards = toRemove
+    .filter((perm) => !(perm as any).isToken)
+    .map((perm) => buildPermanentCardWithStats(perm, 'exile'));
+
+  return {
+    lastExiledBattlefieldPermanentIds: permanentIds,
+    ...(movedCards.length > 0
+      ? {
+          lastMovedCards: movedCards,
+          lastExiledCards: movedCards,
+          lastExiledCardCount: movedCards.length,
+        }
+      : {}),
+  };
+}
+
 export function applyExileStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'exile' }>,
@@ -11809,14 +11833,11 @@ export function applyExileStep(
   const removedIds = new Set<string>(toRemove.map(perm => perm.id));
   const kept = battlefield.filter(perm => !removedIds.has(perm.id));
   const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
-  const movedCards = toRemove
-    .filter(perm => !(perm as any).isToken)
-    .map(perm => buildPermanentCardWithStats(perm, 'exile'));
   return bridgedZoneStepResult(ctx, {
     applied: true,
     state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx),
     log: result.log,
-    ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+    ...buildExileBattlefieldAppliedMetadata(toRemove),
   });
 }
 

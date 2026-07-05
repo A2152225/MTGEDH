@@ -214,9 +214,14 @@ describe('CASCADE validate-before-complete (integration)', () => {
       sourceName: 'Bloodbraid Elf',
       cast: false,
     });
-    expect(cascadeEvent.payload.libraryAfter.map((card: any) => card.id)).toHaveLength(3);
-    expect(cascadeEvent.payload.libraryAfter.map((card: any) => card.id)).toContain('after_1');
-    expect(cascadeEvent.payload.libraryAfter.map((card: any) => card.id)).toContain('hit_1');
-    expect(cascadeEvent.payload.libraryAfter.map((card: any) => card.id)).toContain('ex_2');
+    expect(cascadeEvent.payload).not.toHaveProperty('libraryAfter');
+    const replayLibraryIds = [
+      ...(cascadeEvent.payload.remainingLibraryIds || []),
+      ...(cascadeEvent.payload.bottomCardIds || []),
+    ];
+    expect(replayLibraryIds).toHaveLength(3);
+    expect(replayLibraryIds).toContain('after_1');
+    expect(replayLibraryIds).toContain('hit_1');
+    expect(replayLibraryIds).toContain('ex_2');
   });
 });

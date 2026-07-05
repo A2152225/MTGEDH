@@ -73,6 +73,8 @@ describe('Protean Hulk library search support', () => {
   });
 
   it('queues a library search step with a total mana value cap when Protean Hulk resolves', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
     const gameId = 't_protean_hulk_trigger_search';
     const game = createInitialGameState(gameId);
     const p1 = 'p1';
@@ -100,6 +102,7 @@ describe('Protean Hulk library search support', () => {
     expect((steps[0] as any).maxTotalManaValue).toBe(6);
     expect((steps[0] as any).filter).toMatchObject({ types: ['creature'] });
     expect((steps[0] as any).availableCards.map((card: any) => card.id)).toEqual(['c1', 'c2', 'c4']);
+    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
   });
 
   it('rejects over-budget creature selections without consuming the step', async () => {

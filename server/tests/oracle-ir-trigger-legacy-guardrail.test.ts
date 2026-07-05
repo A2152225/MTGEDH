@@ -22,10 +22,10 @@ const tokenHandlersSource = readFileSync(
   join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyTokenHandlers.ts'),
   'utf8',
 );
-const combinedHandlersSource = readFileSync(
-  join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyCombinedHandlers.ts'),
-  'utf8',
-);
+const combinedHandlersPath = join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyCombinedHandlers.ts');
+const combinedHandlersSource = existsSync(combinedHandlersPath)
+  ? readFileSync(combinedHandlersPath, 'utf8')
+  : '';
 const cardSpecificHandlersSource = '';
 const stackSpecialTriggerHandlersSource = readFileSync(
   join(serverRoot, 'src/state/modules/stackSpecialTriggerHandlers.ts'),
@@ -48,10 +48,6 @@ const turnAndZoneHandlersSource = readFileSync(
 );
 const gameStateHooksSource = readFileSync(
   join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyGameStateHooks.ts'),
-  'utf8',
-);
-const selfReflexiveHandlersSource = readFileSync(
-  join(serverRoot, 'src/state/modules/oracleIrTriggerLegacySelfReflexiveHandlers.ts'),
   'utf8',
 );
 const graveyardHandlersSource = readFileSync(
@@ -85,10 +81,6 @@ const descPrepHandlersSource = readFileSync(
 const counterHandlersSource = '';
 const singleEffectRegexBatchSource = readFileSync(
   join(serverRoot, 'src/state/modules/oracleIrTriggerLegacySingleEffectRegexBatch.ts'),
-  'utf8',
-);
-const lateEffectRegexBatchSource = readFileSync(
-  join(serverRoot, 'src/state/modules/oracleIrTriggerLegacyLateEffectRegexBatch.ts'),
   'utf8',
 );
 const countersTokensSource = readFileSync(
@@ -575,8 +567,6 @@ const RETIRED_INLINE_MARKERS = [
   'addsLoyaltyCounters',
   'tryApplyCastingModifierGrantsFromText(state, controller, description',
   'applyGraveyardPermissionEffectsFromText(ctx, controller, sourceName, description',
-  'applyRetiredTriggerLegacyDrawAndLifeCombinedEffects',
-  '/you may put a land card from your hand onto the battlefield/i.test(desc)',
   'const devotionCounterMatch = desc.match(/put (?:a number of|x)',
   'const putCounterOnTargetMatch = desc.match(/put (?:a|an|one',
   'const selfGetsMatch =',
@@ -625,19 +615,19 @@ describe('oracle IR trigger legacy guardrail', () => {
   });
 
   it('defines retired trigger regex handlers in the legacy module', () => {
-    expect(handlersSource.includes('applyRetiredTriggerLegacyDrawAndLifeCombinedEffects')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyEnergyEffects')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyPutThatManyCountersOnSelf')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyTokenCounters')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyElspethCounterFromAmong')).toBe(true);
+    expect(handlersSource.includes('applyRetiredTriggerLegacyDrawAndLifeCombinedEffects')).toBe(false);
+    expect(handlersSource.includes('applyRetiredTriggerLegacyEnergyEffects')).toBe(false);
+    expect(handlersSource.includes('applyRetiredTriggerLegacyPutThatManyCountersOnSelf')).toBe(false);
+    expect(handlersSource.includes('applyRetiredTriggerLegacyTokenCounters')).toBe(false);
+    expect(handlersSource.includes('applyRetiredTriggerLegacyElspethCounterFromAmong')).toBe(false);
     expect(handlersSource.includes('applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget')).toBe(false);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyLootStyleTopLibrary')).toBe(true);
-    expect(handlersSource.includes('applyRetiredTriggerLegacyEachPlayerCounterPlacement')).toBe(true);
-    expect(searchHandlersSource.includes('applyRetiredTriggerLegacyProteanHulkSearch')).toBe(true);
+    expect(handlersSource.includes('applyRetiredTriggerLegacyLootStyleTopLibrary')).toBe(false);
+    expect(handlersSource.includes('applyRetiredTriggerLegacyEachPlayerCounterPlacement')).toBe(false);
+    expect(searchHandlersSource.includes('applyRetiredTriggerLegacyProteanHulkSearch')).toBe(false);
     expect(searchHandlersSource.includes('applyRetiredTriggerLegacyGenericSearchLibrary')).toBe(true);
-    expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyKynaiosLandDrawChoice')).toBe(true);
-    expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyBelbePortalPutFromHand')).toBe(true);
-    expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyPutCreatureFromHandOntoBattlefield')).toBe(true);
+    expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyKynaiosLandDrawChoice')).toBe(false);
+    expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyBelbePortalPutFromHand')).toBe(false);
+    expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyPutCreatureFromHandOntoBattlefield')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyCreateCreatureToken')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyPredefinedArtifactTokens')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken')).toBe(false);
@@ -648,10 +638,10 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(singleEffectRegexBatchSource.includes('applyRetiredTriggerLegacyTwoPlusOneCountersOnTarget')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyCreateXTokensByControlledTypeCount')).toBe(false);
-    expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyOptionalDiscardThenDraw')).toBe(true);
-    expect(combinedHandlersSource.includes('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit')).toBe(true);
+    expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyOptionalDiscardThenDraw')).toBe(false);
+    expect(combinedHandlersSource.includes('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit')).toBe(false);
     expect(searchHandlersSource.includes('applyRetiredTriggerLegacyRevealUntilEquipment')).toBe(true);
-    expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyJoinForcesAttack')).toBe(true);
+    expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyJoinForcesAttack')).toBe(false);
     expect(cardSpecificHandlersSource.includes('applyRetiredTriggerLegacyAgentOfShadowThievesAttack')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyTypedCountTokenFallbacks')).toBe(false);
     expect(timingHandlersSource.includes('applyRetiredTriggerLegacyDelayedDrawAtNextUpkeep')).toBe(false);
@@ -667,48 +657,41 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(turnAndZoneHandlersSource.includes('applyRetiredTriggerLegacyExileTargetPlayerGraveyard')).toBe(false);
     expect(turnAndZoneHandlersSource.includes('applyRetiredTriggerLegacyExileTopTwoPlayableChoice')).toBe(false);
     expect(gameStateHooksSource.includes('applyRetiredTriggerLegacyGameStateOracleHooks')).toBe(true);
-    expect(selfReflexiveHandlersSource.includes('applyRetiredTriggerLegacySelfExileCreateToken')).toBe(true);
-    expect(selfReflexiveHandlersSource.includes('applyRetiredTriggerLegacyAttachToTargetCreatureYouControl')).toBe(true);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttachToTargetCreatureYouControl')).toBe(false);
     expect(graveyardHandlersSource.includes('applyRetiredTriggerLegacyDiscardTriggeredCastFromGraveyard')).toBe(true);
     expect(graveyardHandlersSource.includes('applyRetiredTriggerLegacyBoundGraveyardReturnEffect')).toBe(true);
     expect(delayedCleanupHandlersSource.includes('applyRetiredTriggerLegacyDelayedCleanupTriggers')).toBe(true);
     expect(libraryHandlersSource.includes('applyRetiredTriggerLegacyChosenTypeTopCardReveal')).toBe(true);
     expect(cardSpecificHandlersSource.includes('applyRetiredTriggerLegacyEachMerfolkExplores')).toBe(false);
-    expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife')).toBe(true);
+    expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyPutLandFromHand')).toBe(false);
+    expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife')).toBe(false);
     expect(stackSpecialTriggerHandlersSource.includes('applyStackReboundTrigger')).toBe(true);
     expect(stackSpecialTriggerHandlersSource.includes('applyStackParadigmTrigger')).toBe(true);
     expect(sacrificeHandlersSource.includes('applyRetiredTriggerLegacyUpkeepSacrificeCreatureOrSelf')).toBe(true);
     expect(cardSpecificHandlersSource.includes('applyRetiredTriggerLegacyElixirOfImmortality')).toBe(false);
     expect(prefaceHandlersSource.includes('applyRetiredTriggerLegacyPlaneswalkerLoyaltyCounters')).toBe(true);
     expect(descPrepHandlersSource.includes('stripTriggerLegacyInterveningIfPrefix')).toBe(true);
-    expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyCombinedEffectsRegexBatch')).toBe(true);
-    expect(combinedHandlersSource.includes('combinedEffectsHit(')).toBe(true);
-    expect(combinedHandlersSource.includes("'you_gain_that_much_life'")).toBe(true);
+    expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyCombinedEffectsRegexBatch')).toBe(false);
+    expect(combinedHandlersSource.includes('combinedEffectsHit(')).toBe(false);
+    expect(combinedHandlersSource.includes("'you_gain_that_much_life'")).toBe(false);
     expect(counterHandlersSource.includes('applyRetiredTriggerLegacyChosenTypeCounterEachCreature')).toBe(false);
-    expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyCounterInlineBatch')).toBe(false);
-    expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyPTModificationBatch')).toBe(false);
-    expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyTapUntapInlineBatch')).toBe(false);
-    expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyGraveyardZoneChangeBatch')).toBe(false);
-    expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyManaAndCombatBatch')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyInterveningSubjectCopyToken')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyTappedAttackingCopyToken')).toBe(false);
     expect(singleEffectRegexBatchSource.includes('applyRetiredTriggerLegacySingleEffectRegexBatch')).toBe(true);
-    expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyLateEffectRegexBatch')).toBe(true);
-    expect(lateEffectRegexBatchSource.includes('applyRetiredTriggerLegacyKeywordTriggerFallback')).toBe(false);
   });
 
   it('routes stack.ts through extracted legacy handler imports', () => {
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacySingleEffectRegexBatch')).toBe(false);
     expect(stackExecuteTriggerEffectTailUtilsSource.includes('applyRetiredTriggerLegacySingleEffectRegexBatch')).toBe(true);
-    expect(stackExecuteTriggerEffectTailUtilsSource.includes('applyRetiredTriggerLegacyLateEffectRegexBatch')).toBe(true);
+    expect(stackExecuteTriggerEffectTailUtilsSource.includes('applyRetiredTriggerLegacyLateEffectRegexBatch')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyBlockTriggerCreateCreatureToken')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttackCountBasedCreateCreatureToken')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyCounterThenDraw')).toBe(false);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyOptionalDiscardThenDraw')).toBe(true);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit')).toBe(true);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyOptionalDiscardThenDraw')).toBe(false);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyRevealUntilEquipment')).toBe(true);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyJoinForcesAttack')).toBe(true);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyJoinForcesAttack')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAgentOfShadowThievesAttack')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyDelayedDrawAtNextUpkeep')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyUntapAllCreatureType')).toBe(false);
@@ -717,15 +700,15 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyExileTargetPlayerGraveyard')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyExileTopTwoPlayableChoice')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyGameStateOracleHooks')).toBe(true);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacySelfExileCreateToken')).toBe(true);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttachToTargetCreatureYouControl')).toBe(true);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacySelfExileCreateToken')).toBe(false);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAttachToTargetCreatureYouControl')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyDiscardTriggeredCastFromGraveyard')).toBe(true);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyBoundGraveyardReturnEffect')).toBe(true);
     expect(stackExecuteTriggerEffectUtilsSource.includes('applyRetiredTriggerLegacyDelayedCleanupTriggers')).toBe(false);
     expect(stackExecuteTriggerEffectPrefaceUtilsSource.includes('applyRetiredTriggerLegacyDelayedCleanupTriggers')).toBe(true);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyChosenTypeTopCardReveal')).toBe(true);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyEachMerfolkExplores')).toBe(false);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife')).toBe(true);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyHandSizeLifeGain')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyReboundTrigger')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacySacrificeThisCreature')).toBe(false);
@@ -735,7 +718,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackExecuteTriggerEffectPrefaceUtilsSource.includes('applyRetiredTriggerLegacyDelayedCleanupTriggers')).toBe(true);
     expect(stackExecuteTriggerEffectUtilsSource.includes('applyRetiredTriggerLegacyPlaneswalkerLoyaltyCounters')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('stripTriggerLegacyInterveningIfPrefix')).toBe(true);
-    expect(stackExecuteTriggerEffectTailUtilsSource.includes('legacyTailHandled(combinedEffectsHit)')).toBe(true);
+    expect(stackExecuteTriggerEffectTailUtilsSource.includes('legacyTailHandled(combinedEffectsHit)')).toBe(false);
     expect(stackExecuteTriggerEffectTailUtilsSource.includes('isTriggerEffectFullyIrWired(descriptionForOracleFallback')).toBe(true);
     expect(stackExecuteTriggerEffectTailUtilsSource.includes('getTriggerSourcePermanent(state, triggerItem)')).toBe(true);
     expect(stackExecuteTriggerEffectTailUtilsSource.includes("from './triggerPreparedStateUtils.js'")).toBe(true);
@@ -747,19 +730,16 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(cardSpecificHandlersSource.includes("from './triggerExploreUtils.js'")).toBe(false);
     expect(graveyardHandlersSource.includes("from './triggerEtbPermanentBridge.js'")).toBe(true);
     expect(delayedCleanupHandlersSource.includes("from './triggerEtbPermanentBridge.js'")).toBe(true);
-    expect(combinedHandlersSource.includes("from '../creatureTypeNow.js'")).toBe(true);
-    expect(selfReflexiveHandlersSource.includes("from './counters_tokens.js'")).toBe(true);
-    expect(selfReflexiveHandlersSource.includes("from './triggerPermanentUtils.js'")).toBe(true);
-    expect(selfReflexiveHandlersSource.includes("from './triggerEquipmentUtils.js'")).toBe(true);
-    expect(descPrepHandlersSource.includes("from './triggerReanimationRiders.js'")).toBe(true);
+    expect(combinedHandlersSource.includes("from '../creatureTypeNow.js'")).toBe(false);
+    expect(descPrepHandlersSource.includes("from './triggerReanimationRiders.js'")).toBe(false);
     expect(stackSpecialTriggerHandlersSource.includes("from './triggerCastFromExileUtils.js'")).toBe(true);
-    expect(combinedHandlersSource.includes("from './resolutionPromptEvents.js'")).toBe(true);
+    expect(combinedHandlersSource.includes("from './resolutionPromptEvents.js'")).toBe(false);
     expect(graveyardHandlersSource.includes("from './resolutionPromptEvents.js'")).toBe(true);
     expect(searchHandlersSource.includes("from './resolutionPromptEvents.js'")).toBe(true);
     expect(stackSource.includes("from './triggerReanimationRiders.js'")).toBe(true);
-    expect(combinedHandlersSource.includes("from './triggerLandPlayPromptUtils.js'")).toBe(true);
+    expect(combinedHandlersSource.includes("from './triggerLandPlayPromptUtils.js'")).toBe(false);
     expect(keywordHandlersSource.includes("from './triggerKeywordChoiceUtils.js'")).toBe(true);
-    expect(resolutionHandlersSource.includes("from './triggerLandPlayPromptUtils.js'")).toBe(true);
+    expect(resolutionHandlersSource.includes("from './triggerLandPlayPromptUtils.js'")).toBe(false);
     expect(stackSource.includes("from './triggerKeywordChoiceUtils.js'")).toBe(true);
     expect(triggerEtbPermanentEffectsSource.includes('export function triggerETBEffectsForPermanent')).toBe(true);
     expect(triggerEtbPermanentEffectsSource.includes('export function queueSupportedETBKeywordChoices')).toBe(true);
@@ -768,8 +748,6 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('registerTriggerETBEffectsForPermanent')).toBe(false);
     expect(countersTokensSource.includes('triggerEtbPermanentEffects.js')).toBe(true);
     expect(countersTokensSource.includes("require('./stack.js')")).toBe(false);
-    expect(lateEffectRegexBatchSource.includes('readonly triggerETBEffectsForToken')).toBe(false);
-    expect(lateEffectRegexBatchSource.includes('readonly modifyLife')).toBe(false);
     expect(triggerLifeDamageUtilsSource.includes('export function modifyTriggerEffectLife')).toBe(true);
     expect(triggerLifeDamageUtilsSource.includes('export function queueDealsDamageToPlayerTriggersFromPermanent')).toBe(true);
     expect(handlersSource.includes("from './triggerLifeDamageUtils.js'")).toBe(true);
@@ -780,9 +758,6 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(counterHandlersSource.includes("from './triggerChosenTypeCounterUtils.js'")).toBe(false);
     expect(stackSource.includes('function applyMyriadTokenCopies')).toBe(false);
     expect(stackSource.includes('function resolveChosenTypeCounterEachCreature')).toBe(false);
-    expect(lateEffectRegexBatchSource.includes('readonly createCopyTokensOfCard')).toBe(false);
-    expect(lateEffectRegexBatchSource.includes('readonly applyMyriadTokenCopies')).toBe(false);
-    expect(lateEffectRegexBatchSource.includes('readonly addExtraCombat')).toBe(false);
     expect(singleEffectRegexBatchSource.includes('readonly executeSpellEffect')).toBe(false);
     expect(singleEffectRegexBatchSource.includes('readonly resolveChosenTypeCounterEachCreature')).toBe(false);
     expect(singleEffectRegexBatchSource.includes('readonly enqueueLibrarySearch')).toBe(false);
@@ -791,7 +766,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(libraryHandlersSource.includes("from './triggerLibraryMillUtils.js'")).toBe(true);
     expect(libraryHandlersSource.includes("from '../../socket/may-ability-prompts.js'")).toBe(true);
     expect(searchHandlersSource.includes("from './triggerLibrarySearchUtils.js'")).toBe(true);
-    expect(combinedHandlersSource.includes("from './triggers/life-loss.js'")).toBe(true);
+    expect(combinedHandlersSource.includes("from './triggers/life-loss.js'")).toBe(false);
     expect(stackSpecialTriggerHandlersSource.includes("from '../../socket/may-ability-prompts.js'")).toBe(true);
     expect(stackSource.includes('function millCardsFromLibrary')).toBe(false);
     expect(stackSource.includes('function enqueueLibrarySearchStep')).toBe(false);
@@ -808,8 +783,6 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('function queueInitiativeVentureTrigger')).toBe(false);
     expect(stackSource.includes("from './triggerVentureUtils.js'")).toBe(true);
     expect(triggerPlayableFromExileUtilsSource.includes('export function queuePlayableFromExileChoiceStep')).toBe(true);
-    expect(lateEffectRegexBatchSource.includes('readonly createToken')).toBe(false);
-    expect(lateEffectRegexBatchSource.includes('readonly createTokenId')).toBe(false);
     expect(cardSpecificHandlersSource.includes("from './counters_tokens.js'")).toBe(false);
     expect(stackSource.includes('function queuePlayableFromExileChoiceStep')).toBe(false);
     expect(stackSource.includes("from './triggerPlayableFromExileUtils.js'")).toBe(true);

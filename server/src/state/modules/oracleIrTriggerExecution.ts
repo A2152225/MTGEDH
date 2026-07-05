@@ -31,6 +31,10 @@ import { copyPermanentTriggerStepNeedsTargetSelectionQueue } from './trigger-cop
 import { debug, debugWarn } from '../../utils/debug.js';
 import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
+import {
+  isJoinForcesTriggerEffect,
+  queueJoinForcesResolutionSteps,
+} from './joinForcesResolutionQueue.js';
 import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
 
 export { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
@@ -208,6 +212,7 @@ function resolveTriggerTargetBinding(
     || '',
   ).trim();
   const lifeLostReference = Number(triggerItem?.effectData?.lifeLost ?? 0);
+  const countersPlacedReference = Number(triggerItem?.effectData?.countersPlaced ?? 0);
   const damageReference = Number(
     triggerItem?.damageAmount ?? triggerItem?.effectData?.damageAmount ?? 0,
   );
@@ -246,19 +251,36 @@ function resolveTriggerTargetBinding(
     }
   }
 
+  const interveningSubjectPermanentId = String(
+    triggerItem?.interveningIfSubjectPermanentId || '',
+  ).trim();
+  const chosenObjectIds = Array.from(new Set([
+    ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
+    ...normalizedTargetIds,
+  ]));
+  if (
+    !targetPermanentId
+    && interveningSubjectPermanentId
+    && battlefield.some((permanent: any) => String(permanent?.id || '') === interveningSubjectPermanentId)
+  ) {
+    targetPermanentId = interveningSubjectPermanentId;
+  }
+
   return {
     targetPermanentId,
     targetPlayerId: (targetPlayerId || losingPlayerId || undefined) as PlayerID | undefined,
     targetSpellId,
-    chosenObjectIds: normalizedTargetIds.length > 0 ? normalizedTargetIds : undefined,
+    chosenObjectIds: chosenObjectIds.length > 0 ? chosenObjectIds : undefined,
     sourcePermanentId: sourcePermanentId || undefined,
     sourceId: sourceId || undefined,
     referenceAmount:
       Number.isFinite(lifeLostReference) && lifeLostReference > 0
         ? lifeLostReference
-        : Number.isFinite(damageReference) && damageReference > 0
-          ? damageReference
-          : undefined,
+        : Number.isFinite(countersPlacedReference) && countersPlacedReference > 0
+          ? countersPlacedReference
+          : Number.isFinite(damageReference) && damageReference > 0
+            ? damageReference
+            : undefined,
     xValue: typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined,
   };
 }
@@ -266,6 +288,7 @@ function resolveTriggerTargetBinding(
 function buildTriggerIrContext(
   params: TryResolveTriggerViaOracleIRParams,
   binding: ReturnType<typeof resolveTriggerTargetBinding>,
+  state?: any,
 ) {
   const selectedModeIds = Array.isArray(params.triggerItem?.selectedModeIds)
     ? params.triggerItem.selectedModeIds
@@ -276,9 +299,14 @@ function buildTriggerIrContext(
   const defendingOpponentId = binding.targetPlayerId && String(binding.targetPlayerId) !== String(params.controller)
     ? binding.targetPlayerId
     : undefined;
+  const sourcePermanentId = String(binding.sourcePermanentId || binding.sourceId || '').trim();
+  const sourcePermanent = sourcePermanentId
+    ? (state?.battlefield || []).find((entry: any) => entry && String(entry.id || '') === sourcePermanentId)
+    : undefined;
   const chosenCreatureType = String(
     params.triggerItem?.chosenCreatureType
     || params.triggerItem?.card?.chosenCreatureType
+    || sourcePermanent?.chosenCreatureType
     || '',
   ).trim();
   const attackingPlayerId = String(
@@ -330,7 +358,7 @@ function probeOracleIrTriggerShadow(
     const state = structuredClone((shadowCtx as any).state);
     hydrateOracleIRPlayerZonesFromContext(shadowCtx, state);
     const binding = resolveTriggerTargetBinding(shadowCtx, params.triggerItem, params.controller);
-    const irCtx = buildTriggerIrContext(params, binding);
+    const irCtx = buildTriggerIrContext(params, binding, state);
     const adjustedSteps = applyMillReplacementEffectsToSteps(
       shadowCtx,
       [...steps],
@@ -445,7 +473,24 @@ export function tryResolveTriggerViaOracleIR(
   const primary = isOracleIrTriggerPrimaryEnabled();
   const state = (ctx as any).state;
   const binding = resolveTriggerTargetBinding(ctx, params.triggerItem, params.controller);
-  const irCtx = buildTriggerIrContext(params, binding);
+
+  if (primary && isJoinForcesTriggerEffect(params.triggerItem, effectText)) {
+    const queued = queueJoinForcesResolutionSteps(ctx, {
+      controller: params.controller,
+      cardName: params.sourceName,
+      sourceId: binding.sourceId,
+      sourceName: params.sourceName,
+      sourceImage: params.sourceImage,
+      effectDescription: String(params.effectText || effectText),
+      cardImageUrl: params.triggerItem?.value?.imageUrl || params.triggerItem?.card?.image_uris?.small,
+      logPrefix: 'oracleIR trigger',
+    });
+    if (queued) {
+      return { handled: true, applied: 0, shadowWouldHandle: false };
+    }
+  }
+
+  const irCtx = buildTriggerIrContext(params, binding, state);
   const executionOptions = buildTriggerExecutionOptionsFromSteps(steps, params.triggerItem);
   const normalizedSelectedModeIds = executionOptions.selectedModeIds;
 

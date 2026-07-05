@@ -30,20 +30,22 @@ export function appendQueuedResolutionPromptEvent(
   }
 
   try {
-    const libraryAfter = options.playerId
+    const remainingLibraryIds = options.playerId
       ? (() => {
         const pid = String(options.playerId || '').trim();
         const lib = (ctx as any).libraries?.get?.(pid)
           ?? (ctx.state as any)?.zones?.[pid]?.library
           ?? [];
-        return Array.isArray(lib) ? lib.map((card: any) => ({ ...card })) : [];
+        return Array.isArray(lib)
+          ? lib.map((card: any) => String(card?.id || '')).filter(Boolean)
+          : [];
       })()
       : undefined;
 
     appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (ctx.state as any)?.seq ?? 0), 'resolveTopOfStackPrompt', {
       playerId: String(options.playerId || '').trim(),
       sourceId: String(options.sourceId || '').trim(),
-      ...(Array.isArray(libraryAfter) ? { libraryAfter } : {}),
+      ...(Array.isArray(remainingLibraryIds) ? { remainingLibraryIds } : {}),
       ...(queuedResolutionSteps.length > 0
         ? { queuedResolutionSteps }
         : { queuedResolutionStep }),

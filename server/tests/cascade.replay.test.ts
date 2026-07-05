@@ -26,7 +26,10 @@ describe('cascadeResolve replay semantics', () => {
         exileCount: 0,
       },
     };
-    (game as any).libraries?.set?.(p1, []);
+    game.importDeckResolved(p1, [
+      { id: 'forest_1', name: 'Forest', type_line: 'Basic Land — Forest', zone: 'library' },
+      { id: 'lightning_bolt', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Deal 3 damage to any target.', zone: 'library' },
+    ] as any);
     (game.state as any).pendingCascade = {
       [p1]: [
         {
@@ -63,10 +66,9 @@ describe('cascadeResolve replay semantics', () => {
       cascadeNumber: 1,
       cast: false,
       hitCard: { id: 'lightning_bolt', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Deal 3 damage to any target.' },
-      libraryAfter: [
-        { id: 'forest_1', name: 'Forest', type_line: 'Basic Land — Forest' },
-        { id: 'lightning_bolt', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Deal 3 damage to any target.' },
-      ],
+      exiledCards: [{ id: 'lightning_bolt', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Deal 3 damage to any target.' }],
+      remainingLibraryIds: ['forest_1'],
+      bottomCardIds: ['lightning_bolt'],
     } as any);
 
     expect((game as any).libraries.get(p1)?.map((card: any) => card.id)).toEqual(['forest_1', 'lightning_bolt']);
@@ -92,7 +94,10 @@ describe('cascadeResolve replay semantics', () => {
         exileCount: 0,
       },
     };
-    (game as any).libraries?.set?.(p1, []);
+    game.importDeckResolved(p1, [
+      { id: 'forest_1', name: 'Forest', type_line: 'Basic Land — Forest', zone: 'library' },
+      { id: 'lightning_bolt', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Deal 3 damage to any target.', zone: 'library' },
+    ] as any);
     (game.state as any).pendingCascade = {
       [p1]: [
         {
@@ -120,9 +125,14 @@ describe('cascadeResolve replay semantics', () => {
         type_line: 'Instant',
         oracle_text: 'Deal 3 damage to any target.',
       },
-      libraryAfter: [
-        { id: 'forest_1', name: 'Forest', type_line: 'Basic Land — Forest' },
-      ],
+      exiledCards: [{
+        id: 'lightning_bolt',
+        name: 'Lightning Bolt',
+        type_line: 'Instant',
+        oracle_text: 'Deal 3 damage to any target.',
+      }],
+      remainingLibraryIds: ['forest_1'],
+      bottomCardIds: [],
     } as any);
 
     expect((game as any).libraries.get(p1)?.map((card: any) => card.id)).toEqual(['forest_1']);

@@ -298,7 +298,7 @@ describe('activateFetchland replay semantics', () => {
       createdPermanentIds: ['watery_grave_perm'],
       destination: 'battlefield',
       entersTapped: false,
-      libraryAfter: [],
+      remainingLibraryIds: [],
     } as any);
 
     expect((game.state as any).stack || []).toHaveLength(0);
@@ -385,7 +385,7 @@ describe('activateFetchland replay semantics', () => {
       createdPermanentIds: ['breeding_pool_perm'],
       destination: 'battlefield',
       entersTapped: false,
-      libraryAfter: [],
+      remainingLibraryIds: [],
     } as any);
 
     expect((game.state as any).stack || []).toHaveLength(0);

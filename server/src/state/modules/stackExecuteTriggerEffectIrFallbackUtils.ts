@@ -107,6 +107,7 @@ export function applyOracleIRFallbackForTriggeredEffect(
   }
 
   const lifeLostReference = Number((triggerItem as any)?.effectData?.lifeLost ?? 0);
+  const countersPlacedReference = Number((triggerItem as any)?.effectData?.countersPlaced ?? 0);
   const damageReference = Number(
     (triggerItem as any)?.damageAmount ?? (triggerItem as any)?.effectData?.damageAmount ?? 0,
   );
@@ -150,9 +151,11 @@ export function applyOracleIRFallbackForTriggeredEffect(
     referenceAmount:
       Number.isFinite(lifeLostReference) && lifeLostReference > 0
         ? lifeLostReference
-        : Number.isFinite(damageReference) && damageReference > 0
-          ? damageReference
-          : undefined,
+        : Number.isFinite(countersPlacedReference) && countersPlacedReference > 0
+          ? countersPlacedReference
+          : Number.isFinite(damageReference) && damageReference > 0
+            ? damageReference
+            : undefined,
     ...(lastAntecedentBattlefieldPermanentIds.length > 0
       ? { lastAntecedentBattlefieldPermanentIds }
       : interveningSubjectPermanentId

@@ -119,8 +119,18 @@ export function resolveAttachedReferenceTargets(
     return host && permanentMatchesType(host, 'creature') ? [host] : [];
   }
 
+  if (text === 'it' || text === 'her' || text === 'him' || text === 'that creature') {
+    const contextual = resolveContextualSingleCreature(battlefield, ctx);
+    if (contextual) return [contextual];
+    const sourceId = String(ctx.sourceId || '').trim();
+    const self = sourceId
+      ? battlefield.find((perm) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
+    return self ? [self] : [];
+  }
+
   if (
-    /^(?:this|it|he|her)(?: creature| permanent| equipment| enchantment| artifact| land| saga)?$/i.test(text) ||
+    /^(?:this|he)(?: creature| permanent| equipment| enchantment| artifact| land| saga)?$/i.test(text) ||
     text === 'this equipment' ||
     text === 'this creature' ||
     text === 'this permanent'
@@ -130,11 +140,6 @@ export function resolveAttachedReferenceTargets(
       ? battlefield.find((perm) => String((perm as any)?.id || '').trim() === sourceId)
       : undefined;
     return self ? [self] : [];
-  }
-
-  if (/^(?:that creature|it|her|him)$/i.test(text)) {
-    const contextual = resolveContextualSingleCreature(battlefield, ctx);
-    return contextual ? [contextual] : [];
   }
 
   return null;

@@ -36,7 +36,9 @@ const REPLAY_CAUSAL_ORDER: Record<string, number> = {
   bottomOrderResolve: 20,
   discardEffect: 25,
   cleanupDiscard: 25,
+  shuffleLibrary: 35,
   drawCards: 40,
+  moveResolvedInstantOrSorcery: 45,
 };
 
 function replayCausalRank(eventType: string): number {
@@ -51,7 +53,15 @@ export function toReplayEvents(gameId: string, startIndex = 0): Array<Record<str
         ? { type: event.type, ...(event.payload as Record<string, unknown>) }
         : { type: event.type },
     );
-  return [...events].sort(
+  const hasLibraryAfterSearchResolve = events.some(
+    (event) => event.type === 'librarySearchResolve'
+      && Array.isArray((event as any).libraryAfter)
+      && (event as any).libraryAfter.length > 0,
+  );
+  const filteredEvents = hasLibraryAfterSearchResolve
+    ? events.filter((event) => event.type !== 'shuffleLibrary')
+    : events;
+  return [...filteredEvents].sort(
     (a, b) => replayCausalRank(String(a.type || '')) - replayCausalRank(String(b.type || '')),
   );
 }

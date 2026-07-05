@@ -158,9 +158,6 @@ describe('sacrifice another permanent for benefit replay semantics', () => {
       sacrificedName: 'Treasure Token',
       lifeGain: 3,
       drawCount: 1,
-      lifeBefore: 40,
-      lifeAfter: 43,
-      drawnCards: [{ id: 'draw_1', name: 'Drawn Card', type_line: 'Instant', zone: 'hand' }],
     } as any);
 
     expect(((game.state as any).battlefield || []).map((permanent: any) => permanent.id)).toEqual(['source_perm']);

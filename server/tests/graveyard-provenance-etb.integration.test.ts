@@ -15,6 +15,19 @@ async function resetGame(gameId: string) {
   await deleteGame(gameId);
 }
 
+function permanentHasFlying(permanent: any): boolean {
+  const card = permanent?.card || {};
+  const keywords = Array.isArray(card.keywords) ? card.keywords : [];
+  if (keywords.some((entry: string) => String(entry).toLowerCase() === 'flying')) {
+    return true;
+  }
+  const abilities = Array.isArray(card.abilities) ? card.abilities : [];
+  if (abilities.some((entry: string) => String(entry).toLowerCase() === 'flying')) {
+    return true;
+  }
+  return String(card.oracle_text || '').toLowerCase().includes('flying');
+}
+
 function createContext(stateOverrides: Record<string, any> = {}) {
   const state: any = {
     players: [
@@ -140,10 +153,12 @@ describe('graveyard provenance ETB integration', () => {
     expect(demon.basePower).toBe(5);
     expect(demon.baseToughness).toBe(5);
     expect(demon.card.colors).toEqual(['B']);
-    expect(demon.card.keywords).toContain('Flying');
+    expect(permanentHasFlying(demon)).toBe(true);
   });
 
   it("persists and replays Archfiend's Vessel self-exile token creation", () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
     createGameIfNotExists(liveReplayGameId, 'commander', 40, undefined, 'p1');
     const game = ensureGame(liveReplayGameId);
     if (!game) throw new Error('ensureGame returned undefined');
@@ -179,27 +194,30 @@ describe('graveyard provenance ETB integration', () => {
 
     const events = getEvents(liveReplayGameId);
     const exileEvent = events.find((event: any) =>
-      event.type === 'exilePermanent' && event.payload?.reason === 'reflexive_self_exile_create_token'
-    ) as any;
-    const tokenEvent = events.find((event: any) =>
-      event.type === 'executeEffect' &&
-      event.payload?.effectType === 'createToken' &&
-      event.payload?.reason === 'reflexive_self_exile_create_token'
+      event.type === 'exilePermanent' &&
+      event.payload?.oracleIrReplayMutation === true &&
+      event.payload?.permanentId === 'arch_perm',
     ) as any;
     expect(exileEvent?.payload).toMatchObject({
       permanentId: 'arch_perm',
       sourcePermanentId: 'arch_perm',
-      sourceName: "Archfiend's Vessel",
+      oracleIrSourceId: 'arch_perm',
     });
+
+    const tokenEvent = events.find((event: any) =>
+      event.type === 'executeEffect' &&
+      event.payload?.effectType === 'createToken' &&
+      event.payload?.oracleIrReplayMutation === true &&
+      String(event.payload?.tokenData?.name || '').toLowerCase() === 'demon'
+    ) as any;
+    expect(tokenEvent?.payload?.oracleIrSourceId).toBe('arch_perm');
     expect(tokenEvent?.payload?.tokenData).toMatchObject({
-      id: liveDemon.id,
       name: 'Demon',
-      typeLine: 'Token Creature — Demon',
       power: 5,
       toughness: 5,
       colors: ['B'],
-      abilities: ['Flying'],
     });
+    expect(permanentHasFlying(liveDemon)).toBe(true);
 
     createGameIfNotExists(replayReplayGameId, 'commander', 40, undefined, 'p1');
     const replayGame = ensureGame(replayReplayGameId);
@@ -208,21 +226,18 @@ describe('graveyard provenance ETB integration', () => {
     (replayGame.state as any).zones = {
       p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
     };
-    (replayGame.state as any).battlefield = [
-      {
-        ...archfiendPermanent,
-        card: { ...archfiendPermanent.card },
-      },
-    ];
+    (replayGame.state as any).battlefield = [archfiendPermanent];
 
     replayGame.applyEvent({ type: 'exilePermanent', ...(exileEvent.payload || {}) } as any);
     replayGame.applyEvent({ type: 'executeEffect', ...(tokenEvent.payload || {}) } as any);
 
     expect(((replayGame.state as any).battlefield || []).some((entry: any) => entry.id === 'arch_perm')).toBe(false);
     expect(((replayGame.state as any).zones.p1.exile || []).map((card: any) => card.id)).toEqual(['archfiend_card']);
-    const replayDemon = ((replayGame.state as any).battlefield || []).find((entry: any) => entry.id === liveDemon.id);
+    const replayDemon = ((replayGame.state as any).battlefield || []).find(
+      (entry: any) => entry.id === tokenEvent.payload.tokenData.id,
+    );
     expect(replayDemon).toMatchObject({
-      id: liveDemon.id,
+      id: tokenEvent.payload.tokenData.id,
       controller: 'p1',
       owner: 'p1',
       basePower: 5,
@@ -230,9 +245,7 @@ describe('graveyard provenance ETB integration', () => {
       isToken: true,
       card: expect.objectContaining({
         name: 'Demon',
-        type_line: 'Token Creature — Demon',
         colors: ['B'],
-        keywords: ['Flying'],
       }),
     });
   });
@@ -335,9 +348,11 @@ describe('graveyard provenance ETB integration', () => {
       { ...trigger, targets: ['target_creature'] },
     );
 
-    expect(rocketPermanent.attachedTo).toBe('target_creature');
-    expect(targetCreature.attachedEquipment).toContain('rocket_perm');
-    expect(targetCreature.isEquipped).toBe(true);
+    const rocketAfter = ctx.state.battlefield.find((entry: any) => entry.id === 'rocket_perm');
+    const targetAfter = ctx.state.battlefield.find((entry: any) => entry.id === 'target_creature');
+    expect(rocketAfter?.attachedTo).toBe('target_creature');
+    expect(targetAfter?.attachedEquipment).toContain('rocket_perm');
+    expect(targetAfter?.isEquipped).toBe(true);
   });
 
   it('does not trigger Rocket-Powered Goblin Glider when it was cast from hand', () => {
@@ -355,5 +370,44 @@ describe('graveyard provenance ETB integration', () => {
     triggerETBEffectsForPermanent(ctx, rocketPermanent, 'p1');
 
     expect(ctx.state.stack.some((entry: any) => entry.sourceName === 'Rocket-Powered Goblin Glider')).toBe(false);
+  });
+
+  it('grants haste via IR when Chainer-style ETB trigger fires for a non-hand cast', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const chainerPermanent = {
+      id: 'chainer_1',
+      controller: 'p1',
+      owner: 'p1',
+      tapped: false,
+      card: {
+        id: 'chainer_card',
+        name: 'Chainer, Nightmare Adept',
+        type_line: 'Legendary Creature — Human Minion',
+        oracle_text: 'Discard a card: You may cast a creature spell from your graveyard this turn. Activate only once each turn.\nWhenever a nontoken creature enters the battlefield under your control, if you didn\'t cast it from your hand, it gains haste.',
+      },
+    };
+    const enteringCreature = {
+      id: 'zombie_perm',
+      controller: 'p1',
+      owner: 'p1',
+      tapped: false,
+      castSourceZone: 'graveyard',
+      summoningSickness: true,
+      card: { id: 'zombie_card', name: 'Graveyard Zombie', type_line: 'Creature — Zombie', power: '2', toughness: '2' },
+    };
+    const ctx = createContext({ battlefield: [chainerPermanent, enteringCreature] });
+
+    triggerETBEffectsForPermanent(ctx, enteringCreature, 'p1');
+
+    const trigger = ctx.state.stack.find((entry: any) => entry.sourceName === 'Chainer, Nightmare Adept');
+    expect(trigger).toBeTruthy();
+    expect(trigger.interveningIfSubjectPermanentId).toBe('zombie_perm');
+
+    executeTriggerEffect(ctx, 'p1', 'Chainer, Nightmare Adept', trigger.description, trigger);
+
+    const creatureAfter = ctx.state.battlefield.find((entry: any) => entry.id === 'zombie_perm');
+    expect(creatureAfter?.grantedAbilities).toContain('haste');
+    expect(creatureAfter?.summoningSickness).toBe(false);
   });
 });

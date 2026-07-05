@@ -20,13 +20,6 @@ import {
 } from './oracleIrTriggerLegacyRouting.js';
 import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
 import {
-  applyRetiredTriggerLegacyCombinedEffectsRegexBatch,
-  applyRetiredTriggerLegacyPutLandFromHand,
-} from './oracleIrTriggerLegacyCombinedHandlers.js';
-import {
-  applyRetiredTriggerLegacyLateEffectRegexBatch,
-} from './oracleIrTriggerLegacyLateEffectRegexBatch.js';
-import {
   applyRetiredTriggerLegacySingleEffectRegexBatch,
 } from './oracleIrTriggerLegacySingleEffectRegexBatch.js';
 
@@ -121,7 +114,6 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
   const {
     desc,
     descriptionForOracleFallback,
-    isKynaiosEffect,
     opponents,
     players,
     battlefield,
@@ -146,36 +138,6 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
       effectText: descriptionForOracleFallback,
       gameId: String((ctx as any)?.gameId || '') || undefined,
     });
-  } else {
-    const combinedEffectsHit = applyRetiredTriggerLegacyCombinedEffectsRegexBatch({
-      ctx,
-      controller,
-      sourceName,
-      desc,
-      description,
-      triggerItem,
-      state,
-      isKynaiosEffect,
-      opponents,
-      battlefield,
-    });
-
-    if (applyRetiredTriggerLegacyPutLandFromHand({
-      ctx,
-      controller,
-      sourceName,
-      desc,
-      description,
-      triggerItem,
-      state,
-    })) {
-      return legacyTailHandled('applyRetiredTriggerLegacyPutLandFromHand');
-    }
-
-    if (combinedEffectsHit) {
-      tryResolveThassasOracleWin(ctx, controller, sourceName);
-      return legacyTailHandled(combinedEffectsHit);
-    }
   }
 
   if (skipUncategorizedSpellFallback) {
@@ -240,27 +202,9 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
       opponents,
       players,
       battlefield,
-      isKynaiosEffect,
     });
     if (singleHandler) {
       return legacyTailHandled(singleHandler);
-    }
-
-    const lateHandler = applyRetiredTriggerLegacyLateEffectRegexBatch({
-      ctx,
-      controller,
-      sourceName,
-      desc,
-      description,
-      triggerItem,
-      triggerCard,
-      state,
-      opponents,
-      players,
-      battlefield,
-    });
-    if (lateHandler) {
-      return legacyTailHandled(lateHandler);
     }
   }
 

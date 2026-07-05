@@ -108,7 +108,8 @@ describe('pending-effect prompt persistence (integration)', () => {
     });
     expect(promptEvent.payload?.queuedResolutionStep?.effectId).toBeTruthy();
     expect(promptEvent.payload?.pendingCascadeEntry?.effectId).toBe(promptEvent.payload?.queuedResolutionStep?.effectId);
-    expect((promptEvent.payload?.libraryAfter || []).map((card: any) => card.id)).toEqual([]);
+    expect(promptEvent.payload?.remainingLibraryIds).toEqual([]);
+    expect(promptEvent.payload?.libraryAfter).toBeUndefined();
   });
 
   it('persists Ponder-style prompts when processPendingPonder queues the resolution step', () => {

@@ -964,15 +964,25 @@ function appendOracleStepToEffectProgram(args: {
     || (kind === 'add_mana' && (step as any).requiresChosenMana === true);
   }
 
+function isEachPlayerMayPutCountersOnCreatureTheyControlStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'add_counter') return false;
+  const raw = String(step.raw || '').replace(/\u2019/g, "'").trim();
+  return /each player may put (?:two|\d+) \+1\/\+1 counters? on a creature (?:they|that player) controls?/i.test(raw);
+}
+
 function oracleStepOptionalRequiresChoice(step: OracleEffectStep): boolean {
   if ((step as any).optional !== true) return false;
+
+  if (isEachPlayerMayPutCountersOnCreatureTheyControlStep(step)) return false;
 
   const kind = String((step as any).kind || '');
   return !(
     kind === 'grant_exile_permission' ||
     kind === 'grant_graveyard_permission' ||
     kind === 'grant_graveyard_keyword_ability' ||
-    kind === 'modify_graveyard_permissions'
+    kind === 'modify_graveyard_permissions' ||
+    kind === 'look_choose_from_top' ||
+    kind === 'look_select_top'
   );
 }
 

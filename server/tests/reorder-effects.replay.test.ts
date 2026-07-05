@@ -180,6 +180,12 @@ describe('reorder effect replay semantics', () => {
     addPlayer(game, p1, 'P1');
     initZones(game, p1);
 
+    game.importDeckResolved(p1, [
+      { id: 'c1', name: 'Card 1', zone: 'library' },
+      { id: 'c2', name: 'Card 2', zone: 'library' },
+      { id: 'c3', name: 'Card 3', zone: 'library' },
+    ] as any);
+
     (game.state as any).pendingPonder = {
       [p1]: {
         effectId: 'ponder_1',
@@ -215,9 +221,17 @@ describe('reorder effect replay semantics', () => {
       sourceName: 'Ponder',
       variant: 'ponder',
       shouldShuffle: false,
+      lookedAtCardIds: ['c1', 'c2', 'c3'],
+      lookedAtCards: [
+        { id: 'c1', name: 'Card 1', zone: 'library' },
+        { id: 'c2', name: 'Card 2', zone: 'library' },
+        { id: 'c3', name: 'Card 3', zone: 'library' },
+      ],
+      libraryTopOrder: ['c3'],
       toHandCards: [{ id: 'c2', name: 'Card 2', zone: 'hand' }],
+      toHandCardIds: ['c2'],
       drawnCard: { id: 'c1', name: 'Card 1', zone: 'hand' },
-      libraryAfter: [{ id: 'c3', name: 'Card 3', zone: 'library' }],
+      drawnCardId: 'c1',
     } as any);
 
     expect((game as any).libraries.get(p1)?.map((card: any) => card.id)).toEqual(['c3']);
@@ -274,11 +288,9 @@ describe('reorder effect replay semantics', () => {
       sourceId: 'source_1',
       sourceName: 'Impulse Variant',
       orderedCardIds: ['c2', 'c1'],
-      libraryAfter: [
-        { id: 'base_1', name: 'Base 1', zone: 'library' },
-        { id: 'base_2', name: 'Base 2', zone: 'library' },
-        { id: 'c2', name: 'Card 2', zone: 'library' },
+      bottomCards: [
         { id: 'c1', name: 'Card 1', zone: 'library' },
+        { id: 'c2', name: 'Card 2', zone: 'library' },
       ],
     } as any);
 
@@ -294,6 +306,13 @@ describe('reorder effect replay semantics', () => {
     addPlayer(game, p1, 'P1');
     initZones(game, p1);
 
+    game.importDeckResolved(p1, [
+      { id: 'chosen_card', name: 'Chosen Card', type_line: 'Instant' },
+      { id: 'base_1', name: 'Base 1', type_line: 'Land' },
+      { id: 'rest_1', name: 'Rest 1', type_line: 'Instant' },
+      { id: 'rest_2', name: 'Rest 2', type_line: 'Instant' },
+    ] as any);
+
     game.applyEvent({
       type: 'librarySearchResolve',
       playerId: p1,
@@ -302,7 +321,7 @@ describe('reorder effect replay semantics', () => {
       selectedCardIds: ['chosen_card'],
       selectedCards: [{ id: 'chosen_card', name: 'Chosen Card', type_line: 'Instant' }],
       destination: 'hand',
-      libraryAfter: [{ id: 'base_1', name: 'Base 1', zone: 'library' }],
+      remainingLibraryIds: ['base_1'],
       pendingBottomOrder: {
         effectId: 'impulse_like_source:rest_1:rest_2',
         sourceId: 'impulse_like_source',
@@ -335,6 +354,13 @@ describe('reorder effect replay semantics', () => {
     addPlayer(game, p1, 'P1');
     initZones(game, p1);
 
+    game.importDeckResolved(p1, [
+      { id: 'chosen_card', name: 'Chosen Card', type_line: 'Instant' },
+      { id: 'base_1', name: 'Base 1', type_line: 'Land' },
+      { id: 'rest_1', name: 'Rest 1', type_line: 'Instant' },
+      { id: 'rest_2', name: 'Rest 2', type_line: 'Instant' },
+    ] as any);
+
     game.applyEvent({
       type: 'librarySearchResolve',
       playerId: p1,
@@ -343,7 +369,7 @@ describe('reorder effect replay semantics', () => {
       selectedCardIds: ['chosen_card'],
       selectedCards: [{ id: 'chosen_card', name: 'Chosen Card', type_line: 'Instant' }],
       destination: 'hand',
-      libraryAfter: [{ id: 'base_1', name: 'Base 1', zone: 'library' }],
+      remainingLibraryIds: ['base_1'],
     } as any);
 
     game.applyEvent({

@@ -228,6 +228,12 @@ describe('venture and initiative replay semantics', () => {
 
     addPlayer(game, playerId, 'P1');
 
+    game.importDeckResolved(playerId, [
+      { id: 'runestone_replay_1', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', oracle_text: 'Scry 1. Draw a card.' },
+      { id: 'runestone_replay_2', name: 'Island', type_line: 'Basic Land — Island' },
+      { id: 'runestone_replay_3', name: 'Swamp', type_line: 'Basic Land — Swamp' },
+    ] as any);
+
     game.applyEvent({
       type: 'executeEffect',
       effectType: 'dungeonExileCards',
@@ -247,14 +253,7 @@ describe('venture and initiative replay semantics', () => {
           type_line: 'Basic Land — Island',
         },
       ],
-      libraryAfter: [
-        {
-          id: 'runestone_replay_3',
-          name: 'Swamp',
-          type_line: 'Basic Land — Swamp',
-          zone: 'library',
-        },
-      ],
+      remainingLibraryIds: ['runestone_replay_3'],
     } as any);
 
     expect((((game.state as any).zones?.[playerId]?.exile || []) as any[]).map((card: any) => card.id)).toEqual([
@@ -274,6 +273,13 @@ describe('venture and initiative replay semantics', () => {
 
     addPlayer(game, playerId, 'P1');
 
+    game.importDeckResolved(playerId, [
+      { id: 'mad_wizard_replay_1', name: 'Opt', type_line: 'Instant' },
+      { id: 'mad_wizard_replay_2', name: 'Island', type_line: 'Basic Land — Island' },
+      { id: 'mad_wizard_replay_3', name: 'Negate', type_line: 'Instant' },
+      { id: 'mad_wizard_replay_4', name: 'Plains', type_line: 'Basic Land — Plains' },
+    ] as any);
+
     game.applyEvent({
       type: 'executeEffect',
       effectType: 'dungeonDrawCards',
@@ -283,9 +289,7 @@ describe('venture and initiative replay semantics', () => {
         { id: 'mad_wizard_replay_2', name: 'Island', type_line: 'Basic Land — Island', zone: 'hand' },
         { id: 'mad_wizard_replay_3', name: 'Negate', type_line: 'Instant', zone: 'hand' },
       ],
-      libraryAfter: [
-        { id: 'mad_wizard_replay_4', name: 'Plains', type_line: 'Basic Land — Plains', zone: 'library' },
-      ],
+      remainingLibraryIds: ['mad_wizard_replay_4'],
     } as any);
 
     expect((((game.state as any).zones?.[playerId]?.hand || []) as any[]).map((card: any) => card.id)).toEqual([
@@ -410,6 +414,11 @@ describe('venture and initiative replay semantics', () => {
     addPlayer(game, playerId, 'P1');
     (game.state as any).turnNumber = 7;
 
+    game.importDeckResolved(playerId, [
+      { id: 'throne_replay_1', name: 'Hill Giant', type_line: 'Creature — Giant', power: '3', toughness: '3' },
+      { id: 'throne_replay_2', name: 'Island', type_line: 'Basic Land — Island' },
+    ] as any);
+
     game.applyEvent({
       type: 'resolveTopOfStackPrompt',
       playerId,
@@ -451,9 +460,7 @@ describe('venture and initiative replay semantics', () => {
       selectedCard: { id: 'throne_replay_1', name: 'Hill Giant', type_line: 'Creature — Giant', power: '3', toughness: '3' },
       createdPermanentId: 'throne_perm_replay_1',
       turnApplied: 7,
-      libraryAfter: [
-        { id: 'throne_replay_2', name: 'Island', type_line: 'Basic Land — Island', zone: 'library' },
-      ],
+      remainingLibraryIds: ['throne_replay_2'],
     } as any);
 
     expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(0);
