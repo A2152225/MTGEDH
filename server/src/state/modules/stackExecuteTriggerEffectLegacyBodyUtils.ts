@@ -2,10 +2,6 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import {
-  applyRetiredTriggerLegacyRevealUntilEquipment,
-  applyRetiredTriggerLegacyGenericSearchLibrary,
-} from './oracleIrTriggerLegacySearchHandlers.js';
-import {
   applyRetiredTriggerLegacyGameStateOracleHooks,
 } from './oracleIrTriggerLegacyGameStateHooks.js';
 import {
@@ -21,10 +17,6 @@ import {
   applyRetiredTriggerLegacyDiscardTriggeredCastFromGraveyard,
   applyRetiredTriggerLegacyTargetedPlayFromGraveyard,
 } from './oracleIrTriggerLegacyGraveyardHandlers.js';
-import {
-  applyRetiredTriggerLegacyChosenTypeTopCardReveal,
-  applyRetiredTriggerLegacyRevealTopCreatureOfChosenType,
-} from './oracleIrTriggerLegacyLibraryHandlers.js';
 import { legacyBodyHandled } from './oracleIrTriggerLegacyHandlerTelemetry.js';
 import { shouldSkipLegacyTriggerBodyHandlers } from './oracleIrTriggerLegacyRouting.js';
 
@@ -140,28 +132,6 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
   const opponents = players.filter((p: any) => p.id !== controller && !p.hasLost);
   const battlefield = state.battlefield || [];
 
-  if (applyRetiredTriggerLegacyChosenTypeTopCardReveal({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyChosenTypeTopCardReveal');
-  }
-
-  if (applyRetiredTriggerLegacyRevealTopCreatureOfChosenType({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyRevealTopCreatureOfChosenType');
-  }
-
   if (applyRetiredTriggerLegacyUpkeepSacrificeCreatureOrSelf({
     ctx,
     controller,
@@ -175,27 +145,6 @@ export function tryApplyTriggerEffectLegacyBodyHandlers(
 
   const triggerType = (triggerItem as any).triggerType;
   debug(2, `[executeTriggerEffect] triggerType=${triggerType}, sourceName=${sourceName}`);
-
-  if (applyRetiredTriggerLegacyGenericSearchLibrary({    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyGenericSearchLibrary');
-  }
-
-  if (applyRetiredTriggerLegacyRevealUntilEquipment({
-    ctx,
-    controller,
-    sourceName,
-    desc,
-    triggerItem,
-    state,
-  })) {
-    return legacyBodyHandled('applyRetiredTriggerLegacyRevealUntilEquipment');
-  }
 
   return {
     handled: false,

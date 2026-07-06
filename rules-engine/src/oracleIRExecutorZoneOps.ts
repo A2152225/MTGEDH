@@ -659,6 +659,10 @@ export function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSin
     return { cardType: 'any', usesChosenCreatureType: true, ...sharedCriteriaExtras };
   }
 
+  if (/^creature card of the chosen type$/i.test(normalizedTypeText)) {
+    return { cardType: 'creature', usesChosenCreatureType: true, ...sharedCriteriaExtras };
+  }
+
   if (/^card that has an adventure$/i.test(normalizedTypeText)) {
     return { cardType: 'any', requiresAdventure: true, ...sharedCriteriaExtras };
   }

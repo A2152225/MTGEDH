@@ -15,11 +15,13 @@ export function buildStackOracleIRContext(
     chosenObjectIds?: readonly string[];
     referenceAmount?: number;
     lastAntecedentBattlefieldPermanentIds?: readonly string[];
+    chosenCreatureType?: string;
   },
 ): OracleIRExecutionContext {
   const antecedentIds = Array.isArray(options?.lastAntecedentBattlefieldPermanentIds)
     ? options.lastAntecedentBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean)
     : [];
+  const chosenCreatureType = String(options?.chosenCreatureType || '').trim();
   return {
     controllerId: caster,
     sourceId: options?.sourceId,
@@ -29,12 +31,14 @@ export function buildStackOracleIRContext(
       ? { referenceAmount: Math.max(0, Math.floor(options.referenceAmount)) }
       : {}),
     ...(antecedentIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: antecedentIds } : {}),
+    ...(chosenCreatureType ? { chosenCreatureType } : {}),
     selectorContext: {
       ...(options?.targetPlayerId ? { targetPlayerId: options.targetPlayerId } : {}),
       ...(options?.targetOpponentId ? { targetOpponentId: options.targetOpponentId } : {}),
       ...(options?.targetPermanentId ? { targetPermanentId: options.targetPermanentId } : {}),
       ...(options?.chosenObjectIds?.length ? { chosenObjectIds: options.chosenObjectIds } : {}),
       ...(antecedentIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: antecedentIds } : {}),
+      ...(chosenCreatureType ? { chosenCreatureType } : {}),
     },
   };
 }

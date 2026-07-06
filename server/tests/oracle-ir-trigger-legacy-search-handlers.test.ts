@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseTriggerEffectSteps } from '../src/state/modules/trigger-runtime-wiring.js';
+import { isTriggerEffectFullyIrWired } from '../src/state/modules/oracleIrTriggerLegacyRouting.js';
+import { collectOracleEffectSteps, parseTriggerEffectSteps } from '../src/state/modules/trigger-runtime-wiring.js';
 
 describe('oracle IR trigger legacy search handlers', () => {
   it('parses Protean Hulk search as any_number search_library with total MV cap', () => {
@@ -16,5 +17,59 @@ describe('oracle IR trigger legacy search handlers', () => {
       criteria: { kind: 'raw', text: 'creature with total mana value 6 or less' },
     });
     expect(steps[1]?.kind).toBe('shuffle_library');
+  });
+
+  it('parses optional basic-land tutor triggers as wired search_library IR', () => {
+    const effect =
+      'you may search your library for a basic land card, put that card onto the battlefield tapped, then shuffle';
+    expect(isTriggerEffectFullyIrWired(effect, 'Solemn Simulacrum')).toBe(true);
+    const steps = collectOracleEffectSteps(effect, 'Solemn Simulacrum');
+    expect(steps[0]).toMatchObject({
+      kind: 'search_library',
+      destination: 'battlefield',
+      optional: true,
+      entersTapped: true,
+      criteria: { kind: 'raw', text: 'basic land' },
+    });
+    expect(steps[1]?.kind).toBe('shuffle_library');
+  });
+
+  it('parses reveal-until-equipment exert triggers as wired look_choose_from_top IR', () => {
+    const effect =
+      'reveal cards from the top of your library until you reveal an Equipment card. Put that card onto the battlefield attached to that creature, then put the rest on the bottom of your library in a random order.';
+    expect(isTriggerEffectFullyIrWired(effect, 'Rohirrim Chargers')).toBe(true);
+    const steps = collectOracleEffectSteps(effect, 'Rohirrim Chargers');
+    expect(steps[0]).toMatchObject({
+      kind: 'look_choose_from_top',
+      selectorText: 'Equipment',
+      destination: 'battlefield',
+      reveal: true,
+      amount: { kind: 'reference_amount', raw: 'until you reveal an Equipment card' },
+    });
+  });
+
+  it('parses Herald\'s Horn upkeep and Bloodline Shaman reveal-top as wired look_choose_from_top IR', () => {
+    const hornEffect =
+      "At the beginning of your upkeep, look at the top card of your library. You may reveal that card if it's a creature card of the chosen type. If you do, put it into your hand.";
+    expect(isTriggerEffectFullyIrWired(hornEffect, "Herald's Horn")).toBe(true);
+    expect(collectOracleEffectSteps(hornEffect, "Herald's Horn")[0]).toMatchObject({
+      kind: 'look_choose_from_top',
+      selectorText: 'creature card of the chosen type',
+      destination: 'hand',
+      optional: true,
+      nonMatchRest: 'library_top',
+    });
+
+    const shamanEffect =
+      'Reveal the top card of your library. If that card is a creature card of the chosen type, put it into your hand. Otherwise, put it into your graveyard.';
+    expect(isTriggerEffectFullyIrWired(shamanEffect, 'Bloodline Shaman')).toBe(true);
+    expect(collectOracleEffectSteps(shamanEffect, 'Bloodline Shaman')[0]).toMatchObject({
+      kind: 'look_choose_from_top',
+      selectorText: 'creature card of the chosen type',
+      destination: 'hand',
+      optional: false,
+      nonMatchRest: 'graveyard',
+      reveal: true,
+    });
   });
 });

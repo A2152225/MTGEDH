@@ -14,7 +14,13 @@ describe('generic stack resolution regressions', () => {
     ResolutionQueueManager.removeQueue(gameId);
   });
 
-  it('filters mana value 6 or greater library searches for Fierce Empath style triggers', () => {
+  describe('library search via oracle IR', () => {
+    beforeEach(() => {
+      process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+      delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+    });
+
+    it('filters mana value 6 or greater library searches for Fierce Empath style triggers', () => {
     const ctx: any = {
       gameId,
       state: {
@@ -43,6 +49,13 @@ describe('generic stack resolution regressions', () => {
             oracle_text: '',
             cmc: 8,
           },
+          {
+            id: 'medium_creature',
+            name: 'Colossal Dreadmaw',
+            type_line: 'Creature — Dinosaur',
+            oracle_text: '',
+            cmc: 6,
+          },
         ]],
       ]),
     };
@@ -58,8 +71,8 @@ describe('generic stack resolution regressions', () => {
     const step = ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find((entry: any) => entry?.sourceName === 'Fierce Empath') as any;
     expect(step).toBeDefined();
     expect(step.destination).toBe('hand');
-    expect(step.availableCards).toHaveLength(1);
-    expect(step.availableCards[0]?.id).toBe('big_creature');
+    expect(step.availableCards).toHaveLength(2);
+    expect(step.availableCards.map((card: any) => card.id).sort()).toEqual(['big_creature', 'medium_creature']);
   });
 
   it('filters optional Fierce Empath ETB searches with you may prefix', () => {
@@ -91,6 +104,13 @@ describe('generic stack resolution regressions', () => {
             oracle_text: '',
             cmc: 8,
           },
+          {
+            id: 'medium_creature',
+            name: 'Colossal Dreadmaw',
+            type_line: 'Creature — Dinosaur',
+            oracle_text: '',
+            cmc: 6,
+          },
         ]],
       ]),
     };
@@ -108,8 +128,9 @@ describe('generic stack resolution regressions', () => {
     expect(step.destination).toBe('hand');
     expect(step.mandatory).toBe(false);
     expect(step.filter).toEqual(expect.objectContaining({ minCmc: 6, types: ['creature'] }));
-    expect(step.availableCards).toHaveLength(1);
-    expect(step.availableCards[0]?.id).toBe('big_creature');
+    expect(step.availableCards).toHaveLength(2);
+    expect(step.availableCards.map((card: any) => card.id).sort()).toEqual(['big_creature', 'medium_creature']);
+  });
   });
 
   it('untaps only the controller lands for Bear Umbra style attack triggers', () => {

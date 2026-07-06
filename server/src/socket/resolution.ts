@@ -24386,7 +24386,10 @@ function oracleIrLibrarySearchResumeApplied(resumed: unknown): boolean {
   return appliedSteps.some((step) => {
     const kind = String((step as { kind?: string })?.kind || '');
     // Among-them reveal/player_choice steps queue as LIBRARY_SEARCH but resume as player_choice.
-    return kind === 'search_library' || kind === 'player_choice';
+    return kind === 'search_library'
+      || kind === 'player_choice'
+      || kind === 'look_choose_from_top'
+      || kind === 'look_select_top';
   });
 }
 
@@ -24589,6 +24592,50 @@ async function handleLibrarySearchResponse(
           });
         } catch {
           // Ignore persistence failures.
+        }
+      }
+
+      if (destination === 'battlefield' && attachSelectedEquipmentToPermanentId) {
+        const selectedIds = Array.isArray(selections) ? selections : [];
+        const battlefieldRef = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+        const equipment = battlefieldRef.find((permanent: any) =>
+          selectedIds.includes(String(permanent?.card?.id || '').trim())
+          && String(permanent?.card?.type_line || '').toLowerCase().includes('equipment'),
+        );
+        const targetPermanent = battlefieldRef.find(
+          (permanent: any) => permanent?.id === attachSelectedEquipmentToPermanentId,
+        );
+        if (equipment && targetPermanent) {
+          const equipmentId = String((equipment as any).id || '').trim();
+          for (const permanent of battlefieldRef) {
+            const attachedEquipment = Array.isArray((permanent as any)?.attachedEquipment)
+              ? (permanent as any).attachedEquipment
+              : null;
+            if (!attachedEquipment) continue;
+            (permanent as any).attachedEquipment = attachedEquipment.filter(
+              (id: any) => String(id) !== equipmentId,
+            );
+            if ((permanent as any).attachedEquipment.length === 0) {
+              (permanent as any).isEquipped = false;
+            }
+          }
+          (equipment as any).attachedTo = attachSelectedEquipmentToPermanentId;
+          targetPermanent.attachedEquipment = Array.isArray(targetPermanent.attachedEquipment)
+            ? targetPermanent.attachedEquipment
+            : [];
+          if (!targetPermanent.attachedEquipment.some((id: any) => String(id) === equipmentId)) {
+            targetPermanent.attachedEquipment.push(equipmentId);
+          }
+          targetPermanent.isEquipped = true;
+          try {
+            await appendEvent(gameId, game.seq ?? 0, 'equipPermanent', {
+              playerId: String(pid),
+              equipmentId,
+              targetCreatureId: attachSelectedEquipmentToPermanentId,
+            });
+          } catch (err) {
+            debugWarn(1, '[Resolution] Failed to persist equipPermanent event for post-search Equipment attachment:', err);
+          }
         }
       }
 
@@ -25035,6 +25082,16 @@ async function handleLibrarySearchResponse(
   
   // Update library count
   z.libraryCount = lib.length;
+  if ((game as any).libraries?.set) {
+    (game as any).libraries.set(searchOwnerId, lib);
+  }
+  z.library = lib;
+  const libraryOwnerPlayer = ((game.state as any).players || []).find(
+    (entry: any) => String(entry?.id || '').trim() === searchOwnerId,
+  );
+  if (libraryOwnerPlayer) {
+    (libraryOwnerPlayer as any).library = lib;
+  }
 
   if ((searchStep as any).persistLibrarySearchResolve === true) {
     try {

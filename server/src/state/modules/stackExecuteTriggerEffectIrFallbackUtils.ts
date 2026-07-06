@@ -130,6 +130,17 @@ export function applyOracleIRFallbackForTriggeredEffect(
   const interveningSubjectPermanentId = String(
     triggerItem?.interveningIfSubjectPermanentId || '',
   ).trim();
+  const sourcePermanent = sourcePermanentId
+    ? ((ctx as any).state?.battlefield || []).find(
+      (permanent: any) => String(permanent?.id || '').trim() === sourcePermanentId,
+    )
+    : undefined;
+  const chosenCreatureType = String(
+    triggerItem?.chosenCreatureType
+    || triggerItem?.card?.chosenCreatureType
+    || sourcePermanent?.chosenCreatureType
+    || '',
+  ).trim();
   const chosenObjectIds = Array.from(new Set([
     ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...normalizedTargetIds,
@@ -161,6 +172,7 @@ export function applyOracleIRFallbackForTriggeredEffect(
       : interveningSubjectPermanentId
         ? { lastAntecedentBattlefieldPermanentIds: [interveningSubjectPermanentId] }
         : {}),
+    ...(chosenCreatureType ? { chosenCreatureType } : {}),
   });
 
   const applied = applyOracleIRTriggerUncategorizedFallback(

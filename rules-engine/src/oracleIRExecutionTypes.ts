@@ -314,6 +314,11 @@ export interface OracleIRExecutionContext {
    */
   readonly interactivePlayerChoices?: boolean;
   /**
+   * When true, optional look_choose_from_top steps queue LIBRARY_SEARCH instead of auto-applying.
+   * Set when the server has a live socket (io) and can prompt; unit tests leave this false.
+   */
+  readonly deferOptionalLookChoices?: boolean;
+  /**
    * When true, stack-target `copy_spell` steps defer to the server bridge instead of
    * inline replay (push copied spells onto the stack + optional retarget prompts).
    */

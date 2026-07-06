@@ -624,7 +624,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(handlersSource.includes('applyRetiredTriggerLegacyLootStyleTopLibrary')).toBe(false);
     expect(handlersSource.includes('applyRetiredTriggerLegacyEachPlayerCounterPlacement')).toBe(false);
     expect(searchHandlersSource.includes('applyRetiredTriggerLegacyProteanHulkSearch')).toBe(false);
-    expect(searchHandlersSource.includes('applyRetiredTriggerLegacyGenericSearchLibrary')).toBe(true);
+    expect(searchHandlersSource.includes('applyRetiredTriggerLegacyGenericSearchLibrary')).toBe(false);
     expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyKynaiosLandDrawChoice')).toBe(false);
     expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyBelbePortalPutFromHand')).toBe(false);
     expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyPutCreatureFromHandOntoBattlefield')).toBe(false);
@@ -640,7 +640,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyCreateXTokensByControlledTypeCount')).toBe(false);
     expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyOptionalDiscardThenDraw')).toBe(false);
     expect(combinedHandlersSource.includes('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit')).toBe(false);
-    expect(searchHandlersSource.includes('applyRetiredTriggerLegacyRevealUntilEquipment')).toBe(true);
+    expect(searchHandlersSource.includes('applyRetiredTriggerLegacyRevealUntilEquipment')).toBe(false);
     expect(resolutionHandlersSource.includes('applyRetiredTriggerLegacyJoinForcesAttack')).toBe(false);
     expect(cardSpecificHandlersSource.includes('applyRetiredTriggerLegacyAgentOfShadowThievesAttack')).toBe(false);
     expect(tokenHandlersSource.includes('applyRetiredTriggerLegacyTypedCountTokenFallbacks')).toBe(false);
@@ -661,7 +661,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(graveyardHandlersSource.includes('applyRetiredTriggerLegacyDiscardTriggeredCastFromGraveyard')).toBe(true);
     expect(graveyardHandlersSource.includes('applyRetiredTriggerLegacyBoundGraveyardReturnEffect')).toBe(true);
     expect(delayedCleanupHandlersSource.includes('applyRetiredTriggerLegacyDelayedCleanupTriggers')).toBe(true);
-    expect(libraryHandlersSource.includes('applyRetiredTriggerLegacyChosenTypeTopCardReveal')).toBe(true);
+    expect(libraryHandlersSource.includes('applyRetiredTriggerLegacyChosenTypeTopCardReveal')).toBe(false);
     expect(cardSpecificHandlersSource.includes('applyRetiredTriggerLegacyEachMerfolkExplores')).toBe(false);
     expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyPutLandFromHand')).toBe(false);
     expect(combinedHandlersSource.includes('applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife')).toBe(false);
@@ -690,7 +690,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyCounterThenDraw')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyOptionalDiscardThenDraw')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacySacrificeAnotherPermanentForBenefit')).toBe(false);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyRevealUntilEquipment')).toBe(true);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyRevealUntilEquipment')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyJoinForcesAttack')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyAgentOfShadowThievesAttack')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyDelayedDrawAtNextUpkeep')).toBe(false);
@@ -706,7 +706,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyBoundGraveyardReturnEffect')).toBe(true);
     expect(stackExecuteTriggerEffectUtilsSource.includes('applyRetiredTriggerLegacyDelayedCleanupTriggers')).toBe(false);
     expect(stackExecuteTriggerEffectPrefaceUtilsSource.includes('applyRetiredTriggerLegacyDelayedCleanupTriggers')).toBe(true);
-    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyChosenTypeTopCardReveal')).toBe(true);
+    expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyChosenTypeTopCardReveal')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyEachMerfolkExplores')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyThatPlayerSacrificesAndLosesLife')).toBe(false);
     expect(stackExecuteTriggerEffectLegacyBodyUtilsSource.includes('applyRetiredTriggerLegacyHandSizeLifeGain')).toBe(false);
@@ -735,7 +735,7 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSpecialTriggerHandlersSource.includes("from './triggerCastFromExileUtils.js'")).toBe(true);
     expect(combinedHandlersSource.includes("from './resolutionPromptEvents.js'")).toBe(false);
     expect(graveyardHandlersSource.includes("from './resolutionPromptEvents.js'")).toBe(true);
-    expect(searchHandlersSource.includes("from './resolutionPromptEvents.js'")).toBe(true);
+    expect(searchHandlersSource.includes("from './resolutionPromptEvents.js'")).toBe(false);
     expect(stackSource.includes("from './triggerReanimationRiders.js'")).toBe(true);
     expect(combinedHandlersSource.includes("from './triggerLandPlayPromptUtils.js'")).toBe(false);
     expect(keywordHandlersSource.includes("from './triggerKeywordChoiceUtils.js'")).toBe(true);
@@ -763,8 +763,8 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(singleEffectRegexBatchSource.includes('readonly enqueueLibrarySearch')).toBe(false);
     expect(triggerLibraryMillUtilsSource.includes('export function millCardsFromLibrary')).toBe(true);
     expect(triggerLibrarySearchUtilsSource.includes('export function enqueueLibrarySearchStep')).toBe(true);
-    expect(libraryHandlersSource.includes("from './triggerLibraryMillUtils.js'")).toBe(true);
-    expect(libraryHandlersSource.includes("from '../../socket/may-ability-prompts.js'")).toBe(true);
+    expect(libraryHandlersSource.includes("from './triggerLibraryMillUtils.js'")).toBe(false);
+    expect(libraryHandlersSource.includes("from '../../socket/may-ability-prompts.js'")).toBe(false);
     expect(searchHandlersSource.includes("from './triggerLibrarySearchUtils.js'")).toBe(true);
     expect(combinedHandlersSource.includes("from './triggers/life-loss.js'")).toBe(false);
     expect(stackSpecialTriggerHandlersSource.includes("from '../../socket/may-ability-prompts.js'")).toBe(true);
@@ -950,7 +950,6 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('applySpellLegacyRemovalRiders')).toBe(true);
     expect(stackSource.includes("from './stackLandCountUtils.js'") || stackSource.includes('from "./stackLandCountUtils.js"')).toBe(true);
     expect(stackLandCountUtilsSource.includes('export function checkOpponentHasMoreLands')).toBe(true);
-    expect(searchHandlersSource.includes("from './stackLandCountUtils.js'") || searchHandlersSource.includes('from "./stackLandCountUtils.js"')).toBe(true);
     expect(stackTargetLegalityUtilsSource.includes('export function shouldFizzleStackSpellForMissingTargets')).toBe(true);
     expect(stackTargetLegalityUtilsSource.includes('export function moveFizzledStackSpellCard')).toBe(true);
     expect(stackSource.includes('function shouldFizzleStackSpellForMissingTargets')).toBe(false);

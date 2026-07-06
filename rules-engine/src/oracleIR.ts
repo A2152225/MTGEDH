@@ -753,6 +753,10 @@ export type OracleEffectStep =
       readonly destination: 'hand' | 'exile' | 'battlefield';
       readonly reveal?: boolean;
       readonly restOrder?: 'any';
+      /** Where unselected / non-matching looked cards go (default: library bottom). */
+      readonly nonMatchRest?: 'library_top' | 'graveyard' | 'library_bottom';
+      /** Optional graveyard when an optional hand selection is declined (Gathering Stone). */
+      readonly declinedRest?: 'graveyard';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

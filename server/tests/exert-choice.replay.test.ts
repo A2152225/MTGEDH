@@ -677,6 +677,8 @@ describe('exertChoice replay coverage', () => {
   });
 
   it('replays reveal-until-equipment whenever-you-exert watcher triggers like Rohirrim Chargers and attaches the found Equipment to the exerted creature', async () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
     const gameId = createGameId();
     trackedGameIds.add(gameId);
     const attackerId = 'p1' as PlayerID;
@@ -786,6 +788,7 @@ describe('exertChoice replay coverage', () => {
     expect(chargers?.isEquipped).toBe(true);
     expect((attackerZones.library || []).map((card: any) => card.id).sort()).toEqual(['miss_after', 'miss_before']);
     expect(attackerZones.libraryCount).toBe(2);
+    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
   });
 
   it('replays targeted exert triggers with persisted targets', () => {

@@ -2,11 +2,11 @@
 
 **Purpose:** Track post–Track D executor/Layer 3 work and document the path to **seamless automation for cards not yet in the corpus** (new sets, custom cards, novel phrasing).
 
-**Last updated:** 2026-07-03 (E9 batch 469 — telemetry soak IR gap fixes; batch 468 D3/D6; migration **811/811**)
+**Last updated:** 2026-07-05 (E9 batch 531 — D3 ratchet **14**; migration **811/811**; telemetry **0**)
 
 **Read first:** [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) · [oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md) · `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` · `.cursor/rules/oracle-ir-compiled-overlay.mdc`
 
----
+**Next session:** Copy the prompt at the top of [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) (batch 532 — body/preface legacy handlers).
 
 ## Goal: Semantic atomic parsing + seamless effect automation (new cards)
 
@@ -120,7 +120,7 @@ These are the **main engineering tasks** still open for the *overall* new-card e
 |----|-----|---------------------|----------------|
 | **D1** | ✅ **Done (batch 466)** — delta CI: `npm run oracle-ir:delta` | Regressions on new cards caught automatically | `scripts/oracle-delta-coverage-audit.ts` — hash baseline diff → executor dry-run + trigger detection on delta only → `overlayWorkQueue` → non-zero exit on gaps. Baseline: `scripts/oracle-delta-baseline.json` (committed); `--update-baseline` to accept |
 | **D2** | ✅ **Done (batch 466)** — production gap telemetry | Live misses visible without player reports | `oracleIrGapTelemetry.ts`: `all_or_nothing_failure` (from `logOracleIrAllOrNothingFailure`), `owned_but_unhandled` (trigger tail + spell categorize gates), `legacy_handled` (retirement triage). Snapshot: `GET /api/oracle-ir/telemetry`; deduped console warns independent of `DEBUG_STATE` |
-| **D3** | **Phase 4 legacy shims** (71 `applyRetiredTriggerLegacy*` exports, ratchet **71**) | Rare double-apply or silent skip if routing wrong | **In progress:** batches 478–479 deleted combat-evasion + PT modification handlers (IR-owned) |
+| **D3** | **Phase 4 legacy shims** (**14** `applyRetiredTriggerLegacy*` exports, ratchet **14**) | Rare double-apply or silent skip if routing wrong | **In progress:** batches 507–531 cleared search/resolution/Kynaios/land-play handlers; **14** body/preface exports remain (library reveal, graveyard, sacrifice, preface hooks) |
 | **D4** | **Unwired step kinds** | Overlay must set `fallback_to_bespoke` | Extend executor + server queue; document in OracleIRCompiler “allowed kinds” |
 | **D5** | **Trigger timing not in detector tables** | Card parses but never fires | Extend `detect*Triggers` + trigger coverage for new `when/whenever/at` templates; delta audit flags these as `trigger_not_detected` |
 | **D6** | **Client UI for novel choice types** | Server queues step client cannot render | **Partial (batch 468):** `resolutionChoicePrimitives.ts` — `number_choice` → X modal; `options[]` → generic option fallback. Extend generic primitives for future shapes; avoid per-step modals |
@@ -134,7 +134,7 @@ These are the **main engineering tasks** still open for the *overall* new-card e
 |------|-------|--------|
 | **Layers 1–2** | Parse + execute corpus | ✅ Complete |
 | **Layer 3 E6–E8** | Live IR + sockets + EP | ✅ Beta-ready |
-| **E9+** | Legacy cleanup + soak | **In progress** (batches 467–472); post-471 migration soak **0** telemetry events |
+| **E9+** | Legacy cleanup + soak | **In progress** (batches 507–531); post-531 migration soak **811/811**, telemetry **0** |
 | **Phase 4** | Delete duplicate shims | In progress |
 | **Phase 5** | PW / supplemental / special stack | Not started |
 
@@ -679,13 +679,25 @@ Continue Oracle IR Layer 3 post-beta from docs/oracle-ir-track-e-remaining-work.
 ```
 </details>
 
-### Track E9+ — incremental legacy + live soak (optional)
+### Track E9+ — incremental legacy + live soak
+
+**Current (2026-07-05):** `TRIGGER_LEGACY_EXPORT_CEILING = 14`. Search and resolution legacy modules are stubs; next work is **body/preface handlers** (graveyard, library reveal, sacrifice, game-state hooks). Full batch log: [oracle-ir-session-handoff.md § E9 batches 507–531](./oracle-ir-session-handoff.md#e9-batches-507531-summary).
+
+```
+Track E9 / D3 legacy handler retirement — continue from batch 531.
+Copy full prompt from docs/oracle-ir-session-handoff.md (top of file).
+```
+
+<details>
+<summary>Archived generic prompt (pre-batch 531)</summary>
 
 ```
 Pick ONE remaining legacy handler family when a live-play gap is reported.
 Use oracle-ir:overlay:probe for novel/custom cards before parser batches.
 cd server && npm run test:oracle-ir-migration -- --pool=threads --maxWorkers=1
 ```
+
+</details>
 
 **Prior next table (superseded):**
 

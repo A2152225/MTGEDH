@@ -633,6 +633,46 @@ function parseLookTopPutOneOnTopRestBottomPair(
   };
 }
 
+function parseRevealUntilChooseFromTopPair(
+  current: OracleEffectStep,
+  next: OracleEffectStep | undefined,
+): OracleEffectStep | null {
+  if (current.kind !== 'reveal_top') return null;
+  if (next?.kind !== 'move_zone') return null;
+  if (next.what.kind !== 'raw') return null;
+  if (String(next.what.text || '').trim().toLowerCase() !== 'that card') return null;
+  if (next.to !== 'battlefield' && next.to !== 'hand' && next.to !== 'exile') return null;
+
+  const amount = (current as { amount?: ReturnType<typeof parseQuantity> }).amount;
+  if (!amount || amount.kind !== 'reference_amount') return null;
+  const amountRaw = String(amount.raw || '').trim();
+  if (!/^until you reveal an? /i.test(amountRaw)) return null;
+
+  const selectorText = String(amountRaw.replace(/^until you reveal an? /i, '').trim())
+    .replace(/\s+card$/i, '')
+    .trim();
+  if (!selectorText) return null;
+
+  const normalizedMoveRaw = normalizeOracleText(String(next.raw || '')).replace(/[.]+$/g, '').trim();
+  const restOrder = /put the rest on the bottom of your library in any order/i.test(normalizedMoveRaw)
+    ? 'any' as const
+    : undefined;
+  const normalizedReveal = normalizeOracleText(String(current.raw || '')).replace(/[.]+$/g, '').trim();
+
+  return {
+    kind: 'look_choose_from_top',
+    who: (current as { who?: { kind: 'you' } }).who ?? { kind: 'you' },
+    amount,
+    selectorText,
+    destination: next.to === 'hand' ? 'hand' : next.to === 'exile' ? 'exile' : 'battlefield',
+    reveal: true,
+    ...(restOrder ? { restOrder } : {}),
+    optional: Boolean((next as { optional?: boolean }).optional),
+    ...(current.sequence ? { sequence: current.sequence } : {}),
+    raw: `${normalizedReveal}. ${normalizedMoveRaw}`.trim(),
+  };
+}
+
 function parseLookChooseFromTopPair(
   current: OracleEffectStep,
   next: OracleEffectStep | undefined
@@ -813,6 +853,81 @@ export function pruneRedundantSurveilReminderSteps(
   });
 }
 
+function parseChosenTypeTopLookChooseFromTopSequence(
+  current: OracleEffectStep,
+  next: OracleEffectStep | undefined,
+  after: OracleEffectStep | undefined,
+  fourth: OracleEffectStep | undefined,
+): { step: OracleEffectStep; consumed: number } | null {
+  const normalizeStepText = (step: OracleEffectStep | undefined): string =>
+    normalizeOracleText(String(step?.raw || '')).replace(/[.]+$/g, '').trim().toLowerCase();
+
+  if (current.kind === 'reveal_top') {
+    const amount = (current as { amount?: ReturnType<typeof parseQuantity> }).amount;
+    if (amount?.kind !== 'number' || amount.value !== 1) return null;
+    if (after?.kind !== 'move_zone' || (after as { to?: string }).to !== 'graveyard') return null;
+    if (next?.kind !== 'conditional') return null;
+
+    const conditionRaw = normalizeStepText({ raw: String((next.condition as { raw?: string } | undefined)?.raw || '') } as OracleEffectStep);
+    if (!conditionRaw.includes('chosen type')) return null;
+
+    const creatureOnly = conditionRaw.includes('creature');
+    const raws = [current, next, after].map((step) => String(step.raw || '').trim()).filter(Boolean);
+    return {
+      consumed: 3,
+      step: {
+        kind: 'look_choose_from_top',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        selectorText: creatureOnly ? 'creature card of the chosen type' : 'card of the chosen type',
+        destination: 'hand',
+        reveal: true,
+        optional: false,
+        nonMatchRest: 'graveyard',
+        raw: raws.join('. '),
+      },
+    };
+  }
+
+  if (current.kind !== 'look_top') return null;
+  const amount = (current as { amount?: ReturnType<typeof parseQuantity> }).amount;
+  if (amount?.kind !== 'number' || amount.value !== 1) return null;
+
+  const tailSteps = [next, after, fourth].filter(Boolean) as OracleEffectStep[];
+  const tailRaw = tailSteps.map(normalizeStepText).join(' ');
+  if (!tailRaw.includes('chosen type') || !tailRaw.includes('hand')) return null;
+
+  const creatureOnly =
+    tailRaw.includes('creature card of the chosen type')
+    || tailRaw.includes("it's a creature card of the chosen type")
+    || tailRaw.includes('creature cards of the chosen type');
+  const hasGraveyardFallback =
+    tailRaw.includes('put it into your graveyard')
+    && tailRaw.includes("if you don't put the card into your hand");
+  const optional =
+    tailRaw.includes('you may reveal that card if')
+    || tailRaw.includes('you may reveal it')
+    || (tailRaw.includes('you may') && tailRaw.includes('put it into your hand'));
+
+  const consumed = hasGraveyardFallback ? 3 : (tailSteps.length >= 2 ? 3 : 2);
+  const raws = [current, ...tailSteps.slice(0, consumed - 1)].map((step) => String(step.raw || '').trim()).filter(Boolean);
+  return {
+    consumed,
+    step: {
+      kind: 'look_choose_from_top',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      selectorText: creatureOnly ? 'creature card of the chosen type' : 'card of the chosen type',
+      destination: 'hand',
+      reveal: true,
+      optional: optional || hasGraveyardFallback,
+      nonMatchRest: 'library_top',
+      ...(hasGraveyardFallback ? { declinedRest: 'graveyard' as const } : {}),
+      raw: raws.join('. '),
+    },
+  };
+}
+
 export function mergeLookChooseFromTopAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -823,6 +938,14 @@ export function mergeLookChooseFromTopAbilities(
       const current = ability.steps[i];
       const next = ability.steps[i + 1];
       const after = ability.steps[i + 2];
+      const fourth = ability.steps[i + 3];
+
+      const chosenTypeTopReveal = parseChosenTypeTopLookChooseFromTopSequence(current, next, after, fourth);
+      if (chosenTypeTopReveal) {
+        merged.push(chosenTypeTopReveal.step);
+        i += chosenTypeTopReveal.consumed - 1;
+        continue;
+      }
 
       const libraryReorder = parseLookTopPutOneOnTopRestBottomPair(current, next);
       if (libraryReorder) {
@@ -842,6 +965,13 @@ export function mergeLookChooseFromTopAbilities(
       if (lootBattlefield) {
         merged.push(lootBattlefield);
         i += 2;
+        continue;
+      }
+
+      const revealUntilChoose = parseRevealUntilChooseFromTopPair(current, next);
+      if (revealUntilChoose) {
+        merged.push(revealUntilChoose);
+        i += 1;
         continue;
       }
 

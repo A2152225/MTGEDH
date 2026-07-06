@@ -192,6 +192,7 @@ export function wouldOracleIRFallbackPrefilterMatch(effectText: string): boolean
     lower.includes('additional combat') ||
     lower.includes('extra combat') ||
     lower.includes('search your library') ||
+    (lower.includes('top') && lower.includes('library')) ||
     (lower.includes('cost') && (lower.includes('less') || lower.includes('more')))
   );
 }

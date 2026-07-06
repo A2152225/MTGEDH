@@ -1,47 +1,88 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-07-04 (E9 batch 508 — **replay/undo source-event migration complete**; migration soak pending)
+Last updated: 2026-07-05 (E9 batch 531 — **search/resolution legacy handlers cleared**; **14** exports remain; Hakbal verified)
 
 ## Next session prompt (copy-paste)
 
 ```
-Track E9 / D3 legacy handler retirement — continue from batch 508 (replay complete).
-
-Replay/undo (DONE — do not re-open unless a new divergence test fails):
-- Source events: drawCards (+ drawnCardIds), shuffleLibrary (+ shuffledLibraryIds), moveResolvedInstantOrSorcery, remainingLibraryIds on library search, legacy libraryAfter backward compat only
-- Guardrail: tests/helpers/replayDivergence.ts + replay-divergence.guardrail + deferred-finalize + cultivate/kodama/scry Opt adoption
-- Key files: effectProgramReplayMutationPersistence.ts, stackResolveSpellZoneUtils.ts, applyEvent.ts, resolution.ts (library search persist timing)
+Track E9 / D3 legacy handler retirement — continue from batch 531.
 
 Current metrics (verify at session start):
-- TRIGGER_LEGACY_EXPORT_CEILING = 37 (oracle-ir-legacy-handler-ratchet.unit.test.ts)
-- npm run test:oracle-ir-migration — re-run after replay batch; expect 812+ green
-- Telemetry under IR primary should remain 0 events post-soak
+- TRIGGER_LEGACY_EXPORT_CEILING = 14 (oracle-ir-legacy-handler-ratchet.unit.test.ts)
+- npm run oracle-ir:legacy-triage:soak:forced — expect 126/126
+- npm run test:oracle-ir-migration — expect 811/811; telemetry 0 under IR primary
+- Latest snapshot: server/scripts/out/telemetry-snapshot-post531.json
 
-Main work branches (priority order):
+Replay/undo (DONE — batch 508–514; do not re-open unless replay-divergence test fails):
+- Source events: drawCards, shuffleLibrary, moveResolvedInstantOrSorcery, remainingLibraryIds, exilePermanent
+- Guardrail: tests/helpers/replayDivergence.ts + replay-divergence.guardrail + Kodama/Cultivate/Opt adoption
+- Key files: effectProgramReplayMutationPersistence.ts, resolution.ts (library search persist), applyEvent.ts
 
-1. D3 legacy deletion (evidence-driven)
-   Next candidates from batch 506 handoff:
-   - applyRetiredTriggerLegacyInterveningSubjectCopyToken
-   - applyRetiredTriggerLegacyTappedAttackingCopyToken
-   - applyRetiredTriggerLegacyAttackTriggerCreateCreatureToken / BlockTrigger / AttackCountBased
-   - applyRetiredTriggerLegacyLoseGameReplacement
-   Per batch: probe IR → delete handler → lower ratchet → forced-legacy soak 126/126
+Stub modules (safe cleanup when touching nearby code):
+- oracleIrTriggerLegacySearchHandlers.ts — empty after batch 531 (re-exports EnqueueLibrarySearchStepFn only)
+- oracleIrTriggerLegacyResolutionHandlers.ts — empty after batch 529
+- oracleIrTriggerLegacySingleEffectRegexBatch.ts — empty shell (returns false); delete with last wired handler
 
-2. Per-set overlay workflow (§A track E)
-   npm run card-lookup:refresh → npm run oracle-ir:delta → overlay probe per work-queue card
+Remaining 14 applyRetiredTriggerLegacy* exports (body/preface — next deletion candidates):
+1. applyRetiredTriggerLegacyChosenTypeTopCardReveal / RevealTopCreatureOfChosenType — probe look_choose_from_top + LIBRARY_SEARCH
+2. applyRetiredTriggerLegacyDiscardTriggeredCastFromGraveyard / TargetedPlayFromGraveyard / BoundGraveyardReturnEffect — graveyard IR + cast permission
+3. applyRetiredTriggerLegacyUpkeepSacrificeCreatureOrSelf — sacrifice + conditional (batch 522 pattern)
+4. applyRetiredTriggerLegacyGainControlOfTargetOpponent — gain_control step
+5. applyRetiredTriggerLegacyGameStateOracleHooks — game-state side effects; probe before delete
+6. applyRetiredTriggerLegacyPlaneswalkerLoyaltyCounters / CastingModifierGrants / GraveyardPermissionEffects — preface handlers in stackExecuteTriggerEffectUtils tail
+7. applyRetiredTriggerLegacyKeywordTriggerFallback — keyword trigger fallback table
+8. applyRetiredTriggerLegacyDelayedCleanupTriggers — delayed trigger cleanup
+9. applyRetiredTriggerLegacySingleEffectRegexBatch — delete module when all inner handlers gone
 
-3. Platform gaps (when blocked on overlays)
-   D4 unwired step kinds, D5 trigger detection, D6 client choice primitives, D7 Phase 5 design
+Patterns to reuse (recent batches):
+- OPTIONAL_NO_CHOICE_KINDS: move_zone, look_choose_from_top, look_select_top (avoid Effect Program yes/no swallowing library bridges)
+- Hakbal / land-or-draw: queueControllerLandPlayOrDrawPrompt when pendingContinuationSteps has conditional "you don't" → draw (batch 521)
+- Sacrifice + continuation: zero legal targets → resume pendingContinuationSteps immediately (batch 522)
+- Reveal-until-equipment: look_choose_from_top + legacy LIBRARY_SEARCH attach path (batch 531)
 
-Verification per D3 batch:
+Hakbal sanity (verified 2026-07-05): npx vitest run tests/hakbal.attack-land-play.integration.test.ts tests/hakbal.begin-combat-explore.integration.test.ts — 3/3; attack ability fully IR-wired under ORACLE_IR_TRIGGER_PRIMARY=1.
+
+Per batch workflow:
 cd server
+# 1. Probe IR: collectOracleEffectSteps + isTriggerEffectFullyIrWired; fix parser/executor/bridge gaps first
+# 2. Delete handler + wiring; lower ratchet; update guardrail
 npx vitest run tests/oracle-ir-legacy-handler-ratchet.unit.test.ts tests/oracle-ir-trigger-legacy-guardrail.test.ts
 npm run oracle-ir:legacy-triage:soak:forced
-$env:ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT='D:\Git\MTGEDH\server\scripts\out\telemetry-snapshot-post508.json'
+$env:ORACLE_IR_WRITE_TELEMETRY_SNAPSHOT='D:\Git\MTGEDH\server\scripts\out\telemetry-snapshot-post532.json'
 npm run test:oracle-ir-migration
 
 Architecture: no bespoke card-name handlers; delete legacy only with triage/IR proof; full trigger effect text via extractTriggerEffectAfterPrefix.
+See .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 ```
+
+## E9 batches 507–531 (summary)
+
+| Batch | Deleted / focus | Ratchet | Notes |
+|-------|-----------------|--------|-------|
+| **507** | Copy-token / attack-trigger token / lose-game handlers (already removed prior session) | — | Handoff candidates were stale |
+| **508** | Compound scry/surveil draw persistence + replayMutations | 37→36 | Migration **812/812**; `telemetry-snapshot-post508.json` |
+| **509** | `LateEffectRegexBatch` no-op stub | 37→36 | Forced soak 126/126 |
+| **510** | `SelfExileCreateToken` | 36→35 | Kept attach handler (fixed batch 511) |
+| **511** | `AttachToTargetCreatureYouControl` | 35→34 | Bare conditional attach fragments |
+| **512** | `InterveningSubjectKeywordGrant` | 34→33 | Chainer haste; interveningIfSubjectPermanentId wiring |
+| **513** | `OptionalDiscardThenDraw`; Archfiend `exilePermanent` replay | 33→32 | Compound optional discard via option_choice |
+| **514** | Kodama replay fidelity (library search + compound shuffle) | — | No handler delete; 811/811 stable |
+| **515** | `SacrificeAnotherPermanentForBenefit` | 32→31 | Effect Program optional sacrifice path |
+| **516–519** | Token counter / bare trigger fragments (see transcript) | 31→26 | Energy sync, token counters, etc. |
+| **520** | `EnergyEffects` | 26→25 | `parseBareEnergyGainSteps`; state.energy sync |
+| **521** | `PutLandFromHand` | 25→24 | Hakbal draw fallback via `pendingContinuationSteps` conditional |
+| **522** | `ThatPlayerSacrificesAndLosesLife`; removed `CombinedHandlers` module | 24→23 | Zero-target sacrifice → resume continuation |
+| **523** | `ElspethCounterFromAmong` | 23→22 | Keyword counter-from-among → MODAL_CHOICE bridge |
+| **524** | `EachPlayerCounterPlacement` | 22→21 | Agitator Ant → counterPlacementTrigger APNAP |
+| **525** | `LootStyleTopLibrary` | 21→20 | look_choose_from_top in OPTIONAL_NO_CHOICE_KINDS |
+| **526** | `KynaiosLandDrawChoice` | 20→19 | Each-player land-or-draw batch already IR-owned |
+| **527** | `ProteanHulkSearch` | 19→18 | any_number library search + MV cap |
+| **528** | `PutCreatureFromHandOntoBattlefield` | 18→17 | Optional move_zone → LIBRARY_SEARCH |
+| **529** | `BelbePortalPutFromHand`; resolution handlers module empty | 17→16 | usesChosenCreatureType filtering |
+| **530** | `GenericSearchLibrary` | 16→15 | Basic-land tutor IR; Fierce Empath regression |
+| **531** | `RevealUntilEquipment` | 15→14 | Reveal-until + attach via LIBRARY_SEARCH; search handlers stub | **Migration 811/811**; `telemetry-snapshot-post531.json` |
+
+**Hakbal verification (2026-07-05):** Both abilities IR-wired — attack (`move_zone` + conditional draw) and begin-combat explore (`explore` APANAP). Tests 3/3 green; one migration flake (809/811) superseded by reruns.
 
 ## Replay / undo migration (batch 508 — complete)
 
@@ -135,6 +176,11 @@ npm run oracle-ir:delta -- --update-baseline     # accept green delta
 
 ## Next session prompt (copy-paste)
 
+**Superseded 2026-07-05 — use the prompt at the top of this file (batch 531 → 532).**
+
+<details>
+<summary>Archived prompt (batch 506)</summary>
+
 ```
 Track E9 / D3 legacy handler retirement — continue from batch 506.
 
@@ -162,6 +208,8 @@ npm run test:oracle-ir-migration
 cd rules-engine
 npx vitest run test/<new-executor-test>.test.ts
 ```
+
+</details>
 
 **E9 batch 506 (D3 — deferred items closure):**
 

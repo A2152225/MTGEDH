@@ -148,13 +148,30 @@ export function applyOracleIRUncategorizedSpellFallback(
     fallbackSteps = excludeCelestialLegacyOwnedSteps(fallbackSteps, text);
     if (fallbackSteps.length === 0) return 0;
 
-    const mandatoryAll = mandatoryStepsFrom(excludeCelestialLegacyOwnedSteps(allSteps, text));
+    const sourcePermanent = sourcePermanentId
+      ? ((ctx as any).state?.battlefield || []).find(
+        (permanent: any) => String(permanent?.id || '').trim() === sourcePermanentId,
+      )
+      : undefined;
+    const preselectedChosenCreatureType = String(
+      sourceItem?.chosenCreatureType
+      || sourceItem?.card?.chosenCreatureType
+      || sourcePermanent?.chosenCreatureType
+      || irCtx?.selectorContext?.chosenCreatureType
+      || irCtx?.chosenCreatureType
+      || '',
+    ).trim();
+    const allStepsForMandatory = preselectedChosenCreatureType
+      ? allSteps.filter((step) => step.kind !== 'choose_creature_type')
+      : allSteps;
+
+    const mandatoryAll = mandatoryStepsFrom(excludeCelestialLegacyOwnedSteps(allStepsForMandatory, text));
     const mandatoryIncluded = mandatoryStepsFrom(fallbackSteps);
     if (mandatoryAll.length > 0 && mandatoryIncluded.length < mandatoryAll.length) {
       logOracleIrAllOrNothingFailure(
         'fallback',
         spellName,
-        describeMissingMandatoryOracleIrSteps(allSteps, fallbackSteps),
+        describeMissingMandatoryOracleIrSteps(allStepsForMandatory, fallbackSteps),
         {
           applied: mandatoryIncluded.length,
           parsed: allSteps.length,
@@ -164,13 +181,7 @@ export function applyOracleIRUncategorizedSpellFallback(
       return 0;
     }
 
-    const chosenCreatureType = String(
-      sourceItem?.chosenCreatureType
-      || sourceItem?.card?.chosenCreatureType
-      || irCtx?.selectorContext?.chosenCreatureType
-      || irCtx?.chosenCreatureType
-      || '',
-    ).trim();
+    const chosenCreatureType = preselectedChosenCreatureType;
     const targetPlayerId = String(
       sourceItem?.targetPlayerId
       || sourceItem?.defendingPlayer

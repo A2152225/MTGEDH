@@ -1006,6 +1006,8 @@ describe('supported exert attack automation (integration)', () => {
   });
 
   it('queues reveal-until-equipment searches for whenever-you-exert watchers like Rohirrim Chargers and attaches the found Equipment to the exerted creature', async () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
     const gameId = createGameId();
     trackedGameIds.add(gameId);
     const attackerId = 'p1' as PlayerID;
@@ -1123,6 +1125,7 @@ describe('supported exert attack automation (integration)', () => {
     const remainingLibraryIds = (((game.state as any).zones[attackerId] as any).library || []).map((card: any) => card.id).sort();
     expect(remainingLibraryIds).toEqual(['miss_after', 'miss_before']);
     expect((((game.state as any).zones[attackerId] as any).libraryCount)).toBe(2);
+    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
   });
 
   it('queues target selection for target-based exert rewards like Ahn-Crop Crasher and persists the chosen target on the reflexive trigger', async () => {

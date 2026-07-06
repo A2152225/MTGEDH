@@ -663,11 +663,22 @@ function cardMatchesLookChooseSelector(
   card: any,
   selectorText: string,
   manaValueLimitOverride?: number | null,
+  chosenCreatureType?: string,
 ): boolean {
   const normalizedSelector = normalizeLookChooseSelectorText(selectorText)
     .replace(/\s+/g, ' ')
     .trim();
   if (!normalizedSelector) return false;
+
+  const structuredCriteria = parseMoveZoneSingleTargetCriteria(normalizedSelector);
+  if (structuredCriteria?.usesChosenCreatureType) {
+    const chosenType = String(chosenCreatureType || '').trim();
+    if (!chosenType) return false;
+    return cardMatchesMoveZoneSingleTargetCriteria(card, {
+      ...structuredCriteria,
+      creatureTypesAnyOf: [chosenType],
+    });
+  }
 
   const manaValueMatch = normalizedSelector.match(/^(.+?)\s+with\s+mana\s+value\s+(\d+)\s+or\s+less$/i);
   const selectorWithoutManaLimit = manaValueMatch
@@ -798,9 +809,10 @@ export function buildLookChooseFromTopSelectionOptions(
   if (lookedCount <= 0) return null;
 
   const lookedCards = library.slice(0, lookedCount);
+  const chosenCreatureType = String(ctx.selectorContext?.chosenCreatureType || '').trim();
   const manaValueLimit = resolveLookChooseManaValueLimit(state, playerId, step.selectorText);
   const selectableCardIds = lookedCards
-    .filter(card => cardMatchesLookChooseSelector(card, step.selectorText, manaValueLimit))
+    .filter(card => cardMatchesLookChooseSelector(card, step.selectorText, manaValueLimit, chosenCreatureType))
     .map(card => String(card?.id || '').trim())
     .filter(Boolean);
   const limits = parseLookChooseSelectionLimits(step.selectorText, step.optional === true);
@@ -907,9 +919,10 @@ function lookChooseFromTopRequiresPlayerChoice(
 ): boolean {
   if (ctx.interactivePlayerChoices === false) return false;
   if (getNormalizedChosenIds(ctx).length > 0) return false;
+  if (step.optional === true && ctx.deferOptionalLookChoices !== true) return false;
   const built = buildLookChooseFromTopSelectionOptions(state, step, ctx, runtime);
   if (!built) return false;
-  if (step.optional === true) return true;
+  if (step.optional !== true) return false;
   return built.selectableCardIds.length > 0;
 }
 
@@ -5078,6 +5091,18 @@ function resolveLookChooseAmount(
   ctx: OracleIRExecutionContext,
   runtime?: ModifyPtRuntime
 ): number | null {
+  if (step.amount.kind === 'reference_amount') {
+    const players = resolvePlayers(state, step.who, ctx);
+    if (players.length !== 1) return null;
+    const untilReveal = resolveRevealUntilReferenceAmountForPlayer(
+      state,
+      players[0],
+      step.amount,
+      ctx,
+    );
+    return untilReveal?.count ?? null;
+  }
+
   const resolved = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, { runtime });
   if (resolved !== null) return resolved;
 
@@ -5155,20 +5180,22 @@ export function applyLookChooseFromTopStep(
     const lookedCount = Math.max(0, Math.min(library.length, amount | 0));
     let lookedCards = library.slice(0, lookedCount);
     const chosenCards: any[] = [];
+    const chosenCreatureType = String(ctx.selectorContext?.chosenCreatureType || '').trim();
     const manaValueLimit = resolveLookChooseManaValueLimit(nextState, playerId, step.selectorText);
+    const nonMatchRest = (step as { nonMatchRest?: string }).nonMatchRest || 'library_bottom';
 
     if (chosenIds.size > 0) {
       for (const card of lookedCards) {
         const cardId = String(card?.id || '').trim();
         if (!cardId || !chosenIds.has(cardId)) continue;
-        if (!cardMatchesLookChooseSelector(card, step.selectorText, manaValueLimit)) continue;
+        if (!cardMatchesLookChooseSelector(card, step.selectorText, manaValueLimit, chosenCreatureType)) continue;
         chosenCards.push(card);
       }
       const chosenCardIds = new Set(chosenCards.map(card => String(card?.id || '').trim()).filter(Boolean));
       lookedCards = lookedCards.filter(card => !chosenCardIds.has(String(card?.id || '').trim()));
-    } else {
+    } else if (step.optional !== true || ctx.deferOptionalLookChoices !== true) {
       const chosenIndex = lookedCards.findIndex(
-        card => cardMatchesLookChooseSelector(card, step.selectorText, manaValueLimit),
+        card => cardMatchesLookChooseSelector(card, step.selectorText, manaValueLimit, chosenCreatureType),
       );
       if (chosenIndex >= 0) {
         chosenCards.push(lookedCards.splice(chosenIndex, 1)[0]);
@@ -5176,6 +5203,15 @@ export function applyLookChooseFromTopStep(
     }
 
     const restCards = [...lookedCards];
+
+    if (
+      chosenCards.length === 0
+      && restCards.length > 0
+      && nonMatchRest === 'library_top'
+    ) {
+      log.push(`${playerId} looks at ${lookedCount} card(s) and keeps them on top of their library`);
+      continue;
+    }
     const bottomedRest = step.restOrder === 'any' ? restCards : shuffleArray(restCards);
     const stepIndex = bridgeOptions?.stepIndex;
     const canBridgeZone = (step.destination === 'hand' || step.destination === 'exile' || step.destination === 'battlefield')
@@ -5204,6 +5240,31 @@ export function applyLookChooseFromTopStep(
         ledgerRecordedViaBridge = true;
       }
       return false;
+    };
+
+    const bridgeNonMatchGraveyard = (): boolean => {
+      if (!canBridgeZone || restCards.length === 0 || nonMatchRest !== 'graveyard') return false;
+      const restCommit = commitLookSelectRestZoneChanges({
+        state: nextState,
+        playerId,
+        rest: restCards,
+        destination: step.destination === 'hand' ? 'hand' : step.destination === 'exile' ? 'exile' : 'battlefield',
+        restDestination: 'graveyard',
+        restToTop: false,
+        restRandomOrder: false,
+        stepIndex: Number(stepIndex),
+        stepKind: String(bridgeOptions?.stepKind || 'look_choose_from_top'),
+        cause: 'oracle_ir:look_choose_from_top_non_match',
+        ctx: bridgeOptions?.ctx,
+      });
+      if (restCommit.halted) return true;
+      nextState = restCommit.state;
+      movedCards.push(...restCards);
+      if (restCommit.ledgerRecordedViaBridge) {
+        ledgerRecordedViaBridge = true;
+      }
+      log.push(`${playerId} looks at ${lookedCount} card(s), finds no match, and puts ${restCards.length} into their graveyard`);
+      return true;
     };
 
     if (canBridgeChosen) {
@@ -5256,6 +5317,14 @@ export function applyLookChooseFromTopStep(
     }
 
     if (canBridgeZone && chosenCards.length === 0 && restCards.length > 0) {
+      if (bridgeNonMatchGraveyard()) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state: nextState,
+          log,
+          ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+        }, ledgerRecordedViaBridge);
+      }
       if (bridgeLookChooseRest()) {
         return withDiscardLedgerFlags({
           applied: true,
@@ -5272,8 +5341,10 @@ export function applyLookChooseFromTopStep(
 
     const hand = readPlayerZoneCards(nextState, playerId, player, 'hand');
     const exile = readPlayerZoneCards(nextState, playerId, player, 'exile');
+    const graveyard = readPlayerZoneCards(nextState, playerId, player, 'graveyard');
     let nextHand = [...hand];
     let nextExile = [...exile];
+    let nextGraveyard = [...graveyard];
     let nextLibrary = library.slice(lookedCount);
 
     for (const chosenCard of chosenCards) {
@@ -5283,6 +5354,14 @@ export function applyLookChooseFromTopStep(
       } else {
         nextExile.push(chosenCard);
       }
+    }
+
+    if (restCards.length > 0 && nonMatchRest === 'graveyard' && chosenCards.length === 0) {
+      nextGraveyard.push(...restCards);
+      movedCards.push(...restCards);
+      writePlayerZoneCards(nextState, playerId, player, 'graveyard', nextGraveyard);
+      log.push(`${playerId} looks at ${lookedCount} card(s), finds no match, and puts ${restCards.length} into their graveyard`);
+      continue;
     }
 
     nextLibrary = [...nextLibrary, ...bottomedRest];

@@ -24,6 +24,7 @@ import {
 import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions, collectBlightTargetSelectionConfigs } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
+import { isOracleIrTriggerPrimaryEnabled } from './oracleIrTriggerExecution.js';
 import {
   detectTutorSpell,
   parseLibrarySearchFilter,
@@ -1375,6 +1376,7 @@ function queueLookChooseChoicePromptsFromOracleIRResult(
     sourceName?: string;
     sourceId?: string;
     irCtx: OracleIRExecutionContext;
+    triggerItem?: any;
   }
 ): void {
   const gameId = String((ctx as any).gameId || '').trim();
@@ -1403,8 +1405,21 @@ function queueLookChooseChoicePromptsFromOracleIRResult(
       const availableCards = built.availableCards.map(normalizeTopLibraryPromptCard);
       const selectableIds = new Set(built.selectableCardIds);
       const nonSelectableCards = availableCards.filter((card) => !selectableIds.has(String(card.id || '')));
+      const stepRaw = String((step as any).raw || '');
+      const isRevealUntil = (step as any).amount?.kind === 'reference_amount';
+      const attachSelectedEquipmentToPermanentId = built.destination === 'battlefield'
+        && /attached to that creature/i.test(stepRaw)
+        ? String(
+          params.triggerItem?.effectData?.exertedPermanentId
+          || params.triggerItem?.exertedPermanentId
+          || '',
+        ).trim() || undefined
+        : undefined;
+      const queuedAvailableCards = isRevealUntil && selectableIds.size > 0
+        ? availableCards.filter((card) => selectableIds.has(String(card.id || '')))
+        : availableCards;
 
-      ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      const queuedStep = ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
         type: ResolutionStepType.LIBRARY_SEARCH,
         playerId: built.playerId,
         description: `${sourceName}: ${String((step as any).raw || 'Look and choose')}`,
@@ -1426,15 +1441,31 @@ function queueLookChooseChoicePromptsFromOracleIRResult(
         remainderDestination: 'bottom',
         remainderRandomOrder: built.restOrder !== 'any',
         remainderPlayerChoosesOrder: built.restOrder === 'any',
-        availableCards,
+        availableCards: queuedAvailableCards,
         nonSelectableCards,
         filter: built.filter,
+        ...(attachSelectedEquipmentToPermanentId
+          ? {
+              attachSelectedEquipmentToPermanentId,
+              persistLibrarySearchResolve: true,
+              persistLibrarySearchResolveReason: 'stack_resolution',
+            }
+          : {}),
         ...(built.contextValue !== undefined ? { contextValue: built.contextValue } : {}),
-        oracleIrChoiceStepJson: JSON.stringify([step]),
-        oracleIrControllerId: params.controller,
-        oracleIrSourceId: sourceId,
-        oracleIrSourceName: sourceName,
+        ...(attachSelectedEquipmentToPermanentId
+          ? {}
+          : {
+              oracleIrChoiceStepJson: JSON.stringify([step]),
+              oracleIrControllerId: params.controller,
+              oracleIrSourceId: sourceId,
+              oracleIrSourceName: sourceName,
+            }),
       } as any, result, params) as any);
+      appendQueuedResolutionPromptEvent(ctx, {
+        playerId: built.playerId,
+        sourceId,
+        queuedResolutionStep: queuedStep,
+      });
       continue;
     }
 
@@ -4161,6 +4192,7 @@ export function applyOracleIRStepsOnServer(
   },
 ): OracleIRExecutionResult {
   hydrateOracleIRPlayerZonesFromContext(ctx, state);
+  const gameId = String((ctx as any).gameId || 'unknown');
   const graveyardBefore = snapshotGraveyardCardIds(state);
   const exileBefore = snapshotExileCardIds(state);
   const controllersBefore = snapshotBattlefieldControllers(state);
@@ -4194,6 +4226,9 @@ export function applyOracleIRStepsOnServer(
     interactivePlayerChoices: irCtx.interactivePlayerChoices ?? true,
     haltState: transitionHaltState,
   });
+  const deferOptionalLookChoices = gameId !== 'unknown'
+    && !(ctx as any).isReplaying
+    && (Boolean((ctx as any).io) || isOracleIrTriggerPrimaryEnabled());
 
   const result = applyOracleIRStepsToGameState(state, adjustedSteps, {
     ...irCtx,
@@ -4201,6 +4236,7 @@ export function applyOracleIRStepsOnServer(
     appliedStepKinds,
     transitionHaltState,
     interactivePlayerChoices: irCtx.interactivePlayerChoices ?? true,
+    deferOptionalLookChoices,
     deferStackSpellCopiesToServer: true,
     serverBridge,
   }, {
@@ -4233,7 +4269,6 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
   });
-  const gameId = String((ctx as any).gameId || '').trim();
   const resolutionQueueStepsBefore = gameId && gameId !== 'unknown' && !(ctx as any).isReplaying
     ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
     : 0;
@@ -4371,6 +4406,7 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
+    triggerItem: params?.triggerItem,
   });
   queueSearchLibraryChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
