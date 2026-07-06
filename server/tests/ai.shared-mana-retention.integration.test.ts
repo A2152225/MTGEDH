@@ -126,18 +126,21 @@ describe('AI shared mana-retention integration', () => {
     }
 
     expect((game.state as any).aiManaRetentionTaps?.[playerId]).toBe(7);
-    expect((game.state as any).manaPool?.[playerId]?.colorless).toBe(2);
+    expect((game.state as any).manaPool?.[playerId]?.colorless).toBe(5);
     expect((game.state as any).manaPool?.[playerId]?.white).toBe(0);
     expect((game.state as any).manaPool?.[playerId]?.red).toBe(0);
     expect((game.state as any).life?.[playerId]).toBe(40);
     expect((game.state as any).lifeLostThisTurn?.[playerId]).toBe(0);
-    expect(((game.state as any).battlefield || []).filter((perm: any) => perm?.tapped).length).toBe(2);
+    expect(((game.state as any).battlefield || []).filter((perm: any) => perm?.tapped).length).toBe(5);
 
     const activateBattlefieldEvents = getEvents(gameId).filter((event: any) => event?.type === 'activateBattlefieldAbility');
-    expect(activateBattlefieldEvents).toHaveLength(2);
+    expect(activateBattlefieldEvents).toHaveLength(5);
     expect(activateBattlefieldEvents.map((event: any) => String(event?.payload?.abilityId || ''))).toEqual([
       'battlefield_forge_card_1-ability-0',
       'battlefield_forge_card_2-ability-0',
+      'battlefield_forge_card_3-ability-0',
+      'battlefield_forge_card_4-ability-0',
+      'battlefield_forge_card_5-ability-0',
     ]);
     expect(getEvents(gameId).some((event: any) => event?.type === 'activateAbility')).toBe(false);
   });

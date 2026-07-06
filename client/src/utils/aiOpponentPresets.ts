@@ -1,8 +1,5 @@
 export const AI_OPPONENT_PRESETS_STORAGE_KEY = 'mtgedh:aiOpponentPresets';
 
-/** AI Strategy options matching the rules-engine AIStrategy enum */
-export type AIStrategy = 'random' | 'basic' | 'aggressive' | 'defensive' | 'control' | 'combo';
-
 export type AIOpponentDeckMode = 'select' | 'import';
 
 export type SavedAIOpponentPreset = {
@@ -10,7 +7,6 @@ export type SavedAIOpponentPreset = {
   /** Display label in the preset picker (defaults to opponent name). */
   label: string;
   name: string;
-  strategy: AIStrategy;
   difficulty: number;
   deckMode: AIOpponentDeckMode;
   deckId: string;
@@ -29,15 +25,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-const VALID_STRATEGIES = new Set<AIStrategy>([
-  'random',
-  'basic',
-  'aggressive',
-  'defensive',
-  'control',
-  'combo',
-]);
-
 function clampDifficulty(value: unknown): number {
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n)) return 0.5;
@@ -46,8 +33,6 @@ function clampDifficulty(value: unknown): number {
 
 function parsePreset(raw: unknown): SavedAIOpponentPreset | null {
   if (!isPlainObject(raw)) return null;
-  const strategy = String(raw.strategy || 'basic') as AIStrategy;
-  if (!VALID_STRATEGIES.has(strategy)) return null;
 
   const deckMode = raw.deckMode === 'import' ? 'import' : 'select';
   const name = String(raw.name || '').trim() || 'AI Opponent';
@@ -57,7 +42,6 @@ function parsePreset(raw: unknown): SavedAIOpponentPreset | null {
     id: String(raw.id || '').trim() || `ai_preset_${Date.now().toString(36)}`,
     label,
     name,
-    strategy,
     difficulty: clampDifficulty(raw.difficulty),
     deckMode,
     deckId: String(raw.deckId || ''),
@@ -106,7 +90,6 @@ export function upsertSavedAIOpponentPreset(
     id: input.id?.trim() || `ai_preset_${now.toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     label,
     name,
-    strategy: input.strategy,
     difficulty: clampDifficulty(input.difficulty),
     deckMode: input.deckMode === 'import' ? 'import' : 'select',
     deckId: input.deckId || '',
@@ -141,7 +124,6 @@ export function deleteSavedAIOpponentPreset(
 export type AIOpponentFormState = {
   id: string;
   name: string;
-  strategy: AIStrategy;
   difficulty: number;
   deckId: string;
   deckMode: AIOpponentDeckMode;
@@ -157,7 +139,6 @@ export function createAiOpponentFromPreset(preset: SavedAIOpponentPreset): AIOpp
   return {
     id: newId,
     name: preset.name,
-    strategy: preset.strategy,
     difficulty: preset.difficulty,
     deckId: preset.deckId,
     deckMode: preset.deckMode,
@@ -172,14 +153,13 @@ export function createAiOpponentFromPreset(preset: SavedAIOpponentPreset): AIOpp
 export function presetInputFromAiOpponent(
   ai: Pick<
     AIOpponentFormState,
-    'name' | 'strategy' | 'difficulty' | 'deckId' | 'deckMode' | 'deckText' | 'deckName' | 'presetLabel'
+    'name' | 'difficulty' | 'deckId' | 'deckMode' | 'deckText' | 'deckName' | 'presetLabel'
   >
 ): AIOpponentPresetInput {
   const name = ai.name.trim() || 'AI Opponent';
   return {
     label: ai.presetLabel.trim() || name,
     name,
-    strategy: ai.strategy,
     difficulty: ai.difficulty,
     deckMode: ai.deckMode,
     deckId: ai.deckId,

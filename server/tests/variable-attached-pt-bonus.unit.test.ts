@@ -500,4 +500,21 @@ describe('equipped attack reveal-until-land pump detection', () => {
       toughness: 0,
     });
   });
+
+  it('doubles counter bonus for Hydra\'s Growth (+1/+1 per counter on enchanted creature)', () => {
+    const creature = makeCreature();
+    creature.counters = { '+1/+1': 3 };
+    const hydraGrowth = makeAttachedPerm('hydra_1', creature.id, {
+      name: "Hydra's Growth",
+      typeLine: 'Enchantment — Aura',
+      oracleText:
+        "Enchant creature you control\nWhen you cast this spell, you may pay {X}. If you do, put X +1/+1 counters on enchanted creature.\nEnchanted creature gets +1/+1 for each +1/+1 counter on it.",
+    });
+    creature.attachedEquipment.push(hydraGrowth.id);
+
+    expect(calculateEquipmentBonus(creature, [creature, hydraGrowth])).toEqual({
+      power: 3,
+      toughness: 3,
+    });
+  });
 });

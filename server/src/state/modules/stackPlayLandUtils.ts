@@ -13,6 +13,7 @@ import { updateLandPlayPermissions } from './land-permissions.js';
 import { creatureWillHaveHaste } from './creatureEntryHasteUtils.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { markPermanentEnteredFromZone } from './triggerDelayedEffectUtils.js';
+import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
 import { repairReplayCardSourceZones } from './stackReplayUtils.js';
 import { tryDeferPlayLandForWouldEnterReplacement, tryApplyLandWouldEnterNamedSacrificeReplacement } from './land-would-enter-replacement.js';
 
@@ -20,6 +21,61 @@ export interface PlayLandEntryOptions {
   playedFromExile?: boolean;
   playedFromGraveyard?: boolean;
   skipLandPlayCountIncrement?: boolean;
+}
+
+/**
+ * When playing a transform/MDFC land, use the land face only.
+ * Combined type lines like "Land // Creature" must not enter as 0-toughness creatures (704.5f).
+ */
+export function resolveLandCardFaceForBattlefieldEntry(card: any): any {
+  if (!card) return card;
+
+  const layout = String(card.layout || '').toLowerCase();
+  const cardFaces = Array.isArray(card.card_faces) ? card.card_faces : [];
+
+  if ((layout === 'transform' || layout === 'double_faced_token') && cardFaces.length >= 1) {
+    const frontFace = cardFaces[0];
+    if (/\bland\b/i.test(String(frontFace?.type_line || ''))) {
+      return {
+        ...card,
+        name: frontFace.name || card.name,
+        type_line: frontFace.type_line,
+        oracle_text: frontFace.oracle_text || '',
+        mana_cost: frontFace.mana_cost ?? '',
+        image_uris: frontFace.image_uris || card.image_uris,
+        power: undefined,
+        toughness: undefined,
+        layout: card.layout,
+        card_faces: card.card_faces,
+        transformed: false,
+      };
+    }
+  }
+
+  if (layout === 'modal_dfc' && cardFaces.length >= 1) {
+    const selectedIndex = typeof card.selectedMDFCFace === 'number' ? card.selectedMDFCFace : undefined;
+    const landFaceIndex = selectedIndex ?? cardFaces.findIndex((face: any) =>
+      /\bland\b/i.test(String(face?.type_line || '')),
+    );
+    if (landFaceIndex >= 0) {
+      const landFace = cardFaces[landFaceIndex];
+      if (landFace && /\bland\b/i.test(String(landFace.type_line || ''))) {
+        return {
+          ...card,
+          name: landFace.name || card.name,
+          type_line: landFace.type_line,
+          oracle_text: landFace.oracle_text || '',
+          mana_cost: landFace.mana_cost ?? '',
+          image_uris: landFace.image_uris || card.image_uris,
+          power: undefined,
+          toughness: undefined,
+          selectedMDFCFace: landFaceIndex,
+        };
+      }
+    }
+  }
+
+  return card;
 }
 
 /* Place a land onto the battlefield for a player (simplified) */
@@ -160,6 +216,8 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     cleanupCardLeavingExile(state as any, card);
   }
 
+  card = resolveLandCardFaceForBattlefieldEntry(card);
+
   const tl = (card.type_line || '').toLowerCase();
   const isLand = /\bland\b/.test(tl);
   if (
@@ -282,6 +340,7 @@ export function finishPlayLandBattlefieldEntry(
   }
 
   const newPermanent = state.battlefield[state.battlefield.length - 1];
+  hydratePermanentCardOracleInPlace(newPermanent);
   if (playedFromGraveyard) {
     markPermanentEnteredFromZone(newPermanent, 'graveyard');
   } else if (playedFromExile) {

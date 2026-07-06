@@ -1256,6 +1256,12 @@ export function getActualPowerToughness(
     basePower = variablePT.power;
     baseToughness = variablePT.toughness;
   }
+
+  const setBasePT = resolveSetBasePTFromAttachedAuras(permanent, gameState?.battlefield || []);
+  if (setBasePT) {
+    basePower = setBasePT.power;
+    baseToughness = setBasePT.toughness;
+  }
   
   // Apply counters
   const counters = permanent.counters || {};
@@ -1707,7 +1713,82 @@ function parseVariableAttachedPTBonus(
     return { power: count, toughness: 0 };
   }
 
+  match = text.match(
+    /(?:equipped|enchanted) creature gets \+(\d+)\/\+(\d+) for each \+1\/\+1 counter on it/,
+  );
+  if (match) {
+    const { powerPer, toughnessPer } = parsePair(match[1], match[2]);
+    const count = countPlusOneCountersOnPermanent(equippedCreature);
+    return { power: powerPer * count, toughness: toughnessPer * count };
+  }
+
   return null;
+}
+
+function countPlusOneCountersOnPermanent(perm: any): number {
+  const counters = perm?.counters || {};
+  return (
+    counters['+1/+1'] ||
+    counters['plus_one'] ||
+    counters['plusOne'] ||
+    counters['p1p1'] ||
+    0
+  );
+}
+
+/**
+ * Parse layer-7b "set base P/T" lines from attached aura oracle text (Frogify, Lignify, etc.).
+ */
+function parseSetBasePTFromAttachedAuraOracle(
+  oracleText: string,
+): { power: number; toughness: number } | null {
+  const text = String(oracleText || '').toLowerCase();
+
+  let match = text.match(
+    /enchanted creature (?:[^.\n]*? )?(?:has|with) base power and toughness (\d+)\/(\d+)/i,
+  );
+  if (match) {
+    return { power: parseInt(match[1], 10), toughness: parseInt(match[2], 10) };
+  }
+
+  match = text.match(
+    /enchanted creature is a [^.]+ with base power and toughness (\d+)\/(\d+)/i,
+  );
+  if (match) {
+    return { power: parseInt(match[1], 10), toughness: parseInt(match[2], 10) };
+  }
+
+  return null;
+}
+
+/**
+ * Resolve characteristic-setting base P/T from auras attached to a creature.
+ * When multiple auras set base P/T, the last attached aura in battlefield order wins (timestamp simplification).
+ */
+export function resolveSetBasePTFromAttachedAuras(
+  creaturePerm: any,
+  battlefield: any[],
+): { power: number; toughness: number } | null {
+  if (!creaturePerm || !Array.isArray(battlefield)) return null;
+
+  let result: { power: number; toughness: number } | null = null;
+
+  for (const perm of battlefield) {
+    if (!perm?.card) continue;
+
+    const typeLine = String(perm.card.type_line || '').toLowerCase();
+    if (!typeLine.includes('aura') || !typeLine.includes('enchantment')) continue;
+
+    const isAttached =
+      perm.attachedTo === creaturePerm.id ||
+      (creaturePerm.attachedEquipment && creaturePerm.attachedEquipment.includes(perm.id));
+    if (!isAttached) continue;
+
+    const setBase = parseSetBasePTFromAttachedAuraOracle(perm.card.oracle_text || '');
+    if (setBase) result = setBase;
+  }
+
+  return result;
 }
 
 function shouldUseAttachedBonusNameTable(oracleText: string): boolean {

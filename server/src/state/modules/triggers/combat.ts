@@ -1238,20 +1238,21 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
     });
   }
   
-  // ===== KNOWN CARDS TABLE (Optimization/Enhancement) =====
-  // Use the table to handle special cases and provide enhanced metadata
-  // Only add if not already detected dynamically (check by permanentId, not description)
+  // KNOWN table fallback — only when dynamic oracle detection did not match
   for (const [knownName, info] of Object.entries(KNOWN_BEGINNING_COMBAT_TRIGGERS)) {
     if (lowerName.includes(knownName) && !triggers.some(t => t.permanentId === permanentId)) {
+      const effectText = beginCombatMatch
+        ? timingTriggerEffect(oracleText, beginCombatMatch)
+        : info.effect;
       triggers.push({
         permanentId,
         cardName,
         controllerId,
-        description: info.effect,
-        effect: info.effect,
+        description: effectText,
+        effect: effectText,
         mandatory: true,
-        requiresChoice: info.requiresChoice,
-        createsToken: info.createsToken,
+        requiresChoice: info.requiresChoice ?? (/\bchoose\b/i.test(effectText) || /\byou may\b/i.test(effectText)),
+        createsToken: info.createsToken ?? /\bcreate\b.*\btoken\b/i.test(effectText),
       });
     }
   }

@@ -1,6 +1,15 @@
 import type { BattlefieldPermanent, GameState, KnownCardRef, PlayerID } from '../../shared/src';
 import { cardAnalyzer, CardCategory, SynergyArchetype } from './CardAnalyzer';
 import type { AIPlayerConfig } from './AIEngine';
+import {
+  battlefieldHasManaRetention,
+  evaluateAttackManaEngineReconfigureAttachValue,
+  getGreatestControlledCreaturePower,
+  getPlayerGreenManaInPool,
+  isAttackManaRetentionEquipmentText,
+  isPowerScaledGreenManaAbilityText,
+  readPermanentPower,
+} from './aiEngineManaPoolSupport';
 import { getCombinedPermanentText } from './permanentText';
 import {
   isStationPermanentTypeLine,
@@ -234,6 +243,7 @@ export function evaluateActivatedAbilityValue(
   const isTapAbility = lowerText.includes('{t}:') || lowerText.includes('{t},');
   const isPureManaAbility =
     ((lowerText.includes('add {') && lowerText.includes('mana')) ||
+      lowerText.includes('add an amount of') ||
       lowerText.includes('add {c}') ||
       lowerText.includes('add {w}') ||
       lowerText.includes('add {u}') ||
@@ -244,6 +254,8 @@ export function evaluateActivatedAbilityValue(
     !lowerText.includes('search your library') &&
     !lowerText.includes('create') &&
     !lowerText.includes('damage');
+  const battlefield = deps.getProcessedBattlefield(gameState);
+  const hasRetention = battlefieldHasManaRetention(battlefield, playerId);
 
   if (lowerText.includes('draw') && !lowerText.includes('opponent draws')) {
     const drawMatch = lowerText.match(/draw (\w+) card/);
@@ -277,6 +289,7 @@ export function evaluateActivatedAbilityValue(
 
   if (
     (lowerText.includes('add {') && lowerText.includes('mana')) ||
+    lowerText.includes('add an amount of') ||
     lowerText.includes('add {c}') ||
     lowerText.includes('add {w}') ||
     lowerText.includes('add {u}') ||
@@ -285,6 +298,23 @@ export function evaluateActivatedAbilityValue(
     lowerText.includes('add {g}')
   ) {
     value += 8;
+  }
+
+  if (isPowerScaledGreenManaAbilityText(lowerText) && isTapAbility) {
+    const greatestPower = getGreatestControlledCreaturePower(battlefield, playerId);
+    value += Math.min(50, greatestPower * 2);
+    if (hasRetention) {
+      value += 18;
+      value += Math.min(24, getPlayerGreenManaInPool(gameState, playerId));
+    }
+  }
+
+  if (lowerText.includes('reconfigure') && /\battach\b/.test(lowerText) && !lowerText.includes('unattach')) {
+    value += evaluateAttackManaEngineReconfigureAttachValue(gameState, playerId, perm);
+  } else if (lowerText.includes('reconfigure') && lowerText.includes('unattach')) {
+    // Unattach only makes it a creature again — never the first step of a host swap (one attach moves it).
+    const directAttachValue = evaluateAttackManaEngineReconfigureAttachValue(gameState, playerId, perm);
+    value -= directAttachValue > 20 ? directAttachValue + 12 : 10;
   }
 
   if (lowerText.includes('search your library')) {
@@ -328,7 +358,12 @@ export function evaluateActivatedAbilityValue(
   const manaCostMatch = lowerText.match(/\{([0-9]+|[wubrg])\}/g);
   if (manaCostMatch && manaCostMatch.length > 0) {
     const manaCost = manaCostMatch.filter(cost => !cost.includes('t}') && !cost.includes('t,')).length;
-    value -= manaCost * 0.5;
+    const isTanukiStyleReconfigureAttach =
+      lowerText.includes('reconfigure')
+      && /\battach\b/.test(lowerText)
+      && !lowerText.includes('unattach')
+      && isAttackManaRetentionEquipmentText(String(card.oracle_text || ''));
+    value -= isTanukiStyleReconfigureAttach ? 0 : manaCost * 0.5;
   }
 
   if (lowerText.includes('opponent') && lowerText.includes('control')) {
@@ -339,7 +374,7 @@ export function evaluateActivatedAbilityValue(
     value -= 4;
   }
 
-  if (isPureManaAbility && !deps.hasPotentialManaSink(gameState, playerId)) {
+  if (isPureManaAbility && !deps.hasPotentialManaSink(gameState, playerId) && !hasRetention) {
     value -= 12;
   }
 

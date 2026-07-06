@@ -124,7 +124,8 @@ export function selectAttackTarget(args: {
     }
 
     const creatureCount = battlefield.filter((p: any) => p.controller === opp.id && hasPermanentType(p, 'creature')).length;
-    score += creatureCount * 10;
+    // Developed boards are threats to answer, not necessarily the best attack destination.
+    score += creatureCount * 5;
 
     return { playerId: opp.id, score };
   });

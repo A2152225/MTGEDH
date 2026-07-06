@@ -17,6 +17,7 @@ import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
 import type { CardCostAdjustment, GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
+import { registerTokenGroupMembers } from "./tokenGroupResolve.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource, resolvePermanentChosenColorSymbol } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, hasSacrificePrefixActivatedAbility, isPlayerIdleForAutoPass, isTransformBackFace, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
@@ -52,7 +53,7 @@ import { countControlledCreaturesOfChosenType } from "../state/modules/chosen-cr
  */
 const AUTO_PASS_DELAY_MS = 150;
 
-const LAND_PLAY_AUTOMATION_SUPPRESSION_MS = 1500;
+const LAND_PLAY_AUTOMATION_SUPPRESSION_MS = 600;
 
 type PendingHumanAutoPass = {
   playerId: PlayerID;
@@ -969,6 +970,244 @@ function isInMainPhase(state: any): boolean {
   }
 }
 
+type SharedEmitBattlefieldCache = {
+  seq: number;
+  battlefield: any[];
+  tokenGroupingApplied?: boolean;
+  originalBattlefieldCount?: number;
+};
+
+function getSharedEmitBattlefieldCache(game: any): SharedEmitBattlefieldCache | null {
+  const seq = Number(game?.seq ?? 0);
+  const cached = game?._sharedEmitBattlefieldCache as SharedEmitBattlefieldCache | undefined;
+  if (cached && cached.seq === seq) {
+    return cached;
+  }
+  return null;
+}
+
+const MIN_TOKEN_GROUPING_REDUCTION_RATIO = 0.9;
+
+function optimizeBattlefieldTokensForEmit(
+  battlefield: any[],
+  game?: any,
+): {
+  battlefield: any[];
+  tokenGroupingApplied?: boolean;
+  originalBattlefieldCount?: number;
+} {
+  const tokenGroups = new Map<string, { prototype: any; ids: string[] }>();
+  const nonTokenPermanents: any[] = [];
+
+  for (const perm of battlefield) {
+    if (!perm) continue;
+
+    const hasEquipment = perm.attachedEquipment?.length > 0 || perm.isEquipped;
+    const hasAuras = perm.attachments?.length > 0;
+    const isAttachedToSomething = !!perm.attachedTo;
+    const hasDamage = (perm.damageTaken || 0) > 0 || (perm.damageMarked || 0) > 0;
+    const isInCombat = perm.isBlocking || perm.isAttacking || perm.blocking?.length > 0;
+
+    const hasModifiers = perm.modifiers?.length > 0;
+    const hasTemporaryEffects = perm.temporaryEffects?.length > 0;
+    const hasTempPTMod = !!perm.tempPTMod;
+    const hasTemporaryProtection = perm.temporaryProtection?.length > 0;
+    const hasTempMods = hasModifiers || hasTemporaryEffects || hasTempPTMod || hasTemporaryProtection;
+
+    const isGroupableToken =
+      perm.isToken === true &&
+      !hasEquipment &&
+      !hasAuras &&
+      !isAttachedToSomething &&
+      !hasDamage &&
+      !isInCombat &&
+      !hasTempMods;
+
+    if (isGroupableToken) {
+      const card = perm.card || {};
+      const countersStr = Object.entries(perm.counters || {})
+        .filter(([, v]) => (v as number) > 0)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}:${v}`)
+        .join(',');
+
+      const grantedAbilitiesStr = (perm.grantedAbilities || [])
+        .slice()
+        .sort()
+        .join('|');
+
+      const oracleText = (card.oracle_text || '').toLowerCase();
+      const staticAbilities: string[] = [];
+      const keywordPatterns = [
+        'flying', 'first strike', 'double strike', 'deathtouch', 'lifelink',
+        'vigilance', 'trample', 'haste', 'hexproof', 'indestructible',
+        'menace', 'reach', 'defender', 'flash', 'shroud', 'protection',
+        'infect', 'wither', 'persist', 'undying', 'annihilator',
+        'intimidate', 'skulk', 'prowess', 'afflict', 'afterlife',
+      ];
+      for (const keyword of keywordPatterns) {
+        if (oracleText.includes(keyword)) {
+          staticAbilities.push(keyword);
+        }
+      }
+      if (oracleText.includes('power and toughness are each equal to')) {
+        staticAbilities.push('variable_pt');
+      }
+
+      const staticAbilitiesStr = staticAbilities.sort().join('|');
+      const colorsStr = (card.colors || []).slice().sort().join('');
+
+      const key = [
+        `ctrl:${perm.controller}`,
+        `name:${card.name || ''}`,
+        `p:${perm.effectivePower ?? perm.basePower ?? card.power ?? 0}`,
+        `t:${perm.effectiveToughness ?? perm.baseToughness ?? card.toughness ?? 0}`,
+        `tap:${perm.tapped ? 1 : 0}`,
+        `sick:${perm.summoningSickness ? 1 : 0}`,
+        `cnt:${countersStr}`,
+        `grantedAbil:${grantedAbilitiesStr}`,
+        `staticAbil:${staticAbilitiesStr}`,
+        `col:${colorsStr}`,
+      ].join('|');
+
+      const existing = tokenGroups.get(key);
+      if (existing) {
+        existing.ids.push(perm.id);
+      } else {
+        tokenGroups.set(key, { prototype: perm, ids: [perm.id] });
+      }
+    } else {
+      nonTokenPermanents.push(perm);
+    }
+  }
+
+  const optimizedBattlefield = [...nonTokenPermanents];
+  let hasGroupedTokens = false;
+
+  for (const [, group] of tokenGroups) {
+    if (group.ids.length === 1) {
+      optimizedBattlefield.push({
+        ...group.prototype,
+        isToken: true,
+      });
+    } else {
+      hasGroupedTokens = true;
+      const groupId = `group_${group.ids[0]}`;
+      if (game) {
+        registerTokenGroupMembers(game, groupId, group.ids);
+      }
+      optimizedBattlefield.push({
+        ...group.prototype,
+        tokenCount: group.ids.length,
+        isGroupedTokens: true,
+        isToken: true,
+        id: groupId,
+        originalId: group.ids[0],
+      });
+    }
+  }
+
+  const originalCount = battlefield.length;
+  const optimizedCount = optimizedBattlefield.length;
+
+  if (hasGroupedTokens || optimizedCount < originalCount * MIN_TOKEN_GROUPING_REDUCTION_RATIO) {
+    if (hasGroupedTokens) {
+      debug(2, `[TokenOptimization] Applied grouping: ${originalCount} → ${optimizedCount} entries, has grouped tokens with counts`);
+    } else {
+      debug(2, `[TokenOptimization] Reduced battlefield from ${originalCount} to ${optimizedCount} entries (${Math.round((1 - optimizedCount / originalCount) * 100)}% reduction)`);
+    }
+    return {
+      battlefield: optimizedBattlefield,
+      tokenGroupingApplied: true,
+      originalBattlefieldCount: originalCount,
+    };
+  }
+
+  return { battlefield };
+}
+
+function augmentBattlefieldManaAmountsForEmit(battlefield: any[], game: any): void {
+  if (!Array.isArray(battlefield) || !game?.state) return;
+
+  for (const perm of battlefield) {
+    if (!perm || perm.tapped) continue;
+
+    const controller = perm.controller;
+    if (!controller) continue;
+
+    const devotionMana = getDevotionManaAmount(game.state, perm, controller);
+    if (devotionMana && devotionMana.amount > 0) {
+      perm.manaAmount = devotionMana.amount;
+      perm.manaColor = devotionMana.color;
+    }
+
+    const creatureCountMana = getCreatureCountManaAmount(game.state, perm, controller);
+    if (creatureCountMana && creatureCountMana.amount > 0 && !perm.manaAmount) {
+      perm.manaAmount = creatureCountMana.amount;
+      perm.manaColor = creatureCountMana.color;
+    }
+  }
+}
+
+function buildSharedEmitBattlefieldCache(game: any, sourceBattlefield: any[]): SharedEmitBattlefieldCache {
+  const seq = Number(game?.seq ?? 0);
+  let battlefield = sourceBattlefield;
+
+  try {
+    if (battlefield.length > 0) {
+      battlefield = applyStaticAbilitiesToBattlefield(battlefield);
+    }
+  } catch (e) {
+    debugWarn(1, "Failed to apply static abilities to battlefield:", e);
+  }
+
+  let tokenGroupingApplied: boolean | undefined;
+  let originalBattlefieldCount: number | undefined;
+  try {
+    const optimized = optimizeBattlefieldTokensForEmit(battlefield, game);
+    battlefield = optimized.battlefield;
+    tokenGroupingApplied = optimized.tokenGroupingApplied;
+    originalBattlefieldCount = optimized.originalBattlefieldCount;
+  } catch (e) {
+    debugWarn(1, "Token grouping optimization failed:", e);
+  }
+
+  try {
+    augmentBattlefieldManaAmountsForEmit(battlefield, game);
+  } catch (e) {
+    debugWarn(1, "Failed to augment mana amounts:", e);
+  }
+
+  const cache: SharedEmitBattlefieldCache = {
+    seq,
+    battlefield,
+    tokenGroupingApplied,
+    originalBattlefieldCount,
+  };
+  if (game) {
+    game._sharedEmitBattlefieldCache = cache;
+    // Emit projection only — do not replace authoritative battlefield (oracle text, ids, etc.).
+  }
+  return cache;
+}
+
+function applySharedBattlefieldCacheToView(view: any, game: any): void {
+  if (!view?.battlefield || !Array.isArray(view.battlefield) || view.battlefield.length === 0) {
+    return;
+  }
+
+  let cache = getSharedEmitBattlefieldCache(game);
+  if (!cache) {
+    cache = buildSharedEmitBattlefieldCache(game, view.battlefield);
+  }
+
+  view.battlefield = cache.battlefield;
+  if (cache.tokenGroupingApplied) {
+    view.tokenGroupingApplied = true;
+    view.originalBattlefieldCount = cache.originalBattlefieldCount;
+  }
+}
+
 function normalizeViewForEmit(rawView: any, game: any) {
   try {
     const view = rawView || {};
@@ -1036,233 +1275,8 @@ function normalizeViewForEmit(rawView: any, game: any) {
       // non-fatal
     }
 
-    // Apply static abilities to battlefield (P/T calculations, static goad from Baeloth, etc.)
-    // This ensures all battlefield permanents have correct effectivePower/effectiveToughness
-    // and isStaticallyGoaded flags before being sent to the client
-    try {
-      if (view.battlefield && Array.isArray(view.battlefield) && view.battlefield.length > 0) {
-        const updatedBattlefield = applyStaticAbilitiesToBattlefield(view.battlefield);
-        view.battlefield = updatedBattlefield;
-        
-        // Also update game.state.battlefield to keep it in sync
-        if (game && game.state && Array.isArray(game.state.battlefield)) {
-          game.state.battlefield = updatedBattlefield;
-        }
-      }
-    } catch (e) {
-      // non-fatal - don't break the whole view if static ability calculation fails
-      debugWarn(1, "Failed to apply static abilities to battlefield:", e);
-    }
+    applySharedBattlefieldCacheToView(view, game);
 
-    // ========================================================================
-    // TOKEN GROUPING OPTIMIZATION
-    // Group identical tokens to reduce network payload for games with many tokens.
-    // Tokens are grouped if they share: name, controller, power, toughness, tap state,
-    // colors, counter state, and no unique modifiers (like individual damage marks).
-    // The client receives grouped tokens with a 'tokenCount' field.
-    // 
-    // The 10% threshold (MIN_GROUPING_REDUCTION_RATIO = 0.9) ensures we only apply
-    // grouping when it provides meaningful network savings. Small reductions aren't
-    // worth the additional client-side processing complexity.
-    // ========================================================================
-    const MIN_GROUPING_REDUCTION_RATIO = 0.9; // Only apply if reduced to 90% or less of original
-    try {
-      if (view.battlefield && Array.isArray(view.battlefield)) {
-        const tokenGroups = new Map<string, { prototype: any; ids: string[] }>();
-        const nonTokenPermanents: any[] = [];
-        
-        for (const perm of view.battlefield) {
-          if (!perm) continue;
-          
-          // Only group tokens that are simple and identical
-          // Tokens with any of the following are NOT groupable (they're unique):
-          const hasEquipment = perm.attachedEquipment?.length > 0 || perm.isEquipped;
-          const hasAuras = perm.attachments?.length > 0;
-          const isAttachedToSomething = !!perm.attachedTo;
-          const hasDamage = (perm.damageTaken || 0) > 0 || (perm.damageMarked || 0) > 0;
-          const isInCombat = perm.isBlocking || perm.isAttacking || perm.blocking?.length > 0;
-          
-          // Check for ANY temporary modifications that would make this token unique:
-          // - modifiers: Array of P/T modifiers from Giant Growth, battle cry, anthems, etc.
-          // - temporaryEffects: Array of temporary effects like "exile if dies this turn"
-          // - tempPTMod: Legacy field for some temporary P/T changes
-          // - temporaryProtection: Array of temporary protection effects (e.g., Brave the Elements)
-          const hasModifiers = perm.modifiers?.length > 0;
-          const hasTemporaryEffects = perm.temporaryEffects?.length > 0;
-          const hasTempPTMod = !!perm.tempPTMod;
-          const hasTemporaryProtection = perm.temporaryProtection?.length > 0;
-          const hasTempMods = hasModifiers || hasTemporaryEffects || hasTempPTMod || hasTemporaryProtection;
-          
-          const isGroupableToken = 
-            perm.isToken === true &&
-            !hasEquipment &&      // No equipment attached
-            !hasAuras &&          // No auras/enchantments attached
-            !isAttachedToSomething && // Not attached to anything
-            !hasDamage &&         // No damage taken
-            !isInCombat &&        // Not in combat
-            !hasTempMods;         // No temporary modifications (Giant Growth, etc.)
-          
-          if (isGroupableToken) {
-            // Create a deterministic grouping key based on relevant properties
-            // Using manual string construction for reliability (JSON.stringify ordering is not guaranteed)
-            const card = perm.card || {};
-            const countersStr = Object.entries(perm.counters || {})
-              .filter(([, v]) => (v as number) > 0)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([k, v]) => `${k}:${v}`)
-              .join(',');
-            
-            // Granted abilities (from equipment, auras, anthem effects, etc.)
-            const grantedAbilitiesStr = (perm.grantedAbilities || [])
-              .slice()
-              .sort()
-              .join('|');
-            
-            // Static/inherent abilities from the token's oracle text (flying, lifelink, etc.)
-            // These are abilities the token was created with
-            const oracleText = (card.oracle_text || '').toLowerCase();
-            const staticAbilities: string[] = [];
-            
-            // Detect common keyword abilities from oracle text
-            const keywordPatterns = [
-              'flying', 'first strike', 'double strike', 'deathtouch', 'lifelink',
-              'vigilance', 'trample', 'haste', 'hexproof', 'indestructible',
-              'menace', 'reach', 'defender', 'flash', 'shroud', 'protection',
-              'infect', 'wither', 'persist', 'undying', 'annihilator',
-              'intimidate', 'skulk', 'prowess', 'afflict', 'afterlife',
-            ];
-            for (const keyword of keywordPatterns) {
-              if (oracleText.includes(keyword)) {
-                staticAbilities.push(keyword);
-              }
-            }
-            
-            // Also check for special token abilities like "This creature's power and toughness are each equal to..."
-            // These create tokens with variable P/T based on game state
-            if (oracleText.includes('power and toughness are each equal to')) {
-              staticAbilities.push('variable_pt');
-            }
-            
-            const staticAbilitiesStr = staticAbilities.sort().join('|');
-            const colorsStr = (card.colors || []).slice().sort().join('');
-            
-            // Build deterministic key with all grouping-relevant properties
-            const key = [
-              `ctrl:${perm.controller}`,
-              `name:${card.name || ''}`,
-              `p:${perm.effectivePower ?? perm.basePower ?? card.power ?? 0}`,
-              `t:${perm.effectiveToughness ?? perm.baseToughness ?? card.toughness ?? 0}`,
-              `tap:${perm.tapped ? 1 : 0}`,
-              `sick:${perm.summoningSickness ? 1 : 0}`,
-              `cnt:${countersStr}`,
-              `grantedAbil:${grantedAbilitiesStr}`,
-              `staticAbil:${staticAbilitiesStr}`,
-              `col:${colorsStr}`,
-            ].join('|');
-            
-            const existing = tokenGroups.get(key);
-            if (existing) {
-              // Add to existing group
-              existing.ids.push(perm.id);
-            } else {
-              // Create new group with this token as prototype
-              tokenGroups.set(key, { prototype: perm, ids: [perm.id] });
-            }
-          } else {
-            // Keep non-groupable permanents as-is (includes equipped/enchanted tokens)
-            nonTokenPermanents.push(perm);
-          }
-        }
-        
-        // Build the optimized battlefield array
-        const optimizedBattlefield = [...nonTokenPermanents];
-        
-        // Track whether any tokens were actually grouped
-        let hasGroupedTokens = false;
-        
-        for (const [, group] of tokenGroups) {
-          if (group.ids.length === 1) {
-            // Single token - keep as-is but still mark it as a token for consistency
-            const singleToken = {
-              ...group.prototype,
-              isToken: true,
-            };
-            optimizedBattlefield.push(singleToken);
-          } else {
-            // Multiple identical tokens - create grouped entry
-            hasGroupedTokens = true;
-            const groupedToken = {
-              ...group.prototype,
-              // Add grouping metadata
-              tokenCount: group.ids.length,
-              groupedTokenIds: group.ids,
-              isGroupedTokens: true,
-              isToken: true,
-              // The ID represents the group (client uses groupedTokenIds for individual operations)
-              id: `group_${group.ids[0]}`, // Use first ID as group identifier
-              originalId: group.ids[0], // Keep track of first real ID
-            };
-            optimizedBattlefield.push(groupedToken);
-          }
-        }
-        
-        // Apply optimization if:
-        // 1. We have any grouped tokens (for badge display), OR
-        // 2. We reduced the count significantly (for network optimization)
-        const originalCount = view.battlefield.length;
-        const optimizedCount = optimizedBattlefield.length;
-        
-        // IMPORTANT: Always apply grouping when there are grouped tokens, even if the
-        // total count reduction is minimal. This ensures the client receives tokenCount
-        // and isGroupedTokens properties for UI badge display (e.g., "24x" token count).
-        // Without this, the badge wouldn't appear if only a few tokens are grouped.
-        if (hasGroupedTokens || optimizedCount < originalCount * MIN_GROUPING_REDUCTION_RATIO) {
-          view.battlefield = optimizedBattlefield;
-          view.tokenGroupingApplied = true;
-          view.originalBattlefieldCount = originalCount;
-          if (hasGroupedTokens) {
-            debug(2, `[TokenOptimization] Applied grouping: ${originalCount} → ${optimizedCount} entries, has grouped tokens with counts`);
-          } else {
-            debug(2, `[TokenOptimization] Reduced battlefield from ${originalCount} to ${optimizedCount} entries (${Math.round((1 - optimizedCount/originalCount) * 100)}% reduction)`);
-          }
-        }
-      }
-    } catch (e) {
-      // Non-fatal - if grouping fails, we just send the full battlefield
-      debugWarn(1, "Token grouping optimization failed:", e);
-    }
-
-    // Augment battlefield permanents with mana production amounts for special abilities
-    // This allows the payment picker to show the correct amount (e.g., "7x{G}" for Priest of Titania)
-    try {
-      if (view.battlefield && Array.isArray(view.battlefield) && game && game.state) {
-        for (const perm of view.battlefield) {
-          if (!perm || perm.tapped) continue;
-          
-          const controller = perm.controller;
-          if (!controller) continue;
-          
-          // Check for devotion-based mana (Karametra's Acolyte, etc.)
-          const devotionMana = getDevotionManaAmount(game.state, perm, controller);
-          if (devotionMana && devotionMana.amount > 0) {
-            perm.manaAmount = devotionMana.amount;
-            perm.manaColor = devotionMana.color;
-          }
-          
-          // Check for creature-count-based mana (Priest of Titania, Bighorn Rancher, etc.)
-          // Note: Only set if devotion mana wasn't already set, since a card typically has one or the other
-          const creatureCountMana = getCreatureCountManaAmount(game.state, perm, controller);
-          if (creatureCountMana && creatureCountMana.amount > 0 && !perm.manaAmount) {
-            perm.manaAmount = creatureCountMana.amount;
-            perm.manaColor = creatureCountMana.color;
-          }
-        }
-      }
-    } catch (e) {
-      // non-fatal - don't break the whole view if mana calculation fails
-      debugWarn(1, "Failed to augment mana amounts:", e);
-    }
-    
     // Add playable cards highlighting for the current priority player
     // This helps players see which cards/permanents they can play/activate
     try {

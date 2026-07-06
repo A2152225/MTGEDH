@@ -143,7 +143,10 @@ export type PermanentSpellStackResolveOptions = {
 export type PermanentBattlefieldEntryOptions = Omit<
   PermanentSpellStackResolveOptions,
   'bumpSeq'
->;
+> & {
+  /** Replay-stable permanent id (typically the persisted stack item id). */
+  preferredPermanentId?: string;
+};
 
 export type PermanentBattlefieldEntryOutcome =
   | { mutateResolved: true }

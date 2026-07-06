@@ -40,7 +40,6 @@ describe('aiOpponentPresets', () => {
       {
         label: 'Test Bot',
         name: 'Test Bot',
-        strategy: 'aggressive',
         difficulty: 0.8,
         deckMode: 'select',
         deckId: 'deck-1',
@@ -53,10 +52,35 @@ describe('aiOpponentPresets', () => {
     const loaded = loadSavedAIOpponentPresets(storage);
     expect(loaded).toHaveLength(1);
     expect(loaded[0].label).toBe('Test Bot');
-    expect(loaded[0].strategy).toBe('aggressive');
     expect(loaded[0].difficulty).toBe(0.8);
     expect(loaded[0].deckId).toBe('deck-1');
     expect(storage.getItem(AI_OPPONENT_PRESETS_STORAGE_KEY)).toBeTruthy();
+  });
+
+  it('ignores legacy strategy field when loading old presets', () => {
+    const storage = makeStorage();
+    storage.setItem(
+      AI_OPPONENT_PRESETS_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: 'legacy',
+          label: 'Legacy Bot',
+          name: 'Legacy Bot',
+          strategy: 'aggressive',
+          difficulty: 0.5,
+          deckMode: 'select',
+          deckId: 'deck-legacy',
+          deckText: '',
+          deckName: '',
+          savedAt: Date.now(),
+        },
+      ]),
+    );
+
+    const loaded = loadSavedAIOpponentPresets(storage);
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].deckId).toBe('deck-legacy');
+    expect((loaded[0] as any).strategy).toBeUndefined();
   });
 
   it('deletes a preset by id', () => {
@@ -65,7 +89,6 @@ describe('aiOpponentPresets', () => {
       {
         label: 'Remove Me',
         name: 'Remove Me',
-        strategy: 'basic',
         difficulty: 0.5,
         deckMode: 'import',
         deckId: '',
@@ -85,7 +108,6 @@ describe('aiOpponentPresets', () => {
       {
         label: 'Control Shell',
         name: 'Blue Control',
-        strategy: 'control',
         difficulty: 0.25,
         deckMode: 'select',
         deckId: 'deck-9',
@@ -97,7 +119,6 @@ describe('aiOpponentPresets', () => {
 
     const opponent = createAiOpponentFromPreset(preset);
     expect(opponent.name).toBe('Blue Control');
-    expect(opponent.strategy).toBe('control');
     expect(opponent.deckId).toBe('deck-9');
     expect(opponent.saveAsPreset).toBe(false);
   });
@@ -105,7 +126,6 @@ describe('aiOpponentPresets', () => {
   it('builds preset input from ai opponent form fields', () => {
     const input = presetInputFromAiOpponent({
       name: 'Combo Bot',
-      strategy: 'combo',
       difficulty: 1,
       deckMode: 'import',
       deckId: '',
@@ -116,6 +136,5 @@ describe('aiOpponentPresets', () => {
 
     expect(input.label).toBe('My Combo Preset');
     expect(input.deckText).toBe('1 Sol Ring');
-    expect(input.strategy).toBe('combo');
   });
 });

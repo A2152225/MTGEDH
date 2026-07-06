@@ -29,6 +29,7 @@ import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTrigg
 import { getEnergyCount, spendEnergyCounters } from "../state/utils.js";
 import { processEquippedAttackRevealUntilLandPumps, emitEquippedAttackRevealPumpMessages } from "../state/modules/equippedAttackRevealPump.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
+import { normalizeAttackerSelections, parseGroupedPermanentRef, resolveGroupedPermanentRef } from "./tokenGroupResolve.js";
 
 function getDefendingPlayerIdFromAttackDeclaration(
   attackers: Array<{ targetPlayerId?: string; targetPermanentId?: string }>,
@@ -1263,6 +1264,8 @@ export async function executeDeclareAttackers(
     throw Object.assign(new Error('Game not found'), { code: 'DECLARE_ATTACKERS_ERROR' });
   }
 
+  const resolvedAttackers = normalizeAttackerSelections(game, playerId, attackers);
+
   const battlefield = game.state?.battlefield || [];
   const attackerIds: string[] = [];
 
@@ -1328,7 +1331,7 @@ export async function executeDeclareAttackers(
     // best-effort only
   }
 
-  for (const attacker of attackers) {
+  for (const attacker of resolvedAttackers) {
     const creature = battlefield.find(
       (perm: any) => perm?.id === attacker.creatureId && perm?.controller === playerId
     );
@@ -1491,14 +1494,14 @@ export async function executeDeclareAttackers(
 
   // Process tap triggers for creatures that became tapped from attacking
   try {
-    processTapTriggersForAttackers(io, game, gameId, attackers as any, battlefield, playerId);
+    processTapTriggersForAttackers(io, game, gameId, resolvedAttackers as any, battlefield, playerId);
   } catch (e) {
     debugWarn(1, '[combat] Failed to process tap triggers during executeDeclareAttackers:', e);
   }
 
   const revealPumpResults = processEquippedAttackRevealUntilLandPumps(
     game,
-    attackers,
+    resolvedAttackers,
     battlefield,
     millUntilLand,
   );
@@ -1519,7 +1522,7 @@ export async function executeDeclareAttackers(
   try {
     await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', {
       playerId,
-      attackers,
+      attackers: resolvedAttackers,
       ...(options?.attackCostPaid
         ? {
             attackCostPaid: true,
@@ -1714,6 +1717,16 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       // Validate attackers are valid creatures controlled by the player
       const battlefield = game.state?.battlefield || [];
+      let resolvedAttackers;
+      try {
+        resolvedAttackers = normalizeAttackerSelections(game, playerId, attackers as any[]);
+      } catch (normalizeError: any) {
+        socket.emit("error", {
+          code: normalizeError?.code || "INVALID_ATTACKER",
+          message: normalizeError?.message || "Invalid attacker selection",
+        });
+        return;
+      }
       const attackerIds: string[] = [];
       const currentTurn = (game.state as any).turn || 0;
       
@@ -1783,7 +1796,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       const attackCostBreakdown: { playerId: string; cost: number; sources: string[] }[] = [];
       const attackCostByDefender = new Map<string, { cost: number; sources: string[] }>();
       
-      for (const attacker of attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
+      for (const attacker of resolvedAttackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
         const defendingPlayerId = resolveDefendingPlayerIdForAttackTarget(attacker, battlefield, players);
         if (defendingPlayerId && attackCostPerDefender.has(defendingPlayerId)) {
           const costInfo = attackCostPerDefender.get(defendingPlayerId)!;
@@ -1808,7 +1821,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         });
       }
       
-      for (const attacker of attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
+      for (const attacker of resolvedAttackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
         const targetPlayerId = String(attacker.targetPlayerId || '').trim();
         if (targetPlayerId) {
           const attackProhibitionSource = getAttackProhibitionSourceForPlayer(battlefield, targetPlayerId);
@@ -1938,7 +1951,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       if (totalAttackCostRequired > 0) {
-        const attackerIdsToExclude = (attackers as Array<{ creatureId: string }>).map((entry) => String(entry.creatureId || ''));
+        const attackerIdsToExclude = resolvedAttackers.map((entry) => String(entry.creatureId || ''));
         const totalAvailable = getMaxGenericManaAvailable(game.state, playerId, {
           excludedPermanentIds: attackerIdsToExclude,
         });
@@ -1970,7 +1983,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
             attackCostPayment: true,
             attackCostAmount: totalAttackCostRequired,
             attackCostBreakdown,
-            attackers,
+            attackers: resolvedAttackers,
           } as any);
 
           try {
@@ -1991,7 +2004,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         return;
       }
 
-      for (const attacker of attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
+      for (const attacker of resolvedAttackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
         const creature = battlefield.find((perm: any) =>
           perm.id === attacker.creatureId &&
           perm.controller === playerId
@@ -2023,7 +2036,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         gameId,
         processEquippedAttackRevealUntilLandPumps(
           game,
-          attackers as Array<{ creatureId: string; targetPlayerId?: string }>,
+          resolvedAttackers as Array<{ creatureId: string; targetPlayerId?: string }>,
           battlefield,
           millUntilLand,
         ),
@@ -2114,7 +2127,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       try {
         await appendEvent(gameId, (game as any).seq || 0, "declareAttackers", {
           playerId,
-          attackers: attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>,
+          attackers: resolvedAttackers,
         });
       } catch (e) {
         debugWarn(1, "[combat] Failed to persist declareAttackers event:", e);
@@ -2614,50 +2627,28 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       
       for (const blocker of blockers as Array<{ blockerId: string; attackerId: string }>) {
         let actualBlockerId = blocker.blockerId;
-        
-        // Check if this is a grouped token ID (starts with "group_")
-        if (blocker.blockerId.startsWith('group_')) {
-          // Extract the original first token ID from the group identifier
-          const originalId = blocker.blockerId.replace('group_', '');
-          
-          // Find the first available token from this group
-          // Grouped tokens all have the same card name and similar properties
-          const groupPrototype = battlefield.find((perm: any) => perm.id === originalId);
-          
-          if (groupPrototype) {
-            const tokenName = groupPrototype.card?.name;
-            const tokenType = groupPrototype.card?.type_line;
-            
-            // Find all tokens that match this prototype (same name, type, controller)
-            // and are available (not tapped, not already used as a blocker this declaration)
-            const availableToken = battlefield.find((perm: any) => {
-              if (usedTokenIds.has(perm.id)) return false; // Already used in this declaration
-              if (perm.controller !== playerId) return false;
-              if (perm.tapped) return false; // Can't block if tapped
-              if (perm.blocking && perm.blocking.length > 0) return false; // Already blocking
-              // Match by name and token status
-              return perm.card?.name === tokenName && 
-                     perm.isToken === true;
-            });
-            
-            if (availableToken) {
-              actualBlockerId = availableToken.id;
-              usedTokenIds.add(actualBlockerId);
-              debug(2, `[combat] Resolved grouped token ${blocker.blockerId} to actual token ${actualBlockerId}`);
-            } else {
-              socket.emit("error", {
-                code: "NO_AVAILABLE_TOKEN",
-                message: `No available ${tokenName} token to block with`,
-              });
-              return;
-            }
-          } else {
-            socket.emit("error", {
-              code: "INVALID_GROUP_ID",
-              message: `Could not resolve grouped token ${blocker.blockerId}`,
-            });
-            return;
+
+        const resolvedBlockerId = resolveGroupedPermanentRef(game, playerId, blocker.blockerId, {
+          usedIds: usedTokenIds,
+          predicate: (perm: any) => {
+            if (perm.tapped) return false;
+            if (Array.isArray(perm.blocking) && perm.blocking.length > 0) return false;
+            return true;
+          },
+        });
+
+        if (resolvedBlockerId) {
+          actualBlockerId = resolvedBlockerId;
+          usedTokenIds.add(actualBlockerId);
+          if (actualBlockerId !== blocker.blockerId) {
+            debug(2, `[combat] Resolved grouped token ${blocker.blockerId} to actual token ${actualBlockerId}`);
           }
+        } else if (parseGroupedPermanentRef(blocker.blockerId)) {
+          socket.emit("error", {
+            code: "NO_AVAILABLE_TOKEN",
+            message: `No available token to block with for ${blocker.blockerId}`,
+          });
+          return;
         }
         
         resolvedBlockers.push({ blockerId: actualBlockerId, attackerId: blocker.attackerId });

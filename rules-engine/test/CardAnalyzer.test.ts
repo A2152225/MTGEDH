@@ -12,6 +12,8 @@ import {
   CardCategory,
   ThreatLevel,
   SynergyArchetype,
+  scoreAnotherCreatureTriggerStrength,
+  hasAnotherCreatureTrigger,
 } from '../src/CardAnalyzer';
 import type { KnownCardRef, BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
 
@@ -618,6 +620,55 @@ describe('CardAnalyzer', () => {
       
       const analysis = cardAnalyzer.analyzeCard(landfallCard);
       expect(analysis.synergyTags).toContain('landfall');
+    });
+  });
+
+  describe('another-creature trigger scoring', () => {
+    it('scores Zulaport-style death payoffs highly', () => {
+      const text =
+        'Whenever Zulaport Cutthroat or another creature you control dies, each opponent loses 1 life and you gain 1 life.';
+      expect(hasAnotherCreatureTrigger(text)).toBe(true);
+      expect(scoreAnotherCreatureTriggerStrength(text)).toBeGreaterThanOrEqual(9);
+    });
+
+    it('scores Chatterfang-style other-creature triggers', () => {
+      const text =
+        'Whenever one or more other Squirrels you control die, each opponent loses 1 life and you gain 1 life.';
+      expect(hasAnotherCreatureTrigger(text)).toBe(true);
+      expect(scoreAnotherCreatureTriggerStrength(text)).toBeGreaterThanOrEqual(8);
+    });
+
+    it('exposes another-creature strength on card analysis', () => {
+      const zulaport = createMockCard({
+        name: 'Zulaport Cutthroat',
+        type_line: 'Creature — Human Rogue Ally',
+        oracle_text:
+          'Whenever Zulaport Cutthroat or another creature you control dies, each opponent loses 1 life and you gain 1 life.',
+      });
+      const analysis = cardAnalyzer.analyzeCard(zulaport);
+      expect(analysis.details.hasAnotherCreatureTrigger).toBe(true);
+      expect(analysis.details.anotherCreatureTriggerStrength).toBeGreaterThanOrEqual(9);
+    });
+
+    it('ignores vanilla creatures without another-creature triggers', () => {
+      const bear = createMockCard({
+        name: 'Grizzly Bears',
+        oracle_text: '',
+      });
+      expect(scoreAnotherCreatureTriggerStrength(bear.oracle_text || '')).toBe(0);
+    });
+
+    it('does not infer triggers from card name when oracle_text is missing', () => {
+      const analysis = cardAnalyzer.analyzeCard(
+        createMockPermanent({
+          name: 'Zulaport Cutthroat',
+          type_line: 'Creature — Human Rogue Ally',
+          power: '1',
+          toughness: '1',
+        }),
+      );
+      expect(analysis.details.hasAnotherCreatureTrigger).toBe(false);
+      expect(analysis.categories).not.toContain(CardCategory.ARISTOCRAT);
     });
   });
 });

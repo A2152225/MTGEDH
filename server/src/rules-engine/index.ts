@@ -3,8 +3,9 @@ import type { GameState, BattlefieldPermanent } from '../../../shared/src';
 import {
   getCounterValue,
   permanentHasCounterGrantedAbility,
+  permanentHasDeathtouchDamageMarked,
 } from '../state/modules/counter-common-effects.js';
-import { calculateAllPTBonuses, calculateVariablePT } from '../state/utils.js';
+import { calculateAllPTBonuses, calculateVariablePT, resolveSetBasePTFromAttachedAuras } from '../state/utils.js';
 
 /**
  * Parse power/toughness value from string or number
@@ -100,6 +101,12 @@ function getEffectiveStatsForSBA(
 
   if (!isNumber(basePower) || !isNumber(baseToughness)) {
     return {};
+  }
+
+  const setBasePT = resolveSetBasePTFromAttachedAuras(perm, state.battlefield || []);
+  if (setBasePT) {
+    basePower = setBasePT.power;
+    baseToughness = setBasePT.toughness;
   }
 
   const plus = perm.counters?.['+1/+1'] ?? 0;
@@ -297,8 +304,13 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
       continue;
     }
     
-    // CR 704.5g: Lethal damage - IS destruction, respects indestructible
-    if (damage >= totalToughness) {
+    // CR 704.5g: Lethal damage - IS destruction, respects indestructible.
+    // Deathtouch (702.2c): any damage from a deathtouch source counts as lethal.
+    const hasLethalMarkedDamage =
+      damage >= totalToughness
+      || (damage > 0 && permanentHasDeathtouchDamageMarked(perm));
+
+    if (hasLethalMarkedDamage) {
       // Check for indestructible
       const shieldCounters = getCounterValue(perm, 'shield');
       if (shieldCounters > 0) {

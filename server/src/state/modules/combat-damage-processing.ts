@@ -224,6 +224,9 @@ export function applyCreatureDamageFromSource(
     return { prevented: false, appliedAmount: normalizedAmount, usedMinusCounters: true };
   }
 
+  const sourceCharacteristics = sourcePermanent
+    ? getCombatDamageSourceCharacteristics(sourcePermanent, (ctx as any).state)
+    : null;
   const damageResult = applyDamageToPermanentWithCounterEffects(
     targetPermanent,
     normalizedAmount,
@@ -232,6 +235,7 @@ export function applyCreatureDamageFromSource(
       state: (ctx as any).state,
       source: sourceCard,
       sourceId,
+      fromDeathtouch: Boolean(sourceCharacteristics?.hasDeathtouch),
     },
   );
 

@@ -16,6 +16,12 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import { GameStep as SharedGameStep } from '../../shared/src';
 import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
+import { mergeOracleFieldsFromLookup } from '../../shared/src/hydrateCardOracleText.js';
+import {
+  applyCopyTokenOverrides,
+  parseCopyTokenOverridesFromEffect,
+} from '../../shared/src/copyTokenOverrides.js';
+import { lookupLocalCardByNameSync } from '../../server/src/services/localCardLookup.js';
 import type { EngineResult } from './index';
 import {
   Phase,
@@ -3907,19 +3913,30 @@ export class RulesEngineAdapter {
     }
 
     const originalCard = { ...(equippedCreature.card || {}) } as any;
+    mergeOracleFieldsFromLookup(originalCard, (name) => {
+      const record = lookupLocalCardByNameSync(name);
+      if (!record) return undefined;
+      return {
+        oracle_text: record.oracle_text,
+        type_line: record.type_line,
+        mana_cost: record.mana_cost,
+        power: record.power,
+        toughness: record.toughness,
+        loyalty: record.loyalty,
+        card_faces: record.card_faces,
+        layout: record.layout,
+        colors: record.colors,
+        color_identity: record.color_identity,
+      };
+    });
+    const copyOverrides = parseCopyTokenOverridesFromEffect(effectText);
     const tokenId = `token-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
-    const originalTypeLine = String(originalCard.type_line || equippedCreature.type_line || equippedCreature.cardType || 'Token');
-    const tokenTypeLine = originalTypeLine.replace(/\bLegendary\s+/gi, '').trim();
-    const originalOracleText = String(originalCard.oracle_text || equippedCreature.oracle_text || '');
-    const originalKeywords = Array.isArray(originalCard.keywords) ? [...originalCard.keywords] : [];
-    const hasPrintedHaste = /\bhaste\b/i.test(originalOracleText) || originalKeywords.some((keyword: string) => /\bhaste\b/i.test(String(keyword)));
 
     const tokenCard = {
       ...originalCard,
       id: tokenId,
-      type_line: tokenTypeLine,
-      oracle_text: hasPrintedHaste ? originalOracleText : `${originalOracleText}${originalOracleText ? '\n' : ''}Haste`,
-      keywords: hasPrintedHaste ? originalKeywords : [...originalKeywords, 'Haste'],
+      isToken: true,
+      isCopyOfPrintedCard: true,
     };
 
     const tokenPermanent = {
@@ -3935,18 +3952,25 @@ export class RulesEngineAdapter {
       attachedEquipment: [],
       isEquipped: false,
       modifiers: [],
-      cardType: tokenTypeLine,
-      type_line: tokenTypeLine,
       name: tokenCard.name,
       manaCost: originalCard.mana_cost ?? originalCard.manaCost,
       power: equippedCreature.power ?? originalCard.power,
       toughness: equippedCreature.toughness ?? originalCard.toughness,
       basePower: equippedCreature.basePower ?? equippedCreature.power ?? originalCard.power,
       baseToughness: equippedCreature.baseToughness ?? equippedCreature.toughness ?? originalCard.toughness,
-      oracle_text: tokenCard.oracle_text,
       card: tokenCard,
       isToken: true,
+      isCopyToken: true,
+      copyTokenOverrides: copyOverrides,
+      ...(String(equippedCreature?.id || '').trim()
+        ? { copiedFromPermanentId: String(equippedCreature.id).trim() }
+        : {}),
     } as any;
+
+    applyCopyTokenOverrides(tokenCard, copyOverrides, tokenPermanent);
+    tokenPermanent.oracle_text = tokenCard.oracle_text;
+    tokenPermanent.type_line = tokenCard.type_line;
+    tokenPermanent.cardType = tokenCard.type_line;
 
     return {
       handled: true,

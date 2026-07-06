@@ -12,6 +12,7 @@ import { getLandwalkUnblockableReason } from '../../../shared/src/combatLandwalk
 import { getBlockerCapacity } from '../utils/blockerCapacity';
 import { getCombinedPermanentText } from '../utils/permanentText';
 import { canBlockAttacker } from '../utils/combatBlocking';
+import { hideCardPreview, showCardPreview } from './CardPreviewLayer';
 
 export interface DefenderAttackInfo {
   untappedCreatureCount: number;
@@ -25,6 +26,8 @@ export interface CombatSelectionModalProps {
   attackingCreatures?: BattlefieldPermanent[]; // For blocker mode: which creatures are attacking
   /** Full battlefield (includes lands) for landwalk and evasion checks during blocking */
   battlefield?: BattlefieldPermanent[];
+  /** All players in the game (for resolving attack targets in read-only views) */
+  players?: PlayerRef[];
   defenders?: PlayerRef[]; // For attacker mode: which players/planeswalkers can be attacked
   /** Per-opponent untapped blockers and attack tax (Propaganda, Ghostly Prison, etc.) */
   defenderInfoMap?: Record<string, DefenderAttackInfo>;
@@ -47,7 +50,9 @@ export interface CombatSelectionModalProps {
 }
 
 export interface AttackerSelection {
-  creatureId: string;
+  creatureId?: string;
+  groupId?: string;
+  count?: number;
   targetPlayerId?: string;
   targetPermanentId?: string;
 }
@@ -55,6 +60,65 @@ export interface AttackerSelection {
 export interface BlockerSelection {
   blockerId: string;
   attackerId: string;
+}
+
+/** Resolve who an attacker is targeting (player or planeswalker/battle). */
+function resolveAttackTargetLabel(
+  attacker: BattlefieldPermanent,
+  battlefield: readonly BattlefieldPermanent[],
+  playerNameById: ReadonlyMap<string, string>,
+  previewTargetPlayerId?: string,
+): string | null {
+  const rawTarget = previewTargetPlayerId || (attacker as { attacking?: string }).attacking;
+  if (!rawTarget || typeof rawTarget !== 'string') return null;
+
+  const playerName = playerNameById.get(rawTarget);
+  if (playerName) return playerName;
+
+  const targetPerm = battlefield.find((perm) => String(perm?.id || '') === rawTarget);
+  if (targetPerm) {
+    const cardName = String((targetPerm.card as KnownCardRef | undefined)?.name || 'Permanent');
+    const controllerName = playerNameById.get(String(targetPerm.controller || ''));
+    return controllerName ? `${cardName} (${controllerName})` : cardName;
+  }
+
+  return rawTarget;
+}
+
+function AttackTargetBadge({ label }: { label: string }) {
+  return (
+    <div
+      style={{
+        width: '100%',
+        marginTop: 6,
+        padding: '4px 6px',
+        fontSize: 10,
+        borderRadius: 4,
+        border: '1px solid rgba(239, 68, 68, 0.35)',
+        background: 'rgba(239, 68, 68, 0.12)',
+        color: '#fecaca',
+        textAlign: 'center',
+      }}
+    >
+      Attacking → {label}
+    </div>
+  );
+}
+
+function getCombatCardPreviewHandlers(
+  permanent: BattlefieldPermanent | undefined,
+  prefer: 'left' | 'right' | 'above' | 'below' | 'auto' = 'right',
+): Pick<React.HTMLAttributes<HTMLElement>, 'onMouseEnter' | 'onMouseLeave'> {
+  const card = permanent?.card as KnownCardRef | undefined;
+  if (!card) return {};
+  return {
+    onMouseEnter: (e) => {
+      showCardPreview(e.currentTarget as HTMLElement, card, { prefer, anchorPadding: 8 });
+    },
+    onMouseLeave: (e) => {
+      hideCardPreview(e.currentTarget as HTMLElement);
+    },
+  };
 }
 
 /**
@@ -338,10 +402,10 @@ function groupCreatures(creatures: BattlefieldPermanent[]): CreatureGroup[] {
     
     // Handle server-side grouped tokens (optimization for games with many tokens)
     // If this is a grouped token, we need to expand it into virtual creatures
-    if ((c as any).isGroupedTokens && (c as any).tokenCount && (c as any).groupedTokenIds) {
+    if ((c as any).isGroupedTokens && Number((c as any).tokenCount) > 1) {
       const tokenCount = (c as any).tokenCount as number;
-      const groupedIds = (c as any).groupedTokenIds as string[];
-      const groupId = c.id; // The group's ID (e.g., "group_xxx")
+      const groupedIds = (c as any).groupedTokenIds as string[] | undefined;
+      const groupId = c.id;
       
       // Create virtual creatures for each token in the group
       const existing = map.get(key);
@@ -349,7 +413,7 @@ function groupCreatures(creatures: BattlefieldPermanent[]): CreatureGroup[] {
         // Add virtual creature references for each token in the group
         for (let i = 0; i < tokenCount; i++) {
           // Use actual ID from groupedIds if available, otherwise create a unique fallback
-          const actualId = i < groupedIds.length ? groupedIds[i] : `${groupId}_virtual_${i}`;
+          const actualId = groupedIds && i < groupedIds.length ? groupedIds[i] : `${groupId}_virtual_${i}`;
           const virtualCreature = {
             ...c,
             id: actualId,
@@ -365,7 +429,7 @@ function groupCreatures(creatures: BattlefieldPermanent[]): CreatureGroup[] {
         const virtualCreatures: BattlefieldPermanent[] = [];
         for (let i = 0; i < tokenCount; i++) {
           // Use actual ID from groupedIds if available, otherwise create a unique fallback
-          const actualId = i < groupedIds.length ? groupedIds[i] : `${groupId}_virtual_${i}`;
+          const actualId = groupedIds && i < groupedIds.length ? groupedIds[i] : `${groupId}_virtual_${i}`;
           const virtualCreature = {
             ...c,
             id: actualId,
@@ -413,12 +477,61 @@ function groupCreatures(creatures: BattlefieldPermanent[]): CreatureGroup[] {
   });
 }
 
+function buildAttackerSelections(
+  selectedAttackers: Map<string, string | undefined>,
+  availableCreatures: BattlefieldPermanent[],
+): AttackerSelection[] {
+  const creatureMeta = new Map<string, { groupId: string; virtualIndex: number }>();
+  for (const creature of availableCreatures) {
+    const groupId = (creature as any)._virtualFromGroup as string | undefined;
+    const virtualIndex = (creature as any)._virtualIndex as number | undefined;
+    if (groupId && typeof virtualIndex === 'number') {
+      creatureMeta.set(creature.id, { groupId, virtualIndex });
+    }
+  }
+
+  const groupedBuckets = new Map<string, { groupId: string; target?: string; count: number }>();
+  const individuals: AttackerSelection[] = [];
+
+  for (const [creatureId, target] of selectedAttackers.entries()) {
+    const meta = creatureMeta.get(creatureId);
+    if (meta) {
+      const bucketKey = `${meta.groupId}|${target || ''}`;
+      const existing = groupedBuckets.get(bucketKey);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        groupedBuckets.set(bucketKey, {
+          groupId: meta.groupId,
+          target,
+          count: 1,
+        });
+      }
+      continue;
+    }
+
+    individuals.push({
+      creatureId,
+      targetPlayerId: target,
+    });
+  }
+
+  const grouped: AttackerSelection[] = Array.from(groupedBuckets.values()).map((bucket) => ({
+    groupId: bucket.groupId,
+    count: bucket.count,
+    targetPlayerId: bucket.target,
+  }));
+
+  return [...individuals, ...grouped];
+}
+
 export function CombatSelectionModal({
   open,
   mode,
   availableCreatures,
   attackingCreatures = [],
   battlefield = [],
+  players = [],
   defenders = [],
   defenderInfoMap,
   initialAttackTargets,
@@ -501,6 +614,17 @@ export function CombatSelectionModal({
     }
     return lookup;
   }, [defenders]);
+
+  const playerNameById = useMemo(() => {
+    const lookup = new Map<string, string>();
+    for (const player of players) {
+      lookup.set(String(player.id), player.name);
+    }
+    for (const [id, name] of defenderNameById.entries()) {
+      if (!lookup.has(id)) lookup.set(id, name);
+    }
+    return lookup;
+  }, [players, defenderNameById]);
 
   // Filter to only untapped creatures for blocking
   const availableForBlock = useMemo(() => {
@@ -772,10 +896,7 @@ export function CombatSelectionModal({
     }
     
     if (mode === 'attackers') {
-      const selections: AttackerSelection[] = Array.from(selectedAttackers.entries()).map(([creatureId, target]) => ({
-        creatureId,
-        targetPlayerId: target,
-      }));
+      const selections = buildAttackerSelections(selectedAttackers, availableForAttack);
       onConfirm(selections);
     } else {
       const selections: BlockerSelection[] = [];
@@ -1133,6 +1254,7 @@ export function CombatSelectionModal({
                   return (
                     <div
                       key={group.key}
+                      {...getCombatCardPreviewHandlers(group.creatures[0])}
                       style={{
                         padding: 12,
                         borderRadius: 8,
@@ -1285,10 +1407,14 @@ export function CombatSelectionModal({
                   const { name, pt, effectivePower, imageUrl, dangers } = getCreatureInfo(creature);
                   const isSelected = selectedAttackers.has(creature.id);
                   const targetId = selectedAttackers.get(creature.id);
+                  const attackTargetLabel = isSelected
+                    ? resolveAttackTargetLabel(creature, battlefieldForBlocking, playerNameById, targetId)
+                    : null;
                   
                   return (
                     <div
                       key={creature.id}
+                      {...getCombatCardPreviewHandlers(creature)}
                       style={{
                         width: 130,
                         padding: 8,
@@ -1378,22 +1504,8 @@ export function CombatSelectionModal({
                           ))}
                         </select>
                       )}
-                      {isSelected && defenders.length > 0 && !isInteractive && (
-                        <div
-                          style={{
-                            width: '100%',
-                            marginTop: 6,
-                            padding: '4px 6px',
-                            fontSize: 10,
-                            borderRadius: 4,
-                            border: '1px solid rgba(239, 68, 68, 0.35)',
-                            background: 'rgba(239, 68, 68, 0.12)',
-                            color: '#fecaca',
-                            textAlign: 'center',
-                          }}
-                        >
-                          Attacking → {defenderNameById.get(String(targetId || '')) || 'Unassigned'}
-                        </div>
+                      {isSelected && !isInteractive && (
+                        <AttackTargetBadge label={attackTargetLabel || 'Unassigned'} />
                       )}
                     </div>
                   );
@@ -1490,6 +1602,11 @@ export function CombatSelectionModal({
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                   {attackingCreatures.map(attacker => {
                     const { name, pt, effectivePower, imageUrl, dangers } = getCreatureInfo(attacker);
+                    const attackTargetLabel = resolveAttackTargetLabel(
+                      attacker,
+                      battlefieldForBlocking,
+                      playerNameById,
+                    );
                     const blockersForThis = Array.from(selectedBlockers.entries())
                       .filter(([_, attackerIds]) => attackerIds.has(attacker.id))
                       .map(([blockerId]) => blockerId);
@@ -1501,6 +1618,7 @@ export function CombatSelectionModal({
                     return (
                       <div
                         key={attacker.id}
+                        {...getCombatCardPreviewHandlers(attacker)}
                         style={{
                           width: 130,
                           padding: 8,
@@ -1558,6 +1676,10 @@ export function CombatSelectionModal({
                           
                           {/* Danger indicators - very important for blockers! */}
                           <DangerIndicatorBadges dangers={dangers} />
+
+                          {attackTargetLabel && (
+                            <AttackTargetBadge label={attackTargetLabel} />
+                          )}
                           
                           {blockersForThis.length > 0 && (
                             <div style={{ color: '#10b981', marginTop: 4, fontSize: 10 }}>
@@ -1613,6 +1735,7 @@ export function CombatSelectionModal({
                     return (
                       <div
                         key={group.key}
+                        {...getCombatCardPreviewHandlers(group.creatures[0])}
                         style={{
                           padding: 12,
                           borderRadius: 8,
@@ -1671,6 +1794,11 @@ export function CombatSelectionModal({
                             {/* Assign blockers to specific attacker */}
                             {attackingCreatures.map(attacker => {
                               const attackerInfo = getCreatureInfo(attacker);
+                              const attackerTargetLabel = resolveAttackTargetLabel(
+                                attacker,
+                                battlefieldForBlocking,
+                                playerNameById,
+                              );
                               const dangerText = [];
                               if (attackerInfo.dangers.deathtouch) dangerText.push('☠️');
                               if (attackerInfo.dangers.trample) dangerText.push('🦶');
@@ -1687,6 +1815,9 @@ export function CombatSelectionModal({
                                 <div key={attacker.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                   <span style={{ fontSize: 10, color: '#f87171', minWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {dangerStr}{attackerInfo.name}
+                                    {attackerTargetLabel && (
+                                      <span style={{ color: '#fca5a5' }}> → {attackerTargetLabel}</span>
+                                    )}
                                   </span>
                                   <button
                                     onClick={() => {
@@ -1792,6 +1923,7 @@ export function CombatSelectionModal({
                     return (
                       <div
                         key={blocker.id}
+                        {...getCombatCardPreviewHandlers(blocker)}
                         style={{
                           width: 130,
                           padding: 8,

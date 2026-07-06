@@ -2,10 +2,140 @@ import type { BattlefieldPermanent } from '../../shared/src';
 import { getLegalAttackers, getLegalBlockers, getBlockerCapacity, getGoadedAttackers, getGoadedAttackTargets } from './actions/combat';
 import { canCreatureBlock, createCombatCreature, type CombatCreature } from './combatAutomation';
 import { SynergyArchetype } from './CardAnalyzer';
-import { AIDecisionType, type AIDecision, type AIDecisionContext, type AIPlayerConfig } from './AIEngine';
+import {
+  battlefieldHasManaRetention,
+  findAttackManaRetentionEquipmentAttachedTo,
+  getPlayerGreenManaInPool,
+  readPermanentPower,
+} from './aiEngineManaPoolSupport';
+import { AIStrategy, AIDecisionType, type AIDecision, type AIDecisionContext, type AIPlayerConfig } from './AIEngine';
+import { shouldPreserveInCombat } from './aiEngineValueSupport';
 
 type CombatDeckModifiers = { attackBias: number; preserveBias: number };
 type CombatValueEvaluation = { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number };
+
+/** True when the defender has an untapped legal blocker that would kill this attacker. */
+export function wouldDefenderLikelyBlockProfitably(
+  attackerPerm: BattlefieldPermanent,
+  defendingPlayerId: string,
+  battlefield: readonly BattlefieldPermanent[],
+): boolean {
+  const attacker = createCombatCreature(attackerPerm);
+  const legalBlockerIds = getLegalBlockers(
+    { battlefield: [...battlefield] } as any,
+    defendingPlayerId,
+    attacker.id,
+  );
+
+  for (const blockerId of legalBlockerIds) {
+    const blockerPerm = battlefield.find((perm) => perm.id === blockerId);
+    if (!blockerPerm || blockerPerm.tapped) continue;
+
+    const blocker = createCombatCreature(blockerPerm);
+    const validation = canCreatureBlock(blocker, attacker, []);
+    if (!validation.legal) continue;
+
+    const attackerDies =
+      attacker.toughness <= blocker.power || blocker.keywords.deathtouch;
+    if (attackerDies) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isActiveCombatOpponent(player: any, attackingPlayerId: string): boolean {
+  return Boolean(player?.id)
+    && player.id !== attackingPlayerId
+    && !player?.hasLost
+    && !player?.eliminated
+    && !player?.conceded
+    && !player?.spectator
+    && !player?.isSpectator;
+}
+
+function listActiveOpponents(gameState: AIDecisionContext['gameState'], attackingPlayerId: string) {
+  return gameState.players
+    .filter((player: any) => isActiveCombatOpponent(player, attackingPlayerId))
+    .map((player) => ({ id: player.id, life: player.life ?? 40 }));
+}
+
+/** True when a small attacker can find at least one opponent without a profitable block. */
+export function attackerHasOpenLane(
+  attackerPerm: BattlefieldPermanent,
+  opponents: ReadonlyArray<{ id: string }>,
+  battlefield: readonly BattlefieldPermanent[],
+): boolean {
+  const attacker = createCombatCreature(attackerPerm);
+  if (!isSmallVoluntaryAttacker(attacker)) return true;
+  return opponents.some(
+    (opp) => !wouldDefenderLikelyBlockProfitably(attackerPerm, opp.id, battlefield),
+  );
+}
+
+/** In multiplayer, route each attacker at the player most likely to take the damage. */
+export function selectBestDefenderForAttacker(
+  attackerPerm: BattlefieldPermanent,
+  opponents: ReadonlyArray<{ id: string; life?: number }>,
+  battlefield: readonly BattlefieldPermanent[],
+  fallbackTarget: string,
+): string {
+  if (opponents.length === 0) return fallbackTarget;
+
+  const attacker = createCombatCreature(attackerPerm);
+  const small = isSmallVoluntaryAttacker(attacker);
+  const isCommander = Boolean((attackerPerm as any).isCommander);
+
+  const scored = opponents.map((opp) => {
+    const profitableBlock = wouldDefenderLikelyBlockProfitably(attackerPerm, opp.id, battlefield);
+    let score = 0;
+
+    if (profitableBlock && small) {
+      score -= 500;
+    } else if (!profitableBlock) {
+      score += 100;
+    }
+
+    // Prefer lower life when lanes are otherwise similar (chip / race).
+    score += Math.max(0, 40 - (opp.life ?? 40));
+
+    return { id: opp.id, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  if (small && !isCommander && scored[0].score < 0) {
+    return fallbackTarget;
+  }
+
+  return scored[0]?.id || fallbackTarget;
+}
+
+function isSmallVoluntaryAttacker(attacker: CombatCreature): boolean {
+  return attacker.power + attacker.toughness <= 4;
+}
+
+/** Strategy tunes how eager the AI is to attack; combat sanity is always applied. */
+export function getStrategyAttackModifiers(strategy: AIStrategy): {
+  minVoluntaryAttackValue: number;
+  maxAttackFraction: number;
+} {
+  switch (strategy) {
+    case AIStrategy.AGGRESSIVE:
+      return { minVoluntaryAttackValue: -4, maxAttackFraction: 1 };
+    case AIStrategy.DEFENSIVE:
+      return { minVoluntaryAttackValue: 1, maxAttackFraction: 0.5 };
+    case AIStrategy.CONTROL:
+      return { minVoluntaryAttackValue: 0, maxAttackFraction: 0.75 };
+    case AIStrategy.COMBO:
+      return { minVoluntaryAttackValue: 2, maxAttackFraction: 0.35 };
+    case AIStrategy.RANDOM:
+    case AIStrategy.BASIC:
+    default:
+      return { minVoluntaryAttackValue: 0, maxAttackFraction: 1 };
+  }
+}
 
 function isActiveCombatPlayer(player: any): boolean {
   return Boolean(player?.id) && !player?.hasLost && !player?.eliminated && !player?.conceded && !player?.spectator && !player?.isSpectator;
@@ -24,6 +154,7 @@ export function makeBasicAttackDecision(
   }
 ): AIDecision {
   const difficulty = config.difficulty ?? 0.5;
+  const { minVoluntaryAttackValue, maxAttackFraction } = getStrategyAttackModifiers(config.strategy);
   const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
 
   if (legalAttackerIds.length === 0) {
@@ -92,9 +223,17 @@ export function makeBasicAttackDecision(
 
     const evaluation = deps.evaluateCombatValue(perm, true, activeOpponents);
     const deckModifiers = deps.getCombatDeckModifiers(perm, config);
+    let attackManaEngineBonus = 0;
+    if (findAttackManaRetentionEquipmentAttachedTo(globalBattlefield, id)) {
+      const power = readPermanentPower(perm);
+      attackManaEngineBonus = 12 + Math.min(32, power * 2);
+      if (battlefieldHasManaRetention(globalBattlefield, context.playerId)) {
+        attackManaEngineBonus += 6 + Math.min(12, getPlayerGreenManaInPool(context.gameState, context.playerId));
+      }
+    }
     return {
       id,
-      value: evaluation.combatValue + deckModifiers.attackBias - deckModifiers.preserveBias,
+      value: evaluation.combatValue + deckModifiers.attackBias - deckModifiers.preserveBias + attackManaEngineBonus,
       wantsToGetKilled: evaluation.wantsToGetKilled,
       deathBenefit: evaluation.deathBenefit,
       isCommander: Boolean((perm as any).isCommander),
@@ -103,26 +242,70 @@ export function makeBasicAttackDecision(
     };
   });
 
+  const targetPlayer = deps.selectAttackTarget(context.gameState, context.playerId);
+  const opponents = listActiveOpponents(context.gameState, context.playerId);
+  const smallAttackerBlockedEverywhere = (perm: BattlefieldPermanent) =>
+    isSmallVoluntaryAttacker(createCombatCreature(perm))
+    && !attackerHasOpenLane(perm, opponents, globalBattlefield);
+
   const suicideAttackers = attackerEvaluations
     .filter((entry) => entry.wantsToGetKilled && entry.deathBenefit >= 8)
     .map((entry) => entry.id);
 
   let regularAttackers = attackerEvaluations
-    .filter(e => !e.wantsToGetKilled && e.value > 0)
+    .filter((entry) => {
+      const perm = findPermanent(entry.id);
+      if (!perm || entry.wantsToGetKilled) return false;
+      if (shouldPreserveInCombat(perm)) return false;
+      if (smallAttackerBlockedEverywhere(perm)) return false;
+      return entry.value > minVoluntaryAttackValue;
+    })
     .sort((a, b) => b.value - a.value)
     .map(e => e.id);
 
   const archetypes = deps.getPrimaryArchetypes(config);
   if (archetypes.includes(SynergyArchetype.VOLTRON)) {
     regularAttackers = attackerEvaluations
-      .filter(e => e.isCommander || e.attackBias >= e.preserveBias + 5)
+      .filter((entry) => {
+        const perm = findPermanent(entry.id);
+        if (!perm || entry.wantsToGetKilled || shouldPreserveInCombat(perm)) return false;
+        if (
+          !entry.isCommander &&
+          !(entry.attackBias >= entry.preserveBias + 5) &&
+          smallAttackerBlockedEverywhere(perm)
+        ) {
+          return false;
+        }
+        return entry.isCommander || entry.attackBias >= entry.preserveBias + 5;
+      })
       .sort((a, b) => b.value - a.value)
       .map(e => e.id);
   }
 
   if (archetypes.includes(SynergyArchetype.COMBO) || archetypes.includes(SynergyArchetype.SPELLSLINGER)) {
     regularAttackers = attackerEvaluations
-      .filter(e => !e.wantsToGetKilled && e.attackBias >= e.preserveBias)
+      .filter((entry) => {
+        const perm = findPermanent(entry.id);
+        if (!perm || entry.wantsToGetKilled || shouldPreserveInCombat(perm)) return false;
+        if (smallAttackerBlockedEverywhere(perm)) return false;
+        return entry.attackBias >= entry.preserveBias;
+      })
+      .sort((a, b) => b.value - a.value)
+      .map(e => e.id);
+  }
+
+  if (
+    archetypes.includes(SynergyArchetype.ARISTOCRATS) ||
+    (archetypes.includes(SynergyArchetype.TOKENS) && archetypes.includes(SynergyArchetype.ARISTOCRATS))
+  ) {
+    regularAttackers = attackerEvaluations
+      .filter((entry) => {
+        const perm = findPermanent(entry.id);
+        if (!perm || entry.wantsToGetKilled || shouldPreserveInCombat(perm)) return false;
+        if (entry.preserveBias > entry.attackBias + 2) return false;
+        if (smallAttackerBlockedEverywhere(perm)) return false;
+        return entry.attackBias >= entry.preserveBias;
+      })
       .sort((a, b) => b.value - a.value)
       .map(e => e.id);
   }
@@ -131,20 +314,49 @@ export function makeBasicAttackDecision(
     !archetypes.includes(SynergyArchetype.VOLTRON) &&
     !archetypes.includes(SynergyArchetype.COMBO) &&
     !archetypes.includes(SynergyArchetype.SPELLSLINGER) &&
+    !archetypes.includes(SynergyArchetype.ARISTOCRATS) &&
+    !archetypes.includes(SynergyArchetype.TOKENS) &&
     deps.shouldMakeMistake(difficulty)
   ) {
     if (Math.random() < 0.5) {
       regularAttackers = regularAttackers.slice(0, Math.floor(regularAttackers.length / 2));
     } else {
-      regularAttackers = nonGoadedLegalAttackerIds.filter(id => !suicideAttackers.includes(id));
+      // Overcommit mistake: still avoid throwing small death-payoff creatures into blocks.
+      const preserveDeathPayoffIds = new Set(
+        attackerEvaluations
+          .filter((entry) => {
+            if (suicideAttackers.includes(entry.id)) return false;
+            const perm = findPermanent(entry.id);
+            return Boolean(perm) && (entry.deathBenefit > 0 || shouldPreserveInCombat(perm!));
+          })
+          .map((entry) => entry.id),
+      );
+      regularAttackers = nonGoadedLegalAttackerIds.filter(
+        (id) => {
+          if (suicideAttackers.includes(id) || preserveDeathPayoffIds.has(id)) return false;
+          const perm = findPermanent(id);
+          if (!perm) return false;
+          if (smallAttackerBlockedEverywhere(perm)) return false;
+          return true;
+        },
+      );
     }
   }
 
-  const targetPlayer = deps.selectAttackTarget(context.gameState, context.playerId);
-  const voluntaryAttackers = [...suicideAttackers, ...regularAttackers].map(id => ({
-    creatureId: id,
-    defendingPlayerId: targetPlayer,
-  }));
+  if (maxAttackFraction < 1 && regularAttackers.length > 1) {
+    const cap = Math.max(1, Math.floor(regularAttackers.length * maxAttackFraction));
+    regularAttackers = regularAttackers.slice(0, cap);
+  }
+
+  const voluntaryAttackers = [...suicideAttackers, ...regularAttackers].map((id) => {
+    const perm = findPermanent(id);
+    const defendingPlayerId = perm
+      ? (suicideAttackers.includes(id)
+        ? targetPlayer
+        : selectBestDefenderForAttacker(perm, opponents, globalBattlefield, targetPlayer))
+      : targetPlayer;
+    return { creatureId: id, defendingPlayerId };
+  });
   const allAttackers = [...goadedAttackers, ...voluntaryAttackers];
 
   let reasoning = `Attacking with ${allAttackers.length} creatures`;

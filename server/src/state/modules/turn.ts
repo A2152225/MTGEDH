@@ -2970,6 +2970,10 @@ function clearDamageFromPermanents(ctx: GameContext) {
         hadDamage = true;
         permanent.damage = 0;
       }
+      if (permanent.deathtouchDamageMarked) {
+        hadDamage = true;
+        permanent.deathtouchDamageMarked = false;
+      }
       
       // Clear damage counter if present (safely check for undefined)
       if (permanent.counters && typeof permanent.counters.damage === 'number' && permanent.counters.damage > 0) {

@@ -1,7 +1,34 @@
 import type { BattlefieldPermanent, KnownCardRef } from '../../shared/src';
+import { cardAnalyzer, CardCategory } from './CardAnalyzer';
 import { extractCombatKeywords, getCreaturePower, getCreatureToughness } from './combatAutomation';
 
 type HasPermanentType = (perm: BattlefieldPermanent, type: string) => boolean;
+
+export function shouldPreserveInCombat(perm: BattlefieldPermanent): boolean {
+  const analysis = cardAnalyzer.analyzeCard(perm);
+  const power = getCreaturePower(perm);
+  const toughness = getCreatureToughness(perm);
+
+  if (
+    analysis.details.hasAnotherCreatureTrigger &&
+    analysis.details.anotherCreatureTriggerStrength >= 6
+  ) {
+    return true;
+  }
+
+  if (power + toughness > 4) {
+    return false;
+  }
+
+  if (analysis.categories.includes(CardCategory.ARISTOCRAT)) {
+    return true;
+  }
+
+  return (
+    analysis.categories.includes(CardCategory.DEATH_TRIGGER) &&
+    analysis.details.deathTriggerBenefitsMe === true
+  );
+}
 
 export interface CombatValueAssessment {
   readonly combatValue: number;
@@ -10,7 +37,7 @@ export interface CombatValueAssessment {
 }
 
 export function evaluateDeathTrigger(card: KnownCardRef, opponentCount = 1): number {
-  const oracleText = (card?.oracle_text || '').toLowerCase();
+  const oracleText = String(card?.oracle_text || '').trim().toLowerCase();
   let benefit = 0;
 
   const hasDiesTrigger = /\bwhen(?:ever)?\b/.test(oracleText) && oracleText.includes('dies');
@@ -124,15 +151,32 @@ export function evaluateCombatValue(
   const toughness = getCreatureToughness(perm);
   let combatValue = power + toughness;
   const deathBenefit = evaluateDeathTrigger(card, opponentCount);
-  const wantsToGetKilled = deathBenefit >= 6;
+  // Only treat death as actively desirable when the swing is large (e.g. land search, big drain).
+  const wantsToGetKilled = deathBenefit >= 10;
+  const analysis = cardAnalyzer.analyzeCard(perm);
+  const anotherCreatureStrength = analysis.details.anotherCreatureTriggerStrength || 0;
+  const isSmallDeathPayoff = (deathBenefit > 0 || shouldPreserveInCombat(perm)) && power + toughness <= 3;
 
   if (wantsToGetKilled) {
     combatValue += deathBenefit * 3;
-    if (power + toughness <= 2 && deathBenefit >= 5) {
+    if (power + toughness <= 2 && deathBenefit >= 8) {
       combatValue += 10;
     }
-  } else if (deathBenefit > 0) {
-    combatValue -= deathBenefit;
+  } else if (deathBenefit > 0 || shouldPreserveInCombat(perm)) {
+    const preservePenalty = deathBenefit > 0 ? deathBenefit : 4;
+    combatValue -= preservePenalty;
+    // Small aristocrat payoffs (Zulaport, Blood Artist) die poorly in combat — keep them home.
+    if (isSmallDeathPayoff) {
+      combatValue -= preservePenalty * 2;
+    }
+  }
+
+  if (analysis.details.hasAnotherCreatureTrigger && anotherCreatureStrength > 0) {
+    const synergyPenalty = Math.max(5, anotherCreatureStrength);
+    combatValue -= synergyPenalty;
+    if (power + toughness <= 4) {
+      combatValue -= synergyPenalty;
+    }
   }
 
   return { combatValue, wantsToGetKilled, deathBenefit };

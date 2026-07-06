@@ -1,6 +1,6 @@
 # MTGEDH Oracle IR Architecture & Execution Loop
 
-**Version:** 2026-07-06 (referenced-object pronoun resolution + shared target binding)  
+**Version:** 2026-07-06 (copy-token except modifiers + oracle hydration; referenced-object pronouns)  
 **Repository:** MTGEDH  
 **Audience:** Contributors working on card behavior, server integration, or migration off legacy handlers
 
@@ -527,6 +527,60 @@ Server-side IR queues novel resolution steps faster than the client grows bespok
 ### 15.7 Phase 5 ceiling
 
 Continuous and replacement effects are the one class the step IR cannot express; they remain in scattered event-specific hooks. Design (declarative `StaticEffectSpec` / `ReplacementEffectSpec`, single replacement registry, derived-view statics): [oracle-ir-phase5-continuous-effects-design.md](./oracle-ir-phase5-continuous-effects-design.md).
+
+---
+
+## 16. Copy tokens, oracle hydration, and “except …” modifiers
+
+~177 paper cards match `oracle:"copy of" oracle:"except"` on Scryfall — copies with replacements (nonlegendary, haste, P/T, colors, no mana cost, extra types). This is **generic oracle-driven behavior**, not per-card handlers.
+
+### 16.1 Two token classes
+
+| Class | Example | Oracle source |
+|-------|---------|---------------|
+| **Prototype token** | `Token Creature — Soldier` | Synthetic type line only; **no** full-card lookup |
+| **Printed-card copy** | Helm of the Host, Feldon, Croaking Counterpart | Copy a real card; **must** hydrate `oracle_text` / abilities from `oracle-cards.json` or `lookupLocalCardByNameSync` |
+
+Detection: `isCopyToken` / `isCopyOfPrintedCard` / type line does not start with `Token`.
+
+### 16.2 Pipeline
+
+```
+effect or create_token.token hint (“copy of X, except …”)
+  → extractCopyTokenExceptionFromEffect / splitCopyTokenReference (IR)
+  → parseCopyTokenOverrides (shared/src/copyTokenOverrides.ts)
+  → copy source card + hydrate if missing
+  → applyCopyTokenOverrides
+  → store permanent.copyTokenOverrides
+  → reapplyStoredCopyTokenOverrides after later hydration (cardOracleHydration.ts)
+```
+
+**Canonical module:** `shared/src/copyTokenOverrides.ts` (+ `copyTokenUtils.ts` for `stripLegendaryFromTypeLine`).
+
+**Server entry points:**
+
+| Path | File |
+|------|------|
+| Equipment equipped-creature copy (Helm) | `oracleIrTriggerLegacyTokenHandlers.ts` → `createEquippedCreatureCopyTokenFromEquipment` |
+| IR `create_token` copy steps | `oracleIRExecutorTokenStepHandlers.ts` → `createCopiedTokenPermanent` (imports shared parser) |
+| Generic printed-card copies | `counters_tokens.ts` → `createCopyTokensOfCard(..., copyTokenOverrides?)` |
+| Hydration safety net | `cardOracleHydration.ts` → `hydrateGameStateOracleText` at SBA / triggers / static sync |
+
+### 16.3 Trigger effect text
+
+Beginning-of-combat triggers must use **full oracle-derived** effect clauses (`timingTriggerEffect` / `extractTriggerEffectAfterPrefix`), not KNOWN-table shorthand. `detectBeginningOfCombatTriggers` in `triggered-abilities.ts` prefers oracle text over `KNOWN_BEGINNING_COMBAT_TRIGGERS` when both exist.
+
+### 16.4 Tests
+
+- `server/tests/copy-token-overrides.unit.test.ts` — Scryfall-style phrase matrix
+- `server/tests/helm-of-the-host.begin-combat.test.ts` — nonlegendary + haste + hydration
+- `server/tests/card-oracle-hydration.unit.test.ts` — hydrate + reapply overrides
+
+### 16.5 Remaining work
+
+- Retire `KNOWN_BEGINNING_COMBAT_TRIGGERS` shorthand where oracle detection suffices
+- Audit IR-primary vs legacy fallback paths for the full Scryfall except-copy set
+- Ensure all copy creation paths pass explicit `copyTokenOverrides` when effect text is available
 
 ---
 

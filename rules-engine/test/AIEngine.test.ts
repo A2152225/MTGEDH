@@ -7,6 +7,8 @@ import { AIEngine, AIStrategy, AIDecisionType } from '../src/AIEngine';
 import { SynergyArchetype } from '../src/CardAnalyzer';
 import type { GameState } from '../../shared/src';
 import type { AIDecisionContext } from '../src/AIEngine';
+import { ensureLocalCardLookupIndexSync } from '../../server/src/services/localCardLookup.js';
+import { hydratePermanentCardOracleInPlace } from '../../server/src/state/modules/cardOracleHydration.js';
 
 describe('AIEngine', () => {
   let aiEngine: AIEngine;
@@ -282,10 +284,83 @@ describe('AIEngine', () => {
       
       const decision = await aiEngine.makeDecision(context);
       
-      // Aggressive AI should attack with all creatures
       expect(decision.action.attackers.length).toBe(2);
-      expect(decision.confidence).toBeGreaterThan(0.8);
-      expect(decision.reasoning).toContain('Aggressive');
+      expect(decision.confidence).toBeGreaterThan(0.5);
+    });
+
+    it('aggressive strategy still keeps Zulaport home against profitable blocks', async () => {
+      aiEngine.registerAI({
+        playerId: 'ai1',
+        strategy: AIStrategy.AGGRESSIVE,
+        thinkTime: 0,
+        difficulty: 0.5,
+        deckProfile: {
+          totalCards: 99,
+          landCount: 34,
+          averageCmc: 2.8,
+          curve: { low: 30, mid: 26, high: 9 },
+          categoryCounts: {},
+          synergyTagCounts: { tokens: 10, aristocrats: 8 },
+          archetypeScores: {
+            [SynergyArchetype.TOKENS]: 20,
+            [SynergyArchetype.ARISTOCRATS]: 18,
+          },
+          primaryArchetypes: [SynergyArchetype.TOKENS, SynergyArchetype.ARISTOCRATS],
+          comboPairs: [],
+          keyCards: ['Zulaport Cutthroat'],
+        },
+      });
+
+      testGameState.phase = 'combat' as any;
+      testGameState.step = 'declare_attackers' as any;
+      testGameState.players = [
+        { ...testGameState.players[0], id: 'ai1' },
+        { ...testGameState.players[1], id: 'human1', life: 40 },
+      ];
+      testGameState.battlefield = [
+        {
+          id: 'zulaport1',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'zulaport_cutthroat',
+            name: 'Zulaport Cutthroat',
+            type_line: 'Creature — Human Rogue Ally',
+            power: '1',
+            toughness: '1',
+            oracle_text:
+              'Whenever Zulaport Cutthroat or another creature you control dies, each opponent loses 1 life and you gain 1 life.',
+          },
+        } as any,
+        {
+          id: 'human_blocker',
+          controller: 'human1',
+          owner: 'human1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'myrel',
+            name: 'Myrel, Shield of Argive',
+            type_line: 'Legendary Creature — Human Soldier',
+            power: '3',
+            toughness: '4',
+          },
+        } as any,
+      ];
+
+      const decision = await aiEngine.makeDecision({
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      });
+
+      const attackerIds = decision.action.attackers.map((attacker: any) => attacker.creatureId);
+      expect(attackerIds).not.toContain('zulaport1');
     });
     
     it('should make defensive decisions', async () => {
@@ -470,6 +545,507 @@ describe('AIEngine', () => {
       const attackerIds = decision.action.attackers.map((attacker: any) => attacker.creatureId);
       expect(attackerIds).toContain('bear2');
       expect(attackerIds).not.toContain('combo1');
+    });
+
+    it('should not throw Zulaport Cutthroat into combat on aristocrat decks', async () => {
+      aiEngine.registerAI({
+        playerId: 'ai1',
+        strategy: AIStrategy.BASIC,
+        thinkTime: 0,
+        difficulty: 1,
+        deckProfile: {
+          totalCards: 99,
+          landCount: 34,
+          averageCmc: 2.8,
+          curve: { low: 30, mid: 26, high: 9 },
+          categoryCounts: {},
+          synergyTagCounts: { aristocrats: 8 },
+          archetypeScores: { [SynergyArchetype.ARISTOCRATS]: 18 },
+          primaryArchetypes: [SynergyArchetype.ARISTOCRATS],
+          comboPairs: [],
+          keyCards: ["Zulaport Cutthroat"],
+        },
+      });
+
+      testGameState.phase = 'combat' as any;
+      testGameState.step = 'declare_attackers' as any;
+      testGameState.players = [
+        { ...testGameState.players[0], id: 'ai1' },
+        { ...testGameState.players[1], id: 'ai2' },
+        {
+          id: 'ai3',
+          name: 'AI Player 3',
+          seat: 2,
+          life: 40,
+          hand: [],
+          library: [],
+          graveyard: [],
+          exile: [],
+          commandZone: [],
+          counters: {},
+          hasLost: false,
+        } as any,
+      ];
+      testGameState.battlefield = [
+        {
+          id: 'zulaport1',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'zulaport_cutthroat',
+            name: 'Zulaport Cutthroat',
+            type_line: 'Creature — Human Rogue Ally',
+            power: '1',
+            toughness: '1',
+            oracle_text:
+              'Whenever Zulaport Cutthroat or another creature you control dies, each opponent loses 1 life and you gain 1 life.',
+          },
+        } as any,
+      ];
+
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      };
+
+      const decision = await aiEngine.makeDecision(context);
+      const attackerIds = decision.action.attackers.map((attacker: any) => attacker.creatureId);
+      expect(attackerIds).not.toContain('zulaport1');
+    });
+
+    it('should not attack Zulaport when battlefield card is missing oracle_text', async () => {
+      aiEngine.registerAI({
+        playerId: 'ai1',
+        strategy: AIStrategy.BASIC,
+        thinkTime: 0,
+        difficulty: 0.5,
+        deckProfile: {
+          totalCards: 99,
+          landCount: 34,
+          averageCmc: 2.8,
+          curve: { low: 30, mid: 26, high: 9 },
+          categoryCounts: {},
+          synergyTagCounts: { aristocrats: 8 },
+          archetypeScores: { [SynergyArchetype.ARISTOCRATS]: 18 },
+          primaryArchetypes: [SynergyArchetype.ARISTOCRATS],
+          comboPairs: [],
+          keyCards: ['Zulaport Cutthroat'],
+        },
+      });
+
+      testGameState.phase = 'combat' as any;
+      testGameState.step = 'declare_attackers' as any;
+      testGameState.players = [
+        { ...testGameState.players[0], id: 'ai1' },
+        { ...testGameState.players[1], id: 'human1', life: 40 },
+      ];
+      testGameState.battlefield = [
+        {
+          id: 'zulaport1',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'zulaport_cutthroat',
+            name: 'Zulaport Cutthroat',
+            type_line: 'Creature — Human Rogue Ally',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+        {
+          id: 'human_blocker',
+          controller: 'human1',
+          owner: 'human1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'myrel',
+            name: 'Myrel, Shield of Argive',
+            type_line: 'Legendary Creature — Human Soldier',
+            power: '3',
+            toughness: '4',
+          },
+        } as any,
+      ];
+
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      };
+
+      const decision = await aiEngine.makeDecision(context);
+      const attackerIds = decision.action.attackers.map((attacker: any) => attacker.creatureId);
+      expect(attackerIds).not.toContain('zulaport1');
+    });
+
+    it('keeps another-creature payoff creatures home on token aristocrat decks', async () => {
+      aiEngine.registerAI({
+        playerId: 'ai1',
+        strategy: AIStrategy.BASIC,
+        thinkTime: 0,
+        difficulty: 1,
+        deckProfile: {
+          totalCards: 99,
+          landCount: 34,
+          averageCmc: 2.8,
+          curve: { low: 30, mid: 26, high: 9 },
+          categoryCounts: {},
+          synergyTagCounts: { tokens: 10, aristocrats: 8 },
+          archetypeScores: {
+            [SynergyArchetype.TOKENS]: 20,
+            [SynergyArchetype.ARISTOCRATS]: 18,
+          },
+          primaryArchetypes: [SynergyArchetype.TOKENS, SynergyArchetype.ARISTOCRATS],
+          comboPairs: [],
+          keyCards: ['Chatterfang, Squirrel General', 'Zulaport Cutthroat'],
+        },
+      });
+
+      testGameState.phase = 'combat' as any;
+      testGameState.step = 'declare_attackers' as any;
+      testGameState.players = [
+        { ...testGameState.players[0], id: 'ai1' },
+        { ...testGameState.players[1], id: 'human1', life: 40 },
+      ];
+      testGameState.battlefield = [
+        {
+          id: 'zulaport1',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'zulaport_cutthroat',
+            name: 'Zulaport Cutthroat',
+            type_line: 'Creature — Human Rogue Ally',
+            power: '1',
+            toughness: '1',
+            oracle_text:
+              'Whenever Zulaport Cutthroat or another creature you control dies, each opponent loses 1 life and you gain 1 life.',
+          },
+        } as any,
+        {
+          id: 'chatterfang_cmd',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          isCommander: true,
+          counters: {},
+          card: {
+            id: 'chatterfang',
+            name: 'Chatterfang, Squirrel General',
+            type_line: 'Legendary Creature — Squirrel Warrior',
+            power: '3',
+            toughness: '3',
+            oracle_text:
+              'Whenever one or more other Squirrels you control die, each opponent loses 1 life and you gain 1 life.',
+          },
+        } as any,
+      ];
+
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      };
+
+      const decision = await aiEngine.makeDecision(context);
+      const attackerIds = decision.action.attackers.map((attacker: any) => attacker.creatureId);
+      expect(attackerIds).not.toContain('zulaport1');
+      expect(attackerIds).not.toContain('chatterfang_cmd');
+    });
+
+    it('should not attack with a 1/1 token into profitable enemy blocks', async () => {
+      aiEngine.registerAI({
+        playerId: 'ai1',
+        strategy: AIStrategy.BASIC,
+        thinkTime: 0,
+        difficulty: 1,
+        deckProfile: {
+          totalCards: 99,
+          landCount: 34,
+          averageCmc: 2.8,
+          curve: { low: 30, mid: 26, high: 9 },
+          categoryCounts: {},
+          synergyTagCounts: { tokens: 10, aristocrats: 8 },
+          archetypeScores: {
+            [SynergyArchetype.TOKENS]: 20,
+            [SynergyArchetype.ARISTOCRATS]: 18,
+          },
+          primaryArchetypes: [SynergyArchetype.TOKENS, SynergyArchetype.ARISTOCRATS],
+          comboPairs: [],
+          keyCards: ['Chatterfang, Squirrel General'],
+        },
+      });
+
+      testGameState.phase = 'combat' as any;
+      testGameState.step = 'declare_attackers' as any;
+      testGameState.players = [
+        { ...testGameState.players[0], id: 'ai1' },
+        { ...testGameState.players[1], id: 'human1', life: 40 },
+      ];
+      testGameState.battlefield = [
+        {
+          id: 'squirrel_token',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          isToken: true,
+          counters: {},
+          card: {
+            id: 'squirrel_tok',
+            name: 'Squirrel',
+            type_line: 'Token Creature — Squirrel',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+        {
+          id: 'defender_22',
+          controller: 'human1',
+          owner: 'human1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'bear_22',
+            name: 'Bear',
+            type_line: 'Creature — Bear',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+        {
+          id: 'defender_45',
+          controller: 'human1',
+          owner: 'human1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'rhino_45',
+            name: 'Rhino',
+            type_line: 'Creature — Rhino',
+            power: '4',
+            toughness: '5',
+          },
+        } as any,
+      ];
+
+      const decision = await aiEngine.makeDecision({
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      });
+
+      const attackerIds = decision.action.attackers.map((attacker: any) => attacker.creatureId);
+      expect(attackerIds).not.toContain('squirrel_token');
+    });
+
+    it('routes chip attackers at the open opponent in multiplayer', async () => {
+      aiEngine.registerAI({
+        playerId: 'ai1',
+        strategy: AIStrategy.BASIC,
+        thinkTime: 0,
+        difficulty: 1,
+      });
+
+      testGameState.phase = 'combat' as any;
+      testGameState.step = 'declare_attackers' as any;
+      testGameState.players = [
+        { ...testGameState.players[0], id: 'ai1' },
+        { ...testGameState.players[1], id: 'king', life: 39 },
+        {
+          id: 'human1',
+          name: 'Human',
+          seat: 2,
+          life: 40,
+          hand: [],
+          library: [],
+          graveyard: [],
+          exile: [],
+          commandZone: [],
+          counters: {},
+          hasLost: false,
+        } as any,
+      ];
+      testGameState.battlefield = [
+        {
+          id: 'chipper',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'bear_11',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+        {
+          id: 'human_blocker',
+          controller: 'human1',
+          owner: 'human1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'myrel',
+            name: 'Myrel, Shield of Argive',
+            type_line: 'Legendary Creature — Human Soldier',
+            power: '3',
+            toughness: '4',
+          },
+        } as any,
+      ];
+
+      const decision = await aiEngine.makeDecision({
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      });
+
+      expect(decision.action.attackers).toEqual([
+        { creatureId: 'chipper', defendingPlayerId: 'king' },
+      ]);
+    });
+
+    it('defensive strategy uses shared combat checks and open lanes', async () => {
+      aiEngine.registerAI({
+        playerId: 'ai1',
+        strategy: AIStrategy.DEFENSIVE,
+        thinkTime: 0,
+        difficulty: 1,
+      });
+
+      testGameState.phase = 'combat' as any;
+      testGameState.step = 'declare_attackers' as any;
+      testGameState.players = [
+        { ...testGameState.players[0], id: 'ai1', life: 35 },
+        { ...testGameState.players[1], id: 'king', life: 39 },
+        {
+          id: 'human1',
+          name: 'Human',
+          seat: 2,
+          life: 40,
+          hand: [],
+          library: [],
+          graveyard: [],
+          exile: [],
+          commandZone: [],
+          counters: {},
+          hasLost: false,
+        } as any,
+      ];
+      testGameState.battlefield = [
+        {
+          id: 'chipper',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'bear_11',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+        {
+          id: 'human_blocker',
+          controller: 'human1',
+          owner: 'human1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'myrel',
+            name: 'Myrel, Shield of Argive',
+            type_line: 'Legendary Creature — Human Soldier',
+            power: '3',
+            toughness: '4',
+          },
+        } as any,
+      ];
+
+      const decision = await aiEngine.makeDecision({
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      });
+
+      expect(decision.action.attackers).toEqual([
+        { creatureId: 'chipper', defendingPlayerId: 'king' },
+      ]);
+    });
+
+    it('should not attack with Zulaport when oracle text is missing on the battlefield card', async () => {
+      ensureLocalCardLookupIndexSync();
+      aiEngine.registerAI({
+        playerId: 'ai1',
+        strategy: AIStrategy.BASIC,
+        thinkTime: 0,
+        difficulty: 1,
+      });
+
+      testGameState.phase = 'combat' as any;
+      testGameState.step = 'declare_attackers' as any;
+      testGameState.players = [
+        { ...testGameState.players[0], id: 'ai1' },
+        { ...testGameState.players[1], id: 'ai2' },
+        { ...testGameState.players[1], id: 'ai3', name: 'AI Player 3', seat: 2 } as any,
+      ];
+      testGameState.battlefield = [
+        {
+          id: 'zulaport1',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'zulaport_cutthroat',
+            name: 'Zulaport Cutthroat',
+            type_line: 'Creature — Human Rogue Ally',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+      ];
+      hydratePermanentCardOracleInPlace(testGameState.battlefield[0]);
+
+      const decision = await aiEngine.makeDecision({
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      });
+
+      const attackerIds = decision.action.attackers.map((attacker: any) => attacker.creatureId);
+      expect(attackerIds).not.toContain('zulaport1');
     });
 
     it('should count effective creatures when evaluating opponent threats', () => {

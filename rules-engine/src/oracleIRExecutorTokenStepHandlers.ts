@@ -1,4 +1,8 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
+import {
+  parseCopyTokenOverrides,
+  type CopyTokenOverrides,
+} from '../../shared/src/copyTokenOverrides.js';
 import { createTokens, resolveTokenCharacteristicsFromOracleStep } from './tokenCreation';
 import {
   DelayedTriggerTiming,
@@ -609,40 +613,6 @@ function splitCopyTokenReference(tokenHint: string): {
   };
 }
 
-type CopyTokenOverrides = {
-  readonly power?: number;
-  readonly toughness?: number;
-  readonly colors?: readonly string[];
-  readonly addCardTypes?: readonly string[];
-  readonly addSubtypes?: readonly string[];
-  readonly addAbilities?: readonly string[];
-  readonly removeManaCost?: boolean;
-  readonly removeLegendary?: boolean;
-};
-
-const COPY_TOKEN_KEYWORDS = [
-  'flying',
-  'haste',
-  'lifelink',
-  'deathtouch',
-  'trample',
-  'vigilance',
-  'menace',
-  'reach',
-  'first strike',
-  'double strike',
-  'prowess',
-  'ward',
-];
-
-const COLOR_WORD_TO_SYMBOL: Record<string, string> = {
-  white: 'W',
-  blue: 'U',
-  black: 'B',
-  red: 'R',
-  green: 'G',
-};
-
 function dedupeStrings(values: readonly string[]): readonly string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -655,170 +625,6 @@ function dedupeStrings(values: readonly string[]): readonly string[] {
     out.push(normalized);
   }
   return out;
-}
-
-function capitalizeAbility(value: string): string {
-  const raw = String(value || '').trim();
-  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : raw;
-}
-
-function extractCopyGrantedAbilities(exceptionText: string): readonly string[] {
-  const raw = String(exceptionText || '').trim();
-  if (!raw) return [];
-
-  const quoted = Array.from(raw.matchAll(/"([^"]+)"/g))
-    .map(match => String(match[1] || '').trim())
-    .filter(Boolean);
-
-  const unquotedAbilities: string[] = [];
-  const hasMatch = raw.match(/\b(?:it|they|the token|the tokens)\s+ha(?:s|ve)\s+(.+)$/i);
-  if (hasMatch) {
-    const body = String(hasMatch[1] || '')
-      .replace(/"[^"]+"/g, ' ')
-      .replace(/\b(?:until|at)\b.+$/i, '')
-      .replace(/[.]+$/g, '')
-      .trim();
-    for (const piece of body.split(/\s*,\s*|\s+and\s+/gi)) {
-      const normalized = piece.trim().toLowerCase();
-      if (!normalized) continue;
-      const keyword = COPY_TOKEN_KEYWORDS.find(candidate => normalized === candidate || normalized.startsWith(`${candidate} `));
-      if (keyword) unquotedAbilities.push(capitalizeAbility(keyword));
-    }
-  }
-
-  return dedupeStrings([...quoted, ...unquotedAbilities]);
-}
-
-function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrides {
-  const normalized = normalizeReferenceText(exceptionText);
-  const directAbilities = extractCopyGrantedAbilities(exceptionText);
-  const removeLegendary = /\bisn'?t legendary\b/i.test(normalized);
-  if (!normalized) return {};
-
-  const ptAdditionalCreatureMatch = normalized.match(
-    /^(?:it's|it is|they're|they are|the token is|the tokens are)\s+(?:a\s+)?(\d+)\/(\d+)\s+(.+?)\s+creatures?\s+in addition to (?:its|their) other types(?:,?\s+and\s+(?:it|they)\s+ha(?:s|ve)\s+(.+?))?$/
-  );
-  if (ptAdditionalCreatureMatch) {
-    const descriptorWords = String(ptAdditionalCreatureMatch[3] || '')
-      .split(/\s+/g)
-      .map(word => word.trim())
-      .filter(Boolean);
-    const colors: string[] = [];
-    const subtypeWords: string[] = [];
-    for (const word of descriptorWords) {
-      const color = COLOR_WORD_TO_SYMBOL[word];
-      if (color) colors.push(color);
-      else if (word !== 'and') subtypeWords.push(word);
-    }
-
-    const abilities = dedupeStrings([
-      ...directAbilities,
-      ...String(ptAdditionalCreatureMatch[4] || '')
-        .split(/\s*,\s*|\s+and\s+/gi)
-        .map(part => part.trim())
-        .filter(Boolean)
-        .map(capitalizeAbility),
-    ]);
-
-    return {
-      power: Number.parseInt(String(ptAdditionalCreatureMatch[1] || ''), 10),
-      toughness: Number.parseInt(String(ptAdditionalCreatureMatch[2] || ''), 10),
-      ...(colors.length > 0 ? { colors } : {}),
-      addCardTypes: ['Creature'],
-      ...(subtypeWords.length > 0
-        ? { addSubtypes: dedupeStrings(subtypeWords.map(word => word.charAt(0).toUpperCase() + word.slice(1))) }
-        : {}),
-      ...(abilities.length > 0 ? { addAbilities: abilities } : {}),
-      ...(removeLegendary ? { removeLegendary: true } : {}),
-    };
-  }
-
-  const ptCreatureMatch = normalized.match(
-    /^(?:it's|it is|they're|they are|the token is|the tokens are)\s+a\s+(\d+)\/(\d+)\s+(.+?)\s+creatures?(?:\s+with\s+(.+?))?(?:\s+in addition to (?:its|their) other types)?$/
-  );
-  if (ptCreatureMatch) {
-    const descriptorWords = String(ptCreatureMatch[3] || '')
-      .split(/\s+/g)
-      .map(word => word.trim())
-      .filter(Boolean);
-    const colors: string[] = [];
-    const subtypeWords: string[] = [];
-    for (const word of descriptorWords) {
-      const color = COLOR_WORD_TO_SYMBOL[word];
-      if (color) colors.push(color);
-      else if (word !== 'and') subtypeWords.push(word);
-    }
-
-    const abilities = String(ptCreatureMatch[4] || '')
-      .split(/\s*,\s*|\s+and\s+/gi)
-      .map(part => part.trim())
-      .filter(Boolean)
-      .map(capitalizeAbility);
-
-    return {
-      power: Number.parseInt(String(ptCreatureMatch[1] || ''), 10),
-      toughness: Number.parseInt(String(ptCreatureMatch[2] || ''), 10),
-      ...(colors.length > 0 ? { colors: dedupeStrings(colors) } : {}),
-      addCardTypes: ['Creature'],
-      ...(subtypeWords.length > 0
-        ? {
-            addSubtypes: dedupeStrings(
-              subtypeWords.map(word => word.charAt(0).toUpperCase() + word.slice(1))
-            ),
-          }
-        : {}),
-      ...(abilities.length > 0 || directAbilities.length > 0 ? { addAbilities: dedupeStrings([...abilities, ...directAbilities]) } : {}),
-      ...(removeLegendary ? { removeLegendary: true } : {}),
-    };
-  }
-
-  if (removeLegendary && directAbilities.length === 0) {
-    return { removeLegendary: true };
-  }
-
-  if (removeLegendary || directAbilities.length > 0) {
-    return {
-      ...(removeLegendary ? { removeLegendary: true } : {}),
-      ...(directAbilities.length > 0 ? { addAbilities: directAbilities } : {}),
-    };
-  }
-
-  const colors = Array.from(
-    new Set(
-      Array.from(normalized.matchAll(/\bit'?s?\s+(white|blue|black|red|green)\b/g))
-        .map(match => COLOR_WORD_TO_SYMBOL[String(match[1] || '').trim().toLowerCase()])
-        .filter(Boolean)
-    )
-  );
-  const ptMatch = normalized.match(/\bit'?s?\s+(\d+)\/(\d+)\b/);
-  const subtypeMatch = normalized.match(/\bit'?s?\s+a\s+([a-z][a-z ]*)\s+in addition to its other types\b/);
-  const addSubtypes = subtypeMatch
-    ? dedupeStrings(
-        String(subtypeMatch[1] || '')
-          .split(/\s+and\s+|\s+/g)
-          .map(word => word.trim())
-          .filter(Boolean)
-          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      )
-    : undefined;
-  const removeManaCost = /\bhas no mana cost\b/i.test(normalized);
-
-  if (colors.length > 0 || ptMatch || (addSubtypes && addSubtypes.length > 0) || removeManaCost || directAbilities.length > 0) {
-    return {
-      ...(colors.length > 0 ? { colors } : {}),
-      ...(ptMatch
-        ? {
-            power: Number.parseInt(String(ptMatch[1] || ''), 10),
-            toughness: Number.parseInt(String(ptMatch[2] || ''), 10),
-          }
-        : {}),
-      ...(addSubtypes && addSubtypes.length > 0 ? { addSubtypes } : {}),
-      ...(removeManaCost ? { removeManaCost: true } : {}),
-      ...(directAbilities.length > 0 ? { addAbilities: directAbilities } : {}),
-    };
-  }
-
-  return {};
 }
 
 function splitTypeLine(typeLine: string): {
@@ -943,8 +749,14 @@ function createCopiedTokenPermanent(params: {
     ...(toughness !== undefined ? { toughness: String(toughness) } : {}),
     ...(params.overrides.removeManaCost ? { mana_cost: '', manaCost: '' } : {}),
     isToken: true,
+    isCopyOfPrintedCard: true,
     zone: 'battlefield',
   } as any;
+
+  const hasHasteFromOverrides = (params.overrides.addAbilities || []).some(
+    (ability) => String(ability).toLowerCase() === 'haste',
+  );
+  const isCreatureType = cardTypes.some((type) => String(type).toLowerCase() === 'creature');
 
   return {
     id: tokenId,
@@ -952,7 +764,7 @@ function createCopiedTokenPermanent(params: {
     owner: params.controllerId,
     ownerId: params.controllerId,
     tapped: Boolean(params.entersTapped),
-    summoningSickness: cardTypes.some(type => String(type).toLowerCase() === 'creature'),
+    summoningSickness: isCreatureType && !hasHasteFromOverrides,
     counters: params.withCounters || {},
     attachedTo: undefined,
     attachments: [],
@@ -968,6 +780,8 @@ function createCopiedTokenPermanent(params: {
     oracle_text: tokenCard.oracle_text,
     card: tokenCard,
     isToken: true,
+    isCopyToken: true,
+    copyTokenOverrides: params.overrides,
     ...(String(params.copySourcePermanentId || sourceObject?.id || '').trim()
       ? { copiedFromPermanentId: String(params.copySourcePermanentId || sourceObject.id).trim() }
       : {}),

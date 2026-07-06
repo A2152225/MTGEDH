@@ -30,9 +30,9 @@ export const KNOWN_DEATH_TRIGGERS: Record<string, { effect: string; triggerOn: '
   "dictate of erebos": { effect: "Each other player sacrifices a creature", triggerOn: 'controlled' },
   "butcher of malakir": { effect: "Each other player sacrifices a creature", triggerOn: 'controlled' },
   "blood artist": { effect: "Target player loses 1 life, you gain 1 life", triggerOn: 'any' },
-  "zulaport cutthroat": { effect: "Each opponent loses 1 life, you gain 1 life", triggerOn: 'controlled' },
-  "cruel celebrant": { effect: "Each opponent loses 1 life, you gain 1 life", triggerOn: 'controlled' },
-  "bastion of remembrance": { effect: "Each opponent loses 1 life, you gain 1 life", triggerOn: 'controlled' },
+  "zulaport cutthroat": { effect: "Each opponent loses 1 life and you gain 1 life", triggerOn: 'controlled' },
+  "cruel celebrant": { effect: "Each opponent loses 1 life and you gain 1 life", triggerOn: 'controlled' },
+  "bastion of remembrance": { effect: "Each opponent loses 1 life and you gain 1 life", triggerOn: 'controlled' },
   "syr konrad, the grim": { effect: "Each opponent loses 1 life", triggerOn: 'any' },
   "massacre wurm": { effect: "Opponent loses 2 life (when their creatures die)", triggerOn: 'any' },
   "skullclamp": { effect: "Draw 2 cards when equipped creature dies", triggerOn: 'own' },
@@ -724,19 +724,11 @@ export const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, {
   "saskia the unyielding": { effect: "Damage to chosen player is dealt to them again" },
   // NOTE: Najeela moved to KNOWN_ATTACK_TRIGGERS because she triggers when a Warrior attacks, not at beginning of combat
   "grand arbiter augustin iv": { effect: "Your spells cost less; opponent spells cost more" },
-  // Token creation triggers (beginning of combat only, not attack triggers)
-  "legion warboss": { effect: "Create a 1/1 red Goblin creature token with haste. That token attacks this combat if able.", createsToken: true },
   // NOTE: Hero of Bladehold, Hanweir Garrison, Brimaz, Adeline, and Rabble Rousing moved to KNOWN_ATTACK_TRIGGERS
   // because they trigger when attacking, not at beginning of combat
-  "goblin rabblemaster": { effect: "Create a 1/1 red Goblin creature token with haste", createsToken: true },
-  "krenko, tin street kingpin": { effect: "Put a +1/+1 counter on Krenko. Create X 1/1 red Goblin tokens where X is Krenko's power", createsToken: true },
-  "tilonalli's summoner": { effect: "Create X 1/1 red Elemental tokens tapped and attacking, exile at end of combat", createsToken: true },
-  "tendershoot dryad": { effect: "Create a 1/1 green Saproling creature token" },
-  // NOTE: Captain of the Watch REMOVED from here - its "+1/+1 and vigilance" is a STATIC ability, not a triggered ability.
-  // Its ETB trigger "create three 1/1 white Soldier tokens" is handled by KNOWN_ETB_TRIGGERS.
+  // legion warboss / goblin rabblemaster — detected dynamically from oracle text
+  // krenko / tilonalli / tendershoot / blade of selves / heidegger — misclassified here; see oracle text
   // Equipment triggers
-  "helm of the host": { effect: "Create a token that's a copy of equipped creature, except it's not legendary and has haste", tokenCopy: true, createsToken: true },
-  "blade of selves": { effect: "Myriad - create token copies attacking each opponent", tokenCopy: true, createsToken: true },
   // Modal triggers (choose one)
   "soldier military program": { 
     effect: "Choose one. If you control a commander, you may choose both instead: Create a 1/1 white Soldier creature token; or Put a +1/+1 counter on each of up to two Soldiers you control.", 
@@ -752,7 +744,6 @@ export const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, {
   "world at war": { effect: "Additional combat phase this turn, rebound" },
   "savage beating": { effect: "Double strike or additional combat phase" },
   // FF7 cards
-  "heidegger, shinra executive": { effect: "Create 1/1 white Soldier creature token for each Soldier you control", createsToken: true },
   "cait sith, fortune teller": { effect: "Roll a die and trigger based on result", requiresChoice: false },
 };
 

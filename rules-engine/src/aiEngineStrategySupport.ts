@@ -1,32 +1,112 @@
 import type { BattlefieldPermanent } from '../../shared/src';
-import { getLegalAttackers } from './actions/combat';
 import { AIDecisionType, type AIDecision, type AIDecisionContext, type AIPlayerConfig } from './AIEngine';
+
+function listActiveOpponentPlayers(gameState: AIDecisionContext['gameState'], playerId: string) {
+  return gameState.players.filter((player: any) =>
+    player?.id
+    && player.id !== playerId
+    && !player?.hasLost
+    && !player?.eliminated
+    && !player?.conceded
+    && !player?.spectator
+    && !player?.isSpectator,
+  );
+}
+
+function emptyAttackersDecision(playerId: string, reasoning: string, confidence = 0.8): AIDecision {
+  return {
+    type: AIDecisionType.DECLARE_ATTACKERS,
+    playerId,
+    action: { attackers: [] },
+    reasoning,
+    confidence,
+  };
+}
+
+function shouldDefensiveStrategyAttack(context: AIDecisionContext): boolean {
+  const player = context.gameState.players.find((entry) => entry.id === context.playerId);
+  const life = player?.life || 0;
+  const opponents = listActiveOpponentPlayers(context.gameState, context.playerId);
+  if (opponents.length === 0) return false;
+  const lowestOpponentLife = Math.min(...opponents.map((opp) => opp.life || 40));
+  return life > 20 || lowestOpponentLife < 15;
+}
+
+function shouldControlStrategyAttack(
+  context: AIDecisionContext,
+  battlefield: BattlefieldPermanent[],
+  hasPermanentType: (perm: BattlefieldPermanent, type: string) => boolean,
+): boolean {
+  const { gameState, playerId } = context;
+  const opponents = listActiveOpponentPlayers(gameState, playerId);
+  const myCreatureCount = battlefield.filter(
+    (perm: any) => perm.controller === playerId && hasPermanentType(perm, 'creature'),
+  ).length;
+  const opponentCreatureCount = opponents.reduce(
+    (sum, opp) =>
+      sum + battlefield.filter(
+        (perm: any) => perm.controller === opp.id && hasPermanentType(perm, 'creature'),
+      ).length,
+    0,
+  );
+  const lowestOpponentLife = Math.min(...opponents.map((opp) => opp.life || 40));
+  return myCreatureCount >= opponentCreatureCount || lowestOpponentLife < 20;
+}
+
+function shouldComboStrategyAttack(
+  context: AIDecisionContext,
+  battlefield: BattlefieldPermanent[],
+  hasPermanentType: (perm: BattlefieldPermanent, type: string) => boolean,
+): boolean {
+  const player = context.gameState.players.find((entry) => entry.id === context.playerId);
+  const life = player?.life || 0;
+  const opponents = listActiveOpponentPlayers(context.gameState, context.playerId);
+  const myCreatureCount = battlefield.filter(
+    (perm: any) => perm.controller === context.playerId && hasPermanentType(perm, 'creature'),
+  ).length;
+  const maxOpponentCreatures = opponents.length > 0
+    ? Math.max(
+      ...opponents.map((opp) =>
+        battlefield.filter(
+          (perm: any) => perm.controller === opp.id && hasPermanentType(perm, 'creature'),
+        ).length,
+      ),
+    )
+    : 0;
+  return life > 15 || myCreatureCount > maxOpponentCreatures + 3;
+}
+
+/** All strategies share one attack builder with universal combat sanity checks. */
+function makeStrategyAttackDecision(
+  context: AIDecisionContext,
+  config: AIPlayerConfig,
+  deps: {
+    makeBasicDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
+    getProcessedBattlefield?: (gameState: AIDecisionContext['gameState']) => BattlefieldPermanent[];
+    hasPermanentType?: (perm: BattlefieldPermanent, type: string) => boolean;
+    shouldAttack?: (context: AIDecisionContext) => boolean;
+    holdReason?: string;
+  },
+): AIDecision {
+  if (deps.shouldAttack && !deps.shouldAttack(context)) {
+    return emptyAttackersDecision(
+      context.playerId,
+      deps.holdReason || 'Strategy: holding attackers',
+    );
+  }
+  return deps.makeBasicDecision(context, config);
+}
 
 export function makeAggressiveDecision(
   context: AIDecisionContext,
   config: AIPlayerConfig,
   deps: {
-    selectAttackTarget: (gameState: AIDecisionContext['gameState'], playerId: string) => string;
     makeBasicDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
-  }
+  },
 ): AIDecision {
   if (context.decisionType === AIDecisionType.DECLARE_ATTACKERS) {
-    const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
-    const targetPlayerId = deps.selectAttackTarget(context.gameState, context.playerId);
-    const attackers = legalAttackerIds.map(id => ({
-      creatureId: id,
-      defendingPlayerId: targetPlayerId,
-    }));
-
-    return {
-      type: AIDecisionType.DECLARE_ATTACKERS,
-      playerId: context.playerId,
-      action: { attackers },
-      reasoning: `Aggressive: attack with all ${attackers.length} legal creatures`,
-      confidence: 0.9,
-    };
+    return deps.makeBasicDecision(context, config);
   }
-
   return deps.makeBasicDecision(context, config);
 }
 
@@ -34,45 +114,16 @@ export function makeDefensiveDecision(
   context: AIDecisionContext,
   config: AIPlayerConfig,
   deps: {
-    selectAttackTarget: (gameState: AIDecisionContext['gameState'], playerId: string) => string;
     makeBasicDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
-  }
+  },
 ): AIDecision {
   if (context.decisionType === AIDecisionType.DECLARE_ATTACKERS) {
-    const player = context.gameState.players.find(p => p.id === context.playerId);
-    const life = player?.life || 0;
-    const opponents = context.gameState.players.filter(p => p.id !== context.playerId);
-    const lowestOpponentLife = Math.min(...opponents.map(p => p.life || 40));
-
-    if (life > 20 || lowestOpponentLife < 15) {
-      const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
-      const attackRatio = life > 30 ? 0.66 : 0.5;
-      const attackerCount = Math.floor(legalAttackerIds.length * attackRatio);
-      const attackerIds = legalAttackerIds.slice(0, Math.max(1, attackerCount));
-      const targetPlayerId = deps.selectAttackTarget(context.gameState, context.playerId);
-      const attackers = attackerIds.map(id => ({
-        creatureId: id,
-        defendingPlayerId: targetPlayerId,
-      }));
-
-      return {
-        type: AIDecisionType.DECLARE_ATTACKERS,
-        playerId: context.playerId,
-        action: { attackers },
-        reasoning: `Defensive: cautious attack with ${attackers.length}/${legalAttackerIds.length} legal creatures`,
-        confidence: 0.6,
-      };
-    }
-
-    return {
-      type: AIDecisionType.DECLARE_ATTACKERS,
-      playerId: context.playerId,
-      action: { attackers: [] },
-      reasoning: 'Defensive: preserve life, no attack',
-      confidence: 0.8,
-    };
+    return makeStrategyAttackDecision(context, config, {
+      ...deps,
+      shouldAttack: shouldDefensiveStrategyAttack,
+      holdReason: 'Defensive: preserve life, no attack',
+    });
   }
-
   return deps.makeBasicDecision(context, config);
 }
 
@@ -80,63 +131,31 @@ export function makeControlDecision(
   context: AIDecisionContext,
   config: AIPlayerConfig,
   deps: {
-    selectAttackTarget: (gameState: AIDecisionContext['gameState'], playerId: string) => string;
     getProcessedBattlefield: (gameState: AIDecisionContext['gameState']) => BattlefieldPermanent[];
     hasPermanentType: (perm: BattlefieldPermanent, type: string) => boolean;
     makeBasicCastDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
     makeBasicDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
-  }
+  },
 ): AIDecision {
   const { gameState, playerId, decisionType } = context;
 
   switch (decisionType) {
     case AIDecisionType.DECLARE_ATTACKERS: {
-      const opponents = gameState.players.filter(p => p.id !== playerId);
       const battlefield = deps.getProcessedBattlefield(gameState);
-      const myCreatureCount = battlefield.filter((p: any) => p.controller === playerId && deps.hasPermanentType(p, 'creature')).length;
-      const opponentCreatureCount = opponents.reduce(
-        (sum, opp) =>
-          sum + battlefield.filter((p: any) => p.controller === opp.id && deps.hasPermanentType(p, 'creature')).length,
-        0
-      );
-      const lowestOpponentLife = Math.min(...opponents.map(p => p.life || 40));
-
-      if (myCreatureCount >= opponentCreatureCount || lowestOpponentLife < 20) {
-        const legalAttackerIds = getLegalAttackers(gameState, playerId);
-        const attackRatio = myCreatureCount > opponentCreatureCount + 2 ? 0.75 : 0.5;
-        const attackerCount = Math.ceil(legalAttackerIds.length * attackRatio);
-        const attackerIds = legalAttackerIds.slice(0, attackerCount);
-        const targetPlayerId = deps.selectAttackTarget(gameState, playerId);
-        const attackers = attackerIds.map(id => ({
-          creatureId: id,
-          defendingPlayerId: targetPlayerId,
-        }));
-
-        return {
-          type: AIDecisionType.DECLARE_ATTACKERS,
-          playerId,
-          action: { attackers },
-          reasoning: `Control: attacking with ${attackers.length}/${legalAttackerIds.length} creatures`,
-          confidence: 0.7,
-        };
-      }
-
-      return {
-        type: AIDecisionType.DECLARE_ATTACKERS,
-        playerId,
-        action: { attackers: [] },
-        reasoning: 'Control: holding back, need more board presence',
-        confidence: 0.8,
-      };
+      return makeStrategyAttackDecision(context, config, {
+        ...deps,
+        shouldAttack: (ctx) => shouldControlStrategyAttack(ctx, battlefield, deps.hasPermanentType),
+        holdReason: 'Control: holding back, need more board presence',
+      });
     }
 
     case AIDecisionType.CAST_SPELL: {
-      const player = gameState.players.find(p => p.id === playerId);
+      const player = gameState.players.find((entry) => entry.id === playerId);
       const hand = player?.hand || [];
       const hasCounterInHand = hand.some((card: any) => (card.oracle_text || '').toLowerCase().includes('counter target'));
-      const opponentHasMana = gameState.players.some(p => {
-        if (p.id === playerId) return false;
-        const pool = p.manaPool || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+      const opponentHasMana = gameState.players.some((entry) => {
+        if (entry.id === playerId) return false;
+        const pool = entry.manaPool || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
         return pool.white + pool.blue + pool.black + pool.red + pool.green + pool.colorless > 0;
       });
 
@@ -189,62 +208,25 @@ export function makeComboDecision(
   context: AIDecisionContext,
   config: AIPlayerConfig,
   deps: {
-    selectAttackTarget: (gameState: AIDecisionContext['gameState'], playerId: string) => string;
     getProcessedBattlefield: (gameState: AIDecisionContext['gameState']) => BattlefieldPermanent[];
     hasPermanentType: (perm: BattlefieldPermanent, type: string) => boolean;
     makeBasicDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
-  }
+  },
 ): AIDecision {
   const { gameState, playerId, decisionType } = context;
 
   switch (decisionType) {
     case AIDecisionType.DECLARE_ATTACKERS: {
-      const player = gameState.players.find(p => p.id === playerId);
-      const life = player?.life || 0;
-      const opponents = gameState.players.filter(p => p.id !== playerId);
       const battlefield = deps.getProcessedBattlefield(gameState);
-      const myCreatureCount = battlefield.filter((p: any) => p.controller === playerId && deps.hasPermanentType(p, 'creature')).length;
-      const maxOpponentCreatures = Math.max(
-        ...opponents.map(opp => battlefield.filter((p: any) => p.controller === opp.id && deps.hasPermanentType(p, 'creature')).length)
-      );
-
-      if (life > 15 || myCreatureCount > maxOpponentCreatures + 3) {
-        const legalAttackerIds = getLegalAttackers(gameState, playerId);
-        const vanillaAttackers = legalAttackerIds.filter(id => {
-          const perm = battlefield.find((p: any) => p.id === id);
-          const text = (perm?.card?.oracle_text || '').toLowerCase();
-          return !text.includes(':') && !text.includes('whenever') && !text.includes('when');
-        });
-        const attackerIds =
-          vanillaAttackers.length > 0
-            ? vanillaAttackers
-            : legalAttackerIds.slice(0, Math.max(1, Math.floor(legalAttackerIds.length * 0.3)));
-        const targetPlayerId = deps.selectAttackTarget(gameState, playerId);
-        const attackers = attackerIds.map(id => ({
-          creatureId: id,
-          defendingPlayerId: targetPlayerId,
-        }));
-
-        return {
-          type: AIDecisionType.DECLARE_ATTACKERS,
-          playerId,
-          action: { attackers },
-          reasoning: `Combo: attacking with ${attackers.length} non-essential creatures`,
-          confidence: 0.6,
-        };
-      }
-
-      return {
-        type: AIDecisionType.DECLARE_ATTACKERS,
-        playerId,
-        action: { attackers: [] },
-        reasoning: 'Combo: preserving creatures (low life or need blockers)',
-        confidence: 0.9,
-      };
+      return makeStrategyAttackDecision(context, config, {
+        ...deps,
+        shouldAttack: (ctx) => shouldComboStrategyAttack(ctx, battlefield, deps.hasPermanentType),
+        holdReason: 'Combo: preserving creatures (low life or need blockers)',
+      });
     }
 
     case AIDecisionType.CAST_SPELL: {
-      const player = gameState.players.find(p => p.id === playerId);
+      const player = gameState.players.find((entry) => entry.id === playerId);
       const hand = player?.hand || [];
       const prioritizedSpells = [...hand].sort((a: any, b: any) => {
         const aText = (a.oracle_text || '').toLowerCase();
@@ -293,7 +275,7 @@ export function makeComboDecision(
 
     case AIDecisionType.SACRIFICE: {
       const battlefield = deps.getProcessedBattlefield(gameState);
-      const playerPermanents = battlefield.filter((p: any) => p.controller === playerId);
+      const playerPermanents = battlefield.filter((perm: any) => perm.controller === playerId);
       const sorted = [...playerPermanents].sort((a: any, b: any) => {
         const aText = (a.card?.oracle_text || '').toLowerCase();
         const bText = (b.card?.oracle_text || '').toLowerCase();
@@ -309,7 +291,7 @@ export function makeComboDecision(
       });
 
       const sacrificeCount = context.constraints?.count || 1;
-      const sacrificed = sorted.slice(0, sacrificeCount).map((p: any) => p.id);
+      const sacrificed = sorted.slice(0, sacrificeCount).map((perm: any) => perm.id);
 
       return {
         type: AIDecisionType.SACRIFICE,

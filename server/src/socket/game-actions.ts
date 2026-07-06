@@ -25,6 +25,7 @@ import { isOracleIrTriggerPrimaryEnabled } from "../state/modules/oracleIrFeatur
 import { isTriggerEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIrTriggerLegacyRouting.js";
 import { resolveOnCastSpellTriggerDescription } from "../state/modules/onCastSpellTriggerUtils.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
+import { resolveLandCardFaceForBattlefieldEntry } from "../state/modules/stackPlayLandUtils.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferGenericTriggeredAbilityTargetMetadata } from "../state/modules/triggers/index.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
@@ -8023,7 +8024,8 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
 
     try {
       if (typeof game.playLand === 'function') {
-        game.playLand(playerId, cardInZone);
+        const landCardForEntry = resolveLandCardFaceForBattlefieldEntry(cardInZone);
+        game.playLand(playerId, landCardForEntry);
       }
     } catch (e) {
       debugWarn(1, 'Legacy playLand failed:', e);

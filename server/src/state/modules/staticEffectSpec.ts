@@ -4,6 +4,7 @@ import {
   extractOracleCardLookupKeys,
   resolveCompiledOverlayForCard,
 } from './oracleIrCompiledOverlayLookup.js';
+import { hydrateBattlefieldOracleText } from './cardOracleHydration.js';
 
 /** Declarative static spec (Phase 5.3). See docs/oracle-ir-phase5-continuous-effects-design.md */
 export type StaticEffectScopeKind =
@@ -485,6 +486,11 @@ export function getContinuousGrantedAbilitiesForPermanent(
 export function syncDerivedContinuousEffects(state: unknown): ContinuousEffectResult | null {
   if (!state || typeof state !== 'object') return null;
   if (!Array.isArray((state as { battlefield?: unknown }).battlefield)) return null;
+  try {
+    hydrateBattlefieldOracleText((state as { battlefield?: unknown }).battlefield);
+  } catch {
+    // best-effort only
+  }
   const derived = recomputeContinuousEffects(state as { battlefield?: readonly BattlefieldPermanent[] });
   if (state && typeof state === 'object') {
     Object.defineProperty(state, '_derivedContinuousEffects', {

@@ -155,14 +155,21 @@ export function TokenGroups(props: {
 
       // Handle server-side grouped tokens (optimization for games with many tokens)
       // If this is a grouped token, expand its IDs into the group
-      if ((t as any).isGroupedTokens && (t as any).tokenCount && (t as any).groupedTokenIds) {
-        const groupedIds = (t as any).groupedTokenIds as string[];
+      if ((t as any).isGroupedTokens && Number((t as any).tokenCount) > 1) {
+        const groupedIds = (t as any).groupedTokenIds as string[] | undefined;
+        const tokenCount = Number((t as any).tokenCount || 0);
+        const groupId = String(t.id || '');
         const g = map.get(key) || { 
           key, name, countersSig, ptSig: pt, attached, ids: [], token: t, 
           imageUrl, tapped, summoningSick 
         };
-        // Add all grouped token IDs
-        g.ids.push(...groupedIds);
+        if (Array.isArray(groupedIds) && groupedIds.length > 0) {
+          g.ids.push(...groupedIds);
+        } else {
+          for (let i = 0; i < tokenCount; i += 1) {
+            g.ids.push(`${groupId}_virtual_${i}`);
+          }
+        }
         map.set(key, g);
       } else {
         const g = map.get(key) || { 

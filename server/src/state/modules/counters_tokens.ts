@@ -32,6 +32,11 @@ import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
 import { queueTokenCreatedTriggers } from "./triggers/tokens.js";
 import { syncDerivedContinuousEffects } from "./staticEffectSpec.js";
+import { hydrateCardOracleInPlace, hydrateGameStateOracleText } from './cardOracleHydration.js';
+import {
+  applyCopyTokenOverrides,
+  type CopyTokenOverrides,
+} from '../../../../shared/src/copyTokenOverrides.js';
 
 type DeathTriggerStackMetadata = {
   requiresTarget?: true;
@@ -1065,7 +1070,8 @@ export function createCopyTokensOfCard(
   controller: PlayerID,
   sourceCard: any,
   count: number,
-  skipMirrormindReplacement = false
+  skipMirrormindReplacement = false,
+  copyTokenOverrides?: CopyTokenOverrides,
 ): string[] {
   const { state, bumpSeq } = ctx;
   const n = Math.max(0, Number(count || 0));
@@ -1083,12 +1089,19 @@ export function createCopyTokensOfCard(
   const isCreature = typeLine.toLowerCase().includes('creature');
   const sourceKeywords = Array.isArray((sourceCard as any)?.keywords) ? (sourceCard as any).keywords : [];
   const sourceOracleText = String(sourceCard?.oracle_text || '');
-  const hasHaste = sourceKeywords.some((keyword: any) => /\bhaste\b/i.test(String(keyword || '')))
+  const overrides = copyTokenOverrides || {};
+  const overrideHaste = (overrides.addAbilities || []).some(
+    (ability) => String(ability).toLowerCase() === 'haste',
+  );
+  const hasHaste = overrideHaste
+    || sourceKeywords.some((keyword: any) => /\bhaste\b/i.test(String(keyword || '')))
     || /\bhaste\b/i.test(sourceOracleText);
   const basePower = isCreature ? parsePT(sourceCard?.power) : undefined;
   const baseToughness = isCreature ? parsePT(sourceCard?.toughness) : undefined;
 
   const manaCost = normalizeManaCostXToZero(sourceCard?.mana_cost);
+  const cardForCopy = JSON.parse(JSON.stringify(sourceCard));
+  hydrateCardOracleInPlace(cardForCopy);
 
   for (let i = 0; i < n; i++) {
     const permanentId = uid('copytok');
@@ -1104,13 +1117,33 @@ export function createCopyTokensOfCard(
       baseToughness,
       summoningSickness: isCreature && !hasHaste,
       isToken: true,
+      isCopyToken: true,
+      ...(Object.keys(overrides).length > 0 ? { copyTokenOverrides: overrides } : {}),
       card: {
-        ...JSON.parse(JSON.stringify(sourceCard)),
+        ...cardForCopy,
         id: uid('card'),
         zone: 'battlefield',
         mana_cost: manaCost,
+        isToken: true,
+        isCopyOfPrintedCard: true,
       },
     };
+
+    hydrateCardOracleInPlace(tokenPerm.card, { isToken: true, isCopyToken: true });
+    if (Object.keys(overrides).length > 0) {
+      applyCopyTokenOverrides(tokenPerm.card, overrides, tokenPerm);
+    }
+
+    const resolvedTypeLine = String(tokenPerm.card?.type_line || typeLine).toLowerCase();
+    const resolvedIsCreature = resolvedTypeLine.includes('creature');
+    const resolvedOracle = String(tokenPerm.card?.oracle_text || sourceOracleText);
+    const resolvedKeywords = Array.isArray(tokenPerm.card?.keywords) ? tokenPerm.card.keywords : [];
+    const resolvedHasHaste =
+      resolvedKeywords.some((keyword: any) => /\bhaste\b/i.test(String(keyword || '')))
+      || /\bhaste\b/i.test(resolvedOracle);
+    tokenPerm.summoningSickness = resolvedIsCreature && !resolvedHasHaste;
+    if (overrides.power != null) tokenPerm.basePower = overrides.power;
+    if (overrides.toughness != null) tokenPerm.baseToughness = overrides.toughness;
 
     state.battlefield.push(tokenPerm);
 
@@ -1826,6 +1859,10 @@ export function runSBA(ctx: GameContext) {
   const { state, bumpSeq } = ctx;
 
   try {
+    hydrateGameStateOracleText(state, ctx.libraries);
+  } catch {}
+
+  try {
     syncDerivedContinuousEffects(state);
   } catch {}
 
@@ -1905,6 +1942,7 @@ export function runSBA(ctx: GameContext) {
       (perm as any).damage = 0;
       (perm as any).markedDamage = 0;
       (perm as any).damageMarked = 0;
+      (perm as any).deathtouchDamageMarked = false;
       if (perm.counters && typeof perm.counters === 'object' && !Array.isArray(perm.counters) && 'damage' in perm.counters) {
         delete (perm.counters as any).damage;
       }

@@ -19,6 +19,7 @@ import {
 import { syncArcaneAdaptationForNewCreature } from './chosen-creature-type.js';
 import { applyMetallicMimicEntryBonus } from './triggerChosenTypeSpellUtils.js';
 import { cardEntersPrepared, setPermanentPrepared } from './prepared.js';
+import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { parseTriggeredAbilitiesFromText, TriggerEvent as ParsedTriggerEvent } from '../../../../rules-engine/src/triggeredAbilities.js';
 import type {
@@ -332,7 +333,7 @@ export function resolvePermanentSpellBattlefieldEntry(
   const shouldEnterTapped = checkPermanentEntersTapped(state.battlefield || [], controller, effectiveCard);
   
   state.battlefield = state.battlefield || [];
-  const newPermId = uid("perm");
+  const newPermId = String(options.preferredPermanentId || '').trim() || uid("perm");
   
   // Apply counter modifiers (Doubling Season, Vorinclex, etc.) to ETB counters
   // Need to create a temporary permanent to apply modifiers
@@ -504,6 +505,8 @@ export function resolvePermanentSpellBattlefieldEntry(
     String(effectiveCard?.oracle_text || ''),
   );
 
+  hydratePermanentCardOracleInPlace(newPermanent);
+
   const isMutatingSpell =
     !wasCastWithMorph &&
     isCreature &&
@@ -612,7 +615,7 @@ export function resolvePermanentSpellBattlefieldEntry(
 
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();
-          if (replayGameId && mutatingCardId) {
+          if (replayGameId && mutatingCardId && !(ctx as any).isReplaying) {
             appendEvent(replayGameId, (state as any).seq ?? 0, 'mutatePermanent', {
               playerId: controller,
               targetPermanentId: String((mutateTarget as any).id || mutateTargetId),
@@ -680,7 +683,7 @@ export function resolvePermanentSpellBattlefieldEntry(
 
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();
-          if (replayGameId) {
+          if (replayGameId && !(ctx as any).isReplaying) {
             appendEvent(replayGameId, (state as any).seq ?? 0, 'attachEnchantmentPermanent', {
               playerId: controller,
               enchantmentId: newPermId,

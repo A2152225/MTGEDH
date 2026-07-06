@@ -285,6 +285,65 @@ describe('Undo and Replay', () => {
       const landBackInHand = handAfterUndo.find((c: any) => c.type_line?.toLowerCase().includes('land'));
       expect(landBackInHand).toBeDefined();
     });
+
+    it('replays castSpell + resolveTopOfStack by restoring permanent creatures to the battlefield', () => {
+      const gameId = 'undo_creature_spell_replay';
+      const p1 = 'p_test' as PlayerID;
+      const creature = {
+        id: 'valiant_veteran_1',
+        name: 'Valiant Veteran',
+        type_line: 'Creature — Human Soldier',
+        power: '2',
+        toughness: '2',
+        oracle_text: '',
+      };
+      const stackItemId = 'stack_valiant_veteran_1';
+
+      const game = createInitialGameState(gameId);
+      game.applyEvent({ type: 'join', playerId: p1, name: 'P1' } as any);
+      (game.state as any).zones = {
+        [p1]: {
+          hand: [{ ...creature, zone: 'hand' }],
+          handCount: 1,
+          library: [],
+          libraryCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+        },
+      };
+      (game.state as any).stack = [];
+      (game.state as any).battlefield = [];
+
+      game.replay!([
+        {
+          type: 'castSpell',
+          playerId: p1,
+          card: { ...creature, zone: 'hand' },
+          fromZone: 'hand',
+          stackItemId,
+        },
+        { type: 'resolveTopOfStack' },
+      ] as any);
+
+      const battlefield = ((game.state as any).battlefield || []) as any[];
+      const hand = ((game.state as any).zones?.[p1]?.hand || []) as any[];
+
+      expect((game.state as any).stack).toEqual([]);
+      expect(battlefield).toHaveLength(1);
+      expect(battlefield[0]).toMatchObject({
+        id: stackItemId,
+        controller: p1,
+        summoningSickness: true,
+        card: {
+          id: creature.id,
+          name: creature.name,
+          zone: 'battlefield',
+        },
+      });
+      expect(hand).toHaveLength(0);
+    });
   });
 
   describe('DB event format transformation', () => {

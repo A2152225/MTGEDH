@@ -3,6 +3,7 @@ import { socket } from "./socket";
 import type {
   ClientGameView,
   PlayerID,
+  PlayerRef,
   KnownCardRef,
   CardFace,
   ChatMsg,
@@ -1716,7 +1717,6 @@ export function App() {
         startingLife: config.startingLife,
         seed: config.seed,
         aiName: config.aiName,
-        aiStrategy: config.aiStrategy,
         aiDifficulty: config.aiDifficulty,
         aiDeckId: config.aiDeckId,
         aiDeckText: config.aiDeckText,
@@ -2475,13 +2475,12 @@ export function App() {
   }, [safeView?.id, you]);
 
   // Handler to toggle AI control
-  const handleToggleAIControl = React.useCallback((enable: boolean, strategy?: string, difficulty?: number) => {
+  const handleToggleAIControl = React.useCallback((enable: boolean, difficulty?: number) => {
     if (!safeView?.id) return;
     
     socket.emit("toggleAIControl", {
       gameId: safeView.id,
       enable,
-      strategy: strategy || 'basic',
       difficulty: difficulty ?? 0.5,
     });
   }, [safeView?.id]);
@@ -5167,9 +5166,20 @@ export function App() {
     const expanded: BattlefieldPermanent[] = [];
     for (const perm of permanents) {
       const groupedIds = (perm as any).groupedTokenIds as string[] | undefined;
-      if ((perm as any).isGroupedTokens && Array.isArray(groupedIds) && groupedIds.length > 0) {
-        for (const tokenId of groupedIds) {
-          expanded.push({ ...perm, id: tokenId, isGroupedTokens: false, tokenCount: 1 } as BattlefieldPermanent);
+      const tokenCount = Number((perm as any).tokenCount || 0);
+      if ((perm as any).isGroupedTokens && tokenCount > 1) {
+        const groupId = String(perm.id || `group_${(perm as any).originalId || 'token'}`);
+        for (let i = 0; i < tokenCount; i += 1) {
+          const tokenId = groupedIds && i < groupedIds.length ? groupedIds[i] : `${groupId}_virtual_${i}`;
+          expanded.push({
+            ...perm,
+            id: tokenId,
+            isGroupedTokens: false,
+            tokenCount: 1,
+            groupedTokenIds: undefined,
+            _virtualFromGroup: groupId,
+            _virtualIndex: i,
+          } as BattlefieldPermanent);
         }
       } else {
         expanded.push(perm);
@@ -7319,6 +7329,7 @@ export function App() {
         }
         attackingCreatures={attackingCreatures}
         battlefield={(safeView?.battlefield || []) as BattlefieldPermanent[]}
+        players={(safeView?.players || []) as PlayerRef[]}
         defenders={combatMode === 'attackers' && combatModalReadOnly ? combatModalAttackersDefenders : defenders}
         initialAttackTargets={
           combatMode === 'attackers' && combatModalReadOnly

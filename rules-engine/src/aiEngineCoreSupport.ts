@@ -1,11 +1,11 @@
-import { getLegalAttackers } from './actions/combat';
 import { AIDecisionType, type AIDecision, type AIDecisionContext, type AIPlayerConfig } from './AIEngine';
 
 export function makeRandomDecision(
   context: AIDecisionContext,
+  config: AIPlayerConfig,
   deps: {
-    selectAttackTarget: (gameState: AIDecisionContext['gameState'], playerId: string) => string;
-  }
+    makeBasicDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
+  },
 ): AIDecision {
   const { decisionType, playerId } = context;
 
@@ -19,23 +19,8 @@ export function makeRandomDecision(
         confidence: 0.5,
       };
 
-    case AIDecisionType.DECLARE_ATTACKERS: {
-      const legalAttackerIds = getLegalAttackers(context.gameState, playerId);
-      const randomAttackerIds = legalAttackerIds.filter(() => Math.random() > 0.3);
-      const targetPlayerId = deps.selectAttackTarget(context.gameState, playerId);
-      const randomAttackers = randomAttackerIds.map(id => ({
-        creatureId: id,
-        defendingPlayerId: targetPlayerId,
-      }));
-
-      return {
-        type: decisionType,
-        playerId,
-        action: { attackers: randomAttackers },
-        reasoning: `Random attackers (${randomAttackers.length}/${legalAttackerIds.length} legal)`,
-        confidence: 0.3,
-      };
-    }
+    case AIDecisionType.DECLARE_ATTACKERS:
+      return deps.makeBasicDecision(context, config);
 
     case AIDecisionType.PASS_PRIORITY:
       return {
@@ -98,7 +83,7 @@ export function makeBasicDecision(
     makeModeChoiceDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
     makeDiscardDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
     makeActivatedAbilityDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
-    makeRandomDecision: (context: AIDecisionContext) => AIDecision;
+    makeRandomDecision: (context: AIDecisionContext, config: AIPlayerConfig) => AIDecision;
   }
 ): AIDecision {
   switch (context.decisionType) {
@@ -129,6 +114,6 @@ export function makeBasicDecision(
     case AIDecisionType.ACTIVATE_ABILITY:
       return deps.makeActivatedAbilityDecision(context, config);
     default:
-      return deps.makeRandomDecision(context);
+      return deps.makeRandomDecision(context, config);
   }
 }

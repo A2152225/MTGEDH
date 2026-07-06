@@ -9,10 +9,6 @@ import {
   type SavedAIOpponentPreset,
 } from '../utils/aiOpponentPresets';
 
-import type { AIStrategy } from '../utils/aiOpponentPresets';
-
-export type { AIStrategy } from '../utils/aiOpponentPresets';
-
 /**
  * Game formats supported by the application
  */
@@ -70,7 +66,6 @@ export interface HouseRulesConfig {
  */
 export interface AIOpponentConfig {
   name: string;
-  strategy: AIStrategy;
   difficulty?: number; // AI skill level: 0 = easy, 0.5 = medium, 1 = hard (default: 0.5)
   deckId?: string;
   deckText?: string;
@@ -91,7 +86,6 @@ export interface GameCreationConfig {
   aiOpponents?: AIOpponentConfig[];
   // Legacy single AI opponent fields (for backward compatibility)
   aiName?: string;
-  aiStrategy?: AIStrategy;
   aiDifficulty?: number;
   aiDeckId?: string;
   aiDeckText?: string;
@@ -131,18 +125,6 @@ const MAX_AI_OPPONENTS = 9;
 const MAX_TOTAL_SEATS = MAX_AI_OPPONENTS + 1;
 
 /**
- * AI Strategy display names and descriptions
- */
-const AI_STRATEGY_INFO: Record<AIStrategy, { name: string; description: string }> = {
-  random: { name: 'Random', description: 'Makes completely random decisions' },
-  basic: { name: 'Basic', description: 'Uses simple heuristics for decisions' },
-  aggressive: { name: 'Aggressive', description: 'Prioritizes attacking and dealing damage' },
-  defensive: { name: 'Defensive', description: 'Focuses on blocking and life preservation' },
-  control: { name: 'Control', description: 'Focuses on controlling the board state' },
-  combo: { name: 'Combo', description: 'Tries to assemble winning combos' },
-};
-
-/**
  * Modal for creating a new game with format, AI opponent, and deck selection
  */
 export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], onRefreshDecks }: CreateGameModalProps) {
@@ -170,7 +152,6 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
   const [aiOpponents, setAiOpponents] = useState<Array<{
     id: string;
     name: string;
-    strategy: AIStrategy;
     difficulty: number; // 0 = easy, 0.5 = medium, 1 = hard
     deckId: string;
     deckMode: 'select' | 'import';
@@ -217,7 +198,6 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     setAiOpponents([...aiOpponents, {
       id: newId,
       name: `AI Opponent ${opponentNumber}`,
-      strategy: 'basic' as AIStrategy,
       difficulty: 0.5, // Default to medium difficulty
       deckId: '',
       deckMode: 'select',
@@ -440,7 +420,6 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     // Build AI opponents configuration
     const aiOpponentsConfig: AIOpponentConfig[] = aiOpponents.map(ai => ({
       name: ai.name.trim() || 'AI Opponent',
-      strategy: ai.strategy,
       difficulty: ai.difficulty,
       deckId: ai.deckMode === 'select' && ai.deckId ? ai.deckId : undefined,
       deckText: ai.deckMode === 'import' && ai.deckText.trim() ? ai.deckText.trim() : undefined,
@@ -460,7 +439,6 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
       aiOpponents: hasAI ? aiOpponentsConfig : undefined,
       // Legacy fields for backward compatibility with single AI
       aiName: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].name : undefined,
-      aiStrategy: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].strategy : undefined,
       aiDifficulty: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].difficulty : undefined,
       aiDeckId: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].deckId : undefined,
       aiDeckText: hasAI && aiOpponents.length === 1 ? aiOpponentsConfig[0].deckText : undefined,
@@ -753,7 +731,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                     <option value="">-- Select a saved preset --</option>
                     {savedAiPresets.map((preset) => (
                       <option key={preset.id} value={preset.id}>
-                        {preset.label} ({AI_STRATEGY_INFO[preset.strategy].name})
+                        {preset.label}
                       </option>
                     ))}
                   </select>
@@ -793,7 +771,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                   </button>
                 </div>
                 <div style={{ marginTop: 4, fontSize: 11, color: '#666' }}>
-                  Quickly add opponents with saved name, deck, difficulty, and strategy.
+                  Quickly add opponents with saved name, deck, and difficulty. Playstyle is inferred from the deck.
                 </div>
               </div>
             )}
@@ -840,7 +818,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                       {ai.expanded ? '▼' : '▶'} {ai.name || `AI Opponent ${index + 1}`}
                     </span>
                     <span style={{ fontSize: 11, color: '#888' }}>
-                      ({AI_STRATEGY_INFO[ai.strategy].name})
+                      (deck-aware AI)
                     </span>
                     {!hasDeck && (
                       <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 500 }}>
@@ -897,32 +875,6 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                           boxSizing: 'border-box',
                         }}
                       />
-                    </div>
-
-                    {/* AI Strategy */}
-                    <div style={{ marginBottom: 10 }}>
-                      <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#444' }}>
-                        Strategy
-                      </label>
-                      <select
-                        value={ai.strategy}
-                        onChange={(e) => updateAiOpponent(ai.id, { strategy: e.target.value as AIStrategy })}
-                        style={{
-                          width: '100%',
-                          padding: '6px 10px',
-                          borderRadius: 4,
-                          border: '1px solid #ddd',
-                          fontSize: 13,
-                          boxSizing: 'border-box',
-                          backgroundColor: '#fff',
-                        }}
-                      >
-                        {Object.entries(AI_STRATEGY_INFO).map(([key, info]) => (
-                          <option key={key} value={key}>
-                            {info.name} - {info.description}
-                          </option>
-                        ))}
-                      </select>
                     </div>
 
                     {/* AI Difficulty Slider */}

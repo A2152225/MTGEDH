@@ -97,6 +97,7 @@ export function clearMarkedPermanentDamage(permanent: any): void {
   permanent.damage = 0;
   permanent.markedDamage = 0;
   permanent.damageMarked = 0;
+  permanent.deathtouchDamageMarked = false;
   if (permanent.counters && typeof permanent.counters === 'object' && !Array.isArray(permanent.counters)) {
     if ('damage' in permanent.counters) {
       delete permanent.counters.damage;
@@ -105,6 +106,15 @@ export function clearMarkedPermanentDamage(permanent: any): void {
       }
     }
   }
+}
+
+export function permanentHasDeathtouchDamageMarked(permanent: any): boolean {
+  return Boolean(permanent?.deathtouchDamageMarked);
+}
+
+export function markPermanentDeathtouchDamage(permanent: any): void {
+  if (!permanent || typeof permanent !== 'object') return;
+  permanent.deathtouchDamageMarked = true;
 }
 
 export function applyShieldCounterDamagePrevention(permanent: any): boolean {
@@ -120,7 +130,7 @@ export function applyDamageToPermanentWithCounterEffects(
   permanent: any,
   amount: number,
   damageField: 'damage' | 'markedDamage' | 'damageMarked' = 'damageMarked',
-  options?: { state?: any; source?: any; sourceId?: string; targetPlayerId?: string }
+  options?: { state?: any; source?: any; sourceId?: string; targetPlayerId?: string; fromDeathtouch?: boolean }
 ): { prevented: boolean; appliedAmount: number } {
   const normalizedAmount = Math.max(0, Number(amount || 0));
   if (!permanent || normalizedAmount <= 0) {
@@ -143,6 +153,9 @@ export function applyDamageToPermanentWithCounterEffects(
   }
 
   permanent[damageField] = Number(permanent[damageField] || 0) + normalizedAmount;
+  if (options?.fromDeathtouch && normalizedAmount > 0) {
+    markPermanentDeathtouchDamage(permanent);
+  }
   return { prevented: false, appliedAmount: normalizedAmount };
 }
 

@@ -86,6 +86,7 @@ export enum SynergyArchetype {
   COMBO = 'combo',                  // Infinite/game-ending combos
   STAX = 'stax',                    // Resource denial
   GROUP_HUG = 'group_hug',          // Symmetric benefits
+  POLITICS = 'politics',            // Goad, pillow fort, kingmaking, field/life manipulation
 }
 
 // ============================================================================
@@ -144,6 +145,11 @@ export interface CardEffectDetails {
   readonly careAboutGraveyard: boolean;
   readonly hasActivatedAbility: boolean;
   readonly isComboEnablerPiece: boolean;
+
+  /** Whenever another/other creature you control … (dies, enters, attacks, etc.) */
+  readonly hasAnotherCreatureTrigger: boolean;
+  /** 0–10: how much the card wants a stable board of other creatures */
+  readonly anotherCreatureTriggerStrength: number;
 }
 
 /**
@@ -250,6 +256,26 @@ const PATTERNS = {
   WIN_GAME: /you win the game|target player loses the game/i,
   LIFE_DRAIN: /each opponent loses.*life|deals.*damage to each opponent/i,
   COMMANDER_DAMAGE: /commander damage/i,
+
+  // Politics / kingmaking (beyond symmetric group hug)
+  GOAD: /\bgoad\b/i,
+  POLITICS_FIELD_SWAP: /gain control of all creatures|exchange control of all creatures|each gain control of all creatures the other controls/i,
+  POLITICS_LIFE_SWAP: /exchange (?:life totals|damage)|pay (?:any amount|\{[^}]+\}) of life.*loses that much life/i,
+  POLITICS_PILLOW_FORT: /can't attack you|creatures can't attack you unless|costs?\s+\{?[wubrgc\d]?\}?\s*more to attack you|sphere of safety|propaganda|ghostly prison|norn's annex|windborn muse|collective restraint|blazing archon/i,
+  POLITICS_SYMMETRIC: /each player (?:draws|may draw|gains|may search|may put)|howling mine|font of mythos|tempt with/i,
+  POLITICS_DEFection: /humble defector|target opponent gains control|that player gains control of/i,
+  POLITICS_PUNISHMENT: /damage (?:is|would be) dealt to you|redirect(?:s|ed)? (?:that|this) damage|repercussion|stuffy doll|mogg maniac|backlash|pain for all|screaming nemesis|brash taunter|arcbond/i,
+  POLITICS_GOAD_EQUIPMENT: /\bgoad\b|impetus|bloodthirsty blade|coronation of chaos|spectacular showdown|hot pursuit|komainu battle|laser screwdriver|incriminating|ghoulish|parasitic|geode rager|acquired mutation|bothersome quasit/i,
+  POLITICS_ATTACH_OPPONENT: /enchant (?:creature )?an opponent controls|attach(?:ed)? to target creature an opponent controls|enchant (?:opponent|player)/i,
+  POLITICS_GOAD_COMMANDER: /goad (?:all )?creatures you don't control|each creature you don't control.*\bgoad\b|power (?:is |≥ |>= |greater than )\d+.*\bgoad\b/i,
+
+  // Tribal engines: lords, kindred, and tokens-as-resource (mill/mana/lock)
+  TRIBAL_KINDRED: /choose a creature type|creature type you chose|\bkindred\b|\bchangeling\b/i,
+  TRIBAL_ANTHEM: /creatures you control get \+|other .*creatures you control get|each other .*creature you control gets/i,
+  TRIBAL_TOKEN_PAYOFF: /create .*creature token|twice that many of those tokens|token.*you control gets? /i,
+  TRIBAL_COUNTER_LOCK: /tap .*untapped .*you control:.*counter target spell/i,
+  TRIBAL_MILL_ENGINE: /\bmill \d+|put the top \d+ cards of .*library into .*graveyard|target player mills/i,
+  TRIBAL_MANA_ENGINE: /add .*mana of any (?:type|color)|add \{[wubrgc]\} for each creature/i,
 };
 
 function getAnalyzerParsedTriggers(oracleText: string, cardName: string) {
@@ -262,6 +288,41 @@ function isAnalyzerDeathTrigger(event: TriggerEvent): boolean {
 
 function isAnalyzerEtbTrigger(event: TriggerEvent): boolean {
   return event === TriggerEvent.ENTERS_BATTLEFIELD;
+}
+
+/**
+ * Score how much a card wants other creatures on the board (aristocrat/token payoffs).
+ * Higher = keep off the combat step; sacrifice fodder elsewhere instead.
+ */
+export function scoreAnotherCreatureTriggerStrength(oracleText: string): number {
+  const text = String(oracleText || '').toLowerCase();
+  if (!/\bwhenever\b/.test(text)) return 0;
+
+  const referencesOtherCreatures =
+    /\banother creature\b/.test(text) ||
+    /\bone or more other\b[\s\S]{0,40}\bcreatures?\b/.test(text) ||
+    /\bother [\w\s'-]+ you control\b/.test(text);
+  if (!referencesOtherCreatures) return 0;
+
+  let strength = 5;
+
+  if (/\b(?:dies?|died|leaves the battlefield)\b/.test(text)) strength += 4;
+  if (/\benters the battlefield\b/.test(text)) strength += 3;
+  if (/\battacks?\b/.test(text) || /\bdeals combat damage\b/.test(text)) strength += 2;
+  if (/\b(?:becomes blocked|blocks?)\b/.test(text)) strength += 1;
+
+  if (/\beach opponent\b.*\b(?:loses?|lose)\b.*\blife\b/.test(text)) strength += 2;
+  if (/\byou gain\b.*\blife\b/.test(text)) strength += 1;
+  if (/\bdamage\b.*\b(?:opponent|player)\b/.test(text)) strength += 2;
+  if (/\bcreate\b[\s\S]{0,30}\btoken\b/.test(text)) strength += 2;
+  if (/\bdraw\b/.test(text)) strength += 2;
+  if (/\bput\b[\s\S]{0,20}\b\+1\/\+1\b/.test(text)) strength += 1;
+
+  return Math.min(10, strength);
+}
+
+export function hasAnotherCreatureTrigger(oracleText: string): boolean {
+  return scoreAnotherCreatureTriggerStrength(oracleText) > 0;
 }
 
 // Known combo pieces and their partners
@@ -456,6 +517,9 @@ export class CardAnalyzer {
     let enchantmentCount = 0;
     let auraEquipmentCount = 0;
     let groupHugCount = 0;
+    let politicsScore = 0;
+    let goadPoliticsCount = 0;
+    let tribalEngineScore = 0;
     let comboPotentialCount = 0;
 
     for (const card of cards) {
@@ -464,6 +528,7 @@ export class CardAnalyzer {
       const typeLine = cardData.typeLine.toLowerCase();
       const oracleText = cardData.oracleText.toLowerCase();
       const lowerName = cardData.name.toLowerCase();
+      const searchableText = `${lowerName} ${oracleText}`;
 
       nameToCard.set(lowerName, card);
 
@@ -484,8 +549,44 @@ export class CardAnalyzer {
       if (typeLine.includes('instant') || typeLine.includes('sorcery')) instantSorceryCount += 1;
       if (typeLine.includes('artifact')) artifactCount += 1;
       if (typeLine.includes('enchantment')) enchantmentCount += 1;
-      if (typeLine.includes('aura') || typeLine.includes('equipment')) auraEquipmentCount += 1;
-      if (/each player (?:draws|may|gains)|whenever .*each player/i.test(oracleText)) groupHugCount += 1;
+      const isGoadPoliticsAuraEquip =
+        PATTERNS.POLITICS_GOAD_EQUIPMENT.test(searchableText)
+        || (PATTERNS.GOAD.test(oracleText) && (typeLine.includes('aura') || typeLine.includes('equipment')))
+        || (PATTERNS.POLITICS_ATTACH_OPPONENT.test(oracleText) && (typeLine.includes('aura') || typeLine.includes('equipment')));
+      if ((typeLine.includes('aura') || typeLine.includes('equipment')) && !isGoadPoliticsAuraEquip) {
+        auraEquipmentCount += 1;
+      }
+      if (isGoadPoliticsAuraEquip) {
+        goadPoliticsCount += 1;
+        politicsScore += 5;
+      }
+      if (PATTERNS.POLITICS_SYMMETRIC.test(oracleText)) groupHugCount += 1;
+      if (PATTERNS.GOAD.test(oracleText)) {
+        politicsScore += 4;
+        if (typeLine.includes('creature') || typeLine.includes('planeswalker')) goadPoliticsCount += 1;
+      }
+      if (PATTERNS.POLITICS_FIELD_SWAP.test(oracleText)) politicsScore += 5;
+      if (PATTERNS.POLITICS_LIFE_SWAP.test(oracleText)) politicsScore += 5;
+      if (PATTERNS.POLITICS_PILLOW_FORT.test(oracleText)) politicsScore += 3;
+      if (PATTERNS.POLITICS_DEFection.test(oracleText)) politicsScore += 4;
+      if (PATTERNS.POLITICS_PUNISHMENT.test(searchableText)) {
+        politicsScore += 3;
+        goadPoliticsCount += 1;
+      }
+      if (typeLine.includes('creature') && PATTERNS.POLITICS_GOAD_COMMANDER.test(oracleText)) {
+        politicsScore += 6;
+        goadPoliticsCount += 2;
+      }
+      if (/\bmonarch\b|\bvote\b|become the monarch/i.test(oracleText)) politicsScore += 2;
+      if (typeLine.includes('land') && /can't be blocked|double strike|unblockable/i.test(oracleText)) {
+        politicsScore += 2;
+      }
+      if (PATTERNS.TRIBAL_KINDRED.test(searchableText)) tribalEngineScore += 3;
+      if (PATTERNS.TRIBAL_ANTHEM.test(oracleText)) tribalEngineScore += 2;
+      if (PATTERNS.TRIBAL_TOKEN_PAYOFF.test(oracleText)) tribalEngineScore += 3;
+      if (PATTERNS.TRIBAL_COUNTER_LOCK.test(oracleText)) tribalEngineScore += 6;
+      if (PATTERNS.TRIBAL_MILL_ENGINE.test(oracleText)) tribalEngineScore += 4;
+      if (PATTERNS.TRIBAL_MANA_ENGINE.test(oracleText)) tribalEngineScore += 4;
 
       if (analysis.comboPotential >= 7) {
         comboPotentialCount += 1;
@@ -525,9 +626,26 @@ export class CardAnalyzer {
       }
     }
 
-    const highestSubtypeCount = Object.values(subtypeCounts).reduce((max, count) => Math.max(max, count), 0);
     const getCategoryCount = (category: CardCategory) => categoryCounts[category] || 0;
     const getTagCount = (tag: string) => synergyTagCounts[tag] || 0;
+
+    const dominantSubtypeEntry = Object.entries(subtypeCounts).sort((left, right) => right[1] - left[1])[0];
+    const dominantSubtypeCount = dominantSubtypeEntry?.[1] ?? 0;
+
+    archetypeScores[SynergyArchetype.TRIBAL] =
+      (dominantSubtypeCount >= 5 ? dominantSubtypeCount : 0)
+      + tribalEngineScore
+      + (dominantSubtypeCount >= 12 ? 8 : dominantSubtypeCount >= 8 ? 4 : 0);
+    if (tribalEngineScore > 0) {
+      synergyTagCounts.tribal_engine = tribalEngineScore;
+    }
+    if (dominantSubtypeEntry?.[0]) {
+      synergyTagCounts[`tribe_${dominantSubtypeEntry[0]}`] = dominantSubtypeCount;
+    }
+
+    if (goadPoliticsCount > 0) {
+      synergyTagCounts.goad_politics = goadPoliticsCount;
+    }
 
     archetypeScores[SynergyArchetype.ARISTOCRATS] =
       getCategoryCount(CardCategory.SACRIFICE_OUTLET) * 3 +
@@ -554,11 +672,14 @@ export class CardAnalyzer {
     archetypeScores[SynergyArchetype.COUNTERS] = getTagCount('counters') * 3;
     archetypeScores[SynergyArchetype.ARTIFACTS] = getTagCount('artifacts') * 2 + Math.floor(artifactCount / 3);
     archetypeScores[SynergyArchetype.ENCHANTMENTS] = getTagCount('enchantments') * 2 + Math.floor(enchantmentCount / 3);
-    archetypeScores[SynergyArchetype.VOLTRON] = getTagCount('voltron') * 3 + Math.floor(auraEquipmentCount / 2);
+    archetypeScores[SynergyArchetype.VOLTRON] = Math.max(
+      0,
+      getTagCount('voltron') * 3 + Math.floor(auraEquipmentCount / 2) - goadPoliticsCount * 4,
+    );
     archetypeScores[SynergyArchetype.COMBO] = comboPairs.length * 4 + comboPotentialCount * 2;
     archetypeScores[SynergyArchetype.STAX] = getTagCount('stax') * 3;
     archetypeScores[SynergyArchetype.GROUP_HUG] = groupHugCount * 3;
-    archetypeScores[SynergyArchetype.TRIBAL] = highestSubtypeCount >= 6 ? highestSubtypeCount : 0;
+    archetypeScores[SynergyArchetype.POLITICS] = politicsScore;
 
     const primaryArchetypes = Object.entries(archetypeScores)
       .filter(([, score]) => score >= 3)
@@ -858,11 +979,12 @@ export class CardAnalyzer {
     // Handle BattlefieldPermanent
     if ('card' in card && card.card) {
       const innerCard = card.card as KnownCardRef;
+      const name = innerCard.name || '';
       return {
         id: card.id || innerCard.id || '',
-        name: innerCard.name || '',
+        name,
         typeLine: innerCard.type_line || '',
-        oracleText: innerCard.oracle_text || '',
+        oracleText: String(innerCard.oracle_text || '').trim(),
         power: parseInt(String(innerCard.power || '0'), 10) || 0,
         toughness: parseInt(String(innerCard.toughness || '0'), 10) || 0,
         cmc: (innerCard as any).cmc || (innerCard as any).mana_value || 0,
@@ -872,11 +994,12 @@ export class CardAnalyzer {
     
     // Handle KnownCardRef directly
     const cardRef = card as KnownCardRef;
+    const name = cardRef.name || '';
     return {
       id: cardRef.id || '',
-      name: cardRef.name || '',
+      name,
       typeLine: cardRef.type_line || '',
-      oracleText: cardRef.oracle_text || '',
+      oracleText: String(cardRef.oracle_text || '').trim(),
       power: parseInt(String(cardRef.power || '0'), 10) || 0,
       toughness: parseInt(String(cardRef.toughness || '0'), 10) || 0,
       cmc: (cardRef as any).cmc || (cardRef as any).mana_value || 0,
@@ -1053,6 +1176,9 @@ export class CardAnalyzer {
     if (hasETBTrigger) {
       etbTriggerEffect = etbTriggers[0]?.effect;
     }
+
+    const anotherCreatureTriggerStrength = scoreAnotherCreatureTriggerStrength(oracleText);
+    const hasAnotherCreatureTriggerFlag = anotherCreatureTriggerStrength > 0;
     
     return {
       hasDeathTrigger,
@@ -1078,6 +1204,8 @@ export class CardAnalyzer {
       careAboutGraveyard: PATTERNS.GRAVEYARD_CARE.test(text),
       hasActivatedAbility: text.includes('{t}:') || /\{[0-9wubrgc]+\}[,:]/.test(text),
       isComboEnablerPiece: PATTERNS.UNTAP_EFFECT.test(text) || PATTERNS.COPY_EFFECT.test(text),
+      hasAnotherCreatureTrigger: hasAnotherCreatureTriggerFlag,
+      anotherCreatureTriggerStrength,
     };
   }
   

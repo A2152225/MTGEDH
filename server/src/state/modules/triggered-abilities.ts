@@ -33,6 +33,10 @@
  */
 
 import type { GameContext } from "../context.js";
+import {
+  hydrateBattlefieldOracleText,
+  hydratePermanentCardOracleInPlace,
+} from "./cardOracleHydration.js";
 import { calculateVariablePT, getActualPowerToughness, normalizeCardNameForOracleText } from "../utils.js";
 import { handleEldraziShuffle, hasGraveyardMassShuffleIntoLibraryTrigger } from "./zone-manipulation.js";
 
@@ -11315,49 +11319,55 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
-  
-  // Check known cards
-  for (const [knownName, info] of Object.entries(KNOWN_BEGINNING_COMBAT_TRIGGERS)) {
-    if (lowerName.includes(knownName)) {
-      triggers.push({
-        permanentId,
-        cardName,
-        controllerId,
-        description: info.effect,
-        effect: info.effect,
-        mandatory: true,
-        requiresChoice: info.requiresChoice,
-      });
-    }
-  }
-  
-  // Generic "at the beginning of combat on your turn" detection
-  // ONLY add if not already in known cards list to prevent duplicates
   const beginCombatMatch = oracleText.match(/at the beginning of combat on your turn,?\s*([^.]+)/i);
-  if (beginCombatMatch && triggers.length === 0) {
-    // No known trigger found, use generic detection
+
+  // Dynamic detection (primary) — full oracle effect via timingTriggerEffect
+  if (beginCombatMatch) {
+    const effectText = timingTriggerEffect(oracleText, beginCombatMatch);
     triggers.push({
       permanentId,
       cardName,
       controllerId,
-      description: timingTriggerEffect(oracleText, beginCombatMatch),
-      effect: timingTriggerEffect(oracleText, beginCombatMatch),
+      description: effectText,
+      effect: effectText,
       mandatory: true,
+      requiresChoice: /\bchoose\b/i.test(effectText) || /\byou may\b/i.test(effectText),
+      createsToken: /\bcreate\b.*\btoken\b/i.test(effectText),
     });
   }
-  
+
+  // KNOWN table fallback only when oracle regex did not match (legacy shorthand / odd wording)
+  if (triggers.length === 0) {
+    for (const [knownName, info] of Object.entries(KNOWN_BEGINNING_COMBAT_TRIGGERS)) {
+      if (lowerName.includes(knownName)) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: info.effect,
+          effect: info.effect,
+          mandatory: true,
+          requiresChoice: info.requiresChoice,
+          createsToken: info.createsToken,
+        });
+      }
+    }
+  }
+
   // "At the beginning of each combat" - triggers on all players' combats
   // ONLY add if not already in known cards list to prevent duplicates
   const eachCombatMatch = oracleText.match(/at the beginning of each combat,?\s*([^.]+)/i);
   if (eachCombatMatch && triggers.length === 0) {
-    // No known trigger found, use generic detection
+    const effectText = timingTriggerEffect(oracleText, eachCombatMatch);
     triggers.push({
       permanentId,
       cardName,
       controllerId,
-      description: timingTriggerEffect(oracleText, eachCombatMatch),
-      effect: timingTriggerEffect(oracleText, eachCombatMatch),
+      description: effectText,
+      effect: effectText,
       mandatory: true,
+      requiresChoice: /\bchoose\b/i.test(effectText) || /\byou may\b/i.test(effectText),
+      createsToken: /\bcreate\b.*\btoken\b/i.test(effectText),
     });
   }
 
@@ -11759,7 +11769,15 @@ function deathTriggerClauseMatchesDyingCreature(
   const damageMarkedDiesClause = /^a\s+creature\s+dealt\s+damage\s+by\s+this\s+creature\s+this\s+turn$/i.test(clause);
   const equippedDamageMarkedDiesClause = /^a\s+creature\s+dealt\s+damage\s+by\s+equipped\s+creature\s+this\s+turn$/i.test(clause);
   if ((clause.includes('enchanted creature') || clause.includes('equipped creature')) && !equippedDamageMarkedDiesClause) return false;
-  if (!damageMarkedDiesClause && (clause.includes('this creature') || clause.includes('this permanent') || clause.includes('~'))) return false;
+  const isThisOrAnotherControlledClause =
+    /\bthis creature or another (?:nontoken )?creature you control\b/i.test(clause);
+  if (
+    !damageMarkedDiesClause
+    && !isThisOrAnotherControlledClause
+    && (clause.includes('this creature') || clause.includes('this permanent') || clause.includes('~'))
+  ) {
+    return false;
+  }
 
   const sourceCardName = String(sourcePermanent?.card?.name || '').trim().toLowerCase();
   const isNamedOrAnotherClause = /\bor\s+another\b/i.test(clause);
@@ -11831,6 +11849,12 @@ export function getDeathTriggers(
 ): DeathTriggerResult[] {
   const results: DeathTriggerResult[] = [];
   const battlefield = ctx.state?.battlefield || [];
+  try {
+    hydrateBattlefieldOracleText(battlefield);
+    hydratePermanentCardOracleInPlace(dyingCreature);
+  } catch {
+    // best-effort: triggers must not depend on hydration succeeding
+  }
   const dyingTypeLine = (dyingCreature?.card?.type_line || '').toLowerCase();
   const isCreature = dyingTypeLine.includes('creature');
   
@@ -12075,9 +12099,12 @@ export function getDeathTriggers(
     }
     
     // ===== KNOWN CARDS TABLE (Fallback/Enhancement) =====
-    // Use the table to handle special cases not caught by dynamic patterns
+    // Use the table only when dynamic oracle parsing did not already match this permanent.
+    if (results.some((result) => String(result?.source?.permanentId || '') === String(permanent.id || ''))) {
+      continue;
+    }
     for (const [knownName, info] of Object.entries(KNOWN_DEATH_TRIGGERS)) {
-      if (cardName.includes(knownName) && !results.some(r => r.source.permanentId === permanent.id)) {
+      if (!cardName.includes(knownName)) continue;
         let shouldTrigger = false;
         
         switch (info.triggerOn) {
@@ -12112,7 +12139,6 @@ export function getDeathTriggers(
             dyingCreatureCard: returnsUnderControl ? dyingCreature?.card : undefined,
           });
         }
-      }
     }
   }
   

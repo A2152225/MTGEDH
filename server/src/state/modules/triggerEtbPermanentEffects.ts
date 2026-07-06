@@ -1,4 +1,4 @@
-﻿import type { PlayerID } from '../../../../shared/src/index.js';
+import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
 import { debug } from '../../utils/debug.js';
@@ -23,6 +23,7 @@ import {
   shouldQueueChosenTypeCreatureEtbTrigger,
 } from './triggerEtbEntryEffects.js';
 import { matchesColorRestriction } from './stackResolvePermanentEtbTriggerUtils.js';
+import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
 
 export function queueSupportedETBKeywordChoices(
   ctx: GameContext,
@@ -173,6 +174,12 @@ export function triggerETBEffectsForPermanent(
 ): void {
   const state = (ctx as any).state;
   if (!state?.battlefield) return;
+
+  try {
+    hydratePermanentCardOracleInPlace(permanent);
+  } catch {
+    // best-effort only
+  }
 
   stampPermanentControlEntryForEcho(state, permanent, String(controller));
 

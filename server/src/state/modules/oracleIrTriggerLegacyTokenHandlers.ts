@@ -6,6 +6,15 @@ import {
   queueSelfETBTriggersForPermanent,
   triggerETBEffectsForToken,
 } from './triggerEtbEntryEffects.js';
+import {
+  hydrateCardOracleInPlace,
+  hydratePermanentCardOracleInPlace,
+} from './cardOracleHydration.js';
+import {
+  applyCopyTokenOverrides,
+  parseCopyTokenOverridesFromEffect,
+  type CopyTokenOverrides,
+} from '../../../../shared/src/copyTokenOverrides.js';
 
 export function createEquippedCreatureCopyTokenFromEquipment(
   ctx: GameContext,
@@ -35,19 +44,30 @@ export function createEquippedCreatureCopyTokenFromEquipment(
     return 0;
   }
 
-  const desc = String(triggerDescription || '').toLowerCase();
+  hydratePermanentCardOracleInPlace(equippedCreature);
+
+  const effectText = String(triggerDescription || '');
+  let copyOverrides: CopyTokenOverrides = parseCopyTokenOverridesFromEffect(effectText);
+  if (grantsHasteFromStep) {
+    const abilities = new Set(
+      (copyOverrides.addAbilities || []).map((entry) => String(entry)),
+    );
+    abilities.add('Haste');
+    copyOverrides = { ...copyOverrides, addAbilities: [...abilities] };
+  }
+
   const tokenId = uid('token');
-  const originalCard = equippedCreature.card;
-  const originalTypeLine = (originalCard.type_line || '').toLowerCase();
+  const originalCard = { ...equippedCreature.card };
+  hydrateCardOracleInPlace(originalCard, { isToken: false });
 
-  let tokenTypeLine = originalCard.type_line || 'Token';
-  tokenTypeLine = tokenTypeLine.replace(/\bLegendary\s+/i, '').replace(/\s+Legendary\b/i, '').trim();
-
-  const originalHasHaste = (originalCard.oracle_text || '').toLowerCase().includes('haste') ||
-    (Array.isArray(originalCard.keywords) &&
-      originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste'));
-  const triggerGrantsHaste = grantsHasteFromStep || /(?:gains|has|with)\s+haste/i.test(desc);
-  const hasHaste = originalHasHaste || triggerGrantsHaste;
+  const originalTypeLine = String(originalCard.type_line || '').toLowerCase();
+  const originalHasHaste =
+    (String(originalCard.oracle_text || '').toLowerCase().includes('haste') ||
+      (Array.isArray(originalCard.keywords) &&
+        originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste')));
+  const hasHaste =
+    originalHasHaste ||
+    (copyOverrides.addAbilities || []).some((ability) => ability.toLowerCase() === 'haste');
   const isCreature = originalTypeLine.includes('creature');
 
   const tokenCopy = {
@@ -60,24 +80,28 @@ export function createEquippedCreatureCopyTokenFromEquipment(
     baseToughness: equippedCreature.baseToughness,
     summoningSickness: isCreature && !hasHaste,
     isToken: true,
+    isCopyToken: true,
+    copiedFromPermanentId: String(equippedCreature.id || ''),
+    copyTokenOverrides: copyOverrides,
     card: {
       ...originalCard,
       id: tokenId,
-      type_line: tokenTypeLine,
       zone: 'battlefield',
-      oracle_text: triggerGrantsHaste && !originalHasHaste
-        ? (originalCard.oracle_text || '') + (originalCard.oracle_text ? '\n' : '') + 'Haste'
-        : originalCard.oracle_text,
-      keywords: triggerGrantsHaste && Array.isArray(originalCard.keywords) && !originalCard.keywords.some((k: string) => k.toLowerCase() === 'haste')
-        ? [...originalCard.keywords, 'Haste']
-        : originalCard.keywords,
+      isToken: true,
+      isCopyOfPrintedCard: true,
     },
   } as any;
+
+  hydratePermanentCardOracleInPlace(tokenCopy);
+  applyCopyTokenOverrides(tokenCopy.card, copyOverrides, tokenCopy);
 
   state.battlefield = state.battlefield || [];
   state.battlefield.push(tokenCopy);
 
-  debug(2, `[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} (not legendary${hasHaste ? ', with haste' : ''})`);
+  debug(
+    2,
+    `[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} with copy overrides`,
+  );
   queueSelfETBTriggersForPermanent(ctx, tokenCopy, controller as any);
   triggerETBEffectsForToken(ctx, tokenCopy, controller);
   return 1;

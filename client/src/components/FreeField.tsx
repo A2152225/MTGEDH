@@ -32,8 +32,11 @@ function permanentIdsForPositionUpdate(item: {
   groupedTokenIds?: string[];
 }): string[] {
   const groupedIds = item.groupedTokenIds;
-  if (item.isGroupedTokens && Array.isArray(groupedIds) && groupedIds.length > 0) {
-    return groupedIds;
+  if (item.isGroupedTokens) {
+    if (Array.isArray(groupedIds) && groupedIds.length > 0) {
+      return groupedIds;
+    }
+    return [item.id];
   }
   if (item.id.startsWith('group_')) {
     const suffix = item.id.slice('group_'.length);

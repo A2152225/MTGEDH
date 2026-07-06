@@ -1,5 +1,9 @@
 import type { GameContext } from '../context.js';
+import type { PlayerID } from '../../../../shared/src/index.js';
+import { debugWarn } from '../../utils/debug.js';
 import { popStackItem } from './stackPushUtils.js';
+import { isPermanentTypeLine } from './stackResolvePermanentSpellTypeUtils.js';
+import { resolvePermanentSpellBattlefieldEntry } from './stackResolvePermanentEntryUtils.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import { enterResolutionMode, exitResolutionMode } from './priority.js';
 import { clearOptionalPaymentCallbacks } from '../../socket/optional-payment-prompts.js';
@@ -83,6 +87,83 @@ export function consumeReplayedTriggeredAbilityStackItems(
   }
 }
 
+function isReplayableSpellStackItem(item: any): boolean {
+  if (!item || !item.card) return false;
+  const itemType = String(item.type || '').toLowerCase();
+  if (
+    itemType === 'triggered_ability'
+    || itemType === 'activated_ability'
+    || itemType === 'mana_ability'
+    || itemType === 'ability'
+  ) {
+    return false;
+  }
+  return itemType === '' || itemType === 'spell';
+}
+
+function resolveReplaySpellCard(stackItem: any): any | null {
+  const rawCard = stackItem?.card;
+  if (!rawCard || typeof rawCard !== 'object') return null;
+  if (rawCard.card && typeof rawCard.card === 'object' && !Array.isArray(rawCard.card)) {
+    return rawCard.card;
+  }
+  return rawCard;
+}
+
+/**
+ * Permanent spells do not yet persist a dedicated battlefield-entry mutation event.
+ * During undo/replay, rebuild the resolved permanent from the stack item snapshot
+ * before popping it so cast + resolveTopOfStack event pairs restore the battlefield.
+ */
+export function replayApplyResolvedPermanentSpellBattlefieldEntry(ctx: GameContext): void {
+  if (!(ctx as any).isReplaying) return;
+
+  const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
+  if (stack.length === 0) return;
+
+  const item = stack[stack.length - 1];
+  if (!isReplayableSpellStackItem(item)) return;
+
+  const effectiveCard = resolveReplaySpellCard(item);
+  if (!effectiveCard || typeof effectiveCard !== 'object') return;
+
+  const effectiveTypeLine = String(
+    effectiveCard.type_line || item?.card?.type_line || '',
+  );
+  if (!isPermanentTypeLine(effectiveTypeLine)) return;
+
+  const controller = String(item.controller || '').trim() as PlayerID;
+  const cardId = String(effectiveCard.id || '').trim();
+  if (!controller || !cardId) return;
+
+  const battlefield = Array.isArray((ctx.state as any).battlefield)
+    ? (ctx.state as any).battlefield
+    : [];
+  const stackItemId = String(item.id || '').trim();
+  const alreadyPresent = battlefield.some((perm: any) => {
+    if (!perm) return false;
+    if (stackItemId && String(perm.id || '') === stackItemId) return true;
+    return String(perm.controller || '') === controller
+      && String(perm.card?.id || '') === cardId;
+  });
+  if (alreadyPresent) return;
+
+  try {
+    resolvePermanentSpellBattlefieldEntry(ctx, {
+      controller,
+      card: item.card,
+      effectiveCard,
+      effectiveTypeLine,
+      item,
+      targets: item.targets,
+      fallbackOracleText: String(effectiveCard.oracle_text || ''),
+      preferredPermanentId: stackItemId || undefined,
+    });
+  } catch (err) {
+    debugWarn(1, '[replay] permanent spell battlefield entry failed:', err);
+  }
+}
+
 /**
  * During event replay, resolveTopOfStack must not re-run live IR/trigger handlers
  * (outcomes are in executeEffect / mutation events), but it must still pop the
@@ -90,6 +171,7 @@ export function consumeReplayedTriggeredAbilityStackItems(
  */
 export function replayPopTopOfStackDuringEventReplay(ctx: GameContext): void {
   if (!(ctx as any).isReplaying) return;
+  replayApplyResolvedPermanentSpellBattlefieldEntry(ctx);
   popStackItem(ctx);
 }
 

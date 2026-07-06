@@ -13,7 +13,16 @@
 import { randomBytes } from "crypto";
 import type { Server, Socket } from "socket.io";
 import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
+import { hydrateGameStateOracleText } from "../state/modules/cardOracleHydration.js";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
+import { inferAIStrategyFromDeckProfile } from "../../../rules-engine/src/aiEngineDeckSupport.js";
+import {
+  findAttackManaRetentionEquipmentAttachedTo,
+  isAttackManaRetentionEquipmentText,
+  isPowerScaledGreenManaAbilityText,
+  readPermanentPower,
+  scoreAttackManaEngineReconfigureTarget,
+} from "../../../rules-engine/src/aiEngineManaPoolSupport.js";
 import {
   isStationPermanentTypeLine,
   readStationChargeCreatureThresholdFromOracleText,
@@ -60,6 +69,8 @@ import { getOptionalPaymentValidationFailure } from "./optional-payment-prompts.
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
+const AI_FAST_CONTINUE_MS = 75;
+const AI_PASSIVE_STEP_DELAY_MS = 0;
 const AI_REACTION_DELAY_MS = 300;
 
 /** Maximum cards to retrieve when searching the entire library for commander selection */
@@ -70,10 +81,6 @@ const INITIAL_HAND_SIZE = 7;
 
 /** Probability that AI gives up control of optional creatures (0.3 = 30%) */
 const AI_OPTIONAL_GIVE_CONTROL_PROBABILITY = 0.3;
-
-/** Mana retention tapping strategy constants */
-const MIN_UNTAPPED_LANDS_FOR_INSTANTS = 3; // Keep at least 3 lands untapped for instant-speed responses
-const UNTAPPED_LAND_RATIO = 0.4; // Keep at least 40% of lands untapped
 
 /** MTG color identity symbols */
 const COLOR_IDENTITY_MAP: Record<string, string> = {
@@ -1557,7 +1564,7 @@ async function runExclusiveAIAction(
   const key = getAIActionKey(gameId, playerId);
   if (aiActionsInProgress.has(key)) {
     debug(2, `[AI] ${kind} already in progress, scheduling follow-up`, { gameId, playerId });
-    scheduleAIActionInternal(io, gameId, playerId, kind, 0);
+    scheduleAIActionInternal(io, gameId, playerId, kind, 25);
     return;
   }
 
@@ -1628,6 +1635,9 @@ const ARCHETYPE_TAG_WEIGHTS: Record<string, Record<string, number>> = {
   [SynergyArchetype.ENCHANTMENTS]: { enchantments: 8 },
   [SynergyArchetype.VOLTRON]: { voltron: 8 },
   [SynergyArchetype.STAX]: { stax: 8 },
+  [SynergyArchetype.GROUP_HUG]: { draw: 4, utility: 3 },
+  [SynergyArchetype.POLITICS]: { protection: 6, removal: 4, draw: 3 },
+  [SynergyArchetype.TRIBAL]: { tribal: 8, tokens: 4 },
 };
 
 function getVisibleDeckCardsForAI(game: any, playerId: PlayerID): any[] {
@@ -1722,6 +1732,12 @@ function calculateCardThemeAlignment(card: any, profile: DeckArchetypeProfile | 
     }
     if (archetype === SynergyArchetype.GROUP_HUG && /each player (?:draws|may|gains)/i.test(oracleText)) {
       score += 8;
+    }
+    if (archetype === SynergyArchetype.POLITICS) {
+      if (/\bgoad\b|impetus|gain control of all creatures|exchange life totals/i.test(oracleText)) {
+        score += 8;
+      }
+      if (analysis.categories.includes(CardCategory.PROTECTION)) score += 4;
     }
   }
 
@@ -4732,6 +4748,31 @@ export function chooseAITargetSelectionsForChoiceStep(
     return [];
   }
 
+  if (String(step?.abilityType || '') === 'reconfigure_attach') {
+    const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+    const reconfigureId = String(step?.reconfigureId || step?.permanentId || step?.sourceId || '').trim();
+    const equipment = battlefield.find((entry: any) => String(entry?.id || '') === reconfigureId);
+    const equipOracle = String(equipment?.card?.oracle_text || '');
+    if (isAttackManaRetentionEquipmentText(equipOracle)) {
+      return validTargets
+        .map((option: any) => {
+          const permanent = battlefield.find((entry: any) => String(entry?.id || '') === String(option?.id || ''));
+          if (!permanent) return { id: '', score: -9999 };
+          const score = scoreAttackManaEngineReconfigureTarget(
+            game.state,
+            playerId,
+            permanent,
+            (entry) => getEffectivePower(entry, game.state) ?? readPermanentPower(entry),
+          );
+          return { id: String(option?.id || '').trim(), score };
+        })
+        .filter((entry) => entry.id.length > 0)
+        .sort((left, right) => right.score - left.score)
+        .slice(0, desiredCount)
+        .map((entry) => entry.id);
+    }
+  }
+
   const choiceJson = String(step?.oracleIrChoiceStepJson || '').trim();
   if (choiceJson) {
     try {
@@ -4802,15 +4843,22 @@ export function chooseAITargetSelectionsForChoiceStep(
 /**
  * Register an AI player for a game
  */
+function syncAIPlayerDerivedStrategy(game: any, playerId: PlayerID, strategy: AIStrategy): void {
+  const player = (game?.state?.players || []).find((entry: any) => entry?.id === playerId);
+  if (!player) return;
+  player.strategy = strategy;
+  player.aiStrategy = strategy;
+}
+
 export function registerAIPlayer(
   gameId: string,
   playerId: PlayerID,
-  name: string,
-  strategy: AIStrategy = AIStrategy.BASIC,
-  difficulty: number = 0.5
-): void {
+  name?: string,
+  difficulty: number = 0.5,
+): AIStrategy {
   const game = ensureGame(gameId);
   const deckProfile = game ? ensureAIDeckProfile(game, playerId) || undefined : undefined;
+  const strategy = inferAIStrategyFromDeckProfile(deckProfile ?? null);
   const config: AIPlayerConfig = {
     playerId,
     strategy,
@@ -4835,16 +4883,24 @@ export function registerAIPlayer(
     }
     stateAny.autoPassPlayers.add(playerId);
     ensureAIDeckProfile(game, playerId);
+    syncAIPlayerDerivedStrategy(game, playerId, strategy);
     debug(1, '[AI] Added AI player to auto-pass set:', { gameId, playerId });
   }
   
-  debug(1, '[AI] Registered AI player:', { gameId, playerId, name, strategy, difficulty });
+  debug(1, '[AI] Registered AI player:', {
+    gameId,
+    playerId,
+    name: name || playerId,
+    strategy,
+    difficulty,
+    primaryArchetypes: deckProfile?.primaryArchetypes,
+  });
+  return strategy;
 }
 
 function getPersistedAIPlayerRuntimeData(gameId: string, playerId: PlayerID): {
   game: any;
   playerInState: any;
-  strategy: AIStrategy;
   difficulty: number;
   name: string;
 } | null {
@@ -4854,13 +4910,6 @@ function getPersistedAIPlayerRuntimeData(gameId: string, playerId: PlayerID): {
     return null;
   }
 
-  const strategy = (
-    typeof playerInState.strategy === 'string'
-      ? playerInState.strategy
-      : typeof playerInState.aiStrategy === 'string'
-        ? playerInState.aiStrategy
-        : AIStrategy.BASIC
-  ) as AIStrategy;
   const difficulty = Number.isFinite(Number(playerInState.difficulty))
     ? Number(playerInState.difficulty)
     : Number.isFinite(Number(playerInState.aiDifficulty))
@@ -4870,7 +4919,6 @@ function getPersistedAIPlayerRuntimeData(gameId: string, playerId: PlayerID): {
   return {
     game,
     playerInState,
-    strategy,
     difficulty,
     name: String(playerInState.name || playerId),
   };
@@ -4893,17 +4941,16 @@ export function rehydrateAIPlayerRuntime(
     }
   }
 
-  registerAIPlayer(
+  const strategy = registerAIPlayer(
     gameId,
     playerId,
     runtime.name,
-    runtime.strategy,
     runtime.difficulty,
   );
   debug(1, '[AI] Rehydrated AI runtime from persisted state:', {
     gameId,
     playerId,
-    strategy: runtime.strategy,
+    strategy,
     difficulty: runtime.difficulty,
     refreshDeckProfile: options?.refreshDeckProfile === true,
   });
@@ -6721,11 +6768,17 @@ function resolveAIActivatedAbilityId(action: any, permanent: any): string | unde
 
     if (/reconfigure/i.test(candidateText)) {
       const attachedTo = String((permanent as any)?.attachedTo || '').trim();
-      if (attachedTo && candidateText.includes('unattach')) {
+      const isAttachCandidate = /\battach\b/.test(candidateText) && !candidateText.includes('unattach');
+      const isUnattachCandidate = candidateText.includes('unattach');
+      if (attachedTo && isUnattachCandidate) {
         score += 50;
       }
-      if (!attachedTo && candidateText.includes('attach')) {
+      if (!attachedTo && isAttachCandidate) {
         score += 50;
+      }
+      // When attached, prefer attach (direct host swap) over unattach-only.
+      if (attachedTo && isAttachCandidate) {
+        score += 60;
       }
     }
 
@@ -6844,6 +6897,8 @@ function snapshotAIAbilityActivationState(
   }
 
   function selectAIManaRetentionActivationAction(
+    game: any,
+    playerId: PlayerID,
     permanent: any,
     retainedColors: Set<string>,
     hasAllRetention: boolean,
@@ -6898,6 +6953,16 @@ function snapshotAIAbilityActivationState(
 
       if (!/\bor\b/i.test(normalizedEffect)) {
         score += 3;
+      }
+
+      const producedAmount = Number(
+        calculateManaProduction(game.state, permanent, String(playerId), 'G', candidate.id).totalAmount || 0
+      );
+      if (producedAmount > 0) {
+        score += producedAmount * 30;
+      }
+      if (isPowerScaledGreenManaAbilityText(normalizedEffect)) {
+        score += 25;
       }
 
       if (score > bestScore) {
@@ -8849,7 +8914,7 @@ export async function handleAIPriority(
           );
           if (playedLand) {
             // After playing land, continue with more actions
-            scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
         }
@@ -8871,7 +8936,7 @@ export async function handleAIPriority(
         const didTap = await executeAITapLandsForMana(io, gameId, playerId);
         if (didTap) {
           // After tapping lands, continue with more actions (in case we can now cast something)
-          scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+          scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
           return;
         }
       }
@@ -8901,7 +8966,7 @@ export async function handleAIPriority(
             debug(1, '[AI] Activating ability:', candidate.ability.action.cardName, '-', candidate.ability.reasoning);
           }
           if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
-            scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
 
@@ -8919,7 +8984,7 @@ export async function handleAIPriority(
           const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
           const castProgressed = await executeAICastCommander(io, gameId, playerId, candidate.commander);
           if (castProgressed) {
-            scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
 
@@ -8946,7 +9011,7 @@ export async function handleAIPriority(
           const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
           const castProgressed = await executeAICastSpell(io, gameId, playerId, candidateSpell);
           if (castProgressed) {
-            scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
 
@@ -8968,7 +9033,7 @@ export async function handleAIPriority(
 
           debug(1, '[AI] Activating ability (after spell-priority ordering):', candidate.ability.action.cardName);
           if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
-            scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
 
@@ -9025,6 +9090,8 @@ export async function handleAIPriority(
         } as any;
         runSBA(sbaCtx);
         
+        hydrateGameStateOracleText(game.state, (game as any).libraries);
+
         // Determine what type of decision is needed
         const context: AIDecisionContext = {
           gameState: game.state as any,
@@ -9078,6 +9145,8 @@ export async function handleAIPriority(
           return;
         }
         
+        hydrateGameStateOracleText(game.state, (game as any).libraries);
+
         // Get the attacking creatures from the battlefield
         const battlefield = game.state?.battlefield || [];
         const attackingCreatures = battlefield.filter((perm: any) => 
@@ -9416,8 +9485,8 @@ function checkShouldTapLandsForManaRetention(game: any, playerId: PlayerID): { s
 
 /**
  * Execute AI tapping lands for mana (when mana retention effects are present)
- * Strategy: Only tap a portion of lands (keeping ~40% or at least 3 untapped) to maintain
- * flexibility for instant-speed responses while still benefiting from retention effects.
+ * Retained mana stays in the pool until spent, so tap every eligible source — holding
+ * lands untapped only delays Omnath-style growth without preserving instant flexibility.
  * Returns true if lands were tapped, false if no lands were tapped or already tapped this turn.
  */
 async function executeAITapLandsForMana(
@@ -9467,8 +9536,7 @@ async function executeAITapLandsForMana(
     }
   }
   
-  // Collect all tappable lands that produce retained colors
-  // Strategy: Only tap a portion of lands to keep flexibility for instants
+  // Collect mana sources that produce retained colors (lands, dorks, Bighorner-style).
   const tappableLands: any[] = [];
   
   for (const perm of battlefield) {
@@ -9528,19 +9596,26 @@ async function executeAITapLandsForMana(
     }
   }
   
-  // Conservative strategy: Keep lands untapped for instant-speed responses
-  // Tap at most 60% of available lands, ensuring we don't tap all resources
-  const totalTappable = tappableLands.length;
-  const minToKeepUntapped = Math.max(MIN_UNTAPPED_LANDS_FOR_INSTANTS, Math.ceil(totalTappable * UNTAPPED_LAND_RATIO));
-  const maxToTap = Math.max(0, totalTappable - minToKeepUntapped);
-  const landsToTap = tappableLands.slice(0, maxToTap);
-  
-  debug(2, `[AI] Mana retention: ${totalTappable} tappable lands, will tap ${landsToTap.length}, keep ${totalTappable - landsToTap.length} untapped for flexibility`);
+  // Tap fixed producers before power-scaled sources so Omnath grows first.
+  tappableLands.sort((left, right) => {
+    const leftOracle = String(left.perm?.card?.oracle_text || '').toLowerCase();
+    const rightOracle = String(right.perm?.card?.oracle_text || '').toLowerCase();
+    const leftScaled = isPowerScaledGreenManaAbilityText(leftOracle) ? 1 : 0;
+    const rightScaled = isPowerScaledGreenManaAbilityText(rightOracle) ? 1 : 0;
+    return leftScaled - rightScaled;
+  });
+
+  // Pool mana persists until spent — tap every land that produces a retained color.
+  const landsToTap = tappableLands;
+
+  debug(2, `[AI] Mana retention: tapping ${landsToTap.length} eligible sources (pool mana remains for instants)`);
   
   let tappedCount = 0;
   
   for (const { perm } of landsToTap) {
     const action = selectAIManaRetentionActivationAction(
+      game,
+      playerId,
       perm,
       retainedColors,
       hasAllRetention,
@@ -10536,7 +10611,14 @@ async function executeAdvanceStep(
     const isCleanupStep = String((game.state as any).step || '').toLowerCase().includes('cleanup');
     
     if (newPriority === playerId && isAIPlayer(gameId, playerId) && isStillAITurn && !isCleanupStep) {
-      scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+      const normalizedNewStep = newStep.toLowerCase();
+      const isPassiveStep = /untap|upkeep|draw/.test(normalizedNewStep);
+      scheduleAIPriority(
+        io,
+        gameId,
+        playerId,
+        isPassiveStep ? AI_PASSIVE_STEP_DELAY_MS : AI_THINK_TIME_MS,
+      );
     }
     
   } catch (error) {
@@ -12153,7 +12235,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       
       // Join the AI player to the game first
       // This will generate a playerId and properly initialize the player
-      const strategy = (typeof aiStrategy === 'string' ? aiStrategy : AIStrategy.BASIC) as AIStrategy;
       const difficulty = typeof aiDifficulty === 'number' ? aiDifficulty : 0.5; // Default to medium difficulty
       const aiPlayerName = typeof aiName === 'string' && aiName.trim() ? aiName : 'AI Opponent';
       let joinResult: any;
@@ -12180,7 +12261,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       const playerInState = game.state.players.find((p: any) => p.id === aiPlayerId);
       if (playerInState) {
         playerInState.isAI = true;
-        playerInState.strategy = strategy;
         playerInState.difficulty = difficulty;
       }
       
@@ -12313,7 +12393,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       }
       
       // Register with AI engine
-      registerAIPlayer(gameId, aiPlayerId, aiPlayerName, strategy, difficulty);
+      const strategy = registerAIPlayer(gameId, aiPlayerId, aiPlayerName, difficulty);
       
       // Persist AI join event as a regular 'join' event so it can be properly replayed after server restart
       // Include isAI flag and seatToken from the join result
@@ -12429,7 +12509,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       // Create each AI opponent
       for (let i = 0; i < aiOpponents.length; i++) {
         const aiConfig = aiOpponents[i];
-        const strategy = (aiConfig.strategy as AIStrategy) || AIStrategy.BASIC;
         const difficulty = aiConfig.difficulty ?? 0.5; // Default to medium difficulty
         const aiName = aiConfig.name || `AI Opponent ${i + 1}`;
         
@@ -12458,7 +12537,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         const playerInState = game.state.players?.find((p: any) => p.id === aiPlayerId);
         if (playerInState) {
           playerInState.isAI = true;
-          playerInState.strategy = strategy;
           playerInState.difficulty = difficulty;
         }
         
@@ -12564,7 +12642,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         }
         
         // Register with AI engine
-        registerAIPlayer(gameId, aiPlayerId, aiName, strategy, difficulty);
+        const strategy = registerAIPlayer(gameId, aiPlayerId, aiName, difficulty);
         
         createdAIPlayers.push({
           playerId: aiPlayerId,
@@ -12696,7 +12774,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       }
       
       const aiPlayerId = `ai_${Date.now().toString(36)}`;
-      const strategy = (typeof aiStrategy === 'string' ? aiStrategy : AIStrategy.BASIC) as AIStrategy;
       const difficulty = typeof aiDifficulty === 'number' ? aiDifficulty : 0.5;
       const aiDisplayName = typeof aiName === 'string' && aiName.trim() ? aiName : 'AI Opponent';
       
@@ -12708,12 +12785,10 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         name: aiDisplayName,
         life: (game.state as any).startingLife || 40,
         isAI: true,
-        strategy: strategy,
         difficulty: difficulty,
       } as any);
       
-      // Register with AI engine
-      registerAIPlayer(gameId, aiPlayerId, aiDisplayName, strategy, difficulty);
+      const strategy = registerAIPlayer(gameId, aiPlayerId, aiDisplayName, difficulty);
       
       socket.emit('aiPlayerCreated', { gameId, aiPlayerId, aiName: aiDisplayName, strategy, difficulty });
       broadcastGame(io, game, gameId);
@@ -12867,25 +12942,34 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         return;
       }
 
+      let derivedStrategy: AIStrategy | undefined;
+
       if (enable) {
-        // Enable AI control for this player
-        const aiStrategy = (typeof strategy === 'string' ? strategy : AIStrategy.BASIC) as AIStrategy;
         const aiDifficulty = typeof difficulty === 'number' ? difficulty : 0.5;
-        
-        registerAIPlayer(gameId, playerId, playerInGame.name || 'Player', aiStrategy, aiDifficulty);
+        derivedStrategy = registerAIPlayer(
+          gameId,
+          playerId,
+          playerInGame.name || 'Player',
+          aiDifficulty,
+        );
         
         // Store AI control state on the player (cast to any for dynamic properties)
         (playerInGame as any).aiControlled = true;
-        (playerInGame as any).aiStrategy = aiStrategy;
+        (playerInGame as any).aiStrategy = derivedStrategy;
         (playerInGame as any).aiDifficulty = aiDifficulty;
         
-        debug(1, '[AI] AI control enabled for player:', { gameId, playerId, strategy: aiStrategy, difficulty: aiDifficulty });
+        debug(1, '[AI] AI control enabled for player:', {
+          gameId,
+          playerId,
+          strategy: derivedStrategy,
+          difficulty: aiDifficulty,
+        });
         
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
           from: 'system',
-          message: `${playerInGame.name || 'Player'} enabled AI control (${aiStrategy} strategy).`,
+          message: `${playerInGame.name || 'Player'} enabled AI autopilot (deck-aware).`,
           ts: Date.now(),
         });
         
@@ -12893,7 +12977,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         const hasPriority = game.state?.priority === playerId;
         if (hasPriority) {
           // Delay briefly to allow state to update
-          scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+          scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
         }
       } else {
         // Disable AI control for this player
@@ -12919,7 +13003,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         gameId, 
         playerId, 
         enabled: enable,
-        strategy: enable ? (typeof strategy === 'string' ? strategy : 'basic') : undefined,
+        strategy: enable ? derivedStrategy : undefined,
         difficulty: enable ? (typeof difficulty === 'number' ? difficulty : 0.5) : undefined,
       });
       

@@ -8,7 +8,7 @@ import type {
   BattlefieldPermanent,
 } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { parsePT, calculateVariablePT, calculateAllPTBonuses, calculateAllPTBonusesWithSources, type PTBonusSource } from "../utils.js";
+import { parsePT, calculateVariablePT, calculateAllPTBonusesWithSources, resolveSetBasePTFromAttachedAuras, type PTBonusSource } from "../utils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "./staticEffectSpec.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
@@ -155,6 +155,12 @@ export function viewFor(
           baseP = baseP ?? variablePT.power;
           baseT = baseT ?? variablePT.toughness;
         }
+      }
+
+      const setBasePT = resolveSetBasePTFromAttachedAuras(perm, state.battlefield || []);
+      if (setBasePT) {
+        baseP = setBasePT.power;
+        baseT = setBasePT.toughness;
       }
       
       if (typeof baseP === "number" && typeof baseT === "number") {

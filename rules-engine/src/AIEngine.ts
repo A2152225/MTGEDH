@@ -665,7 +665,7 @@ export class AIEngine {
     let decision: AIDecision;
     switch (config.strategy) {
       case AIStrategy.RANDOM:
-        decision = this.makeRandomDecision(context);
+        decision = this.makeRandomDecision(context, config);
         break;
       case AIStrategy.BASIC:
         decision = this.makeBasicDecision(context, config);
@@ -697,9 +697,9 @@ export class AIEngine {
   /**
    * Make a completely random decision
    */
-  private makeRandomDecision(context: AIDecisionContext): AIDecision {
-    return makeRandomDecisionFromSupport(context, {
-      selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
+  private makeRandomDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
+    return makeRandomDecisionFromSupport(context, config, {
+      makeBasicDecision: (ctx, cfg) => this.makeBasicDecision(ctx, cfg),
     });
   }
   
@@ -721,7 +721,7 @@ export class AIEngine {
       makeModeChoiceDecision: (ctx, cfg) => this.makeModeChoiceDecision(ctx, cfg),
       makeDiscardDecision: (ctx, cfg) => this.makeDiscardDecision(ctx, cfg),
       makeActivatedAbilityDecision: (ctx, cfg) => this.makeActivatedAbilityDecision(ctx, cfg),
-      makeRandomDecision: (ctx) => this.makeRandomDecision(ctx),
+      makeRandomDecision: (ctx, cfg) => this.makeRandomDecision(ctx, cfg),
     });
   }
   
@@ -834,7 +834,6 @@ export class AIEngine {
    */
   private makeAggressiveDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
     return makeAggressiveDecisionFromSupport(context, config, {
-      selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
       makeBasicDecision: (ctx, cfg) => this.makeBasicDecision(ctx, cfg),
     });
   }
@@ -845,7 +844,6 @@ export class AIEngine {
    */
   private makeDefensiveDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
     return makeDefensiveDecisionFromSupport(context, config, {
-      selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
       makeBasicDecision: (ctx, cfg) => this.makeBasicDecision(ctx, cfg),
     });
   }
@@ -871,7 +869,6 @@ export class AIEngine {
    */
   private makeComboDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
     return makeComboDecisionFromSupport(context, config, {
-      selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
       getProcessedBattlefield: (gameState) => this.getProcessedBattlefield(gameState),
       hasPermanentType: (perm, type) => this.hasPermanentType(perm, type),
       makeBasicDecision: (ctx, cfg) => this.makeBasicDecision(ctx, cfg),

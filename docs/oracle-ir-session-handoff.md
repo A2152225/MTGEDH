@@ -1,58 +1,32 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-07-06 (replay #1–#18; Phase 5.2–5.4 layer ordering)
+Last updated: 2026-07-06 (copy-token death triggers; God-Pharaoh live resolve)
 
 ## Next session prompt (copy-paste)
 
 ```
-Oracle IR — replay hygiene COMPLETE; Phase 5 declarative static/replacement specs wired; Zulaport + P/T unification done; delta 0/0.
+Oracle IR — copy-token corpus + begin-combat KNOWN retirement (in progress)
 
-Verified 2026-07-06:
-- npm run test:oracle-ir-migration — **862/862** expected (122 files)
-- npm run oracle-ir:delta — **0 new, 0 changed** (31,318-card baseline current)
-- npm run oracle-ir:legacy-triage:soak:forced — **125/125**, triage exports **0**
-- npm run oracle-ir:delta — **0 new, 0 changed** (31,318-card baseline current)
-- TRIGGER_LEGACY_EXPORT_CEILING / SPELL_LEGACY_EXPORT_CEILING — **0 / 0**
+Done this session:
+- Copy-token death triggers: "this creature or another creature you control dies" now matches hydrated copies
+- KNOWN_DEATH_TRIGGERS: dynamic-first skip when oracle matched; zulaport shorthand uses "and" not comma
+- Helm Zulaport copy death: full life resolution test (activePlayer +41, opponent 39)
+- God-Pharaoh's Gift: begin-combat queue + 4/4 black Zombie copy integration test
+- applyCopyTokenOverrides type_line merge; hydrateCardOracleInPlace import fix
 
-Replay hygiene queue (DONE #1–#18):
-- Stack pop-only on replay; stale stack scrub; Myrel token duplication fix
-- activate-before-pushTriggeredAbility (persistActivateEvent on all 16 fireBattlefieldAbilityActivatedTriggers sites)
-- stackItemId + usesStack on stack-pushing activateBattlefieldAbility events
-- Fight FIGHT_TARGET + planeswalker loyalty activate replay parity
-- Library-search shuffle replay; Agrus targeted trigger socket replay
-- Migration suite guardrail: myrel-token-replay, stack-replay-accumulation, battlefield-queued-steps.replay, resolve-top-of-stack.replay-side-effects, oracle-ir-removal-rider-spell (+22 tests)
-
-Phase 5 (#19–#20 in progress):
-- **5.2 done:** `collectReplacementEffectSpecsFromState` from overlay STATIC/REPLACEMENT; mill/counter routed through `evaluateReplacementEvent`; builtin token/finality/leave-BF specs.
-- **5.3 done:** `staticEffectSpec.ts` — overlay `static_specs`, `recomputeContinuousEffects`, derived cache at SBA + after Oracle IR apply; P/T unified via `getContinuousPTBonusForPermanent` (regex anthems/lords + overlay); combat ability grants via `getContinuousGrantedAbilitiesForPermanent`.
-- **5.4 started:** conditional static P/T in `computeContinuousEffects` — life threshold (Leyline of Hope), token/nontoken filters, during-your-turn token buffs; removed duplicate `GLOBAL_ENCHANTMENT_BONUSES` table + utils §3c token loop.
-- **5.2 draw:** oracle-pattern draw replacements (Notion Thief, Zur's Weirding, Alms Collector) + graveyard dredge via `collectGraveyardDredgeDrawOptions` in declarative path.
-- **5.4 overlay conditions:** `static_specs[].condition` — `controller_life_at_least_starting_plus`, `target_is_token`, `target_is_not_token`, `during_source_controller_turn`.
-- **5.4 layer ordering:** `static_specs[].layer` / `sublayer`; `compareStaticEffectSpecsForApplication` sorts overlay specs by layer → sublayer → battlefield index timestamp before apply.
-- **5.5 overlay STATIC/REPLACEMENT shipping:** `validateCompiledOverlayEnvelope` accepts spec-only abilities; import/store validation wired; example templates `anthem-static.example.json`, `mill-replacement.example.json`; `resolveOracleIRWithOverlay` recognizes declarative-only overlays.
-- Tests: `replacement-effect-spec.unit.test.ts` (17), `static-effect-spec.unit.test.ts` (12), `leave-battlefield-replacement.integration.test.ts` (13)
-- **5.2 life-gain:** oracle-pattern life-gain prevention/reversal via `collectOraclePatternLifeGainReplacementSpecsFromState`; lasting `preventLifeGain` effects remain imperative fallback.
-- **Zulaport / named-or-another death triggers:** `getDeathTriggers` scans dying creature after battlefield removal; `deathTriggerClauseMatchesDyingCreature` allows `Name or another` self-deaths. AI combat: `evaluateDeathTrigger` scales by opponent count; non-suicide creatures with death value are preserved (`combatValue -= deathBenefit`); suicide attacks require `deathBenefit >= 8`. Tests: `zulaport-death-trigger.unit.test.ts`.
-
-Verify at session start (fast):
+Verify at session start:
 cd server
-npx vitest run tests/myrel-token-replay.integration.test.ts tests/stack-replay-accumulation.integration.test.ts tests/battlefield-queued-steps.replay.test.ts tests/oracle-ir-agrus-targeted-trigger.socket.replay.integration.test.ts tests/replay-divergence.guardrail.integration.test.ts tests/oracle-ir-spell-primary.integration.test.ts tests/oracle-ir-removal-rider-spell.integration.test.ts tests/replacement-effect-spec.unit.test.ts tests/replacement-effects.test.ts
+npx vitest run tests/copy-token-overrides.unit.test.ts tests/copy-token-except-modifiers.integration.test.ts tests/copy-token-death-trigger.integration.test.ts tests/god-pharaohs-gift.begin-combat.integration.test.ts tests/helm-of-the-host.begin-combat.test.ts tests/card-oracle-hydration.unit.test.ts tests/zulaport-death-trigger.unit.test.ts tests/legion-warboss.begin-combat.integration.test.ts
 
-Live smoke (restart server first):
-- Myrel attack → 1 soldier; undo twice + restart → still 1
-- Rejoin mid-game → stack empty (or one genuine pending trigger if log ends on push)
-- Swords on commander → command-zone choice + life = power (automated: oracle-ir-spell-primary Swords commander case)
+Architecture: docs/oracle-ir-architecture-guide.md §16
 
-Architecture: docs/oracle-ir-architecture-guide.md §15.5
-
-Next work (priority order):
-1. Live EDH soak after server restart (items above)
-2. New-set ingest: card-lookup:refresh → oracle-ir:delta → overlay queue per docs/oracle-ir-track-e-remaining-work.md §A
-3. Phase 5 — **done** (overlay validation + P/T unification including Coat of Arms / Sliver Legion counting in `computeContinuousEffects`).
-4. D6 generic choice primitives — extend resolutionChoicePrimitives for novel queue shapes
+Next work (priority):
+1. Delina / Evil Twin / Dermotaxi IR-primary integration tests
+2. God-Pharaoh optional exile without pre-set selectorContext (resolution queue UX)
+3. Phase 5 / D6 / delta ingest if no regressions
 ```
 
-## Previous session prompt (referenced-object pronouns + spell riders)
+## Previous session prompt (replay hygiene + Phase 5)
 
 ```
 Track E9 / D3 legacy handler retirement — continue from batch 531.
