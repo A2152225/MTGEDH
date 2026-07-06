@@ -3,6 +3,10 @@ import { canAct, canRespond } from "../state/modules/can-respond.js";
 import { appendEvent } from "../db/index.js";
 import { debug, debugError } from "../utils/debug.js";
 import { broadcastGame, clearPriorityTimer, ensureGame, schedulePriorityTimeout, checkAndTriggerAutoPass } from "./util";
+import {
+  emitIgnoredCardsUpdatedToSocket,
+  getPlayerIgnoredCards,
+} from "./ignored-cards.js";
 
 export function registerPriorityHandlers(io: Server, socket: Socket) {
   function ensureInRoomAndSeated(gameId: string) {
@@ -46,22 +50,7 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
   }
 
   function emitIgnoredCardsUpdated(gameId: string, playerId: string, ignoredCards: Record<string, any> | undefined) {
-    const entries = ignoredCards && typeof ignoredCards === 'object'
-      ? Object.entries(ignoredCards)
-      : [];
-    const ignoredList = entries.map(([id, data]: [string, any]) => ({
-      permanentId: data?.permanentId || id,
-      cardId: data?.cardId || id,
-      cardName: data?.cardName,
-      imageUrl: data?.imageUrl,
-      zone: data?.zone || 'battlefield',
-    }));
-
-    socket.emit("ignoredCardsUpdated" as any, {
-      gameId,
-      playerId,
-      ignoredCards: ignoredList,
-    });
+    emitIgnoredCardsUpdatedToSocket(socket, gameId, playerId, ignoredCards);
   }
 
   socket.on("clearPriorityTimer", (payload?: { gameId?: unknown }) => {
@@ -447,14 +436,15 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
     }
 
     const { game, pid } = ctx;
-    const ignoredCards = (game.state as any).ignoredCardsForAutoPass?.[pid];
-    if (ignoredCards && ignoredCards[effectiveId]) {
+    const ignoredCards = getPlayerIgnoredCards(game.state, pid);
+    if (ignoredCards[effectiveId]) {
       delete ignoredCards[effectiveId];
-      emitIgnoredCardsUpdated(gameIdValue, pid, ignoredCards);
       if (typeof (game as any).bumpSeq === 'function') {
         (game as any).bumpSeq();
       }
     }
+    // Always emit so clients resync even when the entry was already gone (e.g. after server restart).
+    emitIgnoredCardsUpdated(gameIdValue, pid, ignoredCards);
   });
 
   socket.on("clearIgnoredCards", (payload?: { gameId?: unknown }) => {

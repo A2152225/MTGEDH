@@ -2202,6 +2202,13 @@ export function App() {
     };
   }, [safeView?.id, you]);
 
+  // Drop stale ignored-card UI while disconnected; server resyncs on rejoin.
+  React.useEffect(() => {
+    if (!connected) {
+      setIgnoredCards([]);
+    }
+  }, [connected]);
+
   // Replacement effect preference sync (used by PhaseNavigator)
   React.useEffect(() => {
     if (!safeView?.id || !you) return;

@@ -1,6 +1,10 @@
 import type { Server, Socket } from "socket.io";
 import { randomBytes } from "crypto";
 import { ensureGame, broadcastGame, schedulePriorityTimeout } from "./util";
+import {
+  emitIgnoredCardsUpdatedToSocket,
+  getPlayerIgnoredCards,
+} from "./ignored-cards.js";
 import { appendEvent, updateGameCreatorPlayerId, getGameCreator } from "../db";
 import { computeDiff } from "../utils/diff";
 import { games } from "./socket.js";
@@ -1073,6 +1077,20 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               });
             } catch (e) {
               debugWarn(1, "joinGame: emit state failed", e);
+            }
+
+            // Sync ignored-cards panel with server state (in-memory only; lost on restart).
+            if (!spectator && playerId) {
+              try {
+                emitIgnoredCardsUpdatedToSocket(
+                  socket,
+                  gameId,
+                  playerId,
+                  getPlayerIgnoredCards(game.state, playerId),
+                );
+              } catch (e) {
+                debugWarn(1, "joinGame: emit ignoredCardsUpdated failed", e);
+              }
             }
 
             try {

@@ -279,6 +279,51 @@ describe('parseVariableAttachedPTBonus via calculateEquipmentBonus', () => {
     expect(calculateEquipmentBonus(creature, battlefield)).toEqual({ power: 3, toughness: 3 });
   });
 
+  it('returns no bonus when oracle text and name table are both unavailable', () => {
+    const creature = makeCreature();
+    const sword = makeAttachedPerm('sword_1', creature.id, {
+      name: 'Sword of Fire and Ice',
+      typeLine: 'Artifact — Equipment',
+      oracleText: '',
+    });
+    creature.attachedEquipment.push(sword.id);
+
+    expect(calculateEquipmentBonus(creature, [creature, sword])).toEqual({
+      power: 0,
+      toughness: 0,
+    });
+  });
+
+  it('reads static equipment bonuses from oracle text without name-table routing', () => {
+    const creature = makeCreature();
+    const sword = makeAttachedPerm('sword_1', creature.id, {
+      name: 'Custom Sword',
+      typeLine: 'Artifact — Equipment',
+      oracleText: 'Equipped creature gets +2/+2.',
+    });
+    creature.attachedEquipment.push(sword.id);
+
+    expect(calculateEquipmentBonus(creature, [creature, sword])).toEqual({
+      power: 2,
+      toughness: 2,
+    });
+  });
+
+  it('parses skullclamp-style negative toughness from oracle text', () => {
+    const creature = makeCreature();
+    const clamp = makeAttachedPerm('clamp_1', creature.id, {
+      name: 'Skullclamp',
+      typeLine: 'Artifact — Equipment',
+      oracleText: 'Equipped creature gets +1/-1.',
+    });
+    creature.attachedEquipment.push(clamp.id);
+
+    expect(calculateEquipmentBonus(creature, [creature, clamp])).toEqual({
+      power: 1,
+      toughness: -1,
+    });
+  });
+
   it('tracks variable sources in calculateEquipmentBonusWithSources', () => {
     const creature = makeCreature();
     const nettlecyst = makeAttachedPerm('nettle_1', creature.id, {

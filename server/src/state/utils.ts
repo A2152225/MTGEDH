@@ -1272,120 +1272,16 @@ export function getActualPowerToughness(
 }
 
 /**
- * Known equipment and aura power/toughness bonuses
- * Maps card name (lowercase) to { power, toughness } bonus
+ * Legacy equipment P/T bonuses when attached card objects lack oracle_text.
+ * Prefer resolveAttachedPTBonusFromOracle / parseStaticAttachedPTBonusFromOracle.
  */
-const EQUIPMENT_BONUSES: Record<string, { power: number; toughness: number }> = {
-  // Swords of X and Y - all give +2/+2
-  "sword of fire and ice": { power: 2, toughness: 2 },
-  "sword of feast and famine": { power: 2, toughness: 2 },
-  "sword of light and shadow": { power: 2, toughness: 2 },
-  "sword of war and peace": { power: 2, toughness: 2 },
-  "sword of body and mind": { power: 2, toughness: 2 },
-  "sword of truth and justice": { power: 2, toughness: 2 },
-  "sword of sinew and steel": { power: 2, toughness: 2 },
-  "sword of hearth and home": { power: 2, toughness: 2 },
-  "sword of once and future": { power: 2, toughness: 2 },
-  "sword of forge and frontier": { power: 2, toughness: 2 },
-  
-  // Common equipments
-  "loxodon warhammer": { power: 3, toughness: 0 },
-  "umezawa's jitte": { power: 0, toughness: 0 }, // Counters-based, handled separately
-  "skullclamp": { power: 1, toughness: -1 },
-  "lightning greaves": { power: 0, toughness: 0 },
-  "swiftfoot boots": { power: 0, toughness: 0 },
-  "whispersilk cloak": { power: 0, toughness: 0 },
-  "champion's helm": { power: 2, toughness: 2 },
-  "batterskull": { power: 4, toughness: 4 },
-  "colossus hammer": { power: 10, toughness: 10 },
-  "embercleave": { power: 1, toughness: 1 }, // Also gives double strike
-  "shadowspear": { power: 1, toughness: 1 },
-  "mask of memory": { power: 0, toughness: 0 },
-  "bonesplitter": { power: 2, toughness: 0 },
-  "basilisk collar": { power: 0, toughness: 0 },
-  "grafted exoskeleton": { power: 2, toughness: 2 },
-  "nim deathmantle": { power: 2, toughness: 2 },
-  "sword of vengeance": { power: 2, toughness: 0 },
-  "argentum armor": { power: 6, toughness: 6 },
-  "kaldra compleat": { power: 5, toughness: 5 },
-  "vorpal sword": { power: 2, toughness: 0 },
-  "manriki-gusari": { power: 1, toughness: 2 },
-  "plate armor": { power: 3, toughness: 3 },
-  "o-naginata": { power: 3, toughness: 0 },
-  "gorgon flail": { power: 1, toughness: 1 },
-  "behemoth sledge": { power: 2, toughness: 2 },
-  "hexplate wallbreaker": { power: 2, toughness: 2 },
-  "bloodforged battle-axe": { power: 2, toughness: 0 },
-  "dowsing dagger": { power: 2, toughness: 1 },
-  "hammer of nazahn": { power: 2, toughness: 0 },
-  "dead-iron sledge": { power: 2, toughness: 0 },
-  "commander's plate": { power: 3, toughness: 3 },
-  "kaldra's shield": { power: 0, toughness: 4 },
-  "heartseeker": { power: 2, toughness: 0 },
-  "maul of the skyclaves": { power: 2, toughness: 2 },
-  "lizard blades": { power: 1, toughness: 1 },
-  "simian sling": { power: 1, toughness: 1 },
-  "rabbit battery": { power: 1, toughness: 1 },
-};
+const EQUIPMENT_BONUSES: Record<string, { power: number; toughness: number }> = {};
 
 /**
- * Known aura enchantments that give power/toughness bonuses
- * Maps card name (lowercase) to { power, toughness } bonus
+ * Legacy aura P/T bonuses when attached card objects lack oracle_text.
+ * Prefer resolveAttachedPTBonusFromOracle / parseStaticAttachedPTBonusFromOracle.
  */
-const AURA_BONUSES: Record<string, { power: number; toughness: number }> = {
-  // Common auras
-  "rancor": { power: 2, toughness: 0 },
-  "holy strength": { power: 1, toughness: 2 },
-  "unholy strength": { power: 2, toughness: 1 },
-  "armadillo cloak": { power: 2, toughness: 2 },
-  "unflinching courage": { power: 2, toughness: 2 },
-  "eldrazi conscription": { power: 10, toughness: 10 },
-  "daybreak coronet": { power: 3, toughness: 3 },
-  "bear umbra": { power: 2, toughness: 2 },
-  "snake umbra": { power: 1, toughness: 1 },
-  "spider umbra": { power: 1, toughness: 1 },
-  "hyena umbra": { power: 1, toughness: 1 },
-  "mammoth umbra": { power: 3, toughness: 3 },
-  "eel umbra": { power: 1, toughness: 1 },
-  "boar umbra": { power: 3, toughness: 3 },
-  "griffin guide": { power: 2, toughness: 2 },
-  "spirit link": { power: 0, toughness: 0 },
-  "spirit mantle": { power: 1, toughness: 1 },
-  "gift of orzhova": { power: 1, toughness: 1 },
-  "angelic destiny": { power: 4, toughness: 4 },
-  "battle mastery": { power: 0, toughness: 0 }, // Double strike only
-  "aqueous form": { power: 0, toughness: 0 },
-  "curiosity": { power: 0, toughness: 0 },
-  "keen sense": { power: 0, toughness: 0 },
-  "shielded by faith": { power: 0, toughness: 0 },
-  "spectra ward": { power: 2, toughness: 2 },
-  "on serra's wings": { power: 1, toughness: 1 },
-  "cartouche of strength": { power: 1, toughness: 1 },
-  "cartouche of solidarity": { power: 1, toughness: 1 },
-  "cartouche of knowledge": { power: 1, toughness: 1 },
-  "cartouche of zeal": { power: 1, toughness: 1 },
-  "cartouche of ambition": { power: 1, toughness: 1 },
-  "sigarda's aid": { power: 0, toughness: 0 },
-  "flickering ward": { power: 0, toughness: 0 },
-  "conviction": { power: 1, toughness: 3 },
-  "sentinel's eyes": { power: 1, toughness: 1 },
-  "setessan training": { power: 1, toughness: 0 },
-  "solid footing": { power: 1, toughness: 1 },
-  "warbriar blessing": { power: 0, toughness: 2 },
-  "hydra's growth": { power: 0, toughness: 0 }, // Doubles +1/+1 counters
-  "phyresis": { power: 0, toughness: 0 },
-  "felidar umbra": { power: 1, toughness: 1 },
-  "dueling rapier": { power: 2, toughness: 0 },
-  "mirror shield": { power: 0, toughness: 2 },
-  "mantle of the wolf": { power: 4, toughness: 4 },
-  "kenrith's transformation": { power: 0, toughness: 0 }, // Sets to 3/3
-  "frogify": { power: 0, toughness: 0 }, // Sets to 1/1
-  "kasmina's transmutation": { power: 0, toughness: 0 }, // Sets to 1/1
-  "lignify": { power: 0, toughness: 0 }, // Sets to 0/4
-  "darksteel mutation": { power: 0, toughness: 0 }, // Sets to 0/1
-  "imprisoned in the moon": { power: 0, toughness: 0 }, // Removes creature type
-  "song of the dryads": { power: 0, toughness: 0 }, // Removes creature type
-};
+const AURA_BONUSES: Record<string, { power: number; toughness: number }> = {};
 
 /**
  * Calculate all P/T bonuses for a creature from ALL sources
@@ -1814,6 +1710,10 @@ function parseVariableAttachedPTBonus(
   return null;
 }
 
+function shouldUseAttachedBonusNameTable(oracleText: string): boolean {
+  return String(oracleText || '').trim().length === 0;
+}
+
 /**
  * Attack-triggered equipment pump stored on the permanent (e.g. Trepanation Blade reveal count).
  */
@@ -2160,8 +2060,8 @@ export function calculateEquipmentBonusWithSources(
       continue;
     }
     
-    // Known static equipment/aura bonuses
-    if (EQUIPMENT_BONUSES[cardName]) {
+    // Name-table fallback when oracle text is unavailable on the card object
+    if (shouldUseAttachedBonusNameTable(oracleText) && EQUIPMENT_BONUSES[cardName]) {
       const bonus = EQUIPMENT_BONUSES[cardName];
       if (bonus.power !== 0 || bonus.toughness !== 0) {
         sources.push({ name: perm.card.name, power: bonus.power, toughness: bonus.toughness, type: sourceType });
@@ -2169,7 +2069,7 @@ export function calculateEquipmentBonusWithSources(
       continue;
     }
     
-    if (AURA_BONUSES[cardName]) {
+    if (shouldUseAttachedBonusNameTable(oracleText) && AURA_BONUSES[cardName]) {
       const bonus = AURA_BONUSES[cardName];
       if (bonus.power !== 0 || bonus.toughness !== 0) {
         sources.push({ name: perm.card.name, power: bonus.power, toughness: bonus.toughness, type: sourceType });
@@ -2253,15 +2153,14 @@ export function calculateEquipmentBonus(
       continue;
     }
     
-    // ===== CHECK KNOWN STATIC EQUIPMENT BONUSES =====
-    if (EQUIPMENT_BONUSES[cardName]) {
+    // Name-table fallback when oracle text is unavailable on the card object
+    if (shouldUseAttachedBonusNameTable(oracleText) && EQUIPMENT_BONUSES[cardName]) {
       powerBonus += EQUIPMENT_BONUSES[cardName].power;
       toughnessBonus += EQUIPMENT_BONUSES[cardName].toughness;
       continue;
     }
     
-    // Check known aura bonuses
-    if (AURA_BONUSES[cardName]) {
+    if (shouldUseAttachedBonusNameTable(oracleText) && AURA_BONUSES[cardName]) {
       powerBonus += AURA_BONUSES[cardName].power;
       toughnessBonus += AURA_BONUSES[cardName].toughness;
       continue;
