@@ -513,15 +513,16 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
         style={{
           backgroundColor: '#fff',
           borderRadius: 8,
-          padding: 24,
           maxWidth: 500,
           width: '90%',
           maxHeight: '90vh',
-          overflow: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
           boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px 24px 0', flexShrink: 0 }}>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Create New Game</h2>
           <button
             onClick={onClose}
@@ -538,7 +539,22 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+          }}
+        >
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '16px 24px',
+            }}
+          >
           {/* Game ID */}
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 14 }}>
@@ -1352,8 +1368,20 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
             )}
           </div>
 
-          {/* Submit Buttons */}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
+          </div>
+
+          {/* Submit Buttons — pinned footer */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              justifyContent: 'flex-end',
+              padding: '16px 24px',
+              borderTop: '1px solid #eee',
+              backgroundColor: '#fff',
+              flexShrink: 0,
+            }}
+          >
             <button
               type="button"
               onClick={onClose}
