@@ -28,36 +28,7 @@ import { FreeField } from './FreeField';
 import { DeckManagerModal } from './DeckManagerModal';
 import { CentralStack } from './CentralStack';
 import { FloatingManaPool } from './FloatingManaPool';
-
-function buildCommanderDamageTooltip(
-  playerId: PlayerID,
-  commanderDamage: Record<PlayerID, Record<string, number>> | undefined,
-  commandZone: Record<PlayerID, CommanderInfo | undefined> | undefined,
-  format?: string,
-): string | undefined {
-  if (String(format || '').toLowerCase() !== 'commander') return undefined;
-  const damageByCommander = commanderDamage?.[playerId];
-  if (!damageByCommander) return 'No commander damage taken';
-
-  const entries = Object.entries(damageByCommander).filter(([, amount]) => Number(amount) > 0);
-  if (entries.length === 0) return 'No commander damage taken';
-
-  const nameById = new Map<string, string>();
-  for (const info of Object.values(commandZone || {})) {
-    for (const card of (info as any)?.commanderCards || []) {
-      if (card?.id && card?.name) {
-        nameById.set(String(card.id), String(card.name));
-      }
-    }
-  }
-
-  return entries
-    .map(([commanderId, amount]) => {
-      const name = nameById.get(commanderId) || 'Unknown commander';
-      return `${name}: ${amount}/21`;
-    })
-    .join('\n');
-}
+import { CommanderDamagePopover } from './CommanderDamagePopover';
 import { TokenGroups } from './TokenGroups';
 import { XValueSelectionModal } from './XValueSelectionModal';
 import { socket } from '../socket';
@@ -1398,13 +1369,6 @@ export function TableLayout(props: {
                   energyCounters?.[pb.player.id] ??
                   energy?.[pb.player.id] ??
                   0;
-                const commanderDamageTooltip = buildCommanderDamageTooltip(
-                  pb.player.id,
-                  commanderDamage,
-                  commandZone,
-                  format,
-                );
-
                 return (
                   <div
                     key={pb.player.id}
@@ -1475,21 +1439,28 @@ export function TableLayout(props: {
                                 boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3)'
                               }}
                             >
-                              {/* Life Counter - Always visible, larger */}
-                              <span 
-                                aria-label={`Life: ${lifeVal}`} 
-                                title={commanderDamageTooltip || 'Life Total'}
-                                style={{ 
-                                  color: lifeVal <= 10 ? '#ef4444' : lifeVal <= 20 ? '#fbbf24' : '#4ade80', 
-                                  fontWeight: 700,
-                                  fontSize: 14,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 3
-                                }}
+                              {/* Life Counter - hover/tap for commander damage breakdown in Commander games */}
+                              <CommanderDamagePopover
+                                victimPlayerId={pb.player.id}
+                                victimPlayerName={pb.player.name}
+                                players={players}
+                                commanderDamage={commanderDamage}
+                                commandZone={commandZone}
+                                format={format}
                               >
-                                ❤️ {lifeVal}
-                              </span>
+                                <span
+                                  style={{
+                                    color: lifeVal <= 10 ? '#ef4444' : lifeVal <= 20 ? '#fbbf24' : '#4ade80',
+                                    fontWeight: 700,
+                                    fontSize: 14,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 3,
+                                  }}
+                                >
+                                  ❤️ {lifeVal}
+                                </span>
+                              </CommanderDamagePopover>
                               {/* Separator */}
                               <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 10 }}>|</span>
                               {/* Poison Counter - Critical warning at 7+ */}
