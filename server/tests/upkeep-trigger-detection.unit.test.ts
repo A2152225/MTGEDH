@@ -12,6 +12,23 @@ describe('upkeep trigger detection', () => {
     expect(triggers.length).toBeGreaterThan(0);
   });
 
+  it('treats each-player-may counter placement as a mandatory upkeep trigger', () => {
+    const oracleText =
+      'At the beginning of your upkeep, each player may put two +1/+1 counters on a creature they control. ' +
+      "If a player does, creatures that player controls can't attack you or planeswalkers you control until your next turn.";
+
+    const triggers = detectUpkeepTriggers({
+      name: 'Orzhov Advokist',
+      oracle_text: oracleText,
+    }, permanent);
+
+    const upkeepEffect = triggers.find((trigger) => trigger.triggerType === 'upkeep_effect');
+    expect(upkeepEffect).toBeDefined();
+    expect(upkeepEffect?.mandatory).toBe(true);
+    expect(upkeepEffect?.requiresChoice).toBe(true);
+    expect(String(upkeepEffect?.effect || '')).toContain('each player may put two +1/+1 counters');
+  });
+
   it('does not treat Court of Garenbrig ETB monarch as an upkeep effect', () => {
     const oracleText =
       'When Court of Garenbrig enters the battlefield, you become the monarch.\n' +

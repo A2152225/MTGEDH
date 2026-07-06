@@ -25,7 +25,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const modulesDir = path.join(__dirname, '..', 'src', 'state', 'modules');
 
 // Lower these when legacy handlers are deleted. NEVER raise them.
-const TRIGGER_LEGACY_EXPORT_CEILING = 12; // 2026-07-05 — batch 532: ChosenTypeTopCardReveal + RevealTopCreatureOfChosenType (IR look_choose_from_top chosen-type bridge)
+const TRIGGER_LEGACY_EXPORT_CEILING = 0; // 2026-07-05 — batch 537: final trigger legacy handlers retired to metadata/utils modules
 const SPELL_LEGACY_EXPORT_CEILING = 1; // applyLegacySpellRegexDrawHandlers
 const RATCHET_SLACK = 5;
 

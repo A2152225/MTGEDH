@@ -141,9 +141,13 @@ export function applyOracleIRFallbackForTriggeredEffect(
     || sourcePermanent?.chosenCreatureType
     || '',
   ).trim();
+  const discardedCardId = String((triggerItem as any)?.effectData?.discardedCardId || '').trim();
+  const boundGraveyardCardId = String((triggerItem as any)?.boundGraveyardCardId || '').trim();
   const chosenObjectIds = Array.from(new Set([
     ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...normalizedTargetIds,
+    ...(discardedCardId ? [discardedCardId] : []),
+    ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
   ]));
 
   const irCtx = buildStackOracleIRContext(controller, {

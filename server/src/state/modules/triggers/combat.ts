@@ -14,6 +14,10 @@
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import {
+  findRegexMatchAcrossOracleLines,
+  getOracleLines,
+} from '../../../../../rules-engine/src/oracleLineRegexMatch.js';
+import {
   KNOWN_COMBAT_DAMAGE_TRIGGERS,
   KNOWN_ATTACK_TRIGGERS,
   KNOWN_BEGINNING_COMBAT_TRIGGERS,
@@ -286,13 +290,6 @@ export interface AttachmentAttackTrigger {
 const ATTACK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:annihilator\s+\d+|firebending\s+\d+|melee|myriad|exalted|battle cry|dethrone|mentor|training)\b/i;
 const BLOCK_KEYWORD_REMINDER_LINE_PATTERN = /^(?:afflict\s+\d+|bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
 
-function getOracleLines(oracleText: string): string[] {
-  return String(oracleText || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
 /** Names used in oracle text (~, comma-short, or "Svyelun of Sea and Sky" -> "Svyelun"). */
 function getCardNameVariantsForOracleMatching(cardName: string, oracleText?: string): string[] {
   const variants = new Set<string>();
@@ -397,13 +394,11 @@ function findGenericAttackTriggerLine(oracleText: string, cardName: string): Reg
     'i'
   );
 
-  for (const line of getOracleLines(oracleText)) {
-    if (ATTACK_KEYWORD_REMINDER_LINE_PATTERN.test(line)) continue;
-    const match = line.match(attacksPattern);
-    if (match) return match;
-  }
-
-  return null;
+  return findRegexMatchAcrossOracleLines(
+    oracleText,
+    (line) => ATTACK_KEYWORD_REMINDER_LINE_PATTERN.test(line),
+    (line) => line.match(attacksPattern),
+  );
 }
 
 function findGenericBlockTriggerLine(oracleText: string, cardName: string): RegExpMatchArray | null {
@@ -414,13 +409,11 @@ function findGenericBlockTriggerLine(oracleText: string, cardName: string): RegE
     'i'
   );
 
-  for (const line of getOracleLines(oracleText)) {
-    if (BLOCK_KEYWORD_REMINDER_LINE_PATTERN.test(line)) continue;
-    const match = line.match(blocksPattern);
-    if (match) return match;
-  }
-
-  return null;
+  return findRegexMatchAcrossOracleLines(
+    oracleText,
+    (line) => BLOCK_KEYWORD_REMINDER_LINE_PATTERN.test(line),
+    (line) => line.match(blocksPattern),
+  );
 }
 
 function countEnergySymbols(cost: string): number {
@@ -726,6 +719,27 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
       mandatory: true,
     });
   }
+
+  // ===== KNOWN CARDS TABLE (Optimization/Enhancement) =====
+  // Prefer table metadata before generic line parsing so multi-line oracle cards
+  // (e.g. Myrel static + attack trigger) never get a wrong generic match first.
+  for (const [knownName, info] of Object.entries(KNOWN_ATTACK_TRIGGERS)) {
+    if (lowerName.includes(knownName) && !triggers.some(t => t.triggerType === 'attacks')) {
+      if (supportedExertReward && /^exert\b/i.test(String(info.effect || ''))) {
+        continue;
+      }
+
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'attacks',
+        description: info.effect,
+        effect: info.effect,
+        value: info.value || info.createTokensBasedOnCount || info.createTokens,
+        mandatory: true,
+      });
+    }
+  }
   
   // Generic "whenever ~ attacks" - match ~, this creature, Tanuki-style
   // "this creature or equipped creature", or the actual card name
@@ -867,27 +881,6 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
       mandatory: true,
       value: { isJoinForces: true },
     });
-  }
-  
-  // ===== KNOWN CARDS TABLE (Optimization/Enhancement) =====
-  // Use the table to handle special cases and provide enhanced metadata
-  // Only add if not already detected dynamically
-  for (const [knownName, info] of Object.entries(KNOWN_ATTACK_TRIGGERS)) {
-    if (lowerName.includes(knownName) && !triggers.some(t => t.triggerType === 'attacks')) {
-      if (supportedExertReward && /^exert\b/i.test(String(info.effect || ''))) {
-        continue;
-      }
-
-      triggers.push({
-        permanentId,
-        cardName,
-        triggerType: 'attacks',
-        description: info.effect,
-        effect: info.effect,
-        value: info.value || info.createTokensBasedOnCount || info.createTokens,
-        mandatory: true,
-      });
-    }
   }
   
   return triggers;

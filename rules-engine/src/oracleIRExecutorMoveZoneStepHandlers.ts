@@ -1,6 +1,7 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import { cardHasCreatureType, isValidCreatureType } from '../../shared/src/creatureTypes';
 import type { OracleEffectStep } from './oracleIR';
+import { isPerPlayerOptionalOracleStep } from './oracleIRPerPlayerOptional';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import {
   buildMoveZoneReplayMutations,
@@ -2383,6 +2384,19 @@ export function applyMoveZoneStep(
       }
     }
     return { applied: true, state: nextState, log: log.length > 0 ? log : [`Exiled card(s) from graveyard for prevented damage`] };
+  }
+
+  if (
+    step.optional === true
+    && ctx.interactivePlayerChoices === true
+    && isPerPlayerOptionalOracleStep(step)
+  ) {
+    return {
+      applied: false,
+      message: `Optional per-player choice requires player choice: ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
   }
 
   const optionalLandPlayRaw = String(step.raw || '').replace(/\u2019/g, "'").trim();

@@ -12,7 +12,7 @@ import { enqueueSupportedKeywordChoiceStep } from './triggerKeywordChoiceUtils.j
 import { applyTriggerLifeGain, modifyTriggerEffectLife } from './triggerLifeDamageUtils.js';
 import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
-export interface TriggerLegacyKeywordParams {
+export interface TriggerKeywordFallbackParams {
   readonly ctx: GameContext;
   readonly controller: PlayerID;
   readonly sourceName: string;
@@ -76,8 +76,8 @@ function resolveKeywordTriggerTiming(
   return 'cast';
 }
 
-export function applyRetiredTriggerLegacyKeywordTriggerFallback(
-  params: TriggerLegacyKeywordParams,
+export function applyKeywordTriggerFallbackFromOracle(
+  params: TriggerKeywordFallbackParams,
 ): boolean {
   if (skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
     return false;

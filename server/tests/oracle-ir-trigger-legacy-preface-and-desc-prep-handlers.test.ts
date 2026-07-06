@@ -1,23 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PlayerID } from '../../shared/src/index.js';
 import {
   computeTriggerLegacyIsKynaiosEffect,
   stripTriggerLegacyInterveningIfPrefix,
 } from '../src/state/modules/oracleIrTriggerLegacyDescPrepHandlers.js';
-import { applyRetiredTriggerLegacyPlaneswalkerLoyaltyCounters } from '../src/state/modules/oracleIrTriggerLegacyPrefaceHandlers.js';
+import { applyPlaneswalkerLoyaltyCountersFromTriggerMetadata } from '../src/state/modules/triggerPlaneswalkerLoyaltyUtils.js';
 
 describe('oracleIrTriggerLegacyPrefaceAndDescPrepHandlers', () => {
   it('adds loyalty counters to a planeswalker permanent', () => {
     const perm = { id: 'pw-1', counters: { loyalty: 3 } };
 
-    expect(applyRetiredTriggerLegacyPlaneswalkerLoyaltyCounters({
-      ctx: {} as any,
-      controller: 'p1' as PlayerID,
+    expect(applyPlaneswalkerLoyaltyCountersFromTriggerMetadata({
       sourceName: 'Chandra',
-      description: 'Add a loyalty counter.',
       triggerItem: { permanentId: 'pw-1', addsLoyaltyCounters: 1 },
-      state: {},
       battlefield: [perm],
     })).toBe(true);
 

@@ -10,7 +10,7 @@ import {
 import { destroyPermanent, movePermanentToExile } from './counters_tokens.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentBridge.js';
 
-export interface TriggerLegacyDelayedCleanupParams {
+export interface TriggerDelayedCleanupParams {
   readonly ctx: GameContext;
   readonly controller: PlayerID;
   readonly sourceName: string;
@@ -18,8 +18,8 @@ export interface TriggerLegacyDelayedCleanupParams {
   readonly state: any;
 }
 
-export function applyRetiredTriggerLegacyDelayedCleanupTriggers(
-  params: TriggerLegacyDelayedCleanupParams,
+export function applyDelayedCleanupTriggersFromMetadata(
+  params: TriggerDelayedCleanupParams,
 ): boolean {
   const action = params.triggerItem?.delayedAction as ('draw' | 'exile' | 'sacrifice' | 'graveyard_return' | undefined);
 

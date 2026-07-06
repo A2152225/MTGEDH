@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
-import {
-  applyRetiredTriggerLegacyGainControlOfTargetOpponent,
-} from '../src/state/modules/oracleIrTriggerLegacyTurnAndZoneHandlers.js';
+import { applyEmrakulGainControlOfTargetOpponentFromTrigger } from '../src/state/modules/triggerEmrakulGainControlUtils.js';
 
 vi.mock('../src/state/modules/turn.js', () => ({
   addExtraTurn: vi.fn(),
@@ -11,12 +9,12 @@ vi.mock('../src/state/modules/turn.js', () => ({
 
 import { addExtraTurn } from '../src/state/modules/turn.js';
 
-describe('oracleIrTriggerLegacyTurnAndZoneHandlers', () => {
+describe('triggerEmrakulGainControlUtils', () => {
   it('registers Emrakul-style opponent control and extra turn', () => {
     const ctx = {} as any;
     const state = {} as any;
 
-    expect(applyRetiredTriggerLegacyGainControlOfTargetOpponent({
+    expect(applyEmrakulGainControlOfTargetOpponentFromTrigger({
       ctx,
       controller: 'p1' as PlayerID,
       sourceName: 'Emrakul',

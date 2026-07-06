@@ -1,6 +1,8 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
 import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
 import type { OracleBattlefieldObjectCondition, OracleEffectStep, OracleObjectSelector } from './oracleIR';
+import { isEachPlayerMayPutCountersOnCreatureTheyControlStep } from './oracleIRCounterPlacement';
+import { isPerPlayerOptionalOracleStep } from './oracleIRPerPlayerOptional';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import {
   parseSimpleBattlefieldSelector,
@@ -10515,6 +10517,17 @@ export function applyAddCounterStep(
   const distributeResult = tryApplyDistributeCountersAmong(state, step, ctx, runtime);
   if (distributeResult) return distributeResult;
 
+  if (
+    isPerPlayerOptionalOracleStep(step) &&
+    ctx.interactivePlayerChoices === true
+  ) {
+    return {
+      applied: false,
+      message: `Skipped add counter (needs per-player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+    };
+  }
+
   if (/commander creature you control/i.test(String(step.raw || ''))) {
     const controllerId = String(ctx.controllerId || '').trim();
     const counterAmount = resolveAddCounterAmount(state, step, ctx, runtime) ?? Number(ctx.referenceAmount ?? 1);
@@ -10986,7 +10999,11 @@ export function applyAddCounterStep(
     'add_counter',
   );
   if (counterResult.halted) {
-    return { applied: true, state, log: counterResult.log };
+    return {
+      applied: false,
+      message: `Skipped add counter (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+    };
   }
 
   return {

@@ -6,7 +6,6 @@ import { tryResolveThassasOracleWin } from './game-state-effects.js';
 import { applyOracleIRFallbackForTriggeredEffect } from './stackExecuteTriggerEffectIrFallbackUtils.js';
 import type { TriggerEffectLegacyBodyContinuation, TriggerLegacyTailResult } from './stackResolveSharedTypes.js';
 import {
-  legacyTailHandled,
   legacyTailHandledWithoutHandler,
   legacyTailNotHandled,
 } from './oracleIrTriggerLegacyHandlerTelemetry.js';
@@ -19,9 +18,6 @@ import {
   shouldSkipTriggerUncategorizedFallback,
 } from './oracleIrTriggerLegacyRouting.js';
 import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
-import {
-  applyRetiredTriggerLegacySingleEffectRegexBatch,
-} from './oracleIrTriggerLegacySingleEffectRegexBatch.js';
 
 function isCreateCreatureTokenTriggerText(text: string): boolean {
   return /create (?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+).*?\s+tokens?/i.test(String(text || ''));
@@ -114,9 +110,6 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
   const {
     desc,
     descriptionForOracleFallback,
-    opponents,
-    players,
-    battlefield,
   } = continuation;
 
   const skipLegacyRegexTail = shouldSkipLegacyTriggerRegexHandlers(descriptionForOracleFallback, sourceName);
@@ -187,25 +180,6 @@ export function tryApplyTriggerEffectLegacyTailHandlers(
   ) {
     tryResolveThassasOracleWin(ctx, controller, sourceName);
     return legacyTailHandledWithoutHandler();
-  }
-
-  if (!skipLegacyRegexTail) {
-    const singleHandler = applyRetiredTriggerLegacySingleEffectRegexBatch({
-      ctx,
-      controller,
-      sourceName,
-      desc,
-      description,
-      triggerItem,
-      triggerCard,
-      state,
-      opponents,
-      players,
-      battlefield,
-    });
-    if (singleHandler) {
-      return legacyTailHandled(singleHandler);
-    }
   }
 
   if (maybeApplyPreparedStateChange(ctx, controller, description, triggerItem, getTriggerSourcePermanent(state, triggerItem))) {

@@ -1,29 +1,13 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
-import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 
-export function isEachPlayerMayPutLandFromHandStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'move_zone') return false;
-  if (!(step as { optional?: boolean }).optional) return false;
-  const raw = String(step.raw || '').replace(/\u2019/g, "'").trim();
-  return /^each player may put a land card from their hand onto the battlefield$/i.test(raw);
-}
-
-export function isControllerMayPutLandFromHandStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'move_zone') return false;
-  if (!(step as { optional?: boolean }).optional) return false;
-  const raw = String(step.raw || '').replace(/\u2019/g, "'").trim();
-  return /^you may put a land card from your hand onto the battlefield$/i.test(raw);
-}
-
-export function isBothPlayersMayPutPermanentFromHandStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'move_zone') return false;
-  if (!(step as { optional?: boolean }).optional) return false;
-  const raw = String(step.raw || '').replace(/\u2019/g, "'").trim();
-  return /^you and that player may each put a permanent card from your hand onto the battlefield$/i.test(raw);
-}
+export {
+  isBothPlayersMayPutPermanentFromHandOracleStep as isBothPlayersMayPutPermanentFromHandStep,
+  isControllerMayPutLandFromHandOracleStep as isControllerMayPutLandFromHandStep,
+  isEachPlayerMayPutLandFromHandOracleStep as isEachPlayerMayPutLandFromHandStep,
+} from '../../../../rules-engine/src/oracleIRPerPlayerOptional.js';
 
 function landsInPlayerHand(state: any, playerId: PlayerID): any[] {
   const hand = Array.isArray(state?.zones?.[playerId]?.hand)
@@ -252,4 +236,37 @@ export function queueBothPlayersMayPutPermanentFromHandPrompts(
     params.triggerItem,
   );
   return queuedController || queuedTarget;
+}
+
+export function refreshKynaiosLandPlayResolutionStepForClient(
+  state: any,
+  step: Record<string, any>,
+): Record<string, any> {
+  const playerId = String(step.playerId || '').trim() as PlayerID;
+  if (!playerId) return step;
+
+  const landsInHand = landsInPlayerHand(state, playerId);
+  const isController = step.isController === true
+    || step.landPlayOrFallbackIsController === true
+    || playerId === String(step.sourceController || step.landPlayOrFallbackSourceController || '').trim();
+  const options = isController
+    ? (['play_land', 'decline'] as const)
+    : (['play_land', 'draw_card'] as const);
+  const landCards = landsInHand.map((card: any) => ({
+    id: String(card?.id || ''),
+    name: String(card?.name || ''),
+    imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+  }));
+
+  return {
+    ...step,
+    isController,
+    canPlayLand: landsInHand.length > 0,
+    landsInHand: landCards,
+    options,
+    landPlayOrFallbackIsController: isController,
+    landPlayOrFallbackCanPlayLand: landsInHand.length > 0,
+    landPlayOrFallbackLandsInHand: landCards,
+    landPlayOrFallbackOptions: options,
+  };
 }

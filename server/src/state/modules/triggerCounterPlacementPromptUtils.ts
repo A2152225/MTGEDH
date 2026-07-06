@@ -2,18 +2,12 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import type { GameContext } from '../context.js';
 import type { OracleIRExecutionResult } from '../../../../rules-engine/src/oracleIRExecutor.js';
+import {
+  isEachPlayerMayPutCountersOnCreatureTheyControlStep,
+} from '../../../../rules-engine/src/oracleIRCounterPlacement.js';
+import { isPerPlayerOptionalEffectText } from '../../../../rules-engine/src/oracleIRPerPlayerOptional.js';
+export { isEachPlayerMayPutCountersOnCreatureTheyControlStep } from '../../../../rules-engine/src/oracleIRCounterPlacement.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
-
-const EACH_PLAYER_COUNTER_PLACEMENT_PATTERN =
-  /each player may put (?:two|\d+) \+1\/\+1 counters? on a creature (?:they|that player) controls?/i;
-
-export function isEachPlayerMayPutCountersOnCreatureTheyControlStep(
-  step: OracleEffectStep,
-): boolean {
-  if (step.kind !== 'add_counter') return false;
-  const raw = String(step.raw || '').replace(/\u2019/g, "'").trim();
-  return EACH_PLAYER_COUNTER_PLACEMENT_PATTERN.test(raw);
-}
 
 function resolveCounterPlacementConditionalText(
   triggerDescription: string,
@@ -177,3 +171,71 @@ export function queueEachPlayerCounterPlacementPromptsFromOracleIRResult(
     activePlayerId,
   );
 }
+
+export function refreshCounterPlacementResolutionStepForClient(
+  state: any,
+  step: Record<string, any>,
+): Record<string, any> {
+  if (!step?.counterPlacementTrigger && !step?.agitatorAntTrigger) return step;
+
+  const playerId = String(step.playerId || '').trim();
+  if (!playerId) return step;
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const playerCreatures = battlefield.filter((perm: any) => {
+    if (String(perm?.controller || '') !== playerId) return false;
+    return String(perm?.card?.type_line || '').toLowerCase().includes('creature');
+  });
+
+  return {
+    ...step,
+    availableCreatures: playerCreatures.map((perm: any) => ({
+      permanentId: perm.id,
+      cardName: perm.card?.name || 'Creature',
+      imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+    })),
+    options: [
+      { id: 'decline', label: 'Decline' },
+      ...playerCreatures.map((perm: any) => ({
+        id: perm.id,
+        label: perm.card?.name || 'Creature',
+      })),
+    ],
+  };
+}
+
+function collectCounterPlacementEffectText(step: Record<string, any>): string {
+  return [
+    step.effectText,
+    step.fullAbilityText,
+    step.description,
+    step.triggerDescription,
+  ].filter(Boolean).join(' ');
+}
+
+/** Drop stale effect-program yes/no steps that should use per-player resolution prompts. */
+export function scrubStalePerPlayerOptionalEffectProgramSteps(gameId: string): void {
+  const trimmedGameId = String(gameId || '').trim();
+  if (!trimmedGameId) return;
+
+  const queue = ResolutionQueueManager.getQueue(trimmedGameId);
+  for (const step of [...(queue.steps || [])]) {
+    if ((step as any).counterPlacementTrigger === true || (step as any).agitatorAntTrigger === true) {
+      continue;
+    }
+    if ((step as any).type === ResolutionStepType.KYNAIOS_CHOICE) continue;
+    if ((step as any).type === ResolutionStepType.JOIN_FORCES) continue;
+    if ((step as any).effectProgramPrompt !== true) continue;
+    const family = String((step as any).effectProgramFamily || '').trim();
+    if (family !== 'optional_triggered_ability') continue;
+    const effectText = collectCounterPlacementEffectText(step as any);
+    if (!isPerPlayerOptionalEffectText(effectText)) {
+      continue;
+    }
+    ResolutionQueueManager.cancelStep(trimmedGameId, step.id);
+  }
+}
+
+/** @deprecated Use scrubStalePerPlayerOptionalEffectProgramSteps */
+export const scrubStaleEachPlayerCounterPlacementEffectProgramSteps =
+  scrubStalePerPlayerOptionalEffectProgramSteps;

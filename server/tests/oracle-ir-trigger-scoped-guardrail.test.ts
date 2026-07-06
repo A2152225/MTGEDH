@@ -53,7 +53,7 @@ describe('oracleIrTriggerScopedGuardrail', () => {
 
   it('routes trigger execution through keyword-first orchestration', () => {
     expect(stackExecuteTriggerEffectUtilsSource.includes('tryApplyTriggerEffectLegacyBodyHandlers')).toBe(true);
-    expect(stackExecuteTriggerEffectUtilsSource.includes('applyRetiredTriggerLegacyKeywordTriggerFallback')).toBe(true);
+    expect(stackExecuteTriggerEffectUtilsSource.includes('applyKeywordTriggerFallbackFromOracle')).toBe(true);
   });
 
   it('keeps skipRetiredTriggerLegacyHandler exported for handler modules', () => {

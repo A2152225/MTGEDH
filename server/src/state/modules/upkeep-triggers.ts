@@ -19,6 +19,7 @@ import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { queueCounterRemovedTriggers } from "./triggers/counters.js";
 import { queueSacrificeTriggers } from "./triggers/sacrifice.js";
 import { movePermanentToGraveyard } from "./counters_tokens.js";
+import { isControllerOptionalTriggeredAbilityEffect } from "./trigger-runtime-wiring.js";
 
 // ============================================================================
 // DYNAMIC PATTERN DETECTION REGEXES
@@ -552,7 +553,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
       yourUpkeepMatch.index ?? 0,
     );
     const hasCost = effectText.toLowerCase().includes("pay") || effectText.toLowerCase().includes("sacrifice");
-    const isOptional = effectText.toLowerCase().includes("you may") || effectText.toLowerCase().includes("may ");
+    const isOptional = isControllerOptionalTriggeredAbilityEffect(effectText);
     const alreadyHasEffect = triggers.some((trigger) =>
       trigger.triggerType === 'upkeep_effect' &&
       String(trigger.effect || trigger.description || '').trim().toLowerCase() === effectText.trim().toLowerCase()
@@ -565,7 +566,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
       description: effectText,
       effect: effectText,
       mandatory: !isOptional,
-      requiresChoice: isOptional || hasCost,
+      requiresChoice: isOptional || hasCost || /\beach player may\b/i.test(effectText),
       controllerTrigger: true,
       anyPlayerTrigger: false,
     });

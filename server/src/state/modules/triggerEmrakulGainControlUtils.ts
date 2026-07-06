@@ -2,30 +2,22 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { addExtraTurn } from './turn.js';
 import { debug } from '../../utils/debug.js';
-import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
-export interface TriggerLegacyTurnAndZoneParams {
-  readonly ctx: GameContext;
-  readonly controller: PlayerID;
-  readonly sourceName: string;
-  readonly description: string;
-  readonly desc?: string;
-  readonly triggerItem: any;
-  readonly state: any;
-}
-
-export function applyRetiredTriggerLegacyGainControlOfTargetOpponent(
-  params: Pick<TriggerLegacyTurnAndZoneParams, 'ctx' | 'controller' | 'sourceName' | 'description' | 'triggerItem' | 'state'>,
+export function applyEmrakulGainControlOfTargetOpponentFromTrigger(
+  params: {
+    readonly ctx: GameContext;
+    readonly controller: PlayerID;
+    readonly sourceName: string;
+    readonly description: string;
+    readonly triggerItem: any;
+    readonly state: any;
+  },
 ): boolean {
-  if (skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
-    return false;
-  }
-
   if (!String(params.description || '').toLowerCase().includes('gain control of target opponent')) {
     return false;
   }
 
-  const targets = params.triggerItem.targets || [];
+  const targets = params.triggerItem?.targets || [];
   if (targets.length === 0) {
     return true;
   }

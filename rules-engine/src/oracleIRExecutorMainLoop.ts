@@ -1,5 +1,6 @@
 import type { GameState, PlayerID, BattlefieldPermanent, OracleAutomationGap } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
+import { isPerPlayerOptionalOracleStep } from './oracleIRPerPlayerOptional';
 import { collectReplayMutationsFromAppliedStep, mergeReplayMutations, type OracleIRReplayMutation } from './oracleIRReplayMutations';
 import { parseOracleTextToIR } from './oracleIRParser';
 import {
@@ -955,6 +956,41 @@ export function applyOracleIRStepsToGameStateImpl(
       currentCtx.interactivePlayerChoices === true &&
       step.kind === 'discard' &&
       (step as any).amount?.kind === 'any_number';
+    const optionalGrantGraveyardDuringResolutionStep =
+      isOptional &&
+      step.kind === 'grant_graveyard_permission' &&
+      String((step as any).duration || '') === 'during_resolution' &&
+      currentCtx.interactivePlayerChoices === true &&
+      currentCtx.deferOptionalGrantGraveyardChoices === true;
+    const optionalPerPlayerChoiceStep =
+      isOptional &&
+      currentCtx.interactivePlayerChoices === true &&
+      currentCtx.deferOptionalPerPlayerChoices === true &&
+      isPerPlayerOptionalOracleStep(step);
+    if (optionalGrantGraveyardDuringResolutionStep) {
+      recordSkippedStep(
+        step,
+        `Skipped optional step (needs player choice): ${(step as any).raw ?? step.kind}`,
+        'optional_step_requires_player_choice',
+        {
+          pending: true,
+          classification: 'player_choice',
+        }
+      );
+      continue;
+    }
+    if (optionalPerPlayerChoiceStep) {
+      recordSkippedStep(
+        step,
+        `Skipped optional step (needs per-player choice): ${(step as any).raw ?? step.kind}`,
+        'optional_step_requires_player_choice',
+        {
+          pending: true,
+          classification: 'player_choice',
+        }
+      );
+      continue;
+    }
     if (isOptional && !options.allowOptional && !optionalLookLibraryStep && !optionalAnyNumberDiscardStep) {
       if (options.declineOptionalSteps) {
         log.push(`Declined optional step: ${(step as any).raw ?? step.kind}`);

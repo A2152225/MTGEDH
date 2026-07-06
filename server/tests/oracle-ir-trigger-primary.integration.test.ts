@@ -256,7 +256,142 @@ describe('oracle IR trigger execution', () => {
     );
     expect(landChoiceSteps.length).toBeGreaterThanOrEqual(2);
 
+    const duplicateLandOptionChoices = queue.steps.filter(
+      (step) =>
+        step.type === ResolutionStepType.OPTION_CHOICE
+        && (step as any).oracleIrOptionalMayChoice === true
+        && /put a land card from their hand onto the battlefield/i.test(String((step as any).description || '')),
+    );
+    expect(duplicateLandOptionChoices).toHaveLength(0);
+
     ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('primary mode queues per-player counter placement without duplicate controller OPTION_CHOICE', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_trigger_advokist_counters';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+    (game.state as any).battlefield = [
+      {
+        id: 'bear_1',
+        controller: p1,
+        card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+      },
+      {
+        id: 'elf_1',
+        controller: p2,
+        card: { name: 'Llanowar Elves', type_line: 'Creature — Elf Druid', power: '1', toughness: '1' },
+      },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const effectText = 'Each player may put two +1/+1 counters on a creature they control.';
+    const outcome = tryResolveTriggerViaOracleIR(ctx, {
+      controller: p1,
+      sourceName: 'Orzhov Advokist',
+      effectText,
+      triggerItem: {
+        id: 'advokist_trigger_1',
+        source: 'advokist_1',
+        permanentId: 'advokist_1',
+        gameId,
+      },
+    });
+
+    expect(outcome.handled).toBe(true);
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const counterSteps = queue.steps.filter(
+      (step) =>
+        step.type === ResolutionStepType.OPTION_CHOICE
+        && (step as any).counterPlacementTrigger === true,
+    );
+    expect(counterSteps.length).toBeGreaterThanOrEqual(2);
+
+    const duplicateOptionChoices = queue.steps.filter(
+      (step) =>
+        step.type === ResolutionStepType.OPTION_CHOICE
+        && (step as any).oracleIrOptionalMayChoice === true
+        && /\+1\/\+1 counters on a creature they control/i.test(String((step as any).description || '')),
+    );
+    expect(duplicateOptionChoices).toHaveLength(0);
+
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
+  it('primary mode creates soldier tokens for Myrel attack trigger from effectData-only stack items', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_trigger_myrel_attack';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+
+    const myrelId = 'myrel_1';
+    const soldier1 = 'soldier_1';
+    const soldier2 = 'soldier_2';
+    (game.state as any).battlefield = [
+      {
+        id: myrelId,
+        controller: p1,
+        owner: p1,
+        card: {
+          name: 'Myrel, Shield of Argive',
+          type_line: 'Legendary Creature — Human Soldier',
+          oracle_text:
+            'Whenever Myrel attacks, create X 1/1 colorless Soldier artifact creature tokens, where X is the number of Soldiers you control.',
+        },
+      },
+      {
+        id: soldier1,
+        controller: p1,
+        owner: p1,
+        isToken: true,
+        card: { name: 'Soldier', type_line: 'Artifact Creature — Soldier', power: '1', toughness: '1' },
+      },
+      {
+        id: soldier2,
+        controller: p1,
+        owner: p1,
+        isToken: true,
+        card: { name: 'Soldier', type_line: 'Artifact Creature — Soldier', power: '1', toughness: '1' },
+      },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+
+    const effectText =
+      'Create X 1/1 colorless Soldier artifact creature tokens, where X is the number of Soldiers you control.';
+    const triggerItem = {
+      id: 'myrel_attack_trigger',
+      permanentId: myrelId,
+      source: myrelId,
+      triggerType: 'attacks',
+      description: effectText,
+      effectData: {
+        countType: 'soldiers',
+        power: 1,
+        toughness: 1,
+        tokenType: 'Soldier',
+        tokenTypes: ['Artifact', 'Creature', 'Soldier'],
+      },
+    };
+
+    const tokensBefore = (game.state as any).battlefield.filter((perm: any) => perm.isToken).length;
+    executeTriggerEffect(ctx, p1, 'Myrel, Shield of Argive', effectText, triggerItem);
+    const tokensAfter = (game.state as any).battlefield.filter((perm: any) => perm.isToken).length;
+
+    expect(tokensAfter - tokensBefore).toBe(3);
   });
 
   it('primary mode applies chosen-type +1/+1 counters via effect program (Littjara chaos)', () => {

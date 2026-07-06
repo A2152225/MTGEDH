@@ -4,6 +4,7 @@
  */
 
 import { normalizeGameplayEffectText } from './oracleReminderText.js';
+import { resolveGlobalTimingMatchIndex } from './oracleLineRegexMatch.js';
 
 const ABILITY_LINE_BOUNDARY =
   /\n\s*(?=(?:when|whenever|at the beginning of)\b|\{[0-9WUBRGC/P]+\}|[A-Za-z][A-Za-z0-9' ,-]*\{[0-9WUBRGC/P]+\}\s*:|(?:[A-Za-z]+(?: [A-Za-z]+)*—))/i;
@@ -57,18 +58,40 @@ function joinSentences(left: string, right: string): string {
 }
 
 export function truncateAtAbilityBoundary(text: string): string {
-  const boundary = text.match(ABILITY_LINE_BOUNDARY);
+  const source = String(text || '');
+  const boundary = source.match(ABILITY_LINE_BOUNDARY);
   if (boundary?.index != null && boundary.index > 0) {
-    return text.slice(0, boundary.index).trim();
+    return source.slice(0, boundary.index).trim();
   }
-  return text.trim();
+
+  const newlineIdx = source.indexOf('\n');
+  if (newlineIdx > 0) {
+    const firstLine = source.slice(0, newlineIdx).trim();
+    const rest = source.slice(newlineIdx + 1).trim();
+    if (firstLine.endsWith('.') && rest) {
+      const restIsContinuation =
+        CONTINUATION_SENTENCE.test(rest) || NEW_TRIGGER_TIMING_SENTENCE.test(rest);
+      if (!restIsContinuation) {
+        return firstLine;
+      }
+    }
+  }
+
+  return source.trim();
 }
 
-function shouldIncludeContinuationSentence(sentence: string): boolean {
+function shouldIncludeContinuationSentence(sentence: string, fullTail: string): boolean {
   const trimmed = String(sentence || '').trim();
   if (!trimmed) return false;
   if (NEW_TRIGGER_TIMING_SENTENCE.test(trimmed)) return false;
-  return CONTINUATION_SENTENCE.test(trimmed) || !NEW_TRIGGER_TIMING_SENTENCE.test(trimmed);
+  if (CONTINUATION_SENTENCE.test(trimmed)) return true;
+
+  const sentenceStart = fullTail.indexOf(trimmed);
+  if (sentenceStart > 0) {
+    const between = fullTail.slice(0, sentenceStart);
+    if (!between.includes('\n')) return true;
+  }
+  return false;
 }
 
 /**
@@ -89,7 +112,7 @@ export function extractTriggerEffectAfterPrefix(
   let effect = sentences[0].trim();
   for (let i = 1; i < sentences.length; i += 1) {
     const sentence = sentences[i].trim();
-    if (!shouldIncludeContinuationSentence(sentence)) break;
+    if (!shouldIncludeContinuationSentence(sentence, tail)) break;
     effect = joinSentences(effect, sentence);
   }
 
@@ -107,9 +130,7 @@ export function extractTriggeredEffectFromTimingMatch(
 ): string {
   const fullMatch = String(match[0] || '');
   const captured = String(match[effectGroupIndex] || '');
-  const matchIndex = typeof match.index === 'number'
-    ? match.index
-    : String(oracleText || '').indexOf(fullMatch);
+  const matchIndex = resolveGlobalTimingMatchIndex(oracleText, match);
   if (matchIndex < 0) return normalizeGameplayEffectText(captured.trim());
 
   const prefixLength = Math.max(0, fullMatch.length - captured.length);

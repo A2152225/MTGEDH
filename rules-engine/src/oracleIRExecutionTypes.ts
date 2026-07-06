@@ -318,6 +318,9 @@ export interface OracleIRExecutionContext {
    * Set when the server has a live socket (io) and can prompt; unit tests leave this false.
    */
   readonly deferOptionalLookChoices?: boolean;
+  readonly deferOptionalGrantGraveyardChoices?: boolean;
+  /** Optional per-player effects (counters, land play, Hypergenesis, etc.) defer to server prompts. */
+  readonly deferOptionalPerPlayerChoices?: boolean;
   /**
    * When true, stack-target `copy_spell` steps defer to the server bridge instead of
    * inline replay (push copied spells onto the stack + optional retarget prompts).

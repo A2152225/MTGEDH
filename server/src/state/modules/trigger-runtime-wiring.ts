@@ -111,6 +111,20 @@ export function normalizeTriggerEffectDescriptionForExecution(effectText: string
   return stripped || normalized || raw;
 }
 
+/**
+ * True when the controller may decline the entire triggered ability (Rule 603.4 optional).
+ * "Each player may …" is mandatory at trigger time — per-player choices happen during resolution.
+ */
+export function isControllerOptionalTriggeredAbilityEffect(effectText: string): boolean {
+  const lower = String(effectText || '').replace(/\u2019/g, "'").trim().toLowerCase();
+  if (!lower) return false;
+  if (/\beach player may\b/.test(lower)) return false;
+  if (/\bstarting with you, each player may\b/.test(lower)) return false;
+  if (/\bin turn order, each player may\b/.test(lower)) return false;
+  if (/\byou and (?:that player|target player) may each\b/.test(lower)) return false;
+  return /\byou may\b/.test(lower);
+}
+
 export function normalizeTriggerEffectForIrAudit(effectText: string): string {
   const raw = String(effectText || '').trim();
   if (!raw) return raw;

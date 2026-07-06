@@ -58,6 +58,7 @@ import {
   handleBounceLandETB,
   chooseAICardNameSelection,
   chooseAILibrarySearchCards,
+  chooseAILibrarySearchResponse,
   chooseAIGraveyardSelectionIds,
   chooseAIManaColorForActivation,
   chooseAIXValueSelection,
@@ -141,6 +142,8 @@ import {
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { resolveOracleIrOptionalPaymentPromptFromResolution, maybeApplyOracleIrChoiceStepFromResolution, maybeResumeOracleIRStepsAfterResolution, processPendingOracleIrCompoundResumeOnContext, syncAllOracleIRPlayerZonesAfterResolution } from '../state/modules/oracleIrServerZoneSync.js';
+import { refreshCounterPlacementResolutionStepForClient } from '../state/modules/triggerCounterPlacementPromptUtils.js';
+import { refreshKynaiosLandPlayResolutionStepForClient } from '../state/modules/triggerLandPlayPromptUtils.js';
 import { tryApplyStationChargeCountersViaOracleIR } from '../state/modules/oracleIrAbilityExecution.js';
 import { readOracleIrLedgerPersistFields, readOracleIrCompoundResumePersistFields } from '../state/modules/oracleIrTransitionPipeline.js';
 import { maybeResumeDeferredOracleIrStackSpellOnGame } from '../state/modules/oracleIrDeferredStackFinalize.js';
@@ -2897,6 +2900,13 @@ async function handleAIResolutionStep(
   try {
     const game = ensureGame(gameId);
     if (!game) return;
+
+    const stillPending = ResolutionQueueManager.getQueue(gameId).steps.some(
+      (queuedStep) =>
+        queuedStep.id === step.id
+        && queuedStep.status === ResolutionStepStatus.PENDING,
+    );
+    if (!stillPending) return;
     
     const player = (game.state?.players || []).find((p: any) => p.id === step.playerId);
     const isAI = player && (player as any).isAI;
@@ -3494,21 +3504,25 @@ async function handleAIResolutionStep(
           break;
         }
         
-        const selectedCardIds = chooseAILibrarySearchCards(game, step.playerId as any, availableCards, {
+        const librarySearch = chooseAILibrarySearchResponse(game, step.playerId as any, availableCards, {
           minSelections,
           maxSelections,
           destination,
           maxTotalManaValue: Number.isFinite(maxTotalManaValue) ? maxTotalManaValue : undefined,
+          splitDestination: searchStep.splitDestination === true,
+          toBattlefield: Number(searchStep.toBattlefield),
+          toHand: Number(searchStep.toHand),
         });
         
         response = {
           stepId: step.id,
           playerId: step.playerId,
-          selections: selectedCardIds,
+          selections: librarySearch.selections,
           cancelled: false,
           timestamp: Date.now(),
+          ...(librarySearch.splitAssignments ? { splitAssignments: librarySearch.splitAssignments } : {}),
         };
-        debug(2, `[Resolution] AI library search: selected ${selectedCardIds.length} card(s) from ${availableCards.length} available`);
+        debug(2, `[Resolution] AI library search: selected ${librarySearch.selections.length} card(s) from ${availableCards.length} available`);
         break;
       }
 
@@ -8436,6 +8450,58 @@ export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any
     }
   }
 
+  if (
+    step.type === ResolutionStepType.KYNAIOS_CHOICE
+    || (
+      step.type === ResolutionStepType.OPTION_CHOICE
+      && (
+        (step as any).landPlayOrFallbackOptions
+        || (step as any).kynaiosBatchId
+      )
+    )
+  ) {
+    try {
+      const game = ensureGame(gameId);
+      const refreshed = refreshKynaiosLandPlayResolutionStepForClient(
+        game?.state,
+        { ...step, ...typeSpecificFields },
+      );
+      typeSpecificFields.isController = refreshed.isController;
+      typeSpecificFields.canPlayLand = refreshed.canPlayLand;
+      typeSpecificFields.landsInHand = refreshed.landsInHand;
+      typeSpecificFields.options = refreshed.options;
+      typeSpecificFields.landPlayOrFallbackIsController = refreshed.landPlayOrFallbackIsController;
+      typeSpecificFields.landPlayOrFallbackCanPlayLand = refreshed.landPlayOrFallbackCanPlayLand;
+      typeSpecificFields.landPlayOrFallbackLandsInHand = refreshed.landPlayOrFallbackLandsInHand;
+      typeSpecificFields.landPlayOrFallbackOptions = refreshed.landPlayOrFallbackOptions;
+    } catch {
+      // best-effort refresh from live hand
+    }
+  }
+
+  if (
+    step.type === ResolutionStepType.OPTION_CHOICE
+    && ((step as any).counterPlacementTrigger === true || (step as any).agitatorAntTrigger === true)
+  ) {
+    try {
+      const game = ensureGame(gameId);
+      const refreshed = refreshCounterPlacementResolutionStepForClient(
+        game?.state,
+        { ...step, ...typeSpecificFields },
+      );
+      typeSpecificFields.options = refreshed.options;
+      typeSpecificFields.availableCreatures = refreshed.availableCreatures;
+      typeSpecificFields.counterPlacementTrigger = refreshed.counterPlacementTrigger;
+      typeSpecificFields.agitatorAntTrigger = refreshed.agitatorAntTrigger;
+      typeSpecificFields.effectType = refreshed.effectType ?? (step as any).effectType;
+      typeSpecificFields.conditionalEffect = refreshed.conditionalEffect ?? (step as any).conditionalEffect;
+      typeSpecificFields.sourceController = refreshed.sourceController ?? (step as any).sourceController;
+      typeSpecificFields.triggerDescription = refreshed.triggerDescription ?? (step as any).triggerDescription;
+    } catch {
+      // best-effort refresh from live battlefield
+    }
+  }
+
   if (step.type === ResolutionStepType.LIBRARY_SEARCH) {
     const castableWhileSearchingCards = getPanglacialCastableCards(gameId, step);
     if (castableWhileSearchingCards.length > 0) {
@@ -8699,9 +8765,11 @@ export function initializeAIResolutionHandler(io: Server) {
     step?: ResolutionStep
   ) => {
     if (event === ResolutionQueueEvent.STEP_ADDED && step) {
-      // Process AI steps asynchronously
-      handleAIResolutionStep(io, gameId, step).catch(err => {
-        debugError(1, `[Resolution] AI handler error:`, err);
+      // Defer so addStep during handleStepResponse / Oracle IR resume cannot recurse synchronously.
+      setImmediate(() => {
+        handleAIResolutionStep(io, gameId, step).catch(err => {
+          debugError(1, `[Resolution] AI handler error:`, err);
+        });
       });
     }
   };
@@ -9070,6 +9138,16 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ((step as any)?.roomDoorLockOrUnlock === true) {
         fields.roomDoorLockOrUnlock = true;
         fields.roomPermanentId = (step as any).roomPermanentId;
+      }
+
+      if ((step as any)?.counterPlacementTrigger === true || (step as any)?.agitatorAntTrigger === true) {
+        fields.counterPlacementTrigger = (step as any).counterPlacementTrigger === true;
+        fields.agitatorAntTrigger = (step as any).agitatorAntTrigger === true;
+        fields.availableCreatures = (step as any).availableCreatures;
+        fields.effectType = (step as any).effectType;
+        fields.conditionalEffect = (step as any).conditionalEffect;
+        fields.sourceController = (step as any).sourceController;
+        fields.triggerDescription = (step as any).triggerDescription;
       }
       break;
       

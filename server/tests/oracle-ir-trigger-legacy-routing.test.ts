@@ -232,6 +232,12 @@ describe('oracleIrTriggerLegacyRouting', () => {
     expect(shouldSkipLegacyTriggerBodyHandlers('Take an extra turn after this one.', 'Time Warp')).toBe(true);
     expect(isTriggerEffectOwnedByOracleIrPrimary('You may discard a card. If you do, draw a card.', 'Rummage')).toBe(true);
     expect(shouldSkipLegacyTriggerBodyHandlers('You may discard a card. If you do, draw a card.', 'Rummage')).toBe(true);
+    expect(isTriggerEffectFullyIrWired('Whenever you discard a nonland card, you may cast it from your graveyard.', 'Oskar, Rubbish Reclaimer')).toBe(true);
+    expect(shouldSkipLegacyTriggerBodyHandlers('Whenever you discard a nonland card, you may cast it from your graveyard.', 'Oskar, Rubbish Reclaimer')).toBe(true);
+    expect(isTriggerEffectFullyIrWired(
+      'you may cast target instant card from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead.',
+      'Torrential Gearhulk',
+    )).toBe(true);
   });
 
   it('isTriggerEffectFullyIrWired reports wired trigger clauses independent of primary flag', () => {

@@ -2738,6 +2738,17 @@ export function App() {
           return;
         }
 
+        if (step.counterPlacementTrigger === true || step.agitatorAntTrigger === true) {
+          const request: OptionChoiceRequest = buildGenericOptionChoiceRequestFromStep(
+            step,
+            payload.gameId,
+            isResolutionStepMandatory(step),
+          );
+          setOptionChoiceRequest(request);
+          setOptionChoiceModalOpen(true);
+          return;
+        }
+
         const isMayAbilityPrompt = (step as any).mayAbilityPrompt === true;
         const isOptionalTriggeredAbilityPrompt =
           (step as any).optionalTriggeredAbilityPrompt === true ||

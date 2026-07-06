@@ -22,7 +22,7 @@ import {
   buildSearchLibrarySelectionOptions,
 } from '../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
 import { getProliferateChoiceTargets, buildPopulateTargetSelectionOptions, collectBlightTargetSelectionConfigs } from '../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
-import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
+import { ResolutionQueueManager, ResolutionStepStatus, ResolutionStepType } from '../resolution/index.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 import { isOracleIrTriggerPrimaryEnabled } from './oracleIrTriggerExecution.js';
 import {
@@ -49,6 +49,7 @@ import {
 import { scheduleExiledCardReturnToBattlefield } from './executeSpellEffect.js';
 import { scheduleDelayedDrawAtNextUpkeep } from './triggerDelayedEffectUtils.js';
 import { parseSimplePermanentTypeFromText } from '../../../../rules-engine/src/oracleIRExecutorBattlefieldParser.js';
+import { isOracleIrOptionalStepBridgedToDedicatedResolutionPrompt } from '../../../../rules-engine/src/oracleIRPerPlayerOptional.js';
 import { hasExecutorClass } from '../../../../rules-engine/src/oracleIRExecutorPermanentUtils.js';
 import { getNextEndStepFireTurnNumber } from './triggerDelayedEffectUtils.js';
 import {
@@ -61,6 +62,7 @@ import {
   queueBothPlayersMayPutPermanentFromHandPrompts,
 } from './triggerLandPlayPromptUtils.js';
 import { queueEachPlayerCounterPlacementPromptsFromOracleIRResult } from './triggerCounterPlacementPromptUtils.js';
+import { bridgeGameStateOracleEffectsAfterOracleIR } from './triggerGameStateOracleBridgeUtils.js';
 import {
   applyCounterModifications,
   updateCounters,
@@ -684,11 +686,23 @@ function queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult(
     .find((step) => isEachPlayerMayPutLandFromHandStep(step));
   if (!landStep) return;
 
+  const gameId = String((ctx as any).gameId || '').trim();
+  const batchId = String(params.triggerItem?.id || `land_play_ir_${Date.now()}`);
+  if (gameId && gameId !== 'unknown') {
+    const hasPendingBatch = ResolutionQueueManager.getQueue(gameId).steps.some(
+      (queuedStep) =>
+        queuedStep.type === ResolutionStepType.KYNAIOS_CHOICE
+        && queuedStep.status === ResolutionStepStatus.PENDING
+        && String((queuedStep as any).kynaiosBatchId || '') === batchId,
+    );
+    if (hasPendingBatch) return;
+  }
+
   const queued = queueEachPlayerMayPutLandOrDrawBatch(ctx, {
     sourceController: params.controller,
     sourceName: String(params.sourceName || 'Ability').trim() || 'Ability',
     sourceId: params.sourceId,
-    batchId: String(params.triggerItem?.id || `land_play_ir_${Date.now()}`),
+    batchId,
     triggerItem: params.triggerItem,
   });
   if (!queued) return;
@@ -3225,13 +3239,65 @@ function queueMoveZoneDestinationChoicePromptsFromOracleIRResult(
   }
 }
 
+function collectGrantGraveyardPermissionModifyMetadata(
+  result: OracleIRExecutionResult,
+): { withoutPayingManaCost: boolean; exileAfterResolution: boolean } {
+  const steps = [
+    ...(result.skippedSteps || []),
+    ...(result.pendingContinuationSteps || []),
+    ...(result.appliedSteps || []),
+  ];
+  for (const step of steps) {
+    if (step.kind !== 'modify_graveyard_permissions') continue;
+    return {
+      withoutPayingManaCost: (step as any).withoutPayingManaCost === true,
+      exileAfterResolution: (step as any).exileInsteadOfGraveyard === true,
+    };
+  }
+  return { withoutPayingManaCost: false, exileAfterResolution: false };
+}
+
+function resolveGrantGraveyardCastChoiceCard(
+  state: any,
+  controller: PlayerID,
+  irCtx: OracleIRExecutionContext,
+  triggerItem?: any,
+): any | undefined {
+  const chosenIds = new Set<string>([
+    ...((irCtx.selectorContext as any)?.chosenObjectIds || irCtx.chosenObjectIds || []),
+    String(triggerItem?.effectData?.discardedCardId || '').trim(),
+    String(triggerItem?.boundGraveyardCardId || '').trim(),
+    ...(Array.isArray(triggerItem?.targets)
+      ? triggerItem.targets.map((target: any) => String(typeof target === 'string' ? target : target?.id || '').trim())
+      : []),
+  ].filter(Boolean));
+
+  const searchPlayerIds = [String(controller), ...Object.keys(state?.zones || {}).filter((id) => id !== String(controller))];
+  for (const playerId of searchPlayerIds) {
+    const graveyard = Array.isArray(state?.zones?.[playerId]?.graveyard)
+      ? state.zones[playerId].graveyard
+      : [];
+    for (const card of graveyard) {
+      const cardId = String(card?.id || '').trim();
+      if (!cardId) continue;
+      if (chosenIds.size === 0 || chosenIds.has(cardId)) {
+        return card;
+      }
+    }
+  }
+  return undefined;
+}
+
 function queueOptionalStepChoicePromptsFromOracleIRResult(
   ctx: GameContext,
+  state: any,
   result: OracleIRExecutionResult,
   params: {
     controller: PlayerID;
     sourceName?: string;
     sourceId?: string;
+    irCtx?: OracleIRExecutionContext;
+    triggerItem?: any;
   },
 ): void {
   const gameId = String((ctx as any).gameId || '').trim();
@@ -3255,8 +3321,103 @@ function queueOptionalStepChoicePromptsFromOracleIRResult(
     const step = findSkippedOracleStep(result, gap);
     if (!step) continue;
 
+    if (isOracleIrOptionalStepBridgedToDedicatedResolutionPrompt(step)) {
+      continue;
+    }
+
     const queueKey = `${stepKind}:${String((step as any).raw || '')}`;
     if (queuedKeys.has(queueKey)) continue;
+
+    if (
+      stepKind === 'grant_graveyard_permission'
+      && step.kind === 'grant_graveyard_permission'
+      && params.irCtx
+    ) {
+      const graveyardCard = resolveGrantGraveyardCastChoiceCard(
+        state,
+        params.controller,
+        params.irCtx,
+        params.triggerItem,
+      );
+      if (graveyardCard) {
+        queuedKeys.add(queueKey);
+        const cardId = String(graveyardCard?.id || '').trim();
+        const cardName = String(graveyardCard?.name || 'that card').trim() || 'that card';
+        const permission = String((step as any).permission || 'cast').toLowerCase();
+        const modify = collectGrantGraveyardPermissionModifyMetadata(result);
+        const isLandCard = /\bland\b/i.test(String(graveyardCard?.type_line || ''));
+        const actionLabel = permission === 'play' || isLandCard ? 'Play' : 'Cast';
+        const promptDescription = isLandCard
+          ? `${sourceName}: You may play ${cardName} from your graveyard.`
+          : modify.withoutPayingManaCost
+            ? `${sourceName}: You may cast ${cardName} from your graveyard without paying its mana cost.`
+            : `${sourceName}: You may cast ${cardName} from your graveyard.`;
+
+        if (permission === 'play' || isLandCard) {
+          const queuedStep = ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: params.controller,
+            sourceId,
+            sourceName,
+            description: promptDescription,
+            mandatory: false,
+            options: [
+              { id: 'play', label: `${actionLabel} ${cardName}` },
+              { id: 'decline', label: 'Decline' },
+            ],
+            minSelections: 1,
+            maxSelections: 1,
+            playFromGraveyardCardId: cardId,
+            playFromGraveyardCard: {
+              ...(graveyardCard as any),
+              ...(modify.exileAfterResolution ? { exileAfterResolution: true } : null),
+            },
+            playFromGraveyardWithoutPayingManaCost: modify.withoutPayingManaCost,
+            ...(modify.exileAfterResolution ? { playFromGraveyardExileAfterResolution: true } : null),
+            oracleIrControllerId: params.controller,
+            oracleIrSourceId: sourceId,
+            oracleIrSourceName: sourceName,
+          } as any, result, params) as any);
+          appendQueuedResolutionPromptEvent(ctx, {
+            playerId: params.controller,
+            sourceId,
+            queuedResolutionStep: queuedStep,
+          });
+        } else {
+          const queuedStep = ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: params.controller,
+            sourceId,
+            sourceName,
+            description: promptDescription,
+            mandatory: false,
+            options: [
+              { id: 'cast', label: `${actionLabel} ${cardName}` },
+              { id: 'decline', label: 'Decline' },
+            ],
+            minSelections: 1,
+            maxSelections: 1,
+            castFromGraveyardCardId: cardId,
+            castFromGraveyardCard: {
+              ...(graveyardCard as any),
+              ...(modify.exileAfterResolution ? { exileAfterResolution: true } : null),
+            },
+            castFromGraveyardWithoutPayingManaCost: modify.withoutPayingManaCost,
+            ...(modify.exileAfterResolution ? { castFromGraveyardExileAfterResolution: true } : null),
+            oracleIrControllerId: params.controller,
+            oracleIrSourceId: sourceId,
+            oracleIrSourceName: sourceName,
+          } as any, result, params) as any);
+          appendQueuedResolutionPromptEvent(ctx, {
+            playerId: params.controller,
+            sourceId,
+            queuedResolutionStep: queuedStep,
+          });
+        }
+        continue;
+      }
+    }
+
     queuedKeys.add(queueKey);
 
     ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
@@ -4229,6 +4390,8 @@ export function applyOracleIRStepsOnServer(
   const deferOptionalLookChoices = gameId !== 'unknown'
     && !(ctx as any).isReplaying
     && (Boolean((ctx as any).io) || isOracleIrTriggerPrimaryEnabled());
+  const deferOptionalGrantGraveyardChoices = deferOptionalLookChoices;
+  const deferOptionalPerPlayerChoices = deferOptionalLookChoices;
 
   const result = applyOracleIRStepsToGameState(state, adjustedSteps, {
     ...irCtx,
@@ -4237,6 +4400,8 @@ export function applyOracleIRStepsOnServer(
     transitionHaltState,
     interactivePlayerChoices: irCtx.interactivePlayerChoices ?? true,
     deferOptionalLookChoices,
+    deferOptionalGrantGraveyardChoices,
+    deferOptionalPerPlayerChoices,
     deferStackSpellCopiesToServer: true,
     serverBridge,
   }, {
@@ -4272,6 +4437,7 @@ export function applyOracleIRStepsOnServer(
   const resolutionQueueStepsBefore = gameId && gameId !== 'unknown' && !(ctx as any).isReplaying
     ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
     : 0;
+  const queueOracleIrResolutionPrompts = () => {
   queueTopLibraryChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -4334,6 +4500,13 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     triggerItem: params?.triggerItem,
   });
+  bridgeGameStateOracleEffectsAfterOracleIR(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    triggerItem: params?.triggerItem,
+    effectText: String(params?.oracleText || adjustedSteps.map((step) => String((step as any).raw || '')).filter(Boolean).join(' ')),
+  });
   queuePlayerChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -4353,10 +4526,12 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
   });
-  queueOptionalStepChoicePromptsFromOracleIRResult(ctx, result, {
+  queueOptionalStepChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+    triggerItem: params?.triggerItem,
   });
   queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult(ctx, result, {
     controller,
@@ -4444,6 +4619,12 @@ export function applyOracleIRStepsOnServer(
     sourceItem: params?.sourceItem ?? params?.triggerItem,
     oracleText: params?.oracleText,
   });
+  };
+  if (gameId && gameId !== 'unknown' && !(ctx as any).isReplaying) {
+    ResolutionQueueManager.runWithDeferredStepAddedEvents(gameId, queueOracleIrResolutionPrompts);
+  } else {
+    queueOracleIrResolutionPrompts();
+  }
   const resolutionQueueStepsAfter = gameId && gameId !== 'unknown' && !(ctx as any).isReplaying
     ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
     : resolutionQueueStepsBefore;

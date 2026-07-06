@@ -1,6 +1,8 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import { ChoiceEventType, type ChoiceEvent, type ChoiceOption, type ChoiceResponse } from './choiceEventsTypes';
 import type { OracleClauseCondition, OracleEffectStep } from './oracleIR';
+import { isEachPlayerMayPutCountersOnCreatureTheyControlStep } from './oracleIRCounterPlacement';
+import { isPerPlayerOptionalOracleStep } from './oracleIRPerPlayerOptional';
 import { sacrificeSelectorRequiresPlayerChoice } from './oracleIRExecutorBattlefieldStepHandlers';
 import { discardSelectorRequiresPlayerChoice } from './oracleIRExecutorPlayerStepHandlers';
 
@@ -964,16 +966,10 @@ function appendOracleStepToEffectProgram(args: {
     || (kind === 'add_mana' && (step as any).requiresChosenMana === true);
   }
 
-function isEachPlayerMayPutCountersOnCreatureTheyControlStep(step: OracleEffectStep): boolean {
-  if (step.kind !== 'add_counter') return false;
-  const raw = String(step.raw || '').replace(/\u2019/g, "'").trim();
-  return /each player may put (?:two|\d+) \+1\/\+1 counters? on a creature (?:they|that player) controls?/i.test(raw);
-}
-
 function oracleStepOptionalRequiresChoice(step: OracleEffectStep): boolean {
   if ((step as any).optional !== true) return false;
 
-  if (isEachPlayerMayPutCountersOnCreatureTheyControlStep(step)) return false;
+  if (isPerPlayerOptionalOracleStep(step)) return false;
 
   const kind = String((step as any).kind || '');
   return !(

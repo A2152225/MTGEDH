@@ -55,7 +55,7 @@ import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
 import { isEtbCreatureTypeChoiceOracle, parseChosenTypeCreatureEtbTrigger } from "./chosen-creature-type.js";
 import { detectCastTrigger } from "../../../../rules-engine/src/cards/castTriggers.js";
-import { timingTriggerEffect } from './triggers/timing-effect-extraction.js';
+import { timingTriggerEffect, findFirstRegexMatchAcrossOracleLines } from './triggers/timing-effect-extraction.js';
 import {
   buildRoomUnlockDoorRegisteredTrigger,
   detectRoomUnlockDoorTriggers,
@@ -6267,49 +6267,23 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
 
   const optionalManaPaymentPattern = /you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*(.+)/i;
 
-  const oracleLines = String(oracleText || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
   const attackKeywordReminderLinePattern = /^(?:annihilator\s+\d+|melee|myriad|exalted|battle cry|dethrone|mentor|training)\b/i;
-  const blockKeywordReminderLinePattern = /^(?:afflict\s+\d+|bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
 
   const attackNameVariants = buildCardNameRegexAlternatives(cardName);
   const attackSubjectPattern = `(?:~|this creature|this vehicle|this artifact|this land|this permanent|(?:${attackNameVariants.join('|')})|equipped creature|enchanted creature)`;
 
-  const findGenericAttackTriggerLine = (): RegExpMatchArray | null => {
-    const attackLinePatterns = [
-      new RegExp(`whenever\\s+${attackSubjectPattern}\\s+attacks?,?\\s*(.+)$`, 'i'),
-      new RegExp(`when\\s+${attackSubjectPattern}\\s+attacks?,?\\s*(.+)$`, 'i'),
-      /whenever\s+equipped\s+creature\s+attacks,?\s*(.+)$/i,
-      /whenever\s+enchanted\s+creature\s+attacks,?\s*(.+)$/i,
-      /whenever\s+this\s+land\s+attacks,?\s*(.+)$/i,
-    ];
-    for (const line of oracleLines) {
-      if (attackKeywordReminderLinePattern.test(line)) continue;
-      for (const pattern of attackLinePatterns) {
-        const match = line.match(pattern);
-        if (match) return match;
-      }
-    }
-    return null;
-  };
-
-  const findGenericBlockTriggerLine = (): RegExpMatchArray | null => {
-    const blockNameVariants = buildCardNameRegexAlternatives(cardName);
-    const blockSubjectPattern = `(?:~|this creature|this vehicle|(?:${blockNameVariants.join('|')}))`;
-    const blocksPatterns = [
-      new RegExp(`when(?:ever)?\\s+${blockSubjectPattern}\\s+blocks(?:\\s+a\\s+creature)?,?\\s*(.+)$`, 'i'),
-    ];
-    for (const line of oracleLines) {
-      if (blockKeywordReminderLinePattern.test(line)) continue;
-      for (const blocksPattern of blocksPatterns) {
-        const match = line.match(blocksPattern);
-        if (match) return match;
-      }
-    }
-    return null;
-  };
+  const findGenericAttackTriggerLine = (): RegExpMatchArray | null =>
+    findFirstRegexMatchAcrossOracleLines(
+      oracleText,
+      (line) => attackKeywordReminderLinePattern.test(line),
+      [
+        new RegExp(`whenever\\s+${attackSubjectPattern}\\s+attacks?,?\\s*(.+)$`, 'i'),
+        new RegExp(`when\\s+${attackSubjectPattern}\\s+attacks?,?\\s*(.+)$`, 'i'),
+        /whenever\s+equipped\s+creature\s+attacks,?\s*(.+)$/i,
+        /whenever\s+enchanted\s+creature\s+attacks,?\s*(.+)$/i,
+        /whenever\s+this\s+land\s+attacks,?\s*(.+)$/i,
+      ],
+    );
   
   // Check known cards
   for (const [knownName, info] of Object.entries(KNOWN_ATTACK_TRIGGERS)) {
@@ -8193,11 +8167,19 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
 
-  const oracleLines = String(oracleText || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
   const blockKeywordReminderLinePattern = /^(?:afflict\s+\d+|bushido\s+\d+|flanking|rampage\s+\d+)\b/i;
+
+  const findGenericBlockTriggerLine = (): RegExpMatchArray | null => {
+    const blockNameVariants = buildCardNameRegexAlternatives(cardName);
+    const blockSubjectPattern = `(?:~|this creature|this vehicle|(?:${blockNameVariants.join('|')}))`;
+    return findFirstRegexMatchAcrossOracleLines(
+      oracleText,
+      (line) => blockKeywordReminderLinePattern.test(line),
+      [
+        new RegExp(`when(?:ever)?\\s+${blockSubjectPattern}\\s+blocks(?:\\s+a\\s+creature)?,?\\s*(.+)$`, 'i'),
+      ],
+    );
+  };
 
   const anyCreatureBlocksMatch = oracleText.match(/whenever a creature blocks,?\s*([^.]+)/i);
   if (anyCreatureBlocksMatch && !triggers.some((t) => (t as any).triggerType === 'any_creature_blocks')) {
@@ -8470,22 +8452,6 @@ export function detectBlockTriggers(card: any, permanent: any): BlockTrigger[] {
       triggerType: 'attacks_or_blocks' as any,
     } as BlockTrigger);
   }
-
-  const findGenericBlockTriggerLine = (): RegExpMatchArray | null => {
-    const blockNameVariants = buildCardNameRegexAlternatives(cardName);
-    const blockSubjectPattern = `(?:~|this creature|this vehicle|(?:${blockNameVariants.join('|')}))`;
-    const blocksPatterns = [
-      new RegExp(`when(?:ever)?\\s+${blockSubjectPattern}\\s+blocks(?:\\s+a\\s+creature)?,?\\s*(.+)$`, 'i'),
-    ];
-    for (const line of oracleLines) {
-      if (blockKeywordReminderLinePattern.test(line)) continue;
-      for (const blocksPattern of blocksPatterns) {
-        const match = line.match(blocksPattern);
-        if (match) return match;
-      }
-    }
-    return null;
-  };
 
   const chefRoleAttacksOrBlocksMatch = oracleText.match(
     /whenever a creature you control enchanted by a Chef Role attacks or blocks,?\s*([^.]+)/i,

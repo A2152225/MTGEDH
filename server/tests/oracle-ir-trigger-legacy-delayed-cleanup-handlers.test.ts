@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
-import { applyRetiredTriggerLegacyDelayedCleanupTriggers } from '../src/state/modules/oracleIrTriggerLegacyDelayedCleanupHandlers.js';
+import { applyDelayedCleanupTriggersFromMetadata } from '../src/state/modules/triggerDelayedCleanupUtils.js';
 
-describe('oracleIrTriggerLegacyDelayedCleanupHandlers draw action', () => {
+describe('triggerDelayedCleanupUtils draw action', () => {
   it('draws cards when delayedAction is draw', () => {
     const drawCard = { id: 'draw_card_1', name: 'Card', type_line: 'Instant' };
     const playerId = 'p1' as PlayerID;
@@ -18,7 +18,7 @@ describe('oracleIrTriggerLegacyDelayedCleanupHandlers draw action', () => {
       bumpSeq: () => {},
     };
 
-    const handled = applyRetiredTriggerLegacyDelayedCleanupTriggers({
+    const handled = applyDelayedCleanupTriggersFromMetadata({
       ctx,
       controller: playerId,
       sourceName: "Mishra's Bauble",

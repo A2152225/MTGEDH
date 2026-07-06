@@ -1932,10 +1932,68 @@ export function chooseAILibrarySearchCards(
     return selected;
   }
 
-  const defaultSelection = availableCards.length > 0 ? 1 : 0;
-  const desiredSelection = Math.max(minSelections, Math.min(maxSelections, defaultSelection));
+  const desiredSelection = maxSelections > 1
+    ? Math.max(minSelections, Math.min(maxSelections, availableCards.length))
+    : Math.max(minSelections, Math.min(maxSelections, availableCards.length > 0 ? 1 : 0));
   const numToSelect = Math.min(availableCards.length, desiredSelection);
   return scoredCards.slice(0, numToSelect).map((entry) => entry.id);
+}
+
+export function chooseAILibrarySearchResponse(
+  game: any,
+  playerId: PlayerID,
+  availableCards: readonly any[],
+  options?: {
+    minSelections?: number;
+    maxSelections?: number;
+    destination?: string;
+    maxTotalManaValue?: number;
+    splitDestination?: boolean;
+    toBattlefield?: number;
+    toHand?: number;
+  },
+): { selections: string[]; splitAssignments?: { toBattlefield: string[]; toHand: string[] } } {
+  const minSelections = Math.max(0, Number(options?.minSelections ?? 0));
+  const maxSelections = Math.max(minSelections, Number(options?.maxSelections ?? 1));
+  const destination = String(options?.destination || 'hand');
+  const isSplitDestination = options?.splitDestination === true || destination.toLowerCase() === 'split';
+
+  if (availableCards.length === 0) {
+    return { selections: [] };
+  }
+
+  const desiredCount = isSplitDestination
+    ? Math.min(maxSelections, availableCards.length, Math.max(minSelections, 2))
+    : Math.max(minSelections, Math.min(maxSelections, availableCards.length > 0 ? 1 : 0));
+
+  const selections = chooseAILibrarySearchCards(game, playerId, availableCards, {
+    minSelections: isSplitDestination ? Math.min(desiredCount, minSelections) : minSelections,
+    maxSelections: desiredCount,
+    destination: isSplitDestination ? 'battlefield' : destination,
+    maxTotalManaValue: options?.maxTotalManaValue,
+  });
+
+  if (!isSplitDestination || selections.length === 0) {
+    return { selections };
+  }
+
+  if (selections.length >= 2) {
+    return {
+      selections: selections.slice(0, 2),
+      splitAssignments: {
+        toBattlefield: [selections[0]!],
+        toHand: [selections[1]!],
+      },
+    };
+  }
+
+  return {
+    selections,
+    splitAssignments: {
+      toBattlefield: [selections[0]!],
+      toHand: [],
+    },
+  };
 }
 
 export function chooseAIGraveyardSelectionIds(
@@ -10620,7 +10678,7 @@ async function handleAIResolutionStep(
       }
 
       case 'library_search': {
-        const selections = chooseAILibrarySearchCards(
+        const librarySearch = chooseAILibrarySearchResponse(
           game,
           playerId,
           Array.isArray(step?.availableCards) ? step.availableCards : [],
@@ -10631,10 +10689,20 @@ async function handleAIResolutionStep(
             maxTotalManaValue: Number.isFinite(Number(step?.maxTotalManaValue))
               ? Number(step.maxTotalManaValue)
               : undefined,
+            splitDestination: (step as any)?.splitDestination === true,
+            toBattlefield: Number((step as any)?.toBattlefield),
+            toHand: Number((step as any)?.toHand),
           },
         );
-        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selections));
-        debug(1, `[AI] library_search: Selected ${selections.join(', ') || 'none'}`);
+        ResolutionQueueManager.completeStep(
+          gameId,
+          step.id,
+          {
+            ...createResponse(librarySearch.selections),
+            ...(librarySearch.splitAssignments ? { splitAssignments: librarySearch.splitAssignments } : {}),
+          },
+        );
+        debug(1, `[AI] library_search: Selected ${librarySearch.selections.join(', ') || 'none'}`);
         break;
       }
 

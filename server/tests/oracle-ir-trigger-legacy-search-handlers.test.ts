@@ -72,4 +72,32 @@ describe('oracle IR trigger legacy search handlers', () => {
       reveal: true,
     });
   });
+
+  it('parses discard-triggered and targeted graveyard cast as wired grant_graveyard_permission IR', () => {
+    const oskarEffect = 'Whenever you discard a nonland card, you may cast it from your graveyard.';
+    expect(isTriggerEffectFullyIrWired(oskarEffect, 'Oskar, Rubbish Reclaimer')).toBe(true);
+    expect(collectOracleEffectSteps(oskarEffect, 'Oskar, Rubbish Reclaimer')[0]).toMatchObject({
+      kind: 'grant_graveyard_permission',
+      permission: 'cast',
+      what: { kind: 'raw', text: 'it' },
+      optional: true,
+    });
+
+    const gearhulkEffect =
+      'you may cast target instant card from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead.';
+    expect(isTriggerEffectFullyIrWired(gearhulkEffect, 'Torrential Gearhulk')).toBe(true);
+    expect(collectOracleEffectSteps(gearhulkEffect, 'Torrential Gearhulk')).toEqual([
+      expect.objectContaining({
+        kind: 'grant_graveyard_permission',
+        permission: 'cast',
+        what: { kind: 'raw', text: 'target instant card' },
+        optional: true,
+      }),
+      expect.objectContaining({
+        kind: 'modify_graveyard_permissions',
+        withoutPayingManaCost: true,
+        exileInsteadOfGraveyard: true,
+      }),
+    ]);
+  });
 });

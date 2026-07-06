@@ -71,6 +71,9 @@ class ResolutionQueueManagerClass {
   private eventHandlers: Set<ResolutionQueueEventHandler> = new Set();
   private contextMap: WeakMap<GameContext, ResolutionQueue> = new WeakMap();
   private replayingGames: Set<string> = new Set();
+  private deferredStepAddedDepthByGame: Map<string, number> = new Map();
+  private pendingDeferredStepAddedByGame: Map<string, ResolutionStep[]> = new Map();
+  private pendingDeferredQueueChangedGames: Set<string> = new Set();
   
   /**
    * Suppress resolution step enqueue while rebuilding state from the event log.
@@ -92,6 +95,63 @@ class ResolutionQueueManagerClass {
 
   isReplaying(gameId: string): boolean {
     return this.replayingGames.has(String(gameId || '').trim());
+  }
+
+  /**
+   * Batch STEP_ADDED / QUEUE_CHANGED emissions while Oracle IR (or other nested
+   * resolution handlers) enqueue many prompts in one turn. Prevents synchronous
+   * re-entrancy through AI auto-resolve when addStep is called from inside
+   * handleStepResponse.
+   */
+  runWithDeferredStepAddedEvents<T>(gameId: string, fn: () => T): T {
+    const normalizedGameId = String(gameId || '').trim();
+    const nextDepth = (this.deferredStepAddedDepthByGame.get(normalizedGameId) ?? 0) + 1;
+    this.deferredStepAddedDepthByGame.set(normalizedGameId, nextDepth);
+    try {
+      return fn();
+    } finally {
+      const remaining = nextDepth - 1;
+      if (remaining <= 0) {
+        this.deferredStepAddedDepthByGame.delete(normalizedGameId);
+        this.flushDeferredStepAddedEvents(normalizedGameId);
+      } else {
+        this.deferredStepAddedDepthByGame.set(normalizedGameId, remaining);
+      }
+    }
+  }
+
+  private shouldDeferStepAddedEvents(gameId: string): boolean {
+    const normalizedGameId = String(gameId || '').trim();
+    if (!normalizedGameId) return false;
+    return (this.deferredStepAddedDepthByGame.get(normalizedGameId) ?? 0) > 0;
+  }
+
+  private enqueueDeferredStepAdded(gameId: string, step: ResolutionStep): void {
+    const normalizedGameId = String(gameId || '').trim();
+    if (!normalizedGameId) return;
+    const pending = this.pendingDeferredStepAddedByGame.get(normalizedGameId) ?? [];
+    pending.push(step);
+    this.pendingDeferredStepAddedByGame.set(normalizedGameId, pending);
+    this.pendingDeferredQueueChangedGames.add(normalizedGameId);
+  }
+
+  private flushDeferredStepAddedEvents(gameId: string): void {
+    const normalizedGameId = String(gameId || '').trim();
+    if (!normalizedGameId) return;
+
+    const steps = this.pendingDeferredStepAddedByGame.get(normalizedGameId) ?? [];
+    this.pendingDeferredStepAddedByGame.delete(normalizedGameId);
+    const queueChanged = this.pendingDeferredQueueChangedGames.delete(normalizedGameId);
+    if (steps.length === 0 && !queueChanged) return;
+
+    setImmediate(() => {
+      for (const step of steps) {
+        this.emit(ResolutionQueueEvent.STEP_ADDED, normalizedGameId, step);
+      }
+      if (queueChanged || steps.length > 0) {
+        this.emit(ResolutionQueueEvent.QUEUE_CHANGED, normalizedGameId);
+      }
+    });
   }
   
   /**
@@ -172,6 +232,10 @@ class ResolutionQueueManagerClass {
       return step;
     }
     addStep(queue, step);
+    if (this.shouldDeferStepAddedEvents(gameId)) {
+      this.enqueueDeferredStepAdded(gameId, step);
+      return step;
+    }
     this.emit(ResolutionQueueEvent.STEP_ADDED, gameId, step);
     this.emit(ResolutionQueueEvent.QUEUE_CHANGED, gameId);
     return step;
@@ -194,6 +258,10 @@ class ResolutionQueueManagerClass {
       return step;
     }
     addStep(queue, step);
+    if (this.shouldDeferStepAddedEvents(gameId)) {
+      this.enqueueDeferredStepAdded(gameId, step);
+      return step;
+    }
     this.emit(ResolutionQueueEvent.STEP_ADDED, gameId, step);
     this.emit(ResolutionQueueEvent.QUEUE_CHANGED, gameId);
     return step;
@@ -216,7 +284,14 @@ class ResolutionQueueManagerClass {
     }
     
     addSteps(queue, orderedSteps);
-    
+
+    if (this.shouldDeferStepAddedEvents(gameId)) {
+      for (const step of orderedSteps) {
+        this.enqueueDeferredStepAdded(gameId, step);
+      }
+      return orderedSteps;
+    }
+
     for (const step of orderedSteps) {
       this.emit(ResolutionQueueEvent.STEP_ADDED, gameId, step);
     }

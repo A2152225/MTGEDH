@@ -19,6 +19,7 @@ import {
   type EffectProgramQueueMetadata,
 } from './effectProgramQueueAdapter.js';
 import { ResolutionStepType, type ResolutionStepResponse } from '../resolution/index.js';
+import { isPerPlayerOptionalEffectText } from '../../../../rules-engine/src/oracleIRPerPlayerOptional.js';
 
 function getGameContext(game: any): any {
   return (game as any)?.ctx || game;
@@ -77,6 +78,19 @@ export function restoreEffectProgramRuntimeForPendingStep(
 
   const metadata = readEffectProgramQueueMetadata(step);
   if (!metadata) return false;
+
+  const effectProgramFamily = String(metadata.effectProgramFamily || (step as any)?.effectProgramFamily || '').trim();
+  if (effectProgramFamily === 'optional_triggered_ability') {
+    const effectText = [
+      (step as any)?.effectText,
+      (step as any)?.fullAbilityText,
+      step.description,
+      (step as any)?.triggerDescription,
+    ].filter(Boolean).join(' ');
+    if (isPerPlayerOptionalEffectText(effectText)) {
+      return false;
+    }
+  }
 
   const state = hydrateGameStateForEffectProgram(game);
   const stackItem = findStackItemForEffectProgram(state, metadata, step);

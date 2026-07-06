@@ -254,9 +254,13 @@ function resolveTriggerTargetBinding(
   const interveningSubjectPermanentId = String(
     triggerItem?.interveningIfSubjectPermanentId || '',
   ).trim();
+  const discardedCardId = String(triggerItem?.effectData?.discardedCardId || '').trim();
+  const boundGraveyardCardId = String(triggerItem?.boundGraveyardCardId || '').trim();
   const chosenObjectIds = Array.from(new Set([
     ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...normalizedTargetIds,
+    ...(discardedCardId ? [discardedCardId] : []),
+    ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
   ]));
   if (
     !targetPermanentId

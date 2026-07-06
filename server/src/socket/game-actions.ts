@@ -49,6 +49,7 @@ import { spellOracleUsesTeamworkChooseBoth } from "../state/modules/marvelMechan
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
+import { isSpellEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIrSpellLegacyRouting.js";
 import { queueOptionalPaymentStep, queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { tryQueueMoxDiamondBeforeStackResolve } from "../state/modules/mox-diamond-choice.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
@@ -13329,6 +13330,10 @@ export function registerGameActions(io: Server, socket: Socket) {
               
               if (tutorInfo.isTutor) {
                 const cardName = resolvedCard.name || 'Spell';
+
+                if (isSpellEffectOwnedByOracleIrPrimary(oracleText, cardName)) {
+                  debug(2, `[passPriority] Skipping legacy library search for ${cardName} (Oracle IR primary owns effect)`);
+                } else {
                 
                 // Parse search criteria for filter
                 const filter = parseSearchCriteria(tutorInfo.searchCriteria || '');
@@ -13343,7 +13348,9 @@ export function registerGameActions(io: Server, socket: Socket) {
                   if (s.data?.playerId === resolvedController && !(s.data as any)?.spectator && !(s.data as any)?.isSpectator) {
                     // Queue library search via Resolution Queue
                     const isSplit = tutorInfo.splitDestination === true;
-                    const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
+                    const destination: any = isSplit
+                      ? 'split'
+                      : (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
                       : (tutorInfo.destination === 'exile') ? 'exile'
                       : 'hand';
                     ResolutionQueueManager.addStep(gameId, {
@@ -13370,6 +13377,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 }
                 
                 debug(2, `[passPriority] Triggered library search for ${cardName} by ${resolvedController} (destination: ${tutorInfo.splitDestination ? 'split' : tutorInfo.destination})`);
+                }
               }
             }
           }

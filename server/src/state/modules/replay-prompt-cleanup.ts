@@ -5,6 +5,7 @@ import { clearOptionalPaymentCallbacks } from '../../socket/optional-payment-pro
 import { maybeResumeDeferredOracleIrStackSpell } from './oracleIrDeferredStackFinalize.js';
 import { restoreAllPendingEffectProgramRuntimes } from '../effects/effectProgramReplayRestore.js';
 import { resumeOracleIrPendingCompoundStepsFromState } from './oracleIrServerZoneSync.js';
+import { scrubStalePerPlayerOptionalEffectProgramSteps } from './triggerCounterPlacementPromptUtils.js';
 
 /**
  * Legacy / in-flight prompt state that must not survive event replay.
@@ -75,6 +76,12 @@ export function finalizeGameStateAfterReplay(ctx: GameContext): void {
   }
 
   if (hasPendingResolutionSteps) {
+    try {
+      scrubStalePerPlayerOptionalEffectProgramSteps(gameId);
+    } catch {
+      // best-effort only
+    }
+
     try {
       restoreAllPendingEffectProgramRuntimes(ctx as any, gameId);
     } catch {

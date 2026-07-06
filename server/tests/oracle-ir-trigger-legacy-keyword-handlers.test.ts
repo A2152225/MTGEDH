@@ -14,17 +14,17 @@ vi.mock('../src/state/modules/triggerKeywordChoiceUtils.js', () => ({
 
 
 
-import { applyRetiredTriggerLegacyKeywordTriggerFallback } from '../src/state/modules/oracleIrTriggerLegacyKeywordHandlers.js';
+import { applyKeywordTriggerFallbackFromOracle } from '../src/state/modules/triggerKeywordFallbackUtils.js';
 
 import { enqueueSupportedKeywordChoiceStep } from '../src/state/modules/triggerKeywordChoiceUtils.js';
 
 
 
-describe('oracleIrTriggerLegacyKeywordHandlers', () => {
+describe('triggerKeywordFallbackUtils', () => {
 
   it('returns false when no keywords are detected', () => {
 
-    expect(applyRetiredTriggerLegacyKeywordTriggerFallback({
+    expect(applyKeywordTriggerFallbackFromOracle({
 
       ctx: {} as any,
 
@@ -62,7 +62,7 @@ describe('oracleIrTriggerLegacyKeywordHandlers', () => {
 
 
 
-    expect(applyRetiredTriggerLegacyKeywordTriggerFallback({
+    expect(applyKeywordTriggerFallbackFromOracle({
 
       ctx: { gameId: 'g1' } as any,
 
@@ -126,7 +126,7 @@ describe('oracleIrTriggerLegacyKeywordHandlers', () => {
 
 
 
-    expect(applyRetiredTriggerLegacyKeywordTriggerFallback({
+    expect(applyKeywordTriggerFallbackFromOracle({
 
       ctx: { gameId: 'g1' } as any,
 
@@ -177,7 +177,7 @@ describe('oracleIrTriggerLegacyKeywordHandlers', () => {
   it('defers isolated ETB effect clauses to IR fallback instead of scanning full card oracle', () => {
     const oracleText =
       'When this creature enters, create a 0/1 white Goat creature token.\nSacrifice another creature: Scry 1.\nEscape—{3}{B}{B}, Exile four other cards from your graveyard.';
-    expect(applyRetiredTriggerLegacyKeywordTriggerFallback({
+    expect(applyKeywordTriggerFallbackFromOracle({
       ctx: { gameId: 'g1' } as any,
       controller: 'p1' as PlayerID,
       sourceName: 'Woe Strider',

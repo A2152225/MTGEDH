@@ -7,6 +7,8 @@ import { startEffectProgramResolution } from '../effects/index.js';
 import type { EffectProgram, EffectProgramHandlers } from '../../../../rules-engine/src/effectProgram.js';
 import { ChoiceEventType, type ChoiceResponse } from '../../../../rules-engine/src/choiceEvents.js';
 import { applyGraveyardPermissionEffectsFromText } from './graveyard-permissions.js';
+import { isControllerOptionalTriggeredAbilityEffect } from './trigger-runtime-wiring.js';
+import { isPerPlayerOptionalEffectText } from '../../../../rules-engine/src/oracleIRPerPlayerOptional.js';
 
 function normalizeOptionalTriggeredAbilityChoice(response: ChoiceResponse | undefined): 'yes' | 'no' {
   if (!response || response.cancelled) {
@@ -212,6 +214,14 @@ export function tryDeferOptionalTriggeredAbilityMayDecision(
   },
 ): boolean {
   if ((item as any).mandatory !== false || options.optionalTriggeredAbilityDecisionApplied) {
+    return false;
+  }
+
+  const effectForOptionalCheck = String(options.effectText || options.description || '').trim();
+  if (effectForOptionalCheck && isPerPlayerOptionalEffectText(effectForOptionalCheck)) {
+    return false;
+  }
+  if (effectForOptionalCheck && !isControllerOptionalTriggeredAbilityEffect(effectForOptionalCheck)) {
     return false;
   }
 

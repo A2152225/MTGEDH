@@ -5,36 +5,37 @@ import { sacrificePermanent } from './upkeep-triggers.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { skipRetiredTriggerLegacyHandler } from './oracleIrTriggerLegacyRouting.js';
 
-export interface TriggerLegacyUpkeepSacrificeParams {
+export interface TriggerUpkeepSacrificeParams {
   readonly ctx: GameContext;
   readonly controller: PlayerID;
   readonly sourceName: string;
-  readonly desc: string;
+  readonly description: string;
   readonly triggerItem: any;
   readonly state: any;
 }
 
-export function applyRetiredTriggerLegacyUpkeepSacrificeCreatureOrSelf(
-  params: TriggerLegacyUpkeepSacrificeParams,
+export function queueUpkeepSacrificeCreatureOrSelfFromTrigger(
+  params: TriggerUpkeepSacrificeParams,
 ): boolean {
+  const desc = String(params.description || '').replace(/[â€™]/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
   const triggerTypeFromItem = params.triggerItem?.triggerType;
-  const isUpkeepSacrificeTrigger = (
-    triggerTypeFromItem === 'sacrifice_creature_or_self'
-    || (params.desc.includes('sacrifice a creature')
-      && (params.desc.includes('or sacrifice') || params.desc.includes("if you can't") || params.desc.includes('if you cannot')))
+  const isMetadataUpkeepSacrifice = triggerTypeFromItem === 'sacrifice_creature_or_self';
+  const isDescUpkeepSacrifice = (
+    desc.includes('sacrifice a creature')
+    && (desc.includes('or sacrifice') || desc.includes("if you can't") || desc.includes('if you cannot'))
   );
 
-  if (!isUpkeepSacrificeTrigger) {
+  if (!isMetadataUpkeepSacrifice && !isDescUpkeepSacrifice) {
     return false;
   }
 
-  if (skipRetiredTriggerLegacyHandler(params.desc, params.sourceName)) {
+  if (!isMetadataUpkeepSacrifice && skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
     return false;
   }
 
   const gameId = (params.ctx as any).gameId || (params.ctx as any).id || params.triggerItem?.gameId || 'unknown';
   if ((params.ctx as any).isReplaying) {
-    debug(2, `[executeTriggerEffect] Upkeep sacrifice: skipping resolution steps during replay`);
+    debug(2, '[executeTriggerEffect] Upkeep sacrifice: skipping resolution steps during replay');
     return true;
   }
 

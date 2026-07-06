@@ -5,6 +5,7 @@ import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { executeTriggerEffect } from '../src/state/modules/stackExecuteTriggerEffectUtils.js';
+import { resolveTriggeredAbilityStackItem } from '../src/state/modules/stackResolveTriggeredAbilityOrchestratorUtils.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
@@ -135,6 +136,39 @@ describe('each-player counter placement trigger (Layer 3 IR primary)', () => {
     expect(steps.some((step) => (step as any).effectProgramPrompt === true)).toBe(false);
     expect(steps.map((step) => step.playerId)).toEqual([playerId, opponentId]);
     expect((steps[0] as any).options?.map((opt: any) => opt.id)).toEqual(['decline', 'bear']);
+  }, 20000);
+
+  it('resolves upkeep stack items without controller yes/no deferral (Orzhov Advokist)', async () => {
+    const game = seedGame();
+    const effectText = 'each player may put two +1/+1 counters on a creature they control';
+    const stackItem = {
+      id: 'advokist_upkeep_stack',
+      type: 'triggered_ability',
+      controller: playerId,
+      source: 'advokist',
+      sourceName: 'Orzhov Advokist',
+      description: effectText,
+      effect: effectText,
+      triggerType: 'upkeep',
+      mandatory: true,
+      requiresChoice: true,
+      card: {
+        oracle_text:
+          'At the beginning of your upkeep, each player may put two +1/+1 counters on a creature they control. ' +
+          "If a player does, creatures that player controls can't attack you or planeswalkers you control until your next turn.",
+      },
+    };
+
+    resolveTriggeredAbilityStackItem(game as any, {
+      item: stackItem,
+      controller: playerId,
+      executeTriggerEffect,
+    });
+
+    const steps = ResolutionQueueManager.getQueue(gameId).steps;
+    expect(steps.length).toBe(2);
+    expect(steps.every((step) => (step as any).counterPlacementTrigger === true)).toBe(true);
+    expect(steps.some((step) => (step as any).effectProgramPrompt === true)).toBe(false);
   }, 20000);
 
   it('applies +1/+1 counters when both players choose creatures', async () => {

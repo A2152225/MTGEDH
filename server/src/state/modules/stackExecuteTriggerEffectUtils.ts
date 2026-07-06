@@ -12,7 +12,7 @@ import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRo
 import { maybeApplyPreparedStateChange } from './triggerPreparedStateUtils.js';
 import { getTriggerSourcePermanent } from './triggerSourceUtils.js';
 import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
-import { applyRetiredTriggerLegacyKeywordTriggerFallback } from './oracleIrTriggerLegacyKeywordHandlers.js';
+import { applyKeywordTriggerFallbackFromOracle } from './triggerKeywordFallbackUtils.js';
 import { tryApplyPresetTriggerChosenTypeEffects } from './stackExecuteTriggerChosenTypeUtils.js';
 import { applyStackParadigmTrigger, applyStackReboundTrigger } from './stackSpecialTriggerHandlers.js';
 
@@ -116,7 +116,7 @@ export function executeTriggerEffect(
     return;
   }
 
-  if (applyRetiredTriggerLegacyKeywordTriggerFallback({
+  if (applyKeywordTriggerFallbackFromOracle({
     ctx,
     controller,
     sourceName,
@@ -131,7 +131,7 @@ export function executeTriggerEffect(
       sourceName,
       normalizedDescription,
       'keyword_trigger_fallback',
-      'applyRetiredTriggerLegacyKeywordTriggerFallback',
+      'applyKeywordTriggerFallbackFromOracle',
     );
     return;
   }

@@ -116,6 +116,8 @@ const OSKAR_CARD = {
 
 describe('Oskar, Rubbish Reclaimer', () => {
   const baseGameId = 'test_oskar_rubbish_reclaimer';
+  let previousTriggerPrimary: string | undefined;
+  let previousTriggerLegacy: string | undefined;
 
   beforeAll(async () => {
     await initDb();
@@ -124,6 +126,11 @@ describe('Oskar, Rubbish Reclaimer', () => {
   });
 
   beforeEach(async () => {
+    previousTriggerPrimary = process.env.ORACLE_IR_TRIGGER_PRIMARY;
+    previousTriggerLegacy = process.env.ORACLE_IR_TRIGGER_LEGACY;
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
     await resetGame(`${baseGameId}_cast`);
     await resetGame(`${baseGameId}_land`);
     await resetGame(`${baseGameId}_replay`);
@@ -133,6 +140,17 @@ describe('Oskar, Rubbish Reclaimer', () => {
     await resetGame(`${baseGameId}_cast`);
     await resetGame(`${baseGameId}_land`);
     await resetGame(`${baseGameId}_replay`);
+
+    if (previousTriggerPrimary === undefined) {
+      delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
+    } else {
+      process.env.ORACLE_IR_TRIGGER_PRIMARY = previousTriggerPrimary;
+    }
+    if (previousTriggerLegacy === undefined) {
+      delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+    } else {
+      process.env.ORACLE_IR_TRIGGER_LEGACY = previousTriggerLegacy;
+    }
   });
 
   it('applies Oskar cost reduction from the command zone', () => {
