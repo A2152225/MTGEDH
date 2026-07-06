@@ -15,6 +15,7 @@ import {
 } from './oracleIRLedgerCardAccess';
 import { parseSimpleBattlefieldSelector } from './oracleIRExecutorBattlefieldParser';
 import { getCardManaValue, getCurrentTurnNumber } from './oracleIRExecutorPlayerUtils';
+import { resolveReferencedPlayerZone, resolveReferencedPlayerZoneFromSuffix } from './oracleIRExecutorReferenceUtils';
 import { evaluateConditionalWrapperCondition } from './oracleIRExecutorConditionalStepSupport';
 import { hasExecutorClass, getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import {
@@ -65,6 +66,9 @@ import {
   parseMoveZoneAlternateCostColorCardFromYourHand,
   parseMoveZoneSingleTargetFromAGraveyard,
   parseMoveZoneSingleTargetFromTargetPlayersGraveyard,
+  parseMoveZoneSingleTargetFromReferencedPossessiveGraveyard,
+  parseMoveZoneSingleTargetFromReferencedPossessiveHand,
+  parseMoveZoneRandomCardFromReferencedPossessiveHand,
   parseMoveZoneSingleTargetFromTargetPlayersHand,
   parseMoveZoneSingleTargetFromTargetPlayersExile,
   parseMoveZoneSingleTargetFromYourGraveyard,
@@ -697,7 +701,11 @@ function getTargetPlayerId(ctx: OracleIRExecutionContext): PlayerID | '' {
   ).trim() || '') as PlayerID | '';
 }
 
-function getTopCardLibraryOwnerId(what: unknown, ctx: OracleIRExecutionContext): PlayerID | '' {
+function getTopCardLibraryOwnerId(
+  state: GameState,
+  what: unknown,
+  ctx: OracleIRExecutionContext,
+): PlayerID | '' {
   if ((what as any)?.kind !== 'raw') return '' as PlayerID | '';
   const whatText = String((what as any)?.text || '').trim().toLowerCase();
   if (!whatText) return '' as PlayerID | '';
@@ -713,6 +721,15 @@ function getTopCardLibraryOwnerId(what: unknown, ctx: OracleIRExecutionContext):
     whatText === "the top card of that opponent's library"
   ) {
     return getTargetPlayerId(ctx);
+  }
+
+  if (
+    whatText === "the top card of its controller's library" ||
+    whatText === "the top card of its owner's library"
+  ) {
+    const zonePhrase = whatText.replace(/^the top card of /, '');
+    const referencedZone = resolveReferencedPlayerZone(state, ctx, zonePhrase);
+    return (referencedZone?.playerId || '') as PlayerID | '';
   }
 
   return '' as PlayerID | '';
@@ -1920,6 +1937,23 @@ function resolveContextualBoundCardZone(
 ): (BoundCardZoneLocation & { readonly cardId: string }) | null {
   if (!isContextualBoundCardReference(step.what as any)) return null;
 
+  const whatText = String((step.what as any)?.text || (step.what as any)?.raw || '')
+    .replace(/\u2019/g, "'")
+    .trim()
+    .toLowerCase();
+  if (whatText === 'it') {
+    const revealedLedger = collectRevealedThisWayCardsLedgerFirst(ctx, step);
+    const revealedCtx = Array.isArray((ctx as any)?.lastRevealedCards) ? (ctx as any).lastRevealedCards : [];
+    const revealedCard = [...revealedLedger, ...revealedCtx].at(-1);
+    if (revealedCard) {
+      const revealedId = String((revealedCard as any)?.id || '').trim();
+      if (revealedId) {
+        const location = findBoundCardZoneLocation(state, revealedId);
+        if (location) return { ...location, cardId: revealedId };
+      }
+    }
+  }
+
   const milledCards = Array.isArray(runtime?.lastMilledCards)
     ? runtime.lastMilledCards
     : Array.isArray(ctx.lastMilledCards)
@@ -2284,6 +2318,7 @@ function requiresExplicitControllerOverride(step: Extract<OracleEffectStep, { ki
   const whatText = String((step.what as any)?.text || step.raw || '').toLowerCase();
   if (/from your graveyard/.test(whatText)) return false;
   if (/from (?:their|target player(?:'s)?|that (?:player|opponent)'s) graveyard/.test(whatText)) return false;
+  if (/from its (?:controller|owner)'s graveyard/.test(whatText)) return false;
   return true;
 }
 
@@ -2737,6 +2772,12 @@ export function applyMoveZoneStep(
   const parsedAlternateCostColorFromHand = parseMoveZoneAlternateCostColorCardFromYourHand(step.what as any);
   const parsedSingleTargetFromAnyGraveyard = parseMoveZoneSingleTargetFromAGraveyard(step.what as any);
   const parsedSingleTargetFromTargetPlayerGraveyard = parseMoveZoneSingleTargetFromTargetPlayersGraveyard(step.what as any);
+  const parsedSingleTargetFromReferencedPossessiveGraveyard =
+    parseMoveZoneSingleTargetFromReferencedPossessiveGraveyard(step.what as any);
+  const parsedSingleTargetFromReferencedPossessiveHand =
+    parseMoveZoneSingleTargetFromReferencedPossessiveHand(step.what as any);
+  const parsedRandomCardFromReferencedPossessiveHand =
+    parseMoveZoneRandomCardFromReferencedPossessiveHand(step.what as any);
   const parsedSingleTargetFromTargetPlayerHand = parseMoveZoneSingleTargetFromTargetPlayersHand(step.what as any);
   const parsedSingleTargetFromTargetPlayerExile = parseMoveZoneSingleTargetFromTargetPlayersExile(step.what as any);
   const parsedSingleTargetFromYourGraveyard =
@@ -3112,7 +3153,7 @@ export function applyMoveZoneStep(
   const parsedOnePileSplit = getOnePileSplitKind(step);
   const contextualBoundCardZone = resolveContextualBoundCardZone(nextState, step, ctx, runtime);
   const sourceCardZone = resolveSourceCardZoneLocation(nextState, step.what as any, ctx, step.raw);
-  const topCardLibraryOwnerId = getTopCardLibraryOwnerId((step as any)?.what, ctx);
+  const topCardLibraryOwnerId = getTopCardLibraryOwnerId(nextState, (step as any)?.what, ctx);
   const bottomCardLibraryOwnerId = getBottomCardLibraryOwnerId((step as any)?.what, ctx);
   const whatText = String((step.what as any)?.text || '').trim();
   const parsedDiceBracketIt =
@@ -3488,6 +3529,9 @@ export function applyMoveZoneStep(
     !parsedAlternateCostColorFromHand &&
     !parsedSingleTargetFromAnyGraveyard &&
     !parsedSingleTargetFromTargetPlayerGraveyard &&
+    !parsedSingleTargetFromReferencedPossessiveGraveyard &&
+    !parsedSingleTargetFromReferencedPossessiveHand &&
+    !parsedRandomCardFromReferencedPossessiveHand &&
     !parsedSingleTargetFromTargetPlayerHand &&
     !parsedSingleTargetFromTargetPlayerExile &&
     !parsedSingleTargetFromYourGraveyard &&
@@ -10101,6 +10145,25 @@ export function applyMoveZoneStep(
     });
   }
 
+  if (parsedRandomCardFromReferencedPossessiveHand && step.to === 'exile') {
+    const whatText = String((step.what as any)?.text || step.raw || '');
+    const referencedZone = resolveReferencedPlayerZoneFromSuffix(nextState, ctx, whatText);
+    const targetPlayerId = String(referencedZone?.playerId || '').trim() as PlayerID;
+    if (!targetPlayerId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+    const result = exileRandomCardFromHand(nextState, targetPlayerId, getChosenObjectIds(ctx));
+    return buildAppliedResult({
+      state: result.state,
+      log: result.log.length > 0 ? result.log : [`Exiled random hand card: ${step.raw}`],
+      movedCards: result.movedCards,
+    });
+  }
+
   if (parsedCompoundExileItAndEachPlayerReturnGyCreatures) {
     let workingState = nextState;
     const combinedLog: string[] = [];
@@ -12449,7 +12512,34 @@ export function applyMoveZoneStep(
         : step.to;
 
     const result =
-      contextualBoundCardZone.zone === 'graveyard'
+      contextualBoundCardZone.zone === 'library'
+        ? moveContextualCardToDestination(
+            nextState,
+            contextualBoundCardZone,
+            targetObjectId,
+            destination === 'library_top' || destination === 'library_bottom'
+              ? destination
+              : destination === 'hand'
+                ? 'hand'
+                : destination === 'graveyard'
+                  ? 'graveyard'
+                  : destination === 'exile'
+                    ? 'exile'
+                    : destination === 'battlefield'
+                      ? 'battlefield'
+                      : 'hand',
+            {
+              controllerId: contextualBattlefieldControllerId || contextualBoundCardZone.playerId,
+              cardType: 'any',
+              entersTapped: step.entersTapped,
+              entersFaceDown: step.entersFaceDown,
+              withCounters: effectiveWithCounters,
+              battlefieldEntryOverrides,
+              ctx,
+              stepKind: 'move_zone',
+            },
+          )
+        : contextualBoundCardZone.zone === 'graveyard'
         ? moveTargetedCardFromGraveyard(
             nextState,
             contextualBoundCardZone.playerId,
@@ -13054,6 +13144,96 @@ export function applyMoveZoneStep(
     return finalizeAppliedResult(result);
   }
 
+  if (parsedSingleTargetFromReferencedPossessiveGraveyard) {
+    const whatText = String((step.what as any)?.text || step.raw || '');
+    const referencedZone = resolveReferencedPlayerZoneFromSuffix(nextState, ctx, whatText);
+    const targetPlayerId = String(referencedZone?.playerId || '').trim() as PlayerID;
+    const targetObjectId =
+      (targetPlayerId
+        ? resolveUniqueChosenGraveyardTargetId(
+            nextState,
+            targetPlayerId,
+            parsedSingleTargetFromReferencedPossessiveGraveyard,
+            ctx,
+            runtime,
+            ctx.sourceName,
+            sourcePermanentPower
+          )
+        : '') ||
+      boundTargetObjectId;
+    const libraryPlacement = getLibraryPlacement(step);
+    if (!targetPlayerId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+    if (!targetObjectId) {
+      if (isUpToOneTargetReference(step.what)) return buildNoOpOptionalSingleTargetResult(nextState, step);
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'battlefield' && !(step.to === 'library' && libraryPlacement)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    if (step.to === 'battlefield' && requiresExplicitControllerOverride(step)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+        reason: 'battlefield_requires_explicit_control_override',
+      };
+    }
+
+    const result = moveTargetedCardFromGraveyard(
+      nextState,
+      targetPlayerId,
+      targetObjectId,
+      parsedSingleTargetFromReferencedPossessiveGraveyard,
+      step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
+      step.to === 'battlefield'
+        ? step.battlefieldController?.kind === 'owner_of_moved_cards'
+          ? targetPlayerId
+          : controllerId
+        : undefined,
+      step.entersTapped,
+      step.entersFaceDown,
+      effectiveWithCounters,
+      attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+      undefined,
+      battlefieldEntryOverrides,
+      sourcePermanentPower
+    );
+
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (target card unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            targetObjectId,
+            targetPlayerId,
+            zone: 'graveyard',
+            destination: step.to,
+          },
+        },
+      };
+    }
+
+    return finalizeAppliedResult(result);
+  }
+
   if (parsedSingleTargetFromTargetPlayerGraveyard) {
     const targetPlayerId = getTargetPlayerId(ctx);
     const targetObjectId =
@@ -13174,6 +13354,73 @@ export function applyMoveZoneStep(
       targetPlayerId,
       targetObjectId,
       parsedSingleTargetFromTargetPlayerHand.cardType,
+      step.to,
+      step.to === 'battlefield'
+        ? step.battlefieldController?.kind === 'owner_of_moved_cards'
+          ? targetPlayerId
+          : controllerId
+        : undefined,
+      step.entersTapped,
+      step.entersFaceDown,
+      effectiveWithCounters,
+      attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+      battlefieldEntryOverrides
+    );
+
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (target card unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            targetObjectId,
+            targetPlayerId,
+            zone: 'hand',
+            destination: step.to,
+          },
+        },
+      };
+    }
+
+    return finalizeAppliedResult(result);
+  }
+
+  if (parsedSingleTargetFromReferencedPossessiveHand) {
+    const whatText = String((step.what as any)?.text || step.raw || '');
+    const referencedZone = resolveReferencedPlayerZoneFromSuffix(nextState, ctx, whatText);
+    const targetPlayerId = String(referencedZone?.playerId || '').trim() as PlayerID;
+    const targetObjectId = boundTargetObjectId;
+    if (!targetPlayerId || !targetObjectId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'graveyard' && step.to !== 'exile' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    if (step.to === 'battlefield' && requiresExplicitControllerOverride(step)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+        reason: 'battlefield_requires_explicit_control_override',
+      };
+    }
+
+    const result = moveTargetedCardFromHand(
+      nextState,
+      targetPlayerId,
+      targetObjectId,
+      parsedSingleTargetFromReferencedPossessiveHand.cardType,
       step.to,
       step.to === 'battlefield'
         ? step.battlefieldController?.kind === 'owner_of_moved_cards'

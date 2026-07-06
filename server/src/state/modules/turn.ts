@@ -1336,7 +1336,7 @@ function checkPendingInteractions(ctx: GameContext): {
       delete state.pendingTriggerOrdering;
     }
     
-    // Clean up deprecated pendingEntrapmentManeuver (now handled by Resolution Queue ENTRAPMENT_MANEUVER)
+    // Clean up deprecated pendingEntrapmentManeuver (legacy state; now generic oracle IR sacrifice TARGET_SELECTION)
     if (state.pendingEntrapmentManeuver && Object.keys(state.pendingEntrapmentManeuver).length > 0) {
       debugWarn(1, `${ts()} [checkPendingInteractions] Found deprecated pendingEntrapmentManeuver state - cleaning up`);
       delete state.pendingEntrapmentManeuver;

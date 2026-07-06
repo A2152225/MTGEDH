@@ -240,10 +240,11 @@ function getCommandZoneCommanderCards(commandZone: any): any[] {
 }
 
 function getCommandZoneCommanderIds(commandZone: any): string[] {
-  if (Array.isArray(commandZone?.inCommandZone) && commandZone.inCommandZone.length > 0) {
+  if (Array.isArray(commandZone?.inCommandZone)) {
     return commandZone.inCommandZone.map((entry: unknown) => String(entry || '').trim()).filter(Boolean);
   }
 
+  // Legacy games may lack inCommandZone; fall back to commanderIds only when unset.
   if (Array.isArray(commandZone?.commanderIds)) {
     return commandZone.commanderIds.map((entry: unknown) => String(entry || '').trim()).filter(Boolean);
   }

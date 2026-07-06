@@ -1,5 +1,15 @@
-import type { OracleEffectStep } from './oracleIR';
+import type { OracleEffectStep, OraclePlayerSelector } from './oracleIR';
 import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
+
+function parseCreateTokenWhoFromSubject(rawWho: string | undefined): OraclePlayerSelector {
+  const normalized = String(rawWho || '')
+    .replace(/[\u2019]/g, "'")
+    .trim()
+    .toLowerCase();
+  if (normalized === 'its owner') return { kind: 'owner_of_referenced_object' };
+  if (normalized === 'its controller') return { kind: 'controller_of_referenced_object' };
+  return parsePlayerSelector(rawWho);
+}
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
@@ -207,9 +217,29 @@ export function tryParseSimpleCreateTokenClause(args: {
     });
   }
 
+  const forEachDestroyedCopy = clause.match(
+    /^for each\s+(.+?)\s+destroyed this way,\s+create\s+(?:a\s+)?token(?:s)?\s+that(?:'s| is| are)\s+(?:a\s+)?copy\s+of\s+(it|them|that(?:\s+\w+)?)(?:[.;]|$)/i,
+  );
+  if (forEachDestroyedCopy) {
+    const copySource = String(forEachDestroyedCopy[2] || 'it').trim();
+    const atNextEndStep = tokenDelayedCleanupFromRaw(rawClause);
+    const grantsHaste = /\bthose tokens gain haste\b/i.test(clause) ? ('permanent' as const) : undefined;
+    return withMeta({
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'x' },
+      token: `copy of ${copySource}`,
+      ...(grantsHaste ? { grantsHaste } : {}),
+      ...(atNextEndStep ? { atNextEndStep } : {}),
+      raw: rawClause,
+    });
+  }
+
+  const forEachCreateWhoPrefix =
+    "(?:its controller|its owner|that [a-z0-9][a-z0-9 ,.'-]*?(?:'s|'s)? (?:controller|owner)|you|each player|each opponent|target player|target opponent|that player|that opponent|they)\\s+";
   const forEachCreate = clause.match(
     new RegExp(
-      `^for each\\s+(.+?),\\s+(?:(you|they|that player|target player|target opponent)\\s+)?create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`,
+      `^for each\\s+(.+?),\\s+(?:(${forEachCreateWhoPrefix}))?create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`,
       'i'
     )
   );
@@ -217,9 +247,10 @@ export function tryParseSimpleCreateTokenClause(args: {
     const countedExpression = String(forEachCreate[1] || '').trim();
     if (/\bvote$/i.test(countedExpression)) return null;
     const tappedAndAttacking = hasTappedAndAttackingClause(clause);
+    const whoSubject = String(forEachCreate[2] || '').trim();
     return withMeta({
       kind: 'create_token',
-      who: parsePlayerSelector(forEachCreate[2]),
+      who: whoSubject ? parseCreateTokenWhoFromSubject(whoSubject) : { kind: 'you' },
       amount: { kind: 'x' },
       token: String(forEachCreate[5] || '').trim(),
       entersTapped: Boolean(forEachCreate[4]) || tappedAndAttacking || undefined,
@@ -273,11 +304,7 @@ export function tryParseSimpleCreateTokenClause(args: {
     )
   );
   if (createTokenCopy) {
-    const rawWho = String(createTokenCopy[1] || '').trim().toLowerCase();
-    const who =
-      rawWho === 'its owner'
-        ? ({ kind: 'owner_of_moved_cards' } as const)
-        : parsePlayerSelector(createTokenCopy[1]);
+    const who = parseCreateTokenWhoFromSubject(createTokenCopy[1]);
     const descriptor = String(createTokenCopy[3] || '').trim();
     const source = String(createTokenCopy[4] || 'it').trim();
     const token = `${descriptor ? `${descriptor} ` : ''}copy of ${source}`.trim();
@@ -299,11 +326,7 @@ export function tryParseSimpleCreateTokenClause(args: {
     )
   );
   if (createAdjectivalCopy) {
-    const rawWho = String(createAdjectivalCopy[1] || '').trim().toLowerCase();
-    const who =
-      rawWho === 'its owner'
-        ? ({ kind: 'owner_of_moved_cards' } as const)
-        : parsePlayerSelector(createAdjectivalCopy[1]);
+    const who = parseCreateTokenWhoFromSubject(createAdjectivalCopy[1]);
     const tappedAndAttacking = Boolean(createAdjectivalCopy[3]) || hasTappedAndAttackingClause(clause);
     return withMeta({
       kind: 'create_token',
@@ -323,11 +346,7 @@ export function tryParseSimpleCreateTokenClause(args: {
     )
   );
   if (createCopy) {
-    const rawWho = String(createCopy[1] || '').trim().toLowerCase();
-    const who =
-      rawWho === 'its owner'
-        ? ({ kind: 'owner_of_moved_cards' } as const)
-        : parsePlayerSelector(createCopy[1]);
+    const who = parseCreateTokenWhoFromSubject(createCopy[1]);
     const amount = parseTokenQuantity(createCopy[2]);
     const token = `copy of ${String(createCopy[3] || '').trim()}`.trim();
     const withCounters = parseWithCountersFromClause(clause);
@@ -353,11 +372,7 @@ export function tryParseSimpleCreateTokenClause(args: {
     )
   );
   if (createNamedToken) {
-    const rawWho = String(createNamedToken[1] || '').trim().toLowerCase();
-    const who =
-      rawWho === 'its owner'
-        ? ({ kind: 'owner_of_moved_cards' } as const)
-        : parsePlayerSelector(createNamedToken[1]);
+    const who = parseCreateTokenWhoFromSubject(createNamedToken[1]);
     const name = String(createNamedToken[2] || '').trim();
     const descriptor = String(createNamedToken[3] || '').trim();
     const tappedAndAttacking = hasTappedAndAttackingClause(clause);
@@ -379,11 +394,7 @@ export function tryParseSimpleCreateTokenClause(args: {
     )
   );
   if (create) {
-    const rawWho = String(create[1] || '').trim().toLowerCase();
-    const who =
-      rawWho === 'its owner'
-        ? ({ kind: 'owner_of_moved_cards' } as const)
-        : parsePlayerSelector(create[1]);
+    const who = parseCreateTokenWhoFromSubject(create[1]);
     const amount = parseTokenQuantity(create[2]);
     const tappedAndAttacking = tokenIsAttacking(create[3], clause);
     const entersTapped = tokenEntersTapped(create[3], clause);

@@ -1,6 +1,6 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { OraclePlayerSelector, OracleQuantity } from '../../../../rules-engine/src/oracleIR.js';
-import { resolveOracleQuantity } from '../../../../rules-engine/src/oracleIRExecutor.js';
+import { buildOracleIRExecutionContext, resolveOracleQuantity } from '../../../../rules-engine/src/oracleIRExecutor.js';
 import type { OracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
 import { resolvePlayers } from '../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
 
@@ -12,6 +12,8 @@ export function buildStackOracleIRContext(
     targetPlayerId?: PlayerID;
     targetOpponentId?: PlayerID;
     targetPermanentId?: string;
+    targetCreatureId?: string;
+    targetSpellId?: string;
     chosenObjectIds?: readonly string[];
     referenceAmount?: number;
     lastAntecedentBattlefieldPermanentIds?: readonly string[];
@@ -22,25 +24,41 @@ export function buildStackOracleIRContext(
     ? options.lastAntecedentBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean)
     : [];
   const chosenCreatureType = String(options?.chosenCreatureType || '').trim();
-  return {
-    controllerId: caster,
-    sourceId: options?.sourceId,
-    xValue: options?.xValue,
-    ...(options?.targetPermanentId ? { targetPermanentId: options.targetPermanentId } : {}),
-    ...(typeof options?.referenceAmount === 'number' && Number.isFinite(options.referenceAmount)
-      ? { referenceAmount: Math.max(0, Math.floor(options.referenceAmount)) }
-      : {}),
-    ...(antecedentIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: antecedentIds } : {}),
-    ...(chosenCreatureType ? { chosenCreatureType } : {}),
-    selectorContext: {
-      ...(options?.targetPlayerId ? { targetPlayerId: options.targetPlayerId } : {}),
-      ...(options?.targetOpponentId ? { targetOpponentId: options.targetOpponentId } : {}),
+
+  return buildOracleIRExecutionContext(
+    {
+      controllerId: caster,
+      sourceId: options?.sourceId,
+      xValue: options?.xValue,
       ...(options?.targetPermanentId ? { targetPermanentId: options.targetPermanentId } : {}),
-      ...(options?.chosenObjectIds?.length ? { chosenObjectIds: options.chosenObjectIds } : {}),
+      ...(options?.targetCreatureId ? { targetCreatureId: options.targetCreatureId } : {}),
+      ...(options?.targetSpellId ? { targetSpellId: options.targetSpellId } : {}),
+      ...(typeof options?.referenceAmount === 'number' && Number.isFinite(options.referenceAmount)
+        ? { referenceAmount: Math.max(0, Math.floor(options.referenceAmount)) }
+        : {}),
       ...(antecedentIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: antecedentIds } : {}),
       ...(chosenCreatureType ? { chosenCreatureType } : {}),
+      selectorContext: {
+        ...(options?.targetPlayerId ? { targetPlayerId: options.targetPlayerId } : {}),
+        ...(options?.targetOpponentId ? { targetOpponentId: options.targetOpponentId } : {}),
+        ...(options?.targetPermanentId ? { targetPermanentId: options.targetPermanentId } : {}),
+        ...(options?.targetCreatureId ? { targetCreatureId: options.targetCreatureId } : {}),
+        ...(options?.targetSpellId ? { targetSpellId: options.targetSpellId } : {}),
+        ...(options?.chosenObjectIds?.length ? { chosenObjectIds: options.chosenObjectIds } : {}),
+        ...(antecedentIds.length > 0 ? { lastAntecedentBattlefieldPermanentIds: antecedentIds } : {}),
+        ...(chosenCreatureType ? { chosenCreatureType } : {}),
+      },
     },
-  };
+    {
+      targetPlayerId: options?.targetPlayerId,
+      targetOpponentId: options?.targetOpponentId,
+      targetPermanentId: options?.targetPermanentId,
+      targetCreatureId: options?.targetCreatureId,
+      targetSpellId: options?.targetSpellId,
+      chosenObjectIds: options?.chosenObjectIds,
+      referenceAmount: options?.referenceAmount,
+    },
+  );
 }
 
 export function resolveOracleQuantityToNumber(

@@ -8,6 +8,7 @@ import { shouldSkipTriggerUncategorizedFallback } from './oracleIrTriggerLegacyR
 import { applyCopyPermanentTriggerStep, queueOptionalSelfCopyFromControlledCreature } from './trigger-copy-permanent.js';
 import { resolveTriggeredAbilityTargetPlayerId } from './triggerSourceUtils.js';
 import { buildStackOracleIRContext } from './oracleIrStackContextUtils.js';
+import { inferOracleIrTargetBinding } from '../../../../rules-engine/src/oracleIrTargetBinding.js';
 import {
   createEquippedCreatureCopyTokenFromEquipment as createEquippedCreatureCopyTokenCore,
 } from './oracleIrTriggerLegacyTokenHandlers.js';
@@ -97,15 +98,6 @@ export function applyOracleIRFallbackForTriggeredEffect(
   const normalizedTargetIds = targets
     .map((targetRef: any) => (typeof targetRef === 'string' ? targetRef : String(targetRef?.id || '')))
     .filter(Boolean);
-  const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
-  let targetPermanentId: string | undefined;
-  for (const targetId of normalizedTargetIds) {
-    if (battlefield.some((permanent: any) => String(permanent?.id || '').trim() === targetId)) {
-      targetPermanentId = targetId;
-      break;
-    }
-  }
-
   const lifeLostReference = Number((triggerItem as any)?.effectData?.lifeLost ?? 0);
   const countersPlacedReference = Number((triggerItem as any)?.effectData?.countersPlaced ?? 0);
   const damageReference = Number(
@@ -149,6 +141,7 @@ export function applyOracleIRFallbackForTriggeredEffect(
     ...(discardedCardId ? [discardedCardId] : []),
     ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
   ]));
+  const targetBinding = inferOracleIrTargetBinding((ctx as any).state, chosenObjectIds, controller);
 
   const irCtx = buildStackOracleIRContext(controller, {
     xValue: typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined,
@@ -161,7 +154,10 @@ export function applyOracleIRFallbackForTriggeredEffect(
           ? losingPlayerId
           : undefined
     ) as PlayerID | undefined,
-    targetPermanentId: targetPermanentId || interveningSubjectPermanentId || undefined,
+    targetPermanentId:
+      targetBinding.targetPermanentId || interveningSubjectPermanentId || undefined,
+    targetCreatureId: targetBinding.targetCreatureId,
+    targetSpellId: targetBinding.targetSpellId,
     chosenObjectIds: chosenObjectIds.length > 0 ? chosenObjectIds : undefined,
     referenceAmount:
       Number.isFinite(lifeLostReference) && lifeLostReference > 0
@@ -189,15 +185,18 @@ export function applyOracleIRFallbackForTriggeredEffect(
     triggerUncategorizedFallbackDeps,
   );
 
+  const resolvedTargetPermanentId =
+    targetBinding.targetPermanentId || interveningSubjectPermanentId || undefined;
+
   if (
     applied > 0
     && /copy of target creature you control/i.test(text)
-    && targetPermanentId
+    && resolvedTargetPermanentId
   ) {
     const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
     const newestToken = [...battlefield].reverse().find((perm: any) => perm?.isToken === true);
     if (newestToken && !newestToken.copiedFromPermanentId) {
-      newestToken.copiedFromPermanentId = targetPermanentId;
+      newestToken.copiedFromPermanentId = resolvedTargetPermanentId;
     }
   }
 

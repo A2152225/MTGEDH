@@ -16,7 +16,7 @@ const ESCAPED_KEYWORDS = [...ORACLE_KEYWORDS]
 const KEYWORD_WORD_PATTERN = `(?:${ESCAPED_KEYWORDS.join('|')})`;
 
 const REMINDER_PAREN_CONTENT =
-  /^(?:this (?:creature|card|spell|permanent|aura|enchantment|artifact|token|vehicle|siege|room|saga|land|equipment|creature token)|it'?s an (?:artifact|enchantment|creature)|you may cast|if you would|as long as|activate only|cast this spell only|exile (?:it|this card)|a deck can have|can be your commander|to (?:mill|scry|surveil|adapt|transform|manifest|connive|discover|investigate|learn|proliferate|revolve|open an attraction|convene|solved)|choose one at random|that (?:creature|player|permanent|token)|target creatures? with|creatures? (?:with|you control)|spells? you cast|damage (?:causes|dealt)|(?:an |a )?player(?:s)? with|spend (?:this )?mana only|put (?:a|one|two|three|\d+) \+|return this card from your graveyard|when(?:ever)? (?:this|a|you)|until (?:end of turn|your next)|for each |if (?:this|that|you|a)|as this (?:creature|permanent|artifact|enchantment|saga|siege|room|class|enchantment creature) (?:enters|transforms)|yes, we know|a permanent with|equip(?:ped|ment)? only|reconfigure only|tap any number of creatures|sacrifice after [ivxlcdm]+|read ahead|partner(?: with)?|doctor'?s companion|friends forever|choose a background|deckbuilding|note the mana value)/i;
+  /^(?:this (?:creature|card|spell|permanent|aura|enchantment|artifact|token|vehicle|siege|room|saga|land|equipment|creature token)|(?:it'?s|they'?re) (?:an )?(?:artifacts?|enchantments?|creatures?)(?: with)?|you may cast|if you would|as long as|activate only|cast this spell only|exile (?:it|this card)|a deck can have|can be your commander|to (?:mill|scry|surveil|adapt|transform|manifest|connive|discover|investigate|learn|proliferate|revolve|open an attraction|convene|solved)|choose one at random|that (?:creature|player|permanent|token)|target creatures? with|creatures? (?:with|you control)|spells? you cast|damage (?:causes|dealt)|(?:an |a )?player(?:s)? with|spend (?:this )?mana only|put (?:a|one|two|three|\d+) \+|return this card from your graveyard|when(?:ever)? (?:this|a|you)|until (?:end of turn|your next)|for each |if (?:this|that|you|a)|as this (?:creature|permanent|artifact|enchantment|saga|siege|room|class|enchantment creature) (?:enters|transforms)|yes, we know|a permanent with|equip(?:ped|ment)? only|reconfigure only|tap any number of creatures|sacrifice after [ivxlcdm]+|read ahead|partner(?: with)?|doctor'?s companion|friends forever|choose a background|deckbuilding|note the mana value)/i;
 
 const GAMEPLAY_PAREN_CONTENT =
   /^(?:as this saga enters|choose one(?:\s*[-—]| at the beginning)|when you unlock this door|to solve|as this (?:siege|room|class|enchantment creature|enchantment|artifact|creature|permanent) enters|if you cast it|for each player,? choose|modal)/i;
@@ -88,7 +88,7 @@ const STANDALONE_KEYWORD_ACTION_EFFECT = new RegExp(
 const KEYWORD_ACTION_WITH_CONTINUATION = /^(?:explore-clash|support\s+\d+|fabricate\s+\d+)\.\s+\S/i;
 
 const TOKEN_TYPE_REMINDER =
-  /\.\s*\((?:it'?s|they'?re) an (?:artifact|enchantment|creature)[^)]*\)\s*\.?/gi;
+  /\.\s*\((?:it'?s|they'?re) (?:an )?(?:artifacts?|enchantments?|creatures?)(?: with)?[^)]*\)\s*\.?/gi;
 
 const ACTIVATION_TAIL =
   /(?:\.\s*(?:\([^)]*\)\s*)?|\n+\s*)\{[^}]+\}(?:\{[^}]+\})*(?:,\s*|\s*:)\s*[\s\S]*$/i;

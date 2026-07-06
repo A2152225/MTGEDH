@@ -63,12 +63,13 @@ describe('oracleIrSpellLegacyGuardrail', () => {
     expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('tryApplyInstantSorceryLegacyBodyHandlers')).toBe(true);
     expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('shouldSkipLegacySpellBodyHandlers')).toBe(true);
     expect(stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyInstantSorceryCopyStackSpellRiders(ctx')).toBe(true);
-    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyLegacySpellRegexDrawHandlers(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('logLegacySpellRegexPrimaryMiss')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyLegacySpellRegexDrawHandlers(ctx')).toBe(false);
     expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('resolveSkipLegacySpellRegexHandlers')).toBe(false);
   });
 
   it('keeps defense-in-depth skip guards on spell legacy handler modules', () => {
-    expect(stackResolveSpellLegacyRegexDrawUtilsSource.includes('skipRetiredSpellLegacyHandler')).toBe(true);
+    expect(stackResolveSpellLegacyRegexDrawUtilsSource.includes('shouldSkipLegacySpellRegexHandlers')).toBe(true);
     expect(stackResolveSpellLegacySpecUtilsSource.includes('skipRetiredSpellLegacyHandler')).toBe(true);
     expect(stackResolveSpellPostCategorizeRidersUtilsSource.includes('skipRetiredSpellLegacyHandler')).toBe(true);
     expect(spellLegacyDispatchUtilsSource.includes('skipRetiredSpellLegacyHandler')).toBe(true);

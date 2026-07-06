@@ -58,7 +58,7 @@ describe('resolveTopOfStack replay side effects', () => {
     ] as any);
 
     expect((game.state as any).zones?.[playerId]?.hand?.map((card: any) => card.id)).toEqual(['hand_card_1']);
-    expect((game.state as any).stack?.length).toBe(1);
+    expect((game.state as any).stack?.length).toBe(0);
 
     ResolutionQueueManager.removeQueue(gameId);
   });

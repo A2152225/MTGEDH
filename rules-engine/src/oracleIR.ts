@@ -53,6 +53,10 @@ export type OraclePlayerSelector =
   | { readonly kind: 'enchanted_player' }
   /** Special-case selector used by move_zone battlefield control overrides. */
   | { readonly kind: 'owner_of_moved_cards' }
+  /** Controller of the object referenced by it/its/that in the current execution context. */
+  | { readonly kind: 'controller_of_referenced_object' }
+  /** Owner of the object referenced by it/its/that in the current execution context. */
+  | { readonly kind: 'owner_of_referenced_object' }
   /** Owner of the ability's source permanent/card. */
   | { readonly kind: 'owner_of_source' }
   /** Winner of an auction/bidding mini-game (defaults to controller in assisted dry-runs). */
@@ -244,7 +248,8 @@ export type OracleEffectStep =
       readonly revealFound?: boolean;
       readonly entersTapped?: boolean;
       readonly shuffle?: boolean;
-      readonly maxResults?: number;
+      readonly maxResults?: number | 'any_number';
+      readonly whereX?: OracleClauseCondition;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -253,7 +258,7 @@ export type OracleEffectStep =
       readonly kind: 'exile_named_cards_from_zones';
       readonly who: OraclePlayerSelector;
       readonly zones: readonly Extract<OracleZone, 'graveyard' | 'hand' | 'library'>[];
-      readonly nameSource: 'chosen_card_name';
+      readonly nameSource: 'chosen_card_name' | 'target_spell_name' | 'referenced_card_name';
       readonly maxResults?: number | 'any_number';
       readonly optional?: boolean;
       readonly sequence?: 'then';

@@ -332,6 +332,9 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^target\s+creature'?s\s+toughness$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
   if (/^that\s+creature'?s\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_creature', stat: 'power' };
   if (/^that\s+creature'?s\s+toughness$/i.test(trimmed)) return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
+  if (/^its\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'it', stat: 'power' };
+  if (/^its\s+toughness$/i.test(trimmed)) return { kind: 'object_stat', subject: 'it', stat: 'toughness' };
+  if (/^its\s+mana\s+value$/i.test(trimmed)) return { kind: 'object_stat', subject: 'it', stat: 'mana_value' };
   if (/^its\s+base\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'it', stat: 'power' };
   if (/^its\s+base\s+toughness$/i.test(trimmed)) return { kind: 'object_stat', subject: 'it', stat: 'toughness' };
   if (/^the\s+creature'?s\s+power$/i.test(trimmed)) return { kind: 'object_stat', subject: 'source', stat: 'power' };
@@ -667,9 +670,15 @@ export function parsePlayerSelector(raw: string | undefined): OraclePlayerSelect
   }
   if (s === 'enchanted player') return { kind: 'enchanted_player' };
   if (/^enchanted\s+[a-z0-9 -]+(?:'s)?\s+controller$/.test(s)) return { kind: 'target_player' };
-  if (s === 'its controller') return { kind: 'target_player' };
-  if (s === 'its owner') return { kind: 'owner_of_source' };
-  if (isThatOwnerOrControllerSelector(s)) return { kind: 'target_player' };
+  if (s === 'its controller') return { kind: 'controller_of_referenced_object' };
+  if (s === 'its owner') return { kind: 'owner_of_referenced_object' };
+  if (s === "its controller's") return { kind: 'controller_of_referenced_object' };
+  if (s === "its owner's") return { kind: 'owner_of_referenced_object' };
+  if (isThatOwnerOrControllerSelector(s)) {
+    return /\bowner$/i.test(s)
+      ? { kind: 'owner_of_referenced_object' }
+      : { kind: 'controller_of_referenced_object' };
+  }
 
   return { kind: 'unknown', raw: raw ?? '' };
 }

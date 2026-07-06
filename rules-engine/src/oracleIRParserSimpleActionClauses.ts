@@ -256,7 +256,7 @@ export function tryParseSimpleActionClause(args: {
 
   {
     const unlessThatPlayerPays = clause.match(
-      /^(.+?)\s+unless\s+(?:that\s+player|that\s+opponent|its\s+controller|they)\s+pays?\s+(\{[^}]+\})\.?$/i,
+      /^(.+?)\s+unless\s+(that\s+player|that\s+opponent|its\s+controller|they)\s+pays?\s+(\{[^}]+\})\.?$/i,
     );
     if (unlessThatPlayerPays) {
       const innerClause = String(unlessThatPlayerPays[1] || '').trim();
@@ -268,8 +268,8 @@ export function tryParseSimpleActionClause(args: {
       if (innerStep && innerStep.kind !== 'unknown') {
         return withMeta({
           kind: 'unless_pays_mana',
-          who: parsePlayerSelector('that player'),
-          mana: String(unlessThatPlayerPays[2] || '').trim(),
+          who: parsePlayerSelector(String(unlessThatPlayerPays[2] || 'that player').trim()),
+          mana: String(unlessThatPlayerPays[3] || '').trim(),
           steps: [innerStep],
           optional: /\byou may\b/i.test(innerClause) || undefined,
           raw: rawClause,
@@ -567,22 +567,25 @@ export function tryParseSimpleActionClause(args: {
   {
     const searchBattlefieldMultiple = clause.match(
       new RegExp(
-        `^search your library for up to (${COUNTER_AMOUNT_PATTERN}) (.+?) cards,\\s*(reveal them,\\s*)?put them onto the battlefield( tapped)?(?: under your control)?(?:,\\s*(?:then\\s+)?shuffle(?: your library)?)?$`,
+        `^search your library for up to (${COUNTER_AMOUNT_PATTERN}) (.+?) cards(?:,\\s*where\\s+x\\s+is\\s+(.+?))?\\s*,\\s*(?:reveal them,\\s*)?put (?:them|those cards) onto the battlefield( tapped)?(?: under your control)?(?:,\\s*(?:then\\s+)?shuffle(?: your library)?)?$`,
         'i'
       )
     );
     if (searchBattlefieldMultiple) {
+      const amountToken = String(searchBattlefieldMultiple[1] || '').trim().toLowerCase();
+      const whereRaw = String(searchBattlefieldMultiple[3] || '').trim();
       const maxResults = parseSmallNumber(searchBattlefieldMultiple[1]);
-      if (maxResults && maxResults > 0) {
+      if ((maxResults && maxResults > 0) || amountToken === 'x' || whereRaw) {
         return withMeta({
           kind: 'search_library',
           who: { kind: 'you' },
           criteria: { kind: 'raw', text: String(searchBattlefieldMultiple[2] || '').trim() },
           destination: 'battlefield',
-          revealFound: Boolean(searchBattlefieldMultiple[3]),
           entersTapped: Boolean(searchBattlefieldMultiple[4]),
           shuffle: /\bshuffle\b/i.test(clause) || undefined,
-          maxResults,
+          ...(maxResults && maxResults > 0 ? { maxResults } : {}),
+          ...(whereRaw ? { whereX: { kind: 'where', raw: whereRaw } } : {}),
+          optional: true,
           raw: rawClause,
         });
       }
@@ -2591,6 +2594,27 @@ export function tryParseSimpleActionClause(args: {
         maxResults: /^any\s+number\s+of$/i.test(limitText) ? 'any_number' : parsedLimit || undefined,
         raw: rawClause,
         });
+    }
+
+    const referencedPossessiveZoneExile = clause.match(
+      /^search\s+its\s+(controller|owner)(?:'|’)?s\s+graveyard,\s+hand,\s+and\s+library\s+for\s+(all\s+|any\s+number\s+of\s+)?cards?\s+with\s+the\s+same\s+name\s+as\s+(that\s+spell|that\s+card)\s+and\s+exile\s+them$/i
+    );
+    if (referencedPossessiveZoneExile) {
+      const role = String(referencedPossessiveZoneExile[1] || '').trim().toLowerCase();
+      const limitText = String(referencedPossessiveZoneExile[2] || '').trim();
+      return withMeta({
+        kind: 'exile_named_cards_from_zones',
+        who:
+          role === 'owner'
+            ? { kind: 'owner_of_referenced_object' }
+            : { kind: 'controller_of_referenced_object' },
+        zones: ['graveyard', 'hand', 'library'],
+        nameSource: /that\s+spell/i.test(String(referencedPossessiveZoneExile[3] || ''))
+          ? 'target_spell_name'
+          : 'referenced_card_name',
+        maxResults: /^(?:all|any\s+number\s+of)\s*$/i.test(limitText) ? 'any_number' : undefined,
+        raw: rawClause,
+      });
     }
 
     const plainsSearch = clause.match(/^search\s+your\s+library\s+for\s+(?:an?\s+additional\s+)?a?\s*plains\s+card$/i);

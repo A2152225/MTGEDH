@@ -9,7 +9,10 @@ import {
 } from './oracleIrSpellLegacyTokenUtils.js';
 import { parseNumberWord } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { buildResolvedSpellCopySnapshot, wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
-import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
+import {
+  isSpellEffectOwnedByOracleIrPrimary,
+  skipRetiredSpellLegacyHandler,
+} from './oracleIrSpellLegacyRouting.js';
 
 type InstantSorceryPostCategorizeRiderOptions = {
   controller: PlayerID;
@@ -30,6 +33,9 @@ export function applyInstantSorceryGraveyardConditionalTokenRider(
 ): void {
   const spellName = String(options.effectiveCard?.name || 'spell');
   if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
+    return;
+  }
+  if (isSpellEffectOwnedByOracleIrPrimary(options.oracleText, spellName)) {
     return;
   }
 

@@ -168,4 +168,87 @@ describe('oracle IR spell execution', () => {
       (step) => step.type === ResolutionStepType.DISCARD_SELECTION,
     )).toBe(true);
   });
+
+  it('Swords to Plowshares on a commander queues command-zone choice and grants life', () => {
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    const gameId = 'oracle_ir_swords_commander';
+    const game = createInitialGameState(gameId);
+    const caster = 'p1' as PlayerID;
+    const owner = 'p2' as PlayerID;
+
+    game.applyEvent!({ type: 'join', playerId: caster, name: 'Caster' } as any);
+    game.applyEvent!({ type: 'join', playerId: owner, name: 'Owner' } as any);
+
+    (game.state as any).players = [
+      { id: caster, name: 'Caster', spectator: false, life: 40 },
+      { id: owner, name: 'Owner', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [caster]: 40, [owner]: 40 };
+    (game.state as any).zones = {
+      [caster]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+      [owner]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        libraryCount: 0,
+        commandZone: [],
+        commandZoneCount: 0,
+      },
+    };
+    (game.state as any).commandZone = {
+      [owner]: {
+        commanderIds: ['myrel_card'],
+        commanderNames: ['Myrel, Shield of Argive'],
+        inCommandZone: [],
+      },
+    };
+    (game as any).commandZone = (game.state as any).commandZone;
+    (game.state as any).battlefield = [
+      {
+        id: 'myrel_perm',
+        controller: owner,
+        owner,
+        isCommander: true,
+        tapped: false,
+        counters: {},
+        effectivePower: 3,
+        card: {
+          id: 'myrel_card',
+          name: 'Myrel, Shield of Argive',
+          type_line: 'Legendary Creature — Human Soldier',
+          oracle_text: '',
+          power: '3',
+          toughness: '4',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const outcome = tryResolveSpellViaOracleIR(ctx, {
+      controller: caster,
+      spellName: 'Swords to Plowshares',
+      oracleText: 'Exile target creature. Its controller gains life equal to its power.',
+      sourceId: 'swords-1',
+      targets: ['myrel_perm'],
+    });
+
+    expect(outcome.handled).toBe(true);
+    expect((game.state as any).life[owner]).toBe(43);
+
+    const commanderChoice = ResolutionQueueManager.getQueue(gameId).steps.find(
+      (step: any) => step?.type === ResolutionStepType.OPTION_CHOICE && step?.commanderZoneChoice === true,
+    );
+    expect(commanderChoice).toBeDefined();
+    expect(String((commanderChoice as any)?.playerId || '')).toBe(owner);
+    expect(((game.state as any).zones?.[owner]?.exile || [])).toHaveLength(0);
+    expect(((game.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual([]);
+  });
 });

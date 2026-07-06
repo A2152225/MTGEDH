@@ -5,6 +5,7 @@ import {
   lastKnownSnapshotHasClass,
   type LastKnownPermanentSnapshot,
 } from './oracleIRExecutorLastKnownInfo';
+import { collectSacrificedPermanentsLedgerFirst } from './oracleIRLedgerCardAccess';
 import {
   getCardsFromPlayerZone,
   getContextExcludedId,
@@ -126,6 +127,26 @@ export interface ModifyPtWhereEvaluatorContext {
   ): number;
 }
 
+function snapshotFromSacrificedCardLike(card: unknown): LastKnownPermanentSnapshot | null {
+  const id = String((card as any)?.id || (card as any)?.objectId || '').trim();
+  if (!id) return null;
+
+  const power = Number((card as any)?.power);
+  const toughness = Number((card as any)?.toughness);
+
+  return {
+    id,
+    name: String((card as any)?.name || '').trim(),
+    controller: String((card as any)?.controller || '').trim() || undefined,
+    owner: String((card as any)?.owner || '').trim() || undefined,
+    typeLine: String((card as any)?.type_line || (card as any)?.typeLine || '').toLowerCase(),
+    power: Number.isFinite(power) ? power : null,
+    toughness: Number.isFinite(toughness) ? toughness : null,
+    manaValue: null,
+    colors: Array.isArray((card as any)?.colors) ? [...(card as any).colors] : [],
+  };
+}
+
 export function createModifyPtWhereEvaluatorContext(
   state: GameState,
   controllerId: PlayerID,
@@ -155,7 +176,13 @@ export function createModifyPtWhereEvaluatorContext(
     requiredClass: ModifyPtWhereSnapshotClass
   ): LastKnownPermanentSnapshot | null => {
     const seenIds = new Set<string>();
+    const ledgerSnapshots = ctx
+      ? collectSacrificedPermanentsLedgerFirst(ctx, runtime)
+          .map(snapshotFromSacrificedCardLike)
+          .filter((snapshot): snapshot is LastKnownPermanentSnapshot => Boolean(snapshot))
+      : [];
     const snapshots = [
+      ...ledgerSnapshots,
       ...(Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : []),
       ...(Array.isArray((ctx as any)?.lastSacrificedPermanents) ? (ctx as any).lastSacrificedPermanents : []),
     ].filter((snapshot) => {

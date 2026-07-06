@@ -205,6 +205,7 @@ const removalRiderUtilsSource = readFileSync(
   join(serverRoot, 'src/state/modules/oracleIrSpellLegacyRemovalRiderUtils.ts'),
   'utf8',
 );
+const resolutionSource = readFileSync(join(serverRoot, 'src/socket/resolution.ts'), 'utf8');
 const spellShapeUtilsSource = readFileSync(
   join(serverRoot, 'src/state/modules/oracleIrSpellLegacySpellShapeUtils.ts'),
   'utf8',
@@ -951,7 +952,8 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes("from './oracleIrSpellLegacySpellShapeUtils.js'") || stackSource.includes('from "./oracleIrSpellLegacySpellShapeUtils.js"')).toBe(true);
     expect(removalRiderUtilsSource.includes('export function applySpellLegacyRemovalRiders')).toBe(true);
     expect(removalRiderUtilsSource.includes('export function applyPathToExileBasicLandSearch')).toBe(true);
-    expect(removalRiderUtilsSource.includes('export function applyEntrapmentManeuverSacrificePrompt')).toBe(true);
+    expect(removalRiderUtilsSource.includes('export function applyEntrapmentManeuverSacrificePrompt')).toBe(false);
+    expect(resolutionSource.includes('handleEntrapmentManeuverResponse')).toBe(false);
     expect(removalRiderUtilsSource.includes('export function shouldCaptureRemovalTargetControllerMetadata')).toBe(true);
     expect(stackSource.includes('function checkOpponentHasMoreLands')).toBe(false);
     expect(stackSource.includes('const isPathToExile =')).toBe(false);
@@ -965,8 +967,8 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('function moveFizzledStackSpellCard')).toBe(false);
     expect(stackSource.includes("from './stackTargetLegalityUtils.js'") || stackSource.includes('from "./stackTargetLegalityUtils.js"')).toBe(true);
     expect(specialSpellRiderUtilsSource.includes('export function applySpellLegacySpecialSpellRiders')).toBe(true);
-    expect(specialSpellRiderUtilsSource.includes('export function applyJaheirasRespiteLibrarySearch')).toBe(true);
-    expect(specialSpellRiderUtilsSource.includes('export function applyChaosWarpEffect')).toBe(true);
+    expect(specialSpellRiderUtilsSource.includes('export function applyJaheirasRespiteLibrarySearch')).toBe(false);
+    expect(specialSpellRiderUtilsSource.includes('export function applyChaosWarpEffect')).toBe(false);
     expect(stackSource.includes('const isJaheirasRespite =')).toBe(false);
     expect(stackSource.includes('const isChaosWarp =')).toBe(false);
     expect(stackSource.includes('[resolveTopOfStack] Chaos Warp:')).toBe(false);
@@ -1120,9 +1122,10 @@ describe('oracle IR trigger legacy guardrail', () => {
     expect(stackSource.includes('conditionalWipeMatch')).toBe(false);
     expect(stackSource.includes('parseSpellLegacyTokenCreation(')).toBe(false);
     expect(stackSource.includes('copy target instant or sorcery spell you control')).toBe(false);
-    expect(stackResolveSpellLegacyRegexDrawUtilsSource.includes('export function applyLegacySpellRegexDrawHandlers')).toBe(true);
+    expect(stackResolveSpellLegacyRegexDrawUtilsSource.includes('export function logLegacySpellRegexPrimaryMiss')).toBe(true);
+    expect(stackResolveSpellLegacyRegexDrawUtilsSource.includes('export function applyLegacySpellRegexDrawHandlers')).toBe(false);
     expect(stackResolveSpellLegacyRegexDrawUtilsSource.includes('export function applyLegacySpellRegexLifeGainHandler')).toBe(false);
-    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyLegacySpellRegexDrawHandlers(ctx')).toBe(true);
+    expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyLegacySpellRegexDrawHandlers(ctx')).toBe(false);
     expect(stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyLegacySpellRegexLifeGainHandler(ctx')).toBe(false);
     expect(stackSource.includes('applyLegacySpellRegexDrawHandlers(ctx')).toBe(false);
     expect(stackSource.includes('lifeGainMatch')).toBe(false);

@@ -169,6 +169,15 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
+  const forEachOpponentExileMatch = clause.match(/^for\s+each\s+opponent,\s+exile\s+(.+)$/i);
+  if (forEachOpponentExileMatch) {
+    return withMeta({
+      kind: 'exile',
+      target: parseObjectSelector(String(forEachOpponentExileMatch[1] || '').trim()),
+      raw: rawClause,
+    });
+  }
+
   const destroyMatch = clause.match(/^destroy\s+(.+)$/i);
   if (destroyMatch) {
     return withMeta({ kind: 'destroy', target: parseObjectSelector(destroyMatch[1]), raw: rawClause });
@@ -307,6 +316,20 @@ export function tryParseZoneAndRemovalClause(args: {
   const insteadExileMatch = clause.match(/^instead\s+exile\s+(.+)$/i);
   if (insteadExileMatch) {
     return withMeta({ kind: 'exile', target: parseObjectSelector(insteadExileMatch[1]), raw: rawClause });
+  }
+
+  const possessiveLibraryTopExileMatch = clause.match(
+    /^exile\s+the\s+top\s+card\s+of\s+((?:your|target\s+player(?:'|')?s|target\s+opponent(?:'|')?s|its\s+(?:controller|owner)(?:'|')?s))\s+library$/i,
+  );
+  if (possessiveLibraryTopExileMatch) {
+    const libraryRef = String(possessiveLibraryTopExileMatch[1] || '').trim();
+    return withMeta({
+      kind: 'move_zone',
+      what: parseObjectSelector(`the top card of ${libraryRef} library`),
+      to: 'exile',
+      toRaw: 'exile',
+      raw: rawClause,
+    });
   }
 
   const exileMatch = clause.match(/^(?:otherwise,\s*)?exile\s+(.+)$/i);
@@ -530,6 +553,18 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
+  const ownerOfTargetShufflesIntoLibraryMatch = clause.match(
+    /^the\s+owner\s+of\s+(target\s+.+?)\s+shuffles?\s+it\s+into\s+their\s+library$/i,
+  );
+  if (ownerOfTargetShufflesIntoLibraryMatch) {
+    return parseMoveZoneStep({
+      whatRaw: String(ownerOfTargetShufflesIntoLibraryMatch[1] || 'target permanent').trim(),
+      toRaw: 'their library',
+      rawClause,
+      withMeta,
+    });
+  }
+
   const revealAndShuffleIntoOwnerLibraryMatch = clause.match(/^reveal\s+(.+?)\s+and\s+shuffle\s+(it|them|that card|this permanent)\s+into\s+its\s+owner(?:'|â€™)?s\s+library$/i);
   if (revealAndShuffleIntoOwnerLibraryMatch) {
     return parseMoveZoneStep({
@@ -567,6 +602,16 @@ export function tryParseZoneAndRemovalClause(args: {
     return parseMoveZoneStep({
       whatRaw: String(putOntoMatch[1] || '').trim(),
       toRaw: String(putOntoMatch[2] || '').trim(),
+      rawClause,
+      withMeta,
+    });
+  }
+
+  const theyPutOntoBattlefieldMatch = clause.match(/^they\s+put\s+it\s+onto\s+the\s+battlefield$/i);
+  if (theyPutOntoBattlefieldMatch) {
+    return parseMoveZoneStep({
+      whatRaw: 'it',
+      toRaw: 'the battlefield',
       rawClause,
       withMeta,
     });

@@ -124,9 +124,22 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
               ctx?.selectorContext?.targetPermanentId ||
               ''
           ).trim();
-      if (!targetId) return null;
+
+      const readFromSacrificedSnapshot = (): number | null => {
+        if (refWord !== 'that') return null;
+        const snapshot = resolveLastSacrificedSnapshot('creature');
+        if (!snapshot) return null;
+        const value = which === 'power' ? snapshot.power : snapshot.toughness;
+        return value === null || !Number.isFinite(value) ? null : value;
+      };
+
+      if (!targetId) {
+        return readFromSacrificedSnapshot();
+      }
       const target = findObjectById(targetId) ?? battlefield.find((p: any) => p.id === targetId) as any;
-      if (!target) return null;
+      if (!target) {
+        return readFromSacrificedSnapshot();
+      }
       if (which === 'power') {
         const power = readPermanentPower(target);
         return power === null ? null : power;

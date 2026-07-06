@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { PlayerID } from '../../shared/src/index.js';
 import { createContext, type GameContext } from '../src/state/context.js';
 import { lookupLocalCardByNameSync } from '../src/services/localCardLookup.js';
-import { applyLegacySpellRegexDrawHandlers } from '../src/state/modules/stackResolveSpellLegacyRegexDrawUtils.js';
 import {
   isSpellEffectFullyIrWired,
   shouldSkipLegacySpellRegexHandlers,
@@ -129,12 +128,6 @@ describe('compound spell Oracle IR primary (batch 177)', () => {
     const legacyPendingDiscard = state.pendingDiscard?.[playerId]?.count === 1;
     expect(queuedDiscard || legacyPendingDiscard).toBe(true);
 
-    applyLegacySpellRegexDrawHandlers(ctx, {
-      controller: playerId,
-      effectiveCard: { name: 'Chart a Course' },
-      oracleTextLower: oracleText.toLowerCase(),
-    });
-
     expect(state.zones[playerId].hand.length).toBe(2);
   });
 
@@ -247,15 +240,6 @@ describe('compound spell Oracle IR primary (batch 177)', () => {
     expect(state.zones[playerId].graveyard).toEqual([]);
     expect(state.zones[player2Id].hand.length).toBe(7);
     expect(state.zones[player2Id].graveyard).toEqual([]);
-
-    applyLegacySpellRegexDrawHandlers(ctx, {
-      controller: playerId,
-      effectiveCard: { name: 'Echo of Eons' },
-      oracleTextLower: oracleText.toLowerCase(),
-    });
-
-    expect(state.zones[playerId].hand.length).toBe(7);
-    expect(state.zones[player2Id].hand.length).toBe(7);
   });
 
   it('Windfall and Reforge the Soul discard-hand wheels are fully IR-wired under primary', () => {
@@ -375,15 +359,6 @@ describe('compound spell Oracle IR primary (batch 177)', () => {
     const treasureTokens = (state.battlefield || []).filter(
       (entry: any) => String(entry?.name || entry?.card?.name || '').includes('Treasure'),
     );
-    expect(treasureTokens.length).toBe(2);
-
-    applyLegacySpellRegexDrawHandlers(ctx, {
-      controller: playerId,
-      effectiveCard: { name: 'Big Score' },
-      oracleTextLower: oracleText.toLowerCase(),
-    });
-
-    expect(state.zones[playerId].hand.length).toBe(3);
     expect(treasureTokens.length).toBe(2);
   });
 

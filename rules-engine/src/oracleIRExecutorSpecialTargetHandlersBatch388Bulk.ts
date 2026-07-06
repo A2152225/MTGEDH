@@ -1,7 +1,11 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
-import { finalizeBattlefieldRemoval, permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
+import {
+  finalizeBattlefieldRemoval,
+  oracleIrBattlefieldRemovalBridgeOptions,
+  permanentMatchesType,
+} from './oracleIRExecutorBattlefieldOps';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 
 function readPower(perm: any): number | null {
@@ -10,12 +14,30 @@ function readPower(perm: any): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function buildExileMovedCardSnapshot(perm: any): any {
+  const card = (perm as any)?.card || perm;
+  const power = readPower(perm);
+  const toughnessValue = (perm as any)?.effectiveToughness ?? (perm as any)?.baseToughness ?? card?.toughness;
+  const parsedToughness = Number(toughnessValue);
+  const owner = String((perm as any)?.owner ?? (perm as any)?.controller ?? '').trim();
+  const controller = String((perm as any)?.controller ?? owner).trim();
+  return {
+    ...card,
+    ...(power !== null ? { power } : {}),
+    ...(Number.isFinite(parsedToughness) ? { toughness: parsedToughness } : {}),
+    ...(owner ? { owner, ownerId: owner } : {}),
+    ...(controller ? { controller, controllerId: controller } : {}),
+    zone: 'exile',
+  };
+}
+
 type Batch388StepResult =
   | {
       readonly applied: true;
       readonly state: GameState;
       readonly log: readonly string[];
       readonly count?: number;
+      readonly lastMovedCards?: readonly any[];
     }
   | {
       readonly applied: false;
@@ -86,8 +108,21 @@ export function tryBatch388ExileStep(
     if (!match) return { applied: true, state, log: ['No target creature to exile'] };
     const removedIds = new Set([String((match as any)?.id || '').trim()]);
     const kept = battlefield.filter((perm: any) => !removedIds.has(String(perm?.id || '').trim()));
-    const result = finalizeBattlefieldRemoval(state, [match], removedIds, kept, 'exile', 'exiled');
-    return { applied: true, state: result.state, log: result.log };
+    const result = finalizeBattlefieldRemoval(
+      state,
+      [match],
+      removedIds,
+      kept,
+      'exile',
+      'exiled',
+      oracleIrBattlefieldRemovalBridgeOptions(ctx, 'exile'),
+    );
+    return {
+      applied: true,
+      state: result.state,
+      log: result.log,
+      lastMovedCards: [buildExileMovedCardSnapshot(match)],
+    };
   }
 
   if (/exile it with three time counters on it instead of putting it into its owner's graveyard/i.test(raw)) {

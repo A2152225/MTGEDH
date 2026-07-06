@@ -111,6 +111,8 @@ export interface OracleIRExecutionEventHint {
   readonly targetSpellId?: string;
   /** Best-effort single target permanent from trigger/ability resolution context. */
   readonly targetPermanentId?: string;
+  /** Best-effort single target creature from trigger/ability resolution context. */
+  readonly targetCreatureId?: string;
   /** Bound chosen objects for delayed/antecedent-based battlefield references. */
   readonly chosenObjectIds?: readonly string[];
   /** Player-chosen destination for X-threshold alternate move_zone paths. */

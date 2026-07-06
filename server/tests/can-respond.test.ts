@@ -3187,6 +3187,51 @@ describe('canAct', () => {
     ]);
   });
 
+  it('does not treat commanders as castable when inCommandZone is empty (e.g. on battlefield or exiled)', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [
+            {
+              id: 'cmd_exiled',
+              name: 'Exiled Commander',
+              type_line: 'Legendary Creature — Human Soldier',
+              mana_cost: '{2}{W}',
+              oracle_text: '',
+            },
+          ],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 1,
+        },
+      },
+      commandZone: {
+        p1: {
+          commanderIds: ['cmd_exiled'],
+          commanderCards: [
+            {
+              id: 'cmd_exiled',
+              name: 'Exiled Commander',
+              type_line: 'Legendary Creature — Human Soldier',
+              mana_cost: '{2}{W}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: [],
+          taxById: { cmd_exiled: 2 },
+        },
+      },
+      manaPool: {
+        p1: { white: 5, blue: 0, black: 0, red: 0, green: 0, colorless: 5 },
+      },
+      stack: [],
+    });
+
+    expect(getCastableCommanderCandidates(ctx, 'p1' as PlayerID)).toEqual([]);
+  });
+
   it('should return true when a commander is only affordable through a shared command-zone cost adjustment', () => {
     const ctx = createTestContext({
       zones: {

@@ -86,6 +86,57 @@ function supportsInlineSelectedPaymentAbility(ability: InlineSelectedPaymentAbil
   return true;
 }
 
+function parseChosenColorManaEffect(
+  effectText: string,
+  chosenColor?: string,
+): RepresentableManaEffect | null {
+  const effect = String(effectText || '').trim();
+  const match = effect.match(/add\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+the\s+chosen\s+colou?r/i);
+  if (!match) return null;
+
+  const colorMap: Record<string, ManaColor> = {
+    white: 'W',
+    blue: 'U',
+    black: 'B',
+    red: 'R',
+    green: 'G',
+    w: 'W',
+    u: 'U',
+    b: 'B',
+    r: 'R',
+    g: 'G',
+  };
+  const normalizedChosen = String(chosenColor || '').trim().toLowerCase();
+  const symbol = colorMap[normalizedChosen]
+    || (['W', 'U', 'B', 'R', 'G'].includes(normalizedChosen.toUpperCase()) ? normalizedChosen.toUpperCase() as ManaColor : null);
+  if (!symbol) return null;
+
+  const rawAmount = String(match[1] || '').toLowerCase();
+  const amount = rawAmount === 'a' || rawAmount === 'an' || rawAmount === 'one'
+    ? 1
+    : rawAmount === 'two'
+      ? 2
+      : rawAmount === 'three'
+        ? 3
+        : rawAmount === 'four'
+          ? 4
+          : rawAmount === 'five'
+            ? 5
+            : rawAmount === 'six'
+              ? 6
+              : rawAmount === 'seven'
+                ? 7
+                : rawAmount === 'eight'
+                  ? 8
+                  : rawAmount === 'nine'
+                    ? 9
+                    : rawAmount === 'ten'
+                      ? 10
+                      : Math.max(1, Number.parseInt(rawAmount, 10) || 1);
+
+  return { options: [symbol], amount, producedColors: [symbol] };
+}
+
 function parseRepresentableManaEffect(effectText: string): RepresentableManaEffect | null {
   const effect = String(effectText || '').trim();
   if (!effect) return null;
@@ -334,6 +385,7 @@ function normalizeInlinePaymentAbilityId(ability: InlineSelectedPaymentAbility):
   if (ability.cost === '{T}' && normalizedEffect === 'add {c}') return 'native_c';
   if (ability.cost === '{T}' && /add\s+one\s+mana\s+of\s+any\s+color/i.test(ability.effect)) return 'native_any';
   if (ability.cost === '{T}' && /add\s+one\s+mana\s+of\s+any\s+type/i.test(ability.effect)) return 'native_any';
+  if (ability.cost === '{T}' && /add\s+.+mana\s+of\s+the\s+chosen\s+colou?r/i.test(ability.effect)) return 'native_chosen_color';
 
   return String(ability.id);
 }
@@ -437,7 +489,8 @@ function buildInlineManaSourcesForPermanent(
     if (!supportsInlineSelectedPaymentAbility(ability)) continue;
     if (isCreature && ability.requiresTap && !canCreatureUseTapAbilityNow(perm, globalBattlefield)) continue;
 
-    const parsedEffect = parseRepresentableManaEffect(ability.effect);
+    const parsedEffect = parseChosenColorManaEffect(ability.effect, (perm as any).chosenColor)
+      || parseRepresentableManaEffect(ability.effect);
     if (!parsedEffect) continue;
 
     const sacrificeCost = getSacrificeCostForAbility(card.name, ability);

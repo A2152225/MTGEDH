@@ -18,7 +18,46 @@ import { parseOracleTextToIR } from './oracleIRParser';
  * Optional `ir_execution_tree` is a simplified DSL lowered before execution.
  */
 
-export type OracleIRCompilerAbilityType = 'SPELL_EFFECT' | 'ACTIVATED' | 'TRIGGERED' | 'STATIC';
+export type OracleIRCompilerAbilityType = 'SPELL_EFFECT' | 'ACTIVATED' | 'TRIGGERED' | 'STATIC' | 'REPLACEMENT';
+
+export interface OverlayReplacementEffectSpecInput {
+  readonly id: string;
+  readonly event: string;
+  readonly match?: Record<string, unknown>;
+  readonly instead: {
+    readonly redirectZone?: string;
+    readonly choiceRequired?: boolean;
+    readonly replacementOptions?: readonly string[];
+    readonly modify?: 'double' | 'add_flat' | 'halve';
+    readonly value?: number;
+    readonly redirectDrawTo?: 'source_controller';
+    readonly sharedDrawCount?: number;
+  };
+  readonly effectId?: string;
+  readonly reason?: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+export interface OverlayStaticEffectSpecInput {
+  readonly id: string;
+  readonly scope: {
+    readonly kind: 'creatures_you_control' | 'other_creatures_you_control' | 'all_creatures' | 'creature_type' | 'player_you';
+    readonly creatureType?: string;
+  };
+  readonly grant: {
+    readonly power?: number;
+    readonly toughness?: number;
+    readonly abilities?: readonly string[];
+    readonly playerHexproof?: boolean;
+    readonly playerShroud?: boolean;
+  };
+  readonly condition?: {
+    readonly kind: 'controller_life_at_least_starting_plus' | 'target_is_token' | 'target_is_not_token' | 'during_source_controller_turn';
+    readonly offset?: number;
+  };
+  readonly layer?: 4 | 5 | 6 | 7;
+  readonly sublayer?: '7a' | '7b' | '7c' | '7d';
+}
 
 export interface OracleIRCompiledAbility {
   readonly ability_type: OracleIRCompilerAbilityType;
@@ -27,6 +66,10 @@ export interface OracleIRCompiledAbility {
   readonly cost?: string;
   readonly effect_text?: string;
   readonly steps: readonly OracleEffectStep[];
+  /** Declarative replacement specs for STATIC / REPLACEMENT overlay abilities (Phase 5.2). */
+  readonly replacement_specs?: readonly OverlayReplacementEffectSpecInput[];
+  /** Declarative static specs for STATIC overlay abilities (Phase 5.3). */
+  readonly static_specs?: readonly OverlayStaticEffectSpecInput[];
 }
 
 /** Simplified compiler DSL — lowered to native OracleEffectStep before execution. */
@@ -115,6 +158,7 @@ const COMPILER_ABILITY_TO_IR: Record<OracleIRCompilerAbilityType, AbilityType> =
   ACTIVATED: AbilityType.ACTIVATED,
   TRIGGERED: AbilityType.TRIGGERED,
   STATIC: AbilityType.STATIC,
+  REPLACEMENT: AbilityType.REPLACEMENT,
 };
 
 const ZONE_MAP: Record<NonNullable<OracleIRCompilerPointer['zone']>, OracleZone> = {

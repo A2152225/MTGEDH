@@ -30,7 +30,7 @@ import {
   parseLibrarySearchFilter,
 } from './oracleIrSpellLegacyTutorUtils.js';
 import { isCelestialReunionOracle } from './chosen-creature-type.js';
-import { applyMillReplacements } from './game-state-effects.js';
+import { evaluateCounterPlacementReplacementEvent, evaluateMillReplacementEvent } from './replacement-effects.js';
 import { processMillTriggers } from './zones.js';
 import { recordCardPutIntoGraveyardThisTurn } from './turn-tracking.js';
 import {
@@ -63,10 +63,12 @@ import {
 } from './triggerLandPlayPromptUtils.js';
 import { queueEachPlayerCounterPlacementPromptsFromOracleIRResult } from './triggerCounterPlacementPromptUtils.js';
 import { bridgeGameStateOracleEffectsAfterOracleIR } from './triggerGameStateOracleBridgeUtils.js';
+import { bridgeCreatedTokenEtbTriggersAfterOracleIR } from './triggerOracleIrTokenEtbBridge.js';
 import {
   applyCounterModifications,
   updateCounters,
 } from './counters_tokens.js';
+import { syncDerivedContinuousEffects } from './staticEffectSpec.js';
 import { mirrorGraveyardCastingPermissionsToDurable } from './graveyard-permissions.js';
 import { syncCastingModifierGrantsFromOracleIRResult } from './casting-modifiers.js';
 import { enrichTokenCardImages } from '../../services/tokens.js';
@@ -84,6 +86,7 @@ import {
 import { persistOracleIrReplayMutationsFromExecution } from '../effects/effectProgramReplayMutationPersistence.js';
 import { createEmptyStepLedger } from '../../../../rules-engine/src/oracleIRStepLedger.js';
 import type { OracleIRTransitionHaltState } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
+import { resolveOracleIrBoundTargetSpellId } from '../../../../rules-engine/src/oracleIrTargetBinding.js';
 
 function enrichBattlefieldTokenImages(state: any): void {
   const cardsNeedingImages: any[] = [];
@@ -490,9 +493,14 @@ function syncCounterReplacementEffectsAfterOracleIR(
       const rawDelta = newCount - oldCount;
       if (rawDelta <= 0) continue;
 
-      const modifiedDelta = Number(
-        applyCounterModifications(state, permanentId, { [counterType]: rawDelta })[counterType] ?? rawDelta,
-      );
+      const replacementResult = evaluateCounterPlacementReplacementEvent({
+        state,
+        targetPermanentId: permanentId,
+        controllerId: perm.controller,
+        deltas: { [counterType]: rawDelta },
+      });
+      const modifiedDeltas = (replacementResult.metadata as { modifiedDeltas?: Record<string, number> } | undefined)?.modifiedDeltas;
+      const modifiedDelta = Number(modifiedDeltas?.[counterType] ?? rawDelta);
       if (modifiedDelta <= rawDelta) continue;
 
       // Oracle IR already applied rawDelta directly to state; add only the replacement bonus.
@@ -583,7 +591,14 @@ export function applyMillReplacementEffectsToSteps(
     );
     if (baseCount === null || baseCount <= 0) return step;
 
-    const { finalCount } = applyMillReplacements(ctx, baseCount, String(controller), String(millTarget));
+    const millResult = evaluateMillReplacementEvent({
+      ctx,
+      state,
+      millingPlayerId: String(controller),
+      targetPlayerId: String(millTarget),
+      count: baseCount,
+    });
+    const finalCount = millResult.replacementAmount ?? baseCount;
     if (finalCount === baseCount) return step;
 
     return {
@@ -3569,6 +3584,8 @@ function queueUnlessPayChoicePromptsFromOracleIRResult(
       const payerId = String(metadata.payerId || players[0] || params.controller).trim() as PlayerID;
       queuedKeys.add(queueKey);
 
+      const boundTargetSpellId = resolveOracleIrBoundTargetSpellId(params.irCtx);
+
       ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
         type: ResolutionStepType.OPTION_CHOICE,
         playerId: payerId,
@@ -3593,9 +3610,7 @@ function queueUnlessPayChoicePromptsFromOracleIRResult(
         oracleIrControllerId: params.controller,
         oracleIrSourceId: sourceId,
         oracleIrSourceName: sourceName,
-        ...(String(params.irCtx?.targetSpellId || '').trim()
-          ? { oracleIrTargetSpellId: String(params.irCtx?.targetSpellId || '').trim() }
-          : {}),
+        ...(boundTargetSpellId ? { oracleIrTargetSpellId: boundTargetSpellId } : {}),
       } as any, result, params) as any);
       continue;
     }
@@ -3611,6 +3626,8 @@ function queueUnlessPayChoicePromptsFromOracleIRResult(
       const players = resolvePlayers(state, (skippedStep as any).who, params.irCtx);
       const payerId = String(metadata.payerId || players[0] || params.controller).trim() as PlayerID;
       queuedKeys.add(queueKey);
+
+      const boundTargetSpellId = resolveOracleIrBoundTargetSpellId(params.irCtx);
 
       ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
         type: ResolutionStepType.OPTION_CHOICE,
@@ -3636,6 +3653,7 @@ function queueUnlessPayChoicePromptsFromOracleIRResult(
         oracleIrControllerId: params.controller,
         oracleIrSourceId: sourceId,
         oracleIrSourceName: sourceName,
+        ...(boundTargetSpellId ? { oracleIrTargetSpellId: boundTargetSpellId } : {}),
       } as any, result, params) as any);
     }
   }
@@ -4416,6 +4434,7 @@ export function applyOracleIRStepsOnServer(
     continuationSteps: result.pendingContinuationSteps,
   });
   enrichBattlefieldTokenImages(state);
+  syncDerivedContinuousEffects(state);
   syncCounterReplacementEffectsAfterOracleIR(ctx, state, countersBefore);
   syncAllOracleIRPlayerZonesAfterResolution(ctx);
   bridgeScheduleDelayedFlickerReturnsFromOracleIRResult(ctx, state, result, exileBefore, {
@@ -4499,6 +4518,7 @@ export function applyOracleIRStepsOnServer(
     triggerItem: params?.triggerItem,
     effectText: String(params?.oracleText || adjustedSteps.map((step) => String((step as any).raw || '')).filter(Boolean).join(' ')),
   });
+  bridgeCreatedTokenEtbTriggersAfterOracleIR(ctx, state, result);
   queuePlayerChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',

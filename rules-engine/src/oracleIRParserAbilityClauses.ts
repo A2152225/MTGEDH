@@ -1,4 +1,5 @@
 import type { OracleEffectStep } from './oracleIR';
+import { tryParseCreateTokenFollowupModifier } from './oracleIRParserTokenFollowup';
 import { normalizeOracleText, splitIntoClauses } from './oracleIRParserUtils';
 import {
   splitConservativeSacrificeLeadClause,
@@ -398,7 +399,7 @@ export function buildAbilityClauses(args: {
     combinedClauses.push(clause);
   }
 
-  return combinedClauses.flatMap(clause =>
+  const expandedClauses = combinedClauses.flatMap(clause =>
     splitConservativeSacrificeLeadClause({ rawClause: clause, cardName, parseEffectClauseToStep }) ??
     splitConservativeTemporaryAbilityEvasionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeGrantedDiesTriggerSetBasePtClause({ rawClause: clause, parseEffectClauseToStep }) ??
@@ -416,4 +417,38 @@ export function buildAbilityClauses(args: {
     splitConservativeExileFromLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??
     [clause]
   );
+
+  return mergeTrailingCreateTokenFollowupClauses(expandedClauses);
+}
+
+function acceptsCreateTokenFollowupModifierLead(clause: string): boolean {
+  const normalized = normalizeOracleText(clause).trim().toLowerCase();
+  if (!normalized) return false;
+
+  // Reanimation and non-token battlefield puts keep haste/exile riders as separate steps.
+  if (
+    (/\breturn\b/.test(normalized) || /\bput\b.+\bonto the battlefield\b/.test(normalized)) &&
+    !/\bcreate\b.+\btoken/.test(normalized)
+  ) {
+    return false;
+  }
+
+  return /\bcreate\b/.test(normalized) && /\btoken/.test(normalized);
+}
+
+function mergeTrailingCreateTokenFollowupClauses(clauses: readonly string[]): string[] {
+  if (clauses.length <= 1) return [...clauses];
+  const out: string[] = [];
+  for (const clause of clauses) {
+    if (
+      tryParseCreateTokenFollowupModifier(clause) &&
+      out.length > 0 &&
+      acceptsCreateTokenFollowupModifierLead(out[out.length - 1] || '')
+    ) {
+      out[out.length - 1] = `${out[out.length - 1]}. ${clause}`;
+      continue;
+    }
+    out.push(clause);
+  }
+  return out;
 }

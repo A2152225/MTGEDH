@@ -2,6 +2,7 @@ import type { BattlefieldPermanent } from "../../../shared/src/types.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { permanentHasCreatureTypeNow } from './creatureTypeNow.js';
 import { evaluateLifeGainReplacementEvent } from './modules/replacement-effects.js';
+import { getContinuousPTBonusForPermanent, getContinuousPTBonusSourcesForPermanent } from './modules/staticEffectSpec.js';
 import { getLibraryTopCardFromState } from './modules/game-state-effects.js';
 
 export function uid(prefix = "id"): string {
@@ -1391,46 +1392,6 @@ const AURA_BONUSES: Record<string, { power: number; toughness: number }> = {
 };
 
 /**
- * Known global enchantments that give bonuses to creatures
- * Maps card name (lowercase) to a function that calculates the bonus
- */
-const GLOBAL_ENCHANTMENT_BONUSES: Record<string, {
-  power: number;
-  toughness: number;
-  condition?: (creature: any, controller: string, gameState?: any) => boolean;
-}> = {
-  "glorious anthem": { power: 1, toughness: 1 },
-  "honor of the pure": { power: 1, toughness: 1, condition: (c) => (c.card?.colors || []).includes('W') || (c.card?.type_line || '').toLowerCase().includes('white') },
-  "crusade": { power: 1, toughness: 1, condition: (c) => (c.card?.colors || []).includes('W') },
-  "bad moon": { power: 1, toughness: 1, condition: (c) => (c.card?.colors || []).includes('B') },
-  "gaea's anthem": { power: 1, toughness: 1 },
-  "dictate of heliod": { power: 2, toughness: 2 },
-  "intangible virtue": { power: 1, toughness: 1, condition: (c) => (c.card?.type_line || '').toLowerCase().includes('token') || c.isToken },
-  "force of virtue": { power: 1, toughness: 1 },
-  "always watching": { power: 1, toughness: 1, condition: (c) => !(c.card?.type_line || '').toLowerCase().includes('token') && !c.isToken },
-  "spear of heliod": { power: 1, toughness: 1 },
-  "marshal's anthem": { power: 1, toughness: 1 },
-  "collective blessing": { power: 3, toughness: 3 },
-  "cathars' crusade": { power: 0, toughness: 0 }, // Handled via counters
-  "shared animosity": { power: 0, toughness: 0 }, // Variable
-  "true conviction": { power: 0, toughness: 0 }, // No P/T bonus, just keywords
-  // Leyline of Hope: "If you have at least 7 life more than your starting life total, 
-  // creatures you control get +2/+2."
-  // In Commander, starting life is typically 40, so you need 47+ life for the bonus.
-  "leyline of hope": { 
-    power: 2, 
-    toughness: 2, 
-    condition: (_c, controllerId, gameState) => {
-      if (!gameState) return false;
-      const startingLife = gameState.startingLife || 40;
-      const currentLife = gameState.life?.[controllerId] ?? startingLife;
-      // Condition: current life >= starting life + 7
-      return currentLife >= startingLife + 7;
-    }
-  },
-};
-
-/**
  * Known lord creatures that give bonuses to other creatures
  * Maps card name (lowercase) to bonus info
  */
@@ -1467,6 +1428,68 @@ const LORD_BONUSES: Record<string, {
   "coat of arms": { power: 0, toughness: 0 }, // Variable
 };
 
+/** Table-driven P/T with conditions not yet modeled in computeContinuousEffects. */
+function applyConditionalTablePTBonuses(
+  creaturePerm: any,
+  gameState: any,
+): { power: number; toughness: number } {
+  let powerBonus = 0;
+  let toughnessBonus = 0;
+  const battlefield = gameState?.battlefield || [];
+  const controllerId = creaturePerm?.controller;
+
+  for (const perm of battlefield) {
+    if (!perm?.card) continue;
+    const cardName = String(perm.card.name || '').toLowerCase();
+    const typeLine = String(perm.card.type_line || '').toLowerCase();
+
+    if (!typeLine.includes('creature') || perm.controller !== controllerId) continue;
+    if (perm.id === creaturePerm.id) continue;
+
+    const lordBonus = LORD_BONUSES[cardName];
+    if (!lordBonus?.condition) continue;
+    if (lordBonus.condition(creaturePerm, perm)) {
+      powerBonus += lordBonus.power;
+      toughnessBonus += lordBonus.toughness;
+    }
+  }
+
+  return { power: powerBonus, toughness: toughnessBonus };
+}
+
+function applyConditionalTablePTBonusesWithSources(
+  creaturePerm: any,
+  gameState: any,
+): PTBonusSource[] {
+  const sources: PTBonusSource[] = [];
+  const battlefield = gameState?.battlefield || [];
+  const controllerId = creaturePerm?.controller;
+
+  for (const perm of battlefield) {
+    if (!perm?.card) continue;
+    const cardName = String(perm.card.name || '').toLowerCase();
+    const typeLine = String(perm.card.type_line || '').toLowerCase();
+
+    if (!typeLine.includes('creature') || perm.controller !== controllerId) continue;
+    if (perm.id === creaturePerm.id) continue;
+
+    const lordBonus = LORD_BONUSES[cardName];
+    if (!lordBonus?.condition) continue;
+    if (lordBonus.condition(creaturePerm, perm)) {
+      if (lordBonus.power !== 0 || lordBonus.toughness !== 0) {
+        sources.push({
+          name: perm.card.name || 'Lord',
+          power: lordBonus.power,
+          toughness: lordBonus.toughness,
+          type: 'creature',
+        });
+      }
+    }
+  }
+
+  return sources;
+}
+
 /**
  * Calculate all P/T bonuses for a creature from ALL sources
  * 
@@ -1487,7 +1510,6 @@ export function calculateAllPTBonuses(
   
   const battlefield = gameState.battlefield || [];
   const controllerId = creaturePerm.controller;
-  const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
   const creatureName = (creaturePerm.card?.name || '').toLowerCase();
   
   // 0. Special creature-specific P/T bonuses (Omnath, Ulvenwald Channelers, etc.)
@@ -1521,191 +1543,15 @@ export function calculateAllPTBonuses(
   powerBonus += equipBonus.power;
   toughnessBonus += equipBonus.toughness;
   
-  // 2. Global enchantment bonuses
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    const typeLine = (perm.card.type_line || '').toLowerCase();
-    
-    // Only check enchantments controlled by the same player (most anthem effects)
-    if (!typeLine.includes('enchantment')) continue;
-    
-    const cardName = (perm.card.name || '').toLowerCase();
-    const enchantBonus = GLOBAL_ENCHANTMENT_BONUSES[cardName];
-    
-    if (enchantBonus && perm.controller === controllerId) {
-      // Check condition if any (pass gameState for conditions that need it like Leyline of Hope)
-      if (!enchantBonus.condition || enchantBonus.condition(creaturePerm, controllerId, gameState)) {
-        powerBonus += enchantBonus.power;
-        toughnessBonus += enchantBonus.toughness;
-      }
-    }
-    
-    // Parse generic "creatures you control get +X/+Y" from oracle text
-    if (perm.controller === controllerId) {
-      const oracleText = perm.card.oracle_text || '';
-      const anthemMatch = oracleText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
-      if (anthemMatch && !enchantBonus) { // Don't double count known enchantments
-        powerBonus += parseInt(anthemMatch[1], 10);
-        toughnessBonus += parseInt(anthemMatch[2], 10);
-      }
-    }
-  }
+  // 2. Continuous static effects (regex anthems/lords + overlay specs)
+  const continuousBonus = getContinuousPTBonusForPermanent(creaturePerm, gameState);
+  powerBonus += continuousBonus.power;
+  toughnessBonus += continuousBonus.toughness;
 
-  // 2b. Artifact anthem bonuses (Patchwork Banner, Icon of Ancestry, etc.)
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    if (perm.controller !== controllerId) continue;
-    const typeLine = (perm.card.type_line || '').toLowerCase();
-    if (!typeLine.includes('artifact')) continue;
-
-    const oracleText = perm.card.oracle_text || '';
-    const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
-    const chosenTypeBuffMatch = oracleText.match(/creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i);
-    if (chosenType && chosenTypeBuffMatch && permanentHasCreatureTypeNow(creaturePerm, chosenType)) {
-      powerBonus += parseInt(chosenTypeBuffMatch[1], 10);
-      toughnessBonus += parseInt(chosenTypeBuffMatch[2], 10);
-    }
-  }
-  
-  // 3. Lord/tribal bonuses from other creatures
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    if (perm.id === creaturePerm.id) continue; // Can't buff itself (usually)
-    if (perm.controller !== controllerId) continue; // Lords usually only buff your creatures
-    
-    const typeLine = (perm.card.type_line || '').toLowerCase();
-    if (!typeLine.includes('creature')) continue;
-    
-    const cardName = (perm.card.name || '').toLowerCase();
-    const lordBonus = LORD_BONUSES[cardName];
-    
-    if (lordBonus) {
-      // Check if creature matches the lord's creature type requirement
-      if (lordBonus.creatureType) {
-        if (creatureTypeLine.includes(lordBonus.creatureType)) {
-          powerBonus += lordBonus.power;
-          toughnessBonus += lordBonus.toughness;
-        }
-      } else if (lordBonus.condition) {
-        if (lordBonus.condition(creaturePerm, perm)) {
-          powerBonus += lordBonus.power;
-          toughnessBonus += lordBonus.toughness;
-        }
-      }
-    }
-    
-    // Parse generic "other [type] creatures you control get +X/+Y" from oracle text
-    const oracleText = perm.card.oracle_text || '';
-
-    const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
-    const chosenTypeBuffMatch = oracleText.match(/other creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i)
-      || oracleText.match(/creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i);
-    if (chosenType && chosenTypeBuffMatch && permanentHasCreatureTypeNow(creaturePerm, chosenType)) {
-      powerBonus += parseInt(chosenTypeBuffMatch[1], 10);
-      toughnessBonus += parseInt(chosenTypeBuffMatch[2], 10);
-    }
-
-    const lordMatch = oracleText.match(/other (\w+) creatures you control get \+(\d+)\/\+(\d+)/i);
-    if (lordMatch && !lordBonus) { // Don't double count known lords
-      const targetType = lordMatch[1].toLowerCase();
-      if (creatureTypeLine.includes(targetType)) {
-        powerBonus += parseInt(lordMatch[2], 10);
-        toughnessBonus += parseInt(lordMatch[3], 10);
-      }
-    }
-    
-    // "Other creatures you control get +X/+Y" (no type restriction)
-    const genericLordMatch = oracleText.match(/other creatures you control get \+(\d+)\/\+(\d+)/i);
-    if (genericLordMatch && !lordBonus) {
-      powerBonus += parseInt(genericLordMatch[1], 10);
-      toughnessBonus += parseInt(genericLordMatch[2], 10);
-    }
-  }
-  
-  // 3b. Lord/tribal bonuses that include self (e.g., Daru Warchief: "Soldier creatures you control get +1/+2")
-  // These are different from "Other X" patterns - they apply to ALL creatures of that type including the source
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    if (perm.controller !== controllerId) continue;
-    
-    const typeLine = (perm.card.type_line || '').toLowerCase();
-    if (!typeLine.includes('creature')) continue;
-    
-    const oracleText = perm.card.oracle_text || '';
-    
-    // Pattern: "[TYPE] creatures you control get +X/+Y" (without "other" - includes self)
-    // Examples: "Soldier creatures you control get +1/+2" (Daru Warchief)
-    const selfIncludingLordMatch = oracleText.match(/(?:^|[.;]\s*)(\w+) creatures you control get ([+-]?\d+)\/([+-]?\d+)/i);
-    if (selfIncludingLordMatch) {
-      const matchedText = selfIncludingLordMatch[0];
-      // Make sure this isn't an "other" pattern (double-check)
-      if (!matchedText.toLowerCase().includes('other')) {
-        const targetType = selfIncludingLordMatch[1].toLowerCase();
-        if (creatureTypeLine.includes(targetType)) {
-          const p = parseInt(selfIncludingLordMatch[2], 10);
-          const t = parseInt(selfIncludingLordMatch[3], 10);
-          if (p !== 0 || t !== 0) {
-            powerBonus += p;
-            toughnessBonus += t;
-          }
-        }
-      }
-    }
-  }
-  
-  // 3c. Token-specific static bonuses with turn restrictions
-  // Pattern: "During your turn, creature tokens you control get +X/+Y [and have ...]"
-  // Examples: Mite Overseer ("During your turn, creature tokens you control get +1/+0 and have first strike.")
-  const isToken = creaturePerm.isToken === true;
-  if (isToken) {
-    for (const perm of battlefield) {
-      if (!perm || !perm.card) continue;
-      if (perm.controller !== controllerId) continue;
-      
-      const oracleText = (perm.card.oracle_text || '').toLowerCase();
-      
-      // Pattern: "during your turn, creature tokens you control get +X/+Y"
-      const tokenTurnBonusMatch = oracleText.match(/during your turn,?\s*creature tokens you control get \+(\d+)\/\+(\d+)/i);
-      if (tokenTurnBonusMatch) {
-        // Only apply during controller's turn
-        const isControllerTurn = gameState.turnPlayer === controllerId;
-        if (isControllerTurn) {
-          powerBonus += parseInt(tokenTurnBonusMatch[1], 10);
-          toughnessBonus += parseInt(tokenTurnBonusMatch[2], 10);
-        }
-      }
-      
-      // Also check for non-turn-restricted token bonuses
-      // Pattern: "creature tokens you control get +X/+Y" (without "during your turn" prefix)
-      // Don't use lookbehind as it has case-sensitivity issues with the 'i' flag
-      const tokenBonusMatch = oracleText.match(/creature tokens you control get \+(\d+)\/\+(\d+)/i);
-      if (tokenBonusMatch && !tokenTurnBonusMatch) { // Don't double count if turn-restricted
-        // Only apply if there's no "during your turn" restriction in the text
-        if (!oracleText.includes('during your turn')) {
-          powerBonus += parseInt(tokenBonusMatch[1], 10);
-          toughnessBonus += parseInt(tokenBonusMatch[2], 10);
-        }
-      }
-    }
-  }
-  
-  // 4. Artifact bonuses (non-equipment)
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    if (perm.controller !== controllerId) continue;
-    
-    const typeLine = (perm.card.type_line || '').toLowerCase();
-    if (!typeLine.includes('artifact') || typeLine.includes('equipment')) continue;
-    
-    const oracleText = perm.card.oracle_text || '';
-    
-    // Artifacts that give creatures bonuses
-    const artifactAnthemMatch = oracleText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
-    if (artifactAnthemMatch) {
-      powerBonus += parseInt(artifactAnthemMatch[1], 10);
-      toughnessBonus += parseInt(artifactAnthemMatch[2], 10);
-    }
-  }
+  // 2b. Conditional table exceptions not yet in computeContinuousEffects
+  const conditionalTableBonus = applyConditionalTablePTBonuses(creaturePerm, gameState);
+  powerBonus += conditionalTableBonus.power;
+  toughnessBonus += conditionalTableBonus.toughness;
   
   // 4b. Opponent-sourced chosen-type debuffs (Plague Engineer, etc.)
   for (const perm of battlefield) {
@@ -1923,7 +1769,6 @@ export function calculateAllPTBonusesWithSources(
   
   const battlefield = gameState.battlefield || [];
   const controllerId = creaturePerm.controller;
-  const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
   const creatureName = (creaturePerm.card?.name || '').toLowerCase();
   
   // 0. Special creature-specific P/T bonuses (Omnath, Ulvenwald Channelers, etc.)
@@ -1967,168 +1812,22 @@ export function calculateAllPTBonusesWithSources(
   const equipSources = calculateEquipmentBonusWithSources(creaturePerm, battlefield, gameState);
   sources.push(...equipSources.sources);
   
-  // 2. Global enchantment bonuses
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    const typeLine = (perm.card.type_line || '').toLowerCase();
-    
-    if (!typeLine.includes('enchantment')) continue;
-    
-    const cardName = (perm.card.name || '').toLowerCase();
-    const enchantBonus = GLOBAL_ENCHANTMENT_BONUSES[cardName];
-    
-    if (enchantBonus && perm.controller === controllerId) {
-      if (!enchantBonus.condition || enchantBonus.condition(creaturePerm, controllerId, gameState)) {
-        if (enchantBonus.power !== 0 || enchantBonus.toughness !== 0) {
-          sources.push({
-            name: perm.card.name || 'Enchantment',
-            power: enchantBonus.power,
-            toughness: enchantBonus.toughness,
-            type: 'enchantment',
-          });
-        }
-      }
-    }
-    
-    // Parse generic "creatures you control get +X/+Y" or "-X/-Y" from oracle text
-    if (perm.controller === controllerId && !enchantBonus) {
-      const oracleText = perm.card.oracle_text || '';
-      const anthemMatch = oracleText.match(/creatures you control get ([+-]?\d+)\/([+-]?\d+)/i);
-      if (anthemMatch) {
-        const p = parseInt(anthemMatch[1], 10);
-        const t = parseInt(anthemMatch[2], 10);
-        if (p !== 0 || t !== 0) {
-          sources.push({
-            name: perm.card.name || 'Enchantment',
-            power: p,
-            toughness: t,
-            type: 'enchantment',
-          });
-        }
-      }
-    }
+  // 2. Continuous static effects (regex anthems/lords + overlay specs)
+  const continuousSources = getContinuousPTBonusSourcesForPermanent(creaturePerm, gameState);
+  for (const continuousSource of continuousSources.sources) {
+    if (continuousSource.power === 0 && continuousSource.toughness === 0) continue;
+    sources.push({
+      name: continuousSource.name,
+      power: continuousSource.power,
+      toughness: continuousSource.toughness,
+      type: 'other',
+    });
   }
-  
-  // 3. Lord/tribal bonuses from other creatures
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    if (perm.id === creaturePerm.id) continue;
-    if (perm.controller !== controllerId) continue;
-    
-    const typeLine = (perm.card.type_line || '').toLowerCase();
-    if (!typeLine.includes('creature')) continue;
-    
-    const cardName = (perm.card.name || '').toLowerCase();
-    const lordBonus = LORD_BONUSES[cardName];
-    
-    if (lordBonus) {
-      let applies = false;
-      if (lordBonus.creatureType && creatureTypeLine.includes(lordBonus.creatureType)) {
-        applies = true;
-      } else if (lordBonus.condition && lordBonus.condition(creaturePerm, perm)) {
-        applies = true;
-      }
-      
-      if (applies && (lordBonus.power !== 0 || lordBonus.toughness !== 0)) {
-        sources.push({
-          name: perm.card.name || 'Lord',
-          power: lordBonus.power,
-          toughness: lordBonus.toughness,
-          type: 'creature',
-        });
-      }
-    }
-    
-    // Parse generic lord patterns
-    const oracleText = perm.card.oracle_text || '';
 
-    const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
-    const chosenTypeBuffMatch = oracleText.match(/other creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i)
-      || oracleText.match(/creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i);
-    if (chosenType && chosenTypeBuffMatch && permanentHasCreatureTypeNow(creaturePerm, chosenType)) {
-      const p = parseInt(chosenTypeBuffMatch[1], 10);
-      const t = parseInt(chosenTypeBuffMatch[2], 10);
-      if (p !== 0 || t !== 0) {
-        sources.push({
-          name: perm.card.name || 'Creature',
-          power: p,
-          toughness: t,
-          type: 'creature',
-        });
-      }
-    }
-
-    if (!lordBonus) {
-      // Pattern 1: "Other [TYPE] creatures you control get +X/+Y" (excludes self)
-      const lordMatch = oracleText.match(/other (\w+) creatures you control get \+(\d+)\/\+(\d+)/i);
-      if (lordMatch) {
-        const targetType = lordMatch[1].toLowerCase();
-        if (creatureTypeLine.includes(targetType)) {
-          const p = parseInt(lordMatch[2], 10);
-          const t = parseInt(lordMatch[3], 10);
-          sources.push({
-            name: perm.card.name || 'Lord',
-            power: p,
-            toughness: t,
-            type: 'creature',
-          });
-        }
-      }
-      
-      // Pattern 2: "Other creatures you control get +X/+Y" (no type restriction, excludes self)
-      const genericLordMatch = oracleText.match(/other creatures you control get \+(\d+)\/\+(\d+)/i);
-      if (genericLordMatch) {
-        const p = parseInt(genericLordMatch[1], 10);
-        const t = parseInt(genericLordMatch[2], 10);
-        sources.push({
-          name: perm.card.name || 'Lord',
-          power: p,
-          toughness: t,
-          type: 'creature',
-        });
-      }
-    }
-  }
+  // 2b. Conditional table exceptions not yet in computeContinuousEffects
+  sources.push(...applyConditionalTablePTBonusesWithSources(creaturePerm, gameState));
   
-  // 3b. Lord/tribal bonuses that include self (e.g., Daru Warchief: "Soldier creatures you control get +1/+2")
-  // These are different from "Other X" patterns - they apply to ALL creatures of that type including the source
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    if (perm.controller !== controllerId) continue;
-    
-    const typeLine = (perm.card.type_line || '').toLowerCase();
-    if (!typeLine.includes('creature')) continue;
-    
-    const oracleText = perm.card.oracle_text || '';
-    
-    // Pattern: "[TYPE] creatures you control get +X/+Y" (without "other" - includes self)
-    // This pattern uses negative lookbehind to exclude "other X creatures" patterns
-    // Examples: "Soldier creatures you control get +1/+2" (Daru Warchief)
-    //           "Zombie creatures you control get +1/+1" (various zombie lords)
-    // Must NOT start with "other" to distinguish from the patterns above
-    const selfIncludingLordMatch = oracleText.match(/(?:^|[.;]\s*)(\w+) creatures you control get ([+-]?\d+)\/([+-]?\d+)/i);
-    if (selfIncludingLordMatch) {
-      const matchedText = selfIncludingLordMatch[0];
-      // Make sure this isn't an "other" pattern (double-check)
-      if (!matchedText.toLowerCase().includes('other')) {
-        const targetType = selfIncludingLordMatch[1].toLowerCase();
-        if (creatureTypeLine.includes(targetType)) {
-          const p = parseInt(selfIncludingLordMatch[2], 10);
-          const t = parseInt(selfIncludingLordMatch[3], 10);
-          if (p !== 0 || t !== 0) {
-            sources.push({
-              name: perm.card.name || 'Lord',
-              power: p,
-              toughness: t,
-              type: 'creature',
-            });
-          }
-        }
-      }
-    }
-  }
-  
-  // 4. Artifact bonuses (non-equipment)
+  // 4. Artifact bonuses (non-equipment) — chosen-color anthems only; generic anthems use continuous path
   // Helper function to check if creature has the specified color
   const creatureHasColor = (chosenColor: string): boolean => {
     const creatureColors = (creaturePerm.card?.colors || []).map((c: string) => c.toLowerCase());
@@ -2170,20 +1869,6 @@ export function calculateAllPTBonusesWithSources(
         toughness: 1,
         type: 'artifact',
       });
-    }
-    // Generic artifact anthem detection
-    else {
-      const artifactAnthemMatch = oracleText.match(/creatures you control get \+(\d+)\/\+(\d+)/i);
-      if (artifactAnthemMatch) {
-        const p = parseInt(artifactAnthemMatch[1], 10);
-        const t = parseInt(artifactAnthemMatch[2], 10);
-        sources.push({
-          name: perm.card.name || 'Artifact',
-          power: p,
-          toughness: t,
-          type: 'artifact',
-        });
-      }
     }
   }
   

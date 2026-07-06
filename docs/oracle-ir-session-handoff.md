@@ -1,8 +1,54 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-07-05 (E9 batch 531 — **search/resolution legacy handlers cleared**; **14** exports remain; Hakbal verified)
+Last updated: 2026-07-06 (replay #1–#18; Phase 5.2–5.4 layer ordering)
 
 ## Next session prompt (copy-paste)
+
+```
+Oracle IR — replay hygiene COMPLETE; Phase 5.2–5.4 declarative replacement/static specs wired; next: live smoke or life-gain prevention declarative.
+
+Verified 2026-07-06:
+- npm run test:oracle-ir-migration — **859/859** expected (122 files; overlay layer/timestamp sort + turn condition tests)
+- npm run oracle-ir:legacy-triage:soak:forced — **125/125**, triage exports **0**
+- npm run oracle-ir:delta — **0 new, 0 changed** (31,318-card baseline current)
+- TRIGGER_LEGACY_EXPORT_CEILING / SPELL_LEGACY_EXPORT_CEILING — **0 / 0**
+
+Replay hygiene queue (DONE #1–#18):
+- Stack pop-only on replay; stale stack scrub; Myrel token duplication fix
+- activate-before-pushTriggeredAbility (persistActivateEvent on all 16 fireBattlefieldAbilityActivatedTriggers sites)
+- stackItemId + usesStack on stack-pushing activateBattlefieldAbility events
+- Fight FIGHT_TARGET + planeswalker loyalty activate replay parity
+- Library-search shuffle replay; Agrus targeted trigger socket replay
+- Migration suite guardrail: myrel-token-replay, stack-replay-accumulation, battlefield-queued-steps.replay, resolve-top-of-stack.replay-side-effects, oracle-ir-removal-rider-spell (+22 tests)
+
+Phase 5 (#19–#20 in progress):
+- **5.2 done:** `collectReplacementEffectSpecsFromState` from overlay STATIC/REPLACEMENT; mill/counter routed through `evaluateReplacementEvent`; builtin token/finality/leave-BF specs.
+- **5.3 done:** `staticEffectSpec.ts` — overlay `static_specs`, `recomputeContinuousEffects`, derived cache at SBA + after Oracle IR apply; P/T unified via `getContinuousPTBonusForPermanent` (regex anthems/lords + overlay); combat ability grants via `getContinuousGrantedAbilitiesForPermanent`.
+- **5.4 started:** conditional static P/T in `computeContinuousEffects` — life threshold (Leyline of Hope), token/nontoken filters, during-your-turn token buffs; removed duplicate `GLOBAL_ENCHANTMENT_BONUSES` table + utils §3c token loop.
+- **5.2 draw:** oracle-pattern draw replacements (Notion Thief, Zur's Weirding, Alms Collector) + graveyard dredge via `collectGraveyardDredgeDrawOptions` in declarative path.
+- **5.4 overlay conditions:** `static_specs[].condition` — `controller_life_at_least_starting_plus`, `target_is_token`, `target_is_not_token`, `during_source_controller_turn`.
+- **5.4 layer ordering:** `static_specs[].layer` / `sublayer`; `compareStaticEffectSpecsForApplication` sorts overlay specs by layer → sublayer → battlefield index timestamp before apply.
+- Tests: `replacement-effect-spec.unit.test.ts` (14), `static-effect-spec.unit.test.ts` (12), `leave-battlefield-replacement.integration.test.ts` (13)
+
+Verify at session start (fast):
+cd server
+npx vitest run tests/myrel-token-replay.integration.test.ts tests/stack-replay-accumulation.integration.test.ts tests/battlefield-queued-steps.replay.test.ts tests/oracle-ir-agrus-targeted-trigger.socket.replay.integration.test.ts tests/replay-divergence.guardrail.integration.test.ts tests/oracle-ir-spell-primary.integration.test.ts tests/oracle-ir-removal-rider-spell.integration.test.ts tests/replacement-effect-spec.unit.test.ts tests/replacement-effects.test.ts
+
+Live smoke (restart server first):
+- Myrel attack → 1 soldier; undo twice + restart → still 1
+- Rejoin mid-game → stack empty (or one genuine pending trigger if log ends on push)
+- Swords on commander → command-zone choice + life = power (automated: oracle-ir-spell-primary Swords commander case)
+
+Architecture: docs/oracle-ir-architecture-guide.md §15.5
+
+Next work (priority order):
+1. Live EDH soak after server restart (items above)
+2. New-set ingest: card-lookup:refresh → oracle-ir:delta → overlay queue per docs/oracle-ir-track-e-remaining-work.md §A
+3. Phase 5.4 remainder — declarative life-gain prevention; unify any remaining P/T edge paths (`docs/oracle-ir-phase5-continuous-effects-design.md`)
+4. D6 generic choice primitives — extend resolutionChoicePrimitives for novel queue shapes
+```
+
+## Previous session prompt (referenced-object pronouns + spell riders)
 
 ```
 Track E9 / D3 legacy handler retirement — continue from batch 531.
@@ -13,10 +59,14 @@ Current metrics (verify at session start):
 - npm run test:oracle-ir-migration — expect 811/811; telemetry 0 under IR primary
 - Latest snapshot: server/scripts/out/telemetry-snapshot-post531.json
 
-Replay/undo (DONE — batch 508–514; do not re-open unless replay-divergence test fails):
-- Source events: drawCards, shuffleLibrary, moveResolvedInstantOrSorcery, remainingLibraryIds, exilePermanent
+Replay/undo (UPDATED 2026-07-06 — stack pop + stale scrub; see §15.5 architecture guide):
+- pushTriggeredAbility + executeEffect + resolveTopOfStack replay contract
+- consumeReplayedTriggeredAbilityStackItems, scrubStaleReplayedStackAfterFullReplay
+- isReplaying guards on oracleIrTriggerExecution / oracleIrSpellExecution
+- Tests: myrel-token-replay, stack-replay-accumulation, resolve-top-of-stack.replay-side-effects
+- Prior: drawCards, shuffleLibrary, moveResolvedInstantOrSorcery, replayMutations pipeline (batch 508–514)
 - Guardrail: tests/helpers/replayDivergence.ts + replay-divergence.guardrail + Kodama/Cultivate/Opt adoption
-- Key files: effectProgramReplayMutationPersistence.ts, resolution.ts (library search persist), applyEvent.ts
+- Key files: replay-prompt-cleanup.ts, applyEvent.ts, effectProgramReplayMutationPersistence.ts
 
 Stub modules (safe cleanup when touching nearby code):
 - oracleIrTriggerLegacySearchHandlers.ts — empty after batch 531 (re-exports EnqueueLibrarySearchStepFn only)

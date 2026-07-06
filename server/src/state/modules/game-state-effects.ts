@@ -3604,7 +3604,6 @@ export function applyMillReplacements(
   targetPlayerId: string
 ): { finalCount: number; appliedEffects: string[] } {
   const effects = detectMillReplacementEffects(ctx, millingPlayerId, targetPlayerId);
-  // For mill (hurting opponents), we want to maximize, so use beneficial ordering
   const result = applyBeneficialReplacements(baseCount, effects);
   return { finalCount: result.finalAmount, appliedEffects: result.appliedEffects };
 }

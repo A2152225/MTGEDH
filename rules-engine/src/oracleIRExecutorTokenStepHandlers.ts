@@ -19,6 +19,12 @@ import {
   resolveBattlefieldEntryFromOracleIrContext,
   type OracleIrBattlefieldEntryContext,
 } from './oracleIRExecutorBattlefieldEntryCommit';
+import {
+  collectThisWayDestroyedObjects,
+  resolveReferencedObjectPlayerIds,
+  type ReferencedObjectRole,
+  type ReferencedObjectRuntime,
+} from './oracleIRExecutorReferenceUtils';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -313,36 +319,6 @@ function applyTemporaryGrantedAbilitiesToToken(
   } as any;
 }
 
-function getOwnerIdFromCard(card: any): string {
-  return String(
-    card?.ownerId ??
-      card?.owner ??
-      card?.card?.ownerId ??
-      card?.card?.owner ??
-      ''
-  ).trim();
-}
-
-function resolveTokenControllersFromMovedCards(
-  runtime?: TokenStepRuntime,
-  ctx?: OracleIRExecutionContext
-): readonly PlayerID[] {
-  const movedCards = [
-    ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
-    ...(Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : []),
-    ...(Array.isArray(ctx?.lastMovedCards) ? ctx.lastMovedCards : []),
-    ...(Array.isArray((ctx as any)?.lastSacrificedPermanents) ? (ctx as any).lastSacrificedPermanents : []),
-  ];
-  const seen = new Set<string>();
-  const out: PlayerID[] = [];
-  for (const card of movedCards) {
-    const ownerId = getOwnerIdFromCard(card);
-    if (!ownerId || seen.has(ownerId)) continue;
-    seen.add(ownerId);
-    out.push(ownerId as PlayerID);
-  }
-  return out;
-}
 
 function resolveTokenAmount(
   state: GameState,
@@ -448,6 +424,138 @@ function normalizeReferenceText(value: string | undefined): string {
     .replace(/[.\s]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function isThoseTokenReferenceHint(tokenHint: string): boolean {
+  const normalized = normalizeReferenceText(tokenHint);
+  return normalized === 'of those'
+    || normalized === 'those'
+    || normalized === 'those tokens'
+    || normalized === 'of those tokens';
+}
+
+function resolveThoseTokenReferencePermanents(
+  state: GameState,
+  controllerId: PlayerID,
+  runtime?: TokenStepRuntime,
+): readonly any[] {
+  const createdIds = Array.isArray(runtime?.lastCreatedTokenIds)
+    ? runtime.lastCreatedTokenIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (createdIds.length > 0) {
+    const fromCreated = (state.battlefield || []).filter((perm: any) =>
+      createdIds.includes(String(perm?.id || '').trim())
+      && String(perm?.controller || '').trim() === String(controllerId).trim()
+    );
+    if (fromCreated.length > 0) return fromCreated;
+  }
+
+  return (state.battlefield || []).filter((perm: any) => {
+    if (String(perm?.controller || '').trim() !== String(controllerId).trim()) return false;
+    const typeLine = String(perm?.card?.type_line || perm?.type_line || '');
+    return Boolean(perm?.isToken) || /\btoken\b/i.test(typeLine);
+  });
+}
+
+function tryApplyThoseReferencedTokenCreation(
+  state: GameState,
+  controllerId: PlayerID,
+  amount: number,
+  tokenHint: string,
+  clauseRaw: string,
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime,
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>,
+  attackTargetPlayerId?: string,
+  temporaryGrantedAbilities?: readonly string[],
+  permanentGrantedAbilities?: readonly string[],
+  blockTargetPermanentId?: string,
+): StepApplyResult | StepSkipResult | null {
+  if (!isThoseTokenReferenceHint(tokenHint)) return null;
+
+  const references = resolveThoseTokenReferencePermanents(state, controllerId, runtime);
+  if (references.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped token creation (those-token reference unavailable): ${clauseRaw}`,
+      reason: 'impossible_action',
+    };
+  }
+
+  const isInsteadReplacement = /\binstead\b/i.test(clauseRaw);
+  let count = Math.max(0, amount | 0);
+  if (isInsteadReplacement) {
+    count = Math.max(0, count - references.length);
+  }
+  if (count <= 0) {
+    return {
+      applied: true,
+      state,
+      log: [`Those-token replacement already satisfied: ${clauseRaw}`],
+      createdTokenIds: [],
+    };
+  }
+
+  const reference = references[0];
+  const copySourcePermanentId = String((reference as any)?.id || '').trim() || undefined;
+  const entryMods = resolveTokenBattlefieldEntry(state, (reference as any)?.card || reference, controllerId, ctx, {
+    entersTapped,
+    withCounters,
+    copySourceId: copySourcePermanentId,
+  });
+  if (entryMods.halted) {
+    return { applied: true, state, log: [], createdTokenIds: [] };
+  }
+
+  const copiedTokens: BattlefieldPermanent[] = [];
+  for (let idx = 0; idx < count; idx += 1) {
+    const token = createCopiedTokenPermanent({
+      sourceObject: reference,
+      controllerId,
+      sourceId: ctx.sourceId,
+      sourceName: ctx.sourceName,
+      copySourcePermanentId,
+      entersTapped: entryMods.entersTapped,
+      withCounters: entryMods.withCounters,
+      overrides: {},
+    }) as any;
+
+    if (attackTargetPlayerId) {
+      token.tapped = Boolean(entersTapped);
+      token.summoningSickness = false;
+      token.attacking = attackTargetPlayerId;
+      token.attackingPlayerId = controllerId;
+      token.defendingPlayerId = attackTargetPlayerId;
+    }
+
+    const tokenWithPermanentAbilities =
+      Array.isArray(permanentGrantedAbilities) && permanentGrantedAbilities.length > 0
+        ? {
+            ...token,
+            grantedAbilities: Array.from(
+              new Set([...(Array.isArray(token.grantedAbilities) ? token.grantedAbilities : []), ...permanentGrantedAbilities])
+            ),
+          }
+        : token;
+    copiedTokens.push(applyTemporaryGrantedAbilitiesToToken(tokenWithPermanentAbilities, temporaryGrantedAbilities));
+  }
+
+  let nextState: GameState = {
+    ...state,
+    battlefield: [...(state.battlefield || []), ...copiedTokens],
+  };
+  if (blockTargetPermanentId) {
+    nextState = applyBlockingEntryToCreatedTokens(nextState, copiedTokens.map((token) => String((token as any)?.id || '').trim()).filter(Boolean), blockTargetPermanentId).state;
+  }
+
+  const referenceName = String((reference as any)?.card?.name || (reference as any)?.name || 'token');
+  return {
+    applied: true,
+    state: nextState,
+    log: [`Created ${count} token(s) matching ${referenceName}${isInsteadReplacement ? ' (graveyard replacement)' : ''}`],
+    createdTokenIds: copiedTokens.map((token) => String((token as any)?.id || '').trim()).filter(Boolean),
+  };
 }
 
 function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
@@ -1532,6 +1640,23 @@ function addTokensToBattlefield(
   blockTargetPermanentId?: string,
 ): StepApplyResult | StepSkipResult {
   const hasOverrides = Boolean(entersTapped) || (withCounters && Object.keys(withCounters).length > 0);
+  const thoseReferencedResult = tryApplyThoseReferencedTokenCreation(
+    state,
+    controllerId,
+    amount,
+    tokenHint,
+    clauseRaw,
+    ctx,
+    runtime,
+    entersTapped,
+    withCounters,
+    attackTargetPlayerId,
+    temporaryGrantedAbilities,
+    permanentGrantedAbilities,
+    blockTargetPermanentId,
+  );
+  if (thoseReferencedResult) return thoseReferencedResult;
+
   const copySource = resolveCopyTokenSource(state, tokenHint, ctx, runtime);
   if (copySource) {
     if (copySource.kind === 'player_choice_required') {
@@ -1992,6 +2117,196 @@ function resolveBlockTargetPermanentId(
   return blockingTarget || undefined;
 }
 
+const FOR_EACH_DESTROYED_REFERENCED_CONTROLLER_CREATE =
+  /^for each\s+(.+?),\s+(?:its|their)\s+(controller|owner)\s+creates/i;
+
+const FOR_EACH_DESTROYED_CREATE_COPY =
+  /^for each\s+(.+?)\s+destroyed this way,\s+create(?:\s+a)?\s+token(?:s)?\s+that(?:'s| is| are)\s+(?:a\s+)?copy\s+of\s+/i;
+
+function tryApplyForEachDestroyedThisWayCreateCopyToken(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'create_token' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime,
+): TokenStepHandlerResult | null {
+  const raw = String(step.raw || '').trim();
+  if (!FOR_EACH_DESTROYED_CREATE_COPY.test(raw)) return null;
+  if (step.who?.kind && step.who.kind !== 'you') return null;
+
+  const match = raw.match(FOR_EACH_DESTROYED_CREATE_COPY);
+  const countedExpression = String(match?.[1] || '').trim();
+  const controllerId = String(ctx.controllerId || '').trim() as PlayerID;
+  const destroyedObjects = collectThisWayDestroyedObjects(
+    ctx,
+    countedExpression,
+    runtime as ReferencedObjectRuntime | undefined,
+    step,
+  );
+  if (destroyedObjects.length === 0) {
+    return { applied: true, state, log: ['No destroyed objects for for-each copy rider'] };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+  const allCreatedTokenIds: string[] = [];
+
+  for (const destroyedObject of destroyedObjects) {
+    const objectId = String(destroyedObject?.id || destroyedObject?.objectId || '').trim();
+    if (!objectId) continue;
+
+    const iterationCtx = buildReferencedObjectIterationContext(ctx, objectId);
+    const result = addTokensToBattlefield(
+      nextState,
+      controllerId,
+      1,
+      step.token,
+      step.raw,
+      iterationCtx,
+      runtime,
+      step.entersTapped,
+      step.withCounters,
+      step.attacking === 'defending_player'
+        ? String(
+            ctx.selectorContext?.targetOpponentId ||
+              ctx.selectorContext?.targetPlayerId ||
+              (ctx as any).targetOpponentId ||
+              (ctx as any).targetPlayerId ||
+              '',
+          ).trim() || undefined
+        : undefined,
+      undefined,
+      step.blocking === 'that_creature' ? resolveBlockTargetPermanentId(state, step, ctx) : undefined,
+    );
+    if (!result.applied) return result;
+    nextState = result.state;
+    log.push(...result.log);
+    if (Array.isArray(result.createdTokenIds)) {
+      allCreatedTokenIds.push(...result.createdTokenIds);
+    }
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log: log.length > 0 ? log : [`Created ${allCreatedTokenIds.length} copy token(s) for destroyed objects`],
+    createdTokenIds: allCreatedTokenIds,
+  };
+}
+
+function buildReferencedObjectIterationContext(
+  ctx: OracleIRExecutionContext,
+  objectId: string,
+): OracleIRExecutionContext {
+  const normalizedId = String(objectId || '').trim();
+  const {
+    targetPlayerId: _targetPlayerId,
+    targetOpponentId: _targetOpponentId,
+    ...ctxWithoutPlayerBinding
+  } = ctx as OracleIRExecutionContext & { targetOpponentId?: string };
+  const {
+    targetPlayerId: _selectorTargetPlayerId,
+    targetOpponentId: _selectorTargetOpponentId,
+    ...selectorWithoutPlayerBinding
+  } = (ctx.selectorContext || {}) as Record<string, unknown>;
+  return {
+    ...ctxWithoutPlayerBinding,
+    targetPermanentId: normalizedId,
+    targetCreatureId: normalizedId,
+    lastReferencedPermanentId: normalizedId,
+    selectorContext: {
+      ...selectorWithoutPlayerBinding,
+      chosenObjectIds: [normalizedId],
+      targetPermanentId: normalizedId,
+      targetCreatureId: normalizedId,
+    },
+  };
+}
+
+function tryApplyForEachDestroyedThisWayPerControllerCreateToken(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'create_token' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime,
+): TokenStepHandlerResult | null {
+  const raw = String(step.raw || '').trim();
+  const match = raw.match(FOR_EACH_DESTROYED_REFERENCED_CONTROLLER_CREATE);
+  if (!match) return null;
+
+  const who = step.who as { kind?: string } | undefined;
+  const role: ReferencedObjectRole =
+    who?.kind === 'owner_of_referenced_object' ? 'owner' : 'controller';
+  if (who?.kind !== 'controller_of_referenced_object' && who?.kind !== 'owner_of_referenced_object') {
+    return null;
+  }
+
+  const countedExpression = String(match[1] || '').trim();
+  const destroyedObjects = collectThisWayDestroyedObjects(
+    ctx,
+    countedExpression,
+    runtime as ReferencedObjectRuntime | undefined,
+    step,
+  );
+  if (destroyedObjects.length === 0) {
+    return { applied: true, state, log: ['No destroyed objects for for-each token rider'] };
+  }
+
+  const defendingPlayerId = String(
+    ctx.selectorContext?.targetOpponentId ||
+      ctx.selectorContext?.targetPlayerId ||
+      (ctx as any).targetOpponentId ||
+      (ctx as any).targetPlayerId ||
+      ''
+  ).trim();
+  const blockTargetPermanentId = resolveBlockTargetPermanentId(state, step, ctx);
+
+  let nextState = state;
+  const log: string[] = [];
+  const allCreatedTokenIds: string[] = [];
+  const runtimeRef: ReferencedObjectRuntime = {
+    lastMovedCards: runtime?.lastMovedCards,
+    lastSacrificedPermanents: runtime?.lastSacrificedPermanents,
+  };
+
+  for (const destroyedObject of destroyedObjects) {
+    const objectId = String(destroyedObject?.id || destroyedObject?.objectId || '').trim();
+    if (!objectId) continue;
+
+    const iterationCtx = buildReferencedObjectIterationContext(ctx, objectId);
+    const players = resolveReferencedObjectPlayerIds(state, iterationCtx, role, runtimeRef);
+    const playerId = String(players[0] || '').trim() as PlayerID;
+    if (!playerId) continue;
+
+    const result = addTokensToBattlefield(
+      nextState,
+      playerId,
+      1,
+      step.token,
+      step.raw,
+      iterationCtx,
+      runtime,
+      step.entersTapped,
+      step.withCounters,
+      step.attacking === 'defending_player' ? defendingPlayerId : undefined,
+      undefined,
+      undefined,
+      step.blocking === 'that_creature' ? blockTargetPermanentId : undefined,
+    );
+    if (!result.applied) return result;
+    nextState = result.state;
+    log.push(...result.log);
+    if (Array.isArray(result.createdTokenIds)) {
+      allCreatedTokenIds.push(...result.createdTokenIds);
+    }
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log: log.length > 0 ? log : [`Created ${allCreatedTokenIds.length} token(s) for destroyed objects`],
+    createdTokenIds: allCreatedTokenIds,
+  };
+}
+
 export function applyCreateTokenStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'create_token' }>,
@@ -2004,6 +2319,22 @@ export function applyCreateTokenStep(
   const attackingCopyResult = tryApplyForEachAttackingCopyTokenStep(state, step, ctx, runtime);
   if (attackingCopyResult) return attackingCopyResult;
 
+  const forEachDestroyedCopyResult = tryApplyForEachDestroyedThisWayCreateCopyToken(
+    state,
+    step,
+    ctx,
+    runtime,
+  );
+  if (forEachDestroyedCopyResult) return forEachDestroyedCopyResult;
+
+  const forEachDestroyedResult = tryApplyForEachDestroyedThisWayPerControllerCreateToken(
+    state,
+    step,
+    ctx,
+    runtime,
+  );
+  if (forEachDestroyedResult) return forEachDestroyedResult;
+
   const amount = resolveTokenAmount(state, step, ctx, runtime);
   if (amount === null) {
     return {
@@ -2014,10 +2345,10 @@ export function applyCreateTokenStep(
     };
   }
 
-  const players =
-    step.who.kind === 'owner_of_moved_cards'
-      ? resolveTokenControllersFromMovedCards(runtime, ctx)
-      : resolvePlayers(state, step.who, ctx);
+  const players = resolvePlayers(state, step.who, ctx, {
+    lastMovedCards: runtime?.lastMovedCards,
+    lastSacrificedPermanents: runtime?.lastSacrificedPermanents,
+  });
   if (players.length === 0) {
     return {
       applied: false,

@@ -78,6 +78,7 @@ import { queueLifePaymentTriggers } from "../state/modules/triggers/pay-life.js"
 import { queueBecomesUntappedTriggers } from "../state/modules/triggers/tap-untap.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
+import { normalizeGameplayEffectText } from '../../../rules-engine/src/oracleReminderText.js';
 import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from '../state/modules/triggers/ability-activated.js';
 import {
@@ -1463,11 +1464,13 @@ function mapSpellTargetRefToDisplay(game: any, playerId: string, targetRef: any)
 }
 
 function splitSpellTargetClauses(oracleText: string): string[] {
-  const normalized = String(oracleText || '')
-    .replace(/[’]/g, "'")
-    .replace(/[−–—]/g, '-')
-    .replace(/\r\n?/g, '\n')
-    .trim();
+  const normalized = normalizeGameplayEffectText(
+    String(oracleText || '')
+      .replace(/[’]/g, "'")
+      .replace(/[−–—]/g, '-')
+      .replace(/\r\n?/g, '\n')
+      .trim(),
+  );
 
   if (!normalized) return [];
 
@@ -1577,6 +1580,15 @@ function isSpellAlreadyOnStackForPlayer(game: any, playerId: string, cardId: str
     String(item?.controller || '') === String(playerId) &&
     String(item?.card?.id || item?.cardId || '') === String(cardId),
   );
+}
+
+function shouldPreferParsedTargetReqs(
+  targetReqs: ReturnType<typeof parseTargetRequirements> | null | undefined,
+): boolean {
+  if (!targetReqs?.needsTargets) return false;
+  if (targetReqs.perOpponent === true) return true;
+  return Array.isArray(targetReqs.targetTypes)
+    && targetReqs.targetTypes.some((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
 }
 
 function buildSpellTargetListFromRequirements(game: any, playerId: string, targetReqs: any): Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> {
@@ -1764,9 +1776,7 @@ function buildSpellTargetSelectionClauses(
       controllerId: String(playerId),
       sourceName: cardName,
     });
-    const preferParsedTargetReqs = Boolean(targetReqs?.needsTargets)
-      && Array.isArray(targetReqs?.targetTypes)
-      && targetReqs.targetTypes.some((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
+    const preferParsedTargetReqs = shouldPreferParsedTargetReqs(targetReqs);
     const minTargets = spellSpec && !preferParsedTargetReqs
       ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, xValue)
       : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, xValue);
@@ -6036,9 +6046,7 @@ export async function requestCastSpellForSocket(
       controllerId: String(playerId),
       sourceName: cardName,
     }) : null;
-    const preferParsedTargetReqs = Boolean(targetReqs?.needsTargets)
-      && Array.isArray(targetReqs?.targetTypes)
-      && targetReqs.targetTypes.some((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
+    const preferParsedTargetReqs = shouldPreferParsedTargetReqs(targetReqs);
 
     const requiredMinTargets = spellSpec && !preferParsedTargetReqs
       ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, chosenXValue)
@@ -9750,9 +9758,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         controllerId: String(playerId),
         sourceName: String(cardInHand.name || ''),
       }) : null;
-      const preferParsedTargetReqs = Boolean(targetReqs?.needsTargets)
-        && Array.isArray(targetReqs?.targetTypes)
-        && targetReqs.targetTypes.some((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
+      const preferParsedTargetReqs = shouldPreferParsedTargetReqs(targetReqs);
       const multiTargetClauses = !isAura
         ? buildSpellTargetSelectionClauses(game, String(playerId), String(cardInHand.name || ''), oracleText, xValue)
         : [];
@@ -9925,8 +9931,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Use BOTH spellSpec (for known patterns) and targetReqs (for any "target" text)
       if (needsTargetSelection) {
         // This spell requires targets - check if we have them already
-        const requiredMinTargets = (spellSpec && !preferParsedTargetReqs) ? spellSpec.minTargets : (targetReqs?.minTargets || spellSpec?.minTargets || 1);
-        const requiredMaxTargets = (spellSpec && !preferParsedTargetReqs) ? spellSpec.maxTargets : (targetReqs?.maxTargets || spellSpec?.maxTargets || 1);
+        const requiredMinTargets = (spellSpec && !preferParsedTargetReqs)
+          ? spellSpec.minTargets
+          : (targetReqs?.minTargets ?? spellSpec?.minTargets ?? 1);
+        const requiredMaxTargets = (spellSpec && !preferParsedTargetReqs)
+          ? spellSpec.maxTargets
+          : (targetReqs?.maxTargets ?? spellSpec?.maxTargets ?? 1);
         
         // CRITICAL: Check if there's already a pending cast for this card to prevent infinite loop
         // If a pending cast exists, it means we've already requested targets before

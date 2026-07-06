@@ -22,6 +22,7 @@ import {
   recordBattlefieldEntryTurnTracking,
   shouldQueueChosenTypeCreatureEtbTrigger,
 } from './triggerEtbEntryEffects.js';
+import { matchesColorRestriction } from './stackResolvePermanentEtbTriggerUtils.js';
 
 export function queueSupportedETBKeywordChoices(
   ctx: GameContext,
@@ -243,6 +244,16 @@ export function triggerETBEffectsForPermanent(
         if (requiredType) {
           const enteringTypeLine = String(permanent.card?.type_line || '');
           if (!matchesRequiredTypePhrase(enteringTypeLine, requiredType, isToken)) {
+            continue;
+          }
+        }
+
+        const colorRestriction = typeof (trigger as any).colorRestriction === 'string'
+          ? String((trigger as any).colorRestriction).trim()
+          : '';
+        if (colorRestriction) {
+          const enteringColors = Array.isArray(permanent.card?.colors) ? permanent.card.colors : [];
+          if (!matchesColorRestriction(colorRestriction, enteringColors)) {
             continue;
           }
         }

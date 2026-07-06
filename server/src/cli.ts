@@ -6,13 +6,41 @@
  */
 
 import * as readline from 'readline';
+import { execFileSync } from 'node:child_process';
 import { listGames, deleteGame as dbDeleteGame } from './db/index.js';
 import GameManager from './GameManager.js';
 import { games as socketGames, priorityTimers } from './socket/socket.js';
 import { debug, debugWarn, debugError } from "./utils/debug.js";
+import {
+  hasInteractiveConsoleTty,
+  registerCliPromptRedraw,
+  setInteractiveCliActive,
+} from './utils/cliConsoleState.js';
+
+/** Windows PowerShell/conhost often uses CP1252; avoid UTF-8 emoji/box-drawing in CLI output. */
+const CLI_ASCII = process.platform === 'win32' || process.env.MTGEDH_CLI_ASCII === '1';
+
+const CLI = {
+  hr: CLI_ASCII ? '-'.repeat(65) : '─'.repeat(80),
+  banner: CLI_ASCII ? '='.repeat(67) : '═'.repeat(67),
+  list: CLI_ASCII ? '[list]' : '📋',
+  help: CLI_ASCII ? 'MTGEDH Server CLI Commands:' : '📖 MTGEDH Server CLI Commands:',
+  ok: CLI_ASCII ? '[OK]' : '✅',
+  err: CLI_ASCII ? '[ERR]' : '❌',
+  warn: CLI_ASCII ? '[WARN]' : '⚠️',
+  delete: CLI_ASCII ? '[del]' : '🗑️',
+  stop: CLI_ASCII ? '[stop]' : '🛑',
+  restart: CLI_ASCII ? '[restart]' : '🔄',
+  zap: CLI_ASCII ? '[!]' : '⚡',
+  boom: CLI_ASCII ? '[all]' : '🧨',
+} as const;
 
 // Reference to the HTTP server for graceful shutdown
 let httpServer: any = null;
+/** Active readline interface — used to redraw prompt after clear. */
+let cliReadline: readline.Interface | null = null;
+/** Readline writes here so stdout debug logs do not break echo while typing. */
+let cliOutput: NodeJS.WriteStream = process.stdout;
 
 /**
  * Set the HTTP server instance for CLI control
@@ -37,12 +65,12 @@ function listAllGames(): void {
     const persisted = listGames();
     
     if (persisted.length === 0) {
-      debug(2, '\n📋 No games currently exist.\n');
+      debug(2, `\n${CLI.list} No games currently exist.\n`);
       return;
     }
     
-    debug(2, '\n📋 Current Games:');
-    debug(2, '─'.repeat(80));
+    debug(2, `\n${CLI.list} Current Games:`);
+    debug(2, CLI.hr);
     
     persisted.forEach((row, index) => {
       const id = row.game_id;
@@ -74,10 +102,10 @@ function listAllGames(): void {
     });
     
     debug(2, `Total: ${persisted.length} game(s)`);
-    debug(2, '─'.repeat(80));
+    debug(2, CLI.hr);
     debug(2, '');
   } catch (err) {
-    debugError(1, '❌ Error listing games:', (err as Error).message);
+    debugError(1, `${CLI.err} Error listing games:`, (err as Error).message);
   }
 }
 
@@ -89,14 +117,14 @@ function deleteGameByNumber(gameNumber: number): void {
     const persisted = listGames();
     
     if (gameNumber < 1 || gameNumber > persisted.length) {
-      debug(2, `\n❌ Invalid game number: ${gameNumber}. Valid range: 1-${persisted.length}\n`);
+      debug(2, `\n${CLI.err} Invalid game number: ${gameNumber}. Valid range: 1-${persisted.length}\n`);
       return;
     }
     
     const game = persisted[gameNumber - 1];
     const gameId = game.game_id;
     
-    debug(2, `\n🗑️  Deleting game #${gameNumber} (${gameId})...`);
+    debug(2, `\n${CLI.delete}  Deleting game #${gameNumber} (${gameId})...`);
     
     // Remove from GameManager (authoritative in-memory games map)
     try {
@@ -132,9 +160,9 @@ function deleteGameByNumber(gameNumber: number): void {
     const dbResult = dbDeleteGame(gameId);
     debug(2, `   - Database: ${dbResult ? 'deleted' : 'not found'}`);
     
-    debug(2, `\n✅ Game #${gameNumber} (${gameId}) has been deleted.\n`);
+    debug(2, `\n${CLI.ok} Game #${gameNumber} (${gameId}) has been deleted.\n`);
   } catch (err) {
-    debugError(1, '❌ Error deleting game:', (err as Error).message);
+    debugError(1, `${CLI.err} Error deleting game:`, (err as Error).message);
   }
 }
 
@@ -145,11 +173,11 @@ function deleteGameById(gameId: string): void {
   try {
     const id = String(gameId || '').trim();
     if (!id) {
-      debug(2, '\n❌ Missing game id. Usage: delete id <gameId>\n');
+      debug(2, `\n${CLI.err} Missing game id. Usage: delete id <gameId>\n`);
       return;
     }
 
-    debug(2, `\n🗑️  Deleting game (${id})...`);
+    debug(2, `\n${CLI.delete}  Deleting game (${id})...`);
 
     try {
       const removed = GameManager.deleteGame(id);
@@ -179,9 +207,9 @@ function deleteGameById(gameId: string): void {
     const dbResult = dbDeleteGame(id);
     debug(2, `   - Database: ${dbResult ? 'deleted' : 'not found'}`);
 
-    debug(2, `\n✅ Game (${id}) has been deleted.\n`);
+    debug(2, `\n${CLI.ok} Game (${id}) has been deleted.\n`);
   } catch (err) {
-    debugError(1, '❌ Error deleting game by id:', (err as Error).message);
+    debugError(1, `${CLI.err} Error deleting game by id:`, (err as Error).message);
   }
 }
 
@@ -192,18 +220,18 @@ function deleteAllGames(): void {
   try {
     const persisted = listGames();
     if (persisted.length === 0) {
-      debug(2, '\n📋 No games to delete.\n');
+      debug(2, `\n${CLI.list} No games to delete.\n`);
       return;
     }
 
-    debug(2, `\n🧨 Deleting ALL games (${persisted.length})...`);
+    debug(2, `\n${CLI.boom} Deleting ALL games (${persisted.length})...`);
     for (const row of persisted) {
       const id = row.game_id;
       deleteGameById(id);
     }
-    debug(2, '✅ Finished deleting all games.\n');
+    debug(2, `${CLI.ok} Finished deleting all games.\n`);
   } catch (err) {
-    debugError(1, '❌ Error deleting all games:', (err as Error).message);
+    debugError(1, `${CLI.err} Error deleting all games:`, (err as Error).message);
   }
 }
 
@@ -211,21 +239,21 @@ function deleteAllGames(): void {
  * Stop the server gracefully
  */
 function stopServer(): void {
-  debug(2, '\n🛑 Stopping server...');
+  debug(2, `\n${CLI.stop} Stopping server...`);
   
   if (httpServer) {
     httpServer.close(() => {
-      debug(2, '✅ Server stopped gracefully.');
+      debug(2, `${CLI.ok} Server stopped gracefully.`);
       process.exit(0);
     });
     
     // Force exit after 5 seconds if graceful shutdown fails
     setTimeout(() => {
-      debug(2, '⚠️  Forcing shutdown after timeout...');
+      debug(2, `${CLI.warn}  Forcing shutdown after timeout...`);
       process.exit(0);
     }, 5000);
   } else {
-    debug(2, '⚠️  No HTTP server reference available. Exiting process...');
+    debug(2, `${CLI.warn}  No HTTP server reference available. Exiting process...`);
     process.exit(0);
   }
 }
@@ -235,38 +263,106 @@ function stopServer(): void {
  * The process manager (pm2, systemd, etc.) should restart the process
  */
 function restartServer(): void {
-  debug(2, '\n🔄 Restarting server...');
+  debug(2, `\n${CLI.restart} Restarting server...`);
   debug(2, '   Note: This relies on a process manager (like pm2) to restart the process.');
   
   if (httpServer) {
     httpServer.close(() => {
-      debug(2, '✅ Server closed. Exiting with code 0 for restart...');
+      debug(2, `${CLI.ok} Server closed. Exiting with code 0 for restart...`);
       // Exit with code 0 - process managers typically restart on non-error exits when configured
       process.exit(0);
     });
     
     setTimeout(() => {
-      debug(2, '⚠️  Forcing restart after timeout...');
+      debug(2, `${CLI.warn}  Forcing restart after timeout...`);
       process.exit(0);
     }, 5000);
   } else {
-    debug(2, '⚠️  No HTTP server reference available. Exiting for restart...');
+    debug(2, `${CLI.warn}  No HTTP server reference available. Exiting for restart...`);
     process.exit(0);
   }
 }
 
+function tryNativeWindowsClear(): boolean {
+  if (process.platform !== 'win32' || !hasInteractiveConsoleTty()) {
+    return false;
+  }
+
+  const isPowerShell = !!(process.env.PSModulePath || process.env.POWERSHELL_DISTRIBUTION_CHANNEL);
+  const attempts: Array<() => void> = [];
+
+  if (isPowerShell) {
+    attempts.push(() => {
+      execFileSync(
+        'powershell.exe',
+        ['-NoProfile', '-Command', '[Console]::Clear()'],
+        { stdio: ['ignore', 'inherit', 'inherit'] },
+      );
+    });
+  }
+
+  attempts.push(() => {
+    execFileSync(
+      process.env.ComSpec || 'cmd.exe',
+      ['/d', '/s', '/c', 'cls'],
+      { stdio: ['ignore', 'inherit', 'inherit'] },
+    );
+  });
+
+  for (const attempt of attempts) {
+    try {
+      attempt();
+      return true;
+    } catch {
+      // try next
+    }
+  }
+
+  return false;
+}
+
 /**
  * Clear the terminal screen (useful before exporting logs from a fresh test game).
+ * Uses readline-aware clearing so the mtgedh> prompt redraws correctly.
+ * Note: verbose DEBUG_STATE logs will immediately print again after clear.
  */
 function clearConsole(): void {
-  if (process.stdout.isTTY) {
-    // ANSI: clear entire screen and move cursor to home.
-    process.stdout.write('\x1B[2J\x1B[H');
+  if (!hasInteractiveConsoleTty()) {
+    return;
   }
+
+  if (!tryNativeWindowsClear()) {
+    const streams = new Set<NodeJS.WriteStream>();
+    if (process.stdout.isTTY) streams.add(process.stdout);
+    if (process.stderr.isTTY) streams.add(process.stderr);
+
+    for (const stream of streams) {
+      try {
+        stream.write('\x1b[2J\x1b[3J\x1b[H');
+      } catch {
+        // ignore
+      }
+    }
+
+    try {
+      readline.cursorTo(cliOutput, 0, 0);
+      readline.clearScreenDown(cliOutput);
+    } catch {
+      // ignore
+    }
+
+    const rows = (cliOutput as NodeJS.WriteStream & { rows?: number }).rows || 40;
+    try {
+      cliOutput.write('\n'.repeat(Math.max(rows - 1, 1)));
+    } catch {
+      // ignore
+    }
+  }
+
   try {
-    console.clear();
+    cliReadline?.prompt();
   } catch {
-    // ignore — ANSI clear above is enough on most TTYs
+    // ignore
   }
 }
 
@@ -275,18 +371,18 @@ function clearConsole(): void {
  */
 function showHelp(): void {
   debug(2, `
-📖 MTGEDH Server CLI Commands:
-─────────────────────────────────────────────────────────────────
+${CLI.help}
+${CLI.hr}
   list              Show all current games with their details
   delete game #     Delete a specific game by its number (from list)
   delete id <id>    Delete a specific game by its gameId
   delete all        Delete ALL games (in-memory + persisted)
-  clear / cls       Clear the console window
+  clear / cls       Clear the console window (scrollback may remain; use DEBUG_STATE=0 to reduce log noise)
   stop              Stop the server gracefully
   restart           Restart the server (requires process manager)
   help              Show this help message
   exit / quit       Stop the server and exit
-─────────────────────────────────────────────────────────────────
+${CLI.hr}
 
 Examples:
   list                 - Shows all games numbered 1, 2, 3, etc.
@@ -316,7 +412,7 @@ function processCommand(input: string): void {
       if (parts[1] === 'game' && parts[2]) {
         const gameNum = parseInt(parts[2], 10);
         if (isNaN(gameNum)) {
-          debug(2, '\n❌ Invalid game number. Usage: delete game <number>\n');
+          debug(2, `\n${CLI.err} Invalid game number. Usage: delete game <number>\n`);
         } else {
           deleteGameByNumber(gameNum);
         }
@@ -325,7 +421,7 @@ function processCommand(input: string): void {
       } else if (parts[1] === 'all') {
         deleteAllGames();
       } else {
-        debug(2, '\n❌ Usage: delete game <number> | delete id <gameId> | delete all\n');
+        debug(2, `\n${CLI.err} Usage: delete game <number> | delete id <gameId> | delete all\n`);
       }
       break;
       
@@ -354,7 +450,7 @@ function processCommand(input: string): void {
       break;
       
     default:
-      debug(2, `\n❌ Unknown command: "${command}". Type "help" for available commands.\n`);
+      debug(2, `\n${CLI.err} Unknown command: "${command}". Type "help" for available commands.\n`);
   }
 }
 
@@ -368,10 +464,9 @@ function processCommand(input: string): void {
  * TTY input buffering. We set terminal: true to enable proper line editing
  * and buffering through the readline module.
  * 
- * If you experience issues with the CLI in PowerShell, try using:
- * - cmd.exe instead of PowerShell
- * - Windows Terminal with PowerShell
- * - Git Bash
+ * Note on PowerShell / Windows:
+ * The prompt uses stderr so DEBUG_STATE logs on stdout do not erase characters as you type.
+ * If input still misbehaves, try cmd.exe or Windows Terminal instead of classic conhost.
  */
 export function initCLI(): void {
   // Skip CLI initialization if stdin is not a TTY (e.g., running in background)
@@ -380,27 +475,24 @@ export function initCLI(): void {
     return;
   }
   
-  // Detect Windows and PowerShell
-  const isWindows = process.platform === 'win32';
-  const isPowerShell = !!(process.env.PSModulePath || process.env.POWERSHELL_DISTRIBUTION_CHANNEL);
-  
-  if (isWindows && isPowerShell) {
-    debug(2, '[CLI] Detected Windows PowerShell. If CLI commands are not working correctly,');
-    debug(2, '[CLI] try using cmd.exe, Windows Terminal, or Git Bash instead.');
-  }
-  
+  // Prompt on stderr — game debug logs use stdout (console.log) and would break readline echo.
+  cliOutput = process.stderr.isTTY ? process.stderr : process.stdout;
+
   const rl = readline.createInterface({
     input: process.stdin,
-    output: process.stdout,
+    output: cliOutput,
     prompt: 'mtgedh> ',
-    // Use terminal: true for proper line buffering and editing
-    // This enables readline's built-in line editing capabilities
     terminal: true,
   });
+  cliReadline = rl;
+  setInteractiveCliActive(true);
+  registerCliPromptRedraw(() => {
+    cliReadline?.prompt();
+  });
   
-  debug(2, '\n═══════════════════════════════════════════════════════════════════');
+  debug(2, `\n${CLI.banner}`);
   debug(2, '  MTGEDH Server CLI - Type "help" for available commands');
-  debug(2, '═══════════════════════════════════════════════════════════════════\n');
+  debug(2, `${CLI.banner}\n`);
   
   rl.prompt();
   
@@ -410,13 +502,16 @@ export function initCLI(): void {
   });
   
   rl.on('close', () => {
+    setInteractiveCliActive(false);
+    cliReadline = null;
+    cliOutput = process.stdout;
     debug(2, '\n[CLI] Input stream closed. Use Ctrl+C to stop the server.');
   });
   
   // Handle SIGINT (Ctrl+C) gracefully
   // Use 'once' to prevent multiple handlers if initCLI is called multiple times
   process.once('SIGINT', () => {
-    debug(2, '\n\n⚡ Received SIGINT (Ctrl+C)');
+    debug(2, `\n\n${CLI.zap} Received SIGINT (Ctrl+C)`);
     rl.close(); // Close readline interface for proper cleanup
     stopServer();
   });

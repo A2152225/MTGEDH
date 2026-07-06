@@ -154,6 +154,9 @@ function matchesTypeLine(value: unknown, typeName: string): boolean {
 function objectHasType(object: any, typeName: string): boolean {
   const normalized = String(typeName || '').trim().toLowerCase();
   if (!normalized) return false;
+  if (normalized === 'permanent') {
+    return cardMatchesType(object, 'permanent');
+  }
   if (hasExecutorClass(object, normalized)) return true;
   return matchesTypeLine(getExecutorTypeLineLower(object), normalized);
 }
@@ -445,6 +448,14 @@ function contextualCardsFrom(params: ExtendedConditionalParams): any[] {
 }
 
 function getConditionalSubjectCard(params: ExtendedConditionalParams): any | null {
+  const revealedLedger = collectRevealedThisWayCardsLedgerFirst(params.ctx, params.step);
+  if (revealedLedger.length > 0) return revealedLedger[revealedLedger.length - 1];
+
+  const revealedCtx = Array.isArray((params.ctx as any)?.lastRevealedCards)
+    ? (params.ctx as any).lastRevealedCards
+    : [];
+  if (revealedCtx.length > 0) return revealedCtx[revealedCtx.length - 1];
+
   const moved = movedCardsFrom(params);
   if (Array.isArray(moved) && moved.length > 0) return moved[moved.length - 1];
   const ctx = params.ctx;
@@ -2369,7 +2380,7 @@ export function evaluateExtendedConditionalClause(params: ExtendedConditionalPar
           (entry: any) => String(entry?.id || '').trim() === ownerId
         ) as any;
         const library = Array.isArray(player?.library) ? player.library : [];
-        const topCard = library.length > 0 ? library[library.length - 1] : null;
+        const topCard = library.length > 0 ? library[0] : null;
         if (!topCard) return false;
         const typeName = String(typedCardMatch[1] || '')
           .trim()

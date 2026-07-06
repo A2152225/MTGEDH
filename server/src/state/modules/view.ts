@@ -10,7 +10,7 @@ import type {
 import type { GameContext } from "../context.js";
 import { parsePT, calculateVariablePT, calculateAllPTBonuses, calculateAllPTBonusesWithSources, type PTBonusSource } from "../utils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
-import { computeContinuousEffects } from "../../rules-engine/staticEffects.js";
+import { getContinuousGrantedAbilitiesForPermanent } from "./staticEffectSpec.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
 import { maskFaceDownExileCardForViewer } from "./impulse-exile-utils.js";
 
@@ -122,9 +122,6 @@ export function viewFor(
     damageReplacementActiveCount = 0;
   }
 
-  // Compute continuous effects for ability grants (Avacyn, Svyelun, etc.)
-  const continuousEffects = computeContinuousEffects(state);
-
   const filteredBattlefield = state.battlefield.map((perm: BattlefieldPermanent) => {
     const card = perm.card as any;
     const typeLine = String(card?.type_line || "").toLowerCase();
@@ -132,30 +129,14 @@ export function viewFor(
     let effectivePower: number | undefined;
     let effectiveToughness: number | undefined;
     
-    // Collect granted abilities from continuous effects (Avacyn, Svyelun, anthems, etc.)
+    // Collect granted abilities from continuous effects (Avacyn, Svyelun, anthems, overlays, etc.)
     const existingAbilities = Array.isArray((perm as any).grantedAbilities) 
       ? [...(perm as any).grantedAbilities] 
       : [];
     
-    // Add abilities from permanentAbilities (Avacyn for ALL permanents)
-    const permAbilities = continuousEffects.permanentAbilities.get(perm.id);
-    if (permAbilities && permAbilities.size > 0) {
-      for (const ability of permAbilities) {
-        if (!existingAbilities.includes(ability)) {
-          existingAbilities.push(ability);
-        }
-      }
-    }
-    
-    // Add abilities from creature-specific effects
-    if (isCreature) {
-      const creatureEffects = continuousEffects.perPermanent.get(perm.id);
-      if (creatureEffects) {
-        for (const ability of creatureEffects.abilities) {
-          if (!existingAbilities.includes(ability)) {
-            existingAbilities.push(ability);
-          }
-        }
+    for (const ability of getContinuousGrantedAbilitiesForPermanent(perm, state)) {
+      if (!existingAbilities.includes(ability)) {
+        existingAbilities.push(ability);
       }
     }
 

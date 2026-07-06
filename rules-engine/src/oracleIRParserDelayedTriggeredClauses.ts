@@ -45,6 +45,16 @@ function normalizeEffectText(rawEffect: string): string {
   return normalizeOracleText(rawEffect).replace(/[.]+$/g, '').trim();
 }
 
+function isCompoundCreateTokenTrailingTimingClause(effect: string): boolean {
+  const normalized = normalizeEffectText(effect).toLowerCase();
+  if (!normalized) return false;
+  if (/\bfor each\b/.test(normalized) && /\bcreate\b/.test(normalized) && /\btoken\b/.test(normalized)) {
+    return true;
+  }
+  if (/\bfor each\b.+\bdestroyed this way\b/.test(normalized)) return true;
+  return false;
+}
+
 export function tryParseDelayedTriggerClause(args: {
   clause: string;
   rawClause: string;
@@ -70,6 +80,7 @@ export function tryParseDelayedTriggerClause(args: {
       const effect = normalizeEffectText(String(trailing[1] || ''));
       if (!effect) return null;
       if (/^create(?:s)?\b/i.test(effect)) return null;
+      if (isCompoundCreateTokenTrailingTimingClause(effect)) return null;
       return withMeta({
         kind: 'schedule_delayed_trigger',
         timing: spec.timing,

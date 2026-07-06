@@ -43,7 +43,7 @@ describe('Kindred Discovery chosen-type ETB and attack triggers', () => {
     const trigger = triggers.find((entry) => entry.triggerType === 'chosen_type_creature_etb_or_attack');
 
     expect(trigger).toBeTruthy();
-    expect(trigger?.effect).toBe('draw a card');
+    expect(trigger?.effect?.replace(/\.$/, '')).toBe('draw a card');
   });
 
   it('detects chosen-type enters-or-attacks trigger on attack analysis', () => {
@@ -52,7 +52,7 @@ describe('Kindred Discovery chosen-type ETB and attack triggers', () => {
     const trigger = triggers.find((entry) => entry.triggerType === 'chosen_type_creature_etb_or_attack');
 
     expect(trigger).toBeTruthy();
-    expect(trigger?.effect).toBe('draw a card');
+    expect(trigger?.effect?.replace(/\.$/, '')).toBe('draw a card');
   });
 
   it('fires attack trigger only for attackers matching chosen type', () => {

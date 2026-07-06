@@ -1,8 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { triggerLifeGainEffects } from '../utils.js';
-import { debug, debugError } from '../../utils/debug.js';
-import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
+import { debug } from '../../utils/debug.js';
 import { enqueueLibrarySearchStep } from './triggerLibrarySearchUtils.js';
 import { createCommonArtifactTokenFromText } from './oracleIrSpellLegacyArtifactTokenUtils.js';
 import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
@@ -103,17 +102,6 @@ export function computeRemovalTargetPowerBeforeRemoval(targetPerm: any): number 
   return Math.max(0, targetPowerBeforeRemoval);
 }
 
-export function isEntrapmentManeuverSpell(cardName: string, oracleTextLower: string): boolean {
-  const normalizedName = String(cardName || '').toLowerCase();
-  return (
-    normalizedName.includes('entrapment maneuver') ||
-    (oracleTextLower.includes('sacrifices an attacking creature') &&
-      oracleTextLower.includes('create') &&
-      oracleTextLower.includes('soldier') &&
-      oracleTextLower.includes('toughness'))
-  );
-}
-
 function applyLifeGainToPlayer(
   ctx: GameContext,
   targetController: PlayerID,
@@ -195,68 +183,6 @@ export function applyNaturesClaimLifeRider(
   applyLifeGainToPlayer(ctx, targetController, amount, 'applyNaturesClaimLifeRider');
 }
 
-export function applyEntrapmentManeuverSacrificePrompt(
-  ctx: GameContext,
-  options: {
-    cardName?: string;
-    spellController: PlayerID;
-    stackItemId?: string;
-    targets?: any[];
-    sourceImage?: string;
-  },
-): void {
-  const targets = Array.isArray(options?.targets) ? options.targets : [];
-  if (targets.length === 0) return;
-
-  const state = (ctx as any).state;
-  if (!state) return;
-
-  const targetPlayerId = String(targets[0]?.id || targets[0] || '').trim();
-  if (!targetPlayerId) return;
-
-  const battlefield = state.battlefield || [];
-  const attackingCreatures = battlefield.filter(
-    (permanent: any) =>
-      permanent?.controller === targetPlayerId &&
-      (permanent?.card?.type_line || '').toLowerCase().includes('creature') &&
-      permanent?.attacking,
-  );
-
-  if (attackingCreatures.length === 0) {
-    debug(2, `[applyEntrapmentManeuverSacrificePrompt] ${targetPlayerId} has no attacking creatures to sacrifice`);
-    return;
-  }
-
-  const gameId = String((ctx as any).gameId || (ctx as any).id || '').trim();
-  if (!gameId) {
-    debugError(1, '[applyEntrapmentManeuverSacrificePrompt] Cannot process without gameId - spell effect will be skipped');
-    return;
-  }
-
-  ResolutionQueueManager.addStep(gameId, {
-    type: ResolutionStepType.ENTRAPMENT_MANEUVER,
-    playerId: targetPlayerId as PlayerID,
-    description: 'You must sacrifice an attacking creature you control.',
-    mandatory: true,
-    sourceId: String(options?.stackItemId || ''),
-    sourceName: options?.cardName || 'Entrapment Maneuver',
-    sourceImage: options?.sourceImage,
-    caster: options.spellController,
-    attackingCreatures: attackingCreatures.map((creature: any) => ({
-      id: creature.id,
-      name: creature.card?.name || 'Unknown',
-      power: creature.card?.power || creature.basePower || '0',
-      toughness: creature.card?.toughness || creature.baseToughness || '0',
-      imageUrl: creature.card?.image_uris?.small || creature.card?.image_uris?.normal,
-      typeLine: creature.card?.type_line,
-    })),
-  } as any);
-
-  debug(
-    2,
-    `[applyEntrapmentManeuverSacrificePrompt] Added Resolution Queue step for ${targetPlayerId} to sacrifice one of ${attackingCreatures.length} attacking creature(s)`,
-  );
-}
 
 export function applySpellLegacyRemovalRiders(
   ctx: GameContext,
@@ -298,16 +224,6 @@ export function applySpellLegacyRemovalRiders(
     if (isNaturesClaimRemovalRider(cardName, oracleTextLower)) {
       applyNaturesClaimLifeRider(ctx, targetController);
     }
-  }
-
-  if (isEntrapmentManeuverSpell(cardName, oracleTextLower) && options?.spellController) {
-    applyEntrapmentManeuverSacrificePrompt(ctx, {
-      cardName,
-      spellController: options.spellController,
-      stackItemId: options?.stackItemId,
-      targets: options?.targets,
-      sourceImage: options?.sourceImage,
-    });
   }
 }
 

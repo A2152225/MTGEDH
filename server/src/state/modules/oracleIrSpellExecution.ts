@@ -1,6 +1,11 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import {
+  inferOracleIrTargetBinding,
+  oracleIrTargetBindingToBaseContext,
+  oracleIrTargetBindingToEventHint,
+} from '../../../../rules-engine/src/oracleIrTargetBinding.js';
+import {
   applyOracleIRStepsToGameState,
   buildOracleIRExecutionContext,
   type OracleIRExecutionResult,
@@ -32,6 +37,7 @@ import { extractOracleCardLookupKeys } from './oracleIrCompiledOverlayLookup.js'
 import { debug, debugWarn } from '../../utils/debug.js';
 import { normalizeOracleIrSelectedModeIds } from './oracleIrModeSelection.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
+import { isSpellEffectOwnedByOracleIrPrimary } from './oracleIrSpellLegacyRouting.js';
 import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
 import { detectInstantSorcerySpellShapeFlags } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { applyInstantSorceryNibelheimAflameEffect } from './stackResolveSpellSpecialCaseUtils.js';
@@ -75,46 +81,9 @@ function collectSpellSteps(
   return collectOracleEffectSteps(oracleText, sourceName, options);
 }
 
-function inferTargetBinding(state: any, targetIds: readonly string[], controller?: PlayerID): {
-  targetPermanentId?: string;
-  targetPlayerId?: PlayerID;
-  targetOpponentId?: PlayerID;
-  targetSpellId?: string;
-  chosenObjectIds?: readonly string[];
-} {
-  if (!Array.isArray(targetIds) || targetIds.length === 0) return {};
-  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
-  const players = Array.isArray(state?.players) ? state.players : [];
-  const stack = Array.isArray(state?.stack) ? state.stack : [];
-  const controllerId = String(controller || '').trim();
-
-  for (const targetEntry of targetIds) {
-    const id = typeof targetEntry === 'string'
-      ? String(targetEntry || '').trim()
-      : String((targetEntry as any)?.id || (targetEntry as any)?.targetId || '').trim();
-    if (!id) continue;
-    if (battlefield.some((permanent: any) => String(permanent?.id || '') === id)) {
-      return { targetPermanentId: id, chosenObjectIds: targetIds };
-    }
-    if (players.some((player: any) => String(player?.id || '') === id)) {
-      const isOpponent = Boolean(controllerId) && id !== controllerId;
-      return {
-        targetPlayerId: id as PlayerID,
-        ...(isOpponent ? { targetOpponentId: id as PlayerID } : {}),
-        chosenObjectIds: targetIds,
-      };
-    }
-    if (stack.some((stackItem: any) => String(stackItem?.id || '') === id)) {
-      return { targetSpellId: id, chosenObjectIds: targetIds };
-    }
-  }
-
-  return { chosenObjectIds: targetIds };
-}
-
 function buildSpellIrContext(
   params: TryResolveSpellViaOracleIRParams,
-  targetBinding: ReturnType<typeof inferTargetBinding>,
+  targetBinding: ReturnType<typeof inferOracleIrTargetBinding>,
 ) {
   return buildOracleIRExecutionContext(
     {
@@ -127,21 +96,15 @@ function buildSpellIrContext(
       ...(typeof params.giftPromised === 'boolean' ? { giftPromised: params.giftPromised } : {}),
       ...(typeof params.teamworkWasPaid === 'boolean' ? { teamworkWasPaid: params.teamworkWasPaid } : {}),
       ...(params.castFromGraveyard ? { castFromZone: 'graveyard' } : {}),
+      ...oracleIrTargetBindingToBaseContext(targetBinding),
       selectorContext: {
-        ...(targetBinding.chosenObjectIds ? { chosenObjectIds: targetBinding.chosenObjectIds } : {}),
-        ...(targetBinding.targetPlayerId ? { targetPlayerId: targetBinding.targetPlayerId } : {}),
-        ...(targetBinding.targetOpponentId ? { targetOpponentId: targetBinding.targetOpponentId } : {}),
-        ...(targetBinding.targetSpellId ? { targetSpellId: targetBinding.targetSpellId } : {}),
+        ...oracleIrTargetBindingToBaseContext(targetBinding).selectorContext,
         ...(params.chosenColor ? { chosenColor: params.chosenColor } : {}),
         ...(params.chosenCreatureType ? { chosenCreatureType: params.chosenCreatureType } : {}),
       },
-      ...(targetBinding.targetPermanentId ? { targetPermanentId: targetBinding.targetPermanentId } : {}),
     },
     {
-      targetPermanentId: targetBinding.targetPermanentId,
-      targetPlayerId: targetBinding.targetPlayerId,
-      targetSpellId: targetBinding.targetSpellId,
-      chosenObjectIds: targetBinding.chosenObjectIds,
+      ...oracleIrTargetBindingToEventHint(targetBinding),
       sourceObjectType: 'spell',
       sourceColors: params.sourceColors,
       castFromZone: params.castFromGraveyard ? 'graveyard' : undefined,
@@ -199,7 +162,7 @@ function probeOracleIrSpellShadow(
     const shadowCtx = buildShadowProbeContext(ctx);
     const state = structuredClone((shadowCtx as any).state);
     hydrateOracleIRPlayerZonesFromContext(shadowCtx, state);
-    const targetBinding = inferTargetBinding(state, params.targets || [], params.controller);
+    const targetBinding = inferOracleIrTargetBinding(state, params.targets || [], params.controller);
     const irCtx = buildSpellIrContext(params, targetBinding);
     const adjustedSteps = applyMillReplacementEffectsToSteps(
       shadowCtx,
@@ -292,7 +255,7 @@ export function tryResolveSpellViaOracleIR(
   const normalizedSelectedModeIds = normalizeOracleIrSelectedModeIds(steps, params.selectedModeIds);
   const primary = isOracleIrSpellPrimaryEnabled();
   const state = (ctx as any).state;
-  const targetBinding = inferTargetBinding(state, params.targets || [], params.controller);
+  const targetBinding = inferOracleIrTargetBinding(state, params.targets || [], params.controller);
   const irCtx = buildSpellIrContext(params, targetBinding);
   const executionOptions = {
     allowOptional: true,
@@ -342,6 +305,12 @@ export function tryResolveSpellViaOracleIR(
   }
 
   if (useEffectProgram) {
+    if (
+      (ctx as any).isReplaying
+      && isSpellEffectOwnedByOracleIrPrimary(params.oracleText, params.spellName)
+    ) {
+      return { handled: true, applied: 0, shadowWouldHandle: false };
+    }
     const effectProgramResult = startOracleEffectProgramOnServer(ctx, effectProgramParams);
     if (effectProgramResult.handled) {
       if (effectProgramResult.waitingForChoice && !effectProgramResult.completed) {
@@ -356,6 +325,13 @@ export function tryResolveSpellViaOracleIR(
         shadowWouldHandle: false,
       };
     }
+  }
+
+  if (
+    (ctx as any).isReplaying
+    && isSpellEffectOwnedByOracleIrPrimary(params.oracleText, params.spellName)
+  ) {
+    return { handled: true, applied: 0, shadowWouldHandle: false };
   }
 
   try {

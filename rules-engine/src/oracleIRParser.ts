@@ -49,6 +49,7 @@ import {
   expandCopySpellUnknownAbilities,
   expandDeterministicMoveZoneFollowupAbilities,
   upgradeExiledThisWayReturnMoveZoneSteps,
+  upgradeReanimationHasteGrantSteps,
   upgradeCounteredSpellLibraryTopReplacementSteps,
   upgradeSpryAndMightyCompoundSteps,
   upgradeThoseCardsBattlefieldInsteadOfHandSteps,
@@ -90,6 +91,7 @@ import {
   mergeDestroyCantRegenerateFollowupAbilities,
   mergeSearchLibraryToHandFollowupAbilities,
   mergeSearchLibraryPutOnTopFollowupAbilities,
+  mergeSearchLibraryShuffleFollowupAbilities,
   expandVoteChoiceCountAbilities,
   pruneRedundantAnyPlayerMayActivateUnknownAbilities,
   pruneRedundantActivationRestrictionUnknownAbilities,
@@ -273,6 +275,21 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
       target: parseObjectSelector('pass39 residual'),
       effectText: [clause],
       duration: 'static',
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
+
+  if (/^if\s+it(?:'|’)?s\s+a\s+permanent\s+card,\s+they\s+put\s+it\s+onto\s+the\s+battlefield$/i.test(clause)) {
+    return withMeta({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: "it's a permanent card" },
+      steps: [{
+        kind: 'move_zone',
+        what: parseObjectSelector('it'),
+        to: 'battlefield',
+        toRaw: 'the battlefield',
+        raw: 'they put it onto the battlefield',
+      } as OracleEffectStep],
       raw: rawClause,
     } as OracleEffectStep);
   }
@@ -618,7 +635,9 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
         if (src === 'your') who = { kind: 'you' };
         else if (src === "target player's") who = { kind: 'target_player' };
         else if (src === "target opponent's") who = { kind: 'target_opponent' };
-        else if (src === 'their' || src === 'his or her' || src === "that player's" || src === "its controller's" || src === "its owner's") who = { kind: 'target_player' };
+        else if (src === "its controller's") who = { kind: 'controller_of_referenced_object' };
+        else if (src === "its owner's") who = { kind: 'owner_of_referenced_object' };
+        else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
         else if (src === "that opponent's") who = { kind: 'target_opponent' };
         else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
         else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
@@ -634,7 +653,9 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
-          else if (src === 'their' || src === 'his or her' || src === "that player's" || src === "its controller's" || src === "its owner's") who = { kind: 'target_player' };
+          else if (src === "its controller's") who = { kind: 'controller_of_referenced_object' };
+        else if (src === "its owner's") who = { kind: 'owner_of_referenced_object' };
+        else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
           else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
@@ -657,7 +678,9 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
-          else if (src === 'their' || src === 'his or her' || src === "that player's" || src === "its controller's" || src === "its owner's") who = { kind: 'target_player' };
+          else if (src === "its controller's") who = { kind: 'controller_of_referenced_object' };
+        else if (src === "its owner's") who = { kind: 'owner_of_referenced_object' };
+        else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
           else if (src === "that opponent's") who = { kind: 'target_opponent' };
         }
       }
@@ -694,7 +717,9 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
-          else if (src === 'their' || src === 'his or her' || src === "that player's" || src === "its controller's" || src === "its owner's") who = { kind: 'target_player' };
+          else if (src === "its controller's") who = { kind: 'controller_of_referenced_object' };
+        else if (src === "its owner's") who = { kind: 'owner_of_referenced_object' };
+        else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
           else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
@@ -712,7 +737,9 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
-          else if (src === 'their' || src === 'his or her' || src === "that player's" || src === "its controller's" || src === "its owner's") who = { kind: 'target_player' };
+          else if (src === "its controller's") who = { kind: 'controller_of_referenced_object' };
+        else if (src === "its owner's") who = { kind: 'owner_of_referenced_object' };
+        else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
           else if (src === "that opponent's") who = { kind: 'target_opponent' };
           else if (src === "each player's" || src === "each players'") who = { kind: 'each_player' };
           else if (src === "each opponent's" || src === "each opponents'" || src.startsWith('each of your opponents')) who = { kind: 'each_opponent' };
@@ -862,9 +889,10 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
           if (src === 'your') who = { kind: 'you' };
           else if (src === "target player's") who = { kind: 'target_player' };
           else if (src === "target opponent's") who = { kind: 'target_opponent' };
-          else if (src === 'their' || src === 'his or her' || src === "that player's" || src === "its controller's") who = { kind: 'target_player' };
+          else if (src === "its controller's") who = { kind: 'controller_of_referenced_object' };
+          else if (src === "its owner's") who = { kind: 'owner_of_referenced_object' };
+          else if (src === 'their' || src === 'his or her' || src === "that player's") who = { kind: 'target_player' };
           else if (src === "that opponent's") who = { kind: 'target_opponent' };
-          else if (src === "its controller's" || src === "its owner's") who = { kind: 'target_player' };
         }
       }
 
@@ -1597,6 +1625,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandLandAnimationUnknownAbilities(abilities);
   abilities = expandDeterministicMoveZoneFollowupAbilities(abilities);
   abilities = upgradeExiledThisWayReturnMoveZoneSteps(abilities);
+  abilities = upgradeReanimationHasteGrantSteps(abilities);
   abilities = upgradeCounteredSpellLibraryTopReplacementSteps(abilities);
   abilities = upgradeSpryAndMightyCompoundSteps(abilities);
   abilities = upgradeThoseCardsBattlefieldInsteadOfHandSteps(abilities);
@@ -1767,6 +1796,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = upgradeXAtLeastAlternateMoveDestinations(abilities);
   abilities = repairSplitChooseModeBulletAbilities(abilities);
   abilities = repairGapClosureAbilitySteps(abilities);
+  abilities = mergeSearchLibraryShuffleFollowupAbilities(abilities);
   abilities = repairRandomChooseModeSagaAbilities(abilities);
   abilities = abilities.map((ability) => {
     if ((ability.steps || []).length > 0) return ability;

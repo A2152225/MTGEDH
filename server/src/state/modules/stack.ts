@@ -128,7 +128,6 @@ export {
 } from './stackResolveSpellPostCategorizeRidersUtils.js';
 export {
   logLegacySpellRegexPrimaryMiss,
-  applyLegacySpellRegexDrawHandlers,
 } from './stackResolveSpellLegacyRegexDrawUtils.js';
 export { applyInstantSorceryControlChangeAndMassZoneEffects } from './stackResolveSpellControlChangeUtils.js';
 export {

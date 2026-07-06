@@ -26,7 +26,7 @@ const modulesDir = path.join(__dirname, '..', 'src', 'state', 'modules');
 
 // Lower these when legacy handlers are deleted. NEVER raise them.
 const TRIGGER_LEGACY_EXPORT_CEILING = 0; // 2026-07-05 — batch 537: final trigger legacy handlers retired to metadata/utils modules
-const SPELL_LEGACY_EXPORT_CEILING = 1; // applyLegacySpellRegexDrawHandlers
+const SPELL_LEGACY_EXPORT_CEILING = 0; // 2026-07-06 — applyLegacySpellRegexDrawHandlers retired (wheel/draw-then-discard/draw+treasure IR-primary)
 const RATCHET_SLACK = 5;
 
 function countExports(pattern: RegExp): { count: number; names: string[] } {

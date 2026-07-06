@@ -43,6 +43,7 @@
 
 import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { getContinuousGrantedAbilitiesForPermanent } from "./staticEffectSpec.js";
 
 export interface CombatCreature {
   permanentId: string;
@@ -286,6 +287,14 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
               }
             }
           }
+        }
+      }
+    }
+
+    if (permanent && gameState) {
+      for (const kw of getContinuousGrantedAbilitiesForPermanent(permanent, gameState)) {
+        if (kw && !grantedKeywords.includes(kw)) {
+          grantedKeywords.push(kw);
         }
       }
     }

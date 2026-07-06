@@ -18,7 +18,7 @@ import {
   queueSupportedETBKeywordChoices,
 } from './triggerEtbPermanentEffects.js';
 
-function matchesColorRestriction(restriction: string, cardColors: string[]): boolean {
+export function matchesColorRestriction(restriction: string, cardColors: string[]): boolean {
   const lowerRestriction = restriction.toLowerCase();
   const colors = cardColors || [];
 

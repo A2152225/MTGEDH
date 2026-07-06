@@ -4,7 +4,7 @@ import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
 import { uid, parsePT, parseWordNumber, triggerLifeGainEffects } from "../utils";
 import { recalculatePlayerEffects } from "./game-state-effects.js";
-import { applyBeneficialReplacements, applyReplacementsCustomOrder, processLifeChange, type ReplacementEffect } from "./game-state-effects.js";
+import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacementEvent } from "./replacement-effects.js";
 import { getDeathTriggers, processLinkedExileReturns } from "./triggered-abilities.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { getTokenImageUrls, buildTokenImageSpec, resolveTokenImageUrls } from "../../services/tokens.js";
@@ -31,20 +31,7 @@ import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
 import { queueTokenCreatedTriggers } from "./triggers/tokens.js";
-import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacementEvent } from "./replacement-effects.js";
-
-/**
- * Counter modification effects that double or halve counters
- * Examples: Vorinclex, Monstrous Raider; Doubling Season; Hardened Scales
- */
-interface CounterModifier {
-  permanentId: string;
-  cardName: string;
-  controller: PlayerID;
-  doublesYourCounters: boolean;
-  halvesOpponentCounters: boolean;
-  addsBonusCounter: number; // For Hardened Scales (+1)
-}
+import { syncDerivedContinuousEffects } from "./staticEffectSpec.js";
 
 type DeathTriggerStackMetadata = {
   requiresTarget?: true;
@@ -651,105 +638,6 @@ export function trackPermanentSacrificedThisTurn(state: any, permanent: any): vo
   }
 }
 
-/**
- * Detect counter modification effects on the battlefield
- * Patterns:
- * - Vorinclex, Monstrous Raider: "If you would put one or more counters on a permanent or player, put twice that many of each of those kinds of counters on that permanent or player instead. If an opponent would put one or more counters on a permanent or player, they put half that many of each of those kinds of counters on that permanent or player instead, rounded down."
- * - Doubling Season: "If an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead."
- * - Hardened Scales: "If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead."
- */
-function detectCounterModifiers(gameState: any, targetPermanentController: PlayerID): CounterModifier[] {
-  const modifiers: CounterModifier[] = [];
-  const battlefield = gameState?.battlefield || [];
-  
-  for (const perm of battlefield) {
-    if (!perm?.card) continue;
-    const cardName = (perm.card.name || '').toLowerCase();
-    const oracleText = (perm.card.oracle_text || '').toLowerCase();
-    const controller = perm.controller;
-    
-    // Vorinclex, Monstrous Raider
-    if (cardName.includes('vorinclex') && (cardName.includes('monstrous raider') || oracleText.includes('put twice that many'))) {
-      modifiers.push({
-        permanentId: perm.id,
-        cardName: perm.card.name,
-        controller,
-        doublesYourCounters: controller === targetPermanentController,
-        halvesOpponentCounters: controller !== targetPermanentController,
-        addsBonusCounter: 0,
-      });
-    }
-    
-    // Doubling Season
-    if (cardName.includes('doubling season') || (oracleText.includes('twice that many') && oracleText.includes('counter') && oracleText.includes('permanent you control'))) {
-      if (controller === targetPermanentController) {
-        modifiers.push({
-          permanentId: perm.id,
-          cardName: perm.card.name,
-          controller,
-          doublesYourCounters: true,
-          halvesOpponentCounters: false,
-          addsBonusCounter: 0,
-        });
-      }
-    }
-    
-    // Hardened Scales (only affects +1/+1 counters on your creatures)
-    if (cardName.includes('hardened scales') || (oracleText.includes('that many plus one') && oracleText.includes('+1/+1 counter'))) {
-      if (controller === targetPermanentController) {
-        modifiers.push({
-          permanentId: perm.id,
-          cardName: perm.card.name,
-          controller,
-          doublesYourCounters: false,
-          halvesOpponentCounters: false,
-          addsBonusCounter: 1,
-        });
-      }
-    }
-    
-    // Branching Evolution
-    if (cardName.includes('branching evolution') || (oracleText.includes('double that amount') && oracleText.includes('+1/+1 counter'))) {
-      if (controller === targetPermanentController) {
-        modifiers.push({
-          permanentId: perm.id,
-          cardName: perm.card.name,
-          controller,
-          doublesYourCounters: true,
-          halvesOpponentCounters: false,
-          addsBonusCounter: 0,
-        });
-      }
-    }
-    
-    // Primal Vigor
-    if (cardName.includes('primal vigor') && oracleText.includes('twice that many')) {
-      // Primal Vigor affects all players' counters equally
-      modifiers.push({
-        permanentId: perm.id,
-        cardName: perm.card.name,
-        controller,
-        doublesYourCounters: true,
-        halvesOpponentCounters: false,
-        addsBonusCounter: 0,
-      });
-    }
-  }
-  
-  return modifiers;
-}
-
-/**
- * Apply counter modification effects (doubling, halving, bonus counters)
- * Order of application (per MTG rules):
- * 1. Halving effects (Vorinclex opponent penalty) - rounded down
- * 2. Doubling effects (Vorinclex, Doubling Season, etc.)
- * 3. Bonus counter effects (Hardened Scales +1)
- * 
- * Returns modified counter deltas
- * 
- * EXPORTED for use in stack.ts and other modules where counters are applied during ETB
- */
 export function applyCounterModifications(
   gameState: any,
   targetPermanentId: string,
@@ -757,68 +645,14 @@ export function applyCounterModifications(
 ): Record<string, number> {
   const targetPermanent = (gameState?.battlefield || []).find((p: any) => p.id === targetPermanentId);
   if (!targetPermanent) return deltas;
-  
-  const targetController = targetPermanent.controller;
-  const modifiers = detectCounterModifiers(gameState, targetController);
-  
-  if (modifiers.length === 0) return deltas;
-  
-  const modified: Record<string, number> = {};
-  
-  for (const [counterType, rawAmount] of Object.entries(deltas)) {
-    let amount = rawAmount;
-    if (amount === 0) continue;
-    
-    // Only apply modifications when adding counters (positive amounts)
-    if (amount > 0) {
-      // MTG 616.1: the affected player (controller of the permanent receiving counters)
-      // chooses the order. Default behavior should maximize benefit (add_flat before doublers,
-      // and push halving/prevention last).
-      const effects: ReplacementEffect[] = [];
 
-      for (const mod of modifiers) {
-        if (mod.halvesOpponentCounters) {
-          effects.push({ type: 'halve', source: mod.cardName, controllerId: mod.controller });
-        }
-        if (mod.doublesYourCounters) {
-          effects.push({ type: 'double', source: mod.cardName, controllerId: mod.controller });
-        }
-        if (counterType.includes('+1/+1') && mod.addsBonusCounter > 0) {
-          effects.push({ type: 'add_flat', value: mod.addsBonusCounter, source: mod.cardName, controllerId: mod.controller });
-        }
-      }
-
-      const pref = (gameState as any)?.replacementEffectPreferences?.[targetController]?.counters;
-      const mode: 'minimize' | 'maximize' | 'custom' | 'auto' = pref?.mode
-        ? pref.mode
-        : (pref?.useCustomOrder ? 'custom' : 'auto');
-
-      if (mode === 'custom' && Array.isArray(pref?.customOrder) && pref.customOrder.length > 0) {
-        const orderIndex = new Map<string, number>();
-        for (let i = 0; i < pref.customOrder.length; i++) orderIndex.set(String(pref.customOrder[i]), i);
-        const ordered = [...effects].sort((a, b) => {
-          const ai = orderIndex.has(a.source) ? (orderIndex.get(a.source) as number) : Number.POSITIVE_INFINITY;
-          const bi = orderIndex.has(b.source) ? (orderIndex.get(b.source) as number) : Number.POSITIVE_INFINITY;
-          if (ai !== bi) return ai - bi;
-          return String(a.source).localeCompare(String(b.source));
-        });
-        amount = applyReplacementsCustomOrder(amount, ordered).finalAmount;
-      } else {
-        amount = applyBeneficialReplacements(amount, effects).finalAmount;
-      }
-    }
-    
-    modified[counterType] = amount;
-  }
-  
   const replacement = evaluateCounterPlacementReplacementEvent({
     state: gameState,
     targetPermanentId,
-    controllerId: targetController,
+    controllerId: targetPermanent.controller,
     deltas,
-    modifiedDeltas: modified,
   });
-  return ((replacement.metadata as any)?.modifiedDeltas as Record<string, number> | undefined) || modified;
+  return ((replacement.metadata as any)?.modifiedDeltas as Record<string, number> | undefined) || deltas;
 }
 
 export function updateCounters(
@@ -1990,6 +1824,10 @@ export function movePermanentToExile(
  */
 export function runSBA(ctx: GameContext) {
   const { state, bumpSeq } = ctx;
+
+  try {
+    syncDerivedContinuousEffects(state);
+  } catch {}
 
   // Day/Night: if a daybound/nightbound permanent exists while the game is neither day nor night, it gains the appropriate designation.
   try {

@@ -4,7 +4,6 @@ import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutorExecutionContext.js';
 import { createContext, type GameContext } from '../src/state/context.js';
 import { applyOracleIRUncategorizedSpellFallback } from '../src/state/modules/oracleIrUncategorizedSpellFallback.js';
-import { applyLegacySpellRegexDrawHandlers } from '../src/state/modules/stackResolveSpellLegacyRegexDrawUtils.js';
 import { applyOracleIRStepsOnServer } from '../src/state/modules/oracleIrServerZoneSync.js';
 import { tryResolveSpellViaOracleIR } from '../src/state/modules/oracleIrSpellExecution.js';
 import { shouldSkipLegacySpellRegexHandlers } from '../src/state/modules/oracleIrSpellLegacyRouting.js';
@@ -156,13 +155,6 @@ describe('Inspiring Call uncategorized IR fallback (primary OFF)', () => {
     expect(hasIndestructible(state.battlefield.find((perm: any) => perm.id === 'c1'))).toBe(true);
     expect(hasIndestructible(state.battlefield.find((perm: any) => perm.id === 'c2'))).toBe(true);
     expect(hasIndestructible(state.battlefield.find((perm: any) => perm.id === 'c3'))).toBe(false);
-
-    applyLegacySpellRegexDrawHandlers(ctx, {
-      controller: playerId,
-      effectiveCard: { name: 'Inspiring Call' },
-      oracleTextLower: oracleText.toLowerCase(),
-    });
-
     expect(state.zones[playerId].hand.length).toBe(2);
   });
 });

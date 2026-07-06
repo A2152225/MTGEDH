@@ -1769,6 +1769,114 @@ export function parseMoveZoneSingleTargetFromTargetPlayersGraveyard(what: {
   };
 }
 
+function parseReferencedPossessiveZoneSuffixFromSelector(raw: string): {
+  readonly role: 'controller' | 'owner';
+  readonly zone: 'graveyard' | 'hand' | 'library' | 'exile';
+} | null {
+  const normalized = String(raw || '')
+    .replace(/\u2019/g, "'")
+    .trim()
+    .replace(/\s+/g, ' ');
+  const match = normalized.match(/\bfrom\s+its\s+(controller|owner)(?:'|')s\s+(graveyard|hand|library|exile)\b/i);
+  if (!match) return null;
+  const zone = String(match[2] || '').trim().toLowerCase();
+  if (zone !== 'graveyard' && zone !== 'hand' && zone !== 'library' && zone !== 'exile') return null;
+  return {
+    role: String(match[1] || '').trim().toLowerCase() === 'owner' ? 'owner' : 'controller',
+    zone: zone as 'graveyard' | 'hand' | 'library' | 'exile',
+  };
+}
+
+export function parseMoveZoneSingleTargetFromReferencedPossessiveGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | MoveZoneSingleTargetCriteria
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const withTurn = stripPutIntoGraveyardThisTurnQualifier(raw);
+  const withCounter = parseTrailingZoneCounterRequirement(withTurn.selectorText, "from its (?:controller|owner)'s graveyard");
+  const cleaned = withCounter.selectorText;
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+  const suffix = parseReferencedPossessiveZoneSuffixFromSelector(lower);
+  if (!suffix || suffix.zone !== 'graveyard') return null;
+
+  if (!/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+/i.test(lower)) return null;
+
+  if (/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+cards?\s+from\s+its\s+(?:controller|owner)'s\s+graveyard$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(
+    /^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+(.+?)\s+from\s+its\s+(?:controller|owner)'s\s+graveyard$/i,
+  );
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseMoveZoneSingleTargetCriteria(typeText);
+  if (!parsed) return null;
+  return {
+    ...parsed,
+    ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
+    ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
+  };
+}
+
+export function parseMoveZoneSingleTargetFromReferencedPossessiveHand(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+  const suffix = parseReferencedPossessiveZoneSuffixFromSelector(lower);
+  if (!suffix || suffix.zone !== 'hand') return null;
+
+  if (!lower.startsWith('target ')) return null;
+
+  if (/^target\s+cards?\s+from\s+its\s+(?:controller|owner)'s\s+hand$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^target\s+(.+?)\s+cards?\s+from\s+its\s+(?:controller|owner)'s\s+hand$/i);
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+export function parseMoveZoneRandomCardFromReferencedPossessiveHand(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType; readonly random: true }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const lower = String((what as any).text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (!/^a card from its (?:controller|owner)'s hand(?: at random)?$/i.test(lower)) return null;
+  const suffix = parseReferencedPossessiveZoneSuffixFromSelector(lower);
+  if (!suffix || suffix.zone !== 'hand') return null;
+  return { cardType: 'any', random: true };
+}
+
 export function parseMoveZoneSingleTargetFromAGraveyard(what: {
   readonly kind: string;
   readonly text?: string;

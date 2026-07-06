@@ -17,6 +17,7 @@ describe('queued battlefield prompt replay semantics', () => {
     for (const gameId of [
       't_activate_equip_prompt_replay',
       't_activate_fight_prompt_replay',
+      't_fight_stack_replay_evidence',
       't_activate_tap_untap_prompt_replay',
       't_activate_crew_prompt_replay',
       't_crew_vehicle_resolve_prompt_cleanup_replay',
@@ -170,6 +171,69 @@ describe('queued battlefield prompt replay semantics', () => {
       excludeSource: true,
     });
     expect((game.state as any).stack || []).toHaveLength(0);
+  });
+
+  it('replays resolved fight activations onto the stack with persisted stack item id', () => {
+    const gameId = 't_fight_stack_replay_evidence';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'fighter_1',
+        controller: p1,
+        owner: p1,
+        tapped: true,
+        card: {
+          id: 'fighter_card_1',
+          name: 'Arena Fighter',
+          type_line: 'Creature',
+          oracle_text: '{T}: This creature fights target creature you don\'t control.',
+        },
+      },
+      {
+        id: 'bear_1',
+        controller: p2,
+        owner: p2,
+        card: {
+          id: 'bear_card_1',
+          name: 'Grizzly Bears',
+          type_line: 'Creature — Bear',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'fighter_1',
+      stackItemId: 'fight_stack_item_1',
+      usesStack: true,
+      cardName: 'Arena Fighter',
+      abilityText: 'This creature fights target creature you don\'t control.',
+      activatedAbilityText: '{T}: This creature fights target creature you don\'t control.',
+      abilityType: 'fight',
+      targets: ['bear_1'],
+      tappedPermanents: ['fighter_1'],
+    } as any);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]).toMatchObject({
+      id: 'fight_stack_item_1',
+      type: 'ability',
+      controller: p1,
+      source: 'fighter_1',
+      abilityType: 'fight',
+      targets: ['bear_1'],
+    });
+    expect(stack[0].fightParams).toMatchObject({
+      sourceCreatureId: 'fighter_1',
+      targetCreatureId: 'bear_1',
+    });
   });
 
   it('replays queued tap-untap battlefield activations before target selection resolves', () => {

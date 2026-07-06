@@ -3,9 +3,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { skipRetiredSpellLegacyHandler } from '../src/state/modules/oracleIrSpellLegacyRouting.js';
-import {
-  applyLegacySpellRegexDrawHandlers,
-} from '../src/state/modules/stackResolveSpellLegacyRegexDrawUtils.js';
 import { applyInstantSorceryLibraryTopCardPromptHandlers } from '../src/state/modules/stackResolveSpellLibraryTopPromptUtils.js';
 import { applyInstantSorcerySpecialAndRemovalRiders } from '../src/state/modules/stackResolveSpellLateRidersUtils.js';
 import { executeInstantSorceryLegacyCategorizedSpell } from '../src/state/modules/stackResolveSpellLegacySpecUtils.js';
@@ -24,30 +21,6 @@ describe('retired spell legacy handler defense-in-depth', () => {
     } else {
       process.env.ORACLE_IR_SPELL_PRIMARY = previousPrimary;
     }
-  });
-
-  it('legacy compound draw regex handlers no-op when IR primary owns simple draw text', { timeout: 15000 }, () => {
-    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
-
-    const game = createInitialGameState('spell_handler_retirement');
-    const p1 = 'p1' as PlayerID;
-    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-
-    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
-    player.library = [{ id: 'lib-1', name: 'Island', zone: 'library' }, { id: 'lib-2', name: 'Forest', zone: 'library' }];
-    player.hand = [];
-
-    const ctx = game as any;
-    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
-
-    const effectiveCard = { name: 'Test Divination' };
-
-    applyLegacySpellRegexDrawHandlers(ctx, {
-      controller: p1,
-      effectiveCard,
-      oracleTextLower: 'draw two cards.',
-    });
-    expect(player.hand.length).toBe(0);
   });
 
   it('skipRetiredSpellLegacyHandler defers duplicate prevention to orchestrators', () => {
@@ -181,145 +154,6 @@ describe('retired spell legacy handler defense-in-depth', () => {
     expect(result.shouldEarlyReturn).toBe(false);
     expect(player.hand.length).toBe(0);
     expect(player.life ?? 40).toBe(lifeBefore);
-  });
-
-  it('legacy compound draw regex handler still applies when primary mode is off', () => {
-    process.env.ORACLE_IR_SPELL_PRIMARY = '0';
-    delete process.env.ORACLE_IR_SPELL_LEGACY;
-
-    const game = createInitialGameState('spell_handler_legacy_draw');
-    const p1 = 'p1' as PlayerID;
-    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-
-    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
-    player.library = [
-      { id: 'lib-1', name: 'Island', zone: 'library' },
-      { id: 'lib-2', name: 'Forest', zone: 'library' },
-    ];
-    player.hand = [];
-    (game.state as any).zones = {
-      [p1]: {
-        hand: [],
-        handCount: 0,
-        library: player.library.map((card: any) => ({ ...card })),
-        libraryCount: player.library.length,
-        graveyard: [],
-        graveyardCount: 0,
-      },
-    };
-
-    const ctx = game as any;
-    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
-
-    applyLegacySpellRegexDrawHandlers(ctx, {
-      controller: p1,
-      effectiveCard: { name: 'Chart a Course' },
-      oracleTextLower: 'draw two cards, then discard a card.',
-    });
-
-    const handCount = (game.state as any).zones?.[p1]?.hand?.length ?? player.hand.length;
-    const libraryCount = ctx.libraries.get(p1)?.length ?? player.library.length;
-    expect(handCount).toBe(2);
-    expect(libraryCount).toBe(0);
-    expect((game.state as any).pendingDiscard?.[p1]?.count).toBe(1);
-  });
-
-  it('legacy draw-then-discard regex handler no-ops when IR primary owns Chart a Course text', () => {
-    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
-
-    const game = createInitialGameState('spell_handler_chart_retirement');
-    const p1 = 'p1' as PlayerID;
-    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-
-    const player = (game.state as any).players.find((entry: any) => entry.id === p1);
-    player.library = [
-      { id: 'lib-1', name: 'Island', zone: 'library' },
-      { id: 'lib-2', name: 'Forest', zone: 'library' },
-    ];
-    player.hand = [];
-    (game.state as any).zones = {
-      [p1]: {
-        hand: [],
-        handCount: 0,
-        library: player.library.map((card: any) => ({ ...card })),
-        libraryCount: player.library.length,
-        graveyard: [],
-        graveyardCount: 0,
-      },
-    };
-
-    const ctx = game as any;
-    ctx.libraries = new Map([[p1, player.library.map((card: any) => ({ ...card }))]]);
-
-    applyLegacySpellRegexDrawHandlers(ctx, {
-      controller: p1,
-      effectiveCard: { name: 'Chart a Course' },
-      oracleTextLower: 'draw two cards, then discard a card.',
-    });
-
-    const handCount = (game.state as any).zones?.[p1]?.hand?.length ?? player.hand.length;
-    const libraryCount = ctx.libraries.get(p1)?.length ?? player.library.length;
-    expect(handCount).toBe(0);
-    expect(libraryCount).toBe(2);
-    expect((game.state as any).pendingDiscard?.[p1]).toBeUndefined();
-  });
-
-  it('legacy wheel draw regex handlers no-op when IR primary owns Windfall text', { timeout: 15000 }, () => {
-    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
-
-    const game = createInitialGameState('spell_wheel_windfall_retirement');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
-    (game.state as any).zones = {
-      [p1]: { hand: [{ id: 'h1', name: 'A' }], handCount: 1, graveyard: [], graveyardCount: 0 },
-      [p2]: { hand: [{ id: 'h2', name: 'B' }, { id: 'h3', name: 'C' }], handCount: 2, graveyard: [], graveyardCount: 0 },
-    };
-
-    const ctx = game as any;
-    ctx.libraries = new Map([
-      [p1, Array.from({ length: 10 }, (_, index) => ({ id: `p1l${index}`, name: `L${index}`, zone: 'library' }))],
-      [p2, Array.from({ length: 10 }, (_, index) => ({ id: `p2l${index}`, name: `L${index}`, zone: 'library' }))],
-    ]);
-
-    applyLegacySpellRegexDrawHandlers(ctx, {
-      controller: p1,
-      effectiveCard: { name: 'Windfall' },
-      oracleTextLower: 'each player discards their hand, then draws cards equal to the greatest number of cards a player discarded this way.',
-    });
-
-    expect((game.state as any).zones[p1].hand).toHaveLength(1);
-    expect((game.state as any).zones[p2].hand).toHaveLength(2);
-  });
-
-  it('legacy wheel draw regex handlers no-op when IR primary owns Reforge text', () => {
-    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
-
-    const game = createInitialGameState('spell_wheel_reforge_retirement');
-    const p1 = 'p1' as PlayerID;
-    const p2 = 'p2' as PlayerID;
-    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
-    game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
-    (game.state as any).zones = {
-      [p1]: { hand: [{ id: 'h1', name: 'A' }], handCount: 1, graveyard: [], graveyardCount: 0 },
-      [p2]: { hand: [{ id: 'h2', name: 'B' }, { id: 'h3', name: 'C' }], handCount: 2, graveyard: [], graveyardCount: 0 },
-    };
-
-    const ctx = game as any;
-    ctx.libraries = new Map([
-      [p1, Array.from({ length: 10 }, (_, index) => ({ id: `p1l${index}`, name: `L${index}`, zone: 'library' }))],
-      [p2, Array.from({ length: 10 }, (_, index) => ({ id: `p2l${index}`, name: `L${index}`, zone: 'library' }))],
-    ]);
-
-    applyLegacySpellRegexDrawHandlers(ctx, {
-      controller: p1,
-      effectiveCard: { name: 'Reforge the Soul' },
-      oracleTextLower: 'each player discards their hand, then draws seven cards.',
-    });
-
-    expect((game.state as any).zones[p1].hand).toHaveLength(1);
-    expect((game.state as any).zones[p2].hand).toHaveLength(2);
   });
 
   it('legacy categorized scry spell execution no-ops when IR primary owns scry text', { timeout: 15000 }, () => {

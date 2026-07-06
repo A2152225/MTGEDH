@@ -46,6 +46,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'blight',
   'destroy',
   'exile',
+  'exile_named_cards_from_zones',
   'move_zone',
   'counter_spell',
   'goad',

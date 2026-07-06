@@ -29,6 +29,7 @@ import {
   collectContextualCardsLedgerFirst,
   collectSacrificedPermanentsLedgerFirst,
 } from './oracleIRLedgerCardAccess';
+import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 
 export type ResolveOracleQuantityOptions = {
   readonly runtime?: ModifyPtRuntime;
@@ -454,6 +455,12 @@ export function resolveOracleQuantity(
           const triggeredAmount = readStat(triggered);
           if (triggeredAmount !== null) return triggeredAmount;
         }
+      }
+
+      const referenced = resolveReferencedObject(state, ctx, runtime);
+      if (referenced) {
+        const referencedAmount = readStat(referenced);
+        if (referencedAmount !== null) return referencedAmount;
       }
     }
     return null;

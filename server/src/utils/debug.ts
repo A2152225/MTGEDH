@@ -22,6 +22,23 @@ let cachedDebugLevel: number | null = null;
 const cachedDebugFlags = new Map<string, boolean>();
 
 import { inspect } from 'node:util';
+import { isInteractiveCliActive, redrawCliPromptIfNeeded } from './cliConsoleState.js';
+
+function prefixInteractiveLogArgs(args: any[]): any[] {
+  if (!isInteractiveCliActive() || args.length === 0) {
+    return args;
+  }
+  const first = args[0];
+  if (typeof first === 'string' && !first.startsWith('\n')) {
+    return [`\n${first}`, ...args.slice(1)];
+  }
+  return ['\n', ...args];
+}
+
+function emitInteractiveLog(write: (...items: any[]) => void, args: any[]): void {
+  write(...prefixInteractiveLogArgs(args).map(formatDebugArg));
+  redrawCliPromptIfNeeded();
+}
 
 function getDebugLevel(): number {
   // Cache the debug level to avoid repeated parsing
@@ -68,7 +85,7 @@ export function debug(requiredLevel: number, ...args: any[]): void {
   const currentLevel = getDebugLevel();
   if (currentLevel >= requiredLevel) {
     try {
-      console.log(...args.map(formatDebugArg));
+      emitInteractiveLog(console.log, args);
     } catch {
       // Never let logging crash game logic.
       try {
@@ -89,7 +106,7 @@ export function debugWarn(requiredLevel: number, ...args: any[]): void {
   const currentLevel = getDebugLevel();
   if (currentLevel >= requiredLevel) {
     try {
-      console.warn(...args.map(formatDebugArg));
+      emitInteractiveLog(console.warn, args);
     } catch {
       try {
         console.warn('[debugWarn] (log failed)');
@@ -109,7 +126,7 @@ export function debugError(requiredLevel: number, ...args: any[]): void {
   const currentLevel = getDebugLevel();
   if (currentLevel >= requiredLevel) {
     try {
-      console.error(...args.map(formatDebugArg));
+      emitInteractiveLog(console.error, args);
     } catch {
       try {
         console.error('[debugError] (log failed)');

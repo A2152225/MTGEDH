@@ -17,7 +17,7 @@ import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
 import type { CardCostAdjustment, GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
-import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
+import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource, resolvePermanentChosenColorSymbol } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, hasSacrificePrefixActivatedAbility, isPlayerIdleForAutoPass, isTransformBackFace, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool, stripReminderTextFromOracle } from "../state/modules/mana-check.js";
@@ -4227,6 +4227,14 @@ function resolveManaAbilityForClientAbilityId(
       || abilities.find((entry) => ['native_any', 'native_commander_any', 'native_pay_life_any'].includes(String(entry?.id || '')));
   }
 
+  if (/mana\s+of\s+the\s+chosen\s+colou?r/i.test(effectText)) {
+    return abilities.find((entry) => String(entry?.id || '') === 'native_chosen_color')
+      || abilities.find((entry) => {
+        const produces = Array.isArray(entry?.produces) ? entry.produces : [];
+        return produces.length === 1 && ['W', 'U', 'B', 'R', 'G'].includes(String(produces[0] || '').toUpperCase());
+      });
+  }
+
   const abilityIndex = Number(abilityId.match(/-ability-(\d+)$/i)?.[1] ?? -1);
   if (Number.isInteger(abilityIndex) && abilityIndex >= 0) {
     const manaProducingAbilities = abilities.filter((entry) => {
@@ -4429,13 +4437,30 @@ export function calculateManaProduction(
       result.requiresColorChoice = true;
     }
   }
+  const spelledChosenColorAmount = (() => {
+    const match = manaOracleText.match(/\badd\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+the\s+chosen\s+colou?r\b/i);
+    return match ? parseSpelledOutAmount(String(match[1] || '')) : undefined;
+  })();
+  const permanentChosenColor = resolvePermanentChosenColorSymbol(permanent);
+  const effectiveChosenColor = normalizedChosenColor || permanentChosenColor || undefined;
+
+  // "Add N mana of the chosen color" — reuse ETB color choice (Throne of Eldraine, etc.)
+  if (!hasSelectedLegacyManaAbility && /\bmana\s+of\s+the\s+chosen\s+colou?r\b/i.test(manaOracleText)) {
+    if (typeof spelledChosenColorAmount === 'number' && spelledChosenColorAmount > 0) {
+      result.baseAmount = spelledChosenColorAmount;
+    }
+    if (effectiveChosenColor && ['W', 'U', 'B', 'R', 'G'].includes(effectiveChosenColor)) {
+      result.colors = [effectiveChosenColor];
+      result.requiresColorChoice = false;
+    }
+  }
   // Check for "any color" patterns
   else if (!hasSelectedLegacyManaAbility && (manaOracleText.includes('any color') || manaOracleText.includes('mana of any color'))) {
     if (typeof spelledAnyColorAmount === 'number' && spelledAnyColorAmount > 0) {
       result.baseAmount = spelledAnyColorAmount;
     }
-    if (normalizedChosenColor && ['W', 'U', 'B', 'R', 'G'].includes(normalizedChosenColor)) {
-      result.colors = [normalizedChosenColor];
+    if (effectiveChosenColor && ['W', 'U', 'B', 'R', 'G'].includes(effectiveChosenColor)) {
+      result.colors = [effectiveChosenColor];
       result.requiresColorChoice = false;
     } else {
       result.colors = ['any'];

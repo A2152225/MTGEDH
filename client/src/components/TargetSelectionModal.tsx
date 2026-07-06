@@ -46,6 +46,12 @@ export interface TargetSelectionModalProps {
   targets: TargetOption[];
   minTargets: number;
   maxTargets: number;
+  /** When true, targets are chosen per opponent (up to N each). */
+  perOpponent?: boolean;
+  opponents?: Array<{ id: string; name: string }>;
+  targetsPerOpponent?: Record<string, TargetOption[]>;
+  minTargetsPerOpponent?: number;
+  maxTargetsPerOpponent?: number;
   // Grouping
   groupByType?: boolean;
   groupByController?: boolean;
@@ -65,6 +71,11 @@ export function TargetSelectionModal({
   targets,
   minTargets,
   maxTargets,
+  perOpponent = false,
+  opponents,
+  targetsPerOpponent,
+  minTargetsPerOpponent = 0,
+  maxTargetsPerOpponent = 1,
   groupByType = true,
   groupByController = false,
   onConfirm,
@@ -79,17 +90,40 @@ export function TargetSelectionModal({
     }
   }, [open, targets]);
 
+  const opponentIdForTarget = useCallback((targetId: string): string | null => {
+    if (!perOpponent || !targetsPerOpponent) return null;
+    for (const [opponentId, opponentTargets] of Object.entries(targetsPerOpponent)) {
+      if (opponentTargets.some((target) => target.id === targetId)) return opponentId;
+    }
+    return null;
+  }, [perOpponent, targetsPerOpponent]);
+
   const toggleSelect = useCallback((targetId: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(targetId)) {
         next.delete(targetId);
-      } else if (next.size < maxTargets) {
+        return next;
+      }
+
+      if (perOpponent && targetsPerOpponent) {
+        const opponentId = opponentIdForTarget(targetId);
+        if (opponentId) {
+          for (const target of targetsPerOpponent[opponentId] || []) {
+            if (target.id !== targetId) next.delete(target.id);
+          }
+        }
+        if (next.size >= maxTargets) return prev;
+        next.add(targetId);
+        return next;
+      }
+
+      if (next.size < maxTargets) {
         next.add(targetId);
       }
       return next;
     });
-  }, [maxTargets]);
+  }, [maxTargets, opponentIdForTarget, perOpponent, targetsPerOpponent]);
 
   const modePreferredTypes = useMemo(() => {
     const text = `${selectedMode?.name || ''} ${selectedMode?.description || ''}`.toLowerCase();
@@ -251,7 +285,39 @@ export function TargetSelectionModal({
     return groups;
   }, [targets, groupByType, groupByController]);
 
-  const canConfirm = selectedIds.size >= minTargets && selectedIds.size <= maxTargets;
+  const canConfirm = useMemo(() => {
+    if (selectedIds.size < minTargets || selectedIds.size > maxTargets) return false;
+    if (!perOpponent || !targetsPerOpponent) return true;
+
+    for (const opponentTargets of Object.values(targetsPerOpponent)) {
+      if (!opponentTargets.length) continue;
+      const count = opponentTargets.filter((target) => selectedIds.has(target.id)).length;
+      if (count > maxTargetsPerOpponent) return false;
+      if (count < minTargetsPerOpponent) return false;
+    }
+    return true;
+  }, [
+    selectedIds,
+    minTargets,
+    maxTargets,
+    perOpponent,
+    targetsPerOpponent,
+    minTargetsPerOpponent,
+    maxTargetsPerOpponent,
+  ]);
+
+  const perOpponentSections = useMemo(() => {
+    if (!perOpponent || !targetsPerOpponent) return null;
+    const orderedOpponents = opponents?.length
+      ? opponents
+      : Object.keys(targetsPerOpponent).map((id) => ({ id, name: id }));
+    return orderedOpponents
+      .map((opponent) => ({
+        opponent,
+        targets: targetsPerOpponent[opponent.id] || [],
+      }))
+      .filter((section) => section.targets.length > 0);
+  }, [perOpponent, opponents, targetsPerOpponent]);
 
   const handleConfirm = () => {
     if (canConfirm) {
@@ -360,7 +426,13 @@ export function TargetSelectionModal({
               </div>
             )}
             <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-              {minTargets === maxTargets
+              {perOpponent
+                ? minTargetsPerOpponent === maxTargetsPerOpponent
+                  ? `Select ${minTargetsPerOpponent === 1 ? 'one' : minTargetsPerOpponent} target per opponent`
+                  : minTargetsPerOpponent === 0
+                    ? `Select up to ${maxTargetsPerOpponent} target${maxTargetsPerOpponent !== 1 ? 's' : ''} per opponent`
+                    : `Select ${minTargetsPerOpponent} to ${maxTargetsPerOpponent} targets per opponent`
+                : minTargets === maxTargets
                 ? `Select exactly ${minTargets} target${minTargets !== 1 ? 's' : ''}`
                 : minTargets === 0
                 ? `Select up to ${maxTargets} target${maxTargets !== 1 ? 's' : ''}`
@@ -380,7 +452,165 @@ export function TargetSelectionModal({
             backgroundColor: '#252540',
           }}
         >
-          {Object.entries(groupedTargets).map(([groupName, groupTargets]) => (
+          {perOpponentSections
+            ? perOpponentSections.map(({ opponent, targets: opponentTargets }) => (
+              <div key={opponent.id} style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    backgroundColor: '#1a1a2e',
+                    fontWeight: 600,
+                    fontSize: 13,
+                    color: '#a0aec0',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 1,
+                  }}
+                >
+                  {opponent.name} ({opponentTargets.length})
+                </div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                    gap: 8,
+                    padding: 12,
+                  }}
+                >
+                  {sortTargetsByRelevance(opponentTargets).map((target) => {
+                    const isSelected = selectedIds.has(target.id);
+                    const isPlayer = target.type === 'player';
+                    const isModePreferred = isModePreferredTarget(target);
+                    const opponentAtMax =
+                      (targetsPerOpponent?.[opponent.id] || []).filter((entry) => selectedIds.has(entry.id)).length
+                      >= maxTargetsPerOpponent;
+
+                    return (
+                      <div
+                        key={target.id}
+                        onClick={() => toggleSelect(target.id)}
+                        onMouseEnter={(e) => {
+                          if (target.card && 'name' in target.card) {
+                            showCardPreview(e.currentTarget as HTMLElement, target.card as any, { prefer: 'right' });
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          hideCardPreview(e.currentTarget as HTMLElement);
+                        }}
+                        style={{
+                          position: 'relative',
+                          borderRadius: 6,
+                          overflow: 'hidden',
+                          border: isSelected
+                            ? '3px solid #f59e0b'
+                            : isModePreferred
+                            ? '1px solid rgba(245, 158, 11, 0.28)'
+                            : '1px solid rgba(255,255,255,0.10)',
+                          backgroundColor: isSelected
+                            ? 'rgba(245, 158, 11, 0.2)'
+                            : isModePreferred
+                            ? 'rgba(245, 158, 11, 0.05)'
+                            : 'transparent',
+                          cursor: opponentAtMax && !isSelected ? 'not-allowed' : 'pointer',
+                          opacity: opponentAtMax && !isSelected ? 0.5 : 1,
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        {isPlayer ? (
+                          <div
+                            style={{
+                              padding: 12,
+                              textAlign: 'center',
+                              minHeight: 80,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <div style={{ fontSize: 24 }}>👤</div>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>
+                              {target.displayName || target.name}
+                            </div>
+                            {target.life !== undefined && (
+                              <div style={{ fontSize: 11, color: '#888' }}>
+                                {target.life} life
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden', pointerEvents: 'none' }}>
+                              {target.imageUrl ? (
+                                <img
+                                  src={target.imageUrl}
+                                  alt={target.name}
+                                  draggable={false}
+                                  style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    background: '#333',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: 10,
+                                    textAlign: 'center',
+                                    padding: 4,
+                                    pointerEvents: 'none',
+                                  }}
+                                >
+                                  {target.name}
+                                </div>
+                              )}
+                            </div>
+                            <div
+                              style={{
+                                padding: '4px 6px',
+                                fontSize: 10,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                pointerEvents: 'none',
+                              }}
+                            >
+                              {target.displayName || target.name}
+                            </div>
+                          </>
+                        )}
+                        {isSelected && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: 4,
+                              right: 4,
+                              width: 22,
+                              height: 22,
+                              borderRadius: '50%',
+                              backgroundColor: '#f59e0b',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#000',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              pointerEvents: 'none',
+                            }}
+                          >
+                            ✓
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+            : Object.entries(groupedTargets).map(([groupName, groupTargets]) => (
             <div key={groupName} style={{ marginBottom: 8 }}>
               {Object.keys(groupedTargets).length > 1 && (
                 <div

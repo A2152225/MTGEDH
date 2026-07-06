@@ -541,6 +541,12 @@ export function tryResolveTriggerViaOracleIR(
   }
 
   if (useEffectProgram) {
+    if (
+      (ctx as any).isReplaying
+      && isTriggerEffectOwnedByOracleIrPrimary(effectText, params.sourceName)
+    ) {
+      return { handled: true, applied: 0, shadowWouldHandle: false };
+    }
     const effectProgramResult = startOracleEffectProgramOnServer(ctx, effectProgramParams);
     if (effectProgramResult.handled) {
       if (effectProgramResult.waitingForChoice && !effectProgramResult.completed) {
@@ -557,6 +563,14 @@ export function tryResolveTriggerViaOracleIR(
 
   if (!isTriggerEffectOwnedByOracleIrPrimary(effectText, params.sourceName) && !canApplyPreselectedChooseMode) {
     return { handled: false, applied: 0, shadowWouldHandle: false };
+  }
+
+  if (
+    (ctx as any).isReplaying
+    && (isTriggerEffectOwnedByOracleIrPrimary(effectText, params.sourceName) || canApplyPreselectedChooseMode)
+  ) {
+    // Mutations were persisted as executeEffect/oracle_ir_execution events during live play.
+    return { handled: true, applied: 0, shadowWouldHandle: false };
   }
 
   try {

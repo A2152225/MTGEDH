@@ -28,6 +28,7 @@ import {
   getCreatureCountManaAmount,
   detectManaModifiers,
   getCommanderColorIdentity,
+  resolvePermanentChosenColorSymbol,
 } from "../state/modules/mana-abilities";
 import {
   buildAnyCombinationManaSelectionFields,
@@ -3097,7 +3098,51 @@ function parseExplicitSelectedManaProduction(text: string): {
     }
   }
 
+  const chosenColorMatch = effectText.match(/\badd\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+the\s+chosen\s+colou?r/i);
+  if (chosenColorMatch) {
+    const rawAmount = String(chosenColorMatch[1] || '').trim().toLowerCase();
+    const baseAmount = parseWordNumber(rawAmount, 1);
+    return {
+      produces: [],
+      baseAmount: Math.max(1, baseAmount),
+      producesAllAtOnce: false,
+    };
+  }
+
   return undefined;
+}
+
+function applyPermanentChosenColorManaOverride(
+  permanent: any,
+  selectedAbilityTextRaw: string,
+  selectedAbilityFullTextRaw: string,
+  shape: { produces: string[]; baseAmount: number; producesAllAtOnce: boolean },
+): void {
+  const effectText = normalizeManaAbilitySelectionText(
+    selectedAbilityTextRaw
+    || (selectedAbilityFullTextRaw.includes(':')
+      ? selectedAbilityFullTextRaw.split(':').slice(1).join(':')
+      : selectedAbilityFullTextRaw),
+  );
+  if (!/mana\s+of\s+the\s+chosen\s+colou?r/i.test(effectText)) {
+    return;
+  }
+
+  const chosenSymbol = resolvePermanentChosenColorSymbol(permanent);
+  if (!chosenSymbol) {
+    return;
+  }
+
+  const amountMatch = effectText.match(/\badd\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+the\s+chosen\s+colou?r/i);
+  if (amountMatch) {
+    const parsedAmount = parseWordNumber(String(amountMatch[1] || ''), 1);
+    if (parsedAmount > 0) {
+      shape.baseAmount = parsedAmount;
+    }
+  }
+
+  shape.produces = [chosenSymbol];
+  shape.producesAllAtOnce = false;
 }
 
 function normalizeManaAbilityProducedColors(rawColors: unknown): string[] {
@@ -3341,12 +3386,19 @@ export function resolveManaAbilityActivationShape(
     (!ability && manaProduction?.requiresColorChoice !== true && produces.length > 1 && baseAmount === produces.length)
   ) && produces.length > 1);
 
-  return {
+  const shape = {
     ability,
     produces,
     baseAmount,
     producesAllAtOnce,
   };
+  applyPermanentChosenColorManaOverride(
+    permanent,
+    selectedAbilityTextRaw,
+    selectedAbilityFullTextRaw,
+    shape,
+  );
+  return shape;
 }
 
 function getChosenTypeManaSelectionFields(ability: any): {
@@ -8290,6 +8342,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         "native_g": "G",
         "native_c": "C",
         "native_any": "any", // Will need to prompt for color choice
+        "native_chosen_color": resolvePermanentChosenColorSymbol(permanent) || "any",
         "native_commander_any": "any", // Commander color identity restriction resolved in calculateManaProduction
       };
       manaColor = manaColorMap[abilityId] || (abilityId.startsWith('native_commander_any') ? 'any' : "C");
@@ -11940,7 +11993,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // - "Add an amount of {G}" (Karametra's Acolyte, etc.)
     // - "Add X mana in any combination" (Selvala, Nykthos, etc.)
     // Note: Also matches Talisman pattern: "{T}: Add {R} or {W}. This artifact deals 1 damage to you."
-    const isManaAbility = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
+    const isManaAbility = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana(?:\s+of\s+(?:the\s+chosen\s+colou?r|any(?:\s+one)?\s+colou?r))?|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) && 
                           !/target/i.test(abilityText);
 
     // Chosen-name activation restrictions (e.g., Pithing Needle / Phyrexian Revoker)
@@ -13311,9 +13364,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
 
   // ========================================================================
-  // NOTE: The legacy entrapmentManeuverSelect handler has been removed.
-  // Entrapment Maneuver is now handled by the Resolution Queue system
-  // via submitResolutionResponse. See resolution.ts handleEntrapmentManeuverResponse.
+  // Entrapment Maneuver sacrifice prompts use generic Oracle IR TARGET_SELECTION via oracleIrServerZoneSync.
   // ========================================================================
 
   // ========================================================================

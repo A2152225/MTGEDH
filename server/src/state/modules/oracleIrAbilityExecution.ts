@@ -1,6 +1,11 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import { buildOracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutor.js';
+import {
+  inferOracleIrTargetBinding,
+  oracleIrTargetBindingToBaseContext,
+  oracleIrTargetBindingToEventHint,
+} from '../../../../rules-engine/src/oracleIrTargetBinding.js';
 import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser.js';
 import { collectOracleEffectStepsWithOverlay } from '../../../../rules-engine/src/oracleIRCompilerEnvelope.js';
 import { isRecognizedActivatedAbilityCostText } from '../../../../rules-engine/src/stationPermanentUtils.js';
@@ -8,6 +13,7 @@ import { parseStationKeywordActivatedAbility } from '../../../../rules-engine/sr
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import { applyOracleIRStepsOnServer } from './oracleIrServerZoneSync.js';
+import { resolvePermanentChosenColorSymbol } from './mana-abilities.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import {
   resolveCompiledOverlayForCard,
@@ -242,28 +248,6 @@ export function readStationChargeThresholdFromActivatedOracleText(
   return threshold != null ? Number(threshold) : undefined;
 }
 
-function inferTargetBinding(state: any, targetIds: readonly string[]): {
-  targetPermanentId?: string;
-  targetPlayerId?: PlayerID;
-  chosenObjectIds?: readonly string[];
-} {
-  if (!Array.isArray(targetIds) || targetIds.length === 0) return {};
-  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
-  const players = Array.isArray(state?.players) ? state.players : [];
-
-  for (const targetId of targetIds) {
-    const id = String(targetId || '').trim();
-    if (!id) continue;
-    if (battlefield.some((permanent: any) => String(permanent?.id || '') === id)) {
-      return { targetPermanentId: id, chosenObjectIds: targetIds };
-    }
-    if (players.some((player: any) => String(player?.id || '') === id)) {
-      return { targetPlayerId: id as PlayerID, chosenObjectIds: targetIds };
-    }
-  }
-
-  return { chosenObjectIds: targetIds };
-}
 
 export function tryApplyOracleIRToActivatedAbility(
   ctx: GameContext,
@@ -316,7 +300,7 @@ export function tryApplyOracleIRToActivatedAbility(
     }
 
     const state = (ctx as any).state;
-    const targetBinding = inferTargetBinding(state, params.targets || []);
+    const targetBinding = inferOracleIrTargetBinding(state, params.targets || [], params.controller);
     const sourcePermanentId = String(params.sourcePermanentId || params.stackItemId || '').trim();
     const sourcePermanent = (state?.battlefield || []).find(
       (perm: any) => perm && String(perm.id || '') === sourcePermanentId,
@@ -327,6 +311,13 @@ export function tryApplyOracleIRToActivatedAbility(
       || params.card?.chosenCreatureType
       || '',
     ).trim();
+    const chosenColorName = String(
+      sourcePermanent?.chosenColor
+      || params.sourceItem?.chosenColor
+      || params.card?.chosenColor
+      || '',
+    ).trim().toLowerCase();
+    const chosenManaSymbol = resolvePermanentChosenColorSymbol(sourcePermanent || params.card) || undefined;
     const irCtx = buildOracleIRExecutionContext(
       {
         controllerId: params.controller,
@@ -335,18 +326,18 @@ export function tryApplyOracleIRToActivatedAbility(
         sourceObjectType: 'ability',
         ...(typeof params.teamworkWasPaid === 'boolean' ? { teamworkWasPaid: params.teamworkWasPaid } : {}),
         ...(typeof params.giftPromised === 'boolean' ? { giftPromised: params.giftPromised } : {}),
+        ...oracleIrTargetBindingToBaseContext(targetBinding),
         selectorContext: {
-          ...(targetBinding.chosenObjectIds ? { chosenObjectIds: targetBinding.chosenObjectIds } : {}),
-          ...(targetBinding.targetPlayerId ? { targetPlayerId: targetBinding.targetPlayerId } : {}),
+          ...oracleIrTargetBindingToBaseContext(targetBinding).selectorContext,
           ...(chosenCreatureType ? { chosenCreatureType } : {}),
+          ...(chosenColorName ? { chosenColor: chosenColorName } : {}),
+          ...(chosenManaSymbol ? { chosenMana: chosenManaSymbol } : {}),
         },
-        ...(targetBinding.targetPermanentId ? { targetPermanentId: targetBinding.targetPermanentId } : {}),
         ...(chosenCreatureType ? { chosenCreatureType } : {}),
+        ...(chosenColorName ? { chosenColor: chosenColorName } : {}),
       },
       {
-        targetPermanentId: targetBinding.targetPermanentId,
-        targetPlayerId: targetBinding.targetPlayerId,
-        chosenObjectIds: targetBinding.chosenObjectIds,
+        ...oracleIrTargetBindingToEventHint(targetBinding),
         sourceObjectType: 'ability',
         ...(chosenCreatureType ? { chosenCreatureType } : {}),
       },

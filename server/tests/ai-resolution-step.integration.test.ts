@@ -1,8 +1,11 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutor.js';
+import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import GameManager from '../src/GameManager.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
+import { applyOracleIRStepsOnServer } from '../src/state/modules/oracleIrServerZoneSync.js';
 import { broadcastGame, ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { cleanupGameAI, handleAIPriority, registerAIPlayer } from '../src/socket/ai.js';
@@ -4175,7 +4178,7 @@ describe('AI resolution-step integration', () => {
     }
   });
 
-  it('auto-resolves AI entrapment-maneuver steps from the shared resolution queue handler', async () => {
+  it('auto-resolves AI oracle IR sacrifice target selection for Entrapment-style effects', async () => {
     const io = createNoopIo();
     const aiHandler = initializeAIResolutionHandler(io as any);
 
@@ -4199,7 +4202,7 @@ describe('AI resolution-step integration', () => {
           controller: playerId,
           owner: playerId,
           tapped: true,
-          attacking: true,
+          attacking: 'opp1',
           counters: {},
           card: {
             id: 'attacker_small_card',
@@ -4214,7 +4217,7 @@ describe('AI resolution-step integration', () => {
           controller: playerId,
           owner: playerId,
           tapped: true,
-          attacking: true,
+          attacking: 'opp1',
           counters: {},
           card: {
             id: 'attacker_big_card',
@@ -4230,37 +4233,41 @@ describe('AI resolution-step integration', () => {
         opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
       };
 
-      const step = ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.ENTRAPMENT_MANEUVER,
-        playerId: playerId as any,
-        description: 'You must sacrifice an attacking creature you control.',
-        mandatory: true,
-        sourceId: 'spell1',
-        sourceName: 'Entrapment Maneuver',
-        caster: 'opp1',
-        attackingCreatures: [
-          {
-            id: 'attacker_big',
-            name: 'Big Attacker',
-            power: '5',
-            toughness: '5',
-            typeLine: 'Creature — Beast',
-          },
-          {
-            id: 'attacker_small',
-            name: 'Small Attacker',
-            power: '2',
-            toughness: '2',
-            typeLine: 'Creature — Bear',
-          },
-        ],
-      } as any);
+      const ctx = game as any;
+      ctx.gameId = gameId;
+      ResolutionQueueManager.removeQueue(gameId);
+
+      const oracleText =
+        "Target player sacrifices an attacking creature of their choice. You create X 1/1 white Soldier creature tokens, where X is that creature's toughness.";
+      const steps = parseOracleTextToIR(oracleText, 'Entrapment Maneuver').abilities[0].steps;
+
+      applyOracleIRStepsOnServer(
+        ctx,
+        game.state as any,
+        steps,
+        buildOracleIRExecutionContext({
+          controllerId: 'opp1',
+          sourceId: 'spell1',
+          sourceName: 'Entrapment Maneuver',
+          targetPlayerId: playerId,
+          selectorContext: { targetPlayerId: playerId, chosenObjectIds: [playerId] },
+        }),
+        { allowOptional: true, haltOnPlayerChoiceRequired: true },
+        { controller: 'opp1', sourceName: 'Entrapment Maneuver', sourceId: 'spell1' },
+      );
+
+      const queuedStep = ResolutionQueueManager.getQueue(gameId).steps.find(
+        (entry: any) =>
+          entry.type === ResolutionStepType.TARGET_SELECTION
+          && String(entry.oracleIrChoiceStepJson || '').includes('sacrifice'),
+      );
+      expect(queuedStep).toBeDefined();
 
       await vi.waitFor(() => {
         const queue = ResolutionQueueManager.getQueue(gameId);
-        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String((queuedStep as any).id))).toBe(false);
 
-        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String((queuedStep as any).id));
         expect(completed?.response?.selections).toEqual(['attacker_small']);
       });
     } finally {

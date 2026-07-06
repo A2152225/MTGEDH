@@ -10178,6 +10178,77 @@ describe('Oracle IR Executor', () => {
     expect(result.automationGaps).toHaveLength(0);
   });
 
+  it('applies deal_damage to any target creature when binding also has controller targetPlayerId', () => {
+    const ir = parseOracleTextToIR('Lightning Bolt deals 3 damage to any target.', 'Lightning Bolt');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'c1',
+          controller: 'p2',
+          owner: 'p2',
+          basePower: 1,
+          baseToughness: 1,
+          card: { id: 'c1-card', name: 'Target Creature', type_line: 'Creature — Human', power: '1', toughness: '1' },
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetPermanentId: 'c1',
+      targetCreatureId: 'c1',
+      selectorContext: {
+        targetPermanentId: 'c1',
+        targetCreatureId: 'c1',
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+        chosenObjectIds: ['c1'],
+      },
+    });
+
+    expect((result.state.battlefield || []).find((permanent: any) => permanent?.id === 'c1')?.counters?.damage
+      ?? (result.state.battlefield || []).find((permanent: any) => permanent?.id === 'c1')?.markedDamage).toBe(3);
+    expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(40);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+  });
+
+  it('applies graveyard-cast those-token replacement for Increasing Devotion via conditional create_token', () => {
+    const oracleText =
+      'Create five 1/1 white Human creature tokens. If this spell was cast from a graveyard, create ten of those tokens instead.\nFlashback {7}{W}{W}';
+    const ir = parseOracleTextToIR(oracleText, 'Increasing Devotion');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+      battlefield: [],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const fromHand = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Increasing Devotion',
+    });
+    expect((fromHand.state.battlefield || []).length).toBe(5);
+
+    const fromGraveyard = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Increasing Devotion',
+      castFromZone: 'graveyard',
+      selectorContext: { castFromZone: 'graveyard' },
+    });
+    expect((fromGraveyard.state.battlefield || []).length).toBe(10);
+    expect(fromGraveyard.appliedSteps.filter((step) => step.kind === 'create_token')).toHaveLength(2);
+  });
+
   it('applies deal_damage to "that player" via target_player selector context binding', () => {
     const ir = parseOracleTextToIR('It deals 2 damage to that player.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];

@@ -54,6 +54,11 @@ import {
   quantityToNumber,
   resolvePlayers,
 } from './oracleIRExecutorPlayerUtils';
+import {
+  parseReferencedPossessiveZonePhrase,
+  resolveReferencedObjectPlayerIds,
+  resolveReferencedPlayerZone,
+} from './oracleIRExecutorReferenceUtils';
 import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import { findAntecedentStepIndex } from './oracleIRStepLedger';
 import { resolveThisWayAntecedentStepIndex } from './oracleIRThisWayBinding';
@@ -91,18 +96,13 @@ import { AIRBEND_ALTERNATE_COST } from './keywordActions/airbend';
 import { EARTHBENDED_PROPERTIES } from './keywordActions/earthbend';
 
 import { bridgedZoneStepResult } from './oracleIRStepLedgerRuntime';
+import { oracleIrBattlefieldRemovalBridgeOptions } from './oracleIRExecutorBattlefieldOps';
 
 function oracleIrBattlefieldRemovalOptions(
   ctx: OracleIRExecutionContext,
   stepKind: string,
 ): FinalizeBattlefieldRemovalOptions | undefined {
-  if (!ctx.serverBridge || ctx.currentStepIndex === undefined) return undefined;
-  return {
-    ctx,
-    stepIndex: ctx.currentStepIndex,
-    stepKind,
-    cause: `oracle_ir:${stepKind}`,
-  };
+  return oracleIrBattlefieldRemovalBridgeOptions(ctx, stepKind);
 }
 
 function buildPermanentCardWithStats(perm: any, zone: string): any {
@@ -110,8 +110,12 @@ function buildPermanentCardWithStats(perm: any, zone: string): any {
   const power = (perm as any)?.effectivePower ?? (perm as any)?.power ?? (perm as any)?.basePower ?? (perm as any)?.card?.power;
   const toughness =
     (perm as any)?.effectiveToughness ?? (perm as any)?.toughness ?? (perm as any)?.baseToughness ?? (perm as any)?.card?.toughness;
+  const owner = (perm as any)?.owner ?? (perm as any)?.ownerId ?? (perm as any)?.controller ?? (perm as any)?.controllerId;
+  const controller = (perm as any)?.controller ?? (perm as any)?.controllerId ?? owner;
   return {
     ...base,
+    ...(owner ? { owner, ownerId: owner } : {}),
+    ...(controller ? { controller, controllerId: controller } : {}),
     ...(power !== undefined && power !== null ? { power } : {}),
     ...(toughness !== undefined && toughness !== null ? { toughness } : {}),
   };
@@ -1118,6 +1122,9 @@ export function buildSacrificeTargetSelectionOptions(
           const subtypePattern = filter.subtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           if (!new RegExp(`(^|[^a-z])${subtypePattern}(?:s)?($|[^a-z])`, 'i').test(typeLineLower)) continue;
         }
+        if (sacrificeRequiresAttackingCreature(sacrificeWhatText) && !isPermanentAttackingForSacrifice(permanent)) {
+          continue;
+        }
         candidates.push(permanent);
       }
     }
@@ -1511,6 +1518,30 @@ function collectBoundBattlefieldIds(ctx: OracleIRExecutionContext): string[] {
           : []),
       ].filter(Boolean)
     )
+  );
+}
+
+function collectSacrificeChoiceBoundIds(
+  battlefield: readonly BattlefieldPermanent[],
+  ctx: OracleIRExecutionContext,
+): string[] {
+  const permanentIds = new Set(
+    battlefield
+      .map((perm: any) => String(perm?.id || '').trim())
+      .filter(Boolean),
+  );
+  return collectBoundBattlefieldIds(ctx).filter((id) => permanentIds.has(id));
+}
+
+function sacrificeRequiresAttackingCreature(sacrificeWhatText: string): boolean {
+  return /\battacking\s+creatures?\b/i.test(String(sacrificeWhatText || ''));
+}
+
+function isPermanentAttackingForSacrifice(permanent: any): boolean {
+  return Boolean(
+    permanent?.attacking ||
+      permanent?.attackingPlayerId ||
+      permanent?.isAttacking,
   );
 }
 
@@ -11321,6 +11352,63 @@ export function applyExileStep(
   const special = trySpecialExileStep(state, step, ctx);
   if (special) return special;
 
+  const exileRaw = String(step.raw || '').trim();
+  if (/^for each opponent,\s+exile\s+/i.test(exileRaw)) {
+    const controllerId = String(ctx.controllerId || '').trim() as PlayerID;
+    const opponents = (state.players || [])
+      .map((entry: any) => String(entry?.id || '').trim())
+      .filter((id) => id && id !== controllerId);
+    const chosenIds = getChosenObjectIdsFromContext(ctx);
+    let workingState = state;
+    const combinedLog: string[] = [];
+    const exiledSnapshots: any[] = [];
+    let battlefieldNow = [...((workingState.battlefield || []) as any[])];
+
+    for (const opponentId of opponents) {
+      const boundForOpponent = chosenIds.filter((id) => {
+        const perm = battlefieldNow.find((p) => String(p?.id || '').trim() === id);
+        return (
+          perm &&
+          String(perm?.controller || '').trim() === opponentId &&
+          permanentMatchesType(perm, 'creature')
+        );
+      });
+      const targetId =
+        boundForOpponent[0] ||
+        String(
+          battlefieldNow.find(
+            (p) =>
+              String(p?.controller || '').trim() === opponentId && permanentMatchesType(p, 'creature'),
+          )?.id || '',
+        ).trim();
+      if (!targetId) continue;
+      const toRemove = battlefieldNow.filter((p) => String(p?.id || '').trim() === targetId);
+      if (toRemove.length === 0) continue;
+      const removedIds = new Set(toRemove.map((p) => String(p?.id || '').trim()));
+      const kept = battlefieldNow.filter((p) => !removedIds.has(String(p?.id || '').trim()));
+      const result = finalizeBattlefieldRemoval(
+        workingState,
+        toRemove,
+        removedIds,
+        kept,
+        'exile',
+        'exiled',
+        oracleIrBattlefieldRemovalOptions(ctx, 'exile'),
+      );
+      workingState = result.state;
+      battlefieldNow = [...((workingState.battlefield || []) as any[])];
+      combinedLog.push(...(result.log || []));
+      exiledSnapshots.push(...toRemove);
+    }
+
+    return {
+      applied: true,
+      state: workingState,
+      log: combinedLog.length > 0 ? combinedLog : [`Exiled opponent creatures: ${exileRaw}`],
+      lastMovedCards: exiledSnapshots,
+    };
+  }
+
   const normalizedExileTargetText = normalizeExileTargetReferenceText(
     String((step.target as any)?.text || step.raw || '')
   );
@@ -11426,32 +11514,31 @@ export function applyExileStep(
     };
   }
 
-  if (/^its controller's graveyard$/i.test(normalizedExileTargetText)) {
-    const hostId = String(
-      ctx.targetCreatureId || ctx.targetPermanentId || ctx.selectorContext?.targetCreatureId || ''
-    ).trim();
-    const host = hostId
-      ? ((state.battlefield || []) as any[]).find((perm: any) => String(perm?.id || '').trim() === hostId)
-      : undefined;
-    const controllerId = String((host as any)?.controller || ctx.selectorContext?.targetOpponentId || 'p2').trim() as PlayerID;
+  if (parseReferencedPossessiveZonePhrase(normalizedExileTargetText)) {
+    const referencedZone = resolveReferencedPlayerZone(state, ctx, normalizedExileTargetText);
+    const controllerId = String(referencedZone?.playerId || '').trim() as PlayerID;
+    const zoneName = referencedZone?.zone;
+    if (!controllerId || !zoneName) {
+      return { applied: true, state, log: ['No referenced player zone to exile from'] };
+    }
     const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === controllerId) as any;
-    const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
-    if (graveyard.length === 0) {
-      return { applied: true, state, log: ['No graveyard cards to exile'] };
+    const zoneCards = Array.isArray(player?.[zoneName]) ? [...player[zoneName]] : [];
+    if (zoneCards.length === 0) {
+      return { applied: true, state, log: [`No ${zoneName} cards to exile`] };
     }
     const updatedPlayers = (state.players || []).map((entry: any) =>
       String(entry?.id || '').trim() === controllerId
         ? {
             ...entry,
-            graveyard: [],
-            exile: [...(Array.isArray(entry?.exile) ? entry.exile : []), ...graveyard],
+            [zoneName]: [],
+            exile: [...(Array.isArray(entry?.exile) ? entry.exile : []), ...zoneCards],
           }
         : entry
     );
     return {
       applied: true,
       state: { ...(state as any), players: updatedPlayers as any } as GameState,
-      log: [`Exiled ${graveyard.length} card(s) from ${controllerId}'s graveyard`],
+      log: [`Exiled ${zoneCards.length} card(s) from ${controllerId}'s ${zoneName}`],
     };
   }
 
@@ -12442,13 +12529,15 @@ export function applySacrificeStep(
   }
 
   if (parsed?.mode === 'choice_required') {
-    const chosenIds = collectBoundBattlefieldIds(ctx);
+    const chosenIds = collectSacrificeChoiceBoundIds(battlefield, ctx);
     const wantsCreature = /\bcreature\b/i.test(sacrificeWhatText);
+    const wantsAttacking = sacrificeRequiresAttackingCreature(sacrificeWhatText);
     const pickOneForPlayer = (playerId: string): BattlefieldPermanent | undefined => {
       const sourceId = String(ctx.sourceId || '').trim();
       const matchesPlayer = (perm: any) =>
         String((perm as any)?.controller || '').trim() === playerId &&
-        (!wantsCreature || permanentMatchesType(perm, 'creature'));
+        (!wantsCreature || permanentMatchesType(perm, 'creature')) &&
+        (!wantsAttacking || isPermanentAttackingForSacrifice(perm));
 
       const boundMatches = battlefield.filter((perm: any) => {
         const permanentId = String((perm as any)?.id || '').trim();
@@ -12492,7 +12581,8 @@ export function applySacrificeStep(
         return (
           chosenIds.includes(permanentId) &&
           players.includes(String((perm as any)?.controller || '').trim()) &&
-          (!wantsCreature || permanentMatchesType(perm, 'creature'))
+          (!wantsCreature || permanentMatchesType(perm, 'creature')) &&
+          (!wantsAttacking || isPermanentAttackingForSacrifice(perm))
         );
       });
       if (selected.length === 0) {

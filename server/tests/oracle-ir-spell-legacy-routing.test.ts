@@ -14,6 +14,7 @@ import {
   shouldSkipSpellUncategorizedFallback,
 } from '../src/state/modules/oracleIrSpellLegacyRouting.js';
 import { categorizeSpell, categorizeSpellWithoutPrimaryRetirement } from '../src/rules-engine/targeting.js';
+import { lookupLocalCardByNameSync } from '../src/services/localCardLookup.js';
 
 describe('oracleIrSpellLegacyRouting', () => {
   const previousPrimary = process.env.ORACLE_IR_SPELL_PRIMARY;
@@ -73,6 +74,56 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(isSpellEffectOwnedByOracleIrPrimary('Destroy each creature.', 'Test Each Wrath')).toBe(true);
     expect(isSpellEffectOwnedByOracleIrPrimary('Destroy all artifacts.', 'Test Shatter Storm')).toBe(true);
     expect(isSpellEffectOwnedByOracleIrPrimary('Exile target creature.', 'Test Path to Exile')).toBe(true);
+    expect(
+      isSpellEffectOwnedByOracleIrPrimary(
+        'Exile target creature. Its controller gains life equal to its power.',
+        'Swords to Plowshares',
+      ),
+    ).toBe(true);
+    expect(
+      isSpellEffectOwnedByOracleIrPrimary(
+        "Destroy target artifact or enchantment. Its controller gains 4 life.",
+        "Nature's Claim",
+      ),
+    ).toBe(true);
+    expect(
+      isSpellEffectOwnedByOracleIrPrimary(
+        'Destroy target permanent. Its controller creates a 3/3 green Beast creature token.',
+        'Beast Within',
+      ),
+    ).toBe(true);
+    const fatefulCard = lookupLocalCardByNameSync('Fateful Absence');
+    const getLostCard = lookupLocalCardByNameSync('Get Lost');
+    if (fatefulCard?.oracle_text) {
+      expect(isSpellEffectOwnedByOracleIrPrimary(String(fatefulCard.oracle_text), 'Fateful Absence')).toBe(true);
+    }
+    if (getLostCard?.oracle_text) {
+      expect(isSpellEffectOwnedByOracleIrPrimary(String(getLostCard.oracle_text), 'Get Lost')).toBe(true);
+    }
+    expect(
+      isSpellEffectOwnedByOracleIrPrimary(
+        'Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle.',
+        'Path to Exile',
+      ),
+    ).toBe(true);
+    expect(
+      isSpellEffectOwnedByOracleIrPrimary(
+        "Search its controller's graveyard, hand, and library for all cards with the same name as that spell and exile them.",
+        'Counterbore',
+      ),
+    ).toBe(true);
+    expect(
+      isSpellEffectOwnedByOracleIrPrimary(
+        "Exile target creature. Exile the top card of its controller's library.",
+        'Test Pilfer',
+      ),
+    ).toBe(true);
+    expect(
+      isSpellEffectOwnedByOracleIrPrimary(
+        'Destroy any number of target creatures. For each creature destroyed this way, its controller creates a 4/4 red Dragon creature token with flying.',
+        'Descent of the Dragons',
+      ),
+    ).toBe(true);
     expect(isSpellEffectOwnedByOracleIrPrimary('Exile all creatures.', 'Test Terminus')).toBe(true);
     expect(isSpellEffectOwnedByOracleIrPrimary('Exile each creature.', 'Test Each Terminus')).toBe(true);
     expect(isSpellEffectOwnedByOracleIrPrimary('Exile all artifacts.', 'Test Shatter Exile')).toBe(true);
@@ -363,6 +414,7 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('create_token')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('destroy')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('exile')).toBe(true);
+    expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('exile_named_cards_from_zones')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('move_zone')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('counter_spell')).toBe(true);
     expect(ORACLE_IR_SPELL_RETIRED_STEP_KINDS.has('tap_or_untap')).toBe(true);
@@ -407,6 +459,18 @@ describe('oracleIrSpellLegacyRouting', () => {
     expect(isSpellEffectFullyIrWired(
       'Search your library for a creature card with mana value X or less, put it onto the battlefield, then shuffle.',
       'Celestial Reunion',
+    )).toBe(true);
+    expect(isSpellEffectFullyIrWired(
+      'Draw two cards, then create a Treasure token.',
+      'Big Score',
+    )).toBe(true);
+    expect(isSpellEffectFullyIrWired(
+      "Search its controller's graveyard, hand, and library for all cards with the same name as that spell and exile them.",
+      'Counterbore',
+    )).toBe(true);
+    expect(isSpellEffectFullyIrWired(
+      "Exile target creature. Exile the top card of its controller's library.",
+      'Test Pilfer',
     )).toBe(true);
     expect(isSpellEffectFullyIrWired('Do something utterly non-oracular.', 'Spell')).toBe(false);
   });

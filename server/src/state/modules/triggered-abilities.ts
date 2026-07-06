@@ -10184,13 +10184,16 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
     // Check if this trigger requires the creature to be controlled by the trigger's controller
     // Pattern: "you control" or "under your control" in the trigger text
     const hasControlRestriction = /creature(?:s)?\s+you\s+control|under your control/i.test(oracleText);
+    const effectText = timingTriggerEffect(oracleText, creatureETBMatch, 2);
+    const optionalTrigger = /\byou may\b/i.test(effectText);
     const t: TriggeredAbility = {
       permanentId,
       cardName,
       triggerType: 'creature_etb',
-      description: timingTriggerEffect(oracleText, creatureETBMatch, 2),
-      effect: timingTriggerEffect(oracleText, creatureETBMatch, 2),
-      mandatory: true,
+      description: effectText,
+      effect: effectText,
+      mandatory: !optionalTrigger,
+      requiresChoice: optionalTrigger,
       nontokenOnly: isNontokenOnly,
       controlledOnly: hasControlRestriction,  // Flag for creatures that must be yours (e.g., Aura Shards)
     };
@@ -10273,25 +10276,32 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   
   // "Whenever another creature enters the battlefield" (Soul Warden, Auriok Champion, etc.)
   // This is CREATURE-ONLY - does NOT trigger on non-creature permanents like artifacts
-  // NOTE: Soul Warden says "Whenever another creature enters the battlefield, you gain 1 life."
-  // This should NOT trigger on artifacts, enchantments, lands, etc.
+  // NOTE: Soul Warden: "Whenever another creature enters the battlefield, you gain 1 life."
+  // Auriok Champion: same trigger but optional ("you may gain 1 life"); protection from black/red is unrelated.
   // Supports both old template "enters the battlefield" and new Bloomburrow template "enters"
   // Also handles plural forms: "creatures enter" and "one or more other creatures enter"
   const anotherCreatureAnyETBMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) (?:[\w\s]+)?creatures? enters?(?: the battlefield)?(?!.*under your control),?\s*([^.]+)/i);
   if (anotherCreatureAnyETBMatch && !triggers.some(t => t.triggerType === 'creature_etb')) {
-    // Extract any color restriction for filtering at trigger evaluation time (e.g., "white or black creature")
+    // Extract color qualifiers in the trigger clause only (e.g. "white creature"), not protection/reminder text.
     const colorRestrictionMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) ([\w\s]+?) creatures? enters?/i);
-    const colorRestriction = colorRestrictionMatch ? colorRestrictionMatch[1].trim().toLowerCase() : null;
-    
+    const rawColorRestriction = colorRestrictionMatch ? colorRestrictionMatch[1].trim().toLowerCase() : null;
+    const colorRestriction = rawColorRestriction
+      && rawColorRestriction !== 'another'
+      && rawColorRestriction !== 'one or more'
+      && rawColorRestriction !== 'creature'
+      && /\b(white|blue|black|red|green|colorless)\b/.test(rawColorRestriction)
+      ? rawColorRestriction
+      : undefined;
+
+    const effectClause = timingTriggerEffect(oracleText, anotherCreatureAnyETBMatch);
     triggers.push({
       permanentId,
       cardName,
       triggerType: 'creature_etb', // Use creature_etb so it only fires on creatures
-      description: timingTriggerEffect(oracleText, anotherCreatureAnyETBMatch),
-      effect: timingTriggerEffect(oracleText, anotherCreatureAnyETBMatch),
-      mandatory: true,
-      // Store color restriction for filtering (e.g., "white or black" for Auriok Champion)
-      colorRestriction: colorRestriction && colorRestriction !== 'another' && colorRestriction !== 'one or more' ? colorRestriction : undefined,
+      description: effectClause,
+      effect: effectClause,
+      mandatory: !/\byou may\b/i.test(effectClause),
+      colorRestriction,
     } as any);
   }
   
@@ -10346,18 +10356,26 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
   const hasControlRestriction = /whenever (?:another|one or more(?: other)?) [\w\s]*creatures? (?:you control|under your control)/.test(oracleText) ||
                                  /whenever (?:another|one or more(?: other)?) [\w\s]*creatures? (?:you control )?enters?(?: the battlefield)? under your control/.test(oracleText);
   if (anotherCreatureControlledETBMatch && hasControlRestriction && !triggers.some(t => t.triggerType === 'another_permanent_etb' || t.triggerType === 'creature_etb')) {
-    // Extract any color restriction
+    // Extract color qualifiers in the trigger clause only (e.g. "white creature").
     const colorRestrictionMatch = oracleText.match(/whenever (?:another|one or more(?: other)?) ([\w\s]+?) creatures?/i);
-    const colorRestriction = colorRestrictionMatch ? colorRestrictionMatch[1].trim().toLowerCase() : null;
-    
+    const rawColorRestriction = colorRestrictionMatch ? colorRestrictionMatch[1].trim().toLowerCase() : null;
+    const colorRestriction = rawColorRestriction
+      && rawColorRestriction !== 'another'
+      && rawColorRestriction !== 'one or more'
+      && rawColorRestriction !== 'creature'
+      && /\b(white|blue|black|red|green|colorless)\b/.test(rawColorRestriction)
+      ? rawColorRestriction
+      : undefined;
+
+    const effectText = timingTriggerEffect(oracleText, anotherCreatureControlledETBMatch);
     triggers.push({
       permanentId,
       cardName,
       triggerType: 'another_permanent_etb', // This is controlled creature, so another_permanent_etb is appropriate
-      description: timingTriggerEffect(oracleText, anotherCreatureControlledETBMatch),
-      effect: timingTriggerEffect(oracleText, anotherCreatureControlledETBMatch),
-      mandatory: true,
-      colorRestriction: colorRestriction && colorRestriction !== 'another' && colorRestriction !== 'one or more' ? colorRestriction : undefined,
+      description: effectText,
+      effect: effectText,
+      mandatory: !/\byou may\b/i.test(effectText),
+      colorRestriction,
       creatureOnly: true, // Flag to indicate this only triggers on creatures
     } as any);
   }

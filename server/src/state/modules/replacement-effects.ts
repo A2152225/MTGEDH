@@ -1,6 +1,15 @@
+import { evaluateDeclarativeReplacementEvent, collectReplacementEffectSpecsFromState, overlayReplacementSpecToEffect, overlaySpecsMatchMill } from './replacementEffectSpec.js';
+import type { GameContext } from '../context.js';
+import {
+  applyBeneficialReplacements,
+  detectMillReplacementEffects,
+  type ReplacementEffect,
+} from './game-state-effects.js';
+import { computeCounterPlacementModifiedDeltas } from './replacementCounterPlacementUtils.js';
+
 export type ReplacementZone = 'battlefield' | 'graveyard' | 'exile' | 'hand' | 'library' | 'command' | 'stack';
 
-export type ReplacementEvent = ZoneChangeReplacementEvent | BattlefieldEntryReplacementEvent | DamageReplacementEvent | LifeGainReplacementEvent | LibrarySearchReplacementEvent | TokenCreationReplacementEvent | CounterPlacementReplacementEvent | CardDrawReplacementEvent;
+export type ReplacementEvent = ZoneChangeReplacementEvent | BattlefieldEntryReplacementEvent | DamageReplacementEvent | LifeGainReplacementEvent | LibrarySearchReplacementEvent | TokenCreationReplacementEvent | CounterPlacementReplacementEvent | CardDrawReplacementEvent | MillReplacementEvent;
 
 export interface ZoneChangeReplacementEvent {
   type: 'zone-change';
@@ -96,6 +105,17 @@ export interface CounterPlacementReplacementEvent {
   metadata?: Record<string, unknown>;
 }
 
+export interface MillReplacementEvent {
+  type: 'mill';
+  state?: any;
+  ctx?: GameContext;
+  millingPlayerId: string;
+  targetPlayerId: string;
+  count: number;
+  cause?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ReplacementEffectResult {
   applied: boolean;
   choiceRequired?: boolean;
@@ -114,8 +134,6 @@ export interface ReplacementEffectResult {
 }
 
 export type ReplacementEffectEvaluator = (event: ReplacementEvent) => ReplacementEffectResult | null;
-
-const STACK_GRAVEYARD_EXILE_ABILITIES = new Set(['flashback', 'jump-start', 'escape', 'disturb', 'harmonize']);
 
 const LIFE_GAIN_PREVENTION_CARDS: Record<string, {
   effect: string;
@@ -280,30 +298,6 @@ function replacementEffectModifiedAmount(originalAmount: number, rawEffects: unk
   return appliedEffects.length > 0 ? { finalAmount: amount, appliedEffects } : null;
 }
 
-function getDredgeOptions(event: CardDrawReplacementEvent): Array<{ cardId: string; cardName: string; dredge: number }> {
-  const zone = event.state?.zones?.[event.playerId] || {};
-  const graveyard = Array.isArray(zone.graveyard) ? zone.graveyard : [];
-  const libraryCount = Array.isArray(event.state?.libraries?.[event.playerId])
-    ? event.state.libraries[event.playerId].length
-    : Number(zone.libraryCount || 0);
-  const options: Array<{ cardId: string; cardName: string; dredge: number }> = [];
-
-  for (const card of graveyard) {
-    const oracle = getCardOracleText(card);
-    const match = oracle.match(/\bdredge\s+(\d+)\b/i);
-    if (!match) continue;
-    const dredge = parseInt(match[1], 10);
-    if (!Number.isFinite(dredge) || dredge <= 0 || libraryCount < dredge) continue;
-    options.push({
-      cardId: String(card?.id || '').trim(),
-      cardName: getCardName(card) || 'Dredge card',
-      dredge,
-    });
-  }
-
-  return options;
-}
-
 function normalizeReplacementText(value: unknown): string {
   return String(value || '')
     .replace(/[\u2018\u2019]/g, "'")
@@ -340,34 +334,6 @@ function getReplacementSourceName(permanent: any): string | undefined {
 function getReplacementLifeGain(permanent: any): number | undefined {
   const value = Number(permanent?.leaveBattlefieldReplacementLifeGain || permanent?.card?.leaveBattlefieldReplacementLifeGain || 0);
   return value > 0 ? value : undefined;
-}
-
-function getStackCastWithAbility(stackItem: any): string {
-  return normalizeReplacementText(
-    stackItem?.card?.castWithAbility
-      || stackItem?.castWithAbility
-      || stackItem?.alternativeCost
-      || ''
-  );
-}
-
-function stackItemExilesAfterResolution(stackItem: any): boolean {
-  return stackItem?.exileAfterResolution === true
-    || stackItem?.card?.exileAfterResolution === true
-    || stackItem?.card?.card?.exileAfterResolution === true;
-}
-
-function getObjectCardId(object: any): string {
-  return String(object?.card?.id || object?.id || '').trim();
-}
-
-function objectIsCommander(event: ZoneChangeReplacementEvent): boolean {
-  const object = event.object;
-  if (object?.isCommander === true || object?.card?.isCommander === true) return true;
-
-  const commanderIds = Array.isArray(event.metadata?.commanderIds) ? event.metadata?.commanderIds : [];
-  const cardId = getObjectCardId(object);
-  return Boolean(cardId && commanderIds.some((id) => String(id || '') === cardId));
 }
 
 const leaveBattlefieldExileEvaluator: ReplacementEffectEvaluator = (event) => {
@@ -423,55 +389,6 @@ const tokenLeaveBattlefieldEvaluator: ReplacementEffectEvaluator = (event) => {
     reason: 'token_left_battlefield',
     metadata: {
       ceasesToExist: true,
-    },
-  };
-};
-
-const stackGraveyardExileEvaluator: ReplacementEffectEvaluator = (event) => {
-  if (event.type !== 'zone-change' || event.sourceZone !== 'stack' || event.destinationZone !== 'graveyard') return null;
-
-  const stackItem = event.object;
-  const castWithAbility = getStackCastWithAbility(stackItem);
-  const explicitExileAfterResolution = stackItemExilesAfterResolution(stackItem);
-  if (!explicitExileAfterResolution && !STACK_GRAVEYARD_EXILE_ABILITIES.has(castWithAbility)) {
-    return null;
-  }
-
-  return {
-    applied: true,
-    eventType: event.type,
-    effectId: explicitExileAfterResolution ? 'stack-exile-after-resolution' : 'stack-ability-exile-after-resolution',
-    sourceName: String(stackItem?.card?.name || stackItem?.name || '').trim() || undefined,
-    originalDestination: 'graveyard',
-    replacementDestination: 'exile',
-    reason: explicitExileAfterResolution ? 'exile_after_resolution' : 'cast_with_ability_exiles_after_resolution',
-    metadata: {
-      ...(castWithAbility ? { castWithAbility } : {}),
-    },
-  };
-};
-
-const commanderZoneChoiceEvaluator: ReplacementEffectEvaluator = (event) => {
-  if (event.type !== 'zone-change') return null;
-  if (!['graveyard', 'exile', 'hand', 'library'].includes(event.destinationZone)) return null;
-  if (!objectIsCommander(event)) return null;
-
-  const object = event.object;
-  const cardId = getObjectCardId(object);
-
-  return {
-    applied: false,
-    choiceRequired: true,
-    eventType: event.type,
-    effectId: 'commander-zone-replacement-choice',
-    sourceName: String(object?.card?.name || object?.name || '').trim() || undefined,
-    originalDestination: event.destinationZone,
-    replacementDestination: event.destinationZone,
-    replacementOptions: ['command', event.destinationZone],
-    reason: 'commander_zone_replacement_choice',
-    metadata: {
-      commandZoneChoice: true,
-      ...(cardId ? { commanderId: cardId } : {}),
     },
   };
 };
@@ -876,7 +793,16 @@ const counterPlacementReplacementEvaluator: ReplacementEffectEvaluator = (event)
   if (event.type !== 'counter-placement') return null;
 
   const originalDeltas = normalizeDeltas(event.deltas);
-  const modifiedDeltas = normalizeDeltas(event.modifiedDeltas || event.deltas);
+  const overlaySpecs = collectReplacementEffectSpecsFromState(event.state);
+  const modifiedDeltas = normalizeDeltas(
+    event.modifiedDeltas
+      || computeCounterPlacementModifiedDeltas(
+        event.state,
+        String(event.targetPermanentId || ''),
+        originalDeltas,
+        overlaySpecs,
+      ),
+  );
   if (!deltasDiffer(originalDeltas, modifiedDeltas)) return null;
 
   return {
@@ -895,118 +821,57 @@ const counterPlacementReplacementEvaluator: ReplacementEffectEvaluator = (event)
   };
 };
 
-function hasZursWeirdingOnBattlefield(battlefield: any[]): { active: boolean; sourceName?: string } {
-  for (const permanent of battlefield) {
-    if (!permanent?.card) continue;
-    const cardName = normalizeReplacementText(permanent.card.name || '');
-    const oracle = getCardOracleText(permanent.card);
-    if (
-      cardName.includes("zur's weirding") ||
-      (oracle.includes('if a player would draw a card') && oracle.includes('reveal it instead'))
-    ) {
-      return { active: true, sourceName: getCardName(permanent.card) || "Zur's Weirding" };
-    }
+function collectMillReplacementEffects(event: MillReplacementEvent): ReplacementEffect[] {
+  const effects: ReplacementEffect[] = [];
+
+  if (event.ctx) {
+    effects.push(...detectMillReplacementEffects(
+      event.ctx,
+      String(event.millingPlayerId || ''),
+      String(event.targetPlayerId || ''),
+    ));
   }
-  return { active: false };
+
+  const overlaySpecs = collectReplacementEffectSpecsFromState(event.state);
+  for (const spec of overlaySpecs) {
+    if (spec.event !== 'mill' || !spec.instead.modify) continue;
+    if (!overlaySpecsMatchMill(spec, event)) continue;
+    effects.push(overlayReplacementSpecToEffect(spec));
+  }
+
+  return effects;
 }
 
-const cardDrawReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
-  if (event.type !== 'card-draw') return null;
+const millReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
+  if (event.type !== 'mill') return null;
 
   const originalAmount = Math.max(0, Math.floor(Number(event.count || 0)));
   if (originalAmount <= 0) return null;
 
-  const skipZursWeirdingReplacement = event.metadata?.skipZursWeirdingReplacement === true;
-  if (!skipZursWeirdingReplacement) {
-    const battlefield = getEventStateBattlefield(event);
-    const weirding = hasZursWeirdingOnBattlefield(battlefield);
-    if (weirding.active) {
-      return {
-        applied: false,
-        choiceRequired: true,
-        eventType: event.type,
-        effectId: 'zurs-weirding-draw-replacement',
-        originalAmount,
-        replacementAmount: 0,
-        reason: 'zurs_weirding_draw_replacement',
-        sourceName: weirding.sourceName,
-        metadata: {
-          playerId: String(event.playerId || ''),
-          drawIndex: Number(event.drawIndex || 0) || undefined,
-          remainingDrawCountAfterChoice: Math.max(0, Math.floor(Number(event.metadata?.remainingDrawCountAfterChoice || 0))),
-        },
-      };
-    }
-  }
+  const effects = collectMillReplacementEffects(event);
+  if (effects.length === 0) return null;
 
-  const skipDredgeReplacement = event.metadata?.skipDredgeReplacement === true;
-  const dredgeOptions = skipDredgeReplacement ? [] : getDredgeOptions(event);
-  if (dredgeOptions.length > 0) {
-    return {
-      applied: false,
-      choiceRequired: true,
-      eventType: event.type,
-      effectId: 'dredge-draw-replacement-choice',
-      originalAmount,
-      replacementAmount: 0,
-      reason: 'dredge_replacement_choice',
-      metadata: {
-        playerId: String(event.playerId || ''),
-        dredgeOptions,
-      },
-    };
-  }
+  const result = applyBeneficialReplacements(originalAmount, effects);
+  if (result.finalAmount === originalAmount) return null;
 
-  const isFirstDrawStepDraw = event.metadata?.isFirstDrawStepDraw === true;
-  const battlefield = getEventStateBattlefield(event);
-  for (const permanent of battlefield) {
-    if (!permanent?.card) continue;
-    if (String(permanent.controller || '') === String(event.playerId || '')) continue;
-
-    const cardName = normalizeReplacementText(permanent.card.name || '');
-    const oracle = getCardOracleText(permanent.card);
-    if (cardName.includes('notion thief') || (oracle.includes('if an opponent would draw a card') && oracle.includes('instead you draw a card'))) {
-      if (isFirstDrawStepDraw) continue;
-      return {
-        applied: true,
-        eventType: event.type,
-        effectId: 'draw-replaced-by-opponent',
-        sourceName: getCardName(permanent.card) || undefined,
-        originalAmount,
-        replacementAmount: 0,
-        reason: 'draw_replaced_by_opponent',
-        metadata: {
-          playerId: String(event.playerId || ''),
-          replacementPlayerId: String(permanent.controller || ''),
-        },
-      };
-    }
-
-    if (originalAmount >= 2 && (cardName.includes('alms collector') || (oracle.includes('opponent would draw two or more cards') && oracle.includes('instead you and that player each draw a card')))) {
-      return {
-        applied: true,
-        eventType: event.type,
-        effectId: 'draw-replaced-by-shared-draw',
-        sourceName: getCardName(permanent.card) || undefined,
-        originalAmount,
-        replacementAmount: 1,
-        reason: 'draw_replaced_by_shared_draw',
-        metadata: {
-          playerId: String(event.playerId || ''),
-          additionalDraws: [{ playerId: String(permanent.controller || ''), count: 1 }],
-        },
-      };
-    }
-  }
-
-  return null;
+  return {
+    applied: true,
+    eventType: event.type,
+    effectId: 'mill-replacement-modified',
+    originalAmount,
+    replacementAmount: result.finalAmount,
+    reason: 'mill_replacement',
+    metadata: {
+      millingPlayerId: String(event.millingPlayerId || ''),
+      targetPlayerId: String(event.targetPlayerId || ''),
+      appliedEffects: result.appliedEffects,
+    },
+  };
 };
 
 const replacementEffectEvaluators: ReplacementEffectEvaluator[] = [
   leaveBattlefieldExileEvaluator,
   tokenLeaveBattlefieldEvaluator,
-  stackGraveyardExileEvaluator,
-  commanderZoneChoiceEvaluator,
   battlefieldEntryReplacementEvaluator,
   damagePreventionDisallowedEvaluator,
   shieldCounterDamagePreventionEvaluator,
@@ -1015,11 +880,16 @@ const replacementEffectEvaluators: ReplacementEffectEvaluator[] = [
   lifeGainPreventionEvaluator,
   librarySearchReplacementEvaluator,
   tokenCreationReplacementEvaluator,
+  millReplacementEvaluator,
   counterPlacementReplacementEvaluator,
-  cardDrawReplacementEvaluator,
 ];
 
 export function evaluateReplacementEvent(event: ReplacementEvent): ReplacementEffectResult {
+  const declarative = evaluateDeclarativeReplacementEvent(event, (event as any)?.state);
+  if (declarative) {
+    return declarative;
+  }
+
   for (const evaluator of replacementEffectEvaluators) {
     const result = evaluator(event);
     if (result && (result.applied || result.choiceRequired)) {
@@ -1091,6 +961,20 @@ export function evaluateReplacementEvent(event: ReplacementEvent): ReplacementEf
         targetPermanentId: String(event.targetPermanentId || ''),
         originalDeltas,
         modifiedDeltas: originalDeltas,
+      },
+    };
+  }
+
+  if (event.type === 'mill') {
+    const originalAmount = Math.max(0, Math.floor(Number(event.count || 0)));
+    return {
+      applied: false,
+      eventType: event.type,
+      originalAmount,
+      replacementAmount: originalAmount,
+      metadata: {
+        millingPlayerId: String(event.millingPlayerId || ''),
+        targetPlayerId: String(event.targetPlayerId || ''),
       },
     };
   }
@@ -1174,6 +1058,13 @@ export function evaluateTokenCreationReplacementEvent(event: Omit<TokenCreationR
 export function evaluateCounterPlacementReplacementEvent(event: Omit<CounterPlacementReplacementEvent, 'type'>): ReplacementEffectResult {
   return evaluateReplacementEvent({
     type: 'counter-placement',
+    ...event,
+  });
+}
+
+export function evaluateMillReplacementEvent(event: Omit<MillReplacementEvent, 'type'>): ReplacementEffectResult {
+  return evaluateReplacementEvent({
+    type: 'mill',
     ...event,
   });
 }

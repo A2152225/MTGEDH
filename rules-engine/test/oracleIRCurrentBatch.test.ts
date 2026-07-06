@@ -1755,13 +1755,15 @@ describe('Oracle IR current audit batch support', () => {
     expect(pathSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: 'search_library',
-        who: { kind: 'target_player' },
+        who: { kind: 'controller_of_referenced_object' },
         criteria: { kind: 'raw', text: 'basic land' },
         destination: 'battlefield',
         entersTapped: true,
         optional: true,
+        shuffle: true,
       }),
     ]));
+    expect(pathSteps.filter((step) => step.kind === 'shuffle_library')).toHaveLength(0);
     expect(cultivateSteps).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: 'search_library',

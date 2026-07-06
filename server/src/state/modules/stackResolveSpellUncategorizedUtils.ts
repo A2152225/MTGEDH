@@ -1,39 +1,16 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { buildOracleIRExecutionContext } from '../../../../rules-engine/src/oracleIRExecutor.js';
+import {
+  inferOracleIrTargetBinding,
+  oracleIrTargetBindingToBaseContext,
+  oracleIrTargetBindingToEventHint,
+} from '../../../../rules-engine/src/oracleIrTargetBinding.js';
 import { applyOracleIRUncategorizedSpellFallback } from './oracleIrUncategorizedSpellFallback.js';
 import { isCategorizeOpcodeRetiredUnderOracleIrPrimary, shouldSkipSpellUncategorizedFallback } from './oracleIrSpellLegacyRouting.js';
 import { wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
 import type { categorizeSpell } from '../../rules-engine/targeting.js';
 import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
-
-function inferUncategorizedSpellTargetBinding(state: any, targetIds: readonly string[]): {
-  targetPermanentId?: string;
-  targetPlayerId?: PlayerID;
-  targetSpellId?: string;
-  chosenObjectIds?: readonly string[];
-} {
-  if (!Array.isArray(targetIds) || targetIds.length === 0) return {};
-  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
-  const players = Array.isArray(state?.players) ? state.players : [];
-  const stack = Array.isArray(state?.stack) ? state.stack : [];
-
-  for (const targetId of targetIds) {
-    const id = String(targetId || '').trim();
-    if (!id) continue;
-    if (battlefield.some((permanent: any) => String(permanent?.id || '') === id)) {
-      return { targetPermanentId: id, chosenObjectIds: targetIds };
-    }
-    if (players.some((player: any) => String(player?.id || '') === id)) {
-      return { targetPlayerId: id as PlayerID, chosenObjectIds: targetIds };
-    }
-    if (stack.some((stackItem: any) => String(stackItem?.id || '') === id)) {
-      return { targetSpellId: id, chosenObjectIds: targetIds };
-    }
-  }
-
-  return { chosenObjectIds: targetIds };
-}
 
 function buildUncategorizedSpellIrContext(
   caster: PlayerID,
@@ -44,7 +21,7 @@ function buildUncategorizedSpellIrContext(
     sourceId?: string;
     castFromGraveyard?: boolean;
   },
-  targetBinding: ReturnType<typeof inferUncategorizedSpellTargetBinding>,
+  targetBinding: ReturnType<typeof inferOracleIrTargetBinding>,
 ) {
   return buildOracleIRExecutionContext(
     {
@@ -54,19 +31,11 @@ function buildUncategorizedSpellIrContext(
       sourceObjectType: 'spell',
       xValue: options.xValue,
       ...(options.castFromGraveyard ? { castFromZone: 'graveyard' } : {}),
-      selectorContext: {
-        ...(targetBinding.chosenObjectIds ? { chosenObjectIds: targetBinding.chosenObjectIds } : {}),
-        ...(targetBinding.targetPlayerId ? { targetPlayerId: targetBinding.targetPlayerId } : {}),
-        ...(targetBinding.targetSpellId ? { targetSpellId: targetBinding.targetSpellId } : {}),
-      },
-      ...(targetBinding.targetPermanentId ? { targetPermanentId: targetBinding.targetPermanentId } : {}),
-      ...(targetBinding.targetPlayerId ? { targetPlayerId: targetBinding.targetPlayerId } : {}),
+      ...oracleIrTargetBindingToBaseContext(targetBinding),
+      selectorContext: oracleIrTargetBindingToBaseContext(targetBinding).selectorContext,
     },
     {
-      targetPermanentId: targetBinding.targetPermanentId,
-      targetPlayerId: targetBinding.targetPlayerId,
-      targetSpellId: targetBinding.targetSpellId,
-      chosenObjectIds: targetBinding.chosenObjectIds,
+      ...oracleIrTargetBindingToEventHint(targetBinding),
       sourceObjectType: 'spell',
       castFromZone: options.castFromGraveyard ? 'graveyard' : undefined,
     },
@@ -122,7 +91,7 @@ export function tryApplyInstantSorceryUncategorizedSpellFallback(
   const targetIds = (Array.isArray(item?.targets) ? item.targets : [])
     .map((targetRef: any) => (typeof targetRef === 'string' ? targetRef : String(targetRef?.id || '')))
     .filter(Boolean);
-  const targetBinding = inferUncategorizedSpellTargetBinding((ctx as any).state, targetIds);
+  const targetBinding = inferOracleIrTargetBinding((ctx as any).state, targetIds, options.controller);
   const xValue = typeof options.spellXValue === 'number' && Number.isFinite(options.spellXValue)
     ? options.spellXValue
     : undefined;

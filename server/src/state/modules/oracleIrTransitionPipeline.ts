@@ -20,6 +20,8 @@ import {
   type ReplacementEvent,
 } from './replacement-effects.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
+import type { GameContext } from '../context.js';
+import { movePermanentToExile } from './counters_tokens.js';
 
 export interface OracleIRTransitionInterceptorOptions {
   readonly interactivePlayerChoices: boolean;
@@ -485,7 +487,7 @@ export function restoreOracleIrLedgerOnState(
 }
 
 export function queueOracleIrDeferredReplacementPrompts(
-  ctx: { gameId?: string; isReplaying?: boolean },
+  ctx: GameContext,
   haltState: OracleIRTransitionHaltState,
   params: {
     controller: string;
@@ -500,6 +502,20 @@ export function queueOracleIrDeferredReplacementPrompts(
 
   for (const transition of haltState.deferred) {
     const replacementChoice = (transition.event.metadata as any)?.replacementChoice;
+    const effectId = String(replacementChoice?.effectId || '').trim();
+
+    if (effectId === 'commander-zone-replacement-choice') {
+      const permanentId = String(
+        transition.event.objectId
+          || (transition.event.object as any)?.id
+          || '',
+      ).trim();
+      if (permanentId) {
+        movePermanentToExile(ctx, permanentId);
+      }
+      continue;
+    }
+
     const options = Array.isArray(replacementChoice?.replacementOptions)
       ? replacementChoice.replacementOptions
       : [];

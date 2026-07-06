@@ -7,6 +7,8 @@ import type { OracleIRReplayMutation } from './oracleIRReplayMutations';
 import { omitBridgedStepCarryOver, usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
+import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
+import { resolveOracleIrBoundTargetSpellId } from './oracleIrTargetBinding';
 import {
   addBattlefieldPermanentsToState,
   createBattlefieldPermanentsFromCards,
@@ -2119,6 +2121,51 @@ function getSearchLibraryMatches(
   });
 }
 
+function resolveSearchLibraryMaxResults(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'search_library' }>,
+  ctx: OracleIRExecutionContext,
+): number {
+  if (step.maxResults === 'any_number') {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  if (typeof step.maxResults === 'number' && Number.isFinite(step.maxResults) && step.maxResults > 0) {
+    return step.maxResults;
+  }
+
+  const whereRaw = String(step.whereX?.raw || '').trim();
+  if (whereRaw) {
+    const evaluated = evaluateModifyPtWhereX(
+      state,
+      ctx.controllerId,
+      `X is ${whereRaw}`,
+      undefined,
+      ctx,
+    );
+    if (evaluated !== null) return Math.max(0, evaluated);
+  }
+
+  const raw = String(step.raw || '');
+  const whereMatch = raw.match(/where x is (.+?)(?:,\s*put\b|,\s*reveal\b|\s*$)/i);
+  if (whereMatch) {
+    const evaluated = evaluateModifyPtWhereX(
+      state,
+      ctx.controllerId,
+      `X is ${String(whereMatch[1] || '').trim()}`,
+      undefined,
+      ctx,
+    );
+    if (evaluated !== null) return Math.max(0, evaluated);
+  }
+
+  return 1;
+}
+
+function isOptionalSearchLibraryStep(step: Extract<OracleEffectStep, { kind: 'search_library' }>): boolean {
+  if ((step as { optional?: boolean }).optional === true) return true;
+  return /\bup to\b/i.test(String(step.raw || ''));
+}
+
 export function buildSearchLibrarySelectionOptions(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'search_library' }>,
@@ -2145,8 +2192,8 @@ export function buildSearchLibrarySelectionOptions(
   const isAnyNumber = step.maxResults === 'any_number';
   const maxResults = isAnyNumber
     ? matches.length
-    : Math.max(1, Number(step.maxResults || 1) || 1);
-  const isOptional = Boolean((step as { optional?: boolean }).optional);
+    : resolveSearchLibraryMaxResults(state, step, ctx);
+  const isOptional = isOptionalSearchLibraryStep(step);
   const splitPlan = inferSplitLibrarySearchPlan(String(step.raw || ''));
   if (!isAnyNumber && matches.length <= maxResults && !isOptional && !splitPlan) return null;
 
@@ -3908,8 +3955,18 @@ export function applySearchLibraryStep(
   let nextState = state;
   const log: string[] = [];
   const allMovedCards: any[] = [];
+  const replayMutations: OracleIRReplayMutation[] = [];
   let ledgerRecordedViaBridge = false;
   const bridgeActive = usedOracleIrServerBridge(ctx);
+
+  const recordShuffledLibrary = (playerId: PlayerID, shuffledLibrary: readonly any[]): void => {
+    if (step.shuffle === false) return;
+    const shuffledLibraryIds = shuffledLibrary
+      .map((card) => String(card?.id || card?.cardId || '').trim())
+      .filter(Boolean);
+    if (shuffledLibraryIds.length === 0) return;
+    replayMutations.push({ kind: 'shuffleLibrary', playerId, shuffledLibraryIds });
+  };
 
   for (const playerId of players) {
     const player = nextState.players.find(p => p.id === playerId) as any;
@@ -3933,7 +3990,7 @@ export function applySearchLibraryStep(
 
     const maxResults = step.maxResults === 'any_number'
       ? matches.length
-      : Math.max(1, Number(step.maxResults || 1) || 1);
+      : resolveSearchLibraryMaxResults(nextState, step, ctx);
     const matchById = new Map(
       matches.map((card) => [String(card?.id || card?.cardId || '').trim(), card] as const),
     );
@@ -4024,6 +4081,7 @@ export function applySearchLibraryStep(
       );
       const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
       writePlayerZoneCards(nextState, playerId, playerAfterHand, 'library', shuffledLibrary);
+      recordShuffledLibrary(playerId, shuffledLibrary);
 
       const entersTapped = Boolean(splitPlan.entersTapped || step.entersTapped);
       const enteredBattlefield: any[] = [];
@@ -4089,6 +4147,7 @@ export function applySearchLibraryStep(
       );
       const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
       writePlayerZoneCards(nextState, playerId, player, 'library', shuffledLibrary);
+      recordShuffledLibrary(playerId, shuffledLibrary);
 
       const enteredBattlefield: any[] = [];
       for (const card of selected) {
@@ -4188,6 +4247,7 @@ export function applySearchLibraryStep(
       const remainingLibrary = readPlayerZoneCards(nextState, playerId, playerAfterCommit, 'library');
       const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
       writePlayerZoneCards(nextState, playerId, playerAfterCommit, 'library', shuffledLibrary);
+      recordShuffledLibrary(playerId, shuffledLibrary);
 
       allMovedCards.push(...commitResult.movedCards);
       if (commitResult.ledgerRecordedViaBridge) {
@@ -4210,6 +4270,7 @@ export function applySearchLibraryStep(
 
     const remainingLibrary = library.filter(card => !selectedIds.has(String(card?.id || card?.cardId || '').trim()));
     const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
+    recordShuffledLibrary(playerId, shuffledLibrary);
     const movedCards = selected.map((card: any) => ({
       ...card,
       zone: step.destination,
@@ -4280,6 +4341,7 @@ export function applySearchLibraryStep(
     state: nextState,
     log,
     ...(allMovedCards.length > 0 ? { lastMovedCards: allMovedCards } : {}),
+    ...(replayMutations.length > 0 ? { replayMutations } : {}),
   }, ledgerRecordedViaBridge);
 }
 
@@ -4288,7 +4350,19 @@ export function applyExileNamedCardsFromZonesStep(
   step: Extract<OracleEffectStep, { kind: 'exile_named_cards_from_zones' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const chosenCardName = String(ctx.selectorContext?.chosenCardName || '').trim();
+  const chosenCardName = (() => {
+    if (step.nameSource === 'target_spell_name') {
+      const targetSpellId = resolveOracleIrBoundTargetSpellId(ctx);
+      const stack = Array.isArray((state as any).stack) ? (state as any).stack : [];
+      const spell = stack.find((entry: any) => String(entry?.id || '').trim() === targetSpellId);
+      return String(spell?.card?.name || spell?.name || '').trim();
+    }
+    if (step.nameSource === 'referenced_card_name') {
+      const referenced = resolveReferencedObject(state, ctx);
+      return String(referenced?.card?.name || referenced?.name || '').trim();
+    }
+    return String(ctx.selectorContext?.chosenCardName || '').trim();
+  })();
   if (!chosenCardName) {
     return {
       applied: false,
@@ -4333,7 +4407,12 @@ export function applyExileNamedCardsFromZonesStep(
     const selectedCards: any[] = [];
     for (const zone of step.zones) {
       if (remainingSlots <= 0) break;
-      const cards = Array.isArray(player[zone]) ? player[zone] : [];
+      const cards = readPlayerZoneCards(
+        nextState,
+        playerId,
+        player,
+        zone as 'hand' | 'graveyard' | 'library',
+      );
       const selectedIndexes = new Set<number>();
       const zoneSelections: any[] = [];
       for (let index = 0; index < cards.length && remainingSlots > 0; index += 1) {
@@ -4380,6 +4459,7 @@ export function applyExileNamedCardsFromZonesStep(
             ...(allExiledCards.length > 0 ? { lastExiledCards: allExiledCards } : {}),
           }, ledgerRecordedViaBridge);
         }
+        nextState = commitResult.state;
         allExiledCards.push(...commitResult.movedCards);
         if (commitResult.ledgerRecordedViaBridge) {
           ledgerRecordedViaBridge = true;
@@ -5053,25 +5133,35 @@ export function applyRevealTopStep(
   }
 
   if (bridgeOptions && revealedCards.length > 0 && Number.isFinite(bridgeOptions.stepIndex)) {
-    const observation = commitLibraryTopObservation({
-      playerId: ctx.controllerId,
-      cards: revealedCards,
-      stepIndex: Number(bridgeOptions.stepIndex),
-      stepKind: String(bridgeOptions.stepKind || 'reveal_top'),
-      cause: 'oracle_ir:reveal_top',
-      ctx: bridgeOptions.ctx,
-    });
-    if (observation.halted) {
-      return withDiscardLedgerFlags({
-        applied: true,
-        state,
-        log,
-        lastRevealedCardCount: totalRevealed,
-        ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
-      }, ledgerRecordedViaBridge);
-    }
-    if (observation.ledgerRecordedViaBridge) {
-      ledgerRecordedViaBridge = true;
+    for (const playerId of players) {
+      const playerRevealed = revealedCards.filter((card: any) => {
+        const ownerId = String(card?.owner || card?.ownerId || playerId).trim();
+        return ownerId === playerId;
+      });
+      if (playerRevealed.length === 0 && players.length === 1) {
+        playerRevealed.push(...revealedCards);
+      }
+      if (playerRevealed.length === 0) continue;
+      const observation = commitLibraryTopObservation({
+        playerId,
+        cards: playerRevealed,
+        stepIndex: Number(bridgeOptions.stepIndex),
+        stepKind: String(bridgeOptions.stepKind || 'reveal_top'),
+        cause: 'oracle_ir:reveal_top',
+        ctx: bridgeOptions.ctx,
+      });
+      if (observation.halted) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state,
+          log,
+          lastRevealedCardCount: totalRevealed,
+          ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
+        }, ledgerRecordedViaBridge);
+      }
+      if (observation.ledgerRecordedViaBridge) {
+        ledgerRecordedViaBridge = true;
+      }
     }
   }
 
@@ -5080,7 +5170,7 @@ export function applyRevealTopStep(
     state,
     log,
     lastRevealedCardCount: totalRevealed,
-    ...(revealedCards.length > 0 ? { lastMovedCards: revealedCards } : {}),
+    ...(revealedCards.length > 0 ? { lastMovedCards: revealedCards, lastRevealedCards: revealedCards } : {}),
     ...(players.length === 1 ? { lastTopLibraryOwnerId: players[0] } : {}),
   }, ledgerRecordedViaBridge);
 }
@@ -6759,6 +6849,13 @@ export function applyRegisterLoseGameReplacementStep(
   };
 }
 
+function readExiledPermanentPower(entry: any): number {
+  const numeric = Number(
+    entry?.effectivePower ?? entry?.power ?? entry?.basePower ?? entry?.card?.power,
+  );
+  return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;
+}
+
 export function applyGainLifeStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'gain_life' }>,
@@ -6807,6 +6904,44 @@ export function applyGainLifeStep(
             replayMutations,
           };
         }
+      }
+    }
+  }
+
+  if (
+    step.amount?.kind === 'object_stat' &&
+    step.amount.stat === 'power' &&
+    (step.amount.subject === 'it' || step.amount.subject === 'that_creature') &&
+    step.who?.kind === 'target_player'
+  ) {
+    const exiledSnapshots = Array.isArray(runtime?.lastMovedCards) && runtime.lastMovedCards.length > 0
+      ? runtime.lastMovedCards
+      : Array.isArray(ctx.lastMovedCards)
+        ? ctx.lastMovedCards
+        : [];
+    if (exiledSnapshots.length > 1) {
+      let nextState = state;
+      const log: string[] = [];
+      const replayMutations: OracleIRReplayMutation[] = [];
+      let totalGained = 0;
+      for (const snapshot of exiledSnapshots) {
+        const playerId = String(snapshot?.controller || snapshot?.controllerId || '').trim() as PlayerID;
+        const amount = readExiledPermanentPower(snapshot);
+        if (!playerId || amount <= 0) continue;
+        const result = adjustLife(nextState, playerId, amount);
+        nextState = result.state;
+        log.push(...result.log);
+        totalGained += amount;
+        replayMutations.push({ kind: 'adjustLife', playerId, delta: amount });
+      }
+      if (totalGained > 0) {
+        return {
+          applied: true,
+          state: nextState,
+          log,
+          count: totalGained,
+          replayMutations,
+        };
       }
     }
   }

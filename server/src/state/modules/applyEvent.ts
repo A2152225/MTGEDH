@@ -362,7 +362,11 @@ import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.
 import { applyEffectProgramChoiceBindingOnReplay } from "../effects/effectProgramReplayRestore.js";
 import { restoreOracleIrLedgerOnState, restoreOracleIrPendingCompoundResumeOnState, clearOracleIrPendingCompoundResumeOnState } from "./oracleIrTransitionPipeline.js";
 import { ensureDeferredOracleIrStackItem } from "./oracleIrDeferredStackFinalize.js";
-import { finalizeGameStateAfterReplay } from "./replay-prompt-cleanup.js";
+import {
+  consumeReplayedTriggeredAbilityStackItems,
+  finalizeGameStateAfterReplay,
+  replayPopTopOfStackDuringEventReplay,
+} from "./replay-prompt-cleanup.js";
 import { applyJoinForcesPaidManaPowerPump } from "./joinForcesResolutionQueue.js";
 import { parseManaCost } from "./mana-check.js";
 import { addRestrictedManaToPool, calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
@@ -3004,9 +3008,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "resolveTopOfStack": {
-        // Stack resolution during event replay re-runs live IR/triggers and drifts zones.
-        // Outcomes are captured in subsequent persisted events (pushTriggeredAbility, colorChoice, etc.).
-        if (!(ctx as any).isReplaying) {
+        // Live resolution re-runs IR/triggers and drifts zones; outcomes are in
+        // executeEffect / mutation events. During replay, only pop the resolved item.
+        if ((ctx as any).isReplaying) {
+          replayPopTopOfStackDuringEventReplay(ctx as any);
+        } else {
           resolveTopOfStack(ctx as any);
         }
         break;
@@ -8803,6 +8809,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const shouldRebuildStack = Boolean(replayAbilityDescription || activatedAbilityText) && playerId != null && permId != null && (
               isEquipActivation ||
               isFortifyActivation ||
+              isFightActivation ||
               isLevelUpActivation ||
               isOutlastActivation ||
               isMonstrosityActivation ||
@@ -9450,19 +9457,25 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 : undefined;
               const persistedAbilityText = String((e as any).abilityText || '').trim();
               const persistedActivatedAbilityText = String((e as any).activatedAbilityText || '').trim();
+              const persistedStackItemId = String((e as any).stackItemId || '').trim();
 
               const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : ((ctx.state as any).stack = []);
               const existing = stack.find((item: any) =>
                 item &&
                 String(item.type || '') === 'ability' &&
-                String((item as any).source || '') === String(permId) &&
-                String((item as any).controller || '') === playerId &&
-                Number((item as any)?.planeswalker?.abilityIndex ?? -1) === Number(abilityIndex)
+                (
+                  (persistedStackItemId && String(item.id || '') === persistedStackItemId) ||
+                  (
+                    String((item as any).source || '') === String(permId) &&
+                    String((item as any).controller || '') === playerId &&
+                    Number((item as any)?.planeswalker?.abilityIndex ?? -1) === Number(abilityIndex)
+                  )
+                )
               );
 
               if (!existing && loyaltyAbility) {
                 stack.push({
-                  id: generateDeterministicId(ctx, 'ability_planeswalker', `${String(permId)}:${String(abilityIndex)}`),
+                  id: persistedStackItemId || generateDeterministicId(ctx, 'ability_planeswalker', `${String(permId)}:${String(abilityIndex)}`),
                   type: 'ability',
                   controller: playerId || String((perm as any).controller || ''),
                   source: String(permId),
@@ -13717,6 +13730,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const targetId = (e as any).targetId;
         const amount = (e as any).amount;
         const tokenData = (e as any).tokenData;
+
+        if (
+          (ctx as any).isReplaying
+          && ((e as any).oracleIrReplayMutation === true || (e as any).effectProgramMutation === true)
+        ) {
+          consumeReplayedTriggeredAbilityStackItems(ctx, e as Record<string, unknown>);
+        }
         
         try {
           switch (effectType) {
@@ -15805,6 +15825,9 @@ export function replay(
     try {
       delete (ctx as any)._replayCurrentEventType;
       delete (ctx as any)._replayNextEventType;
+      (ctx as any)._replayLastEventType = events.length > 0
+        ? String((events[events.length - 1] as any)?.type || '').trim()
+        : '';
     } catch {
       // ignore
     }

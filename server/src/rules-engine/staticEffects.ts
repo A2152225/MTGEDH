@@ -325,8 +325,92 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
       }
     }
 
+    // ============================================
+    // CONDITIONAL STATIC P/T (Phase 5.4)
+    // ============================================
+    const leylineLifeMatch = oracle.match(
+      /if you have at least (\w+) life more than your starting life total, creatures you control get (\+\d+\s*\/\s*\+\d+)/i,
+    );
+    if (leylineLifeMatch) {
+      const lifeOffset = parseCardCountWord(leylineLifeMatch[1]);
+      const buff = parseBuffSegment(leylineLifeMatch[2]);
+      if (lifeOffset !== undefined && buff) {
+        const startingLife = Number((state as any).startingLife || 40);
+        const currentLife = Number((state as any).life?.[controller] ?? startingLife);
+        if (currentLife >= startingLife + lifeOffset) {
+          for (const perm of state.battlefield) {
+            if (perm.controller === controller && isCreature(perm)) {
+              const agg = perPermanent.get(perm.id)!;
+              agg.pDelta += buff.p;
+              agg.tDelta += buff.t;
+            }
+          }
+        }
+      }
+    }
+
+    const tokenTurnBuffMatch = oracle.match(
+      /during your turn,?\s*creature tokens you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/i,
+    );
+    if (tokenTurnBuffMatch) {
+      const isControllerTurn = String((state as any).turnPlayer || '') === String(controller);
+      if (isControllerTurn) {
+        const buff = parseBuffSegment(tokenTurnBuffMatch[1]);
+        const tail = tokenTurnBuffMatch[2] || '';
+        if (buff) {
+          for (const perm of state.battlefield) {
+            if (perm.controller === controller && isCreature(perm) && perm.isToken === true) {
+              const agg = perPermanent.get(perm.id)!;
+              agg.pDelta += buff.p;
+              agg.tDelta += buff.t;
+              const abilities = resolveGrantedAbilities(source, tail);
+              for (const a of abilities) agg.abilities.add(a);
+            }
+          }
+        }
+      }
+    }
+
+    const tokenBuffMatch = !oracle.includes('during your turn')
+      ? oracle.match(/creature tokens you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/i)
+      : null;
+    if (tokenBuffMatch) {
+      const buff = parseBuffSegment(tokenBuffMatch[1]);
+      const tail = tokenBuffMatch[2] || '';
+      if (buff) {
+        for (const perm of state.battlefield) {
+          if (perm.controller === controller && isCreature(perm) && perm.isToken === true) {
+            const agg = perPermanent.get(perm.id)!;
+            agg.pDelta += buff.p;
+            agg.tDelta += buff.t;
+            const abilities = resolveGrantedAbilities(source, tail);
+            for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+      }
+    }
+
+    const nontokenBuffMatch = oracle.match(/nontoken creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/i);
+    if (nontokenBuffMatch) {
+      const buff = parseBuffSegment(nontokenBuffMatch[1]);
+      const tail = nontokenBuffMatch[2] || '';
+      if (buff) {
+        for (const perm of state.battlefield) {
+          if (perm.controller === controller && isCreature(perm) && perm.isToken !== true) {
+            const agg = perPermanent.get(perm.id)!;
+            agg.pDelta += buff.p;
+            agg.tDelta += buff.t;
+            const abilities = resolveGrantedAbilities(source, tail);
+            for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+      }
+    }
+
     // Creatures you control get +X/+Y (and maybe abilities)
-    const ctrlBuffMatches = oracle.match(/creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/);
+    const ctrlBuffMatches = !leylineLifeMatch && !tokenBuffMatch && !nontokenBuffMatch && !tokenTurnBuffMatch
+      ? oracle.match(/creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/)
+      : null;
     if (ctrlBuffMatches) {
       const buffSeg = ctrlBuffMatches[1];
       const tail = ctrlBuffMatches[2];

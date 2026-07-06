@@ -25,6 +25,23 @@ import {
   snapPixelToCell,
 } from '../utils/battlefieldGrid';
 
+/** Resolve real server permanent IDs for layout moves (grouped tokens use synthetic display IDs). */
+function permanentIdsForPositionUpdate(item: {
+  id: string;
+  isGroupedTokens?: boolean;
+  groupedTokenIds?: string[];
+}): string[] {
+  const groupedIds = item.groupedTokenIds;
+  if (item.isGroupedTokens && Array.isArray(groupedIds) && groupedIds.length > 0) {
+    return groupedIds;
+  }
+  if (item.id.startsWith('group_')) {
+    const suffix = item.id.slice('group_'.length);
+    if (suffix) return [suffix];
+  }
+  return [item.id];
+}
+
 function parsePT(raw?: string | number): number | undefined {
   if (typeof raw === 'number') return raw;
   if (typeof raw === 'string' && /^\d+$/.test(raw)) return parseInt(raw, 10);
@@ -220,11 +237,13 @@ export function FreeField(props: {
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ permanent: BattlefieldPermanent; x: number; y: number } | null>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number; z?: number } | null>(null);
+  const drag = useRef<{ id: string; grabOffsetX: number; grabOffsetY: number; z?: number } | null>(null);
   const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number } | null>(null);
   const [isPointerDragging, setIsPointerDragging] = useState(false);
   /** Stable grid slots for permanents without server-persisted positions (survives re-renders/reorders). */
   const autoPositionCache = useRef(new Map<string, { x: number; y: number }>());
+  /** Bumped after keyboard moves so layout useMemo re-runs (cache alone does not re-render). */
+  const [layoutRevision, setLayoutRevision] = useState(0);
 
   // State for ability selection modal (shown on double-click when multiple abilities exist)
   const [abilitySelectionModal, setAbilitySelectionModal] = useState<{
@@ -560,7 +579,7 @@ export function FreeField(props: {
       slotStats: { occupied, total: totalSlots, rows: grid.rows, cols: grid.cols },
       contentHeightPx: battlefieldGridContentHeight(grid),
     };
-  }, [perms, allBattlefieldPerms, imagePref, tileWidth, tileH, widthPx]);
+  }, [perms, allBattlefieldPerms, imagePref, tileWidth, tileH, widthPx, layoutRevision]);
 
   const items = battlefieldLayout.items;
   const gridLayout = battlefieldLayout.gridLayout;
@@ -573,6 +592,48 @@ export function FreeField(props: {
   );
 
   const needsScroll = !expanded && contentHeightPx > viewportCapPx;
+
+  /** Map screen pointer coords to battlefield-local pixels (handles table zoom + scroll). */
+  const pointerClientToFieldLocal = useCallback((clientX: number, clientY: number) => {
+    const field = fieldRef.current;
+    if (!field) return { x: 0, y: 0 };
+    const rect = field.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? field.offsetWidth / rect.width : 1;
+    const scaleY = rect.height > 0 ? field.offsetHeight / rect.height : 1;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  }, []);
+
+  const autoScrollDuringDrag = useCallback((clientY: number) => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || !needsScroll) return;
+    const rect = scrollEl.getBoundingClientRect();
+    const edgeZone = 56;
+    const step = 16;
+    const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
+    if (clientY < rect.top + edgeZone) {
+      scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop - step);
+    } else if (clientY > rect.bottom - edgeZone) {
+      scrollEl.scrollTop = Math.min(maxScroll, scrollEl.scrollTop + step);
+    }
+  }, [needsScroll]);
+
+  const updateDragPreviewFromPointer = useCallback((clientX: number, clientY: number) => {
+    const active = drag.current;
+    if (!active) return;
+    autoScrollDuringDrag(clientY);
+    const local = pointerClientToFieldLocal(clientX, clientY);
+    const nx = Math.round(local.x - active.grabOffsetX);
+    const ny = Math.round(local.y - active.grabOffsetY);
+    const snapped = snapPixelToCell(
+      clamp(nx, 0, Math.max(0, widthPx - tileWidth)),
+      clamp(ny, 0, Math.max(0, contentHeightPx - tileH)),
+      gridLayout,
+    );
+    setDragPreview({ id: active.id, x: snapped.x, y: snapped.y });
+  }, [autoScrollDuringDrag, contentHeightPx, gridLayout, pointerClientToFieldLocal, tileH, tileWidth, widthPx]);
 
   const dragTargetCell = useMemo(() => {
     if (!dragPreview) return null;
@@ -605,7 +666,10 @@ export function FreeField(props: {
     }
 
     autoPositionCache.current.set(permanentId, { x: next.x, y: next.y });
-    onMove(permanentId, next.x, next.y, item.pos?.z);
+    for (const id of permanentIdsForPositionUpdate(item)) {
+      onMove(id, next.x, next.y, item.pos?.z);
+    }
+    setLayoutRevision((v) => v + 1);
     return true;
   }, [draggable, onMove, items, gridLayout]);
 
@@ -653,10 +717,9 @@ export function FreeField(props: {
     }
 
     if (commit && e && onMove) {
-      const dx = e.clientX - active.startX;
-      const dy = e.clientY - active.startY;
-      const nx = Math.round(active.baseX + dx);
-      const ny = Math.round(active.baseY + dy);
+      const local = pointerClientToFieldLocal(e.clientX, e.clientY);
+      const nx = Math.round(local.x - active.grabOffsetX);
+      const ny = Math.round(local.y - active.grabOffsetY);
       const snapped = snapPixelToCell(
         clamp(nx, 0, Math.max(0, widthPx - tileWidth)),
         clamp(ny, 0, Math.max(0, contentHeightPx - tileH)),
@@ -664,13 +727,18 @@ export function FreeField(props: {
       );
       const bumpZ = e.altKey ? ((active.z ?? 0) + 1) : active.z;
       autoPositionCache.current.set(active.id, { x: snapped.x, y: snapped.y });
-      onMove(active.id, snapped.x, snapped.y, bumpZ);
+      const dragged = items.find((entry) => entry.id === active.id);
+      const idsToUpdate = dragged ? permanentIdsForPositionUpdate(dragged) : [active.id];
+      for (const id of idsToUpdate) {
+        onMove(id, snapped.x, snapped.y, bumpZ);
+      }
+      setLayoutRevision((v) => v + 1);
     }
 
     drag.current = null;
     setDragPreview(null);
     setIsPointerDragging(false);
-  }, [gridLayout, contentHeightPx, onMove, tileH, tileWidth, widthPx]);
+  }, [gridLayout, contentHeightPx, items, onMove, pointerClientToFieldLocal, tileH, tileWidth, widthPx]);
 
   const cancelDrag = useCallback(() => {
     finishDrag(undefined, false);
@@ -680,6 +748,16 @@ export function FreeField(props: {
     if (!isPointerDragging) return;
 
     const onBlur = () => cancelDrag();
+    const onGlobalPointerMove = (event: PointerEvent) => {
+      if (!drag.current) return;
+      if (event.pointerType === 'mouse' && (event.buttons & 1) === 0) {
+        releaseFieldPointerCapture(event.pointerId);
+        cancelDrag();
+        return;
+      }
+      event.preventDefault();
+      updateDragPreviewFromPointer(event.clientX, event.clientY);
+    };
     const onGlobalPointerUp = (event: PointerEvent) => {
       if (!drag.current) return;
       releaseFieldPointerCapture(event.pointerId);
@@ -691,28 +769,34 @@ export function FreeField(props: {
     };
 
     window.addEventListener('blur', onBlur);
+    window.addEventListener('pointermove', onGlobalPointerMove, true);
     window.addEventListener('pointerup', onGlobalPointerUp);
     window.addEventListener('pointercancel', onGlobalPointerCancel);
     return () => {
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('pointermove', onGlobalPointerMove, true);
       window.removeEventListener('pointerup', onGlobalPointerUp);
       window.removeEventListener('pointercancel', onGlobalPointerCancel);
     };
-  }, [cancelDrag, finishDrag, isPointerDragging, releaseFieldPointerCapture]);
+  }, [cancelDrag, finishDrag, isPointerDragging, releaseFieldPointerCapture, updateDragPreviewFromPointer]);
 
   const onPointerDown = (id: string, e: React.PointerEvent) => {
     if (!draggable || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
     const item = items.find(x => x.id === id);
     if (!item) return;
+    const local = pointerClientToFieldLocal(e.clientX, e.clientY);
+    const baseX = item.cellX ?? item.pos?.x ?? 0;
+    const baseY = item.cellY ?? item.pos?.y ?? 0;
     fieldRef.current?.setPointerCapture(e.pointerId);
     drag.current = {
       id,
-      startX: e.clientX,
-      startY: e.clientY,
-      baseX: item.cellX ?? item.pos?.x ?? 0,
-      baseY: item.cellY ?? item.pos?.y ?? 0,
-      z: item.pos?.z
+      grabOffsetX: local.x - baseX,
+      grabOffsetY: local.y - baseY,
+      z: item.pos?.z,
     };
+    setHoverId(id);
     setIsPointerDragging(true);
   };
 
@@ -724,16 +808,7 @@ export function FreeField(props: {
       return;
     }
     e.preventDefault();
-    const dx = e.clientX - drag.current.startX;
-    const dy = e.clientY - drag.current.startY;
-    const nx = Math.round(drag.current.baseX + dx);
-    const ny = Math.round(drag.current.baseY + dy);
-    const snapped = snapPixelToCell(
-      clamp(nx, 0, Math.max(0, widthPx - tileWidth)),
-      clamp(ny, 0, Math.max(0, contentHeightPx - tileH)),
-      gridLayout,
-    );
-    setDragPreview({ id: drag.current.id, x: snapped.x, y: snapped.y });
+    updateDragPreviewFromPointer(e.clientX, e.clientY);
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
@@ -947,6 +1022,8 @@ export function FreeField(props: {
         return (
           <div
             key={id}
+            draggable={false}
+            onDragStart={(e) => e.preventDefault()}
             onPointerDown={(e) => onPointerDown(id, e)}
             onMouseEnter={(e) => { setHoverId(id); showCardPreview(e.currentTarget as HTMLElement, raw.card as any, { prefer: 'above', anchorPadding: 0 }); }}
             onMouseLeave={(e) => { setHoverId(prev => prev === id ? null : prev); hideCardPreview(e.currentTarget as HTMLElement); }}
@@ -1021,7 +1098,13 @@ export function FreeField(props: {
               </div>
             )}
             {img ? (
-              <img src={img} alt={name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4 }} />
+              <img
+                src={img}
+                alt={name}
+                draggable={false}
+                onDragStart={(e) => e.preventDefault()}
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4, pointerEvents: 'none' }}
+              />
             ) : (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#eee', fontSize: 12, padding: 8 }}>
                 {name}

@@ -38,6 +38,54 @@ describe('graveyard conditional token rider', () => {
     expect(spec).toBeNull();
   });
 
+  it('does not supplement tokens when Oracle IR spell primary owns Increasing Devotion', () => {
+    const previousPrimary = process.env.ORACLE_IR_SPELL_PRIMARY;
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+
+    try {
+      const playerId = 'p1';
+      const oracleText =
+        'Create five 1/1 white Human creature tokens. If this spell was cast from a graveyard, create ten of those tokens instead.\nFlashback {7}{W}{W}';
+      const ctx: any = {
+        state: {
+          battlefield: Array.from({ length: 10 }, (_, index) => ({
+            id: `human_${index}`,
+            isToken: true,
+            controller: playerId,
+            card: { type_line: 'Token Creature - Human', name: 'Human' },
+            basePower: 1,
+            baseToughness: 1,
+          })),
+        },
+        bumpSeq: () => {},
+      };
+      const item = {
+        castFromGraveyard: true,
+        card: { castWithAbility: 'flashback', name: 'Increasing Devotion' },
+      };
+
+      applyInstantSorceryGraveyardConditionalTokenRider(ctx, {
+        controller: playerId,
+        card: item.card,
+        effectiveCard: { name: 'Increasing Devotion' },
+        item,
+        oracleText,
+        oracleTextLower: oracleText.toLowerCase(),
+        targets: [],
+        spellXValue: undefined,
+        uncategorizedSpellFallbackApplied: 0,
+      });
+
+      expect(ctx.state.battlefield).toHaveLength(10);
+    } finally {
+      if (previousPrimary === undefined) {
+        delete process.env.ORACLE_IR_SPELL_PRIMARY;
+      } else {
+        process.env.ORACLE_IR_SPELL_PRIMARY = previousPrimary;
+      }
+    }
+  });
+
   it('adds supplemental tokens when IR already created the base count', () => {
     const playerId = 'p1';
     const oracleText =

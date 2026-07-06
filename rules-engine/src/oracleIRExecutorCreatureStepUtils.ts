@@ -428,7 +428,12 @@ export function resolveSingleCreatureTargetId(
   }
 
   const directTargetCreatureId = String(ctx.targetCreatureId || '').trim();
-  if (directTargetCreatureId) {
+  const normalizedSelfTargetText = targetText.trim().toLowerCase();
+  const isSelfReferencedCreatureTarget =
+    normalizedSelfTargetText === 'this creature' ||
+    normalizedSelfTargetText === 'this permanent' ||
+    normalizedSelfTargetText === 'it';
+  if (directTargetCreatureId && !isSelfReferencedCreatureTarget) {
     const matched = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === directTargetCreatureId);
     if (matched && isExecutorCreature(matched)) return directTargetCreatureId;
   }

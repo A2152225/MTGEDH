@@ -33,6 +33,14 @@ describe('oracleReminderText', () => {
     expect(stripReminderParentheticals(saga)).toContain('As this Saga enters');
   });
 
+  it('strips Map token type reminders (plural artifacts)', () => {
+    const text =
+      'Destroy target creature, enchantment, or planeswalker. Its controller creates two Map tokens. (They\'re artifacts with "{1}, {T}, Sacrifice this token: Target creature you control explores. Activate only as a sorcery.")';
+    expect(normalizeGameplayEffectText(text).toLowerCase()).toBe(
+      'destroy target creature, enchantment, or planeswalker. its controller creates two map tokens.',
+    );
+  });
+
   it('strips Food token type reminders', () => {
     const text =
       'Create a Food token. (It\'s an artifact with "{2}, {T}, Sacrifice this token: You gain 3 life.")';

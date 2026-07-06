@@ -1,6 +1,6 @@
 # MTGEDH Oracle IR Architecture & Execution Loop
 
-**Version:** 2026-07-02 (batch 466: D1 delta CI, D2 gap telemetry, legacy ratchet, replay guardrail; architecture review §15)  
+**Version:** 2026-07-06 (referenced-object pronoun resolution + shared target binding)  
 **Repository:** MTGEDH  
 **Audience:** Contributors working on card behavior, server integration, or migration off legacy handlers
 
@@ -51,7 +51,7 @@ Defined in `rules-engine/src/oracleIR.ts`. Each step is a typed instruction, e.g
 Built via `buildOracleIRExecutionContext()` (`oracleIRExecutor.ts`). Carries:
 
 - `controllerId`, `sourceId`, `sourceName`
-- `chosenObjectIds`, `targetPermanentId`, `xValue`
+- `chosenObjectIds`, `targetPermanentId`, `targetCreatureId`, `targetSpellId`, `xValue`
 - `interactivePlayerChoices: true` on server
 - **`stepLedger`** — `Map<stepIndex, RuntimeObjectSnapshot[]>` for "this way" reads (persisted on state as `oracleIrStepLedger` across resume)
 - **`appliedStepKinds`** — tracks which step kind ran at each index
@@ -60,6 +60,51 @@ Built via `buildOracleIRExecutionContext()` (`oracleIRExecutor.ts`). Carries:
 - **`transitionHaltState`** — deferred replacement choices halt execution until resolved
 
 Runtime carry-over slots (`lastMovedCards`, `lastExiledCards`, etc.) remain for **dry-run / audit** paths without `serverBridge`. On server apply, bridged steps omit these after ledger commit (`skipLedgerFlush`).
+
+### Referenced-object pronoun resolution (it / its / that creature's)
+
+Oracle text often uses pronouns after a target or move step. IR maps these to **generic player selectors**, not card-name handlers:
+
+| Oracle phrase | `OraclePlayerSelector` kind |
+|---------------|----------------------------|
+| `its controller`, `that creature's controller` | `controller_of_referenced_object` |
+| `its owner`, `that card's owner` | `owner_of_referenced_object` |
+
+**Resolution** (`oracleIRExecutorReferenceUtils.ts` → `resolveReferencedObject`):
+
+1. Bound targets: `targetPermanentId`, `targetCreatureId`, `chosenObjectIds`, `lastReferencedPermanentId`
+2. Object lookup in any zone via `findObjectByIdInState` (battlefield, stack, library, hand, graveyard, exile)
+3. Moved/sacrificed snapshots: `lastMovedCards`, `lastSacrificedPermanents` (post-destroy/exile riders)
+4. Trigger/ability source: `sourceId`; counterspell target: `targetSpellId` (top-level or `selectorContext`; server unless-pay queue uses `resolveOracleIrBoundTargetSpellId`)
+5. Step ledger on server bridged zone steps: recent ledger snapshots (destroy/exile/sacrifice) when `lastMovedCards` is omitted after bridge
+6. Explicit server binding: `selectorContext.targetPlayerId` (fallback only)
+7. **Never** guess “the only opponent” in multiplayer
+
+`owner_of_moved_cards` remains a **move_zone-only** selector (“under its owner's control” on `battlefieldController`). Its execution delegates to the same reference resolver for consistency.
+
+**Server binding** — stack targets are normalized once via `inferOracleIrTargetBinding()` (`rules-engine/src/oracleIrTargetBinding.ts`):
+
+- Battlefield permanent → `targetPermanentId` (+ `targetCreatureId` when type line is Creature)
+- Player → `targetPlayerId` / `targetOpponentId`
+- Stack spell → `targetSpellId`
+- Card in graveyard/hand/exile/library → `chosenObjectIds` (resolver finds object by id)
+
+Used by `oracleIrSpellExecution.ts`, `oracleIrAbilityExecution.ts`, `stackResolveSpellUncategorizedUtils.ts`, and trigger IR fallback (`stackExecuteTriggerEffectIrFallbackUtils.ts`). All paths should call `buildOracleIRExecutionContext(base, hint)` so bindings appear on both top-level ctx and `selectorContext`.
+
+**Tests:** `rules-engine/test/referencedObjectPlayerResolution.test.ts`, `rules-engine/test/beastWithinTokenRider.test.ts`, `rules-engine/test/oracleIrTargetBinding.test.ts`, `rules-engine/test/counterspellUnlessPayBinding.test.ts`, `rules-engine/test/referencedPossessiveZoneRouting.test.ts`, `rules-engine/test/forEachOpponentExileRider.test.ts`, `rules-engine/test/forEachDestroyedThisWayTokenRider.test.ts`, `rules-engine/test/redSunTwilightForEachDestroyedCopy.test.ts`, `rules-engine/test/exiledZoneObjectStat.test.ts`, `server/tests/oracle-ir-referenced-object-spell.integration.test.ts`, `server/tests/per-opponent-target-selection.test.ts`, `server/tests/luminate-per-opponent-cast.integration.test.ts`, `server/tests/oracle-ir-removal-rider-spell.integration.test.ts`
+
+**Legacy spell riders to retire** (semi-bespoke; same pronoun/binding fix covers most):
+
+| Module | Examples | Retire when |
+|--------|----------|-------------|
+| `oracleIrSpellLegacyRemovalRiderUtils.ts` | Swords, Nature's Claim, Path to Exile, Fateful Absence, Get Lost | IR primary + integration tests (`oracle-ir-removal-rider-spell.integration.test.ts`); legacy riders run only when `!oracleIrSpellHandled` |
+| `stackResolveSpellTargetMetadataUtils.ts` → `applyInstantSorceryItsControllerCreatesToken` | Beast Within, Assassin's Trophy | IR `create_token` + reference resolver; same `!oracleIrSpellHandled` gate |
+| `planeswalker/templates/registry.ts` + `resolve.ts` | destroy/exile + its controller draw/lose/gain life | Same IR steps on spell path |
+| `captureInstantSorceryRemovalTargetMetadata` | Pre-resolution target controller capture | Merged into `buildSpellIrContext` / IR ctx |
+
+**Not in this cluster:** ~~graveyard-cast token replacement~~ (Increasing Devotion-style `create N of those tokens instead` when cast from graveyard — `oracleIRExecutorTokenStepHandlers.ts`, `oracleIRExecutorMainLoop.ts` conditional recurse). **Chaos Warp** and **Jaheira's Respite** now use generic shuffle/reveal/conditional ETB and where-X `search_library` spell IR (see `chaosWarpJaheiraSpellIr.test.ts`, `oracle-ir-chaos-jaheira.integration.test.ts`). **Entrapment Maneuver** now uses generic `sacrifice` + `create_token` (where X = that creature's toughness) via oracle IR `TARGET_SELECTION` resume — see `entrapmentSacrificeTokenAmount.test.ts`, `oracle-ir-removal-rider-spell.integration.test.ts`. For-each riders (Descent of the Dragons token copy, Luminate Primordial exile + life, Red Sun's Twilight for-each-destroyed copy + haste/exile) now use generic parse/execute paths — see `forEachDestroyedThisWayTokenRider.test.ts`, `forEachOpponentExileRider.test.ts`, `redSunTwilightForEachDestroyedCopy.test.ts`. Post-exile `object_stat` riders (`You gain life equal to its power` after `Exile target …`) resolve the referenced permanent from exile via `chosenObjectIds` when battlefield snapshots are gone — see `exiledZoneObjectStat.test.ts`. Per-opponent targeting (`for each opponent, up to one target … that player controls`) queues a single `TARGET_SELECTION` step with `perOpponent` metadata; `TargetSelectionModal` groups by opponent and `validatePerOpponentTargetSelections` enforces at-most-one-per-controller — see `per-opponent-target-selection.test.ts` and end-to-end cast flow in `luminate-per-opponent-cast.integration.test.ts`.
+
+**Remaining gaps:** none in this referenced-object cluster.
 
 ### OracleIRExecutionResult
 
@@ -326,6 +371,8 @@ Cast instant/sorcery → stack
 | Parse | `rules-engine/src/oracleIRParser.ts` |
 | IR types | `rules-engine/src/oracleIR.ts` |
 | Execute | `rules-engine/src/oracleIRExecutor.ts` |
+| Referenced-object resolution | `rules-engine/src/oracleIRExecutorReferenceUtils.ts` |
+| Stack target binding | `rules-engine/src/oracleIrTargetBinding.ts` |
 | Main loop | `rules-engine/src/oracleIRExecutorMainLoop.ts` |
 | Step ledger | `rules-engine/src/oracleIRStepLedger.ts`, `oracleIRStepLedgerRuntime.ts` |
 | This-way resolver | `rules-engine/src/oracleIRThisWayResolver.ts`, `oracleIRLedgerCardAccess.ts` |
@@ -456,7 +503,22 @@ The dual execution path (IR primary + 86 `applyRetiredTriggerLegacy*` exports) i
 
 ### 15.5 Undo/replay divergence guardrail
 
-Undo rebuilds state by replaying the event log; that is only correct if every mutation flows through events. `server/tests/helpers/replayDivergence.ts` replays a live game's persisted events into a fresh context and asserts a normalized projection (life, zones, battlefield, stack) is deep-equal to the live state. First adoption: `replay-divergence.guardrail.integration.test.ts` (IR-primary spell). **Adopt opportunistically** in socket integration tests that fully resolve an effect.
+Undo and server restart rebuild state by replaying the event log; that is only correct if every mutation flows through events **and** replay does not re-execute live handlers for already-resolved work.
+
+**Stack replay contract (2026-07-06):**
+
+| Event | Live play | Replay (`isReplaying`) |
+|-------|-----------|------------------------|
+| `pushTriggeredAbility` / `pushStack` | Push onto stack + persist event | Restore stack timing (push only) |
+| `resolveTopOfStack` | Run `resolveTopOfStack()` (IR/legacy effects) | **Pop top stack item only** — outcomes come from `executeEffect` / `oracle_ir_execution` replay mutations |
+| `executeEffect` + `oracleIrReplayMutation` | N/A (emitted after live IR) | Apply mutation; `consumeReplayedTriggeredAbilityStackItems` drops matching trigger |
+| `moveResolvedInstantOrSorcery` | Spell leaves stack | Remove spell from stack by `cardId` |
+
+After replay, `finalizeGameStateAfterReplay` → `scrubStaleReplayedStackAfterFullReplay` clears leftover `triggered_ability` items when the log does **not** end on a push (fixes 30+ phantom stack items after reconnect). Legit mid-game pending triggers are preserved when the log ends on `pushTriggeredAbility` / `pushStack`.
+
+**Key files:** `applyEvent.ts` (`resolveTopOfStack`, `executeEffect`), `replay-prompt-cleanup.ts`, `effectProgramReplayMutationPersistence.ts`, `oracleIrTriggerExecution.ts` / `oracleIrSpellExecution.ts` (`isReplaying` early exit).
+
+**Tests:** `stack-replay-accumulation.integration.test.ts`, `myrel-token-replay.integration.test.ts`, `resolve-top-of-stack.replay-side-effects.test.ts`, `server/tests/helpers/replayDivergence.ts`, `replay-divergence.guardrail.integration.test.ts`. Adopt opportunistically in socket integration tests that fully resolve an effect.
 
 ### 15.6 Generic choice primitives (D6 direction)
 

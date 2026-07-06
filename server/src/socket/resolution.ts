@@ -41,6 +41,7 @@ import {
   payGenericManaWithAvailableSources,
   getFloatingPaymentPoolColorKey,
 } from "./util.js";
+import { validatePerOpponentTargetSelections } from "./perOpponentTargetValidation.js";
 import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
 import { cardManaValue, parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
@@ -266,6 +267,22 @@ function finalizeBattlefieldAbilitySelfExertCost(
   }
 
   return String(permanentId);
+}
+
+function persistAndResolveTopOfStack(
+  game: any,
+  gameId: string,
+  payload: Record<string, unknown> = {},
+): boolean {
+  if (
+    typeof (game as any).resolveTopOfStack !== 'function'
+    && typeof (game as any).applyEvent !== 'function'
+  ) {
+    return false;
+  }
+
+  appendGameEvent(game, gameId, 'resolveTopOfStack', payload);
+  return true;
 }
 
 function appendQueuedResolutionPromptEvent(
@@ -2607,7 +2624,10 @@ function fireBattlefieldAbilityActivatedTriggers(
   abilityText: string,
   gameId: string,
   stackItemId?: string,
+  persistActivateEvent?: () => void,
 ): void {
+  persistActivateEvent?.();
+
   const triggeredAbilities = triggerAbilityActivatedTriggers(game as any, {
     activatedBy: controllerId as any,
     sourcePermanentId: permanentId as any,
@@ -2639,6 +2659,14 @@ function fireBattlefieldAbilityActivatedTriggers(
   });
 
   persistTargetedTriggeredStackItems(gameId, game, targetedTriggers);
+}
+
+function battlefieldAbilityStackReplayEvidence(stackItemId: string | undefined): {
+  stackItemId?: string;
+  usesStack: true;
+} {
+  const id = String(stackItemId || '').trim();
+  return id ? { stackItemId: id, usesStack: true } : { usesStack: true };
 }
 
 function matchesGraveyardCardTargetType(card: any, targetType: string): boolean {
@@ -3964,27 +3992,6 @@ async function handleAIResolutionStep(
         break;
       }
 
-      case ResolutionStepType.ENTRAPMENT_MANEUVER: {
-        const stepData = step as any;
-        const attackingCreatures = Array.isArray(stepData.attackingCreatures) ? stepData.attackingCreatures : [];
-        const sortedCreatures = [...attackingCreatures].sort((a: any, b: any) => {
-          const toughA = parseInt(String(a?.toughness || '0').replace(/\D.*$/, ''), 10) || 0;
-          const toughB = parseInt(String(b?.toughness || '0').replace(/\D.*$/, ''), 10) || 0;
-          return toughA - toughB;
-        });
-        const creatureToSacrifice = sortedCreatures[0];
-
-        response = {
-          stepId: step.id,
-          playerId: step.playerId,
-          selections: creatureToSacrifice ? [String(creatureToSacrifice.id || '')] : [],
-          cancelled: !creatureToSacrifice,
-          timestamp: Date.now(),
-        };
-        debug(2, `[Resolution] AI entrapment maneuver: ${creatureToSacrifice ? `sacrificing ${String(creatureToSacrifice.name || creatureToSacrifice.id)}` : 'no valid attacker found'}`);
-        break;
-      }
-      
       case ResolutionStepType.KYNAIOS_CHOICE: {
         const selection = chooseAIKynaiosChoiceSelection(step as any);
         
@@ -7370,53 +7377,6 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       }
     }
 
-    // Validate ENTRAPMENT_MANEUVER selections before completing the step.
-    // If we complete first, invalid/stale input would permanently consume the step and skip the sacrifice.
-    if (step.type === ResolutionStepType.ENTRAPMENT_MANEUVER) {
-      const stepAny = step as any;
-
-      if (cancelled) {
-        if (step.mandatory) {
-          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
-          return;
-        }
-      } else {
-        const raw: any = response.selections as any;
-        let creatureId: string | undefined;
-        if (typeof raw === 'string') creatureId = raw;
-        else if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'string') creatureId = raw[0];
-        else if (raw && typeof raw === 'object' && !Array.isArray(raw)) creatureId = String(raw.creatureId || raw.id || '');
-
-        creatureId = String(creatureId || '').trim();
-        if (!creatureId) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid creature selection' });
-          return;
-        }
-
-        const attackingCreatures: any[] = Array.isArray(stepAny?.attackingCreatures) ? stepAny.attackingCreatures : [];
-        const validIds = new Set(attackingCreatures.map((c: any) => String(c?.id)).filter(Boolean));
-        if (!validIds.has(creatureId)) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected creature is not a valid choice' });
-          return;
-        }
-
-        const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
-        const perm = battlefield.find((p: any) => p && String(p.id) === creatureId);
-        if (!perm) {
-          socket.emit('error', { code: 'PERMANENT_NOT_FOUND', message: 'Selected creature is no longer on the battlefield' });
-          return;
-        }
-        if (String(perm.controller || '') !== String(pid)) {
-          socket.emit('error', { code: 'NOT_CONTROLLER', message: 'You no longer control that creature' });
-          return;
-        }
-        if (!perm.attacking) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected creature is no longer attacking' });
-          return;
-        }
-      }
-    }
-
     // Validate SCRY selections before completing the step.
     // If we complete first, invalid input would permanently consume the step and potentially desync the library.
     if (step.type === ResolutionStepType.SCRY) {
@@ -9462,8 +9422,12 @@ async function finalizeEffectProgramSpellColorChoiceAfterResume(
     (game as any).bumpSeq();
   }
 
-  if (typeof (game as any).resolveTopOfStack === 'function') {
-    (game as any).resolveTopOfStack();
+  if (persistAndResolveTopOfStack(game, gameId, {
+    playerId: pid,
+    spellId: String(spellOnStack.id || spellLookupId),
+    cardName,
+    reason: 'effectProgramSpellColorChoice',
+  })) {
     debug(2, `[Resolution] Resumed stack resolution after EffectProgram spell color choice for ${cardName}`);
   }
 }
@@ -9503,8 +9467,11 @@ async function handleStepResponse(
       }
 
       const sourceName = String((event as any)?.sourceName || step.sourceName || 'Ability');
-      if (typeof (game as any).resolveTopOfStack === 'function') {
-        (game as any).resolveTopOfStack();
+      if (persistAndResolveTopOfStack(game, gameId, {
+        playerId: response.playerId,
+        sourceName,
+        reason: 'effectProgramDeferredStack',
+      })) {
         resolvedDeferredStack = true;
         debug(2, `[Resolution] Resolved deferred EffectProgram stack item for ${sourceName}`);
       } else {
@@ -10051,15 +10018,15 @@ async function handleStepResponse(
       const description = getFightAbilityDescription(stepData);
 
       (game.state as any).stack = Array.isArray((game.state as any).stack) ? (game.state as any).stack : [];
-      (game.state as any).stack.push({
+      const stackItem = {
         id: uid('ability'),
-        type: 'ability',
+        type: 'ability' as const,
         controller: pid,
         source: sourceId,
         sourceName,
         description,
         activatedAbilityText: activatedAbilityText || description,
-        abilityType: 'fight',
+        abilityType: 'fight' as const,
         targets: [targetCreatureId],
         fightParams: {
           sourceCreatureId: sourceId,
@@ -10067,27 +10034,31 @@ async function handleStepResponse(
           sourceCreatureName: sourceName,
           targetCreatureName: targetName,
         },
+      };
+      (game.state as any).stack.push(stackItem);
+
+      fireBattlefieldAbilityActivatedTriggers(game, String(pid), sourceId, description, gameId, stackItem.id, () => {
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+            playerId: pid,
+            resolvedStepId: String((step as any).id || ''),
+            permanentId: sourceId,
+            abilityId: String(stepData.abilityId || ''),
+            cardName: sourceName,
+            abilityText: description,
+            activatedAbilityText: activatedAbilityText || description,
+            abilityType: 'fight',
+            targets: [targetCreatureId],
+            tappedPermanents: Boolean(sourceCreature?.tapped) ? [sourceId] : [],
+          });
+        } catch (e) {
+          debugWarn(1, 'appendEvent(activateBattlefieldAbility:fight) failed:', e);
+        }
       });
 
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
-      }
-
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-          playerId: pid,
-          resolvedStepId: String((step as any).id || ''),
-          permanentId: sourceId,
-          abilityId: String(stepData.abilityId || ''),
-          cardName: sourceName,
-          abilityText: description,
-          activatedAbilityText: activatedAbilityText || description,
-          abilityType: 'fight',
-          targets: [targetCreatureId],
-          tappedPermanents: Boolean(sourceCreature?.tapped) ? [sourceId] : [],
-        });
-      } catch (e) {
-        debugWarn(1, 'appendEvent(activateBattlefieldAbility:fight) failed:', e);
       }
 
       io.to(gameId).emit('chat', {
@@ -10278,8 +10249,6 @@ async function handleStepResponse(
           activatedAbilityText: activatedAbilityText || `${manaCost}: ${abilityText}`,
           abilityId,
         });
-        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
-
         const exertedPermanentIdForCost = finalizeBattlefieldAbilitySelfExertCost(
           game,
           gameId,
@@ -10287,6 +10256,27 @@ async function handleStepResponse(
           permanentId,
           stepData?.requiresSelfExertForCost === true,
         );
+        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+              ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+              playerId: controllerId,
+              resolvedStepId: String((step as any).id || ''),
+              permanentId,
+              abilityId: abilityId || undefined,
+              cardName,
+              abilityText,
+              activatedAbilityText: activatedAbilityText || undefined,
+              targets: [...targetIds],
+              tappedPermanents: tappedPermanentsForCost,
+              lifePaidForCost: Number.isFinite(lifePaidForCost) && lifePaidForCost > 0 ? lifePaidForCost : undefined,
+              exertedPermanentIdForCost,
+              tapUntapAction: action,
+            });
+          } catch {
+            // ignore persistence failures
+          }
+        });
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -10298,25 +10288,6 @@ async function handleStepResponse(
 
         if (typeof game.bumpSeq === 'function') {
           game.bumpSeq();
-        }
-
-        try {
-          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-            playerId: controllerId,
-            resolvedStepId: String((step as any).id || ''),
-            permanentId,
-            abilityId: abilityId || undefined,
-            cardName,
-            abilityText,
-            activatedAbilityText: activatedAbilityText || undefined,
-            targets: [...targetIds],
-            tappedPermanents: tappedPermanentsForCost,
-            lifePaidForCost: Number.isFinite(lifePaidForCost) && lifePaidForCost > 0 ? lifePaidForCost : undefined,
-            exertedPermanentIdForCost,
-            tapUntapAction: action,
-          });
-        } catch {
-          // ignore persistence failures
         }
 
         broadcastGame(io, game, gameId);
@@ -10603,7 +10574,24 @@ async function handleStepResponse(
           activatedAbilityText: activatedAbilityText || `${manaCost}: ${abilityText}`,
           abilityId,
         });
-        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
+        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+              ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+              playerId: controllerId,
+              resolvedStepId: String((step as any).id || ''),
+              permanentId,
+              abilityId: abilityId || undefined,
+              cardName,
+              abilityText,
+              activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
+              tappedPermanents: tappedPermanentsForCost,
+              lifePaidForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+            });
+          } catch {
+            // ignore persistence failures
+          }
+        });
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -10614,22 +10602,6 @@ async function handleStepResponse(
         });
 
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
-
-        try {
-          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-            playerId: controllerId,
-            resolvedStepId: String((step as any).id || ''),
-            permanentId,
-            abilityId: abilityId || undefined,
-            cardName,
-            abilityText,
-            activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
-            tappedPermanents: tappedPermanentsForCost,
-            lifePaidForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
-          });
-        } catch {
-          // ignore persistence failures
-        }
 
         broadcastGame(io, game, gameId);
         break;
@@ -11861,7 +11833,33 @@ async function handleStepResponse(
             activatedAbilityText: activatedAbilityText || undefined,
             abilityId,
           });
-          fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
+          fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+            try {
+              appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+                ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+                playerId: controllerId,
+                permanentId,
+                abilityId: abilityId || undefined,
+                cardName,
+                abilityText,
+                targets: selectedTargetIds,
+                tappedPermanents: allTappedPermanentsForCost,
+                sacrificedPermanents: allSacrificedPermanentsForCost.length > 0 ? allSacrificedPermanentsForCost : undefined,
+                activatedAbilityText: activatedAbilityText || undefined,
+                abilityType: battlefieldAbilityType || undefined,
+                paymentManaDelta,
+                ...(battlefieldAbilityType === 'equip'
+                  ? { equipParams: stackItem.equipParams }
+                  : battlefieldAbilityType === 'fortify'
+                    ? { fortifyParams: stackItem.fortifyParams }
+                    : battlefieldAbilityType === 'reconfigure_attach'
+                      ? { reconfigureParams: stackItem.reconfigureParams }
+                      : {}),
+              });
+            } catch {
+              // ignore persistence failures
+            }
+          });
 
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
@@ -11872,31 +11870,6 @@ async function handleStepResponse(
           });
 
           if (typeof game.bumpSeq === 'function') game.bumpSeq();
-
-          try {
-            appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-              playerId: controllerId,
-              permanentId,
-              abilityId: abilityId || undefined,
-              cardName,
-              abilityText,
-              targets: selectedTargetIds,
-              tappedPermanents: allTappedPermanentsForCost,
-              sacrificedPermanents: allSacrificedPermanentsForCost.length > 0 ? allSacrificedPermanentsForCost : undefined,
-              activatedAbilityText: activatedAbilityText || undefined,
-              abilityType: battlefieldAbilityType || undefined,
-              paymentManaDelta,
-              ...(battlefieldAbilityType === 'equip'
-                ? { equipParams: stackItem.equipParams }
-                : battlefieldAbilityType === 'fortify'
-                  ? { fortifyParams: stackItem.fortifyParams }
-                  : battlefieldAbilityType === 'reconfigure_attach'
-                    ? { reconfigureParams: stackItem.reconfigureParams }
-                    : {}),
-            });
-          } catch {
-            // ignore persistence failures
-          }
 
           broadcastGame(io, game, gameId);
           break;
@@ -12180,7 +12153,25 @@ async function handleStepResponse(
             activatedAbilityText: activatedAbilityText || undefined,
             abilityId,
           });
-          fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
+          fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+            try {
+              appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+                ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+                playerId: controllerId,
+                permanentId,
+                abilityId: abilityId || undefined,
+                cardName,
+                abilityText,
+                activatedAbilityText: activatedAbilityText || undefined,
+                xValue,
+                tappedPermanents: Array.from(new Set([...tappedPaymentPermanents, ...(requiresTap ? [permanentId] : [])])),
+                sacrificedPermanents: Array.from(new Set([...sacrificedPermanentsForCost, ...sacrificedPaymentPermanents])),
+                paymentManaDelta,
+              });
+            } catch {
+              // ignore persistence failures
+            }
+          });
 
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
@@ -12189,23 +12180,6 @@ async function handleStepResponse(
             message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}. Ability on the stack.`,
             ts: Date.now(),
           });
-
-          try {
-            appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-              playerId: controllerId,
-              permanentId,
-              abilityId: abilityId || undefined,
-              cardName,
-              abilityText,
-              activatedAbilityText: activatedAbilityText || undefined,
-              xValue,
-              tappedPermanents: Array.from(new Set([...tappedPaymentPermanents, ...(requiresTap ? [permanentId] : [])])),
-              sacrificedPermanents: Array.from(new Set([...sacrificedPermanentsForCost, ...sacrificedPaymentPermanents])),
-              paymentManaDelta,
-            });
-          } catch {
-            // ignore persistence failures
-          }
 
           if (typeof game.bumpSeq === 'function') game.bumpSeq();
           broadcastGame(io, game, gameId);
@@ -12601,6 +12575,34 @@ async function handleStepResponse(
         !/target/i.test(abilityText);
       let stackItemId: string | undefined;
 
+      const persistActivateBattlefieldAbilityEvent = () => {
+        try {
+          const tappedPermanentsForCost: string[] = [];
+          if (requiresTap) tappedPermanentsForCost.push(String(permanentId));
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            ...(stackItemId ? battlefieldAbilityStackReplayEvidence(stackItemId) : {}),
+            playerId: pid,
+            permanentId,
+            abilityId: stepData.abilityId,
+            cardName,
+            abilityText,
+            activatedAbilityText: activatedAbilityText || undefined,
+            tappedPermanents: tappedPermanentsForCost,
+            sacrificedPermanents: [],
+            removedCountersForCost: [],
+            lifePaidForCost: totalLifeToPay > 0 ? totalLifeToPay : undefined,
+            ...(treasureMeta.manaFromTreasureSpentKnown === true && typeof treasureMeta.manaFromTreasureSpent === 'boolean'
+              ? {
+                  manaFromTreasureSpentKnown: true,
+                  manaFromTreasureSpent: treasureMeta.manaFromTreasureSpent,
+                }
+              : {}),
+          });
+        } catch (e) {
+          debugWarn(1, 'appendEvent(activateBattlefieldAbility) failed:', e);
+        }
+      };
+
       if (!isManaAbility) {
         const stackItem = {
           id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -12624,7 +12626,7 @@ async function handleStepResponse(
           activatedAbilityText,
           abilityId: stepData.abilityId,
         });
-        fireBattlefieldAbilityActivatedTriggers(game, pid, permanentId, abilityText, gameId, stackItem.id);
+        fireBattlefieldAbilityActivatedTriggers(game, pid, permanentId, abilityText, gameId, stackItem.id, persistActivateBattlefieldAbilityEvent);
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -12633,34 +12635,11 @@ async function handleStepResponse(
           message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s ability: ${abilityText}`,
           ts: Date.now(),
         });
-      }
 
-      if (typeof game.bumpSeq === 'function') game.bumpSeq();
-
-      try {
-        const tappedPermanentsForCost: string[] = [];
-        if (requiresTap) tappedPermanentsForCost.push(String(permanentId));
-        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-          playerId: pid,
-          permanentId,
-          abilityId: stepData.abilityId,
-          stackItemId,
-          cardName,
-          abilityText,
-          activatedAbilityText: activatedAbilityText || undefined,
-          tappedPermanents: tappedPermanentsForCost,
-          sacrificedPermanents: [],
-          removedCountersForCost: [],
-          lifePaidForCost: totalLifeToPay > 0 ? totalLifeToPay : undefined,
-          ...(treasureMeta.manaFromTreasureSpentKnown === true && typeof treasureMeta.manaFromTreasureSpent === 'boolean'
-            ? {
-                manaFromTreasureSpentKnown: true,
-                manaFromTreasureSpent: treasureMeta.manaFromTreasureSpent,
-              }
-            : {}),
-        });
-      } catch (e) {
-        debugWarn(1, 'appendEvent(activateBattlefieldAbility) failed:', e);
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      } else {
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        persistActivateBattlefieldAbilityEvent();
       }
 
       broadcastGame(io, game, gameId);
@@ -14565,10 +14544,6 @@ async function handleStepResponse(
     
     case ResolutionStepType.UPKEEP_SACRIFICE:
       handleUpkeepSacrificeResponse(io, game, gameId, step, response);
-      break;
-    
-    case ResolutionStepType.ENTRAPMENT_MANEUVER:
-      handleEntrapmentManeuverResponse(io, game, gameId, step, response);
       break;
 
     // Add more handlers as needed
@@ -16509,7 +16484,25 @@ async function handleDiscardResponse(
 
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
-      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
+      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+            playerId: controllerId,
+            permanentId,
+            abilityId: abilityId || undefined,
+            cardName,
+            abilityText,
+            activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || undefined,
+            tappedPermanents: tappedPermanentsForCost,
+            discardedCardIds: discardedCardIdsForCost.length > 0 ? discardedCardIdsForCost : undefined,
+            exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost.length > 0 ? exiledCardIdsFromHandForCost : undefined,
+            lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+          });
+        } catch {
+          // ignore persistence failures
+        }
+      });
 
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
@@ -16520,23 +16513,6 @@ async function handleDiscardResponse(
       });
 
       if (typeof game.bumpSeq === 'function') game.bumpSeq();
-
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-          playerId: controllerId,
-          permanentId,
-          abilityId: abilityId || undefined,
-          cardName,
-          abilityText,
-          activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || undefined,
-          tappedPermanents: tappedPermanentsForCost,
-          discardedCardIds: discardedCardIdsForCost.length > 0 ? discardedCardIdsForCost : undefined,
-          exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost.length > 0 ? exiledCardIdsFromHandForCost : undefined,
-          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
-        });
-      } catch {
-        // ignore persistence failures
-      }
 
       persistQueuedMadnessPromptsForCost();
     } catch (err) {
@@ -16638,7 +16614,24 @@ async function handleDiscardResponse(
 
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
-      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
+      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+            playerId: controllerId,
+            permanentId,
+            abilityId: abilityId || undefined,
+            cardName,
+            abilityText,
+            tappedPermanents: tappedPermanentsForCost,
+            exiledCardIdsFromHandForCost: selections,
+            activatedAbilityText: activatedAbilityText || undefined,
+            lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+          });
+        } catch {
+          // ignore persistence failures
+        }
+      });
 
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
@@ -16649,22 +16642,6 @@ async function handleDiscardResponse(
       });
 
       if (typeof game.bumpSeq === 'function') game.bumpSeq();
-
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-          playerId: controllerId,
-          permanentId,
-          abilityId: abilityId || undefined,
-          cardName,
-          abilityText,
-          tappedPermanents: tappedPermanentsForCost,
-          exiledCardIdsFromHandForCost: selections,
-          activatedAbilityText: activatedAbilityText || undefined,
-          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
-        });
-      } catch {
-        // ignore persistence failures
-      }
     } catch (err) {
       debugError(1, '[Resolution] Failed to resume exile-from-hand-cost activation', err);
     }
@@ -17401,6 +17378,23 @@ async function handleTargetSelectionResponse(
   if (!selections.every(id => validTargetIds.has(id))) {
     debugWarn(1, `[Resolution] Invalid target selection: one or more targets not in valid targets list`);
     return;
+  }
+
+  if ((step as any)?.perOpponent === true) {
+    const perOpponentError = validatePerOpponentTargetSelections({
+      selections: uniqueSelections,
+      validTargets: validTargets.map((target: any) => ({
+        id: String(target.id || ''),
+        controller: String(target.controller || ''),
+      })),
+      targetsPerOpponent: ((step as any).targetsPerOpponent || {}) as Record<string, readonly { id: string }[]>,
+      minTargetsPerOpponent: Number((step as any).minTargetsPerOpponent ?? 0),
+      maxTargetsPerOpponent: Number((step as any).maxTargetsPerOpponent ?? 1),
+    });
+    if (perOpponentError) {
+      debugWarn(1, `[Resolution] Invalid per-opponent target selection: ${perOpponentError}`);
+      return;
+    }
   }
 
   // ========================================================================
@@ -18304,8 +18298,6 @@ async function handleTargetSelectionResponse(
 
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
-    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
-
     const exertedPermanentIdForCost = finalizeBattlefieldAbilitySelfExertCost(
       game,
       gameId,
@@ -18313,6 +18305,38 @@ async function handleTargetSelectionResponse(
       permanentId,
       stepAny?.requiresSelfExertForCost === true,
     );
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+          playerId: controllerId,
+          permanentId,
+          abilityId: abilityId || undefined,
+          cardName,
+          abilityText,
+          activatedAbilityText: activatedAbilityText || undefined,
+          tappedPermanents: allTappedPermanentsForCost,
+          sacrificedPermanents: sacrificedIds,
+          discardedCardIds: Array.isArray((stepAny as any)?.discardedCardIdsForCost)
+            ? ((stepAny as any).discardedCardIdsForCost as any[]).map((x: any) => String(x)).filter(Boolean)
+            : undefined,
+          exiledCardIdsFromHandForCost: Array.isArray((stepAny as any)?.exiledCardIdsFromHandForCost)
+            ? ((stepAny as any).exiledCardIdsFromHandForCost as any[]).map((x: any) => String(x)).filter(Boolean)
+            : undefined,
+          lifePaidForCost: Number.isFinite(lifeToPayForCost + prePaidLifeForCost) && (lifeToPayForCost + prePaidLifeForCost) > 0
+            ? (lifeToPayForCost + prePaidLifeForCost)
+            : undefined,
+          ...(stepAny?.manaFromTreasureSpentKnown === true && typeof stepAny?.manaFromTreasureSpent === 'boolean'
+            ? {
+                manaFromTreasureSpentKnown: true,
+                manaFromTreasureSpent: stepAny.manaFromTreasureSpent,
+              }
+            : {}),
+        });
+      } catch {
+        // ignore persistence failures
+      }
+    });
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -18323,36 +18347,6 @@ async function handleTargetSelectionResponse(
     });
 
     if (typeof game.bumpSeq === 'function') game.bumpSeq();
-
-    try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-        playerId: controllerId,
-        permanentId,
-        abilityId: abilityId || undefined,
-        cardName,
-        abilityText,
-        activatedAbilityText: activatedAbilityText || undefined,
-        tappedPermanents: allTappedPermanentsForCost,
-        sacrificedPermanents: sacrificedIds,
-        discardedCardIds: Array.isArray((stepAny as any)?.discardedCardIdsForCost)
-          ? ((stepAny as any).discardedCardIdsForCost as any[]).map((x: any) => String(x)).filter(Boolean)
-          : undefined,
-        exiledCardIdsFromHandForCost: Array.isArray((stepAny as any)?.exiledCardIdsFromHandForCost)
-          ? ((stepAny as any).exiledCardIdsFromHandForCost as any[]).map((x: any) => String(x)).filter(Boolean)
-          : undefined,
-        lifePaidForCost: Number.isFinite(lifeToPayForCost + prePaidLifeForCost) && (lifeToPayForCost + prePaidLifeForCost) > 0
-          ? (lifeToPayForCost + prePaidLifeForCost)
-          : undefined,
-        ...(stepAny?.manaFromTreasureSpentKnown === true && typeof stepAny?.manaFromTreasureSpent === 'boolean'
-          ? {
-              manaFromTreasureSpentKnown: true,
-              manaFromTreasureSpent: stepAny.manaFromTreasureSpent,
-            }
-          : {}),
-      });
-    } catch {
-      // ignore persistence failures
-    }
 
     if (Array.isArray((stepAny as any)?.queuedMadnessStepsForCost) && (stepAny as any).queuedMadnessStepsForCost.length > 0) {
       try {
@@ -18505,7 +18499,23 @@ async function handleTargetSelectionResponse(
     } as any;
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
-    fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, gameId, stackItem.id);
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, gameId, stackItem.id, () => {
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+          playerId: controllerId,
+          permanentId: sourcePermanentId,
+          abilityId: abilityId || undefined,
+          cardName,
+          abilityText,
+          activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || undefined,
+          tappedPermanents: tappedPermanentsForCost,
+          removedCountersForCost: [{ permanentId: String(chosenTargetId), counterType: actualKey, count: removeCount }],
+        });
+      } catch {
+        // ignore persistence failures
+      }
+    });
 
     const chosenName = String(chosenPerm?.card?.name || removeFromType || 'permanent');
     io.to(gameId).emit('chat', {
@@ -18517,21 +18527,6 @@ async function handleTargetSelectionResponse(
     });
 
     if (typeof game.bumpSeq === 'function') game.bumpSeq();
-
-    try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-        playerId: controllerId,
-        permanentId: sourcePermanentId,
-        abilityId: abilityId || undefined,
-        cardName,
-        abilityText,
-        activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || undefined,
-        tappedPermanents: tappedPermanentsForCost,
-        removedCountersForCost: [{ permanentId: String(chosenTargetId), counterType: actualKey, count: removeCount }],
-      });
-    } catch {
-      // ignore persistence failures
-    }
 
     broadcastGame(io, game, gameId);
     return;
@@ -18704,7 +18699,24 @@ async function handleTargetSelectionResponse(
 
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
-  fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, gameId, stackItem.id);
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, gameId, stackItem.id, () => {
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+          playerId: controllerId,
+          permanentId: sourcePermanentId,
+          abilityId: abilityId || undefined,
+          cardName,
+          abilityText,
+          tappedPermanents: tappedPermanentsForCost,
+          returnedPermanentsToHandForCost: [chosenId],
+          activatedAbilityText: activatedAbilityText || undefined,
+          lifePaidForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+        });
+      } catch {
+        // ignore persistence failures
+      }
+    });
 
     const returnedName = String(chosenPerm?.card?.name || returnType || 'permanent');
     io.to(gameId).emit('chat', {
@@ -18716,22 +18728,6 @@ async function handleTargetSelectionResponse(
     });
 
     if (typeof game.bumpSeq === 'function') game.bumpSeq();
-
-    try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-        playerId: controllerId,
-        permanentId: sourcePermanentId,
-        abilityId: abilityId || undefined,
-        cardName,
-        abilityText,
-        tappedPermanents: tappedPermanentsForCost,
-        returnedPermanentsToHandForCost: [chosenId],
-        activatedAbilityText: activatedAbilityText || undefined,
-        lifePaidForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
-      });
-    } catch {
-      // ignore persistence failures
-    }
 
     broadcastGame(io, game, gameId);
     return;
@@ -18905,7 +18901,6 @@ async function handleTargetSelectionResponse(
 
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
-    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
     const exertedPermanentIdForCost = finalizeBattlefieldAbilitySelfExertCost(
       game,
@@ -18915,6 +18910,45 @@ async function handleTargetSelectionResponse(
       stepAny?.requiresSelfExertForCost === true,
     );
 
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+          playerId: controllerId,
+          permanentId,
+          abilityId: abilityId || undefined,
+          cardName,
+          abilityText,
+          activatedAbilityText: activatedAbilityText || undefined,
+          targets: selectedTargetIds,
+          copyRetargetValidTargets: validTargets.map((target: any) => ({ ...target })),
+          copyRetargetTargetTypes: Array.isArray(targetStepData.targetTypes) ? [...targetStepData.targetTypes] : [],
+          copyRetargetMinTargets: minTargets,
+          copyRetargetMaxTargets: maxTargets,
+          copyRetargetTargetDescription: String(targetStepData.targetDescription || 'target'),
+          abilityType: stackItem.abilityType || undefined,
+          equipParams: stackItem.equipParams || undefined,
+          fortifyParams: stackItem.fortifyParams || undefined,
+          reconfigureParams: stackItem.reconfigureParams || undefined,
+          tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
+          tapCostTargetFilter: stepAny?.tapCostTargetFilter ? { ...stepAny.tapCostTargetFilter } : undefined,
+          tapCostTargetCount: Number.isFinite(Number(stepAny?.tapCostTargetCount)) ? Number(stepAny.tapCostTargetCount) : undefined,
+          tapCostPreferTokens: stepAny?.tapCostPreferTokens === true ? true : undefined,
+          tapCostPreferNonTokens: stepAny?.tapCostPreferNonTokens === true ? true : undefined,
+          discardedCardIds: Array.isArray(stepAny?.discardedCardIdsForCost) && stepAny.discardedCardIdsForCost.length > 0
+            ? stepAny.discardedCardIdsForCost.map((id: any) => String(id))
+            : undefined,
+          exiledCardIdsFromHandForCost: Array.isArray(stepAny?.exiledCardIdsFromHandForCost) && stepAny.exiledCardIdsFromHandForCost.length > 0
+            ? stepAny.exiledCardIdsFromHandForCost.map((id: any) => String(id))
+            : undefined,
+          lifePaidForCost: Number(stepAny?.lifePaidForCost || 0) > 0 ? Number(stepAny.lifePaidForCost) : undefined,
+          exertedPermanentIdForCost,
+        });
+      } catch {
+        // ignore persistence failures
+      }
+    });
+
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
@@ -18922,43 +18956,6 @@ async function handleTargetSelectionResponse(
       message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s ability: ${abilityText}`,
       ts: Date.now(),
     });
-
-    try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-        playerId: controllerId,
-        permanentId,
-        abilityId: abilityId || undefined,
-        stackItemId: String(stackItem.id || '').trim() || undefined,
-        cardName,
-        abilityText,
-        activatedAbilityText: activatedAbilityText || undefined,
-        targets: selectedTargetIds,
-        copyRetargetValidTargets: validTargets.map((target: any) => ({ ...target })),
-        copyRetargetTargetTypes: Array.isArray(targetStepData.targetTypes) ? [...targetStepData.targetTypes] : [],
-        copyRetargetMinTargets: minTargets,
-        copyRetargetMaxTargets: maxTargets,
-        copyRetargetTargetDescription: String(targetStepData.targetDescription || 'target'),
-        abilityType: stackItem.abilityType || undefined,
-        equipParams: stackItem.equipParams || undefined,
-        fortifyParams: stackItem.fortifyParams || undefined,
-        reconfigureParams: stackItem.reconfigureParams || undefined,
-        tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
-        tapCostTargetFilter: stepAny?.tapCostTargetFilter ? { ...stepAny.tapCostTargetFilter } : undefined,
-        tapCostTargetCount: Number.isFinite(Number(stepAny?.tapCostTargetCount)) ? Number(stepAny.tapCostTargetCount) : undefined,
-        tapCostPreferTokens: stepAny?.tapCostPreferTokens === true ? true : undefined,
-        tapCostPreferNonTokens: stepAny?.tapCostPreferNonTokens === true ? true : undefined,
-        discardedCardIds: Array.isArray(stepAny?.discardedCardIdsForCost) && stepAny.discardedCardIdsForCost.length > 0
-          ? stepAny.discardedCardIdsForCost.map((id: any) => String(id))
-          : undefined,
-        exiledCardIdsFromHandForCost: Array.isArray(stepAny?.exiledCardIdsFromHandForCost) && stepAny.exiledCardIdsFromHandForCost.length > 0
-          ? stepAny.exiledCardIdsFromHandForCost.map((id: any) => String(id))
-          : undefined,
-        lifePaidForCost: Number(stepAny?.lifePaidForCost || 0) > 0 ? Number(stepAny.lifePaidForCost) : undefined,
-        exertedPermanentIdForCost,
-      });
-    } catch {
-      // ignore persistence failures
-    }
 
     if (tappedPermanentsForCost.length > 0) {
       queueTapTriggersForTappedPermanents(io, game, gameId, tappedPermanentsForCost, controllerId);
@@ -19448,7 +19445,25 @@ async function handleTargetSelectionResponse(
           activatedAbilityText: activatedAbilityText || `${manaCost}: ${abilityText}`,
           abilityId,
         });
-        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
+        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+          // Persist deterministic evidence so replay applies the Blight counters and tap.
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+              ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+              playerId: controllerId,
+              permanentId,
+              abilityId: abilityId || undefined,
+              cardName,
+              abilityText,
+              activatedAbilityText: activatedAbilityText || undefined,
+              tappedPermanents: tappedPermanentsForCost,
+              blightTargetPermanentIdForCost: String(targetId || ''),
+              blightNForCost: safeN,
+            });
+          } catch {
+            // ignore persistence failures
+          }
+        });
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -19457,23 +19472,6 @@ async function handleTargetSelectionResponse(
           message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s ability: ${abilityText}`,
           ts: Date.now(),
         });
-
-        // Persist deterministic evidence so replay applies the Blight counters and tap.
-        try {
-          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-            playerId: controllerId,
-            permanentId,
-            abilityId: abilityId || undefined,
-            cardName,
-            abilityText,
-            activatedAbilityText: activatedAbilityText || undefined,
-            tappedPermanents: tappedPermanentsForCost,
-            blightTargetPermanentIdForCost: String(targetId || ''),
-            blightNForCost: safeN,
-          });
-        } catch {
-          // ignore persistence failures
-        }
 
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
         broadcastGame(io, game, gameId);
@@ -20751,25 +20749,26 @@ async function handleTargetSelectionResponse(
     
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
-    fireBattlefieldAbilityActivatedTriggers(game, String(pid), String(permanentId), abilityText, gameId, stackItem.id);
-    
-    // Record the event for replay/undo
-    appendEvent(gameId, (game as any).seq ?? 0, "activatePlaneswalkerAbility", { 
-      playerId: pid, 
-      permanentId, 
-      abilityIndex, 
-      loyaltyCost,
-      newLoyalty,
-      abilityText,
-      activatedAbilityText: loyaltyActivatedAbilityText,
-      targets: selections,
-      copyRetargetValidTargets: Array.isArray((step as any).validTargets)
-        ? (step as any).validTargets.map((target: any) => ({ ...target }))
-        : [],
-      copyRetargetTargetTypes: Array.isArray((step as any).targetTypes) ? [...(step as any).targetTypes] : [],
-      copyRetargetMinTargets: Number((step as any).minTargets || 0),
-      copyRetargetMaxTargets: Number((step as any).maxTargets || 0),
-      copyRetargetTargetDescription: String((step as any).targetDescription || 'target'),
+    fireBattlefieldAbilityActivatedTriggers(game, String(pid), String(permanentId), abilityText, gameId, stackItem.id, () => {
+      // Record the event for replay/undo
+      appendEvent(gameId, (game as any).seq ?? 0, "activatePlaneswalkerAbility", { 
+        stackItemId: String(stackItem.id || '').trim() || undefined,
+        playerId: pid, 
+        permanentId, 
+        abilityIndex, 
+        loyaltyCost,
+        newLoyalty,
+        abilityText,
+        activatedAbilityText: loyaltyActivatedAbilityText,
+        targets: selections,
+        copyRetargetValidTargets: Array.isArray((step as any).validTargets)
+          ? (step as any).validTargets.map((target: any) => ({ ...target }))
+          : [],
+        copyRetargetTargetTypes: Array.isArray((step as any).targetTypes) ? [...(step as any).targetTypes] : [],
+        copyRetargetMinTargets: Number((step as any).minTargets || 0),
+        copyRetargetMaxTargets: Number((step as any).maxTargets || 0),
+        copyRetargetTargetDescription: String((step as any).targetDescription || 'target'),
+      });
     });
     
     const costSign = loyaltyCost >= 0 ? "+" : "";
@@ -21650,146 +21649,6 @@ function handleUpkeepSacrificeResponse(
       });
     }
   }
-}
-
-/**
- * Handle Entrapment Maneuver response
- * Target player must sacrifice an attacking creature they control
- * The caster creates X 1/1 white Soldier tokens where X is the sacrificed creature's toughness
- */
-function handleEntrapmentManeuverResponse(
-  io: Server,
-  game: any,
-  gameId: string,
-  step: ResolutionStep,
-  response: ResolutionStepResponse
-): void {
-  const pid = response.playerId;
-  const selection = response.selections;
-  
-  // Extract creature ID from selection
-  let creatureId: string | undefined;
-  if (typeof selection === 'string') {
-    creatureId = selection;
-  } else if (Array.isArray(selection) && selection.length > 0) {
-    creatureId = selection[0];
-  } else if (typeof selection === 'object' && selection !== null) {
-    creatureId = (selection as any).creatureId || (selection as any).id;
-  }
-  
-  const stepData = step as any;
-  const sourceName = step.sourceName || 'Entrapment Maneuver';
-  const caster = stepData.caster;
-  const attackingCreatures = stepData.attackingCreatures || [];
-  
-  // Validate the creature is in the valid attacking creatures list
-  const validCreature = attackingCreatures.find((c: any) => c.id === creatureId);
-  if (!validCreature) {
-    debugWarn(1, `[Resolution] Entrapment Maneuver: Invalid creature selection ${creatureId}`);
-    return;
-  }
-  
-  const battlefield = game.state?.battlefield || [];
-  
-  // Find the creature on battlefield
-  const creatureIdx = battlefield.findIndex((p: any) => p.id === creatureId);
-  if (creatureIdx === -1) {
-    debugWarn(1, `[Resolution] Entrapment Maneuver: Creature ${creatureId} not found on battlefield`);
-    return;
-  }
-  
-  const creature = battlefield[creatureIdx];
-  const creatureCard = creature.card || {};
-  const creatureName = creatureCard.name || 'Unknown Creature';
-  
-  // Get toughness for token creation
-  let toughness: number;
-  const toughnessStr = String(creature.baseToughness ?? creatureCard.toughness ?? "0");
-  if (toughnessStr === '*' || toughnessStr.toLowerCase() === 'x') {
-    // Variable toughness - try calculateVariablePT first, then fallback to counters
-    const calculated = calculateVariablePT(creatureCard, game.state);
-    if (calculated && calculated.toughness !== undefined) {
-      toughness = calculated.toughness;
-    } else {
-      // Fallback: use counters only
-      const plusCounters = (creature.counters?.['+1/+1']) || 0;
-      const minusCounters = (creature.counters?.['-1/-1']) || 0;
-      toughness = plusCounters - minusCounters;
-    }
-  } else {
-    toughness = parseInt(toughnessStr.replace(/\D.*$/, ''), 10) || 0;
-  }
-  
-  // Apply any toughness modifiers
-  if (creature.tempToughnessMod) {
-    toughness += creature.tempToughnessMod;
-  }
-  
-  // Apply counters
-  const plusCounters = (creature.counters?.['+1/+1']) || 0;
-  const minusCounters = (creature.counters?.['-1/-1']) || 0;
-  toughness += plusCounters - minusCounters;
-  
-  // Ensure toughness is at least 0 for token creation
-  toughness = Math.max(0, toughness);
-  
-  sacrificePermanent(game as any, String(creature.id || creatureId), pid);
-  
-  // Create Soldier tokens for the caster equal to the sacrificed creature's toughness
-  if (toughness > 0) {
-    game.state.battlefield = game.state.battlefield || [];
-    
-    for (let i = 0; i < toughness; i++) {
-      const tokenId = uid('soldier_token');
-      game.state.battlefield.push({
-        id: tokenId,
-        controller: caster,
-        owner: caster,
-        tapped: false,
-        counters: {},
-        isToken: true,
-        basePower: 1,
-        baseToughness: 1,
-        card: {
-          id: tokenId,
-          name: "Soldier",
-          type_line: "Token Creature — Soldier",
-          power: "1",
-          toughness: "1",
-          zone: "battlefield",
-        },
-      });
-    }
-    
-    debug(2, `[Resolution] Entrapment Maneuver: Created ${toughness} Soldier token(s) for ${caster}`);
-  }
-  
-  debug(1, `[Resolution] Entrapment Maneuver: ${pid} sacrificed ${creatureName} (toughness ${toughness})`);
-  
-  // Emit chat messages
-  io.to(gameId).emit("chat", {
-    id: `m_${Date.now()}`,
-    gameId,
-    from: "system",
-    message: `${getPlayerName(game, pid)} sacrificed ${creatureName} (toughness ${toughness}) to ${sourceName}.`,
-    ts: Date.now(),
-  });
-  
-  if (toughness > 0) {
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}_tokens`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, caster)} created ${toughness} 1/1 white Soldier creature token${toughness !== 1 ? 's' : ''}.`,
-      ts: Date.now(),
-    });
-  }
-  
-  if (typeof game.bumpSeq === "function") {
-    game.bumpSeq();
-  }
-  
-  broadcastGame(io, game, gameId);
 }
 
 /**
@@ -25608,8 +25467,12 @@ async function handleColorChoiceResponse(
         (game as any).bumpSeq();
       }
 
-      if (typeof (game as any).resolveTopOfStack === 'function') {
-        (game as any).resolveTopOfStack();
+      if (persistAndResolveTopOfStack(game, gameId, {
+        playerId: pid,
+        spellId,
+        cardName,
+        reason: 'spellColorChoice',
+      })) {
         debug(2, `[Resolution] Resumed stack resolution after spell color choice for ${cardName}`);
       } else {
         debugWarn(1, `[Resolution] Game missing resolveTopOfStack after spell color choice for ${cardName}`);
@@ -34443,8 +34306,6 @@ async function handleGraveyardSelectionResponse(
 
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
-    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
-
     const exertedPermanentIdForCost = finalizeBattlefieldAbilitySelfExertCost(
       game,
       gameId,
@@ -34452,6 +34313,34 @@ async function handleGraveyardSelectionResponse(
       permanentId,
       stepData?.requiresSelfExertForCost === true,
     );
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+          playerId: controllerId,
+          permanentId,
+          abilityId: abilityId || undefined,
+          cardName,
+          abilityText,
+          activatedAbilityText: activatedAbilityText || undefined,
+          targets: selectedCardIds,
+          copyRetargetValidTargets: validTargets.map((target: any) => ({ ...target })),
+          copyRetargetTargetTypes: Array.isArray(stepData.targetTypes) ? [...stepData.targetTypes] : [],
+          copyRetargetMinTargets: minTargets,
+          copyRetargetMaxTargets: maxTargets,
+          copyRetargetTargetDescription: String(stepData.targetDescription || 'target'),
+          targetTotalPowerLimit: Number.isFinite(totalPowerLimit) && totalPowerLimit > 0 ? totalPowerLimit : undefined,
+          tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
+          discardedCardIds: Array.isArray(stepData?.discardedCardIdsForCost) && stepData.discardedCardIdsForCost.length > 0
+            ? stepData.discardedCardIdsForCost.map((id: any) => String(id))
+            : undefined,
+          lifePaidForCost: Number(stepData?.lifePaidForCost || 0) > 0 ? Number(stepData.lifePaidForCost) : undefined,
+          exertedPermanentIdForCost,
+        });
+      } catch {
+        // ignore persistence failures
+      }
+    });
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -34461,31 +34350,6 @@ async function handleGraveyardSelectionResponse(
       ts: Date.now(),
     });
 
-    try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-        playerId: controllerId,
-        permanentId,
-        abilityId: abilityId || undefined,
-        cardName,
-        abilityText,
-        activatedAbilityText: activatedAbilityText || undefined,
-        targets: selectedCardIds,
-        copyRetargetValidTargets: validTargets.map((target: any) => ({ ...target })),
-        copyRetargetTargetTypes: Array.isArray(stepData.targetTypes) ? [...stepData.targetTypes] : [],
-        copyRetargetMinTargets: minTargets,
-        copyRetargetMaxTargets: maxTargets,
-        copyRetargetTargetDescription: String(stepData.targetDescription || 'target'),
-        targetTotalPowerLimit: Number.isFinite(totalPowerLimit) && totalPowerLimit > 0 ? totalPowerLimit : undefined,
-        tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
-        discardedCardIds: Array.isArray(stepData?.discardedCardIdsForCost) && stepData.discardedCardIdsForCost.length > 0
-          ? stepData.discardedCardIdsForCost.map((id: any) => String(id))
-          : undefined,
-        lifePaidForCost: Number(stepData?.lifePaidForCost || 0) > 0 ? Number(stepData.lifePaidForCost) : undefined,
-        exertedPermanentIdForCost,
-      });
-    } catch {
-      // ignore persistence failures
-    }
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);
     return;
@@ -35312,7 +35176,24 @@ async function handleGraveyardSelectionResponse(
 
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
-      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
+      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id, () => {
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+            playerId: controllerId,
+            permanentId,
+            abilityId: abilityId || undefined,
+            cardName: sourceName,
+            abilityText,
+            activatedAbilityText,
+            tappedPermanents: tappedPermanentsForCost,
+            exiledCardIdsFromGraveyardForCost: movedCardIds,
+            lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+          });
+        } catch {
+          // ignore persistence failures
+        }
+      });
 
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
@@ -35321,22 +35202,6 @@ async function handleGraveyardSelectionResponse(
         message: `⚡ ${getPlayerName(game, controllerId)} activated ${sourceName}'s ability: ${abilityText}`,
         ts: Date.now(),
       });
-
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
-          playerId: controllerId,
-          permanentId,
-          abilityId: abilityId || undefined,
-          cardName: sourceName,
-          abilityText,
-          activatedAbilityText,
-          tappedPermanents: tappedPermanentsForCost,
-          exiledCardIdsFromGraveyardForCost: movedCardIds,
-          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
-        });
-      } catch {
-        // ignore persistence failures
-      }
     } catch (err) {
       debugError(1, '[Resolution] Failed to resume exile-from-graveyard-cost activation', err);
     }
@@ -35849,9 +35714,11 @@ async function handleModalChoiceResponse(
           debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility modal) failed:', err);
         }
 
-        if (typeof game.resolveTopOfStack === 'function') {
-          game.resolveTopOfStack();
-        } else {
+        if (!persistAndResolveTopOfStack(game, gameId, {
+          playerId: controllerId,
+          sourceName,
+          reason: 'modalTriggerChoice',
+        })) {
           executeTriggerEffect(ctx as any, controllerId as PlayerID, sourceName, effectText, syntheticTriggerItem);
         }
       }
@@ -36196,8 +36063,11 @@ async function handleOptionalTriggeredAbilityChoiceResponse(
     optionalTriggeredAbilityDecisionApplied: true,
   });
 
-  if (typeof (game as any).resolveTopOfStack === 'function') {
-    (game as any).resolveTopOfStack();
+  if (persistAndResolveTopOfStack(game, gameId, {
+    playerId,
+    sourceName,
+    reason: 'optionalTriggeredAbilityAccept',
+  })) {
     debug(2, `[Resolution] Resolved deferred optional triggered ability for ${sourceName}`);
   } else {
     debugWarn(1, `[Resolution] Game missing resolveTopOfStack while handling ${sourceName}`);

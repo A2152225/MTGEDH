@@ -483,6 +483,19 @@ export type FinalizeBattlefieldRemovalOptions = {
   readonly cause?: string;
 };
 
+export function oracleIrBattlefieldRemovalBridgeOptions(
+  ctx: OracleIRExecutionContext,
+  stepKind: string,
+): FinalizeBattlefieldRemovalOptions | undefined {
+  if (!ctx.serverBridge || ctx.currentStepIndex === undefined) return undefined;
+  return {
+    ctx,
+    stepIndex: ctx.currentStepIndex,
+    stepKind,
+    cause: `oracle_ir:${stepKind}`,
+  };
+}
+
 function finalizeBattlefieldRemovalWithExplicitDestinations(
   state: GameState,
   removed: readonly BattlefieldPermanent[],

@@ -2338,6 +2338,17 @@ export function applyOracleIRStepsToGameStateImpl(
             lastMovedCards = [...appliedResult.lastMovedCards];
             currentCtx = { ...currentCtx, lastMovedCards };
           }
+          if (Array.isArray((appliedResult as any).lastRevealedCards) && (appliedResult as any).lastRevealedCards.length > 0) {
+            currentCtx = {
+              ...currentCtx,
+              lastRevealedCards: [...(appliedResult as any).lastRevealedCards],
+            };
+          } else if (lastRevealedCardCount > 0 && Array.isArray(appliedResult.lastMovedCards) && appliedResult.lastMovedCards.length > 0) {
+            currentCtx = {
+              ...currentCtx,
+              lastRevealedCards: [...appliedResult.lastMovedCards],
+            };
+          }
         });
         break;
       }
@@ -3364,6 +3375,8 @@ export function applyOracleIRStepsToGameStateImpl(
             lastDiscardedCards,
             lastMovedCards,
             lastSacrificedPermanents,
+            lastCreatedTokenIds,
+            lastMovedBattlefieldPermanentIds,
             copyReplaySteps: steps.slice(0, stepIndex),
             lastTappedMatchingPermanentCount,
             ...(typeof resolvedAmount === 'number' && Number.isFinite(resolvedAmount)

@@ -94,6 +94,7 @@ export function buildOracleIRExecutionContext(
   const hintTargetPlayerId = normalizeId(hint?.targetPlayerId);
   const hintTargetSpellId = normalizeId(hint?.targetSpellId);
   const hintTargetPermanentId = normalizeId(hint?.targetPermanentId);
+  const hintTargetCreatureId = normalizeId(hint?.targetCreatureId);
   const hintSourceObjectType = normalizeSourceObjectType(hint?.sourceObjectType);
   const hintSourceColors = normalizeSourceColors(hint?.sourceColors);
   const hintCastFromZone = typeof hint?.castFromZone === 'string' ? hint.castFromZone.trim().toLowerCase() || undefined : undefined;
@@ -213,6 +214,12 @@ export function buildOracleIRExecutionContext(
       baseTargetOpponentId ??
       baseTargetFromPlayer,
     ...(hintTargetSpellId || baseTargetSpellId ? { targetSpellId: hintTargetSpellId ?? baseTargetSpellId } : {}),
+    ...(hintTargetPermanentId || base.targetPermanentId
+      ? { targetPermanentId: hintTargetPermanentId ?? normalizeId(base.targetPermanentId) }
+      : {}),
+    ...(hintTargetCreatureId || base.targetCreatureId
+      ? { targetCreatureId: hintTargetCreatureId ?? normalizeId(base.targetCreatureId) }
+      : {}),
     ...(sanitizedEachOfThoseOpponents ? { eachOfThoseOpponents: sanitizedEachOfThoseOpponents } : {}),
     ...((baseChosenObjectIds.length > 0 || (hintChosenObjectIds && hintChosenObjectIds.length > 0))
       ? {
@@ -249,6 +256,9 @@ export function buildOracleIRExecutionContext(
       ? { unlessPaysManaChoice: hintUnlessPaysManaChoice ?? baseUnlessPaysManaChoice }
       : {}),
   };
+
+  const mergedTargetSpellId =
+    hintTargetSpellId ?? baseTargetSpellId ?? normalizeId(base.targetSpellId);
 
   const referenceSpellTypes =
     normalizeSpellTypes(hint?.spellType) ??
@@ -303,8 +313,9 @@ export function buildOracleIRExecutionContext(
         ...(hintCastFromZone ? { castFromZone: hintCastFromZone } : {}),
         ...(hintEnteredFromZone ? { enteredFromZone: hintEnteredFromZone } : {}),
         ...(selectorContext.chosenObjectIds ? { selectorContext } : {}),
-        ...(hintTargetSpellId ? { targetSpellId: hintTargetSpellId } : {}),
+        ...(mergedTargetSpellId ? { targetSpellId: mergedTargetSpellId } : {}),
         ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
+        ...(hintTargetCreatureId ? { targetCreatureId: hintTargetCreatureId } : {}),
       ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
         ...(hintUnlessPaysManaChoice ? { unlessPaysManaChoice: hintUnlessPaysManaChoice } : {}),
       ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
@@ -330,8 +341,9 @@ export function buildOracleIRExecutionContext(
     ...(hintCastFromZone ? { castFromZone: hintCastFromZone } : {}),
     ...(hintEnteredFromZone ? { enteredFromZone: hintEnteredFromZone } : {}),
     selectorContext,
-    ...(hintTargetSpellId ? { targetSpellId: hintTargetSpellId } : {}),
+    ...(mergedTargetSpellId ? { targetSpellId: mergedTargetSpellId } : {}),
     ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
+    ...(hintTargetCreatureId ? { targetCreatureId: hintTargetCreatureId } : {}),
     ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
     ...(hintUnlessPaysManaChoice ? { unlessPaysManaChoice: hintUnlessPaysManaChoice } : {}),
     ...(referenceSpellTypes ? { referenceSpellTypes } : {}),

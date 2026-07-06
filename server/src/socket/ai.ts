@@ -4731,6 +4731,37 @@ export function chooseAITargetSelectionsForChoiceStep(
     return [];
   }
 
+  const choiceJson = String(step?.oracleIrChoiceStepJson || '').trim();
+  if (choiceJson) {
+    try {
+      const parsed = JSON.parse(choiceJson);
+      const choiceSteps = Array.isArray(parsed) ? parsed : [];
+      const sacrificeStep = choiceSteps.find((entry: any) => String(entry?.kind || '') === 'sacrifice');
+      if (sacrificeStep) {
+        const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+        const toughnessOf = (targetId: string): number => {
+          const permanent = battlefield.find((entry: any) => String(entry?.id || '') === String(targetId || ''));
+          const card = permanent?.card || permanent || {};
+          const raw = permanent?.baseToughness ?? card?.toughness ?? permanent?.toughness ?? '0';
+          const parsedToughness = Number.parseInt(String(raw).replace(/\D.*$/, ''), 10);
+          return Number.isFinite(parsedToughness) ? parsedToughness : 0;
+        };
+
+        return validTargets
+          .map((option: any) => ({
+            id: String(option?.id || '').trim(),
+            toughness: toughnessOf(String(option?.id || '')),
+          }))
+          .filter((entry) => entry.id.length > 0)
+          .sort((left, right) => left.toughness - right.toughness)
+          .slice(0, desiredCount)
+          .map((entry) => entry.id);
+      }
+    } catch {
+      // fall through to generic targeting
+    }
+  }
+
   const sourceCard = resolveChoiceStepSourceCard(game, step) || { name: step?.sourceName || 'Effect', oracle_text: step?.description || '' };
   const oracleText = String(sourceCard?.oracle_text || step?.description || '');
   const spellSpec = categorizeSpell(String(sourceCard?.name || step?.sourceName || ''), oracleText);
@@ -10599,24 +10630,6 @@ async function handleAIResolutionStep(
         const selection = chooseAIKynaiosChoiceSelection(step);
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selection));
         debug(1, `[AI] Kynaios: ${selection.choice}${selection.landCardId ? `:${selection.landCardId}` : ''}`);
-        break;
-      }
-      
-      case 'entrapment_maneuver': {
-        // AI must sacrifice an attacking creature - choose the weakest one
-        const attackingCreatures = step.attackingCreatures || [];
-        if (attackingCreatures.length > 0) {
-          // Sort by toughness (ascending) to sacrifice the weakest creature
-          const sortedCreatures = [...attackingCreatures].sort((a: any, b: any) => {
-            const toughA = parseInt(String(a.toughness || '0').replace(/\D.*$/, ''), 10) || 0;
-            const toughB = parseInt(String(b.toughness || '0').replace(/\D.*$/, ''), 10) || 0;
-            return toughA - toughB;
-          });
-          
-          const creatureToSacrifice = sortedCreatures[0];
-          ResolutionQueueManager.completeStep(gameId, step.id, createResponse(creatureToSacrifice.id));
-          debug(1, `[AI] Entrapment Maneuver: Sacrificing ${creatureToSacrifice.name}`);
-        }
         break;
       }
       

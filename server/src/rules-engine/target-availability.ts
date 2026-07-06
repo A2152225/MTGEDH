@@ -143,8 +143,13 @@ export function hasValidTargetsForSpell(
     sourceName: cardName,
   });
   const preferParsedTargetReqs = Boolean(targetReqs.needsTargets)
-    && Array.isArray(targetReqs.targetTypes)
-    && targetReqs.targetTypes.some(t => String(t || '').toLowerCase().startsWith('graveyard_'));
+    && (
+      targetReqs.perOpponent === true
+      || (
+        Array.isArray(targetReqs.targetTypes)
+        && targetReqs.targetTypes.some(t => String(t || '').toLowerCase().startsWith('graveyard_'))
+      )
+    );
 
   if (spellSpec && !preferParsedTargetReqs) {
     if (specNeedsPlayers(spellSpec) && !ctx.hasPlayers) return conservative;

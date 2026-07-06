@@ -4,6 +4,10 @@ import {
 } from '../resolution/index.js';
 import { getSavedMayAbilityTriggerDecision } from '../../socket/trigger-shortcuts.js';
 import { readEffectProgramQueueMetadata } from './effectProgramQueueAdapter.js';
+import {
+  buildOptionalEffectKey as buildNormalizedOptionalEffectKey,
+  findMayAutoPreferenceEntry,
+} from '../../../../shared/src/optionalEffectKey.js';
 
 export function extractOptionalEffectText(step: ResolutionStep): string {
   const stepData = step as any;
@@ -27,7 +31,7 @@ export function extractOptionalEffectText(step: ResolutionStep): string {
 export function buildOptionalEffectKey(step: ResolutionStep): string {
   const sourceName = String(step.sourceName || 'Ability').trim();
   const effectText = extractOptionalEffectText(step);
-  return `${sourceName.toLowerCase()}:${effectText.toLowerCase()}`;
+  return buildNormalizedOptionalEffectKey(sourceName, effectText);
 }
 
 export function isOptionalEffectProgramChoiceStep(step: ResolutionStep): boolean {
@@ -48,7 +52,8 @@ export function resolveOptionalAutoChoice(
 
   const effectKey = buildOptionalEffectKey(step);
   const prefs = state?.mayAutoPreferences?.[playerId] ?? {};
-  const autoPref: 'yes' | 'no' | number | undefined = prefs[effectKey];
+  const prefEntry = findMayAutoPreferenceEntry(prefs, effectKey);
+  const autoPref = prefEntry?.value;
 
   if (autoPref === 'yes') return 'yes';
   if (autoPref === 'no') return 'no';
@@ -57,10 +62,11 @@ export function resolveOptionalAutoChoice(
     const remaining = autoPref - 1;
     if (!state.mayAutoPreferences) state.mayAutoPreferences = {};
     if (!state.mayAutoPreferences[playerId]) state.mayAutoPreferences[playerId] = {};
+    const storageKey = prefEntry?.key || effectKey;
     if (remaining <= 0) {
-      delete state.mayAutoPreferences[playerId][effectKey];
+      delete state.mayAutoPreferences[playerId][storageKey];
     } else {
-      state.mayAutoPreferences[playerId][effectKey] = remaining;
+      state.mayAutoPreferences[playerId][storageKey] = remaining;
     }
     return 'yes';
   }

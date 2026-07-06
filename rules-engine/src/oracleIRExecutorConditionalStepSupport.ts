@@ -4,16 +4,16 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
 import { getAmountOfManaSpent, getAmountOfSpecificManaSymbolSpent } from './oracleIRExecutorManaUtils';
 import { evaluateModifyPtCondition } from './oracleIRExecutorModifyPtCondition';
-import { findObjectByIdInState, getCreatureSubtypeKeys } from './oracleIRExecutorModifyPtWhereUtils';
+import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 import { getProcessedBattlefield, getSourceBattlefieldPermanent } from './oracleIRExecutorCreatureStepUtils';
-import { getCounterCountOnObject } from './oracleIRExecutorModifyPtWhereUtils';
+import { getCounterCountOnObject, findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { checkRolledDoubles } from './dieRoll';
 import { deriveWinningVoteChoice, getCardManaValue } from './oracleIRExecutorPlayerUtils';
 import { cardMatchesType, parseSimpleCardTypeFromText } from './oracleIRExecutorZoneOps';
 import { splitCardMatchesName } from './splitCards';
 import { evaluateExtendedConditionalClause } from './oracleIRExecutorConditionalStepSupportExtended';
-import { collectContextualCardsLedgerFirst, isSearchedLibraryThisWayLedgerFirst, resolveAntecedentDiscardedCards, resolveAntecedentMilledCards } from './oracleIRLedgerCardAccess';
+import { collectContextualCardsLedgerFirst, collectRevealedThisWayCardsLedgerFirst, isSearchedLibraryThisWayLedgerFirst, resolveAntecedentDiscardedCards, resolveAntecedentMilledCards } from './oracleIRLedgerCardAccess';
 
 const EXILE_THIS_WAY_STEP_KINDS = new Set<OracleEffectStep['kind']>([
   'exile',
@@ -682,15 +682,10 @@ function splitCompositeCondition(raw: string, delimiter: 'and' | 'or'): string[]
 
 function getReferencedConditionalObject(
   nextState: GameState,
-  battlefield: readonly any[],
+  _battlefield: readonly any[],
   ctx: OracleIRExecutionContext
 ): any | null {
-  const referencedId =
-    String(ctx.targetPermanentId || '').trim() ||
-    getSingleChosenObjectId(ctx) ||
-    String(ctx.sourceId || '').trim();
-  if (!referencedId) return null;
-  return findObjectByIdInState(nextState, battlefield as any, referencedId);
+  return resolveReferencedObject(nextState, ctx);
 }
 
 function getConditionalObjectZoneProvenance(object: any): { castFromZone?: string; enteredFromZone?: string } {
@@ -1258,6 +1253,32 @@ export function evaluateConditionalWrapperCondition(params: {
       return true;
     });
     return !hasLegalSacrifice;
+  }
+
+  {
+    const isPermanentCardClause =
+      normalizedRaw === "it's a permanent card" || normalizedRaw === 'it is a permanent card';
+    if (isPermanentCardClause) {
+      const revealed = collectRevealedThisWayCardsLedgerFirst(ctx, params.step);
+      const movedCards = movedCardsFromCtx(ctx, lastMovedCards);
+      const revealedCtx = Array.isArray((ctx as any)?.lastRevealedCards) ? (ctx as any).lastRevealedCards : [];
+      const subject =
+        (revealed.length > 0 ? revealed[revealed.length - 1] : null) ??
+        (revealedCtx.length > 0 ? revealedCtx[revealedCtx.length - 1] : null) ??
+        (movedCards.length > 0 ? movedCards[movedCards.length - 1] : null);
+      if (!subject) {
+        const ownerId = String(
+          ctx.lastTopLibraryOwnerId || ctx.targetPlayerId || ctx.selectorContext?.targetPlayerId || controllerId || '',
+        ).trim();
+        const player = (nextState.players || []).find(
+          (entry: any) => String(entry?.id || '').trim() === ownerId,
+        ) as any;
+        const library = Array.isArray(player?.library) ? player.library : [];
+        const topCard = library.length > 0 ? library[0] : null;
+        return topCard ? matchesCardTypeDescriptor(topCard, 'permanent') : false;
+      }
+      return matchesCardTypeDescriptor(subject, 'permanent');
+    }
   }
 
   {

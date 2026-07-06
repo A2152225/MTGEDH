@@ -67,6 +67,50 @@ function getCardColorSymbols(card: any): string[] {
   return COLOR_SYMBOL_ORDER.filter((color) => colors.has(color));
 }
 
+export function resolvePermanentChosenColorSymbol(permanent: any): 'W' | 'U' | 'B' | 'R' | 'G' | null {
+  const colorToSymbol: Record<string, 'W' | 'U' | 'B' | 'R' | 'G'> = {
+    white: 'W',
+    blue: 'U',
+    black: 'B',
+    red: 'R',
+    green: 'G',
+    w: 'W',
+    u: 'U',
+    b: 'B',
+    r: 'R',
+    g: 'G',
+  };
+
+  const candidates = [
+    permanent?.chosenColor,
+    permanent?.chosenMana,
+    permanent?.card?.chosenColor,
+    permanent?.card?.chosenMana,
+  ];
+
+  for (const raw of candidates) {
+    const text = String(raw || '').trim();
+    if (!text) continue;
+
+    const braceMatch = text.match(/^\{([WUBRG])\}$/i);
+    if (braceMatch?.[1]) {
+      return braceMatch[1].toUpperCase() as 'W' | 'U' | 'B' | 'R' | 'G';
+    }
+
+    const upper = text.toUpperCase();
+    if ((COLOR_SYMBOL_ORDER as readonly string[]).includes(upper)) {
+      return upper as 'W' | 'U' | 'B' | 'R' | 'G';
+    }
+
+    const fromName = colorToSymbol[text.toLowerCase()];
+    if (fromName) {
+      return fromName;
+    }
+  }
+
+  return null;
+}
+
 function parseSpelledOutManaAmount(rawAmount: string): number | undefined {
   const normalized = String(rawAmount || '').trim().toLowerCase();
   if (!normalized) {
@@ -1229,6 +1273,25 @@ export function getManaAbilitiesForPermanent(
         .map((line) => line.trim())
         .filter(Boolean);
       for (const line of nativeOracleLines) {
+        const chosenColorMatch = line.match(
+          /^((?:\{[^}]+\}|[^:])*?)\s*:\s*add\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+the\s+chosen\s+color/i,
+        );
+        if (chosenColorMatch) {
+          const cost = String(chosenColorMatch[1] || '{T}').trim() || '{T}';
+          const amount = parseSpelledOutManaAmount(String(chosenColorMatch[2] || 'one')) || 1;
+          const colorSymbol = resolvePermanentChosenColorSymbol(permanent);
+          if (colorSymbol) {
+            abilities.push({
+              id: 'native_chosen_color',
+              cost,
+              produces: [colorSymbol],
+              amount,
+            });
+            handledExplicitAnyColorChoice = true;
+          }
+          continue;
+        }
+
         const anyColorMatch = line.match(/^((?:\{[^}]+\}|[^:])*?)\s*:\s*add\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+any(?:\s+one)?\s+color/i);
         if (!anyColorMatch) {
           continue;
@@ -2233,20 +2296,9 @@ export function getThroneOfEldraineManaTaps(
   }
   
   // Get the chosen color from the permanent
-  const chosenColor = (permanent as any).chosenColor;
-  if (!chosenColor) {
-    debug(2, `[getThroneOfEldraineManaTaps] ${cardName}: No chosen color set`);
-    return null;
-  }
-  
-  // Convert color name to symbol - validate against known colors
-  const colorToSymbol: Record<string, string> = {
-    'white': 'W', 'blue': 'U', 'black': 'B', 'red': 'R', 'green': 'G',
-    'w': 'W', 'u': 'U', 'b': 'B', 'r': 'R', 'g': 'G'
-  };
-  const colorSymbol = colorToSymbol[chosenColor.toLowerCase()];
+  const colorSymbol = resolvePermanentChosenColorSymbol(permanent);
   if (!colorSymbol) {
-    debug(2, `[getThroneOfEldraineManaTaps] ${cardName}: Invalid chosen color '${chosenColor}'`);
+    debug(2, `[getThroneOfEldraineManaTaps] ${cardName}: No chosen color set`);
     return null;
   }
   
@@ -2263,11 +2315,13 @@ export function getThroneOfEldraineManaTaps(
   }
   
   // Determine restriction
+  const chosenColorName = String((permanent as any).chosenColor || '').trim().toLowerCase()
+    || ({ W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' } as const)[colorSymbol];
   let restriction: string | undefined;
   if (oracleText.includes("monocolored spells of that color")) {
-    restriction = `monocolored_${chosenColor.toLowerCase()}`;
+    restriction = `monocolored_${chosenColorName}`;
   } else if (oracleText.includes("spend this mana only to cast")) {
-    restriction = `restricted_${chosenColor.toLowerCase()}`;
+    restriction = `restricted_${chosenColorName}`;
   }
   
   debug(2, `[getThroneOfEldraineManaTaps] ${cardName}: Produces ${amount}x ${colorSymbol} (restriction: ${restriction || 'none'})`);

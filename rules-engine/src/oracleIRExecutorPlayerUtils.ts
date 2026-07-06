@@ -11,6 +11,10 @@ import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './pl
 import { stripPlayableFromGraveyardTags } from './playableFromGraveyard';
 import { parseManaSymbols } from './types/numbers';
 import { addMana, addRestrictedMana, createEmptyManaPool, ManaRestrictionType, ManaType } from './types/mana';
+import {
+  resolveReferencedObjectPlayerIds,
+  type ReferencedObjectRuntime,
+} from './oracleIRExecutorReferenceUtils';
 
 type PlayerZoneName = 'library' | 'hand' | 'graveyard' | 'exile';
 
@@ -766,7 +770,8 @@ function resolvePlayersFromRawSelectorText(
 export function resolvePlayers(
   state: GameState,
   selector: OraclePlayerSelector,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: ReferencedObjectRuntime
 ): readonly PlayerID[] {
   const normalizeId = (value: unknown): PlayerID | undefined => {
     if (typeof value !== 'string' && typeof value !== 'number') return undefined;
@@ -894,19 +899,12 @@ export function resolvePlayers(
       }
       return opponents.length === 1 ? [opponents[0]] : [];
     }
-    case 'owner_of_moved_cards': {
-      const movedCards = Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : [];
-      const seen = new Set<string>();
-      const owners: PlayerID[] = [];
-      for (const card of movedCards) {
-        const ownerId = normalizeId((card as any)?.owner ?? (card as any)?.ownerId);
-        if (!ownerId || !allPlayerIds.has(ownerId) || seen.has(ownerId)) continue;
-        seen.add(ownerId);
-        owners.push(ownerId);
-      }
-      if (owners.length > 0) return owners;
-      return opponents.length === 1 ? [opponents[0]] : [];
-    }
+    case 'owner_of_moved_cards':
+      return resolveReferencedObjectPlayerIds(state, ctx, 'controller', runtime);
+    case 'controller_of_referenced_object':
+      return resolveReferencedObjectPlayerIds(state, ctx, 'controller', runtime);
+    case 'owner_of_referenced_object':
+      return resolveReferencedObjectPlayerIds(state, ctx, 'owner', runtime);
     case 'owner_of_source': {
       const movedCards = Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : [];
       const sacrificed = Array.isArray(ctx.lastSacrificedPermanents) ? ctx.lastSacrificedPermanents : [];
@@ -1020,6 +1018,12 @@ export function resolvePlayersFromDamageTarget(
 
   if (t === 'you') return resolvePlayers(state, { kind: 'you' }, ctx);
   if (t === 'any target') {
+    // Permanent bindings also set targetPlayerId for pronoun resolution; prefer the
+    // chosen permanent when the cast target was a battlefield object.
+    const boundPermanentId = normalizeId(ctx.targetPermanentId)
+      || normalizeId(ctx.selectorContext?.targetPermanentId);
+    if (boundPermanentId) return [];
+
     const targetPlayerId = normalizeId(ctx.selectorContext?.targetPlayerId);
     if (targetPlayerId && allPlayerIds.has(targetPlayerId)) return [targetPlayerId];
 
@@ -1037,8 +1041,10 @@ export function resolvePlayersFromDamageTarget(
     t === 'its owner' ||
     isThatOwnerOrControllerSelector(t)
   ) {
-    if (t === 'its owner') return resolvePlayers(state, { kind: 'owner_of_source' }, ctx);
-    return resolvePlayers(state, { kind: 'target_player' }, ctx);
+    if (t === 'its owner' || /(?:^| )owner$/.test(t)) {
+      return resolvePlayers(state, { kind: 'owner_of_referenced_object' }, ctx);
+    }
+    return resolvePlayers(state, { kind: 'controller_of_referenced_object' }, ctx);
   }
   if (t === 'defending player' || t === 'the defending player') {
     return resolvePlayers(state, { kind: 'target_opponent' }, ctx);

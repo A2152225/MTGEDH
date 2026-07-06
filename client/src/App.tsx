@@ -11,6 +11,7 @@ import type {
   ManaPool,
   PaymentCostAdjustment,
 } from "../../shared/src";
+import { buildOptionalEffectKey } from "../../shared/src/optionalEffectKey";
 import { TableLayout } from "./components/TableLayout";
 import { CardPreviewLayer, PreviewSizeControl } from "./components/CardPreviewLayer";
 import CommanderConfirmModal from "./components/CommanderConfirmModal";
@@ -561,6 +562,11 @@ export function App() {
     targets: TargetOption[];
     minTargets: number;
     maxTargets: number;
+    perOpponent?: boolean;
+    opponents?: Array<{ id: string; name: string }>;
+    targetsPerOpponent?: Record<string, TargetOption[]>;
+    minTargetsPerOpponent?: number;
+    maxTargetsPerOpponent?: number;
     effectId?: string; // For tracking which effect requested the targets
     cardId?: string; // The card that is being targeted for
     // Resolution Queue support
@@ -2768,7 +2774,10 @@ export function App() {
             || ''
           );
           const normalizedSourceName = String(step.sourceName || 'Ability');
-          const effectKey = String((step as any).effectKey || `${normalizedSourceName.toLowerCase()}:${optionalEffectText.toLowerCase()}`);
+          const effectKey = String(
+            (step as any).effectKey
+            || buildOptionalEffectKey(normalizedSourceName, optionalEffectText),
+          );
           setMayAbilityModalData({
             stepId: step.id,
             sourceName: normalizedSourceName,
@@ -3608,6 +3617,30 @@ export function App() {
           owner: t.owner,
           card: t.card,
         }));
+
+        const perOpponent = (step as any).perOpponent === true;
+        const targetsPerOpponentRaw = (step as any).targetsPerOpponent as Record<string, any[]> | undefined;
+        const mapTargetOption = (t: any): TargetOption => ({
+          id: t.id,
+          type: (t.type as any) || (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent'),
+          name: t.label || t.name || 'Unknown',
+          displayName: t.displayName,
+          imageUrl: t.imageUrl,
+          controller: t.controller,
+          typeLine: t.typeLine,
+          life: t.life,
+          zone: t.zone,
+          owner: t.owner,
+          card: t.card,
+        });
+        const targetsPerOpponent = targetsPerOpponentRaw
+          ? Object.fromEntries(
+              Object.entries(targetsPerOpponentRaw).map(([opponentId, opponentTargets]) => [
+                opponentId,
+                (opponentTargets || []).map(mapTargetOption),
+              ]),
+            )
+          : undefined;
         
         setTargetModalData({
           cardId: step.sourceId || '',
@@ -3627,6 +3660,11 @@ export function App() {
           targets: validTargets,
           minTargets: step.minTargets || 1,
           maxTargets: step.maxTargets || 1,
+          perOpponent,
+          opponents: Array.isArray((step as any).opponents) ? (step as any).opponents : undefined,
+          targetsPerOpponent,
+          minTargetsPerOpponent: Number((step as any).minTargetsPerOpponent ?? 0),
+          maxTargetsPerOpponent: Number((step as any).maxTargetsPerOpponent ?? 1),
           effectId: step.sourceId,
           stepId: step.id,  // Store step ID for resolution response
           useResolutionQueue: true,  // Flag to indicate this came from Resolution Queue
@@ -7619,6 +7657,11 @@ export function App() {
         targets={targetModalData?.targets || []}
         minTargets={targetModalData?.minTargets ?? 1}
         maxTargets={targetModalData?.maxTargets ?? 1}
+        perOpponent={targetModalData?.perOpponent}
+        opponents={targetModalData?.opponents}
+        targetsPerOpponent={targetModalData?.targetsPerOpponent}
+        minTargetsPerOpponent={targetModalData?.minTargetsPerOpponent}
+        maxTargetsPerOpponent={targetModalData?.maxTargetsPerOpponent}
         onConfirm={handleTargetConfirm}
         onCancel={handleTargetCancel}
       />

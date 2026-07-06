@@ -9172,7 +9172,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       expect.arrayContaining([
         expect.objectContaining({
           kind: 'unless_pays_mana',
-          who: { kind: 'target_player' },
+          who: { kind: 'controller_of_referenced_object' },
           mana: '{1}',
         }),
       ])
@@ -9621,6 +9621,23 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
           kind: 'investigate',
         }),
       ])
+    );
+  });
+
+  it('prunes redundant clue create_token when its controller investigates with reminder', () => {
+    const ir = parseOracleTextToIR(
+      'Destroy target creature or planeswalker. Its controller investigates. (Create a Clue token. It\'s an artifact with "{2}, Sacrifice this token: Draw a card.")',
+      'Fateful Absence',
+    );
+
+    expect(ir.abilities[0]?.steps.map((step: any) => step.kind)).toEqual(['destroy', 'investigate']);
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'investigate',
+          who: { kind: 'controller_of_referenced_object' },
+        }),
+      ]),
     );
   });
 
@@ -12904,7 +12921,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       },
       {
         kind: 'create_token',
-        who: { kind: 'owner_of_moved_cards' },
+        who: { kind: 'owner_of_referenced_object' },
         token: '1/1 black and green Snake enchantment',
       },
     ]);
@@ -12924,7 +12941,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       },
       {
         kind: 'create_token',
-        who: { kind: 'owner_of_moved_cards' },
+        who: { kind: 'owner_of_referenced_object' },
         token: '1/1 white Spirit',
       },
     ]);
