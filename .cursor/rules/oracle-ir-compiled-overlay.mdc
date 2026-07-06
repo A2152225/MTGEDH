@@ -33,9 +33,68 @@ Emit **native `OracleEffectStep`** in the import wrapper:
     "card_id": "<uuid>",
     "fallback_to_bespoke": false,
     "abilities": [{
-      "ability_type": "SPELL_EFFECT | ACTIVATED | TRIGGERED | STATIC",
+      "ability_type": "SPELL_EFFECT | ACTIVATED | TRIGGERED | STATIC | REPLACEMENT",
       "effect_text": "...",
       "steps": [{ "kind": "draw", "who": { "kind": "you" }, "amount": { "kind": "number", "value": 1 }, "raw": "..." }]
+    }]
+  }
+}
+```
+
+**STATIC / REPLACEMENT (Phase 5.5)** — ship continuous/replacement effects without executable steps when declarative specs are present:
+
+```json
+{
+  "card_id": "<uuid>",
+  "name": "Custom Anthem",
+  "envelope": {
+    "abilities": [{
+      "ability_type": "STATIC",
+      "effect_text": "Creatures you control get +1/+1.",
+      "steps": [],
+      "static_specs": [{
+        "id": "creatures-plus-one",
+        "scope": { "kind": "creatures_you_control" },
+        "grant": { "power": 1, "toughness": 1 },
+        "layer": 7,
+        "sublayer": "7b"
+      }]
+    }]
+  }
+}
+```
+
+```json
+{
+  "ability_type": "REPLACEMENT",
+  "effect_text": "If an opponent would mill one or more cards, they mill twice that many cards instead.",
+  "steps": [],
+  "replacement_specs": [{
+    "id": "mill-double-opponents",
+    "event": "mill",
+    "match": { "millingPlayerIsSourceController": true, "targetIsOpponent": true },
+    "instead": { "modify": "double" }
+  }]
+}
+```
+
+- Templates: `server/data/compiled-oracle-ir-overlays/anthem-static.example.json`, `mill-replacement.example.json`
+- Runtime: `collectStaticEffectSpecsFromState` / `collectReplacementEffectSpecsFromState` read specs from stored overlay by card id/name on battlefield.
+- Validation: `validateCompiledOverlayEnvelope` (import + SQLite store).
+
+Legacy shape (steps-only overlays still supported):
+
+```json
+{
+  "card_id": "<scryfall-oracle-uuid>",
+  "name": "Card Name",
+  "envelope": {
+    "card_id": "<uuid>",
+    "fallback_to_bespoke": false,
+    "abilities": [{
+      "ability_type": "SPELL_EFFECT",
+      "effect_text": "Draw two cards.",
+      "steps": [{ "kind": "draw", "who": { "kind": "you" }, "amount": { "kind": "number", "value": 2 }, "raw": "Draw two cards." }]
     }]
   }
 }

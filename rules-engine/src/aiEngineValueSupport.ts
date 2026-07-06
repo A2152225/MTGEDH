@@ -9,13 +9,16 @@ export interface CombatValueAssessment {
   readonly deathBenefit: number;
 }
 
-export function evaluateDeathTrigger(card: KnownCardRef): number {
+export function evaluateDeathTrigger(card: KnownCardRef, opponentCount = 1): number {
   const oracleText = (card?.oracle_text || '').toLowerCase();
   let benefit = 0;
 
-  if (!oracleText.includes('when') || !oracleText.includes('dies')) {
+  const hasDiesTrigger = /\bwhen(?:ever)?\b/.test(oracleText) && oracleText.includes('dies');
+  if (!hasDiesTrigger) {
     return 0;
   }
+
+  const opponents = Math.max(1, Math.floor(Number(opponentCount || 0)));
 
   if (
     (oracleText.includes('search') && oracleText.includes('land')) ||
@@ -38,11 +41,20 @@ export function evaluateDeathTrigger(card: KnownCardRef): number {
   }
 
   if (oracleText.includes('damage') && (oracleText.includes('opponent') || oracleText.includes('each opponent'))) {
-    benefit += 2;
+    const damageMatch = oracleText.match(/(?:each opponent|target (?:player|opponent))(?:\s+or\s+planeswalker)?\s+loses?\s+(\d+)/);
+    const perOpponentDamage = damageMatch ? parseInt(damageMatch[1], 10) : 1;
+    benefit += perOpponentDamage * opponents * 2;
+  }
+
+  if (oracleText.includes('each opponent') && oracleText.includes('lose') && oracleText.includes('life')) {
+    const lossMatch = oracleText.match(/each opponent loses?\s+(\d+)\s+life/);
+    const perOpponentLoss = lossMatch ? parseInt(lossMatch[1], 10) : 1;
+    benefit += perOpponentLoss * opponents * 2;
   }
 
   if (oracleText.includes('gain') && oracleText.includes('life')) {
-    benefit += 1;
+    const gainMatch = oracleText.match(/you gain\s+(\d+)\s+life/);
+    benefit += gainMatch ? parseInt(gainMatch[1], 10) * 2 : 2;
   }
 
   if (oracleText.includes('search your library') && !oracleText.includes('land')) {
@@ -103,19 +115,24 @@ export function evaluatePermanentValue(
   return Math.max(0, value);
 }
 
-export function evaluateCombatValue(perm: BattlefieldPermanent): CombatValueAssessment {
+export function evaluateCombatValue(
+  perm: BattlefieldPermanent,
+  opponentCount = 1,
+): CombatValueAssessment {
   const card = perm.card as KnownCardRef;
   const power = getCreaturePower(perm);
   const toughness = getCreatureToughness(perm);
   let combatValue = power + toughness;
-  const deathBenefit = evaluateDeathTrigger(card);
-  const wantsToGetKilled = deathBenefit > 0;
+  const deathBenefit = evaluateDeathTrigger(card, opponentCount);
+  const wantsToGetKilled = deathBenefit >= 6;
 
   if (wantsToGetKilled) {
     combatValue += deathBenefit * 3;
     if (power + toughness <= 2 && deathBenefit >= 5) {
       combatValue += 10;
     }
+  } else if (deathBenefit > 0) {
+    combatValue -= deathBenefit;
   }
 
   return { combatValue, wantsToGetKilled, deathBenefit };

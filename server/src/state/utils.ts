@@ -1335,8 +1335,6 @@ const EQUIPMENT_BONUSES: Record<string, { power: number; toughness: number }> = 
 const AURA_BONUSES: Record<string, { power: number; toughness: number }> = {
   // Common auras
   "rancor": { power: 2, toughness: 0 },
-  "ethereal armor": { power: 0, toughness: 0 }, // Variable +1/+1 per enchantment
-  "ancestral mask": { power: 0, toughness: 0 }, // Variable +2/+2 per enchantment
   "holy strength": { power: 1, toughness: 2 },
   "unholy strength": { power: 2, toughness: 1 },
   "armadillo cloak": { power: 2, toughness: 2 },
@@ -1361,14 +1359,12 @@ const AURA_BONUSES: Record<string, { power: number; toughness: number }> = {
   "keen sense": { power: 0, toughness: 0 },
   "shielded by faith": { power: 0, toughness: 0 },
   "spectra ward": { power: 2, toughness: 2 },
-  "all that glitters": { power: 0, toughness: 0 }, // Variable
   "on serra's wings": { power: 1, toughness: 1 },
   "cartouche of strength": { power: 1, toughness: 1 },
   "cartouche of solidarity": { power: 1, toughness: 1 },
   "cartouche of knowledge": { power: 1, toughness: 1 },
   "cartouche of zeal": { power: 1, toughness: 1 },
   "cartouche of ambition": { power: 1, toughness: 1 },
-  "sage's reverie": { power: 0, toughness: 0 }, // Variable
   "sigarda's aid": { power: 0, toughness: 0 },
   "flickering ward": { power: 0, toughness: 0 },
   "conviction": { power: 1, toughness: 3 },
@@ -1390,105 +1386,6 @@ const AURA_BONUSES: Record<string, { power: number; toughness: number }> = {
   "imprisoned in the moon": { power: 0, toughness: 0 }, // Removes creature type
   "song of the dryads": { power: 0, toughness: 0 }, // Removes creature type
 };
-
-/**
- * Known lord creatures that give bonuses to other creatures
- * Maps card name (lowercase) to bonus info
- */
-const LORD_BONUSES: Record<string, {
-  power: number;
-  toughness: number;
-  creatureType?: string;
-  condition?: (creature: any, lord: any) => boolean;
-}> = {
-  "lord of atlantis": { power: 1, toughness: 1, creatureType: "merfolk" },
-  "goblin king": { power: 1, toughness: 1, creatureType: "goblin" },
-  "zombie master": { power: 0, toughness: 0, creatureType: "zombie" }, // Grants abilities, no P/T
-  "elvish archdruid": { power: 1, toughness: 1, creatureType: "elf" },
-  "elvish champion": { power: 1, toughness: 1, creatureType: "elf" },
-  "lord of the unreal": { power: 1, toughness: 1, creatureType: "illusion" },
-  "death baron": { power: 1, toughness: 1, condition: (c) => {
-    const typeLine = (c.card?.type_line || '').toLowerCase();
-    return typeLine.includes('skeleton') || typeLine.includes('zombie');
-  }},
-  "captivating vampire": { power: 1, toughness: 1, creatureType: "vampire" },
-  "lord of the accursed": { power: 1, toughness: 1, creatureType: "zombie" },
-  "merrow reejerey": { power: 1, toughness: 1, creatureType: "merfolk" },
-  "goblin chieftain": { power: 1, toughness: 1, creatureType: "goblin" },
-  "imperious perfect": { power: 1, toughness: 1, creatureType: "elf" },
-  "drogskol captain": { power: 1, toughness: 1, creatureType: "spirit" },
-  "stromkirk captain": { power: 1, toughness: 1, creatureType: "vampire" },
-  "diregraf captain": { power: 1, toughness: 1, creatureType: "zombie" },
-  "immerwolf": { power: 1, toughness: 1, creatureType: "wolf" },
-  "mayor of avabruck": { power: 1, toughness: 1, creatureType: "human" },
-  "angel of jubilation": { power: 1, toughness: 1, condition: (c) => !(c.card?.colors || []).includes('B') },
-  "mikaeus, the unhallowed": { power: 1, toughness: 1, condition: (c) => !(c.card?.type_line || '').toLowerCase().includes('human') },
-  "oona's blackguard": { power: 1, toughness: 1, creatureType: "rogue" },
-  "sliver legion": { power: 0, toughness: 0, creatureType: "sliver" }, // Variable per sliver
-  "coat of arms": { power: 0, toughness: 0 }, // Variable
-};
-
-/** Table-driven P/T with conditions not yet modeled in computeContinuousEffects. */
-function applyConditionalTablePTBonuses(
-  creaturePerm: any,
-  gameState: any,
-): { power: number; toughness: number } {
-  let powerBonus = 0;
-  let toughnessBonus = 0;
-  const battlefield = gameState?.battlefield || [];
-  const controllerId = creaturePerm?.controller;
-
-  for (const perm of battlefield) {
-    if (!perm?.card) continue;
-    const cardName = String(perm.card.name || '').toLowerCase();
-    const typeLine = String(perm.card.type_line || '').toLowerCase();
-
-    if (!typeLine.includes('creature') || perm.controller !== controllerId) continue;
-    if (perm.id === creaturePerm.id) continue;
-
-    const lordBonus = LORD_BONUSES[cardName];
-    if (!lordBonus?.condition) continue;
-    if (lordBonus.condition(creaturePerm, perm)) {
-      powerBonus += lordBonus.power;
-      toughnessBonus += lordBonus.toughness;
-    }
-  }
-
-  return { power: powerBonus, toughness: toughnessBonus };
-}
-
-function applyConditionalTablePTBonusesWithSources(
-  creaturePerm: any,
-  gameState: any,
-): PTBonusSource[] {
-  const sources: PTBonusSource[] = [];
-  const battlefield = gameState?.battlefield || [];
-  const controllerId = creaturePerm?.controller;
-
-  for (const perm of battlefield) {
-    if (!perm?.card) continue;
-    const cardName = String(perm.card.name || '').toLowerCase();
-    const typeLine = String(perm.card.type_line || '').toLowerCase();
-
-    if (!typeLine.includes('creature') || perm.controller !== controllerId) continue;
-    if (perm.id === creaturePerm.id) continue;
-
-    const lordBonus = LORD_BONUSES[cardName];
-    if (!lordBonus?.condition) continue;
-    if (lordBonus.condition(creaturePerm, perm)) {
-      if (lordBonus.power !== 0 || lordBonus.toughness !== 0) {
-        sources.push({
-          name: perm.card.name || 'Lord',
-          power: lordBonus.power,
-          toughness: lordBonus.toughness,
-          type: 'creature',
-        });
-      }
-    }
-  }
-
-  return sources;
-}
 
 /**
  * Calculate all P/T bonuses for a creature from ALL sources
@@ -1547,25 +1444,6 @@ export function calculateAllPTBonuses(
   const continuousBonus = getContinuousPTBonusForPermanent(creaturePerm, gameState);
   powerBonus += continuousBonus.power;
   toughnessBonus += continuousBonus.toughness;
-
-  // 2b. Conditional table exceptions not yet in computeContinuousEffects
-  const conditionalTableBonus = applyConditionalTablePTBonuses(creaturePerm, gameState);
-  powerBonus += conditionalTableBonus.power;
-  toughnessBonus += conditionalTableBonus.toughness;
-  
-  // 4b. Opponent-sourced chosen-type debuffs (Plague Engineer, etc.)
-  for (const perm of battlefield) {
-    if (!perm?.card) continue;
-    const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
-    if (!chosenType) continue;
-    const oracleText = String(perm.card.oracle_text || '');
-    const debuffMatch = oracleText.match(/creatures of the chosen type your opponents control get ([+-]?\d+)\/([+-]?\d+)/i);
-    if (!debuffMatch) continue;
-    if (perm.controller === controllerId) continue;
-    if (!permanentHasCreatureTypeNow(creaturePerm, chosenType)) continue;
-    powerBonus += parseInt(debuffMatch[1], 10);
-    toughnessBonus += parseInt(debuffMatch[2], 10);
-  }
 
   // 5. Temporary pump effects (from modifiers) - includes Giant Growth, battle cry, etc.
   // These are spells/abilities that give +X/+Y until end of turn
@@ -1730,6 +1608,316 @@ export function calculateAllPTBonuses(
   return { power: powerBonus, toughness: toughnessBonus };
 }
 
+function countControlledPermanentsWithTypeIncludes(
+  battlefield: any[],
+  controllerId: string,
+  typeSubstrings: string[],
+): number {
+  return battlefield.filter((perm) => {
+    if (!perm || perm.controller !== controllerId) return false;
+    const typeLine = String(perm.card?.type_line || '').toLowerCase();
+    return typeSubstrings.some((substring) => typeLine.includes(substring));
+  }).length;
+}
+
+function countActiveOpponents(gameState: any | undefined, controllerId: string): number {
+  const players = gameState?.players || [];
+  return players.filter((player: any) => player && player.id !== controllerId && !player.hasLost).length;
+}
+
+function countCreaturesSharingTypeWith(
+  battlefield: any[],
+  controllerId: string,
+  creaturePerm: any,
+  excludeEquippedCreature: boolean,
+): number {
+  const creatureTypes = extractCreatureTypes(creaturePerm.card?.type_line || '');
+  if (creatureTypes.length === 0) return 0;
+
+  let matchCount = 0;
+  for (const perm of battlefield) {
+    if (!perm?.card) continue;
+    if (excludeEquippedCreature && perm.id === creaturePerm.id) continue;
+    if (perm.controller !== controllerId) continue;
+    const typeLine = String(perm.card.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) continue;
+    if (creatureTypes.some((creatureType) => typeLine.includes(creatureType.toLowerCase()))) {
+      matchCount++;
+    }
+  }
+  return matchCount;
+}
+
+function countUniqueColorsAmongControlledPermanents(battlefield: any[], controllerId: string): number {
+  const colors = new Set<string>();
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== controllerId) continue;
+    for (const color of perm.card?.colors || []) {
+      colors.add(color);
+    }
+  }
+  return colors.size;
+}
+
+function countAurasYouControlAttachedToCreatures(battlefield: any[], controllerId: string): number {
+  return battlefield.filter((perm) => {
+    if (!perm || perm.controller !== controllerId) return false;
+    const typeLine = String(perm.card?.type_line || '').toLowerCase();
+    if (!typeLine.includes('enchantment')) return false;
+    const attachedToId = String(perm.attachedTo || '').trim();
+    if (!attachedToId) return false;
+    const host = battlefield.find((candidate) => candidate?.id === attachedToId);
+    if (!host?.card) return false;
+    return String(host.card.type_line || '').toLowerCase().includes('creature');
+  }).length;
+}
+
+function countCardsInGraveyardsMatching(
+  gameState: any | undefined,
+  predicate: (card: any) => boolean,
+  scope: 'all' | 'controller',
+  controllerId: string,
+): number {
+  if (!gameState) return 0;
+  const zones = gameState.zones || {};
+  const playerIds = scope === 'all'
+    ? (gameState.players || []).map((player: any) => player?.id).filter(Boolean)
+    : [controllerId];
+  let count = 0;
+  for (const playerId of playerIds) {
+    const graveyard = zones[playerId]?.graveyard || [];
+    for (const card of graveyard) {
+      if (predicate(card)) count++;
+    }
+  }
+  return count;
+}
+
+function cardTypeLineIncludes(card: any, substring: string): boolean {
+  return String(card?.type_line || card?.typeLine || '').toLowerCase().includes(substring);
+}
+
+/**
+ * Parse variable +X/+Y equipment/aura bonuses from oracle text (e.g. "for each land you control").
+ * Returns null when the text does not match a supported variable pattern.
+ */
+function parseVariableAttachedPTBonus(
+  oracleText: string,
+  controllerId: string,
+  battlefield: any[],
+  gameState: any | undefined,
+  attachedPerm: any,
+  equippedCreature: any,
+): { power: number; toughness: number } | null {
+  const text = String(oracleText || '').toLowerCase();
+  const parsePair = (powerText: string, toughnessText?: string) => ({
+    powerPer: parseInt(powerText, 10),
+    toughnessPer: toughnessText === undefined ? 0 : parseInt(toughnessText, 10),
+  });
+
+  let match = text.match(
+    /(?:equipped|enchanted) creature gets \+(\d+)\/\+(\d+) for each artifact and enchantment you control/,
+  );
+  if (match) {
+    const { powerPer, toughnessPer } = parsePair(match[1], match[2]);
+    const count = countControlledPermanentsWithTypeIncludes(battlefield, controllerId, ['artifact', 'enchantment']);
+    return { power: powerPer * count, toughness: toughnessPer * count };
+  }
+
+  match = text.match(/equipped creature gets \+(\d+)\/\+0 for each artifact you control/);
+  if (match) {
+    const { powerPer } = parsePair(match[1]);
+    const count = countControlledPermanentsWithTypeIncludes(battlefield, controllerId, ['artifact']);
+    return { power: powerPer * count, toughness: 0 };
+  }
+
+  match = text.match(/equipped creature gets \+(\d+)\/\+(\d+) for each land you control/);
+  if (match) {
+    const { powerPer, toughnessPer } = parsePair(match[1], match[2]);
+    const count = countControlledPermanentsWithTypeIncludes(battlefield, controllerId, ['land']);
+    return { power: powerPer * count, toughness: toughnessPer * count };
+  }
+
+  match = text.match(/enchanted creature gets \+(\d+)\/\+(\d+) for each aura you control attached to a creature/);
+  if (match) {
+    const { powerPer, toughnessPer } = parsePair(match[1], match[2]);
+    const count = countAurasYouControlAttachedToCreatures(battlefield, controllerId);
+    return { power: powerPer * count, toughness: toughnessPer * count };
+  }
+
+  match = text.match(/enchanted creature gets \+(\d+)\/\+(\d+) for each enchantment you control/);
+  if (match) {
+    const { powerPer, toughnessPer } = parsePair(match[1], match[2]);
+    const count = countControlledPermanentsWithTypeIncludes(battlefield, controllerId, ['enchantment']);
+    return { power: powerPer * count, toughness: toughnessPer * count };
+  }
+
+  match = text.match(/enchanted creature gets \+(\d+)\/\+(\d+) for each other enchantment on the battlefield/);
+  if (match) {
+    const { powerPer, toughnessPer } = parsePair(match[1], match[2]);
+    const count = battlefield.filter((perm) => {
+      if (!perm || perm.id === attachedPerm?.id) return false;
+      return String(perm.card?.type_line || '').toLowerCase().includes('enchantment');
+    }).length;
+    return { power: powerPer * count, toughness: toughnessPer * count };
+  }
+
+  match = text.match(/equipped creature gets \+(\d+)\/\+0 for each opponent(?: you have)?/);
+  if (match) {
+    const { powerPer } = parsePair(match[1]);
+    const count = countActiveOpponents(gameState, controllerId);
+    return { power: powerPer * count, toughness: 0 };
+  }
+
+  match = text.match(
+    /equipped creature gets \+(\d+)\/\+(\d+) for each creature(?: you control)?(?: on the battlefield)? that shares a creature type with equipped creature/,
+  );
+  if (match) {
+    const { powerPer, toughnessPer } = parsePair(match[1], match[2]);
+    const count = countCreaturesSharingTypeWith(battlefield, controllerId, equippedCreature, true);
+    return { power: powerPer * count, toughness: toughnessPer * count };
+  }
+
+  match = text.match(/equipped creature gets \+(\d+)\/\+(\d+) for each color among permanents you control/);
+  if (match) {
+    const { powerPer, toughnessPer } = parsePair(match[1], match[2]);
+    const count = countUniqueColorsAmongControlledPermanents(battlefield, controllerId);
+    return { power: powerPer * count, toughness: toughnessPer * count };
+  }
+
+  match = text.match(
+    /equipped creature gets \+x\/\+x, where x is the number of creature cards in all graveyards/,
+  );
+  if (match) {
+    const count = countCardsInGraveyardsMatching(
+      gameState,
+      (card) => cardTypeLineIncludes(card, 'creature'),
+      'all',
+      controllerId,
+    );
+    return { power: count, toughness: count };
+  }
+
+  match = text.match(
+    /gets \+x\/\+0, where x is the number of instant and sorcery cards in your graveyard/,
+  );
+  if (match) {
+    const count = countCardsInGraveyardsMatching(
+      gameState,
+      (card) => cardTypeLineIncludes(card, 'instant') || cardTypeLineIncludes(card, 'sorcery'),
+      'controller',
+      controllerId,
+    );
+    return { power: count, toughness: 0 };
+  }
+
+  return null;
+}
+
+/**
+ * Attack-triggered equipment pump stored on the permanent (e.g. Trepanation Blade reveal count).
+ */
+export function isEquippedAttackRevealUntilLandPump(oracleText: string): boolean {
+  const text = String(oracleText || '').toLowerCase();
+  return text.includes('whenever equipped creature attacks')
+    && text.includes('until they reveal a land card')
+    && text.includes('for each card revealed this way');
+}
+
+export function getEquippedAttackRevealPumpPowerPerCard(oracleText: string): number {
+  const text = String(oracleText || '').toLowerCase();
+  const match = text.match(/gets \+(\d+)\/\+0(?: until end of turn)? for each card revealed this way/);
+  return match ? parseInt(match[1], 10) : 1;
+}
+
+function parseStoredRevealAttachedPTBonus(
+  oracleText: string,
+  attachedPerm: any,
+): { power: number; toughness: number } | null {
+  const text = String(oracleText || '').toLowerCase();
+  if (!text.includes('for each card revealed this way')) return null;
+  const storedBonus = attachedPerm.trepanationBonus || attachedPerm.lastTrepanationBonus || 0;
+  if (storedBonus <= 0) return null;
+  return { power: storedBonus, toughness: 0 };
+}
+
+/**
+ * Compound static equipment bonuses with type-conditional riders (e.g. Tenza, Godo's Maul).
+ */
+function parseCompoundAttachedPTBonus(
+  oracleText: string,
+  equippedCreature: any,
+): { power: number; toughness: number } | null {
+  const text = String(oracleText || '').toLowerCase();
+  const baseMatch = text.match(/equipped creature gets \+(\d+)\/\+(\d+)\./);
+  const legendaryExtra = text.match(/as long as it's legendary, it gets an additional \+(\d+)\/\+(\d+)/);
+  if (!baseMatch || !legendaryExtra) return null;
+
+  let power = parseInt(baseMatch[1], 10);
+  let toughness = parseInt(baseMatch[2], 10);
+  const typeLine = String(equippedCreature?.card?.type_line || '').toLowerCase();
+  if (typeLine.includes('legendary')) {
+    power += parseInt(legendaryExtra[1], 10);
+    toughness += parseInt(legendaryExtra[2], 10);
+  }
+  return { power, toughness };
+}
+
+function parseStaticAttachedPTBonusFromOracle(
+  oracleText: string,
+): { power: number; toughness: number } | null {
+  const text = String(oracleText || '').toLowerCase();
+
+  let match = text.match(/equipped creature gets? \+(\d+)\/\+(\d+)(?! for each)/i);
+  if (match) {
+    return { power: parseInt(match[1], 10), toughness: parseInt(match[2], 10) };
+  }
+
+  match = text.match(/equipped creature gets? \+(\d+)\/\+0(?! for each)/i);
+  if (match) {
+    return { power: parseInt(match[1], 10), toughness: 0 };
+  }
+
+  match = text.match(/equipped creature gets? \+(\d+)\/(-\d+)/i);
+  if (match) {
+    return { power: parseInt(match[1], 10), toughness: parseInt(match[2], 10) };
+  }
+
+  match = text.match(/enchanted creature gets? \+(\d+)\/\+(\d+)(?! for each)/i);
+  if (match) {
+    return { power: parseInt(match[1], 10), toughness: parseInt(match[2], 10) };
+  }
+
+  match = text.match(/enchanted creature gets? \+(\d+)\/\+0(?! for each)/i);
+  if (match) {
+    return { power: parseInt(match[1], 10), toughness: 0 };
+  }
+
+  return null;
+}
+
+function resolveAttachedPTBonusFromOracle(
+  oracleText: string,
+  controllerId: string,
+  battlefield: any[],
+  gameState: any | undefined,
+  attachedPerm: any,
+  equippedCreature: any,
+): { power: number; toughness: number } | null {
+  return (
+    parseVariableAttachedPTBonus(
+      oracleText,
+      controllerId,
+      battlefield,
+      gameState,
+      attachedPerm,
+      equippedCreature,
+    )
+    ?? parseStoredRevealAttachedPTBonus(oracleText, attachedPerm)
+    ?? parseCompoundAttachedPTBonus(oracleText, equippedCreature)
+  );
+}
+
 /**
  * Source of a P/T bonus for display in tooltips
  */
@@ -1824,54 +2012,6 @@ export function calculateAllPTBonusesWithSources(
     });
   }
 
-  // 2b. Conditional table exceptions not yet in computeContinuousEffects
-  sources.push(...applyConditionalTablePTBonusesWithSources(creaturePerm, gameState));
-  
-  // 4. Artifact bonuses (non-equipment) — chosen-color anthems only; generic anthems use continuous path
-  // Helper function to check if creature has the specified color
-  const creatureHasColor = (chosenColor: string): boolean => {
-    const creatureColors = (creaturePerm.card?.colors || []).map((c: string) => c.toLowerCase());
-    const colorMap: Record<string, string> = {
-      'white': 'W',
-      'blue': 'U', 
-      'black': 'B',
-      'red': 'R',
-      'green': 'G'
-    };
-    const chosenColorSymbol = colorMap[chosenColor.toLowerCase()];
-    return chosenColorSymbol ? creatureColors.includes(chosenColorSymbol) : false;
-  };
-  
-  for (const perm of battlefield) {
-    if (!perm || !perm.card) continue;
-    if (perm.controller !== controllerId) continue;
-    
-    const typeLine = (perm.card.type_line || '').toLowerCase();
-    if (!typeLine.includes('artifact') || typeLine.includes('equipment')) continue;
-    
-    const cardName = (perm.card.name || '').toLowerCase();
-    const oracleText = perm.card.oracle_text || '';
-    
-    // Caged Sun - Creatures you control of the chosen color get +1/+1
-    if (cardName.includes('caged sun') && perm.chosenColor && creatureHasColor(perm.chosenColor)) {
-      sources.push({
-        name: perm.card.name || 'Caged Sun',
-        power: 1,
-        toughness: 1,
-        type: 'artifact',
-      });
-    }
-    // Gauntlet of Power - Creatures you control of the chosen color get +1/+1
-    else if (cardName.includes('gauntlet of power') && perm.chosenColor && creatureHasColor(perm.chosenColor)) {
-      sources.push({
-        name: perm.card.name || 'Gauntlet of Power',
-        power: 1,
-        toughness: 1,
-        type: 'artifact',
-      });
-    }
-  }
-  
   // 5. Temporary pump effects (modifiers) including battle cry
   if (creaturePerm.modifiers && Array.isArray(creaturePerm.modifiers)) {
     for (const mod of creaturePerm.modifiers) {
@@ -1967,7 +2107,6 @@ export function calculateEquipmentBonusWithSources(
   }
   
   const controllerId = creaturePerm.controller;
-  const zones = gameState?.zones || {};
   
   for (const perm of battlefield) {
     if (!perm || !perm.card) continue;
@@ -1987,171 +2126,37 @@ export function calculateEquipmentBonusWithSources(
     const cardName = (perm.card.name || '').toLowerCase();
     const oracleText = (perm.card.oracle_text || '').toLowerCase();
     const sourceType: 'equipment' | 'aura' = isEquipment ? 'equipment' : 'aura';
-    
-    // Variable equipment
-    if (cardName.includes('cranial plating')) {
-      const artifacts = battlefield.filter((p: any) => 
-        p.controller === controllerId && 
-        (p.card?.type_line || '').toLowerCase().includes('artifact')
-      );
-      sources.push({ name: perm.card.name, power: artifacts.length, toughness: 0, type: sourceType });
-      continue;
-    }
-    
-    if (cardName.includes('nettlecyst')) {
-      const count = battlefield.filter((p: any) => {
-        if (p.controller !== controllerId) return false;
-        const tl = (p.card?.type_line || '').toLowerCase();
-        return tl.includes('artifact') || tl.includes('enchantment');
-      }).length;
-      sources.push({ name: perm.card.name, power: count, toughness: count, type: sourceType });
-      continue;
-    }
-    
-    if (cardName.includes('blackblade reforged')) {
-      const lands = battlefield.filter((p: any) => 
-        p.controller === controllerId && 
-        (p.card?.type_line || '').toLowerCase().includes('land')
-      );
-      sources.push({ name: perm.card.name, power: lands.length, toughness: lands.length, type: sourceType });
-      continue;
-    }
-    
-    // Bonehoard - +X/+X where X is creatures in all graveyards
-    if (cardName.includes('bonehoard')) {
-      let creatureCount = 0;
-      const allPlayers = gameState?.players || [];
-      for (const player of allPlayers) {
-        const playerZones = zones[player.id];
-        const graveyard = playerZones?.graveyard || [];
-        for (const card of graveyard) {
-          if ((card.type_line || '').toLowerCase().includes('creature')) {
-            creatureCount++;
-          }
-        }
-      }
-      sources.push({ name: perm.card.name, power: creatureCount, toughness: creatureCount, type: sourceType });
-      continue;
-    }
-    
-    // Runechanter's Pike - +X/+0 where X is instants and sorceries in your graveyard
-    if (cardName.includes("runechanter's pike")) {
-      const playerZones = zones[controllerId];
-      const graveyard = playerZones?.graveyard || [];
-      let count = 0;
-      for (const card of graveyard) {
-        const tl = (card.type_line || '').toLowerCase();
-        if (tl.includes('instant') || tl.includes('sorcery')) {
-          count++;
-        }
-      }
-      sources.push({ name: perm.card.name, power: count, toughness: 0, type: sourceType });
-      continue;
-    }
-    
-    // Trepanation Blade - variable based on last attack (stored on equipment)
-    if (cardName.includes('trepanation blade')) {
-      const storedBonus = perm.trepanationBonus || perm.lastTrepanationBonus || 0;
-      if (storedBonus > 0) {
-        sources.push({ name: perm.card.name, power: storedBonus, toughness: 0, type: sourceType });
+
+    const variableBonus = resolveAttachedPTBonusFromOracle(
+      oracleText,
+      controllerId,
+      battlefield,
+      gameState,
+      perm,
+      creaturePerm,
+    );
+    if (variableBonus) {
+      if (variableBonus.power !== 0 || variableBonus.toughness !== 0) {
+        sources.push({
+          name: perm.card.name,
+          power: variableBonus.power,
+          toughness: variableBonus.toughness,
+          type: sourceType,
+        });
       }
       continue;
     }
-    
-    // Stoneforge Masterwork - +1/+1 for each creature sharing a type with equipped creature
-    if (cardName.includes('stoneforge masterwork')) {
-      const creatureTypes = extractCreatureTypes(creaturePerm.card?.type_line || '');
-      let matchCount = 0;
-      for (const p of battlefield) {
-        if (!p || !p.card || p.id === creaturePerm.id) continue;
-        if (p.controller !== controllerId) continue;
-        const pTypeLine = (p.card.type_line || '').toLowerCase();
-        if (!pTypeLine.includes('creature')) continue;
-        
-        for (const cType of creatureTypes) {
-          if (pTypeLine.includes(cType.toLowerCase())) {
-            matchCount++;
-            break;
-          }
-        }
+
+    const staticBonus = parseStaticAttachedPTBonusFromOracle(oracleText);
+    if (staticBonus) {
+      if (staticBonus.power !== 0 || staticBonus.toughness !== 0) {
+        sources.push({
+          name: perm.card.name,
+          power: staticBonus.power,
+          toughness: staticBonus.toughness,
+          type: sourceType,
+        });
       }
-      sources.push({ name: perm.card.name, power: matchCount, toughness: matchCount, type: sourceType });
-      continue;
-    }
-    
-    // Conqueror's Flail - +1/+1 for each color among permanents you control
-    if (cardName.includes("conqueror's flail")) {
-      const colors = new Set<string>();
-      for (const p of battlefield) {
-        if (p.controller !== controllerId) continue;
-        const cardColors = p.card?.colors || [];
-        for (const c of cardColors) {
-          colors.add(c);
-        }
-      }
-      const bonus = colors.size;
-      sources.push({ name: perm.card.name, power: bonus, toughness: bonus, type: sourceType });
-      continue;
-    }
-    
-    // Blazing Sunsteel - +1/+0 for each opponent
-    // Oracle text: "Equipped creature gets +1/+0 for each opponent you have."
-    if (cardName.includes('blazing sunsteel')) {
-      const allPlayers = gameState?.players || [];
-      // Count opponents (all players except the controller of the equipped creature)
-      const opponentCount = allPlayers.filter((p: any) => 
-        p && p.id !== controllerId && !p.hasLost
-      ).length;
-      sources.push({ name: perm.card.name, power: opponentCount, toughness: 0, type: sourceType });
-      continue;
-    }
-    
-    // All That Glitters - +1/+1 for each artifact and enchantment you control
-    if (cardName.includes('all that glitters')) {
-      const count = battlefield.filter((p: any) => {
-        if (p.controller !== controllerId) return false;
-        const tl = (p.card?.type_line || '').toLowerCase();
-        return tl.includes('artifact') || tl.includes('enchantment');
-      }).length;
-      sources.push({ name: perm.card.name, power: count, toughness: count, type: sourceType });
-      continue;
-    }
-    
-    // Ethereal Armor - +1/+1 for each enchantment you control
-    if (cardName.includes('ethereal armor')) {
-      const enchantments = battlefield.filter((p: any) => 
-        p.controller === controllerId && 
-        (p.card?.type_line || '').toLowerCase().includes('enchantment')
-      );
-      const bonus = enchantments.length;
-      sources.push({ name: perm.card.name, power: bonus, toughness: bonus, type: sourceType });
-      continue;
-    }
-    
-    // Ancestral Mask - +2/+2 for each other enchantment on the battlefield
-    if (cardName.includes('ancestral mask')) {
-      const enchantments = battlefield.filter((p: any) => {
-        if (p.id === perm.id) return false; // Don't count itself
-        return (p.card?.type_line || '').toLowerCase().includes('enchantment');
-      });
-      const bonus = enchantments.length * 2;
-      sources.push({ name: perm.card.name, power: bonus, toughness: bonus, type: sourceType });
-      continue;
-    }
-    
-    // Tenza, Godo's Maul - conditional bonuses based on creature type
-    if (cardName.includes("tenza") || cardName.includes("godo's maul")) {
-      let power = 1;
-      let toughness = 1;
-      
-      // Additional bonus if legendary
-      const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
-      if (creatureTypeLine.includes('legendary')) {
-        power += 2;
-        toughness += 2;
-      }
-      
-      sources.push({ name: perm.card.name, power, toughness, type: sourceType });
       continue;
     }
     
@@ -2170,24 +2175,6 @@ export function calculateEquipmentBonusWithSources(
         sources.push({ name: perm.card.name, power: bonus.power, toughness: bonus.toughness, type: sourceType });
       }
       continue;
-    }
-    
-    // Parse from oracle text
-    const bonusMatch = oracleText.match(/equipped creature gets? \+(\d+)\/\+(\d+)/i);
-    if (bonusMatch) {
-      sources.push({ name: perm.card.name, power: parseInt(bonusMatch[1], 10), toughness: parseInt(bonusMatch[2], 10), type: sourceType });
-      continue;
-    }
-    
-    const negativeToughnessMatch = oracleText.match(/equipped creature gets? \+(\d+)\/(-\d+)/i);
-    if (negativeToughnessMatch) {
-      sources.push({ name: perm.card.name, power: parseInt(negativeToughnessMatch[1], 10), toughness: parseInt(negativeToughnessMatch[2], 10), type: sourceType });
-      continue;
-    }
-    
-    const auraMatch = oracleText.match(/enchanted creature gets? \+(\d+)\/\+(\d+)/i);
-    if (auraMatch) {
-      sources.push({ name: perm.card.name, power: parseInt(auraMatch[1], 10), toughness: parseInt(auraMatch[2], 10), type: sourceType });
     }
   }
   
@@ -2224,7 +2211,6 @@ export function calculateEquipmentBonus(
   }
   
   const controllerId = creaturePerm.controller;
-  const zones = gameState?.zones || {};
   
   // Find all equipment/auras attached to this creature
   for (const perm of battlefield) {
@@ -2245,188 +2231,25 @@ export function calculateEquipmentBonus(
     
     const cardName = (perm.card.name || '').toLowerCase();
     const oracleText = (perm.card.oracle_text || '').toLowerCase();
-    
-    // ===== VARIABLE EQUIPMENT BONUSES =====
-    
-    // Cranial Plating - +1/+0 for each artifact you control
-    if (cardName.includes('cranial plating')) {
-      const artifacts = battlefield.filter((p: any) => 
-        p.controller === controllerId && 
-        (p.card?.type_line || '').toLowerCase().includes('artifact')
-      );
-      powerBonus += artifacts.length;
+
+    const variableBonus = resolveAttachedPTBonusFromOracle(
+      oracleText,
+      controllerId,
+      battlefield,
+      gameState,
+      perm,
+      creaturePerm,
+    );
+    if (variableBonus) {
+      powerBonus += variableBonus.power;
+      toughnessBonus += variableBonus.toughness;
       continue;
     }
-    
-    // Nettlecyst - +1/+1 for each artifact and enchantment you control
-    if (cardName.includes('nettlecyst')) {
-      const artifactsAndEnchantments = battlefield.filter((p: any) => {
-        if (p.controller !== controllerId) return false;
-        const tl = (p.card?.type_line || '').toLowerCase();
-        return tl.includes('artifact') || tl.includes('enchantment');
-      });
-      const bonus = artifactsAndEnchantments.length;
-      powerBonus += bonus;
-      toughnessBonus += bonus;
-      continue;
-    }
-    
-    // Blackblade Reforged - +1/+1 for each land you control
-    if (cardName.includes('blackblade reforged')) {
-      const lands = battlefield.filter((p: any) => 
-        p.controller === controllerId && 
-        (p.card?.type_line || '').toLowerCase().includes('land')
-      );
-      const bonus = lands.length;
-      powerBonus += bonus;
-      toughnessBonus += bonus;
-      continue;
-    }
-    
-    // Bonehoard - +X/+X where X is creatures in all graveyards
-    if (cardName.includes('bonehoard')) {
-      let creatureCount = 0;
-      const allPlayers = gameState?.players || [];
-      for (const player of allPlayers) {
-        const playerZones = zones[player.id];
-        const graveyard = playerZones?.graveyard || [];
-        for (const card of graveyard) {
-          if ((card.type_line || '').toLowerCase().includes('creature')) {
-            creatureCount++;
-          }
-        }
-      }
-      powerBonus += creatureCount;
-      toughnessBonus += creatureCount;
-      continue;
-    }
-    
-    // Runechanter's Pike - +X/+0 where X is instants and sorceries in your graveyard
-    if (cardName.includes("runechanter's pike")) {
-      const playerZones = zones[controllerId];
-      const graveyard = playerZones?.graveyard || [];
-      let count = 0;
-      for (const card of graveyard) {
-        const tl = (card.type_line || '').toLowerCase();
-        if (tl.includes('instant') || tl.includes('sorcery')) {
-          count++;
-        }
-      }
-      powerBonus += count;
-      continue;
-    }
-    
-    // Trepanation Blade - variable based on last attack (stored on equipment)
-    if (cardName.includes('trepanation blade')) {
-      // The bonus is determined when attacking and stored on the equipment
-      const storedBonus = perm.trepanationBonus || perm.lastTrepanationBonus || 0;
-      powerBonus += storedBonus;
-      continue;
-    }
-    
-    // Stoneforge Masterwork - +1/+1 for each creature sharing a type with equipped creature
-    if (cardName.includes('stoneforge masterwork')) {
-      const creatureTypes = extractCreatureTypes(creaturePerm.card?.type_line || '');
-      let matchCount = 0;
-      for (const p of battlefield) {
-        if (!p || !p.card || p.id === creaturePerm.id) continue;
-        if (p.controller !== controllerId) continue;
-        const pTypeLine = (p.card.type_line || '').toLowerCase();
-        if (!pTypeLine.includes('creature')) continue;
-        
-        for (const cType of creatureTypes) {
-          if (pTypeLine.includes(cType.toLowerCase())) {
-            matchCount++;
-            break;
-          }
-        }
-      }
-      powerBonus += matchCount;
-      toughnessBonus += matchCount;
-      continue;
-    }
-    
-    // Conqueror's Flail - +1/+1 for each color among permanents you control
-    if (cardName.includes("conqueror's flail")) {
-      const colors = new Set<string>();
-      for (const p of battlefield) {
-        if (p.controller !== controllerId) continue;
-        const cardColors = p.card?.colors || [];
-        for (const c of cardColors) {
-          colors.add(c);
-        }
-      }
-      const bonus = colors.size;
-      powerBonus += bonus;
-      toughnessBonus += bonus;
-      continue;
-    }
-    
-    // Blazing Sunsteel - +1/+0 for each opponent
-    // Oracle text: "Equipped creature gets +1/+0 for each opponent you have."
-    if (cardName.includes('blazing sunsteel')) {
-      const allPlayers = gameState?.players || [];
-      // Count opponents (all players except the controller of the equipped creature)
-      const opponentCount = allPlayers.filter((p: any) => 
-        p && p.id !== controllerId && !p.hasLost
-      ).length;
-      powerBonus += opponentCount;
-      continue;
-    }
-    
-    // All That Glitters - +1/+1 for each artifact and enchantment you control
-    if (cardName.includes('all that glitters')) {
-      const count = battlefield.filter((p: any) => {
-        if (p.controller !== controllerId) return false;
-        const tl = (p.card?.type_line || '').toLowerCase();
-        return tl.includes('artifact') || tl.includes('enchantment');
-      }).length;
-      powerBonus += count;
-      toughnessBonus += count;
-      continue;
-    }
-    
-    // Ethereal Armor - +1/+1 for each enchantment you control
-    if (cardName.includes('ethereal armor')) {
-      const enchantments = battlefield.filter((p: any) => 
-        p.controller === controllerId && 
-        (p.card?.type_line || '').toLowerCase().includes('enchantment')
-      );
-      const bonus = enchantments.length;
-      powerBonus += bonus;
-      toughnessBonus += bonus;
-      continue;
-    }
-    
-    // Ancestral Mask - +2/+2 for each other enchantment on the battlefield
-    if (cardName.includes('ancestral mask')) {
-      const enchantments = battlefield.filter((p: any) => {
-        if (p.id === perm.id) return false; // Don't count itself
-        return (p.card?.type_line || '').toLowerCase().includes('enchantment');
-      });
-      const bonus = enchantments.length * 2;
-      powerBonus += bonus;
-      toughnessBonus += bonus;
-      continue;
-    }
-    
-    // Tenza, Godo's Maul - conditional bonuses based on creature type
-    // "Equipped creature gets +1/+1. As long as it's legendary, it gets an additional +2/+2. 
-    //  As long as it's red, it has trample."
-    if (cardName.includes("tenza") || cardName.includes("godo's maul")) {
-      // Base bonus
-      powerBonus += 1;
-      toughnessBonus += 1;
-      
-      // Additional bonus if legendary
-      const creatureTypeLine = (creaturePerm.card?.type_line || '').toLowerCase();
-      if (creatureTypeLine.includes('legendary')) {
-        powerBonus += 2;
-        toughnessBonus += 2;
-      }
-      
-      // Trample if red is handled separately in keyword detection
-      // Just track the bonus here
+
+    const staticBonus = parseStaticAttachedPTBonusFromOracle(oracleText);
+    if (staticBonus) {
+      powerBonus += staticBonus.power;
+      toughnessBonus += staticBonus.toughness;
       continue;
     }
     
@@ -2442,29 +2265,6 @@ export function calculateEquipmentBonus(
       powerBonus += AURA_BONUSES[cardName].power;
       toughnessBonus += AURA_BONUSES[cardName].toughness;
       continue;
-    }
-    
-    // Try to parse bonus from oracle text for unknown equipment
-    const bonusMatch = oracleText.match(/equipped creature gets? \+(\d+)\/\+(\d+)/i);
-    if (bonusMatch) {
-      powerBonus += parseInt(bonusMatch[1], 10);
-      toughnessBonus += parseInt(bonusMatch[2], 10);
-      continue;
-    }
-    
-    // Handle negative toughness (like Skullclamp's -1)
-    const negativeToughnessMatch = oracleText.match(/equipped creature gets? \+(\d+)\/(-\d+)/i);
-    if (negativeToughnessMatch) {
-      powerBonus += parseInt(negativeToughnessMatch[1], 10);
-      toughnessBonus += parseInt(negativeToughnessMatch[2], 10);
-      continue;
-    }
-    
-    // Try aura pattern
-    const auraMatch = oracleText.match(/enchanted creature gets? \+(\d+)\/\+(\d+)/i);
-    if (auraMatch) {
-      powerBonus += parseInt(auraMatch[1], 10);
-      toughnessBonus += parseInt(auraMatch[2], 10);
     }
   }
   

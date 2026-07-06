@@ -1,5 +1,5 @@
 import type { OracleIRCompilerEnvelope } from '../../rules-engine/src/oracleIRCompilerEnvelope.js';
-import { validateCompiledOracleEffectSteps } from '../../rules-engine/src/oracleIRCompilerEnvelope.js';
+import { validateCompiledOverlayEnvelope } from '../../rules-engine/src/oracleIRCompilerEnvelope.js';
 
 export interface OverlayImportRecord {
   readonly cardId?: string;
@@ -10,16 +10,10 @@ export interface OverlayImportRecord {
 export function validateCompilerEnvelope(
   envelope: OracleIRCompilerEnvelope,
 ): { readonly ok: true } | { readonly ok: false; readonly errors: readonly string[] } {
-  if (envelope.fallback_to_bespoke) {
+  const validation = validateCompiledOverlayEnvelope(envelope);
+  if (validation.ok) {
     return { ok: true };
   }
-
-  const steps = (envelope.abilities || []).flatMap((ability) => ability.steps || []);
-  const validation = validateCompiledOracleEffectSteps(steps);
-  if (validation.ok || steps.length === 0) {
-    return { ok: true };
-  }
-
   return { ok: false, errors: validation.errors };
 }
 

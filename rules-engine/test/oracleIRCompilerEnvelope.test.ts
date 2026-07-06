@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import {
   collectOracleEffectStepsWithOverlay,
+  envelopeHasDeclarativeOverlaySpecs,
   lowerCompilerEnvelopeToSteps,
   resolveOracleIRWithOverlay,
   validateCompiledOracleEffectSteps,
+  validateCompiledOverlayEnvelope,
   type OracleIRCompilerEnvelope,
 } from '../src/oracleIRCompilerEnvelope';
 
@@ -128,5 +130,45 @@ describe('oracleIRCompilerEnvelope', () => {
       { preferOverlay: true }
     );
     expect(steps.map((step) => step.kind)).toEqual(['draw']);
+  });
+
+  it('validates STATIC overlays with static_specs and no executable steps', () => {
+    const overlay: OracleIRCompilerEnvelope = {
+      abilities: [{
+        ability_type: 'STATIC',
+        effect_text: 'Creatures you control get +1/+1.',
+        steps: [],
+        static_specs: [{
+          id: 'creatures-plus-one',
+          scope: { kind: 'creatures_you_control' },
+          grant: { power: 1, toughness: 1 },
+        }],
+      }],
+    };
+
+    expect(envelopeHasDeclarativeOverlaySpecs(overlay)).toBe(true);
+    expect(validateCompiledOverlayEnvelope(overlay).ok).toBe(true);
+    expect(lowerCompilerEnvelopeToSteps(overlay)).toEqual([]);
+  });
+
+  it('applies declarative-only overlay abilities when parser is incomplete', () => {
+    const oracleText = 'Creatures you control get +1/+1.';
+    const parsed = parseOracleTextToIR(oracleText, 'Novel Anthem');
+    const overlay: OracleIRCompilerEnvelope = {
+      abilities: [{
+        ability_type: 'STATIC',
+        effect_text: oracleText,
+        steps: [],
+        static_specs: [{
+          id: 'creatures-plus-one',
+          scope: { kind: 'creatures_you_control' },
+          grant: { power: 1, toughness: 1 },
+        }],
+      }],
+    };
+
+    const resolved = resolveOracleIRWithOverlay(oracleText, 'Novel Anthem', overlay);
+    expect(resolved.abilities[0]?.type).toBe('static');
+    expect(resolved.abilities[0]?.steps).toEqual([]);
   });
 });

@@ -32,6 +32,7 @@ export interface OverlayReplacementEffectSpecInput {
     readonly value?: number;
     readonly redirectDrawTo?: 'source_controller';
     readonly sharedDrawCount?: number;
+    readonly replaceLifeGainWith?: 'none' | 'loss';
   };
   readonly effectId?: string;
   readonly reason?: string;
@@ -458,6 +459,182 @@ export function validateCompiledOracleEffectSteps(
   return { ok: errors.length === 0, errors, steps: valid };
 }
 
+const STATIC_SCOPE_KINDS = new Set([
+  'creatures_you_control',
+  'other_creatures_you_control',
+  'all_creatures',
+  'creature_type',
+  'player_you',
+]);
+
+const STATIC_CONDITION_KINDS = new Set([
+  'controller_life_at_least_starting_plus',
+  'target_is_token',
+  'target_is_not_token',
+  'during_source_controller_turn',
+]);
+
+const REPLACEMENT_SPEC_EVENTS = new Set([
+  'zone-change',
+  'draw',
+  'damage',
+  'counter_add',
+  'token_create',
+  'life_gain',
+  'mill',
+  'counter-placement',
+  'card-draw',
+  'life-gain',
+]);
+
+function readAbilityDeclarativeSpecs(ability: OracleIRCompiledAbility): {
+  readonly staticSpecs: readonly unknown[];
+  readonly replacementSpecs: readonly unknown[];
+} {
+  const record = ability as OracleIRCompiledAbility & {
+    staticSpecs?: readonly unknown[];
+    replacementSpecs?: readonly unknown[];
+  };
+  const staticSpecs = record.static_specs ?? record.staticSpecs ?? [];
+  const replacementSpecs = record.replacement_specs ?? record.replacementSpecs ?? [];
+  return {
+    staticSpecs: Array.isArray(staticSpecs) ? staticSpecs : [],
+    replacementSpecs: Array.isArray(replacementSpecs) ? replacementSpecs : [],
+  };
+}
+
+function validateOverlayStaticSpec(raw: unknown, label: string): string[] {
+  const errors: string[] = [];
+  if (!raw || typeof raw !== 'object') {
+    return [`${label}: expected object`];
+  }
+  const record = raw as Record<string, unknown>;
+  if (!String(record.id || '').trim()) errors.push(`${label}: missing id`);
+  const scope = (record.scope && typeof record.scope === 'object')
+    ? record.scope as Record<string, unknown>
+    : null;
+  if (!scope || !STATIC_SCOPE_KINDS.has(String(scope.kind || '').trim())) {
+    errors.push(`${label}: invalid scope.kind`);
+  }
+  const grant = (record.grant && typeof record.grant === 'object')
+    ? record.grant as Record<string, unknown>
+    : null;
+  if (!grant) {
+    errors.push(`${label}: missing grant`);
+    return errors;
+  }
+  const hasGrant =
+    Number(grant.power || 0) !== 0
+    || Number(grant.toughness || 0) !== 0
+    || (Array.isArray(grant.abilities) && grant.abilities.length > 0)
+    || grant.playerHexproof === true
+    || grant.playerShroud === true;
+  if (!hasGrant) errors.push(`${label}: grant must include power/toughness/abilities/player protection`);
+  const condition = (record.condition && typeof record.condition === 'object')
+    ? record.condition as Record<string, unknown>
+    : null;
+  if (condition?.kind && !STATIC_CONDITION_KINDS.has(String(condition.kind || '').trim())) {
+    errors.push(`${label}: invalid condition.kind`);
+  }
+  return errors;
+}
+
+function validateOverlayReplacementSpec(raw: unknown, label: string): string[] {
+  const errors: string[] = [];
+  if (!raw || typeof raw !== 'object') {
+    return [`${label}: expected object`];
+  }
+  const record = raw as Record<string, unknown>;
+  if (!String(record.id || '').trim()) errors.push(`${label}: missing id`);
+  const event = String(record.event || '').trim();
+  if (!event || !REPLACEMENT_SPEC_EVENTS.has(event)) {
+    errors.push(`${label}: invalid event`);
+  }
+  const instead = (record.instead && typeof record.instead === 'object')
+    ? record.instead as Record<string, unknown>
+    : null;
+  if (!instead) {
+    errors.push(`${label}: missing instead`);
+    return errors;
+  }
+  const hasInstead =
+    String(instead.redirectZone || '').trim() !== ''
+    || instead.choiceRequired === true
+    || String(instead.modify || '').trim() !== ''
+    || String(instead.replaceLifeGainWith || '').trim() !== ''
+    || String(instead.redirectDrawTo || '').trim() !== '';
+  if (!hasInstead) errors.push(`${label}: instead must specify redirectZone, choiceRequired, modify, replaceLifeGainWith, or redirectDrawTo`);
+  return errors;
+}
+
+/** True when overlay supplies declarative static/replacement specs (Phase 5.5). */
+export function envelopeHasDeclarativeOverlaySpecs(envelope: OracleIRCompilerEnvelope): boolean {
+  if (envelope.fallback_to_bespoke) return false;
+  return (envelope.abilities || []).some((ability) => {
+    const { staticSpecs, replacementSpecs } = readAbilityDeclarativeSpecs(ability);
+    return staticSpecs.length > 0 || replacementSpecs.length > 0;
+  });
+}
+
+/** Validate full overlay envelope including STATIC / REPLACEMENT declarative specs. */
+export function validateCompiledOverlayEnvelope(
+  envelope: OracleIRCompilerEnvelope,
+): OracleIRCompilerValidationResult {
+  if (envelope.fallback_to_bespoke) {
+    return { ok: true, errors: [], steps: [] };
+  }
+
+  const errors: string[] = [];
+  const steps = (envelope.abilities || []).flatMap((ability) => ability.steps || []);
+  const stepValidation = validateCompiledOracleEffectSteps(steps);
+  if (!stepValidation.ok) {
+    errors.push(...stepValidation.errors);
+  }
+
+  const abilities = envelope.abilities || [];
+  if (abilities.length === 0 && !envelope.ir_execution_tree) {
+    errors.push('envelope: missing abilities or ir_execution_tree');
+  }
+
+  for (let abilityIndex = 0; abilityIndex < abilities.length; abilityIndex += 1) {
+    const ability = abilities[abilityIndex];
+    const abilityType = String(ability.ability_type || '').toUpperCase();
+    const abilitySteps = ability.steps || [];
+    const { staticSpecs, replacementSpecs } = readAbilityDeclarativeSpecs(ability);
+
+    for (let specIndex = 0; specIndex < staticSpecs.length; specIndex += 1) {
+      errors.push(...validateOverlayStaticSpec(
+        staticSpecs[specIndex],
+        `abilities[${abilityIndex}].static_specs[${specIndex}]`,
+      ));
+    }
+    for (let specIndex = 0; specIndex < replacementSpecs.length; specIndex += 1) {
+      errors.push(...validateOverlayReplacementSpec(
+        replacementSpecs[specIndex],
+        `abilities[${abilityIndex}].replacement_specs[${specIndex}]`,
+      ));
+    }
+
+    const hasDeclarative = staticSpecs.length > 0 || replacementSpecs.length > 0;
+    if (abilitySteps.length === 0 && !hasDeclarative) {
+      errors.push(`abilities[${abilityIndex}]: ${abilityType || 'UNKNOWN'} ability requires steps or declarative specs`);
+    }
+    if (abilityType === 'STATIC' && replacementSpecs.length > 0 && staticSpecs.length === 0 && abilitySteps.length === 0) {
+      // STATIC abilities may ship replacement_specs only (e.g. mill modifiers on static text).
+      continue;
+    }
+    if (abilityType === 'REPLACEMENT' && replacementSpecs.length === 0 && abilitySteps.length === 0) {
+      errors.push(`abilities[${abilityIndex}]: REPLACEMENT ability requires replacement_specs or steps`);
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    steps: stepValidation.steps,
+  };
+}
+
 export function envelopeToOracleIRAbilities(
   envelope: OracleIRCompilerEnvelope
 ): readonly OracleIRAbility[] {
@@ -532,10 +709,13 @@ export function resolveOracleIRWithOverlay(
   }
 
   const overlayAbilities = envelopeToOracleIRAbilities(overlay);
-  const overlayValidation = validateCompiledOracleEffectSteps(
-    overlayAbilities.flatMap((ability) => ability.steps)
-  );
-  if (!overlayValidation.ok || overlayValidation.steps.length === 0) {
+  const overlaySteps = overlayAbilities.flatMap((ability) => ability.steps);
+  const overlayValidation = validateCompiledOracleEffectSteps(overlaySteps);
+  const hasDeclarativeSpecs = envelopeHasDeclarativeOverlaySpecs(overlay);
+  if (!overlayValidation.ok) {
+    return parsed;
+  }
+  if (overlaySteps.length === 0 && !hasDeclarativeSpecs) {
     return parsed;
   }
 
@@ -551,6 +731,13 @@ export function resolveOracleIRWithOverlay(
   }
 
   if (parsedNeedsOverlay(parsed) && overlayAbilities.length > 0) {
+    return {
+      ...parsed,
+      abilities: overlayAbilities,
+    };
+  }
+
+  if (hasDeclarativeSpecs && overlayAbilities.length > 0) {
     return {
       ...parsed,
       abilities: overlayAbilities,

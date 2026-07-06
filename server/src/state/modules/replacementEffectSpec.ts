@@ -5,6 +5,7 @@ import {
 } from './oracleIrCompiledOverlayLookup.js';
 import type {
   CardDrawReplacementEvent,
+  LifeGainReplacementEvent,
   ReplacementEffectResult,
   ReplacementEvent,
   ReplacementZone,
@@ -58,10 +59,15 @@ export interface ReplacementDrawMatch {
   minimumDrawCount?: number;
 }
 
+export interface ReplacementLifeGainMatch {
+  /** Gaining player must be an opponent of the spec source controller. */
+  gainingPlayerIsOpponentOfSource?: boolean;
+}
+
 export interface ReplacementEffectSpec {
   id: string;
   event: ReplacementEffectSpecEvent;
-  match?: ReplacementZoneChangeMatch & ReplacementMillMatch & ReplacementCounterMatch & ReplacementDrawMatch;
+  match?: ReplacementZoneChangeMatch & ReplacementMillMatch & ReplacementCounterMatch & ReplacementDrawMatch & ReplacementLifeGainMatch;
   instead: {
     redirectZone?: ReplacementZone;
     choiceRequired?: boolean;
@@ -72,6 +78,8 @@ export interface ReplacementEffectSpec {
     redirectDrawTo?: 'source_controller';
     /** Each affected player draws this many instead (Alms Collector). */
     sharedDrawCount?: number;
+    /** Prevent life gain (0) or replace with life loss (negative amount). */
+    replaceLifeGainWith?: 'none' | 'loss';
   };
   effectId?: string;
   reason?: string;
@@ -249,6 +257,94 @@ export function collectOraclePatternDrawReplacementSpecsFromState(state: unknown
   return specs;
 }
 
+interface OracleLifeGainReplacementTemplate {
+  templateId: string;
+  oracleMustIncludeAll: readonly string[];
+  spec: Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
+}
+
+/** Oracle-pattern life-gain replacements (no card-name routing). */
+const ORACLE_LIFE_GAIN_REPLACEMENT_TEMPLATES: readonly OracleLifeGainReplacementTemplate[] = [
+  {
+    templateId: 'opponent-life-gain-reversed-to-loss',
+    oracleMustIncludeAll: ['if an opponent would gain life', 'loses that much life instead'],
+    spec: {
+      event: 'life-gain',
+      match: { gainingPlayerIsOpponentOfSource: true },
+      instead: { replaceLifeGainWith: 'loss' },
+      effectId: 'life-gain-reversed-to-loss',
+      reason: 'life_gain_reversed_to_loss',
+    },
+  },
+  {
+    templateId: 'controller-life-gain-reversed-to-loss',
+    oracleMustIncludeAll: ['would cause its controller to gain life', 'loses that much life instead'],
+    spec: {
+      event: 'life-gain',
+      instead: { replaceLifeGainWith: 'loss' },
+      effectId: 'life-gain-reversed-to-loss',
+      reason: 'life_gain_reversed_to_loss',
+    },
+  },
+  {
+    templateId: 'opponents-cant-gain-life',
+    oracleMustIncludeAll: ['your opponents', "can't gain life"],
+    spec: {
+      event: 'life-gain',
+      match: { gainingPlayerIsOpponentOfSource: true },
+      instead: { replaceLifeGainWith: 'none' },
+      effectId: 'life-gain-prevented',
+      reason: 'life_gain_prevented',
+    },
+  },
+  {
+    templateId: 'players-cant-gain-life',
+    oracleMustIncludeAll: ["players can't gain life"],
+    spec: {
+      event: 'life-gain',
+      instead: { replaceLifeGainWith: 'none' },
+      effectId: 'life-gain-prevented',
+      reason: 'life_gain_prevented',
+    },
+  },
+];
+
+export function collectOraclePatternLifeGainReplacementSpecsFromState(state: unknown): ReplacementEffectSpec[] {
+  const specs: ReplacementEffectSpec[] = [];
+  const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
+    ? (state as { battlefield: unknown[] }).battlefield
+    : [];
+
+  for (const perm of battlefield) {
+    if (!perm || typeof perm !== 'object' || !(perm as { card?: unknown }).card) continue;
+    const permRecord = perm as {
+      id?: string;
+      controller?: string;
+      card?: { name?: string; oracle_text?: string; oracleText?: string };
+    };
+    const oracle = normalizeOraclePatternText(readCardOracleText(permRecord.card));
+    if (!oracle) continue;
+
+    const sourcePermanentId = String(permRecord.id || '').trim();
+    const sourceController = String(permRecord.controller || '').trim();
+    const sourceName = String(permRecord.card?.name || 'Unknown').trim();
+    if (!sourcePermanentId) continue;
+
+    for (const template of ORACLE_LIFE_GAIN_REPLACEMENT_TEMPLATES) {
+      if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
+      specs.push({
+        ...template.spec,
+        id: `${sourcePermanentId}:${template.templateId}`,
+        sourcePermanentId,
+        sourceController,
+        sourceName,
+      });
+    }
+  }
+
+  return specs;
+}
+
 function matchesDrawSpec(spec: ReplacementEffectSpec, event: CardDrawReplacementEvent): boolean {
   const match = spec.match;
   if (!match) return true;
@@ -266,6 +362,18 @@ function matchesDrawSpec(spec: ReplacementEffectSpec, event: CardDrawReplacement
   if (match.minimumDrawCount !== undefined) {
     const count = Math.max(0, Math.floor(Number(event.count || 0)));
     if (count < match.minimumDrawCount) return false;
+  }
+
+  return true;
+}
+
+function matchesLifeGainSpec(spec: ReplacementEffectSpec, event: LifeGainReplacementEvent): boolean {
+  const match = spec.match;
+  if (!match) return true;
+
+  if (match.gainingPlayerIsOpponentOfSource === true
+    && String(event.playerId || '') === String(spec.sourceController || '')) {
+    return false;
   }
 
   return true;
@@ -520,6 +628,7 @@ export function collectReplacementEffectSpecsFromState(state: unknown): Replacem
   }
 
   specs.push(...collectOraclePatternDrawReplacementSpecsFromState(state));
+  specs.push(...collectOraclePatternLifeGainReplacementSpecsFromState(state));
   return specs;
 }
 
@@ -687,6 +796,45 @@ export function evaluateReplacementEffectSpec(
         metadata: {
           playerId: String(event.playerId || ''),
           additionalDraws: [{ playerId: String(spec.sourceController || ''), count: sharedDrawCount }],
+        },
+      };
+    }
+  }
+
+  if (event.type === 'life-gain') {
+    if (!matchesLifeGainSpec(spec, event)) return null;
+    const originalAmount = Math.max(0, Math.floor(Number(event.amount || 0)));
+    if (originalAmount <= 0) return null;
+
+    if (spec.instead.replaceLifeGainWith === 'none') {
+      return {
+        applied: true,
+        eventType: event.type,
+        effectId: spec.effectId || spec.id,
+        sourceName: spec.sourceName,
+        originalAmount,
+        replacementAmount: 0,
+        preventedAmount: originalAmount,
+        reason: spec.reason || 'life_gain_prevented',
+        metadata: {
+          playerId: String(event.playerId || ''),
+        },
+      };
+    }
+
+    if (spec.instead.replaceLifeGainWith === 'loss') {
+      return {
+        applied: true,
+        eventType: event.type,
+        effectId: spec.effectId || spec.id,
+        sourceName: spec.sourceName,
+        originalAmount,
+        replacementAmount: -originalAmount,
+        preventedAmount: 0,
+        reason: spec.reason || 'life_gain_reversed_to_loss',
+        metadata: {
+          playerId: String(event.playerId || ''),
+          reversedToLoss: true,
         },
       };
     }

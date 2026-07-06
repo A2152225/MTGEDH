@@ -17,17 +17,16 @@
  * - Rule 703: Turn-Based Actions
  */
 
-import type { GameState } from '../../shared/src';
-import type { TriggerEvent, TriggeredAbility, TriggerInstance, TriggerQueue } from './triggeredAbilities';
-import type { SkipNextDrawStepEffect } from '../../shared/src';
-import { 
-  createTriggerInstance, 
-  queueTrigger, 
+import type { GameState, SkipNextDrawStepEffect } from '../../shared/src';
+import { TriggerEvent, type TriggeredAbility } from './triggeredAbilitiesTypes';
+import type { TriggerInstance, TriggerQueue } from './triggeredAbilitiesQueue';
+import {
+  createTriggerInstance,
+  queueTrigger,
   createEmptyTriggerQueue,
   processEvent,
-  TriggerEvent as TE,
-  findTriggeringAbilities 
-} from './triggeredAbilities';
+} from './triggeredAbilitiesQueue';
+import { findTriggeringAbilities } from './triggeredAbilitiesMatching';
 import { 
   checkDelayedTriggers,
   processDelayedTriggers,
@@ -116,17 +115,17 @@ export interface PlayerState {
  */
 const STEP_TRIGGER_EVENTS: Record<PhaseStep, TriggerEvent | null> = {
   [PhaseStep.UNTAP]: null, // Untap has no trigger event (no priority)
-  [PhaseStep.UPKEEP]: TE.BEGINNING_OF_UPKEEP,
-  [PhaseStep.DRAW]: TE.BEGINNING_OF_DRAW_STEP,
-  [PhaseStep.PRECOMBAT_MAIN]: TE.BEGINNING_OF_PRECOMBAT_MAIN,
-  [PhaseStep.BEGINNING_OF_COMBAT]: TE.BEGINNING_OF_COMBAT,
-  [PhaseStep.DECLARE_ATTACKERS]: TE.BEGINNING_OF_DECLARE_ATTACKERS,
-  [PhaseStep.DECLARE_BLOCKERS]: TE.BEGINNING_OF_DECLARE_BLOCKERS,
-  [PhaseStep.COMBAT_DAMAGE]: TE.COMBAT_DAMAGE_STEP,
-  [PhaseStep.END_OF_COMBAT]: TE.END_OF_COMBAT,
-  [PhaseStep.POSTCOMBAT_MAIN]: TE.BEGINNING_OF_POSTCOMBAT_MAIN,
-  [PhaseStep.END_STEP]: TE.BEGINNING_OF_END_STEP,
-  [PhaseStep.CLEANUP]: TE.CLEANUP_STEP,
+  [PhaseStep.UPKEEP]: TriggerEvent.BEGINNING_OF_UPKEEP,
+  [PhaseStep.DRAW]: TriggerEvent.BEGINNING_OF_DRAW_STEP,
+  [PhaseStep.PRECOMBAT_MAIN]: TriggerEvent.BEGINNING_OF_PRECOMBAT_MAIN,
+  [PhaseStep.BEGINNING_OF_COMBAT]: TriggerEvent.BEGINNING_OF_COMBAT,
+  [PhaseStep.DECLARE_ATTACKERS]: TriggerEvent.BEGINNING_OF_DECLARE_ATTACKERS,
+  [PhaseStep.DECLARE_BLOCKERS]: TriggerEvent.BEGINNING_OF_DECLARE_BLOCKERS,
+  [PhaseStep.COMBAT_DAMAGE]: TriggerEvent.COMBAT_DAMAGE_STEP,
+  [PhaseStep.END_OF_COMBAT]: TriggerEvent.END_OF_COMBAT,
+  [PhaseStep.POSTCOMBAT_MAIN]: TriggerEvent.BEGINNING_OF_POSTCOMBAT_MAIN,
+  [PhaseStep.END_STEP]: TriggerEvent.BEGINNING_OF_END_STEP,
+  [PhaseStep.CLEANUP]: TriggerEvent.CLEANUP_STEP,
 };
 
 /**
@@ -385,7 +384,7 @@ export function collectUpkeepTriggers(
   
   // Parse abilities for cumulative upkeep pattern
   for (const ability of abilities) {
-    if (ability.event === TE.BEGINNING_OF_UPKEEP) {
+    if (ability.event === TriggerEvent.BEGINNING_OF_UPKEEP) {
       const effectLower = ability.effect.toLowerCase();
       
       // Detect cumulative upkeep
@@ -529,7 +528,7 @@ export function collectDrawStepTriggers(
   
   const triggeredAbilities = findTriggeringAbilities(
     abilities,
-    TE.BEGINNING_OF_DRAW_STEP,
+    TriggerEvent.BEGINNING_OF_DRAW_STEP,
     eventData
   );
   
@@ -596,7 +595,7 @@ export function collectCombatTriggers(
       sourceControllerId: activePlayerId,
     };
     
-    const attackAbilities = findTriggeringAbilities(abilities, TE.ATTACKS, attackEventData);
+    const attackAbilities = findTriggeringAbilities(abilities, TriggerEvent.ATTACKS, attackEventData);
     for (const ability of attackAbilities) {
       // Check if the ability source is one of the attacking creatures
       if (attackingCreatureIds.includes(ability.sourceId)) {
@@ -614,7 +613,7 @@ export function collectCombatTriggers(
       sourceControllerId: activePlayerId,
     };
     
-    const blockAbilities = findTriggeringAbilities(abilities, TE.BLOCKS, blockEventData);
+    const blockAbilities = findTriggeringAbilities(abilities, TriggerEvent.BLOCKS, blockEventData);
     for (const ability of blockAbilities) {
       if (blockingCreatureIds.includes(ability.sourceId)) {
         const instance = createTriggerInstance(ability, timestamp);
@@ -730,7 +729,7 @@ export function processCleanupStep(
     sourceControllerId: activePlayerId,
   };
   
-  const triggeredAbilities = findTriggeringAbilities(abilities, TE.CLEANUP_STEP, eventData);
+  const triggeredAbilities = findTriggeringAbilities(abilities, TriggerEvent.CLEANUP_STEP, eventData);
   const pendingTriggers: TriggerInstance[] = [];
   
   for (const ability of triggeredAbilities) {

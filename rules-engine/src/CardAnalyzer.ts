@@ -14,7 +14,8 @@
  */
 
 import type { BattlefieldPermanent, KnownCardRef } from '../../shared/src';
-import { TriggerEvent, parseTriggeredAbilitiesFromText } from './triggeredAbilities';
+import { TriggerEvent } from './triggeredAbilitiesTypes';
+import { parseTriggeredAbilitiesFromText } from './triggeredAbilitiesParsing';
 
 // ============================================================================
 // Card Categories

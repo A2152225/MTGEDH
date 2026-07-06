@@ -12,7 +12,7 @@
  * - "twice that many counters" (Doubling Season)
  */
 
-import { TriggerEvent } from '../triggeredAbilities';
+import { TriggerEvent } from '../triggeredAbilitiesTypes';
 
 export interface TriggerCopyInfo {
   readonly hasTriggerCopying: boolean;

@@ -773,7 +773,7 @@ export class AIEngine {
       getProcessedBattlefield: (gameState) => this.getProcessedBattlefield(gameState),
       selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
       getCombatDeckModifiers: (perm, cfg) => this.getCombatDeckModifiers(perm, cfg),
-      evaluateCombatValue: (perm, isAttacking) => this.evaluateCombatValue(perm, isAttacking),
+      evaluateCombatValue: (perm, isAttacking, opponentCount) => evaluateCombatValue(perm, opponentCount),
       getPrimaryArchetypes: (cfg) => this.getPrimaryArchetypes(cfg),
       shouldMakeMistake: (difficulty) => this.shouldMakeMistake(difficulty),
     });
@@ -791,7 +791,7 @@ export class AIEngine {
     return makeBasicBlockDecisionFromSupport(context, config, {
       getProcessedBattlefield: (gameState) => this.getProcessedBattlefield(gameState),
       getCombatDeckModifiers: (perm, cfg) => this.getCombatDeckModifiers(perm, cfg),
-      evaluateCombatValue: (perm, isAttacking) => this.evaluateCombatValue(perm, isAttacking),
+      evaluateCombatValue: (perm, isAttacking, opponentCount) => evaluateCombatValue(perm, opponentCount),
       evaluatePermanentValue: (perm) => this.evaluatePermanentValue(perm),
     });
   }
@@ -917,8 +917,11 @@ export class AIEngine {
    * Evaluate combat value of a creature, considering death triggers
    * This is different from permanent value - it considers the benefit of dying
    */
-  private evaluateCombatValue(perm: BattlefieldPermanent, isAttacking: boolean): { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number } {
-    return evaluateCombatValue(perm);
+  private evaluateCombatValue(
+    perm: BattlefieldPermanent,
+    opponentCount = 1,
+  ): { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number } {
+    return evaluateCombatValue(perm, opponentCount);
   }
   
   /**

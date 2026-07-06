@@ -1,5 +1,5 @@
 import type { OracleIRCompilerEnvelope } from '../../../rules-engine/src/oracleIRCompilerEnvelope.js';
-import { validateCompiledOracleEffectSteps } from '../../../rules-engine/src/oracleIRCompilerEnvelope.js';
+import { validateCompiledOverlayEnvelope } from '../../../rules-engine/src/oracleIRCompilerEnvelope.js';
 
 import {
   ensureLocalCardLookupIndexSync,
@@ -29,9 +29,8 @@ function parseStoredEnvelope(payload: string): OracleIRCompilerEnvelope | null {
     const parsed = JSON.parse(payload) as OracleIRCompilerEnvelope;
     if (!parsed || typeof parsed !== 'object') return null;
     if (parsed.fallback_to_bespoke) return null;
-    const steps = (parsed.abilities || []).flatMap((ability) => ability.steps || []);
-    const validation = validateCompiledOracleEffectSteps(steps);
-    if (!validation.ok && steps.length > 0) {
+    const validation = validateCompiledOverlayEnvelope(parsed);
+    if (!validation.ok) {
       debugWarn(1, '[oracle-ir-overlay] Stored overlay failed validation', validation.errors);
       return null;
     }

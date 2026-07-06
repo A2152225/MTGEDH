@@ -63,6 +63,7 @@ describe('cleanup discard replay (integration)', () => {
   const baseGameId = 'test_cleanup_discard_replay';
   const gameIds = [
     `${baseGameId}_basic`,
+    `${baseGameId}_slim_hand_options`,
     `${baseGameId}_prompt`,
     `${baseGameId}_decline`,
     `${baseGameId}_cast`,
@@ -161,6 +162,66 @@ describe('cleanup discard replay (integration)', () => {
     const replayedZones = (game.state as any).zones?.[playerId];
     expect((replayedZones?.hand || []).map((card: any) => card.id)).not.toContain(discardedCardId);
     expect((replayedZones?.graveyard || []).map((card: any) => card.id)).toContain(discardedCardId);
+  });
+
+  it('applies cleanup discard when step hand uses slim string ids from setupCleanupDiscard', async () => {
+    const gameId = `${baseGameId}_slim_hand_options`;
+    const playerId = 'p1';
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40, isAI: true }];
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          { id: 9001, name: 'Keep Me', type_line: 'Land', oracle_text: '' },
+          { id: 9002, name: 'Discard Me', type_line: 'Sorcery', oracle_text: '', cmc: 7 },
+        ],
+        graveyard: [],
+        handCount: 2,
+        graveyardCount: 0,
+      },
+    };
+
+    const slimHandOptions = (game.state as any).zones[playerId].hand.map((card: any) => ({
+      id: String(card.id),
+      label: String(card.name || 'Unknown'),
+    }));
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.DISCARD_SELECTION,
+      playerId: playerId as any,
+      description: 'Cleanup: discard 1 card(s) to maximum hand size (1).',
+      sourceName: 'Cleanup Step',
+      mandatory: true,
+      discardCount: 1,
+      hand: slimHandOptions,
+      currentHandSize: slimHandOptions.length,
+      maxHandSize: 1,
+      reason: 'cleanup',
+      priority: -10,
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const step = ResolutionQueueManager.getStepsForPlayer(gameId, playerId).find((candidate: any) => candidate.type === ResolutionStepType.DISCARD_SELECTION) as any;
+    expect(step).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(step.id),
+      selections: ['9002'],
+    });
+
+    const liveZones = (game.state as any).zones?.[playerId];
+    expect((liveZones?.hand || []).map((card: any) => String(card.id))).toEqual(['9001']);
+    expect((liveZones?.graveyard || []).map((card: any) => String(card.id))).toEqual(['9002']);
+    expect(ResolutionQueueManager.getPendingSummary(gameId).hasPending).toBe(false);
   });
 
   it('queues and replays a madness cast prompt after a cleanup discard', async () => {

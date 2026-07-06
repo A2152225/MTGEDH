@@ -204,6 +204,20 @@ function isColor(creature: BattlefieldPermanent, colorWord: string): boolean {
   return tl.includes(colorWord.toLowerCase());
 }
 
+function creatureHasManaColor(creature: BattlefieldPermanent, colorName: string): boolean {
+  const colorMap: Record<string, string> = {
+    white: 'W',
+    blue: 'U',
+    black: 'B',
+    red: 'R',
+    green: 'G',
+  };
+  const symbol = colorMap[String(colorName || '').trim().toLowerCase()];
+  const colors = ((creature.card as any)?.colors || []).map((entry: string) => String(entry).toUpperCase());
+  if (symbol && colors.includes(symbol)) return true;
+  return isColor(creature, colorName);
+}
+
 /**
  * Check if a creature has a specific creature type (e.g., "Soldier", "Goblin")
  * Handles both main types and subtypes in the type line
@@ -214,6 +228,38 @@ function hasCreatureType(permanent: BattlefieldPermanent, creatureType: string):
   // Use word boundary to avoid false positives (e.g., "soldier" shouldn't match "soldiers")
   const typePattern = new RegExp(`\\b${creatureType.toLowerCase()}s?\\b`, 'i');
   return typePattern.test(tl);
+}
+
+function getCreatureSubtypeWords(permanent: BattlefieldPermanent): string[] {
+  const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
+  const dashSplit = typeLine.split(/—|\s-\s/);
+  const subtypePart = dashSplit.length > 1 ? dashSplit.slice(1).join(' ') : '';
+  return subtypePart
+    .split(/\s+/)
+    .map((token) => token.replace(/[^a-z0-9-]/g, '').trim())
+    .filter(Boolean);
+}
+
+function creaturesShareCreatureType(
+  left: BattlefieldPermanent,
+  right: BattlefieldPermanent,
+): boolean {
+  const leftTypes = getCreatureSubtypeWords(left);
+  const rightTypes = getCreatureSubtypeWords(right);
+  if (leftTypes.length === 0 || rightTypes.length === 0) return false;
+  return leftTypes.some((type) => rightTypes.includes(type));
+}
+
+function countOtherCreaturesSharingType(
+  creature: BattlefieldPermanent,
+  battlefield: readonly BattlefieldPermanent[],
+): number {
+  let count = 0;
+  for (const other of battlefield) {
+    if (!isCreature(other) || other.id === creature.id) continue;
+    if (creaturesShareCreatureType(creature, other)) count += 1;
+  }
+  return count;
 }
 
 /**
@@ -409,7 +455,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
 
     // Creatures you control get +X/+Y (and maybe abilities)
     const ctrlBuffMatches = !leylineLifeMatch && !tokenBuffMatch && !nontokenBuffMatch && !tokenTurnBuffMatch
-      ? oracle.match(/creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/)
+      ? oracle.match(/(?<!nonblack )(?<!non[- ]?human )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/)
       : null;
     if (ctrlBuffMatches) {
       const buffSeg = ctrlBuffMatches[1];
@@ -644,7 +690,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     }
 
     // Specific pattern: Eldrazi Monument style "creatures you control get +1/+1 and have flying and indestructible"
-    const monumentMatch = oracle.match(/creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/);
+    const monumentMatch = oracle.match(/(?<!nonblack )(?<!non[- ]?human )creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/);
     if (monumentMatch) {
       const buff = parseBuffSegment(monumentMatch[1]);
       const abilities = resolveGrantedAbilities(source, monumentMatch[2]);
@@ -663,6 +709,8 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     // ============================================
     // CREATURE TYPE LORD EFFECTS
     // ============================================
+    const hasDeathBaronCompound = /skeletons you control and other zombies you control get/i.test(oracle);
+
     // Pattern: "Other [TYPE]s (you control) get +X/+Y"
     // Examples: Valiant Veteran ("Other Soldiers you control get +1/+1")
     //           Lord of Atlantis ("Other Merfolk get +1/+1 and have islandwalk") - GLOBAL effect
@@ -673,6 +721,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     
     // First, check for "Other [TYPE]s you control get +X/+Y" pattern
     for (const creatureType of CREATURE_TYPES) {
+      if (creatureType === 'zombie' && hasDeathBaronCompound) continue;
       // Pattern 1a: "Other [TYPE](s) (creatures) you control get +X/+Y" (controller-only lord)
       // Pattern 1b: "Other [TYPE](s) (creatures) get +X/+Y" (GLOBAL lord - no "you control")
       // 
@@ -718,7 +767,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
       
       // Pattern 2: "[TYPE](s) (creatures) you control get +X/+Y" (affects all including self)
       const typeBuffPattern = new RegExp(
-        `(?<!other\\s+)${creatureType}s?\\s+(?:creatures?\\s+)?you\\s+control\\s+get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
+        `(?<!other\\s+)(?<!non[- ]?)${creatureType}s?\\s+(?:creatures?\\s+)?you\\s+control\\s+get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
         'i'
       );
       const typeMatch = oracle.match(typeBuffPattern);
@@ -782,6 +831,98 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
               hasCreatureType(perm, creatureType)) {
             const agg = perPermanent.get(perm.id)!;
             for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+      }
+    }
+
+    const deathBaronMatch = oracle.match(/skeletons you control and other zombies you control get\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/i);
+    if (deathBaronMatch) {
+      const buff = parseBuffSegment(deathBaronMatch[1]);
+      if (buff) {
+        for (const perm of state.battlefield) {
+          if (perm.controller !== controller || !isCreature(perm)) continue;
+          const qualifies =
+            hasCreatureType(perm, 'skeleton')
+            || (perm.id !== source.id && hasCreatureType(perm, 'zombie'));
+          if (!qualifies) continue;
+          const agg = perPermanent.get(perm.id)!;
+          agg.pDelta += buff.p;
+          agg.tDelta += buff.t;
+          const abilities = resolveGrantedAbilities(source, deathBaronMatch[2] || '');
+          for (const ability of abilities) agg.abilities.add(ability);
+        }
+      }
+    }
+
+    const nonblackMatch = oracle.match(/nonblack creatures you control get\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/i);
+    if (nonblackMatch) {
+      const buff = parseBuffSegment(nonblackMatch[1]);
+      if (buff) {
+        for (const perm of state.battlefield) {
+          if (perm.controller !== controller || !isCreature(perm)) continue;
+          const colors = ((perm.card as any)?.colors || []).map((entry: string) => String(entry).toUpperCase());
+          if (colors.includes('B')) continue;
+          const agg = perPermanent.get(perm.id)!;
+          agg.pDelta += buff.p;
+          agg.tDelta += buff.t;
+          const abilities = resolveGrantedAbilities(source, nonblackMatch[2] || '');
+          for (const ability of abilities) agg.abilities.add(ability);
+        }
+      }
+    }
+
+    const nonHumanMatch = oracle.match(/non[- ]?human creatures you control get\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/i);
+    if (nonHumanMatch) {
+      const buff = parseBuffSegment(nonHumanMatch[1]);
+      if (buff) {
+        for (const perm of state.battlefield) {
+          if (perm.controller !== controller || !isCreature(perm)) continue;
+          const typeLine = String((perm.card as any)?.type_line || '').toLowerCase();
+          if (typeLine.includes('human')) continue;
+          const agg = perPermanent.get(perm.id)!;
+          agg.pDelta += buff.p;
+          agg.tDelta += buff.t;
+          const abilities = resolveGrantedAbilities(source, nonHumanMatch[2] || '');
+          for (const ability of abilities) agg.abilities.add(ability);
+        }
+      }
+    }
+
+    const coatOfArmsMatch = oracle.match(
+      /each creature gets \+(\d+)\/\+(\d+) for each other creature on the battlefield that shares at least one creature type with it/i,
+    );
+    if (coatOfArmsMatch) {
+      const pPer = parseInt(coatOfArmsMatch[1], 10);
+      const tPer = parseInt(coatOfArmsMatch[2], 10);
+      if (!Number.isNaN(pPer) && !Number.isNaN(tPer)) {
+        for (const perm of state.battlefield) {
+          if (!isCreature(perm)) continue;
+          const sharedCount = countOtherCreaturesSharingType(perm, state.battlefield);
+          if (sharedCount <= 0) continue;
+          const agg = perPermanent.get(perm.id)!;
+          agg.pDelta += pPer * sharedCount;
+          agg.tDelta += tPer * sharedCount;
+        }
+      }
+    }
+
+    const sliverLegionMatch = oracle.match(
+      /(?:all )?sliver creatures get \+(\d+)\/\+(\d+) for each other sliver on the battlefield/i,
+    );
+    if (sliverLegionMatch) {
+      const pPer = parseInt(sliverLegionMatch[1], 10);
+      const tPer = parseInt(sliverLegionMatch[2], 10);
+      if (!Number.isNaN(pPer) && !Number.isNaN(tPer)) {
+        const sliverCreatures = state.battlefield.filter(
+          (perm) => isCreature(perm) && hasCreatureType(perm, 'sliver'),
+        );
+        const otherSliverCount = Math.max(0, sliverCreatures.length - 1);
+        if (otherSliverCount > 0) {
+          for (const perm of sliverCreatures) {
+            const agg = perPermanent.get(perm.id)!;
+            agg.pDelta += pPer * otherSliverCount;
+            agg.tDelta += tPer * otherSliverCount;
           }
         }
       }
@@ -867,6 +1008,42 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
         }
       }
 
+      const opponentChosenTypeDebuffMatch = oracle.match(
+        /creatures of the chosen type your opponents control get\s+([+-]?\d+)\s*\/\s*([+-]?\d+)/i,
+      );
+      if (opponentChosenTypeDebuffMatch) {
+        const p = parseInt(opponentChosenTypeDebuffMatch[1], 10);
+        const t = parseInt(opponentChosenTypeDebuffMatch[2], 10);
+        if (!Number.isNaN(p) && !Number.isNaN(t)) {
+          for (const perm of state.battlefield) {
+            if (perm.controller === controller || !isCreature(perm)) continue;
+            if (!hasCreatureType(perm, chosenType)) continue;
+            const agg = perPermanent.get(perm.id)!;
+            agg.pDelta += p;
+            agg.tDelta += t;
+          }
+        }
+      }
+
+    }
+
+    const chosenColor = String(
+      (source as any).chosenColor || (source as any).card?.chosenColor || '',
+    ).trim().toLowerCase();
+    if (chosenColor) {
+      const chosenColorBuffMatch = oracle.match(/creatures you control of the chosen color get\s+(\+\d+\s*\/\s*\+\d+)/i);
+      if (chosenColorBuffMatch) {
+        const buff = parseBuffSegment(chosenColorBuffMatch[1]);
+        if (buff) {
+          for (const perm of state.battlefield) {
+            if (perm.controller === controller && isCreature(perm) && creatureHasManaColor(perm, chosenColor)) {
+              const agg = perPermanent.get(perm.id)!;
+              agg.pDelta += buff.p;
+              agg.tDelta += buff.t;
+            }
+          }
+        }
+      }
     }
   }
 

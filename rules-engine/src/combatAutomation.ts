@@ -18,7 +18,8 @@
 
 import type { BattlefieldPermanent, PlayerID, KnownCardRef } from '../../shared/src';
 import { getCombinedPermanentText } from './permanentText';
-import { TriggerEvent, parseTriggeredAbilitiesFromText } from './triggeredAbilities';
+import { TriggerEvent } from './triggeredAbilitiesTypes';
+import { parseTriggeredAbilitiesFromText } from './triggeredAbilitiesParsing';
 
 /**
  * Combat keyword abilities

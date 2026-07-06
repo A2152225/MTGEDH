@@ -18,7 +18,7 @@ export function makeBasicAttackDecision(
     getProcessedBattlefield: (gameState: AIDecisionContext['gameState']) => BattlefieldPermanent[];
     selectAttackTarget: (gameState: AIDecisionContext['gameState'], playerId: string) => string;
     getCombatDeckModifiers: (perm: BattlefieldPermanent, config: AIPlayerConfig) => CombatDeckModifiers;
-    evaluateCombatValue: (perm: BattlefieldPermanent, isAttacking: boolean) => CombatValueEvaluation;
+    evaluateCombatValue: (perm: BattlefieldPermanent, isAttacking: boolean, opponentCount?: number) => CombatValueEvaluation;
     getPrimaryArchetypes: (config: AIPlayerConfig) => readonly SynergyArchetype[];
     shouldMakeMistake: (difficulty?: number) => boolean;
   }
@@ -58,6 +58,9 @@ export function makeBasicAttackDecision(
 
   const goadedCreatureIds = getGoadedAttackers(context.gameState, context.playerId);
   const goadedSet = new Set(goadedCreatureIds);
+  const activeOpponents = context.gameState.players.filter((candidate: any) =>
+    candidate?.id && candidate.id !== context.playerId && !candidate?.hasLost && !candidate?.eliminated && !candidate?.conceded
+  ).length;
   const allPlayerIds = context.gameState.players
     .filter((p: any) => isActiveCombatPlayer(p) || p.id === context.playerId)
     .map(p => p.id);
@@ -87,7 +90,7 @@ export function makeBasicAttackDecision(
     const perm = findPermanent(id);
     if (!perm) return { id, value: 0, wantsToGetKilled: false };
 
-    const evaluation = deps.evaluateCombatValue(perm, true);
+    const evaluation = deps.evaluateCombatValue(perm, true, activeOpponents);
     const deckModifiers = deps.getCombatDeckModifiers(perm, config);
     return {
       id,
@@ -100,7 +103,9 @@ export function makeBasicAttackDecision(
     };
   });
 
-  const suicideAttackers = attackerEvaluations.filter(e => e.wantsToGetKilled).map(e => e.id);
+  const suicideAttackers = attackerEvaluations
+    .filter((entry) => entry.wantsToGetKilled && entry.deathBenefit >= 8)
+    .map((entry) => entry.id);
 
   let regularAttackers = attackerEvaluations
     .filter(e => !e.wantsToGetKilled && e.value > 0)
@@ -165,7 +170,7 @@ export function makeBasicBlockDecision(
   deps: {
     getProcessedBattlefield: (gameState: AIDecisionContext['gameState']) => BattlefieldPermanent[];
     getCombatDeckModifiers: (perm: BattlefieldPermanent, config: AIPlayerConfig) => CombatDeckModifiers;
-    evaluateCombatValue: (perm: BattlefieldPermanent, isAttacking: boolean) => CombatValueEvaluation;
+    evaluateCombatValue: (perm: BattlefieldPermanent, isAttacking: boolean, opponentCount?: number) => CombatValueEvaluation;
     evaluatePermanentValue: (perm: BattlefieldPermanent) => number;
   }
 ): AIDecision {
@@ -206,7 +211,10 @@ export function makeBasicBlockDecision(
   }
 
   const blockerEvaluations = blockerPermanents.map((perm: BattlefieldPermanent) => {
-    const evaluation = deps.evaluateCombatValue(perm, false);
+    const activeOpponents = context.gameState.players.filter((candidate: any) =>
+      candidate?.id && candidate.id !== context.playerId && !candidate?.hasLost && !candidate?.eliminated && !candidate?.conceded
+    ).length;
+    const evaluation = deps.evaluateCombatValue(perm, false, activeOpponents);
     const deckModifiers = deps.getCombatDeckModifiers(perm, config);
     return {
       perm,

@@ -135,39 +135,32 @@ export interface ReplacementEffectResult {
 
 export type ReplacementEffectEvaluator = (event: ReplacementEvent) => ReplacementEffectResult | null;
 
-const LIFE_GAIN_PREVENTION_CARDS: Record<string, {
-  effect: string;
-  affectsOpponents: boolean;
-  affectsAll: boolean;
-  isStatic: boolean;
-}> = {
-  "erebos, god of the dead": { effect: "Your opponents can't gain life", affectsOpponents: true, affectsAll: false, isStatic: true },
-  "sulfuric vortex": { effect: "Players can't gain life", affectsOpponents: false, affectsAll: true, isStatic: true },
-  "leyline of punishment": { effect: "Players can't gain life", affectsOpponents: false, affectsAll: true, isStatic: true },
-  "tibalt, rakish instigator": { effect: "Your opponents can't gain life", affectsOpponents: true, affectsAll: false, isStatic: true },
-  "stigma lasher": { effect: "Player dealt damage by ~ can't gain life for the rest of the game", affectsOpponents: false, affectsAll: false, isStatic: false },
-  "everlasting torment": { effect: "Players can't gain life. Damage causes -1/-1 counters.", affectsOpponents: false, affectsAll: true, isStatic: true },
-  "havoc festival": { effect: "Players can't gain life", affectsOpponents: false, affectsAll: true, isStatic: true },
-  "rain of gore": { effect: "If a spell or ability would cause its controller to gain life, that player loses that much life instead", affectsOpponents: false, affectsAll: true, isStatic: true },
-  "witch hunt": { effect: "Players can't gain life", affectsOpponents: false, affectsAll: true, isStatic: true },
-  "forsaken wastes": { effect: "Players can't gain life", affectsOpponents: false, affectsAll: true, isStatic: true },
-  "rampaging ferocidon": { effect: "Players can't gain life", affectsOpponents: false, affectsAll: true, isStatic: true },
-  "archfiend of ifnir": { effect: "Your opponents can't gain life (during your turn)", affectsOpponents: true, affectsAll: false, isStatic: true },
-  "kederekt parasite": { effect: "Whenever an opponent draws a card, if you control a red permanent, damage dealt", affectsOpponents: true, affectsAll: false, isStatic: false },
-  "roiling vortex": { effect: "Players can't gain life", affectsOpponents: false, affectsAll: true, isStatic: true },
-  "quakebringer": { effect: "Your opponents can't gain life (while in graveyard too)", affectsOpponents: true, affectsAll: false, isStatic: true },
-};
+const lastingLifeGainPreventionEvaluator: ReplacementEffectEvaluator = (event) => {
+  if (event.type !== 'life-gain') return null;
 
-const LIFE_GAIN_REVERSAL_CARDS: Record<string, {
-  effect: string;
-  affectsOpponents: boolean;
-  affectsAll: boolean;
-  isStatic: boolean;
-}> = {
-  "tainted remedy": { effect: "If an opponent would gain life, that player loses that much life instead", affectsOpponents: true, affectsAll: false, isStatic: true },
-  "rain of gore": { effect: "If a spell or ability would cause its controller to gain life, that player loses that much life instead", affectsOpponents: false, affectsAll: true, isStatic: true },
-  "archfiend of despair": { effect: "Your opponents can't gain life. At end of each end step, each opponent who lost life this turn loses that much life again.", affectsOpponents: true, affectsAll: false, isStatic: true },
-  "false cure": { effect: "Until end of turn, whenever a player gains life, that player loses 2 life for each 1 life gained", affectsOpponents: false, affectsAll: true, isStatic: false },
+  const originalAmount = Math.max(0, Number(event.amount || 0));
+  if (originalAmount <= 0) return null;
+
+  const lastingEffects = Array.isArray(event.state?.lastingEffects) ? event.state.lastingEffects : [];
+  for (const effect of lastingEffects) {
+    if (effect?.type === 'preventLifeGain' && String(effect?.targetPlayer || '') === String(event.playerId || '')) {
+      return {
+        applied: true,
+        eventType: event.type,
+        effectId: 'life-gain-prevented',
+        sourceName: String(effect?.source || '').trim() || undefined,
+        originalAmount,
+        replacementAmount: 0,
+        preventedAmount: originalAmount,
+        reason: 'lasting_life_gain_prevention',
+        metadata: {
+          playerId: String(event.playerId || ''),
+        },
+      };
+    }
+  }
+
+  return null;
 };
 
 const SEARCH_PREVENTION_CARDS: Record<string, { affectsOpponents: boolean; affectsSelf: boolean }> = {
@@ -572,78 +565,7 @@ const damageAmountReplacementEvaluator: ReplacementEffectEvaluator = (event) => 
   };
 };
 
-const lifeGainPreventionEvaluator: ReplacementEffectEvaluator = (event) => {
-  if (event.type !== 'life-gain') return null;
-
-  const originalAmount = Math.max(0, Number(event.amount || 0));
-  if (originalAmount <= 0) return null;
-
-  const battlefield = Array.isArray(event.state?.battlefield) ? event.state.battlefield : [];
-
-  for (const permanent of battlefield) {
-    if (!permanent?.card) continue;
-
-    const cardName = normalizeReplacementText(permanent.card.name || '');
-    const controller = String(permanent.controller || '');
-    const isOpponent = controller !== String(event.playerId || '');
-
-    const prevention = LIFE_GAIN_PREVENTION_CARDS[cardName];
-    if (prevention?.isStatic && (prevention.affectsAll || (prevention.affectsOpponents && isOpponent))) {
-      return {
-        applied: true,
-        eventType: event.type,
-        effectId: 'life-gain-prevented',
-        sourceName: String(permanent.card.name || '').trim() || undefined,
-        originalAmount,
-        replacementAmount: 0,
-        preventedAmount: originalAmount,
-        reason: 'life_gain_prevented',
-        metadata: {
-          playerId: String(event.playerId || ''),
-        },
-      };
-    }
-
-    const reversal = LIFE_GAIN_REVERSAL_CARDS[cardName];
-    if (reversal?.isStatic && (reversal.affectsAll || (reversal.affectsOpponents && isOpponent))) {
-      return {
-        applied: true,
-        eventType: event.type,
-        effectId: 'life-gain-reversed-to-loss',
-        sourceName: String(permanent.card.name || '').trim() || undefined,
-        originalAmount,
-        replacementAmount: -originalAmount,
-        preventedAmount: 0,
-        reason: 'life_gain_reversed_to_loss',
-        metadata: {
-          playerId: String(event.playerId || ''),
-          reversedToLoss: true,
-        },
-      };
-    }
-  }
-
-  const lastingEffects = Array.isArray(event.state?.lastingEffects) ? event.state.lastingEffects : [];
-  for (const effect of lastingEffects) {
-    if (effect?.type === 'preventLifeGain' && String(effect?.targetPlayer || '') === String(event.playerId || '')) {
-      return {
-        applied: true,
-        eventType: event.type,
-        effectId: 'life-gain-prevented',
-        sourceName: String(effect?.source || '').trim() || undefined,
-        originalAmount,
-        replacementAmount: 0,
-        preventedAmount: originalAmount,
-        reason: 'lasting_life_gain_prevention',
-        metadata: {
-          playerId: String(event.playerId || ''),
-        },
-      };
-    }
-  }
-
-  return null;
-};
+const lifeGainPreventionEvaluator: ReplacementEffectEvaluator = lastingLifeGainPreventionEvaluator;
 
 const librarySearchReplacementEvaluator: ReplacementEffectEvaluator = (event) => {
   if (event.type !== 'library-search') return null;

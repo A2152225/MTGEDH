@@ -61,4 +61,50 @@ describe('oracle ir overlay validate utils', () => {
     expect(validateCompilerEnvelope(record.envelope).ok).toBe(true);
     expect(record.name).toBe('Gribblestorm');
   });
+
+  it('accepts STATIC overlay envelopes with static_specs and no steps', () => {
+    const examplePath = path.join(
+      process.cwd(),
+      'data',
+      'compiled-oracle-ir-overlays',
+      'anthem-static.example.json',
+    );
+    expect(fs.existsSync(examplePath)).toBe(true);
+    const record = normalizeOverlayImportRecord(
+      JSON.parse(fs.readFileSync(examplePath, 'utf8')),
+      'anthem-static.example.json',
+    );
+    expect(validateCompilerEnvelope(record.envelope).ok).toBe(true);
+    expect(record.envelope.abilities?.[0]?.static_specs).toHaveLength(1);
+  });
+
+  it('accepts REPLACEMENT overlay envelopes with replacement_specs and no steps', () => {
+    const examplePath = path.join(
+      process.cwd(),
+      'data',
+      'compiled-oracle-ir-overlays',
+      'mill-replacement.example.json',
+    );
+    expect(fs.existsSync(examplePath)).toBe(true);
+    const record = normalizeOverlayImportRecord(
+      JSON.parse(fs.readFileSync(examplePath, 'utf8')),
+      'mill-replacement.example.json',
+    );
+    expect(validateCompilerEnvelope(record.envelope).ok).toBe(true);
+    expect(record.envelope.abilities?.[0]?.replacement_specs).toHaveLength(1);
+  });
+
+  it('rejects STATIC abilities with empty steps and no declarative specs', () => {
+    const validation = validateCompilerEnvelope({
+      abilities: [{
+        ability_type: 'STATIC',
+        effect_text: 'Creatures you control get +1/+1.',
+        steps: [],
+      }],
+    });
+    expect(validation.ok).toBe(false);
+    if (!validation.ok) {
+      expect(validation.errors.join(' ')).toMatch(/requires steps or declarative specs/i);
+    }
+  });
 });

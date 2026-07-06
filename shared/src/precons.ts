@@ -39,8 +39,63 @@ export function formatColorIdentity(colors: string): string {
 
 export const COMMANDER_PRECONS: PreconYear[] = [
   {
+    year: 2026,
+    sets: [
+      {
+        name: "Secret Lair",
+        code: "SLD",
+        decks: [
+          { name: "Goblin Storm", commanders: ["Zada, Hedron Grinder"], colorIdentity: "R", decklistUrl: "https://moxfield.com/decks/b0pfkqDSJUu74BFaSCdnbA" }
+        ]
+      },
+      {
+        name: "Marvel Super Heroes",
+        code: "MSC",
+        decks: [
+          { name: "Avengers Assemble", commanders: ["Captain America, Team Leader"], colorIdentity: "URW", decklistUrl: "https://moxfield.com/decks/VnAdVaM_b0u66KIAZCLI8A" },
+          { name: "Wakanda Forever", commanders: ["T'Challa, the Black Panther"], colorIdentity: "GW", decklistUrl: "https://moxfield.com/decks/SBQrpNX-TUWHPcY8S720ig" },
+          { name: "The Fantastic Four", commanders: ["Mister Fantastic"], colorIdentity: "RGWU", decklistUrl: "https://moxfield.com/decks/C8ZTZpNsbk-uBqd69j4fMw" },
+          { name: "Doom Prevails", commanders: ["Doctor Doom, King of Latveria"], colorIdentity: "RUB", decklistUrl: "https://moxfield.com/decks/vi4X68scA0GECQ2tXcKTPg" }
+        ]
+      },
+      {
+        name: "Secrets of Strixhaven",
+        code: "SOC",
+        decks: [
+          { name: "Silverquill Influence", commanders: ["Killian, Decisive Mentor"], colorIdentity: "WB", decklistUrl: "https://moxfield.com/decks/lNIWZ9keO0aKAHU3LBHB2Q" },
+          { name: "Prismari Artistry", commanders: ["Rootha, Mastering the Moment"], colorIdentity: "UR", decklistUrl: "https://moxfield.com/decks/8c9WIzRKlkqwVhQWN-e0BA" },
+          { name: "Witherbloom Pestilence", commanders: ["Dina, Essence Brewer"], colorIdentity: "BG", decklistUrl: "https://moxfield.com/decks/Cv2vuqhHI0W7Kzuwygqf8w" },
+          { name: "Lorehold Spirit", commanders: ["Quintorius, History Chaser"], colorIdentity: "RW", decklistUrl: "https://moxfield.com/decks/8K_i1Bg7sEuNYXDgDo-cjQ" },
+          { name: "Quandrix Unlimited", commanders: ["Zimone, Infinite Analyst"], colorIdentity: "GU", decklistUrl: "https://moxfield.com/decks/rNm6J3T1OkCgcRAxACQuXw" }
+        ]
+      },
+      {
+        name: "Teenage Mutant Ninja Turtles",
+        code: "TMC",
+        decks: [
+          { name: "Turtle Power!", commanders: ["Leonardo, the Balance"], colorIdentity: "WUBRG", decklistUrl: "https://moxfield.com/decks/TEG3NpzjaESKjXaOODKxPQ" }
+        ]
+      },
+      {
+        name: "Lorwyn Eclipsed",
+        code: "ECC",
+        decks: [
+          { name: "Dance of the Elements", commanders: ["Ashling, the Limitless"], colorIdentity: "WUBRG", decklistUrl: "https://moxfield.com/decks/Z3hoVgrT0kmvPbZ7wvBQ5A" },
+          { name: "Blight Curse", commanders: ["Auntie Ool, Cursewretch"], colorIdentity: "BRG", decklistUrl: "https://moxfield.com/decks/6sj-csQ9v0CBZNwD1lz7ew" }
+        ]
+      }
+    ]
+  },
+  {
     year: 2025,
     sets: [
+      {
+        name: "Secret Lair",
+        code: "SLD",
+        decks: [
+          { name: "Everyone's Invited!", commanders: ["Morophon, the Boundless"], colorIdentity: "WUBRG", decklistUrl: "https://moxfield.com/decks/KBUdk58njkaLLpcH06UrUw" }
+        ]
+      },
       {
         name: "Edge of Eternities",
         code: "EOE",
@@ -83,6 +138,14 @@ export const COMMANDER_PRECONS: PreconYear[] = [
   {
     year: 2024,
     sets: [
+      {
+        name: "Secret Lair",
+        code: "SLD",
+        decks: [
+          { name: "20 Ways to Win", commanders: ["Go-Shintai of Life's Origin"], colorIdentity: "WUBRG", decklistUrl: "https://moxfield.com/decks/Y9SRr6XiLUGf-BYTm5nx3g" },
+          { name: "Raining Cats and Dogs", commanders: ["Rin and Seri, Inseparable"], colorIdentity: "RGW", decklistUrl: "https://moxfield.com/decks/G0y9ltIwoUysUSoAYtyFfA" }
+        ]
+      },
       {
         name: "Duskmourn: House of Horror",
         code: "DSC",
@@ -148,6 +211,14 @@ export const COMMANDER_PRECONS: PreconYear[] = [
   {
     year: 2023,
     sets: [
+      {
+        name: "Secret Lair",
+        code: "SLD",
+        decks: [
+          { name: "From Cute to Brute", commanders: ["Esika, God of the Tree"], colorIdentity: "WUBRG", decklistUrl: "https://moxfield.com/decks/8wdob7tqoUujv-Ifp0S3cw" },
+          { name: "Angels: They're Just Like Us but Cooler and with Wings", commanders: ["Bruna, the Fading Light"], colorIdentity: "W", decklistUrl: "https://moxfield.com/decks/uVAqU3YPRkuuIhT8t3Cm9Q" }
+        ]
+      },
       {
         name: "The Lost Caverns of Ixalan",
         code: "LCC",
@@ -280,6 +351,13 @@ export const COMMANDER_PRECONS: PreconYear[] = [
   {
     year: 2021,
     sets: [
+      {
+        name: "Secret Lair",
+        code: "SLD",
+        decks: [
+          { name: "Heads I Win, Tails You Lose", commanders: ["Zndrsplt, Eye of Wisdom", "Okaun, Eye of Chaos"], colorIdentity: "UR", decklistUrl: "https://moxfield.com/decks/UP1ktQ_GyEK2KErkvoUt-g" }
+        ]
+      },
       {
         name: "Innistrad: Crimson Vow",
         code: "VOC",

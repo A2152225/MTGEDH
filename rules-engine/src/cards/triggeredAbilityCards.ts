@@ -4,7 +4,7 @@
  * Cards with special triggered abilities that need explicit handling.
  */
 
-import { TriggerEvent } from '../triggeredAbilities';
+import { TriggerEvent } from '../triggeredAbilitiesTypes';
 
 export interface TriggeredAbilityConfig {
   readonly cardName: string;

@@ -11762,11 +11762,12 @@ function deathTriggerClauseMatchesDyingCreature(
   if (!damageMarkedDiesClause && (clause.includes('this creature') || clause.includes('this permanent') || clause.includes('~'))) return false;
 
   const sourceCardName = String(sourcePermanent?.card?.name || '').trim().toLowerCase();
-  if (sourceCardName && clause.includes(sourceCardName)) return false;
+  const isNamedOrAnotherClause = /\bor\s+another\b/i.test(clause);
+  if (sourceCardName && clause.includes(sourceCardName) && !isNamedOrAnotherClause) return false;
 
   const sourcePermanentId = String(sourcePermanent?.id || '').trim();
   const dyingPermanentId = String(dyingCreature?.id || '').trim();
-  if (clause.includes('another') && sourcePermanentId && sourcePermanentId === dyingPermanentId) return false;
+  if (clause.includes('another') && !isNamedOrAnotherClause && sourcePermanentId && sourcePermanentId === dyingPermanentId) return false;
 
   const sourceController = String(sourcePermanent?.controller || '').trim();
   if (clause.includes('you control') && dyingCreatureController !== sourceController) return false;
@@ -11838,6 +11839,11 @@ export function getDeathTriggers(
   const dyingCard = dyingCreature?.card;
   const dyingCardName = String(dyingCard?.name || 'Unknown');
   const lowerDyingCardName = dyingCardName.toLowerCase();
+  const dyingPermanentId = String(dyingCreature?.id || '').trim();
+  const permanentsToScan: any[] = [...battlefield];
+  if (dyingPermanentId && !permanentsToScan.some((perm) => String(perm?.id || '') === dyingPermanentId)) {
+    permanentsToScan.push(dyingCreature);
+  }
   const extractChooseOneModalOptions = (effectText: string): string[] | undefined => {
     const effect = String(effectText || '').trim();
     if (!/^choose one\b/i.test(effect)) return undefined;
@@ -11930,7 +11936,7 @@ export function getDeathTriggers(
   }
   
   // Check all permanents on the battlefield for death triggers
-  for (const permanent of battlefield) {
+  for (const permanent of permanentsToScan) {
     if (!permanent) continue;
     
     const card = permanent.card;

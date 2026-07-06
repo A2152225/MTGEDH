@@ -3691,10 +3691,13 @@ async function handleAIResolutionStep(
       }
       
       case ResolutionStepType.DISCARD_SELECTION: {
-        // AI discards highest CMC cards first (keeping lower CMC for playability)
+        // Prefer live zones.hand (authoritative); fall back to step.hand options from cleanup queue.
         const discardStep = step as any;
-        const hand = discardStep.hand || [];
-        const discardCount = discardStep.discardCount || 1;
+        const discardCount = Number(discardStep.discardCount || 1);
+        const liveHand = game.state?.zones?.[step.playerId]?.hand;
+        const hand = Array.isArray(liveHand) && liveHand.length > 0
+          ? liveHand
+          : (Array.isArray(discardStep.hand) ? discardStep.hand : []);
         
         // Score cards - higher score = discard first
         const scoredHand = hand.map((card: any) => {
@@ -3715,7 +3718,8 @@ async function handleAIResolutionStep(
         
         const toDiscard = scoredHand
           .slice(0, discardCount)
-          .map((sc: any) => sc.card.id);
+          .map((sc: any) => normalizeResolutionCardId(sc.card?.id))
+          .filter(Boolean);
         
         response = {
           stepId: step.id,
@@ -4429,17 +4433,9 @@ async function handleAIResolutionStep(
     }
     
     if (response) {
-      // Complete the step with the AI's response
       const success = ResolutionQueueManager.completeStep(gameId, step.id, response);
       if (success) {
-        // handleStepResponse already resumes spell casts after mana_payment_choice
-        // (resumePlayerSpellCastAfterPayment). Do not call completeCastSpell again here.
-        await handleStepResponse(io, game, gameId, step, response);
-        maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
-
-        // NOTE: Don't broadcast here - let the STEP_COMPLETED event handler broadcast
-        // after exitResolutionMode has restored priority. This prevents a race condition
-        // where the AI gets triggered before priority is restored.
+        await applyResolutionStepSideEffects(io, game, gameId, step, response);
       }
     }
   } catch (error) {
@@ -4846,8 +4842,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
 
         if (discardCount > 0) {
           const hand = Array.isArray(stepAny.hand) ? stepAny.hand : [];
-          const handIds = new Set(hand.map((c: any) => c?.id).filter(Boolean));
-          if (!selectedIds.every((id) => handIds.has(id))) {
+          const handIds = buildResolutionHandIdSet(hand);
+          if (!selectedIds.every((id) => handIds.has(normalizeResolutionCardId(id)))) {
             socket.emit("error", { code: "CARD_NOT_IN_HAND", message: "Selected card not found in hand" });
             return;
           }
@@ -15691,6 +15687,32 @@ async function handleXValueSelectionResponse(
   }
 }
 
+function normalizeResolutionCardId(id: unknown): string {
+  return String(id ?? '').trim();
+}
+
+function buildResolutionHandIdSet(hand: readonly any[]): Set<string> {
+  const ids = new Set<string>();
+  for (const card of hand) {
+    const normalizedId = normalizeResolutionCardId(card?.id);
+    if (normalizedId) ids.add(normalizedId);
+  }
+  return ids;
+}
+
+/** Apply step side effects after queue completion (AI + human submit paths). */
+export async function applyResolutionStepSideEffects(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+): Promise<void> {
+  await handleStepResponse(io, game, gameId, step, response);
+  maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
+  broadcastGame(io, game, gameId);
+}
+
 /**
  * Handle discard selection response
  */
@@ -15778,10 +15800,10 @@ async function handleDiscardResponse(
     return;
   }
   
-  // Validate all selected cards are in the hand options
-  const validCardIds = new Set(hand.map((c: any) => c.id));
+  // Validate all selected cards are in the hand options (normalize ids — cleanup uses String(c.id) in handOptions).
+  const validCardIds = buildResolutionHandIdSet(hand);
   for (const cardId of selections) {
-    if (!validCardIds.has(cardId)) {
+    if (!validCardIds.has(normalizeResolutionCardId(cardId))) {
       debugWarn(1, `[Resolution] Invalid discard selection: card ${cardId} not in hand`);
       return;
     }
@@ -15898,8 +15920,8 @@ async function handleDiscardResponse(
 
     // Ensure the chosen cards are still in the player's actual hand.
     const handNow: any[] = Array.isArray(zones.hand) ? zones.hand : [];
-    const handNowIds = new Set(handNow.map((c: any) => String(c?.id || '')).filter(Boolean));
-    if (!selections.every((id) => handNowIds.has(String(id)))) {
+    const handNowIds = buildResolutionHandIdSet(handNow);
+    if (!selections.every((id) => handNowIds.has(normalizeResolutionCardId(id)))) {
       emitToPlayer(io, controllerId, 'error', { code: 'CARD_NOT_IN_HAND', message: 'Selected card not found in hand' });
       return;
     }
@@ -15934,7 +15956,8 @@ async function handleDiscardResponse(
   } as any;
   
   for (const cardId of selections) {
-    const cardIndex = zones.hand.findIndex((c: any) => c.id === cardId);
+    const normalizedCardId = normalizeResolutionCardId(cardId);
+    const cardIndex = zones.hand.findIndex((c: any) => normalizeResolutionCardId(c?.id) === normalizedCardId);
     if (cardIndex !== -1) {
       const [card] = zones.hand.splice(cardIndex, 1);
       movedCards.push(card);

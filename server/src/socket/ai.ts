@@ -20,6 +20,7 @@ import {
 } from "../../../rules-engine/src/stationPermanentUtils.js";
 import { cardAnalyzer, CardCategory, SynergyArchetype, type DeckArchetypeProfile } from "../../../rules-engine/src/CardAnalyzer.js";
 import { calculateManaProduction, ensureGame, broadcastGame, getEffectivePower, getEffectiveToughness, getPlayerName, getOrInitManaPool, validateManaPayment, getMaxGenericManaAvailable } from "./util.js";
+import { executeDeclareAttackers as executeCombatDeclareAttackers } from "./combat.js";
 import { appendEvent, gameExistsInDb, isGameCreator } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { parseDecklist } from "../services/scryfall.js";
@@ -10840,21 +10841,31 @@ async function handleAIResolutionStep(
 
       case 'discard_selection': {
         const discardCount = Number(step.discardCount || 0);
+        const resolutionModule = await import('./resolution.js');
         if (!discardCount || discardCount <= 0) {
           debug(1, `[AI] Discard selection: no discardCount specified, skipping`);
-          ResolutionQueueManager.completeStep(gameId, step.id, createResponse([]));
+          const response = createResponse([]);
+          if (ResolutionQueueManager.completeStep(gameId, step.id, response)) {
+            await resolutionModule.applyResolutionStepSideEffects(io, game, gameId, step, response);
+          }
           break;
         }
 
         const cardIds = chooseCardsToDiscard(game, playerId, discardCount);
         if (!Array.isArray(cardIds) || cardIds.length !== discardCount) {
           debugWarn(1, `[AI] Discard selection: could not choose ${discardCount} cards, chosen=${cardIds?.length || 0}`);
-          ResolutionQueueManager.completeStep(gameId, step.id, createResponse([]));
+          const response = createResponse([]);
+          if (ResolutionQueueManager.completeStep(gameId, step.id, response)) {
+            await resolutionModule.applyResolutionStepSideEffects(io, game, gameId, step, response);
+          }
           break;
         }
 
         debug(1, `[AI] Discard selection: discarding ${cardIds.length} card(s)`);
-        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(cardIds));
+        const response = createResponse(cardIds);
+        if (ResolutionQueueManager.completeStep(gameId, step.id, response)) {
+          await resolutionModule.applyResolutionStepSideEffects(io, game, gameId, step, response);
+        }
         break;
       }
 
@@ -11637,43 +11648,15 @@ async function executeDeclareAttackers(
       return;
     }
 
-    // Extract creature IDs for game.declareAttackers
-    const attackerIds = attackers.map(a => a.creatureId);
-    
-    // Mark creatures as attacking and tap them
-    const battlefield = game.state?.battlefield || [];
-    for (const attacker of attackers) {
-      const creature = battlefield.find((perm: any) => 
-        perm.id === attacker.creatureId && perm.controller === playerId
-      );
-      
-      if (creature) {
-        // Mark as attacking the defending player
-        (creature as any).attacking = attacker.defendingPlayerId;
-        
-        // Tap the attacker (unless it has vigilance)
-        const hasVigilance = (creature as any).card?.keywords?.some((k: string) => 
-          k.toLowerCase().includes('vigilance')
-        ) || (creature as any).grantedAbilities?.some((k: string) => 
-          k.toLowerCase().includes('vigilance')
-        );
-        
-        if (!hasVigilance) {
-          (creature as any).tapped = true;
-        }
-      }
-    }
-    
-    if (typeof (game as any).declareAttackers === 'function') {
-      (game as any).declareAttackers(playerId, attackerIds);
-    }
-    
-    await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', { playerId, attackers });
-    broadcastGame(io, game, gameId);
-    
-    // After declaring attackers, pass priority to allow opponents to respond
-    // (cast instants, activate abilities before moving to declare blockers)
-    // The step will advance when all players pass priority in succession
+    await executeCombatDeclareAttackers(
+      io,
+      gameId,
+      playerId,
+      attackers.map((attacker) => ({
+        creatureId: attacker.creatureId,
+        targetPlayerId: attacker.defendingPlayerId,
+      })),
+    );
     await executePassPriority(io, gameId, playerId);
     
   } catch (error) {

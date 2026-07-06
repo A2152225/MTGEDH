@@ -437,4 +437,100 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
       { cardId: 'stinkweed_imp_1', cardName: 'Stinkweed Imp', dredge: 5 },
     ]);
   });
+
+  it('prevents life gain via oracle-pattern declarative specs (Players can\'t gain life)', () => {
+    const state = {
+      life: { p1: 30, p2: 40 },
+      battlefield: [{
+        id: 'sulfuric_vortex_1',
+        controller: 'p2',
+        card: {
+          name: 'Sulfuric Vortex',
+          oracle_text: "At the beginning of each player's upkeep, Sulfuric Vortex deals 1 damage to that player. Players can't gain life.",
+        },
+      }],
+    };
+
+    const result = evaluateDeclarativeReplacementEvent({
+      type: 'life-gain',
+      state,
+      playerId: 'p1',
+      amount: 3,
+    }, state);
+
+    expect(result).toMatchObject({
+      applied: true,
+      effectId: 'life-gain-prevented',
+      sourceName: 'Sulfuric Vortex',
+      originalAmount: 3,
+      replacementAmount: 0,
+      preventedAmount: 3,
+      reason: 'life_gain_prevented',
+    });
+  });
+
+  it('prevents opponent life gain via oracle-pattern declarative specs', () => {
+    const state = {
+      life: { p1: 30, p2: 40 },
+      battlefield: [{
+        id: 'erebos_1',
+        controller: 'p2',
+        card: {
+          name: 'Erebos, God of the Dead',
+          oracle_text: "Your opponents can't gain life.",
+        },
+      }],
+    };
+
+    const blocked = evaluateDeclarativeReplacementEvent({
+      type: 'life-gain',
+      state,
+      playerId: 'p1',
+      amount: 2,
+    }, state);
+    expect(blocked).toMatchObject({
+      applied: true,
+      effectId: 'life-gain-prevented',
+      sourceName: 'Erebos, God of the Dead',
+    });
+
+    const allowed = evaluateDeclarativeReplacementEvent({
+      type: 'life-gain',
+      state,
+      playerId: 'p2',
+      amount: 2,
+    }, state);
+    expect(allowed).toBeNull();
+  });
+
+  it('reverses opponent life gain to loss via oracle-pattern declarative specs', () => {
+    const state = {
+      life: { p1: 30, p2: 40 },
+      battlefield: [{
+        id: 'tainted_remedy_1',
+        controller: 'p2',
+        card: {
+          name: 'Tainted Remedy',
+          oracle_text: 'If an opponent would gain life, that player loses that much life instead.',
+        },
+      }],
+    };
+
+    const result = evaluateDeclarativeReplacementEvent({
+      type: 'life-gain',
+      state,
+      playerId: 'p1',
+      amount: 4,
+    }, state);
+
+    expect(result).toMatchObject({
+      applied: true,
+      effectId: 'life-gain-reversed-to-loss',
+      sourceName: 'Tainted Remedy',
+      originalAmount: 4,
+      replacementAmount: -4,
+      reason: 'life_gain_reversed_to_loss',
+      metadata: { reversedToLoss: true },
+    });
+  });
 });

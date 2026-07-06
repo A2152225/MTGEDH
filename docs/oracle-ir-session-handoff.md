@@ -5,10 +5,11 @@ Last updated: 2026-07-06 (replay #1–#18; Phase 5.2–5.4 layer ordering)
 ## Next session prompt (copy-paste)
 
 ```
-Oracle IR — replay hygiene COMPLETE; Phase 5.2–5.4 declarative replacement/static specs wired; next: live smoke or life-gain prevention declarative.
+Oracle IR — replay hygiene COMPLETE; Phase 5 declarative static/replacement specs wired; Zulaport + P/T unification done; delta 0/0.
 
 Verified 2026-07-06:
-- npm run test:oracle-ir-migration — **859/859** expected (122 files; overlay layer/timestamp sort + turn condition tests)
+- npm run test:oracle-ir-migration — **862/862** expected (122 files)
+- npm run oracle-ir:delta — **0 new, 0 changed** (31,318-card baseline current)
 - npm run oracle-ir:legacy-triage:soak:forced — **125/125**, triage exports **0**
 - npm run oracle-ir:delta — **0 new, 0 changed** (31,318-card baseline current)
 - TRIGGER_LEGACY_EXPORT_CEILING / SPELL_LEGACY_EXPORT_CEILING — **0 / 0**
@@ -28,7 +29,10 @@ Phase 5 (#19–#20 in progress):
 - **5.2 draw:** oracle-pattern draw replacements (Notion Thief, Zur's Weirding, Alms Collector) + graveyard dredge via `collectGraveyardDredgeDrawOptions` in declarative path.
 - **5.4 overlay conditions:** `static_specs[].condition` — `controller_life_at_least_starting_plus`, `target_is_token`, `target_is_not_token`, `during_source_controller_turn`.
 - **5.4 layer ordering:** `static_specs[].layer` / `sublayer`; `compareStaticEffectSpecsForApplication` sorts overlay specs by layer → sublayer → battlefield index timestamp before apply.
-- Tests: `replacement-effect-spec.unit.test.ts` (14), `static-effect-spec.unit.test.ts` (12), `leave-battlefield-replacement.integration.test.ts` (13)
+- **5.5 overlay STATIC/REPLACEMENT shipping:** `validateCompiledOverlayEnvelope` accepts spec-only abilities; import/store validation wired; example templates `anthem-static.example.json`, `mill-replacement.example.json`; `resolveOracleIRWithOverlay` recognizes declarative-only overlays.
+- Tests: `replacement-effect-spec.unit.test.ts` (17), `static-effect-spec.unit.test.ts` (12), `leave-battlefield-replacement.integration.test.ts` (13)
+- **5.2 life-gain:** oracle-pattern life-gain prevention/reversal via `collectOraclePatternLifeGainReplacementSpecsFromState`; lasting `preventLifeGain` effects remain imperative fallback.
+- **Zulaport / named-or-another death triggers:** `getDeathTriggers` scans dying creature after battlefield removal; `deathTriggerClauseMatchesDyingCreature` allows `Name or another` self-deaths. AI combat: `evaluateDeathTrigger` scales by opponent count; non-suicide creatures with death value are preserved (`combatValue -= deathBenefit`); suicide attacks require `deathBenefit >= 8`. Tests: `zulaport-death-trigger.unit.test.ts`.
 
 Verify at session start (fast):
 cd server
@@ -44,7 +48,7 @@ Architecture: docs/oracle-ir-architecture-guide.md §15.5
 Next work (priority order):
 1. Live EDH soak after server restart (items above)
 2. New-set ingest: card-lookup:refresh → oracle-ir:delta → overlay queue per docs/oracle-ir-track-e-remaining-work.md §A
-3. Phase 5.4 remainder — declarative life-gain prevention; unify any remaining P/T edge paths (`docs/oracle-ir-phase5-continuous-effects-design.md`)
+3. Phase 5 — **done** (overlay validation + P/T unification including Coat of Arms / Sliver Legion counting in `computeContinuousEffects`).
 4. D6 generic choice primitives — extend resolutionChoicePrimitives for novel queue shapes
 ```
 

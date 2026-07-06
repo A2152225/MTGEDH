@@ -479,4 +479,282 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
     };
     expect(compareStaticEffectSpecsForApplication(olderPt, newerPt, state)).toBeLessThan(0);
   });
+
+  it('applies chosen-color anthem buffs through computeContinuousEffects', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'caged_sun_perm',
+          controller: 'p1',
+          chosenColor: 'green',
+          card: {
+            name: 'Caged Sun',
+            type_line: 'Artifact',
+            oracle_text: 'As Caged Sun enters, choose a color.\nCreatures you control of the chosen color get +1/+1.',
+          },
+        },
+        {
+          id: 'green_creature',
+          controller: 'p1',
+          card: {
+            name: 'Llanowar Elves',
+            type_line: 'Creature — Elf Druid',
+            colors: ['G'],
+            oracle_text: '{T}: Add {G}.',
+          },
+        },
+        {
+          id: 'red_creature',
+          controller: 'p1',
+          card: {
+            name: 'Goblin Guide',
+            type_line: 'Creature — Goblin Scout',
+            colors: ['R'],
+            oracle_text: 'Haste',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('green_creature')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('red_creature')?.pDelta || 0).toBe(0);
+
+    const greenBonus = calculateAllPTBonuses(state.battlefield[1], state);
+    const redBonus = calculateAllPTBonuses(state.battlefield[2], state);
+    expect(greenBonus).toMatchObject({ power: 1, toughness: 1 });
+    expect(redBonus).toMatchObject({ power: 0, toughness: 0 });
+  });
+
+  it('applies opponent chosen-type debuffs through computeContinuousEffects', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'plague_engineer_perm',
+          controller: 'p1',
+          chosenCreatureType: 'Human',
+          card: {
+            name: 'Plague Engineer',
+            type_line: 'Creature — Phyrexian Carrier',
+            oracle_text: 'As Plague Engineer enters, choose a creature type.\nCreatures of the chosen type your opponents control get -1/-1.',
+          },
+        },
+        {
+          id: 'opponent_human',
+          controller: 'p2',
+          card: {
+            name: 'Elite Vanguard',
+            type_line: 'Creature — Human Soldier',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'opponent_elf',
+          controller: 'p2',
+          card: {
+            name: 'Llanowar Elves',
+            type_line: 'Creature — Elf Druid',
+            oracle_text: '',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('opponent_human')).toMatchObject({ pDelta: -1, tDelta: -1 });
+    expect(merged.perPermanent.get('opponent_elf')?.pDelta || 0).toBe(0);
+
+    const humanBonus = calculateAllPTBonuses(state.battlefield[1], state);
+    expect(humanBonus).toMatchObject({ power: -1, toughness: -1 });
+  });
+
+  it('applies Death Baron compound skeleton/zombie lord buffs', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'death_baron',
+          controller: 'p1',
+          card: {
+            name: 'Death Baron',
+            type_line: 'Creature — Zombie Wizard',
+            oracle_text: 'Skeletons you control and other Zombies you control get +1/+1 and have deathtouch.',
+          },
+        },
+        {
+          id: 'skeleton_ally',
+          controller: 'p1',
+          card: {
+            name: 'Skeleton',
+            type_line: 'Creature — Skeleton',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'other_zombie',
+          controller: 'p1',
+          card: {
+            name: 'Gravecrawler',
+            type_line: 'Creature — Zombie',
+            oracle_text: '',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('skeleton_ally')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('other_zombie')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('death_baron')?.pDelta || 0).toBe(0);
+    expect(merged.perPermanent.get('skeleton_ally')?.abilities?.has('deathtouch')).toBe(true);
+  });
+
+  it('applies nonblack and non-human conditional lord buffs', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'angel_of_jubilation',
+          controller: 'p1',
+          card: {
+            name: 'Angel of Jubilation',
+            type_line: 'Creature — Angel',
+            oracle_text: 'Nonblack creatures you control get +1/+1.',
+          },
+        },
+        {
+          id: 'mikaeus',
+          controller: 'p1',
+          card: {
+            name: 'Mikaeus, the Unhallowed',
+            type_line: 'Legendary Creature — Zombie Cleric',
+            oracle_text: 'Non-Human creatures you control get +1/+1.',
+          },
+        },
+        {
+          id: 'white_creature',
+          controller: 'p1',
+          card: {
+            name: 'Elite Vanguard',
+            type_line: 'Creature — Human Soldier',
+            colors: ['W'],
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'black_creature',
+          controller: 'p1',
+          card: {
+            name: 'Vampire Lacerator',
+            type_line: 'Creature — Vampire Warrior',
+            colors: ['B'],
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'elf_creature',
+          controller: 'p1',
+          card: {
+            name: 'Llanowar Elves',
+            type_line: 'Creature — Elf Druid',
+            colors: ['G'],
+            oracle_text: '',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('white_creature')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('black_creature')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('elf_creature')).toMatchObject({ pDelta: 2, tDelta: 2 });
+  });
+
+  it('applies Coat of Arms shared-type counting', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'coat_of_arms',
+          controller: 'p1',
+          card: {
+            name: 'Coat of Arms',
+            type_line: 'Artifact',
+            oracle_text: 'Each creature gets +1/+1 for each other creature on the battlefield that shares at least one creature type with it.',
+          },
+        },
+        {
+          id: 'soldier_one',
+          controller: 'p1',
+          card: {
+            name: 'Soldier A',
+            type_line: 'Creature — Human Soldier',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'soldier_two',
+          controller: 'p2',
+          card: {
+            name: 'Soldier B',
+            type_line: 'Creature — Human Soldier',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'goblin_one',
+          controller: 'p1',
+          card: {
+            name: 'Goblin',
+            type_line: 'Creature — Goblin',
+            oracle_text: '',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('soldier_one')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('soldier_two')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('goblin_one')?.pDelta || 0).toBe(0);
+
+    const soldierBonus = calculateAllPTBonuses(state.battlefield[1], state);
+    expect(soldierBonus).toMatchObject({ power: 1, toughness: 1 });
+  });
+
+  it('applies Sliver Legion per-other-sliver counting', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'sliver_legion',
+          controller: 'p1',
+          card: {
+            name: 'Sliver Legion',
+            type_line: 'Legendary Creature — Sliver',
+            oracle_text: 'All Sliver creatures get +1/+1 for each other Sliver on the battlefield.',
+          },
+        },
+        {
+          id: 'sliver_two',
+          controller: 'p1',
+          card: {
+            name: 'Metallic Sliver',
+            type_line: 'Artifact Creature — Sliver',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'nonsliver',
+          controller: 'p1',
+          card: {
+            name: 'Elite Vanguard',
+            type_line: 'Creature — Human Soldier',
+            oracle_text: '',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('sliver_legion')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('sliver_two')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('nonsliver')?.pDelta || 0).toBe(0);
+  });
 });

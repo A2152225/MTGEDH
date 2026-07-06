@@ -27,6 +27,7 @@ import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { getEnergyCount, spendEnergyCounters } from "../state/utils.js";
+import { processEquippedAttackRevealUntilLandPumps, emitEquippedAttackRevealPumpMessages } from "../state/modules/equippedAttackRevealPump.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 
 function getDefendingPlayerIdFromAttackDeclaration(
@@ -1495,6 +1496,16 @@ export async function executeDeclareAttackers(
     debugWarn(1, '[combat] Failed to process tap triggers during executeDeclareAttackers:', e);
   }
 
+  const revealPumpResults = processEquippedAttackRevealUntilLandPumps(
+    game,
+    attackers,
+    battlefield,
+    millUntilLand,
+  );
+  emitEquippedAttackRevealPumpMessages(io, gameId, revealPumpResults, (defendingPlayerId) =>
+    getPlayerName(game, defendingPlayerId),
+  );
+
   // Use game's declareAttackers method if available
   if (typeof (game as any).declareAttackers === 'function') {
     try {
@@ -2007,32 +2018,17 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       (game.state as any).creaturesAttackedThisTurn[playerId] = ((game.state as any).creaturesAttackedThisTurn[playerId] || 0) + attackerIds.length;
       debug(2, `[combat] Player ${playerId} has now attacked with ${(game.state as any).creaturesAttackedThisTurn[playerId]} creature(s) this turn`);
 
-      // Trepanation Blade - mill defending player until land and set temporary bonus
-      for (const attacker of attackers) {
-        const defendingPlayerId = attacker.targetPlayerId;
-        if (!defendingPlayerId) continue;
-        const creature = battlefield.find((perm: any) => perm.id === attacker.creatureId);
-        if (!creature) continue;
-        for (const attachment of battlefield) {
-          const attachType = (attachment.card?.type_line || "").toLowerCase();
-          if (!attachType.includes("equipment")) continue;
-          if (attachment.attachedTo !== attacker.creatureId) continue;
-          const attachName = (attachment.card?.name || "").toLowerCase();
-          if (attachName.includes("trepanation blade")) {
-            const millResult = millUntilLand(game, defendingPlayerId);
-            const bonus = millResult.milled.length;
-            attachment.trepanationBonus = bonus;
-            attachment.lastTrepanationBonus = bonus;
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `${attachment.card?.name}: ${getPlayerName(game, defendingPlayerId)} mills ${bonus} card(s)${millResult.landHit ? ` (stopped at ${millResult.landHit.name})` : ''}. Equipped creature gets +${bonus}/+0 until end of turn.`,
-              ts: Date.now(),
-            });
-          }
-        }
-      }
+      emitEquippedAttackRevealPumpMessages(
+        io,
+        gameId,
+        processEquippedAttackRevealUntilLandPumps(
+          game,
+          attackers as Array<{ creatureId: string; targetPlayerId?: string }>,
+          battlefield,
+          millUntilLand,
+        ),
+        (defendingPlayerId) => getPlayerName(game, defendingPlayerId),
+      );
 
       // Enlist (702.153): as each enlisted creature attacks, its controller may tap another creature.
       // The live declareAttackers socket path still has its own inline combat flow, so enqueue the
