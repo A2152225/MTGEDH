@@ -1,5 +1,5 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
-import { COMMON_TOKENS, createTokens, createTokensByName, parseTokenCreationFromText } from './tokenCreation';
+import { createTokens, resolveTokenCharacteristicsFromOracleStep } from './tokenCreation';
 import {
   DelayedTriggerTiming,
   createDelayedTrigger,
@@ -1622,95 +1622,6 @@ function addTokensToBattlefield(
     };
   }
 
-  const normalizeTokenLookupText = (value: string): string =>
-    String(value || '')
-      .toLowerCase()
-      .replace(/\b(?:white|blue|black|red|green|colorless)\b/g, ' ')
-      .replace(/\btoken(s)?\b/g, ' ')
-      .replace(/\b(?:creature|artifact|enchantment)\b/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-  const resolveCommonTokenKey = (name: string): string | null => {
-    const raw = String(name || '').trim();
-    if (!raw) return null;
-    if ((COMMON_TOKENS as any)[raw]) return raw;
-    const normalized = normalizeTokenLookupText(raw);
-    const key = Object.keys(COMMON_TOKENS).find(k => normalizeTokenLookupText(k) === normalized);
-    return key || null;
-  };
-
-  const hintedName = tokenHint
-    .replace(/\btoken(s)?\b/gi, '')
-    .replace(/\b(creature|artifact|enchantment)\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (hintedName) {
-    const commonKey = resolveCommonTokenKey(hintedName);
-    if (commonKey) {
-      const commonCharacteristics = COMMON_TOKENS[commonKey];
-      const entryMods = resolveTokenBattlefieldEntry(
-        state,
-        tokenCharacteristicsToEntryCard(commonCharacteristics),
-        controllerId,
-        ctx,
-        { entersTapped, withCounters },
-      );
-      if (entryMods.halted) {
-        return { applied: true, state, log: [] };
-      }
-      const count = Math.max(1, amount | 0);
-      const needsExplicitEntry =
-        hasOverrides || entryMods.entersTapped || Object.keys(entryMods.withCounters).length > 0;
-      const result = needsExplicitEntry
-        ? createTokens(
-            {
-              characteristics: {
-                ...commonCharacteristics,
-                entersTapped: entryMods.entersTapped || entersTapped || undefined,
-              },
-              count,
-              controllerId,
-              sourceId: ctx.sourceId,
-              sourceName: ctx.sourceName,
-              withCounters: entryMods.withCounters,
-            },
-            state.battlefield || []
-          )
-        : createTokensByName(commonKey, count, controllerId, state.battlefield || [], ctx.sourceId, ctx.sourceName);
-
-      if (result) {
-        const tokensToAdd = result.tokens.map(token => {
-          const createdToken = token.token as any;
-          if (attackTargetPlayerId) {
-            createdToken.tapped = Boolean(entersTapped);
-            createdToken.summoningSickness = false;
-            createdToken.attacking = attackTargetPlayerId;
-            createdToken.attackingPlayerId = controllerId;
-            createdToken.defendingPlayerId = attackTargetPlayerId;
-          }
-          const tokenWithPermanentAbilities =
-            Array.isArray(permanentGrantedAbilities) && permanentGrantedAbilities.length > 0
-              ? {
-                  ...createdToken,
-                  grantedAbilities: Array.from(
-                    new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...permanentGrantedAbilities])
-                  ),
-                }
-              : createdToken;
-          return applyTemporaryGrantedAbilitiesToToken(tokenWithPermanentAbilities, temporaryGrantedAbilities);
-        });
-        return {
-          applied: true,
-          state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
-          log: [...result.log],
-          createdTokenIds: tokensToAdd.map(token => String((token as any)?.id || '').trim()).filter(Boolean),
-        };
-      }
-    }
-  }
-
   if (isCurseTokenAttachedToDefendingPlayerHint(tokenHint)) {
     const enchantedPlayerId = String(
       attackTargetPlayerId ||
@@ -1736,86 +1647,16 @@ function addTokensToBattlefield(
     };
   }
 
-  const tokenParse = parseTokenCreationFromText(clauseRaw);
-  if (!tokenParse) {
+  const tokenCharacteristics = resolveTokenCharacteristicsFromOracleStep(tokenHint, clauseRaw);
+  if (!tokenCharacteristics) {
     return { applied: true, state, log: ['Token creation not recognized'], createdTokenIds: [] };
   }
 
   const count = Math.max(1, amount | 0);
 
-  if (!hasOverrides) {
-    const commonKey = resolveCommonTokenKey(tokenParse.characteristics.name);
-    if (commonKey) {
-      const commonCharacteristics = COMMON_TOKENS[commonKey];
-      const entryMods = resolveTokenBattlefieldEntry(
-        state,
-        tokenCharacteristicsToEntryCard(commonCharacteristics),
-        controllerId,
-        ctx,
-        { entersTapped, withCounters },
-      );
-      if (entryMods.halted) {
-        return { applied: true, state, log: [] };
-      }
-      const needsExplicitEntry =
-        entryMods.entersTapped || Object.keys(entryMods.withCounters).length > 0;
-      const commonParsed = needsExplicitEntry
-        ? createTokens(
-            {
-              characteristics: {
-                ...commonCharacteristics,
-                entersTapped: entryMods.entersTapped || undefined,
-              },
-              count,
-              controllerId,
-              sourceId: ctx.sourceId,
-              sourceName: ctx.sourceName,
-              withCounters: entryMods.withCounters,
-            },
-            state.battlefield || []
-          )
-        : createTokensByName(
-            commonKey,
-            count,
-            controllerId,
-            state.battlefield || [],
-            ctx.sourceId,
-            ctx.sourceName
-          );
-      if (commonParsed) {
-        const tokensToAdd = commonParsed.tokens.map(token => {
-          const createdToken = token.token as any;
-          if (attackTargetPlayerId) {
-            createdToken.tapped = Boolean(entersTapped);
-            createdToken.summoningSickness = false;
-            createdToken.attacking = attackTargetPlayerId;
-            createdToken.attackingPlayerId = controllerId;
-            createdToken.defendingPlayerId = attackTargetPlayerId;
-          }
-          const tokenWithPermanentAbilities =
-            Array.isArray(permanentGrantedAbilities) && permanentGrantedAbilities.length > 0
-              ? {
-                  ...createdToken,
-                  grantedAbilities: Array.from(
-                    new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...permanentGrantedAbilities])
-                  ),
-                }
-              : createdToken;
-          return applyTemporaryGrantedAbilitiesToToken(tokenWithPermanentAbilities, temporaryGrantedAbilities);
-        });
-        return {
-          applied: true,
-          state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
-          log: [...commonParsed.log],
-          createdTokenIds: tokensToAdd.map(token => String((token as any)?.id || '').trim()).filter(Boolean),
-        };
-      }
-    }
-  }
-
   const parsedEntryMods = resolveTokenBattlefieldEntry(
     state,
-    tokenCharacteristicsToEntryCard(tokenParse.characteristics),
+    tokenCharacteristicsToEntryCard(tokenCharacteristics),
     controllerId,
     ctx,
     { entersTapped, withCounters },
@@ -1827,8 +1668,8 @@ function addTokensToBattlefield(
   const created = createTokens(
     {
       characteristics: {
-        ...tokenParse.characteristics,
-        entersTapped: parsedEntryMods.entersTapped ?? entersTapped ?? tokenParse.characteristics.entersTapped,
+        ...tokenCharacteristics,
+        entersTapped: parsedEntryMods.entersTapped ?? entersTapped ?? tokenCharacteristics.entersTapped,
       },
       count,
       controllerId,

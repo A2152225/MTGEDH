@@ -22,6 +22,10 @@ function trimMergedStaticAbilityTail(effectClause: string): string {
   return trimmed;
 }
 
+function stripTriggerDoublerAnnotation(text: string): string {
+  return String(text || '').replace(/\s*\(doubled by [^)]+\)\s*$/i, '').trim();
+}
+
 function resolveSourcePermanentFromItem(state: any, item: any): any | null {
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const candidateIds = [
@@ -93,10 +97,10 @@ export function resolveTriggerStackItemEffectText(
   item: any,
   options?: ResolveTriggerStackItemEffectTextOptions,
 ): string {
-  const effect = String(item?.effect || '').trim();
+  const effect = stripTriggerDoublerAnnotation(String(item?.effect || '').trim());
   if (effect) return effect;
 
-  const description = String(item?.description || '').trim();
+  const description = stripTriggerDoublerAnnotation(String(item?.description || '').trim());
   if (!description) return '';
 
   const triggerType = String(item?.triggerType || '').trim();

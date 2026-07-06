@@ -47,6 +47,7 @@ export {
 } from './tokenCreationCatalog';
 export {
   parseTokenCreationFromText,
+  resolveTokenCharacteristicsFromOracleStep,
   detectTokenETBTriggers,
   detectTokenCreationTriggers,
 } from './tokenCreationDetection';

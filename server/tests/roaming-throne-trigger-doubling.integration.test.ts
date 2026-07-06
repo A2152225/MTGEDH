@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
+import { resolveTriggerStackItemEffectText } from '../src/state/modules/triggerStackItemEffectText.js';
 import {
+  applyTriggerDoublers,
   detectTriggerDoublers,
   pushTriggerDoublerCopies,
 } from '../src/state/modules/triggers/combat.js';
@@ -167,5 +169,55 @@ describe('Roaming Throne trigger doubling', () => {
     pushTriggerDoublerCopies(state, stackItem);
 
     expect(state.stack).toHaveLength(1);
+  });
+
+  it('preserves clean effect text on doubled attack triggers (Myrel + throne)', () => {
+    const myrelEffect =
+      'Create X 1/1 colorless Soldier artifact creature tokens, where X is the number of Soldiers you control';
+    const throne = {
+      id: 'throne_1',
+      controller: 'p1',
+      chosenCreatureType: 'Human',
+      card: { name: 'Roaming Throne', oracle_text: throneOracle, type_line: 'Artifact Creature — Golem' },
+    };
+    const myrel = {
+      id: 'myrel_1',
+      controller: 'p1',
+      card: {
+        name: 'Myrel, Shield of Argive',
+        type_line: 'Legendary Creature — Human Soldier',
+        oracle_text:
+          "Whenever Myrel attacks, create X 1/1 colorless Soldier artifact creature tokens, where X is the number of Soldiers you control.",
+      },
+    };
+
+    const doublers = detectTriggerDoublers([throne], 'p1');
+    const doubled = applyTriggerDoublers(
+      [{
+        permanentId: 'myrel_1',
+        cardName: 'Myrel, Shield of Argive',
+        controllerId: 'p1',
+        description: myrelEffect,
+        effect: myrelEffect,
+        triggerType: 'attacks',
+        mandatory: true,
+      }],
+      doublers,
+      'attack',
+      myrel,
+    );
+
+    expect(doubled).toHaveLength(2);
+    expect(String(doubled[1]?.description || '')).toContain('doubled by Roaming Throne');
+    expect(doubled[1]?.effect).toBe(myrelEffect);
+
+    const resolved = resolveTriggerStackItemEffectText({
+      description: doubled[1]?.description,
+      effect: doubled[1]?.effect,
+      sourceName: 'Myrel, Shield of Argive',
+      permanentId: 'myrel_1',
+    });
+    expect(resolved).toBe(myrelEffect);
+    expect(resolved).not.toContain('doubled by');
   });
 });

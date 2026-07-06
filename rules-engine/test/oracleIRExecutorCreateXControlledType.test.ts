@@ -92,6 +92,8 @@ describe('Oracle IR create_token X by controlled type count', () => {
     expect(result.appliedSteps?.map((step) => step.kind)).toEqual(['create_token']);
     expect(tokens).toHaveLength(2);
     expect(tokens.every((token) => token.card?.name === 'Soldier')).toBe(true);
+    expect(tokens.every((token) => String(token.card?.type_line || '').toLowerCase().includes('artifact'))).toBe(true);
+    expect(tokens.every((token) => (token.card?.colors || []).length === 0)).toBe(true);
     expect(tokens.every((token) => token.controller === p1)).toBe(true);
   });
 });

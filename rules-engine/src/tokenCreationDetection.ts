@@ -60,10 +60,18 @@ export function parseTokenCreationFromText(
   if (lowerText.includes('green')) colors.push('G');
 
   const types: string[] = [];
-  if (mainType.includes('creature') || power !== undefined) types.push('Creature');
-  if (mainType.includes('artifact') || descriptors.includes('artifact')) types.push('Artifact');
-  if (mainType.includes('enchantment') || descriptors.includes('enchantment')) types.push('Enchantment');
-  if (mainType.includes('land') || descriptors.includes('land')) types.push('Land');
+  if (mainType.includes('artifact') || descriptors.includes('artifact') || /\bartifact\b/.test(lowerText)) {
+    types.push('Artifact');
+  }
+  if (mainType.includes('creature') || power !== undefined || /\bcreature\b/.test(lowerText)) {
+    types.push('Creature');
+  }
+  if (mainType.includes('enchantment') || descriptors.includes('enchantment') || /\benchantment\b/.test(lowerText)) {
+    types.push('Enchantment');
+  }
+  if (mainType.includes('land') || descriptors.includes('land') || /\bland\b/.test(lowerText)) {
+    types.push('Land');
+  }
   if (types.length === 0 && power !== undefined) {
     types.push('Creature');
   }
@@ -86,17 +94,39 @@ export function parseTokenCreationFromText(
     .replace(/\s+/g, ' ')
     .trim();
 
+  const subtypeMatches: Array<{ index: number; subtype: string }> = [];
   for (const type of knownCreatureTypes) {
-    if (subtypeSource.includes(type)) {
-      subtypes.push(type.charAt(0).toUpperCase() + type.slice(1));
+    const index = subtypeSource.indexOf(type);
+    if (index >= 0) {
+      subtypeMatches.push({ index, subtype: type.charAt(0).toUpperCase() + type.slice(1) });
     }
+  }
+  subtypeMatches.sort((left, right) => left.index - right.index);
+  for (const entry of subtypeMatches) {
+    subtypes.push(entry.subtype);
   }
 
   if (subtypes.length === 0 && subtypeSource) {
     const leftover = subtypeSource.split(/\s+/).filter(Boolean);
     if (leftover.length === 1 && /^[a-z]+$/i.test(leftover[0])) {
       subtypes.push(leftover[0].charAt(0).toUpperCase() + leftover[0].slice(1));
+    } else if (leftover.length > 1) {
+      for (const word of leftover) {
+        if (/^[a-z]+$/i.test(word)) {
+          subtypes.push(word.charAt(0).toUpperCase() + word.slice(1));
+        }
+      }
     }
+  }
+
+  const artifactOnlySubtypes = new Set([
+    'treasure', 'food', 'clue', 'blood', 'powerstone', 'map', 'junk', 'gold', 'incubator', 'mutagen',
+  ]);
+  if (
+    subtypes.some((subtype) => artifactOnlySubtypes.has(subtype.toLowerCase())) &&
+    !types.includes('Artifact')
+  ) {
+    types.unshift('Artifact');
   }
 
   const abilities: string[] = [];
@@ -114,7 +144,7 @@ export function parseTokenCreationFromText(
   if (lowerText.includes('decayed')) abilities.push('Decayed');
   if (lowerText.includes('toxic 1')) abilities.push('Toxic 1');
 
-  let name = subtypes[subtypes.length - 1] || 'Token';
+  let name = subtypes.length > 1 ? subtypes.join(' ') : (subtypes[subtypes.length - 1] || 'Token');
   if (descriptors.includes('treasure')) name = 'Treasure';
   if (descriptors.includes('food')) name = 'Food';
   if (descriptors.includes('clue')) name = 'Clue';
@@ -133,6 +163,24 @@ export function parseTokenCreationFromText(
     },
     count,
   };
+}
+
+/**
+ * Resolve token characteristics from the IR token hint (what the creating card
+ * specifies) with clause text as fallback. Never fuzzy-matches catalog entries.
+ */
+export function resolveTokenCharacteristicsFromOracleStep(
+  tokenHint: string,
+  clauseRaw: string,
+): TokenCharacteristics | null {
+  const hintText = String(tokenHint || '').trim();
+  if (hintText) {
+    const fromHint = parseTokenCreationFromText(`Create a ${hintText} token`);
+    if (fromHint) return fromHint.characteristics;
+  }
+
+  const fromClause = parseTokenCreationFromText(String(clauseRaw || '').trim());
+  return fromClause?.characteristics ?? null;
 }
 
 /**

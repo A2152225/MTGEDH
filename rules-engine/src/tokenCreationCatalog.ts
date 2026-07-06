@@ -157,6 +157,16 @@ export const COMMON_TOKENS: Record<string, TokenCharacteristics> = {
     toughness: 1,
     abilities: [],
   },
+  '1/1 colorless Soldier artifact': {
+    name: 'Soldier',
+    colors: [],
+    types: ['Artifact', 'Creature'],
+    subtypes: ['Soldier'],
+    power: 1,
+    toughness: 1,
+    abilities: [],
+    isArtifact: true,
+  },
   '1/1 Spirit (Flying)': {
     name: 'Spirit',
     colors: ['W'],

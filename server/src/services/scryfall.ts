@@ -514,6 +514,88 @@ export async function fetchCardById(id: string): Promise<ScryfallCard> {
   return toCachedCard(data);
 }
 
+export type ScryfallTokenImageSpec = {
+  name: string;
+  power?: number | string;
+  toughness?: number | string;
+  colors?: string[];
+  abilities?: string[];
+  isArtifact?: boolean;
+  isEnchantment?: boolean;
+};
+
+function normalizeScryfallTokenColors(colors?: string[]): string[] {
+  return (colors || [])
+    .map((color) => String(color || '').trim().toUpperCase())
+    .filter(Boolean)
+    .sort();
+}
+
+function scryfallCardMatchesTokenSpec(card: any, spec: ScryfallTokenImageSpec): boolean {
+  if (String(card?.name || '').toLowerCase() !== spec.name.toLowerCase()) return false;
+  if (spec.power !== undefined && String(card?.power ?? '') !== String(spec.power)) return false;
+  if (spec.toughness !== undefined && String(card?.toughness ?? '') !== String(spec.toughness)) return false;
+
+  const cardColors = normalizeScryfallTokenColors(card?.colors);
+  const specColors = normalizeScryfallTokenColors(spec.colors);
+  if (spec.colors !== undefined && cardColors.join(',') !== specColors.join(',')) return false;
+
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  if (spec.isArtifact === true && !typeLine.includes('artifact')) return false;
+  if (spec.isArtifact === false && typeLine.includes('artifact')) return false;
+  if (spec.isEnchantment === true && !typeLine.includes('enchantment')) return false;
+
+  if (spec.abilities && spec.abilities.length > 0) {
+    const keywords = (card?.keywords || []).map((keyword: string) => keyword.toLowerCase());
+    const oracleText = String(card?.oracle_text || '').toLowerCase();
+    for (const ability of spec.abilities) {
+      const abilityLower = ability.toLowerCase();
+      if (!keywords.includes(abilityLower) && !oracleText.includes(abilityLower)) return false;
+    }
+  }
+
+  return Boolean(
+    card?.image_uris?.normal ||
+      card?.image_uris?.small ||
+      card?.card_faces?.[0]?.image_uris?.normal,
+  );
+}
+
+/**
+ * Search Scryfall for a token printing that exactly matches the requested characteristics.
+ */
+export async function searchScryfallTokenImage(
+  spec: ScryfallTokenImageSpec,
+): Promise<{ small?: string; normal?: string; large?: string; art_crop?: string } | undefined> {
+  const queryParts = ['is:token', `name:"${normalizeName(spec.name)}"`];
+  if (spec.power !== undefined) queryParts.push(`pow=${spec.power}`);
+  if (spec.toughness !== undefined) queryParts.push(`tou=${spec.toughness}`);
+  if (spec.isArtifact) queryParts.push('t:artifact');
+  if (spec.isEnchantment) queryParts.push('t:enchantment');
+  const specColors = normalizeScryfallTokenColors(spec.colors);
+  if (specColors.length === 1) {
+    const colorMap: Record<string, string> = { W: 'w', U: 'u', B: 'b', R: 'r', G: 'g' };
+    const color = colorMap[specColors[0]];
+    if (color) queryParts.push(`c:${color}`);
+  }
+
+  try {
+    const url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(queryParts.join(' '))}`;
+    const data = await doFetchJSON(url);
+    const cards = Array.isArray(data?.data) ? data.data : [];
+    for (const card of cards) {
+      if (!scryfallCardMatchesTokenSpec(card, spec)) continue;
+      const images = card.image_uris ?? card.card_faces?.[0]?.image_uris;
+      if (images?.normal || images?.small) {
+        return images;
+      }
+    }
+  } catch (err) {
+    debugWarn(1, '[scryfall] searchScryfallTokenImage failed (non-fatal):', spec.name, err);
+  }
+  return undefined;
+}
+
 //
 // Batch /collection fetch
 //

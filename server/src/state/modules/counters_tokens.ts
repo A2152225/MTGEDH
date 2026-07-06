@@ -7,7 +7,7 @@ import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { applyBeneficialReplacements, applyReplacementsCustomOrder, processLifeChange, type ReplacementEffect } from "./game-state-effects.js";
 import { getDeathTriggers, processLinkedExileReturns } from "./triggered-abilities.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
-import { getTokenImageUrls } from "../../services/tokens.js";
+import { getTokenImageUrls, buildTokenImageSpec, resolveTokenImageUrls } from "../../services/tokens.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { appendEvent } from '../../db/index.js';
 import { ResolutionQueueManager } from "../resolution/index.js";
@@ -1126,7 +1126,16 @@ export function createToken(
   const tokenHasHaste = tokenAbilities.some((ability) => /\bhaste\b/i.test(String(ability || '')));
   
   // Get token image URLs from the token service (pass abilities for exact matching)
-  const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors, options?.abilities);
+  const tokenSpec = buildTokenImageSpec({
+    name,
+    power: basePower,
+    toughness: baseToughness,
+    colors: options?.colors,
+    abilities: tokenAbilities,
+    typeLine,
+    isArtifact: options?.isArtifact,
+  });
+  const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors, options?.abilities, options?.isArtifact);
   
   const entersTapped = !!options?.entersTapped;
   const initialCountersRaw = options?.withCounters;
@@ -1165,6 +1174,12 @@ export function createToken(
       } as any  // Cast to any to allow keywords field
     };
     state.battlefield.push(tokenPerm);
+
+    if (!imageUrls?.normal && !imageUrls?.small) {
+      void resolveTokenImageUrls(tokenSpec).then((resolved) => {
+        if (resolved) tokenPerm.card.image_uris = resolved;
+      });
+    }
 
     // Fire ETB triggers (including the token's own ETBs if applicable).
     try {

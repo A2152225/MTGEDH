@@ -69,7 +69,8 @@ import {
 } from './counters_tokens.js';
 import { mirrorGraveyardCastingPermissionsToDurable } from './graveyard-permissions.js';
 import { syncCastingModifierGrantsFromOracleIRResult } from './casting-modifiers.js';
-import { getTokenImageUrls } from '../../services/tokens.js';
+import { enrichTokenCardImages } from '../../services/tokens.js';
+import { debugWarn } from '../../utils/debug.js';
 import {
   createOracleIRServerExecutionBridge,
   queueOracleIrDeferredReplacementPrompts,
@@ -85,26 +86,17 @@ import { createEmptyStepLedger } from '../../../../rules-engine/src/oracleIRStep
 import type { OracleIRTransitionHaltState } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
 
 function enrichBattlefieldTokenImages(state: any): void {
+  const cardsNeedingImages: any[] = [];
   for (const perm of state?.battlefield || []) {
     if (!perm?.isToken || !perm?.card) continue;
     const card = perm.card as any;
     if (card?.image_uris?.normal || card?.image_uris?.small) continue;
-
-    const oracleText = String(card.oracle_text || '').toLowerCase();
-    const abilities = ['hexproof', 'flying', 'vigilance', 'menace', 'deathtouch', 'lifelink', 'ward', 'haste', 'reach']
-      .filter((keyword) => oracleText.includes(keyword));
-
-    const imageUrls = getTokenImageUrls(
-      String(card.name || 'Token'),
-      card.power,
-      card.toughness,
-      Array.isArray(card.colors) ? card.colors : undefined,
-      abilities.length > 0 ? abilities : undefined,
-    );
-    if (imageUrls) {
-      card.image_uris = imageUrls;
-    }
+    cardsNeedingImages.push(card);
   }
+  if (cardsNeedingImages.length === 0) return;
+  void enrichTokenCardImages(cardsNeedingImages).catch((err) => {
+    debugWarn(1, '[oracle-ir] enrichBattlefieldTokenImages failed (non-fatal):', err);
+  });
 }
 
 /**

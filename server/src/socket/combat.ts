@@ -2356,7 +2356,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 game.state.stack = game.state.stack || [];
                 const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
                 const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
-                const targetMetadata = inferTriggeredAbilityTargetMetadata(String(trigger.description || trigger.effect || ''), {
+                const triggerEffectText = String((trigger as any).effect || trigger.description || '').trim();
+                const targetMetadata = inferTriggeredAbilityTargetMetadata(triggerEffectText || String(trigger.description || ''), {
                   gameState: game.state,
                   controllerId: String(triggerControllerId),
                   sourceName: String(trigger.cardName || sourcePerm?.card?.name || ''),
@@ -2370,6 +2371,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   permanentId: trigger.permanentId,
                   sourceName: trigger.cardName,
                   description: trigger.description,
+                  effect: triggerEffectText,
                   triggerType: trigger.triggerType,
                   mandatory: trigger.mandatory,
                   triggeringPlayer: playerId,
@@ -2432,7 +2434,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   controllerId: triggerControllerId,
                   description: trigger.description,
                   triggerType: trigger.triggerType,
-                  effect: trigger.description,
+                  effect: String((trigger as any).effect || trigger.description || '').trim(),
                   mandatory: trigger.mandatory,
                   triggeringPlayer: playerId,
                   ...(targetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
@@ -2987,7 +2989,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 controllerId: triggerControllerId,
                 description: trigger.description,
                 triggerType: stackTriggerType,
-                effect: trigger.description,
+                effect: String((trigger as any).effect || trigger.description || '').trim(),
                 mandatory: trigger.mandatory,
                 ...(typeof trigger.value !== 'undefined' ? { value: trigger.value } : {}),
                 ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : {}),
@@ -3698,7 +3700,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 game.state.stack = game.state.stack || [];
                 const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
                 const sourcePerm = battlefield.find((p: any) => p?.id === trigger.permanentId);
-                const targetMetadata = inferTriggeredAbilityTargetMetadata(String(trigger.description || trigger.effect || ''), {
+                const triggerEffectText = String((trigger as any).effect || trigger.description || '').trim();
+                const targetMetadata = inferTriggeredAbilityTargetMetadata(triggerEffectText || String(trigger.description || ''), {
                   gameState: game.state,
                   controllerId: String(triggerControllerId),
                   sourceName: String(trigger.cardName || sourcePerm?.card?.name || ''),
@@ -3712,6 +3715,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   permanentId: trigger.permanentId,
                   sourceName: trigger.cardName,
                   description: trigger.description,
+                  effect: triggerEffectText,
                   triggerType: trigger.triggerType,
                   mandatory: trigger.mandatory,
                   triggeringPlayer: playerId,
@@ -3771,7 +3775,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   controllerId: triggerControllerId,
                   description: trigger.description,
                   triggerType: trigger.triggerType,
-                  effect: trigger.description,
+                  effect: String((trigger as any).effect || trigger.description || '').trim(),
                   mandatory: trigger.mandatory,
                   triggeringPlayer: playerId,
                   ...(targetMetadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),

@@ -189,6 +189,7 @@ export function applyTriggerDoublers(
       const copiedTrigger: CombatTriggeredAbility = {
         ...trigger,
         description: `${trigger.description} (doubled by ${doubler.cardName})`,
+        effect: trigger.effect || trigger.description,
       };
       result.push(copiedTrigger);
       debug(2, `[applyTriggerDoublers] Doubled trigger '${trigger.description}' from ${trigger.cardName} due to ${doubler.cardName}`);
