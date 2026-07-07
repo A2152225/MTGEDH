@@ -10,7 +10,11 @@ import {
 import { resolveSingleCreatureTargetId } from '../../../../rules-engine/src/oracleIRExecutorCreatureStepUtils.js';
 import { resolveOracleQuantity, resolveOracleQuantityForPlayer } from '../../../../rules-engine/src/oracleIRExecutorResolveQuantity.js';
 import { normalizeOracleManaCostString } from '../../../../rules-engine/src/oracleIRExecutorManaUtils.js';
-import { resolvePlayers } from '../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
+import {
+  getPlayableUntilTurnForImpulseDuration,
+  impulseExileTopRequiresChooseOne,
+  resolvePlayers,
+} from '../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
 import { buildSacrificeTargetSelectionOptions } from '../../../../rules-engine/src/oracleIRExecutorBattlefieldStepHandlers.js';
 import {
   collectDiscardSelectionOptionsForStep,
@@ -84,9 +88,15 @@ import {
   resolveOracleIrContinuationStepIndex,
 } from './oracleIrTransitionPipeline.js';
 import { persistOracleIrReplayMutationsFromExecution, persistCounterDiffsFromOracleIR } from '../effects/effectProgramReplayMutationPersistence.js';
+import {
+  persistBattlefieldPermanentPatchesFromOracleIR,
+  snapshotBattlefieldPermanentReplayPatches,
+} from '../effects/battlefieldPermanentReplayPersistence.js';
 import { createEmptyStepLedger } from '../../../../rules-engine/src/oracleIRStepLedger.js';
 import type { OracleIRTransitionHaltState } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
 import { resolveOracleIrBoundTargetSpellId } from '../../../../rules-engine/src/oracleIrTargetBinding.js';
+import type { GameContext } from '../context.js';
+import { registerLinkedExile } from './triggers/linked-exile.js';
 
 function enrichBattlefieldTokenImages(state: any): void {
   const cardsNeedingImages: any[] = [];
@@ -1273,7 +1283,7 @@ function queueRedistributeLifeTotalsPromptsFromOracleIRResult(
       // ignore
     }
 
-    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+    const queuedStep = ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
       type: ResolutionStepType.LIFE_REDISTRIBUTION,
       playerId: choosingPlayerId,
       description: `${sourceName}: ${String((step as any).raw || 'Redistribute life totals')}`,
@@ -1287,6 +1297,11 @@ function queueRedistributeLifeTotalsPromptsFromOracleIRResult(
       oracleIrSourceId: sourceId,
       oracleIrSourceName: sourceName,
     } as any, result, params) as any);
+    appendQueuedResolutionPromptEvent(ctx, {
+      playerId: choosingPlayerId,
+      sourceId,
+      queuedResolutionStep: queuedStep,
+    });
   }
 }
 
@@ -3388,6 +3403,222 @@ function resolveGrantGraveyardCastChoiceCard(
   return undefined;
 }
 
+function impulseDurationToPlayWindowText(duration: string): string {
+  const normalized = String(duration || '').trim();
+  if (normalized === 'until_end_of_next_turn' || normalized === 'until_next_turn') {
+    return 'until the end of your next turn';
+  }
+  if (normalized === 'this_turn' || normalized === 'during_resolution') {
+    return 'this turn';
+  }
+  return 'this turn';
+}
+
+function collectPendingImpulseExileChoiceCards(state: any, sourceName: string): any[] {
+  const normalizedSource = String(sourceName || '').trim();
+  if (!normalizedSource) return [];
+
+  const cards: any[] = [];
+  const seen = new Set<string>();
+
+  const appendFromExile = (exileZone: any[], requireSourceMatch: boolean) => {
+    for (const card of exileZone) {
+      const cardId = String(card?.id || '').trim();
+      if (!cardId || seen.has(cardId)) continue;
+      if (card?.canBePlayedBy) continue;
+      if (requireSourceMatch && String(card?.exiledBy || '').trim() !== normalizedSource) continue;
+      seen.add(cardId);
+      cards.push(card);
+    }
+  };
+
+  for (const player of state?.players || []) {
+    appendFromExile(Array.isArray(player?.exile) ? player.exile : [], true);
+  }
+
+  const zones = state?.zones || {};
+  for (const ownerId of Object.keys(zones)) {
+    appendFromExile(Array.isArray(zones[ownerId]?.exile) ? zones[ownerId].exile : [], true);
+  }
+
+  if (cards.length > 1) return cards;
+
+  seen.clear();
+  const fallbackCards: any[] = [];
+  const appendFallback = (exileZone: any[]) => {
+    for (const card of exileZone) {
+      const cardId = String(card?.id || '').trim();
+      if (!cardId || seen.has(cardId)) continue;
+      if (card?.canBePlayedBy) continue;
+      seen.add(cardId);
+      fallbackCards.push(card);
+    }
+  };
+
+  for (const player of state?.players || []) {
+    appendFallback(Array.isArray(player?.exile) ? player.exile : []);
+  }
+  for (const ownerId of Object.keys(zones)) {
+    appendFallback(Array.isArray(zones[ownerId]?.exile) ? zones[ownerId].exile : []);
+  }
+
+  return fallbackCards.length > 1 ? fallbackCards : cards;
+}
+
+function syncGraveyardCastFreeExilePermissionsFromOracleIR(
+  state: any,
+  steps: readonly OracleEffectStep[],
+  result: OracleIRExecutionResult,
+  irCtx: OracleIRExecutionContext,
+): void {
+  if (String(irCtx.castFromZone || '').trim().toLowerCase() !== 'graveyard') return;
+
+  const expectsFreeExileCast = steps.some((step) => {
+    if (step.kind === 'modify_exile_permissions' && step.withoutPayingManaCost) return true;
+    if (step.kind !== 'conditional') return false;
+    return (step.steps || []).some(
+      (inner) => inner.kind === 'modify_exile_permissions' && inner.withoutPayingManaCost,
+    );
+  });
+  if (!expectsFreeExileCast) return;
+
+  const appliedFreeModify = (result.appliedSteps || []).some(
+    (step) => step.kind === 'modify_exile_permissions' && (step as any).withoutPayingManaCost,
+  );
+  if (appliedFreeModify) return;
+
+  const impulseApplied = (result.appliedSteps || []).some((step) => step.kind === 'impulse_exile_top');
+  if (!impulseApplied) return;
+
+  const sourceName = String(irCtx.sourceName || '').trim();
+  const patchCard = (card: any): any => {
+    if (!card || typeof card !== 'object') return card;
+    if (sourceName && String(card?.exiledBy || '').trim() && String(card?.exiledBy || '').trim() !== sourceName) {
+      return card;
+    }
+    if (!card?.canBePlayedBy && !(state.playableFromExile && Object.values(state.playableFromExile).some(
+      (entry: any) => entry && typeof entry === 'object' && entry[String(card?.id || '')] !== undefined,
+    ))) {
+      return card;
+    }
+    if (card?.castWithoutPayingManaCost === true) return card;
+    return {
+      ...card,
+      withoutPayingManaCost: true,
+      castWithoutPayingManaCost: true,
+    };
+  };
+
+  if (Array.isArray(state.players)) {
+    state.players = state.players.map((player: any) => {
+      const exile = Array.isArray(player?.exile) ? player.exile : [];
+      if (exile.length === 0) return player;
+      const updatedExile = exile.map(patchCard);
+      if (updatedExile.some((card: any, index: number) => card !== exile[index])) {
+        return { ...player, exile: updatedExile };
+      }
+      return player;
+    });
+  }
+
+  const zones = state?.zones;
+  if (zones && typeof zones === 'object') {
+    for (const ownerId of Object.keys(zones)) {
+      const exile = Array.isArray(zones[ownerId]?.exile) ? zones[ownerId].exile : [];
+      if (exile.length === 0) continue;
+      const updatedExile = exile.map(patchCard);
+      if (updatedExile.some((card: any, index: number) => card !== exile[index])) {
+        zones[ownerId] = {
+          ...zones[ownerId],
+          exile: updatedExile,
+        };
+      }
+    }
+  }
+}
+
+function syncImpulseExilePlayPermissionsToState(state: any): void {
+  if (!state || typeof state !== 'object') return;
+
+  state.playableFromExile = state.playableFromExile || {};
+  const patchZones = (exile: any[]) => {
+    for (const card of exile) {
+      const cardId = String(card?.id || '').trim();
+      const canBePlayedBy = String(card?.canBePlayedBy || '').trim();
+      if (!cardId || !canBePlayedBy) continue;
+      const until = typeof card?.playableUntilTurn === 'number' && Number.isFinite(card.playableUntilTurn)
+        ? card.playableUntilTurn
+        : Number.MAX_SAFE_INTEGER;
+      if (typeof card.playableUntilTurn !== 'number' || !Number.isFinite(card.playableUntilTurn)) {
+        card.playableUntilTurn = until;
+      }
+      state.playableFromExile[canBePlayedBy] = state.playableFromExile[canBePlayedBy] || {};
+      state.playableFromExile[canBePlayedBy][cardId] = until;
+    }
+  };
+
+  for (const player of state.players || []) {
+    patchZones(Array.isArray(player?.exile) ? player.exile : []);
+  }
+
+  const zones = state.zones || {};
+  for (const ownerId of Object.keys(zones)) {
+    patchZones(Array.isArray(zones[ownerId]?.exile) ? zones[ownerId].exile : []);
+  }
+}
+
+function queueChooseOneImpulseExilePlayPromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const appliedImpulseSteps = (result.appliedSteps || []).filter(
+    (step) => step.kind === 'impulse_exile_top' && impulseExileTopRequiresChooseOne(step),
+  );
+  if (appliedImpulseSteps.length === 0) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const controllerId = String(params.controller || '').trim();
+  if (!controllerId) return;
+
+  const exiledCards = collectPendingImpulseExileChoiceCards(state, sourceName);
+  if (exiledCards.length <= 1) return;
+
+  const impulseStep = appliedImpulseSteps[appliedImpulseSteps.length - 1] as Extract<OracleEffectStep, { kind: 'impulse_exile_top' }>;
+  const playableUntilTurn = getPlayableUntilTurnForImpulseDuration(state, impulseStep.duration) ?? Number(state?.turnNumber ?? 0);
+  const playWindowText = impulseDurationToPlayWindowText(String(impulseStep.duration || ''));
+  const exiledCardIds = exiledCards.map((card: any) => String(card?.id || '').trim()).filter(Boolean);
+  if (exiledCardIds.length <= 1) return;
+
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: controllerId,
+    description: `${sourceName}: Choose an exiled card. You may play it ${playWindowText}.`,
+    mandatory: true,
+    sourceName,
+    options: exiledCards.map((card: any) => ({
+      id: String(card.id),
+      label: String(card.name || 'Exiled card'),
+      description: String(card.type_line || ''),
+    })),
+    minSelections: 1,
+    maxSelections: 1,
+    grantPlayableFromExileChoice: true,
+    grantPlayableFromExileController: controllerId,
+    grantPlayableFromExileSourceName: sourceName,
+    grantPlayableFromExileCardIds: exiledCardIds,
+    grantPlayableFromExileUntilTurn: playableUntilTurn,
+    grantPlayableFromExileWindowText: playWindowText,
+  } as any);
+}
+
 function queueOptionalStepChoicePromptsFromOracleIRResult(
   ctx: GameContext,
   state: any,
@@ -4488,6 +4719,7 @@ export function applyOracleIRStepsOnServer(
   const exileBefore = snapshotExileCardIds(state);
   const controllersBefore = snapshotBattlefieldControllers(state);
   const countersBefore = snapshotBattlefieldCounters(state);
+  const permanentPatchesBefore = snapshotBattlefieldPermanentReplayPatches(state);
 
   const controller = (params?.controller || irCtx.controllerId) as PlayerID;
   const adjustedSteps = params?.applyMillReplacements === false
@@ -4519,7 +4751,11 @@ export function applyOracleIRStepsOnServer(
   });
   const deferOptionalLookChoices = gameId !== 'unknown'
     && !(ctx as any).isReplaying
-    && (Boolean((ctx as any).io) || isOracleIrTriggerPrimaryEnabled());
+    && (
+      Boolean((ctx as any).io)
+      || isOracleIrTriggerPrimaryEnabled()
+      || irCtx.interactivePlayerChoices !== false
+    );
   const deferOptionalGrantGraveyardChoices = deferOptionalLookChoices;
   const deferOptionalPerPlayerChoices = deferOptionalLookChoices;
 
@@ -4539,6 +4775,7 @@ export function applyOracleIRStepsOnServer(
     haltOnPlayerChoiceRequired: options.haltOnPlayerChoiceRequired ?? true,
   });
   Object.assign(state, result.state);
+  syncGraveyardCastFreeExilePermissionsFromOracleIR(state, adjustedSteps, result, irCtx);
   mirrorGraveyardCastingPermissionsToDurable(state);
   syncCastingModifierGrantsFromOracleIRResult(
     state,
@@ -4557,6 +4794,7 @@ export function applyOracleIRStepsOnServer(
   syncDerivedContinuousEffects(state);
   syncCounterReplacementEffectsAfterOracleIR(ctx, state, countersBefore);
   syncAllOracleIRPlayerZonesAfterResolution(ctx);
+  syncImpulseExilePlayPermissionsToState(state);
   bridgeScheduleDelayedFlickerReturnsFromOracleIRResult(ctx, state, result, exileBefore, {
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
   });
@@ -4569,6 +4807,7 @@ export function applyOracleIRStepsOnServer(
     ? (ResolutionQueueManager.getQueue(gameId).steps?.length ?? 0)
     : 0;
   const queueOracleIrResolutionPrompts = () => {
+  const resolutionTriggerItem = params?.triggerItem ?? params?.sourceItem;
   queueTopLibraryChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -4581,14 +4820,14 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
     targetPlayerId: params?.targetPlayerId,
-    triggerItem: params?.triggerItem,
+    triggerItem: resolutionTriggerItem,
   });
   queueUnlessPayChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
-    triggerItem: params?.triggerItem,
+    triggerItem: resolutionTriggerItem,
   });
   queueDiscardChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
@@ -4629,13 +4868,13 @@ export function applyOracleIRStepsOnServer(
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
-    triggerItem: params?.triggerItem,
+    triggerItem: resolutionTriggerItem,
   });
   bridgeGameStateOracleEffectsAfterOracleIR(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
-    triggerItem: params?.triggerItem,
+    triggerItem: resolutionTriggerItem,
     effectText: String(params?.oracleText || adjustedSteps.map((step) => String((step as any).raw || '')).filter(Boolean).join(' ')),
   });
   bridgeCreatedTokenEtbTriggersAfterOracleIR(ctx, state, result);
@@ -4644,7 +4883,7 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
-    triggerItem: params?.triggerItem,
+    triggerItem: resolutionTriggerItem,
   });
   queueMoveZoneChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
@@ -4658,30 +4897,34 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
   });
+  queueChooseOneImpulseExilePlayPromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+  });
   queueOptionalStepChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
-    triggerItem: params?.triggerItem,
+    triggerItem: resolutionTriggerItem,
   });
   queueEachPlayerMayPutLandFromHandPromptsFromOracleIRResult(ctx, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
-    triggerItem: (params as any)?.triggerItem,
+    triggerItem: resolutionTriggerItem,
   });
   queueControllerMayPutLandFromHandPromptsFromOracleIRResult(ctx, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
-    triggerItem: (params as any)?.triggerItem,
+    triggerItem: resolutionTriggerItem,
   });
   queueBothPlayersMayPutPermanentFromHandPromptsFromOracleIRResult(ctx, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
-    triggerItem: (params as any)?.triggerItem,
+    triggerItem: resolutionTriggerItem,
     irCtx,
   });
   queueProliferateChoicePromptsFromOracleIRResult(ctx, state, result, {
@@ -4719,7 +4962,7 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
-    triggerItem: params?.triggerItem,
+    triggerItem: resolutionTriggerItem,
   });
   queueSearchLibraryChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
@@ -4754,7 +4997,7 @@ export function applyOracleIRStepsOnServer(
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
-    sourceItem: params?.sourceItem ?? params?.triggerItem,
+    sourceItem: params?.sourceItem ?? resolutionTriggerItem,
     oracleText: params?.oracleText,
   });
   };
@@ -4799,6 +5042,7 @@ export function applyOracleIRStepsOnServer(
   });
   syncIrPreparedStateFromOracleIRResult(state, result, irCtx);
   syncIrCopyTokenProvenanceFromOracleIRResult(state, result, irCtx);
+  syncIrLinkedExilesFromOracleIRResult(ctx, state, result, irCtx);
   syncIrGraveyardExilesToSourcePermanentExiledCards(
     state,
     result,
@@ -4811,6 +5055,11 @@ export function applyOracleIRStepsOnServer(
     persistCounterDiffsFromOracleIR(ctx, countersBefore, state, {
       sourceId: String(irCtx.sourceId || '').trim() || undefined,
       sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+      ...(params?.compoundResume ? { compoundResume: true } : {}),
+    });
+    persistBattlefieldPermanentPatchesFromOracleIR(ctx, permanentPatchesBefore, state, {
+      sourceId: String(irCtx.sourceId || '').trim() || undefined,
+      sourceName: String(irCtx.sourceName || '').trim() || undefined,
       ...(params?.compoundResume ? { compoundResume: true } : {}),
     });
     persistOracleIrReplayMutationsFromExecution(ctx, result, {
@@ -5022,6 +5271,99 @@ function syncIrPreparedStateFromOracleIRResult(
     if (granted.includes('becomes prepared') && perm.prepared !== true) {
       setPermanentPrepared(state, perm);
     }
+  }
+}
+
+function findExiledCardForLinkedExileRegistration(
+  state: any,
+  cardRef: string,
+): { card: any; ownerId: string; controllerId: string } | null {
+  const normalizedRef = String(cardRef || '').trim();
+  if (!normalizedRef) return null;
+
+  const zones = (state as any).zones || {};
+  for (const [playerId, zone] of Object.entries(zones)) {
+    const exile = Array.isArray((zone as any)?.exile) ? (zone as any).exile : [];
+    const found = exile.find((card: any) => {
+      const id = String(card?.id || '').trim();
+      const name = String(card?.name || '').trim();
+      return (
+        id === normalizedRef ||
+        name === normalizedRef ||
+        id === `${normalizedRef}_card` ||
+        (normalizedRef.endsWith('_card') && id === normalizedRef.slice(0, -5))
+      );
+    });
+    if (!found) continue;
+    return {
+      card: found,
+      ownerId: String(found?.owner || found?.ownerId || playerId),
+      controllerId: String(found?.controller || found?.controllerId || playerId),
+    };
+  }
+
+  return null;
+}
+
+function syncIrLinkedExilesFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  irCtx: OracleIRExecutionContext,
+): void {
+  const appliedSteps = result.appliedSteps || [];
+  const hasLinkedExileStep = appliedSteps.some((step) => {
+    if (step.kind !== 'exile') return false;
+    const raw = String((step as any).raw || '').trim();
+    const targetText = String((step.target as any)?.text || '').trim();
+    return /until\b.+\bleaves the battlefield/i.test(`${raw} ${targetText}`);
+  });
+  if (!hasLinkedExileStep) return;
+
+  const exilingPermanentId = String(irCtx.sourceId || '').trim();
+  if (!exilingPermanentId) return;
+
+  const exilingPermanent = (state.battlefield || []).find(
+    (perm: any) => String(perm?.id || '').trim() === exilingPermanentId,
+  );
+  const exilingPermanentName =
+    String(irCtx.sourceName || '').trim() ||
+    String(exilingPermanent?.card?.name || '').trim() ||
+    'Linked Exile Source';
+
+  const targetIds = Array.from(new Set(
+    [
+      ...(Array.isArray(irCtx.selectorContext?.chosenObjectIds) ? irCtx.selectorContext.chosenObjectIds : []),
+      String(irCtx.targetCreatureId || '').trim(),
+      String(irCtx.targetPermanentId || '').trim(),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  ));
+
+  state.linkedExiles = Array.isArray(state.linkedExiles) ? state.linkedExiles : [];
+
+  for (const targetId of targetIds) {
+    const alreadyRegistered = state.linkedExiles.some((entry: any) =>
+      String(entry?.exilingPermanentId || '') === exilingPermanentId &&
+      (
+        String(entry?.exiledCardId || '') === targetId ||
+        String(entry?.exiledCardName || '').trim() === targetId
+      ),
+    );
+    if (alreadyRegistered) continue;
+
+    const located = findExiledCardForLinkedExileRegistration(state, targetId);
+    if (!located) continue;
+
+    registerLinkedExile(
+      ctx,
+      exilingPermanentId,
+      exilingPermanentName,
+      located.card,
+      located.ownerId,
+      located.controllerId,
+    );
   }
 }
 

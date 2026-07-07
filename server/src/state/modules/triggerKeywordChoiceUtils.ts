@@ -1,6 +1,7 @@
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import type { KeywordTriggerResult } from './keyword-handlers.js';
+import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 
 export function enqueueSupportedKeywordChoiceStep(
   ctx: GameContext,
@@ -206,7 +207,7 @@ export function enqueueSupportedKeywordChoiceStep(
     permanent?.card?.imageUrl ||
     undefined;
 
-  ResolutionQueueManager.addStep(keywordGameId, {
+  const queuedStep = ResolutionQueueManager.addStep(keywordGameId, {
     type: queueType,
     playerId: keywordChoice.playerId as any,
     description: String(result.chatMessage || `${sourceName}: Make a choice.`),
@@ -220,6 +221,12 @@ export function enqueueSupportedKeywordChoiceStep(
     maxSelections: 1,
     ...queueExtras,
   } as any);
+
+  appendQueuedResolutionPromptEvent(ctx, {
+    playerId: String(keywordChoice.playerId || '').trim(),
+    sourceId: normalizedSourceId,
+    queuedResolutionStep: queuedStep,
+  });
 
   return true;
 }

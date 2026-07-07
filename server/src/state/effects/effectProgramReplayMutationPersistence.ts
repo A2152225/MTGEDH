@@ -143,6 +143,16 @@ function persistReplayMutation(
         ...mutationPayload,
       });
       return;
+    case 'goad':
+      appendMutationEvent(ctx, 'goadPermanent', {
+        permanentId: mutation.permanentId,
+        goaderId: mutation.goaderId,
+        ...(typeof mutation.expiryTurn === 'number' && Number.isFinite(mutation.expiryTurn)
+          ? { expiryTurn: mutation.expiryTurn }
+          : {}),
+        ...mutationPayload,
+      });
+      return;
     default:
       return;
   }

@@ -68,6 +68,8 @@ type SmartUndoCounts = {
   phaseCount: number;
   previousPhaseCount: number;
   turnCount: number;
+  semanticStepCount: number;
+  semanticPhaseCount: number;
   previews: {
     step?: UndoBoundaryPreview;
     phase?: UndoBoundaryPreview;
@@ -75,6 +77,67 @@ type SmartUndoCounts = {
     turn?: UndoBoundaryPreview;
   };
 };
+
+const ORACLE_IR_MUTATION_TAIL_EVENT_TYPES = new Set([
+  'assignTriggeredAbilityTargets',
+  'goadPermanent',
+  'battlefieldPermanentPatch',
+  'updateCounters',
+  'executeEffect',
+  'adjustLife',
+  'mill',
+  'drawCards',
+  'discardEffect',
+  'shuffleLibrary',
+  'effectProgramZoneMove',
+  'exilePermanent',
+  'putCardFromHandOntoBattlefield',
+]);
+
+const PROMPT_ONLY_TAIL_EVENT_TYPES = new Set([
+  'resolveTopOfStackPrompt',
+  'targetSelectionWardPrompt',
+  'targetSelectionTapUntapPrompt',
+]);
+
+function eventPayload(event: PersistedEvent): Record<string, unknown> {
+  if (event?.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)) {
+    return event.payload as Record<string, unknown>;
+  }
+  return event as Record<string, unknown>;
+}
+
+function isOracleIrMutationTailEvent(event: PersistedEvent): boolean {
+  const type = String(event?.type || '').trim();
+  if (!ORACLE_IR_MUTATION_TAIL_EVENT_TYPES.has(type)) return false;
+  const payload = eventPayload(event);
+  if (type === 'assignTriggeredAbilityTargets') return true;
+  if (type === 'goadPermanent' || type === 'battlefieldPermanentPatch') return true;
+  if (payload.oracleIrReplayMutation === true || payload.effectProgramMutation === true) return true;
+  if (type === 'updateCounters' && payload.skipCounterModifications === true) return true;
+  return false;
+}
+
+function isPromptOnlyTailEvent(event: PersistedEvent): boolean {
+  return PROMPT_ONLY_TAIL_EVENT_TYPES.has(String(event?.type || '').trim());
+}
+
+/** Collapse IR mutation tails and prompt-only rows into their parent player action for display. */
+export function countSemanticActions(events: readonly PersistedEvent[]): number {
+  let count = 0;
+  for (const event of events) {
+    if (!event?.type) continue;
+    if (isOracleIrMutationTailEvent(event) || isPromptOnlyTailEvent(event)) continue;
+    count += 1;
+  }
+  return count;
+}
+
+function sliceEventsForBoundaryPlan(events: PersistedEvent[], plan: UndoBoundaryPlan | undefined): PersistedEvent[] {
+  const count = Math.max(0, Number(plan?.count || 0));
+  if (count <= 0 || events.length === 0) return [];
+  return events.slice(Math.max(0, events.length - count));
+}
 
 type BoundaryKind = 'step' | 'phase' | 'turn';
 
@@ -354,6 +417,8 @@ function calculateSmartUndoCounts(game: any, events: PersistedEvent[]): SmartUnd
       phaseCount: 0,
       previousPhaseCount: 0,
       turnCount: 0,
+      semanticStepCount: 0,
+      semanticPhaseCount: 0,
       previews: {},
     };
   }
@@ -363,11 +428,16 @@ function calculateSmartUndoCounts(game: any, events: PersistedEvent[]): SmartUnd
   const previousPhasePlan = calculateBoundaryUndoCount(events, game, 'phase', 1);
   const turnPlan = calculateBoundaryUndoCount(events, game, 'turn');
 
+  const stepEvents = sliceEventsForBoundaryPlan(events, stepPlan);
+  const phaseEvents = sliceEventsForBoundaryPlan(events, phasePlan);
+
   return {
     stepCount: stepPlan.count,
     phaseCount: phasePlan.count,
     previousPhaseCount: previousPhasePlan.count,
     turnCount: turnPlan.count,
+    semanticStepCount: countSemanticActions(stepEvents),
+    semanticPhaseCount: countSemanticActions(phaseEvents),
     previews: {
       step: buildUndoBoundaryPreview(stepPlan.boundaryState),
       phase: buildUndoBoundaryPreview(phasePlan.boundaryState),
@@ -694,7 +764,7 @@ function emitUndoCountsUpdate(io: Server, gameId: string, game: any): void {
   try {
     const eventCount = getEventCount(gameId);
     const events = getEvents(gameId);
-    const { stepCount, phaseCount, previousPhaseCount, turnCount, previews } = calculateSmartUndoCounts(game, events);
+    const { stepCount, phaseCount, previousPhaseCount, turnCount, semanticStepCount, semanticPhaseCount, previews } = calculateSmartUndoCounts(game, events);
 
     io.to(gameId).emit('undoCountUpdate', {
       gameId,
@@ -707,6 +777,8 @@ function emitUndoCountsUpdate(io: Server, gameId: string, game: any): void {
       phaseCount,
       previousPhaseCount,
       turnCount,
+      semanticStepCount,
+      semanticPhaseCount,
       previews,
       totalCount: events.length,
     });
@@ -1343,7 +1415,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         debugWarn(1, `[getSmartUndoCounts] Failed to get events for game ${gameId}:`, e);
       }
 
-      const { stepCount, phaseCount, previousPhaseCount, turnCount, previews } = calculateSmartUndoCounts(game, events);
+      const { stepCount, phaseCount, previousPhaseCount, turnCount, semanticStepCount, semanticPhaseCount, previews } = calculateSmartUndoCounts(game, events);
 
       socket.emit("smartUndoCountsUpdate", {
         gameId,
@@ -1351,6 +1423,8 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         phaseCount,
         previousPhaseCount,
         turnCount,
+        semanticStepCount,
+        semanticPhaseCount,
         previews,
         totalCount: events.length,
       });

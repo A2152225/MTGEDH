@@ -104,6 +104,7 @@ function resolveAddCounterAbility(ctx: GameContext, item: any, controller: Playe
   }
 
   updateCounters(ctx, targetId, { [counterType]: 1 }, { skipEventPersistence: true });
+  // Replay fidelity: counterTargetChosen (appended below) restores the +1 counter on undo/replay.
 
   const targetName = String((targetPermanent as any).card?.name || counterParams.targetName || 'permanent');
   const targetController = String((targetPermanent as any).controller || '').trim();

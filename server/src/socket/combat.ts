@@ -3051,7 +3051,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       broadcastGame(io, game, gameId);
 
-      debug(2, `[combat] Player ${playerId} declared ${blockerCount} blockers in game ${gameId}`);
+      debug(2, `[combat] Player ${playerId} declared ${resolvedBlockers.length} blockers in game ${gameId}`);
 
       // NOTE: Do NOT auto-advance the step here!
       // Per MTG rules, after blockers are declared, all players get priority

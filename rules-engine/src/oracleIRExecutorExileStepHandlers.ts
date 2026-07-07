@@ -7,12 +7,14 @@ import {
   getCardManaValue,
   getCardTypeLineLower,
   getPlayableUntilTurnForImpulseDuration,
+  impulseExileTopRequiresChooseOne,
   quantityToNumber,
   resolvePlayers,
   resolveUnknownExileUntilAmountForPlayer,
   putSpecificExiledCardsOnLibraryBottom,
   shouldReturnUncastExiledToBottom,
   shouldShuffleRestIntoLibrary,
+  stampExiledCardsForDeferredChoice,
   splitExiledForShuffleRest,
   isCardExiledWithSource,
 } from './oracleIRExecutorPlayerUtils';
@@ -252,6 +254,15 @@ export function applyImpulseExileTopStep(
   const exiledBy = ctx.sourceName;
   const returnUncastToBottom = shouldReturnUncastExiledToBottom(step as any);
   const shuffleRestIntoLibrary = shouldShuffleRestIntoLibrary(step as any);
+  const requiresChooseOne = impulseExileTopRequiresChooseOne(step);
+  const spendManaAsThoughAnyType = /mana of any type can be spent to cast those spells/i.test(String(step.raw || ''));
+  const permissionRecipientForWho = (libraryOwnerId: PlayerID): PlayerID => {
+    const whoKind = String((step.who as any)?.kind || '').trim();
+    if (whoKind === 'each_player' || whoKind === 'each_opponent') {
+      return String(ctx.controllerId || libraryOwnerId) as PlayerID;
+    }
+    return libraryOwnerId;
+  };
 
   let nextState = state;
   let totalExiled = 0;
@@ -278,15 +289,21 @@ export function applyImpulseExileTopStep(
     log.push(...result.log);
     if (result.ledgerRecordedViaBridge) ledgerRecordedViaBridge = true;
 
-    const markerResult = applyImpulsePermissionMarkers(nextState, playerId, result.exiled, {
-      permission,
-      playableUntilTurn,
-      condition,
-      exiledBy,
-    });
-    nextState = markerResult.state;
-    if (markerResult.granted > 0) {
-      log.push(`${playerId} may ${permission === 'play' ? 'play' : 'cast'} ${markerResult.granted} exiled card(s)`);
+    if (!requiresChooseOne || result.exiled.length <= 1) {
+      const markerResult = applyImpulsePermissionMarkers(nextState, playerId, result.exiled, {
+        permission,
+        playableUntilTurn,
+        condition,
+        exiledBy,
+        permissionRecipient: permissionRecipientForWho(playerId),
+        ...(spendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
+      });
+      nextState = markerResult.state;
+      if (markerResult.granted > 0) {
+        log.push(`${permissionRecipientForWho(playerId)} may ${permission === 'play' ? 'play' : 'cast'} ${markerResult.granted} exiled card(s)`);
+      }
+    } else {
+      nextState = stampExiledCardsForDeferredChoice(nextState, playerId, result.exiled, String(exiledBy || '').trim());
     }
 
     if (shuffleRestIntoLibrary && result.exiled.length > 0) {
@@ -341,28 +358,57 @@ export function applyModifyExilePermissionsStep(
   }
 
   let changed = 0;
+  const patchExileCard = (card: any): any => {
+    const id = String(card?.id ?? card?.cardId ?? '').trim();
+    if (!id || !exiledIds.has(id)) return card;
+    changed += 1;
+    return {
+      ...card,
+      ...(step.withoutPayingManaCost ? { withoutPayingManaCost: true, castWithoutPayingManaCost: true } : {}),
+    };
+  };
+
   const updatedPlayers = (state.players || []).map((player: any) => {
     const exile = Array.isArray(player?.exile) ? player.exile : [];
     if (exile.length === 0) return player;
 
     let playerChanged = false;
     const updatedExile = exile.map((card: any) => {
-      const id = String(card?.id ?? card?.cardId ?? '').trim();
-      if (!id || !exiledIds.has(id)) return card;
-      playerChanged = true;
-      changed += 1;
-      return {
-        ...card,
-        ...(step.withoutPayingManaCost ? { withoutPayingManaCost: true } : {}),
-      };
+      const nextCard = patchExileCard(card);
+      if (nextCard !== card) playerChanged = true;
+      return nextCard;
     });
 
     return playerChanged ? ({ ...player, exile: updatedExile } as any) : player;
   });
 
+  const stateAny: any = { ...(state as any), players: updatedPlayers as any };
+  const zones = stateAny.zones && typeof stateAny.zones === 'object' ? { ...stateAny.zones } : {};
+  let zonesChanged = false;
+  for (const zoneOwnerId of Object.keys(zones)) {
+    const exile = Array.isArray(zones[zoneOwnerId]?.exile) ? zones[zoneOwnerId].exile : [];
+    if (exile.length === 0) continue;
+    let zoneChanged = false;
+    const updatedExile = exile.map((card: any) => {
+      const nextCard = patchExileCard(card);
+      if (nextCard !== card) zoneChanged = true;
+      return nextCard;
+    });
+    if (zoneChanged) {
+      zonesChanged = true;
+      zones[zoneOwnerId] = {
+        ...zones[zoneOwnerId],
+        exile: updatedExile,
+      };
+    }
+  }
+  if (zonesChanged) {
+    stateAny.zones = zones;
+  }
+
   return {
     applied: true,
-    state: { ...(state as any), players: updatedPlayers as any } as any,
+    state: stateAny as GameState,
     log:
       changed > 0
         ? [`Updated exile permissions for ${changed} exiled card(s)`]

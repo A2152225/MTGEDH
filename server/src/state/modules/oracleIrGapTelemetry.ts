@@ -39,6 +39,8 @@ export type OracleIrGapTelemetryScope =
   | 'trigger'
   | 'activated'
   | 'fallback'
+  | 'static'
+  | 'replacement'
   | 'unknown';
 
 export interface OracleIrGapTelemetryEvent {
@@ -245,5 +247,9 @@ export function resetOracleIrGapTelemetry(): void {
   byScopeKind.clear();
   labelCounts.clear();
   recentEvents.length = 0;
+  loggedFingerprints.clear();
+}
+
+export function resetOracleIrGapTelemetryLoggedFingerprints(): void {
   loggedFingerprints.clear();
 }

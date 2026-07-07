@@ -16,7 +16,6 @@ import { ResolutionStepType } from "../resolution/types.js";
 import { recordCardPutIntoGraveyardThisTurn, recordPermanentPutIntoHandFromBattlefieldThisTurn } from "./turn-tracking.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
-import { getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { processLinkedExileReturns } from "./triggers/linked-exile.js";
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
@@ -25,6 +24,10 @@ import { getMillTriggers } from "./triggers/mill.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./triggers/target-metadata.js";
 import { evaluateDrawReplacementEvent } from "./replacement-effects.js";
+import {
+  applyLeaveBattlefieldReplacementLifeGain,
+  tryApplyDeclarativeLeaveBattlefieldDestinationReplacement,
+} from "./zone-manipulation.js";
 import { updateCounters } from "./counters_tokens.js";
 import { revertCopyPermanentToOriginal } from "./permanent-copy.js";
 
@@ -1694,8 +1697,8 @@ export function movePermanentToLibrary(
   clearPreparedStateOnBattlefieldExit(state, perm);
 
   // Revolt-style per-turn tracking: a permanent left the battlefield under its controller's control.
+  const controllerAtLeave = String((perm as any)?.controller || owner || '').trim();
   try {
-    const controllerAtLeave = String((perm as any)?.controller || owner || '').trim();
     if (controllerAtLeave) {
       (state as any).permanentLeftBattlefieldThisTurn = (state as any).permanentLeftBattlefieldThisTurn || {};
       (state as any).permanentLeftBattlefieldThisTurn[controllerAtLeave] = true;
@@ -1704,8 +1707,26 @@ export function movePermanentToLibrary(
     // best-effort only
   }
 
-  if (getCounterLeaveBattlefieldReplacement(perm, 'library') === 'exile') {
-    return moveRemovedPermanentToExile(ctx, perm, removedPermanentId);
+  const leaveReplacement = tryApplyDeclarativeLeaveBattlefieldDestinationReplacement(
+    ctx,
+    perm,
+    String(owner || ''),
+    {
+      intendedDestination: 'library',
+      controller: controllerAtLeave,
+      permanentId: removedPermanentId,
+      cause: 'library',
+    },
+  );
+  if (leaveReplacement.handled) {
+    applyLeaveBattlefieldReplacementLifeGain(ctx, leaveReplacement, controllerAtLeave);
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
+    }
+    if (leaveReplacement.replacementDestination !== 'exile') {
+      bumpSeq();
+    }
+    return true;
   }
 
   // Tokens cease to exist when they leave the battlefield instead of entering a library.
@@ -1833,8 +1854,8 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
   clearPreparedStateOnBattlefieldExit(state, perm);
 
   // Revolt-style per-turn tracking: a permanent left the battlefield under its controller's control.
+  const controllerAtLeave = String((perm as any)?.controller || owner || '').trim();
   try {
-    const controllerAtLeave = String((perm as any)?.controller || owner || '').trim();
     if (controllerAtLeave) {
       (state as any).permanentLeftBattlefieldThisTurn = (state as any).permanentLeftBattlefieldThisTurn || {};
       (state as any).permanentLeftBattlefieldThisTurn[controllerAtLeave] = true;
@@ -1843,8 +1864,26 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
     // best-effort only
   }
 
-  if (getCounterLeaveBattlefieldReplacement(perm, 'hand') === 'exile') {
-    return moveRemovedPermanentToExile(ctx, perm, removedPermanentId);
+  const leaveReplacement = tryApplyDeclarativeLeaveBattlefieldDestinationReplacement(
+    ctx,
+    perm,
+    String(owner || ''),
+    {
+      intendedDestination: 'hand',
+      controller: controllerAtLeave,
+      permanentId: removedPermanentId,
+      cause: 'bounce',
+    },
+  );
+  if (leaveReplacement.handled) {
+    applyLeaveBattlefieldReplacementLifeGain(ctx, leaveReplacement, controllerAtLeave);
+    if (removedPermanentId) {
+      processLinkedExileReturns(ctx, removedPermanentId);
+    }
+    if (leaveReplacement.replacementDestination !== 'exile') {
+      bumpSeq();
+    }
+    return true;
   }
 
   // Tokens cease to exist when they leave the battlefield (Rule 111.7).

@@ -87,6 +87,45 @@ export function consumeReplayedTriggeredAbilityStackItems(
   }
 }
 
+/** Drop activated-ability stack items whose outcome was already restored via a persisted mutation event. */
+export function consumeReplayedActivatedAbilityStackItems(
+  ctx: GameContext,
+  event: Record<string, unknown>,
+): void {
+  if (!(ctx as any).isReplaying) return;
+
+  const controllerId = String(event.controllerId || '').trim();
+  const sourceName = String(
+    event.oracleIrSourceName || event.effectProgramSourceName || event.sourceName || '',
+  ).trim();
+  const sourceId = String(
+    event.oracleIrSourceId || event.effectProgramSourceId || event.sourceId || '',
+  ).trim();
+  if (!sourceName && !sourceId) return;
+
+  const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
+  if (stack.length === 0) return;
+
+  const nextStack = stack.filter((item: any) => {
+    if (!item || String(item.type || '') !== 'ability') return true;
+
+    const itemController = String(item.controller || '').trim();
+    if (controllerId && itemController && itemController !== controllerId) return true;
+
+    const itemSourceName = String(item.sourceName || item.card?.name || '').trim();
+    if (sourceName && itemSourceName && itemSourceName === sourceName) return false;
+
+    const itemSource = String(item.source || item.permanentId || '').trim();
+    if (sourceId && itemSource && itemSource === sourceId) return false;
+
+    return true;
+  });
+
+  if (nextStack.length !== stack.length) {
+    (ctx.state as any).stack = nextStack;
+  }
+}
+
 function isReplayableSpellStackItem(item: any): boolean {
   if (!item || !item.card) return false;
   const itemType = String(item.type || '').toLowerCase();
@@ -180,6 +219,49 @@ const STACK_PUSH_REPLAY_EVENT_TYPES = new Set([
   'pushStack',
 ]);
 
+/** Replay-ending events that legitimately leave pending triggered abilities on the stack. */
+const STACK_PRESERVING_REPLAY_END_EVENT_TYPES = new Set([
+  'queueTriggerOrderStep',
+  'castSpellContinuation',
+]);
+
+function shouldPreservePendingTriggeredStackAfterReplay(ctx: GameContext): boolean {
+  const lastReplayEventType = String((ctx as any)._replayLastEventType || '').trim();
+  if (!STACK_PRESERVING_REPLAY_END_EVENT_TYPES.has(lastReplayEventType)) return false;
+
+  const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
+  if (stack.length === 0) return false;
+
+  return stack.some((item: any) => String(item?.type || '').toLowerCase() === 'triggered_ability');
+}
+
+/** keywordPromptResolve keywords that intentionally leave pending stack triggers after replay. */
+const KEYWORD_PROMPT_RESOLVE_STACK_KEYWORDS = new Set([
+  'exploit',
+]);
+
+function shouldPreserveStackAfterKeywordPromptResolve(ctx: GameContext): boolean {
+  const lastEvent = (ctx as any)._replayLastEvent;
+  if (!lastEvent || typeof lastEvent !== 'object') return false;
+  if (String((lastEvent as any).type || '').trim() !== 'keywordPromptResolve') return false;
+  if ((lastEvent as any).cancelled === true) return false;
+
+  const keyword = String((lastEvent as any).keyword || '').trim().toLowerCase();
+  if (!KEYWORD_PROMPT_RESOLVE_STACK_KEYWORDS.has(keyword)) return false;
+
+  const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
+  if (stack.length === 0) return false;
+
+  if (keyword === 'exploit') {
+    return stack.some((item: any) =>
+      String(item?.type || '').toLowerCase() === 'triggered_ability'
+      && String(item?.triggerType || '').toLowerCase() === 'exploit',
+    );
+  }
+
+  return true;
+}
+
 /**
  * After a full replay, drop triggered abilities that were resolved earlier in the
  * game but left on the stack because resolveTopOfStack replay used to no-op.
@@ -199,6 +281,12 @@ export function scrubStaleReplayedStackAfterFullReplay(ctx: GameContext): void {
 
   const lastReplayEventType = String((ctx as any)._replayLastEventType || '').trim();
   if (STACK_PUSH_REPLAY_EVENT_TYPES.has(lastReplayEventType)) {
+    return;
+  }
+  if (shouldPreserveStackAfterKeywordPromptResolve(ctx)) {
+    return;
+  }
+  if (shouldPreservePendingTriggeredStackAfterReplay(ctx)) {
     return;
   }
 

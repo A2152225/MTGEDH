@@ -26,6 +26,7 @@ import { isOracleIrTriggerPrimaryEnabled } from "../state/modules/oracleIrFeatur
 import { isTriggerEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIrTriggerLegacyRouting.js";
 import { resolveOnCastSpellTriggerDescription } from "../state/modules/onCastSpellTriggerUtils.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
+import { createToken } from "../state/modules/counters_tokens.js";
 import { resolveLandCardFaceForBattlefieldEntry } from "../state/modules/stackPlayLandUtils.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferGenericTriggeredAbilityTargetMetadata } from "../state/modules/triggers/index.js";
@@ -58,7 +59,7 @@ import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcu
 import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
-import { getCounterLeaveBattlefieldReplacement } from "../state/modules/counter-common-effects.js";
+import { getDeclarativeLeaveBattlefieldReplacementHint } from "../state/modules/leaveBattlefieldReplacementHint.js";
 import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, cleanupCardLeavingExile, findPlayableExileCardForPlayer, getPlayableExileCardsForPlayer, getPlayableFromExileDurablePermissionForCard } from "../state/modules/playable-from-exile.js";
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
@@ -107,18 +108,12 @@ export const emitPendingDamageTriggers = emitPendingDamageTriggersImpl;
 
 const FLOATING_MANA_PAYMENT_PREFIX = '__pool__:';
 
-function getLeaveBattlefieldReplacementHint(permanent: any, destination: 'graveyard' | 'hand' | 'library' = 'graveyard') {
-  if (getCounterLeaveBattlefieldReplacement(permanent, destination) !== 'exile') {
-    return {};
-  }
-
-  const sourceName = String((permanent as any)?.leaveBattlefieldReplacementSourceName || (permanent as any)?.card?.leaveBattlefieldReplacementSourceName || '').trim();
-  const lifeGain = Number((permanent as any)?.leaveBattlefieldReplacementLifeGain || (permanent as any)?.card?.leaveBattlefieldReplacementLifeGain || 0);
-  return {
-    leaveBattlefieldReplacementDestination: 'exile' as const,
-    ...(sourceName ? { leaveBattlefieldReplacementSourceName: sourceName } : {}),
-    ...(lifeGain > 0 ? { leaveBattlefieldReplacementLifeGain: lifeGain } : {}),
-  };
+function getLeaveBattlefieldReplacementHint(
+  permanent: any,
+  destination: 'graveyard' | 'hand' | 'library' = 'graveyard',
+  state?: unknown,
+) {
+  return getDeclarativeLeaveBattlefieldReplacementHint(permanent, destination, state);
 }
 
 function getFloatingPaymentPoolKey(permanentId: string, mana: string, pool?: any): string | null {
@@ -3176,6 +3171,59 @@ function parseCastSpellPower(spellCard: any): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function buildSpellCopyRetargetValidTargetsFallback(
+  game: any,
+  controllerId: string,
+  submittedTargets: unknown,
+): Array<Record<string, unknown>> | null {
+  if (!Array.isArray(submittedTargets) || submittedTargets.length === 0) return null;
+
+  const players = Array.isArray(game?.state?.players) ? game.state.players : [];
+  const wantsPlayerTarget = submittedTargets.some((target: any) => {
+    const id = String(target?.id || '').trim();
+    const kind = String(target?.kind || target?.type || '').toLowerCase();
+    if (kind === 'player') return true;
+    return players.some((player: any) => String(player?.id || '') === id);
+  });
+  if (!wantsPlayerTarget) return null;
+
+  return players.map((player: any) => ({
+    id: player.id,
+    kind: 'player',
+    name: player.name || player.id,
+    isOpponent: String(player.id || '') !== String(controllerId || ''),
+  }));
+}
+
+function resolveSpellCopyRetargetValidTargets(
+  game: any,
+  controllerId: string,
+  copiedItem: any,
+  submittedTargets?: unknown,
+): any[] {
+  const fromItem = Array.isArray(copiedItem?.copyRetargetValidTargets) ? copiedItem.copyRetargetValidTargets : [];
+  if (fromItem.length > 0) return fromItem;
+
+  const fallback = buildSpellCopyRetargetValidTargetsFallback(game, controllerId, submittedTargets);
+  if (fallback && fallback.length > 0) {
+    copiedItem.copyRetargetValidTargets = fallback;
+    if (!copiedItem.copyRetargetTargetTypes) {
+      copiedItem.copyRetargetTargetTypes = ['player'];
+    }
+    if (!Number.isFinite(Number(copiedItem.copyRetargetMinTargets))) {
+      const currentTargets = Array.isArray(copiedItem?.targets) ? copiedItem.targets : [];
+      copiedItem.copyRetargetMinTargets = Math.max(1, currentTargets.length || 1);
+      copiedItem.copyRetargetMaxTargets = Math.max(1, currentTargets.length || 1);
+    }
+    if (!String(copiedItem.copyRetargetTargetDescription || '').trim()) {
+      copiedItem.copyRetargetTargetDescription = 'player';
+    }
+    return fallback;
+  }
+
+  return [];
+}
+
 function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any, castSourceZone?: SpellCastSourceZone): SpellCastTrigger[] {
   const triggers: SpellCastTrigger[] = [];
   const battlefield = game.state?.battlefield || [];
@@ -3340,44 +3388,45 @@ export function recordSpellCastThisTurn(
 function createSpellCastTriggerToken(game: any, io: Server, gameId: string, casterId: string, trigger: SpellCastTrigger): void {
   if (!trigger.createsToken || !trigger.tokenDetails) return;
 
-  const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  let oracleText = '';
-  const abilitiesText = trigger.tokenDetails.abilities
-    ? trigger.tokenDetails.abilities.map((ability) => ability.charAt(0).toUpperCase() + ability.slice(1)).join(', ')
-    : '';
-  if (abilitiesText) {
-    oracleText = abilitiesText;
-  }
-
-  const token = {
-    id: tokenId,
-    controller: casterId,
-    owner: casterId,
-    tapped: false,
-    counters: {},
-    basePower: trigger.tokenDetails.power,
-    baseToughness: trigger.tokenDetails.toughness,
-    summoningSickness: true,
-    isToken: true,
-    card: {
-      id: tokenId,
-      name: trigger.tokenDetails.name,
-      type_line: trigger.tokenDetails.types,
-      power: String(trigger.tokenDetails.power),
-      toughness: String(trigger.tokenDetails.toughness),
-      oracle_text: oracleText,
-      zone: 'battlefield',
-    },
+  const details = trigger.tokenDetails;
+  const colorMap: Record<string, string> = {
+    white: 'W',
+    blue: 'U',
+    black: 'B',
+    red: 'R',
+    green: 'G',
   };
-  game.state.battlefield = game.state.battlefield || [];
-  game.state.battlefield.push(token as any);
+  const colors = Array.isArray(details.colors)
+    ? details.colors.map((color: string) => colorMap[String(color).toLowerCase()] || String(color).toUpperCase())
+    : undefined;
 
+  const createdTokenIds = createToken(
+    {
+      state: game.state,
+      bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
+      gameId,
+    } as any,
+    casterId as any,
+    details.name,
+    1,
+    details.power,
+    details.toughness,
+    {
+      colors,
+      typeLine: details.types,
+      abilities: Array.isArray(details.abilities) ? details.abilities : undefined,
+    },
+  );
+
+  const abilitiesText = details.abilities
+    ? details.abilities.map((ability: string) => ability.charAt(0).toUpperCase() + ability.slice(1)).join(', ')
+    : '';
   const abilitiesDisplay = abilitiesText ? ` with ${abilitiesText}` : '';
   io.to(gameId).emit('chat', {
     id: `m_${Date.now()}`,
     gameId,
     from: 'system',
-    message: `${trigger.cardName}: ${getPlayerName(game, casterId)} creates a ${trigger.tokenDetails.power}/${trigger.tokenDetails.toughness} ${trigger.tokenDetails.name}${abilitiesDisplay}.`,
+    message: `${trigger.cardName}: ${getPlayerName(game, casterId)} creates ${createdTokenIds.length} ${details.power}/${details.toughness} ${details.name}${abilitiesDisplay}.`,
     ts: Date.now(),
   });
 }
@@ -4126,10 +4175,13 @@ function cloneTriggeredSpellCopy(
   });
 
   const allowsRetargeting = /choose new targets for the copy\.?/i.test(`${String(trigger.description || '')} ${String(trigger.effect || '')}`);
-  const validTargets = Array.isArray((copiedItem as any).copyRetargetValidTargets)
-    ? (copiedItem as any).copyRetargetValidTargets
-    : [];
   const currentTargets = Array.isArray((copiedItem as any).targets) ? (copiedItem as any).targets : [];
+  const validTargets = resolveSpellCopyRetargetValidTargets(
+    game,
+    controllerId,
+    copiedItem,
+    currentTargets,
+  );
 
   if (allowsRetargeting && validTargets.length > 0 && currentTargets.length > 0) {
     const queuedResolutionStep = createResolutionStep({
@@ -4298,9 +4350,12 @@ export function consumeDelayedSpellCopiesForCast(
       ts: Date.now(),
     });
 
-    const validTargets = Array.isArray((copiedItem as any).copyRetargetValidTargets)
-      ? (copiedItem as any).copyRetargetValidTargets
-      : [];
+    const validTargets = resolveSpellCopyRetargetValidTargets(
+      game,
+      casterId,
+      copiedItem,
+      Array.isArray((copiedItem as any).targets) ? (copiedItem as any).targets : [],
+    );
     const currentTargets = Array.isArray((copiedItem as any).targets) ? (copiedItem as any).targets : [];
     if (entry?.allowRetargeting === true && validTargets.length > 0 && currentTargets.length > 0) {
       const queuedResolutionStep = createResolutionStep({
@@ -6442,7 +6497,7 @@ export async function requestCastSpellForSocket(
               name: p.card?.name || 'Unknown',
               imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
               typeLine: p.card?.type_line,
-              ...getLeaveBattlefieldReplacementHint(p, 'graveyard'),
+              ...getLeaveBattlefieldReplacementHint(p, 'graveyard', game.state),
             })),
             castSpellFromHandArgs: {
               cardId,
@@ -7097,7 +7152,7 @@ export async function requestCastSpellForSocket(
           name: p.card?.name || 'Unknown',
           imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
           typeLine: p.card?.type_line,
-          ...getLeaveBattlefieldReplacementHint(p, 'graveyard'),
+          ...getLeaveBattlefieldReplacementHint(p, 'graveyard', game.state),
         })),
         castSpellFromHandArgs: {
           cardId,
@@ -9163,7 +9218,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 name: p.card?.name || 'Unknown',
                 imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
                 typeLine: p.card?.type_line,
-                ...getLeaveBattlefieldReplacementHint(p, 'graveyard'),
+                ...getLeaveBattlefieldReplacementHint(p, 'graveyard', game.state),
               })),
               castSpellFromHandArgs: {
                 cardId,
@@ -9610,7 +9665,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 name: p.card?.name || 'Unknown',
                 imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
                 typeLine: p.card?.type_line,
-                ...getLeaveBattlefieldReplacementHint(p, 'graveyard'),
+                ...getLeaveBattlefieldReplacementHint(p, 'graveyard', game.state),
               })),
               castSpellFromHandArgs: {
                 cardId,
@@ -11691,7 +11746,15 @@ export function registerGameActions(io: Server, socket: Socket) {
                 : ['spell_target'];
             }
 
-            if (!Array.isArray(validTargetList) || validTargetList.length === 0) return null;
+            if (!Array.isArray(validTargetList) || validTargetList.length === 0) {
+              const fallbackTargets = buildSpellCopyRetargetValidTargetsFallback(game, playerId, targets);
+              if (!fallbackTargets || fallbackTargets.length === 0) return null;
+              validTargetList = fallbackTargets;
+              targetTypes = ['player'];
+              targetDescription = 'player';
+              minTargets = Array.isArray(targets) ? targets.length : 1;
+              maxTargets = Array.isArray(targets) ? targets.length : 1;
+            }
 
             return {
               copyRetargetValidTargets: validTargetList.map((target: any) => ({

@@ -154,6 +154,15 @@ function resolveDeferredCopyTargetStackItem(
   return null;
 }
 
+function shouldDoubleCopyWhenCastFromGraveyard(
+  params: { sourceItem?: any; oracleText?: string },
+  irCtx: OracleIRExecutionContext,
+): boolean {
+  if (!/copy that spell twice instead/i.test(String(params.oracleText || ''))) return false;
+  if (wasSpellCastFromGraveyard(params.sourceItem)) return true;
+  return String(irCtx?.castFromZone || '').trim().toLowerCase() === 'graveyard';
+}
+
 function resolveServerStackCopyCount(
   state: any,
   controller: PlayerID,
@@ -173,11 +182,7 @@ function resolveServerStackCopyCount(
   const metadataCount = Number(params.gapMetadata?.copyCount);
   if (Number.isFinite(metadataCount) && metadataCount >= 0) {
     let count = Math.max(0, metadataCount);
-    if (
-      count === 1
-      && wasSpellCastFromGraveyard(params.sourceItem)
-      && /copy that spell twice instead/i.test(String(params.oracleText || ''))
-    ) {
+    if (count === 1 && shouldDoubleCopyWhenCastFromGraveyard(params, irCtx)) {
       count = 2;
     }
     return count;
@@ -190,11 +195,7 @@ function resolveServerStackCopyCount(
   ) {
     count = resolveSpellsCastBeforeThisTurnCopyCount(state, controller);
   }
-  if (
-    count === 1
-    && wasSpellCastFromGraveyard(params.sourceItem)
-    && /copy that spell twice instead/i.test(String(params.oracleText || ''))
-  ) {
+  if (count === 1 && shouldDoubleCopyWhenCastFromGraveyard(params, irCtx)) {
     count = 2;
   }
   return count;

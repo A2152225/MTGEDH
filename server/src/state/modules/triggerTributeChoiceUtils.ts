@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { processKeywordTriggers, type KeywordTriggerContext } from './keyword-handlers.js';
+import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
 
 export function queueTributeChoiceOnEntry(
   ctx: GameContext,
@@ -83,7 +84,7 @@ export function queueTributeChoiceOnEntry(
     return false;
   }
 
-  ResolutionQueueManager.addStep(gameId, {
+  const queuedStep = ResolutionQueueManager.addStep(gameId, {
     type: ResolutionStepType.TRIBUTE_CHOICE,
     playerId: keywordChoice.playerId as any,
     description: String(tributeResult.chatMessage || `${permanent?.card?.name || 'Permanent'}: Tribute choice`),
@@ -103,6 +104,12 @@ export function queueTributeChoiceOnEntry(
       ? { value: keywordChoice.value }
       : null),
   } as any);
+
+  appendQueuedResolutionPromptEvent(ctx, {
+    playerId: String(keywordChoice.playerId || '').trim(),
+    sourceId: normalizedPermanentId,
+    queuedResolutionStep: queuedStep,
+  });
 
   debug(2, `[queueTributeChoiceOnEntry] Queued tribute choice for ${permanent?.card?.name || normalizedPermanentId}`);
   return true;

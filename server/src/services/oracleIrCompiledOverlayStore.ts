@@ -120,6 +120,38 @@ export function lookupCompiledOracleIROverlaySync(
   return null;
 }
 
+/** Raw stored payload for telemetry (includes fallback_to_bespoke / invalid envelopes). */
+export function peekCompiledOracleIROverlayPayloadSync(
+  input: CompiledOracleIROverlayLookupInput,
+): string | null {
+  ensureLocalCardLookupIndexSync();
+  const database = getLocalCardLookupDatabase();
+  const cardId = normalizeCardId(input.cardId);
+  const normalizedName = normalizeOverlayName(input.name);
+
+  if (cardId) {
+    const byId = database.prepare(`
+      SELECT payload FROM oracle_ir_compiled_overlay
+      WHERE card_id = ? OR overlay_key = ?
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `).get(cardId, normalizeOverlayKey(cardId)) as { payload: string } | undefined;
+    if (byId?.payload) return byId.payload;
+  }
+
+  if (normalizedName) {
+    const byName = database.prepare(`
+      SELECT payload FROM oracle_ir_compiled_overlay
+      WHERE normalized_name = ? OR overlay_key = ?
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `).get(normalizedName, normalizeOverlayKey(normalizedName)) as { payload: string } | undefined;
+    if (byName?.payload) return byName.payload;
+  }
+
+  return null;
+}
+
 export function resetCompiledOracleIROverlayTableForTests(): void {
   ensureLocalCardLookupIndexSync();
   const database = getLocalCardLookupDatabase();

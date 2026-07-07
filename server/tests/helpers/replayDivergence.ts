@@ -28,7 +28,9 @@ import { getEvents } from '../../src/db/index.js';
 
 /** Persist order can differ from causal order (e.g. drawCards before scryResolve). */
 const REPLAY_CAUSAL_ORDER: Record<string, number> = {
+  pushTriggeredAbility: 5,
   resolveTopOfStackPrompt: 10,
+  assignTriggeredAbilityTargets: 15,
   scryResolve: 20,
   surveilResolve: 20,
   librarySearchResolve: 20,
@@ -36,7 +38,13 @@ const REPLAY_CAUSAL_ORDER: Record<string, number> = {
   bottomOrderResolve: 20,
   discardEffect: 25,
   cleanupDiscard: 25,
-  shuffleLibrary: 35,
+  adjustLife: 30,
+  updateCounters: 31,
+  keywordPromptResolve: 33,
+  goadPermanent: 32,
+  battlefieldPermanentPatch: 32,
+  lifeRedistributionResolve: 35,
+  shuffleLibrary: 38,
   drawCards: 40,
   moveResolvedInstantOrSorcery: 45,
 };
@@ -68,6 +76,7 @@ export function toReplayEvents(gameId: string, startIndex = 0): Array<Record<str
 
 type ReplayCompareProjection = {
   players: Array<{ id: string; life: number | null }>;
+  manaPool: Record<string, Record<string, number>>;
   zones: Record<
     string,
     {
@@ -80,7 +89,20 @@ type ReplayCompareProjection = {
       libraryCount: number;
     }
   >;
-  battlefield: Array<{ name: string; controller: string; tapped: boolean }>;
+  battlefield: Array<{
+    name: string;
+    controller: string;
+    tapped: boolean;
+    goadedBy: string[];
+    grantedAbilities: string[];
+    unleashed: boolean;
+    counters: Record<string, number>;
+    tempPowerBonus: number;
+    tempToughnessBonus: number;
+    isSuspected: boolean;
+    phasedOut: boolean;
+    temporaryEffects: string[];
+  }>;
   stack: string[];
 };
 
@@ -117,6 +139,19 @@ export function projectStateForReplayCompare(game: any): ReplayCompareProjection
     }))
     .sort((a: any, b: any) => a.id.localeCompare(b.id));
 
+  const manaPool: ReplayCompareProjection['manaPool'] = {};
+  for (const player of players) {
+    const pool = (state.manaPool || {})[player.id] || {};
+    manaPool[player.id] = {
+      white: Number(pool.white || 0),
+      blue: Number(pool.blue || 0),
+      black: Number(pool.black || 0),
+      red: Number(pool.red || 0),
+      green: Number(pool.green || 0),
+      colorless: Number(pool.colorless || 0),
+    };
+  }
+
   const zones: ReplayCompareProjection['zones'] = {};
   for (const player of players) {
     const zone = state.zones?.[player.id] || {};
@@ -141,6 +176,28 @@ export function projectStateForReplayCompare(game: any): ReplayCompareProjection
       name: String(permanent?.card?.name || permanent?.name || ''),
       controller: String(permanent?.controller || ''),
       tapped: Boolean(permanent?.tapped),
+      goadedBy: (Array.isArray(permanent?.goadedBy) ? permanent.goadedBy : [])
+        .map((id: unknown) => String(id || '').trim())
+        .filter(Boolean)
+        .sort(),
+      grantedAbilities: (Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [])
+        .map((ability: unknown) => String(ability || '').trim())
+        .filter(Boolean)
+        .sort(),
+      unleashed: permanent?.unleashed === true,
+      counters: Object.fromEntries(
+        Object.entries((permanent?.counters || {}) as Record<string, unknown>)
+          .map(([key, value]) => [key, Number(value) || 0])
+          .sort(([a], [b]) => a.localeCompare(b)),
+      ),
+      tempPowerBonus: Number(permanent?.tempPowerBonus || permanent?.temporaryPowerBoost || 0) || 0,
+      tempToughnessBonus: Number(permanent?.tempToughnessBonus || permanent?.temporaryToughnessBoost || 0) || 0,
+      isSuspected: Boolean(permanent?.isSuspected),
+      phasedOut: Boolean(permanent?.phasedOut),
+      temporaryEffects: (Array.isArray(permanent?.temporaryEffects) ? permanent.temporaryEffects : [])
+        .map((effect: any) => String(effect?.description || effect?.id || '').trim())
+        .filter(Boolean)
+        .sort(),
     }))
     .sort(
       (a: any, b: any) =>
@@ -153,7 +210,7 @@ export function projectStateForReplayCompare(game: any): ReplayCompareProjection
     return String(item?.card?.name || item?.sourceName || item?.type || '');
   });
 
-  return { players, zones, battlefield, stack };
+  return { players, manaPool, zones, battlefield, stack };
 }
 
 export function assertNoReplayDivergence(liveGame: any, replayGame: any): void {

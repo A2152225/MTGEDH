@@ -1,48 +1,60 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-07-07 (Phase 5.2 graveyard replacements wired; migration 873/873)
+Last updated: 2026-07-07 (Phase 5 complete; graveyard-permission IR fixes; migration 889/889)
 
 ## Next session prompt (copy-paste)
 
 ```
-Oracle IR — Phase 5.2 graveyard replacements wired (stable)
+Oracle IR — Phase 5 complete; graveyard-permission IR stable
 
 Done recently:
-- Phase 5.2 replacement registry: graveyard-to-exile-from-anywhere (Rest in Peace / Leyline), creature-die-exile-instead, intrinsic self-shuffle (Blightsteel / Nexus)
-- Declarative graveyard-entry wiring: tryApplyDeclarativeGraveyardDestinationReplacement → evaluateReplacementEvent
-  - pushCardToPlayerGraveyardWithReplacements (mill / discard / surveil)
-  - movePermanentToGraveyard (battlefield destroy; self-shuffle + leave-BF exile unified)
-- readCardOracleText reads nested permanent.card.oracle_text for intrinsic specs
-- D6 client: LIBRARY_SEARCH exile destination, optional minSelections, Skip/Continue (God-Pharaoh's Gift)
-- Optional search_library queue bridge: optional_step_requires_player_choice → LIBRARY_SEARCH (Fierce Empath)
-- Copy-token IR-primary + Dermotaxi / God-Pharaoh integration tests green
-- D3 complete: TRIGGER_LEGACY_EXPORT_CEILING = 0
-- Delta baseline updated (6 changed cards, 0 gaps)
+- Phase 5.3–5.5: StaticEffectSpec declarative oracle parsing + derived-view recompute (anthem/lord P/T, ability grants)
+- Anti-double-count: skipDeclarativeStaticForSourceIds gates legacy regex when declarative specs own a source
+- Leave-BF declarative path: tryApplyDeclarativeLeaveBattlefieldDestinationReplacement + hint preview
+- Continuous-effect gap telemetry: owned_but_unhandled for incomplete STATIC/REPLACEMENT overlays (SBA scan)
+- Graveyard-permission integration fixes (32/32): Horde of Notions defer, Magus exile replacement, Mishra's Research Desk impulse choose-one, Ignite the Future / Lidless Gaze exile flashback
+- Kethis activated-ability grant: full oracle parse for grant_graveyard_permission cost context
+- D3 complete: TRIGGER_LEGACY_EXPORT_CEILING = 0; legacy triage soak 0 exports
 
 Verify at session start:
 cd server
-npx vitest run tests/graveyard-self-shuffle-replacement.unit.test.ts tests/replacement-effect-spec.unit.test.ts tests/god-pharaohs-gift.begin-combat.integration.test.ts tests/stack.generic-library-and-untap.regression.test.ts tests/copy-token-ir-primary.integration.test.ts
+npx vitest run tests/graveyard-self-shuffle-replacement.unit.test.ts tests/replacement-effect-spec.unit.test.ts tests/god-pharaohs-gift.begin-combat.integration.test.ts tests/stack.generic-library-and-untap.regression.test.ts tests/copy-token-ir-primary.integration.test.ts tests/oracle-ir-continuous-effect-gap-telemetry.unit.test.ts
+npx vitest run tests/request-cast.graveyard-permission.integration.test.ts tests/play-land.graveyard-permission.integration.test.ts tests/static-effect-spec.unit.test.ts
 cd ../client
 npx vitest run tests/resolutionChoicePrimitives.test.ts
 cd ../server
 npm run test:oracle-ir-migration
+npm run oracle-ir:legacy-triage:soak
 
-Expect: migration 873/873; graveyard-self-shuffle 7/7; replacement-effect-spec 21/21
+Expect: migration 889/889; request-cast.graveyard-permission 32/32; static-effect-spec 27/27; delta 0 cards
 
 Key files:
-- server/src/state/modules/replacementEffectSpec.ts — oracle-pattern + intrinsic replacement specs
-- server/src/state/modules/zone-manipulation.ts — tryApplyDeclarativeGraveyardDestinationReplacement
-- server/src/state/modules/graveyardEntryUtils.ts — non-battlefield graveyard entry choke point
-- client/src/utils/resolutionChoicePrimitives.ts — buildLibrarySearchModalStateFromStep
+- server/src/state/modules/staticEffectSpec.ts — declarative static registry + derived view
+- server/src/state/modules/staticEffectSpecOracleParsing.ts — anthem/lord oracle → StaticEffectSpec
+- server/src/state/modules/oracleIrServerZoneSync.ts — graveyard/exile permission queue bridges
+- rules-engine/src/oracleIRParserPostprocess.ts — Magus exile-instead replacement folding
+- server/src/state/modules/replacementEffectSpec.ts — replacement registry (5.2)
 
-Architecture: docs/oracle-ir-phase5-continuous-effects-design.md §4 (5.2 done → 5.3 next)
+Architecture: docs/oracle-ir-phase5-continuous-effects-design.md §4 (5.1–5.5 done)
 
 Next work (priority):
-1. Phase 5.3 — StaticEffectSpec + derived-view recompute for anthem / lord P/T grants (avoid double-count with computeContinuousEffects)
-2. Wire removePermanent leave-BF exile through declarative evaluator (still uses getCounterLeaveBattlefieldReplacement)
-3. New-set overlay workflow when oracle-cards.json changes (npm run oracle-ir:delta → overlay probe)
-4. Live EDH soak + telemetry watch (owned_but_unhandled)
+1. New-set overlay workflow when oracle-cards.json changes (npm run oracle-ir:delta → overlay probe)
+2. Live EDH soak + telemetry watch (static:owned_but_unhandled, replacement:owned_but_unhandled)
+3. Windows migration stability — sharded vitest if single-process crash (exit 3221225477)
 ```
+
+## Session 2026-07-07 — Graveyard-permission IR + migration stable
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Graveyard cast permission** | Horde/Magus/Mishra/Ignite/Lidless Gaze fixes; **32/32** integration | `oracleIrServerZoneSync.ts`, `oracleIRParserPostprocess.ts`, `oracleIRExecutorExileStepHandlers.ts` |
+| **Play-land GY permission** | **18/18** + effect-program **1/1** | `play-land.graveyard-permission.integration.test.ts` |
+| **Kethis activated grant** | Full oracle parse for `grant_graveyard_permission` cost context | `oracleIrAbilityExecution.ts` |
+| **Migration bar** | **889/889** (123 files); legacy triage soak **0 exports** | `npm run test:oracle-ir-migration`, `oracle-ir:legacy-triage:soak` |
+| **Delta audit** | **0 changed cards** | `npm run oracle-ir:delta` |
+| **Static effects** | **27/27** declarative specs + gap telemetry **4/4** | `staticEffectSpec.ts`, `oracle-ir-continuous-effect-gap-telemetry.unit.test.ts` |
+
+**Still legacy-only:** some targeting hexproof edge cases in `triggered-abilities.ts`.
 
 ## Session 2026-07-06 — Phase 5.2 graveyard replacements + D6 UX
 

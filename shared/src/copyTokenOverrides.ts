@@ -6,6 +6,8 @@ export type CopyTokenOverrides = {
   readonly colors?: readonly string[];
   readonly addCardTypes?: readonly string[];
   readonly addSubtypes?: readonly string[];
+  /** When set, the copy's subtypes become exactly these (e.g. Croaking Counterpart's Frog). */
+  readonly replaceSubtypes?: readonly string[];
   readonly addAbilities?: readonly string[];
   readonly removeManaCost?: boolean;
   readonly removeLegendary?: boolean;
@@ -111,7 +113,9 @@ function applyTypeLineOverrides(typeLine: string, overrides: CopyTokenOverrides)
     ? split.supertypes.filter((type) => type.toLowerCase() !== 'legendary')
     : [...split.supertypes];
   const cardTypes = dedupeStrings([...split.cardTypes, ...(overrides.addCardTypes || [])]);
-  const subtypes = dedupeStrings([...split.subtypes, ...(overrides.addSubtypes || [])]);
+  const subtypes = overrides.replaceSubtypes && overrides.replaceSubtypes.length > 0
+    ? dedupeStrings([...overrides.replaceSubtypes])
+    : dedupeStrings([...split.subtypes, ...(overrides.addSubtypes || [])]);
   return buildTypeLine({ supertypes, cardTypes, subtypes });
 }
 
@@ -313,6 +317,7 @@ export function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrid
       )
     : undefined;
 
+  let replaceSubtypes: readonly string[] | undefined;
   if (ptColorSubtypeMatch) {
     power = Number.parseInt(String(ptColorSubtypeMatch[1] || ''), 10);
     toughness = Number.parseInt(String(ptColorSubtypeMatch[2] || ''), 10);
@@ -323,14 +328,13 @@ export function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrid
     }
     const subtypeRaw = String(ptColorSubtypeMatch[4] || '').trim();
     if (subtypeRaw) {
-      addSubtypes = dedupeStrings([
-        ...(addSubtypes || []),
-        ...subtypeRaw
+      replaceSubtypes = dedupeStrings(
+        subtypeRaw
           .split(/\s+and\s+|\s+/g)
           .map((word) => word.trim())
           .filter(Boolean)
           .map((word) => word.charAt(0).toUpperCase() + word.slice(1)),
-      ]);
+      );
     }
   } else if (ptBareSubtypeMatch) {
     const descriptor = String(ptBareSubtypeMatch[3] || '').trim().toLowerCase();
@@ -345,10 +349,9 @@ export function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrid
       .split(/\s+/g)
       .filter((word) => word && !COLOR_WORD_TO_SYMBOL[word]);
     if (subtypeWords.length > 0) {
-      addSubtypes = dedupeStrings([
-        ...(addSubtypes || []),
-        ...subtypeWords.map((word) => word.charAt(0).toUpperCase() + word.slice(1)),
-      ]);
+      replaceSubtypes = dedupeStrings(
+        subtypeWords.map((word) => word.charAt(0).toUpperCase() + word.slice(1)),
+      );
     }
   } else if (ptMatch) {
     power = Number.parseInt(String(ptMatch[1] || ''), 10);
@@ -362,6 +365,7 @@ export function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrid
     || colors.length > 0
     || power != null
     || (addSubtypes && addSubtypes.length > 0)
+    || (replaceSubtypes && replaceSubtypes.length > 0)
     || addArtifact
   ) {
     return {
@@ -372,6 +376,7 @@ export function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrid
       ...(power != null ? { power } : {}),
       ...(toughness != null ? { toughness } : {}),
       ...(addSubtypes && addSubtypes.length > 0 ? { addSubtypes } : {}),
+      ...(replaceSubtypes && replaceSubtypes.length > 0 ? { replaceSubtypes } : {}),
       ...(addArtifact ? { addCardTypes: ['Artifact'] } : {}),
     };
   }
@@ -414,6 +419,7 @@ export function applyCopyTokenOverrides(
   if (
     (overrides.addCardTypes && overrides.addCardTypes.length > 0)
     || (overrides.addSubtypes && overrides.addSubtypes.length > 0)
+    || (overrides.replaceSubtypes && overrides.replaceSubtypes.length > 0)
     || overrides.removeLegendary
   ) {
     const nextTypeLine = applyTypeLineOverrides(String(card.type_line || 'Creature'), overrides);

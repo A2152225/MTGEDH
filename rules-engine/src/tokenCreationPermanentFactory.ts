@@ -46,6 +46,7 @@ export function createTokenPermanent(
       name: characteristics.name,
       type_line: typeLineParts.join(' '),
       oracle_text: characteristics.abilities.join('\n'),
+      keywords: [...characteristics.abilities],
       power: characteristics.power?.toString(),
       toughness: characteristics.toughness?.toString(),
       colors: [...characteristics.colors],

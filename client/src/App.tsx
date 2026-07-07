@@ -617,6 +617,8 @@ export function App() {
     phaseCount: number;
     previousPhaseCount: number;
     turnCount: number;
+    semanticStepCount?: number;
+    semanticPhaseCount?: number;
     previews?: {
       step?: UndoBoundaryPreview;
       phase?: UndoBoundaryPreview;
@@ -2451,6 +2453,8 @@ export function App() {
       phaseCount: number; 
       previousPhaseCount: number;
       turnCount: number;
+      semanticStepCount?: number;
+      semanticPhaseCount?: number;
       previews?: {
         step?: UndoBoundaryPreview;
         phase?: UndoBoundaryPreview;
@@ -2464,6 +2468,8 @@ export function App() {
           phaseCount: payload.phaseCount,
           previousPhaseCount: payload.previousPhaseCount,
           turnCount: payload.turnCount,
+          semanticStepCount: payload.semanticStepCount,
+          semanticPhaseCount: payload.semanticPhaseCount,
           previews: payload.previews || {},
         });
       }

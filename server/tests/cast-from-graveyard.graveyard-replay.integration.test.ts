@@ -7035,8 +7035,6 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'torrential_replay_draw_1',
     );
 
-    game.resolveTopOfStack();
-
     const persistedEvents = getEvents(replayGameId);
     game.reset!(true);
     (game.state as any).phase = 'main';

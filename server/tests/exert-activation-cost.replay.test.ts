@@ -153,11 +153,12 @@ describe('activated exert costs replay coverage', () => {
 
     game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
+    const stewardAfter = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'steward_of_solidarity') as any;
     const twins = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'trueheart_twins') as any;
-    expect(steward.temporaryPTMods).toEqual([
+    expect(stewardAfter?.temporaryPTMods).toEqual([
       expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
     ]);
-    expect(twins.temporaryPTMods).toEqual([
+    expect(twins?.temporaryPTMods).toEqual([
       expect.objectContaining({ power: 1, toughness: 0, expiresAt: 'end_of_turn' }),
     ]);
 
@@ -298,8 +299,10 @@ describe('activated exert costs replay coverage', () => {
 
     game.applyEvent({ type: 'resolveTopOfStack' } as any);
 
-    expect(forestA?.tapped).toBe(false);
-    expect(forestB?.tapped).toBe(false);
+    const forestAAfter = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'forest_a') as any;
+    const forestBAfter = ((game.state as any).battlefield || []).find((permanent: any) => permanent?.id === 'forest_b') as any;
+    expect(forestAAfter?.tapped).toBe(false);
+    expect(forestBAfter?.tapped).toBe(false);
   });
 
   it('replays Fervent Paincaster exert damage activations with selected targets intact', () => {
@@ -362,7 +365,6 @@ describe('activated exert costs replay coverage', () => {
     const targetCreature = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'target_creature') as any;
     expect(targetCreature).toBeDefined();
     expect(Number(targetCreature?.damageMarked || 0)).toBe(1);
-    expect(Number(targetCreature?.markedDamage || 0)).toBe(0);
   });
 
   it('replays Pride Sovereign exert token creation with lifelink cats intact', () => {

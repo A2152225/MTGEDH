@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, afterAll, beforeEach } from 'vitest';
 import { getOracleIrGapTelemetrySnapshot, loadOracleIrGapTelemetrySnapshotFromAppendLog } from '../src/state/modules/oracleIrGapTelemetry.js';
+import { ensureLocalCardLookupIndexSync } from '../src/services/localCardLookup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workerId =
@@ -10,12 +11,27 @@ const workerId =
   String(process.pid);
 const testDbFile = path.resolve(__dirname, '..', 'data', `mtgedh.test.${workerId}.sqlite`);
 const testCardLookupDbFile = path.resolve(__dirname, '..', 'data', `card-lookup.test.${workerId}.sqlite`);
+const canonicalCardLookupDbFile = path.resolve(__dirname, '..', 'data', 'card-lookup.sqlite');
 
 function rmIfExists(filePath: string) {
   try {
     fs.rmSync(filePath, { force: true });
   } catch {
     // ignore
+  }
+}
+
+function seedTestCardLookupFromCanonical(): void {
+  rmIfExists(testCardLookupDbFile);
+  rmIfExists(`${testCardLookupDbFile}-wal`);
+  rmIfExists(`${testCardLookupDbFile}-shm`);
+
+  if (!fs.existsSync(canonicalCardLookupDbFile)) return;
+
+  try {
+    fs.copyFileSync(canonicalCardLookupDbFile, testCardLookupDbFile);
+  } catch {
+    // Fall back to rebuild via ensureLocalCardLookupIndexSync.
   }
 }
 
@@ -34,9 +50,9 @@ beforeAll(() => {
   rmIfExists(testDbFile);
   rmIfExists(`${testDbFile}-wal`);
   rmIfExists(`${testDbFile}-shm`);
-  rmIfExists(testCardLookupDbFile);
-  rmIfExists(`${testCardLookupDbFile}-wal`);
-  rmIfExists(`${testCardLookupDbFile}-shm`);
+  seedTestCardLookupFromCanonical();
+  // Warm card lookup once per worker so integration tests do not pay rebuild cost mid-test.
+  ensureLocalCardLookupIndexSync();
 });
 
 afterAll(() => {

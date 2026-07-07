@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { PRIORITY_TIMEOUT_MS, games } from '../src/socket/socket.js';
 import { broadcastGame, clearPriorityTimer, schedulePriorityTimeout } from '../src/socket/util.js';
 import { createContext } from '../src/state/context.js';
@@ -119,13 +119,25 @@ function toReplayEvents(gameId: string, startIndex = 0) {
   );
 }
 
+const REPLAY_NEXTSTEP_GAME_IDS = [
+  'replay_autopass_persists_nextstep',
+  'replay_cleanup_timeout_persists_nextstep',
+  'replay_cleanup_timeout_reverts_prepared_control',
+  'replay_begin_combat_triggers_persist_nextstep',
+  'replay_upkeep_triggers_apnap_nextstep',
+];
+
 describe('replay nextStep persistence integration', () => {
   beforeAll(async () => {
     await initDb();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
+    for (const gameId of REPLAY_NEXTSTEP_GAME_IDS) {
+      await deleteGame(gameId);
+      await deleteGame(`${gameId}_replay`);
+    }
   });
 
   afterEach(() => {

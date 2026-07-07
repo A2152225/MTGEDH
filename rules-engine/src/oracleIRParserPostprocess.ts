@@ -645,6 +645,20 @@ function parseLookSelectTopFollowupPair(
   });
 }
 
+function parseLookTopMoveZoneSelectPair(
+  current: OracleEffectStep,
+  next: OracleEffectStep | undefined,
+): OracleEffectStep | null {
+  if (current.kind !== 'look_top' || next?.kind !== 'move_zone') return null;
+
+  return parseLookSelectTopPrimaryStep({
+    lookRaw: String(current.raw || '').trim(),
+    moveRaw: String(next.raw || '').trim(),
+    sequence: current.sequence ?? next.sequence,
+    optional: current.optional === true || next.optional === true,
+  });
+}
+
 export function mergeLookSelectTopFollowupAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -654,7 +668,8 @@ export function mergeLookSelectTopFollowupAbilities(
     for (let i = 0; i < ability.steps.length; i += 1) {
       const current = ability.steps[i];
       const next = ability.steps[i + 1];
-      const combined = parseLookSelectTopFollowupPair(current, next);
+      const combined = parseLookTopMoveZoneSelectPair(current, next)
+        ?? parseLookSelectTopFollowupPair(current, next);
       if (combined) {
         merged.push(combined);
         i += 1;
@@ -2219,7 +2234,7 @@ function splitDrawUntapTailStep(step: OracleEffectStep): readonly OracleEffectSt
 function splitGainLifeDrawLeadFromDrawStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
   if (step.kind !== 'draw') return null;
   const raw = normalizeOracleText(String(step.raw || '')).replace(/^•\s*/, '').trim();
-  const match = raw.match(/^gain (\d+) life, draw ((?:a|an|one|two|three|four|five|\d+|x)\s+cards?),?\s*$/i);
+  const match = raw.match(/^(?:you\s+)?gain (\d+) life, draw ((?:a|an|one|two|three|four|five|\d+|x)\s+cards?),?\s*$/i);
   if (!match) return null;
 
   const drawAmountRaw = String(match[2] || '').trim().replace(/\s+cards?$/i, '');
@@ -2228,7 +2243,7 @@ function splitGainLifeDrawLeadFromDrawStep(step: OracleEffectStep): readonly Ora
       kind: 'gain_life',
       who: { kind: 'you' },
       amount: { kind: 'number', value: Number.parseInt(String(match[1] || '0'), 10) || 0 },
-      raw: `gain ${String(match[1] || '').trim()} life`,
+      raw: `you gain ${String(match[1] || '').trim()} life`,
     } as OracleEffectStep,
     {
       kind: 'draw',
@@ -6692,6 +6707,10 @@ function parseStructuredTriggerResidualGrant(
     return [];
   }
 
+  if (/^if this spell was cast from a graveyard, copy that spell twice instead\.?$/i.test(raw)) {
+    return [];
+  }
+
   if (/^this ability triggers only once each turn\.?$/i.test(raw)) {
     return [];
   }
@@ -9098,6 +9117,15 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
       kind: 'manifest_dread',
       who: { kind: 'you' },
       raw,
+      ...sequence,
+    } as OracleEffectStep];
+  }
+
+  if (/^redistribute any number of players(?:'|'|') life totals\b/i.test(raw)) {
+    return [{
+      kind: 'redistribute_life_totals',
+      who: { kind: 'any_number_of_target_players' },
+      raw: String(raw).replace(/\.\s*\([^)]*\)\s*$/, '.').trim(),
       ...sequence,
     } as OracleEffectStep];
   }
@@ -17994,8 +18022,13 @@ function isGraveyardExileReplacementText(rawText: string): boolean {
     .trim();
   if (!normalized) return false;
 
-  return /^if\s+(?:that spell|that card|this card|it|the spell|the card)\s+would be put into (?:your|its|their)\s+graveyard,?\s*exile it instead\.?$/i.test(
-    normalized
+  return (
+    /^if\s+(?:that spell|that card|this card|it|the spell|the card|a card)\s+would be put into (?:your|its|their)\s+graveyard(?: from anywhere)?(?: this turn)?,?\s*exile (?:it|that card) instead\.?$/i.test(
+      normalized
+    )
+    || /^if\s+a card would be put into your graveyard from anywhere this turn,?\s*exile that card instead\.?$/i.test(
+      normalized
+    )
   );
 }
 
@@ -18022,6 +18055,15 @@ function attachGraveyardExileReplacementModifier(steps: readonly OracleEffectSte
           };
           continue;
         }
+        if (previous?.kind === 'grant_graveyard_permission') {
+          nextSteps.push({
+            kind: 'modify_graveyard_permissions',
+            scope: 'last_granted_graveyard_cards',
+            exileInsteadOfGraveyard: true,
+            raw: String(step.raw || '').trim(),
+          });
+          continue;
+        }
       }
 
       nextSteps.push(updatedConditional);
@@ -18036,6 +18078,15 @@ function attachGraveyardExileReplacementModifier(steps: readonly OracleEffectSte
           exileInsteadOfGraveyard: true,
           raw: `${String(previous.raw || '').trim()} ${String(step.raw || '').trim()}`.trim(),
         };
+        continue;
+      }
+      if (previous?.kind === 'grant_graveyard_permission') {
+        nextSteps.push({
+          kind: 'modify_graveyard_permissions',
+          scope: 'last_granted_graveyard_cards',
+          exileInsteadOfGraveyard: true,
+          raw: String(step.raw || '').trim(),
+        });
         continue;
       }
     }
@@ -23672,7 +23723,10 @@ function annotateSacrificeMetadataOnStep(step: OracleEffectStep): OracleEffectSt
     const raw = normalizeOracleText(String(step.raw || ''));
     if (
       !step.atNextEndStep &&
-      /at\s+the\s+beginning\s+of\s+(?:the\s+)?(?:next\s+)?end\s+step[,"]?\s*sacrifice\s+(?:this|that|the)?\s*(?:token|permanent|it)\b/i.test(raw)
+      (
+        /at\s+the\s+beginning\s+of\s+(?:the\s+)?(?:next\s+)?end\s+step[,"]?\s*sacrifice\s+(?:this|that|the)?\s*(?:token|permanent|it)\b/i.test(raw)
+        || /\.?\s*sacrifice\s+(?:this|that|the)?\s*(?:token|permanent|it)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\b/i.test(raw)
+      )
     ) {
       return { ...step, atNextEndStep: 'sacrifice' };
     }

@@ -56,6 +56,24 @@ describe('oracle IR replay mutations', () => {
     }]);
   });
 
+  it('builds goad mutations from lastGoadedCreatures', () => {
+    expect(collectReplayMutationsFromAppliedStep(
+      { kind: 'goad', target: { kind: 'raw', text: 'target creature' }, raw: 'Goad target creature.' } as any,
+      {
+        applied: true,
+        lastGoadedCreatures: [{ id: 'bear_1', controller: 'p2' }],
+        log: ['Goaded 1 creature(s)'],
+      },
+      { battlefield: [{ id: 'bear_1', controller: 'p2' }], players: [], turnNumber: 7 } as GameState,
+      { controllerId: 'p1' as PlayerID },
+    )).toEqual([{
+      kind: 'goad',
+      permanentId: 'bear_1',
+      goaderId: 'p1',
+      expiryTurn: 8,
+    }]);
+  });
+
   it('builds move zone mutations from explicit from/to zones', () => {
     const card = { id: 'gy-1', name: 'Shock', owner: 'p1' };
     expect(buildMoveZoneReplayMutations({

@@ -91,6 +91,13 @@ export function collectActivatedAbilitySteps(
     return applyCompiledOverlayToActivatedSteps(innerText, sourceName, steps, options);
   }
 
+  const costEffectSplit = raw.match(/^([^:]+):\s*(.+)$/s);
+  if (costEffectSplit && isRecognizedActivatedAbilityCostText(String(costEffectSplit[1] || '').trim())) {
+    const ir = parseOracleTextToIR(raw, sourceName);
+    const steps = (ir.abilities || []).flatMap((ability) => ability.steps || []);
+    return applyCompiledOverlayToActivatedSteps(raw, sourceName, steps, options);
+  }
+
   const effectText = extractActivatedEffectText(raw);
   if (!effectText) return [];
   const ir = parseOracleTextToIR(effectText, sourceName);

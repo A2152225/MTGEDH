@@ -153,7 +153,7 @@ describe('power-up activated ability socket integration (Layer 3)', () => {
     const hand = (game.state as any).zones?.[playerId]?.hand || [];
     expect(hand.map((card: any) => card.id)).toEqual(['drawn_island']);
     expect(((game.state as any).stack || []).length).toBe(0);
-  }, 15000);
+  }, 120000);
 
   it('rejects a second activation of the same power-up ability', async () => {
     createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);

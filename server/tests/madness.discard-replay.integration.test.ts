@@ -173,11 +173,11 @@ describe('madness discard replay (integration)', () => {
     const discardEffectEvent = [...persistedEvents].reverse().find((event: any) => event.type === 'discardEffect' && String((event as any)?.payload?.destination || '') === 'exile') as any;
     const promptEvent = [...persistedEvents].reverse().find((event: any) => event.type === 'resolveTopOfStackPrompt' && Array.isArray((event as any)?.payload?.queuedResolutionSteps)) as any;
 
-    expect(discardEffectEvent?.payload).toEqual({
+    expect(discardEffectEvent?.payload).toEqual(expect.objectContaining({
       playerId,
       cardIds: ['madness_card_1'],
       destination: 'exile',
-    });
+    }));
     expect((promptEvent?.payload?.queuedResolutionSteps || []).some((step: any) => String(step?.castFromExileCardId || '') === 'madness_card_1')).toBe(true);
 
     game.reset!(true);

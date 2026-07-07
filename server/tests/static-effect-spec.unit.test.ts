@@ -194,6 +194,125 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
     expect(allBonuses).toMatchObject({ power: 2, toughness: 2 });
   });
 
+  it('applies global merfolk lord buffs through declarative oracle specs', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'lord_perm_1',
+          controller: 'p1',
+          card: {
+            name: 'Lord of Atlantis',
+            type_line: 'Creature — Merfolk',
+            oracle_text: 'Other Merfolk get +1/+1 and have islandwalk.',
+          },
+        },
+        {
+          id: 'ally_merfolk',
+          controller: 'p1',
+          card: { name: 'Merfolk Trader', type_line: 'Creature — Merfolk' },
+        },
+        {
+          id: 'opponent_merfolk',
+          controller: 'p2',
+          card: { name: 'Enemy Merfolk', type_line: 'Creature — Merfolk' },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('ally_merfolk')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('opponent_merfolk')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('lord_perm_1')?.pDelta || 0).toBe(0);
+  });
+
+  it('applies color-based global anthems through declarative oracle specs', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'crusade_perm_1',
+          controller: 'p1',
+          card: {
+            name: 'Crusade',
+            type_line: 'Enchantment',
+            oracle_text: 'White creatures get +1/+1.',
+          },
+        },
+        {
+          id: 'white_creature',
+          controller: 'p2',
+          card: {
+            name: 'Elite Vanguard',
+            type_line: 'Creature — Human Soldier',
+            colors: ['W'],
+          },
+        },
+        {
+          id: 'red_creature',
+          controller: 'p2',
+          card: {
+            name: 'Goblin Guide',
+            type_line: 'Creature — Goblin Scout',
+            colors: ['R'],
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('white_creature')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('red_creature')?.pDelta || 0).toBe(0);
+  });
+
+  it('applies oracle soldier flying grants through declarative specs', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'lord_perm_1',
+          controller: 'p1',
+          card: {
+            name: 'Captain of the Watch',
+            type_line: 'Creature — Human Soldier',
+            oracle_text: 'Other Soldier creatures you control have first strike and vigilance.',
+          },
+        },
+        {
+          id: 'soldier_perm_1',
+          controller: 'p1',
+          card: { name: 'Soldier', type_line: 'Creature — Soldier', oracle_text: '' },
+        },
+      ],
+    };
+
+    const granted = getContinuousGrantedAbilitiesForPermanent(state.battlefield[1] as any, state);
+    expect(granted).toContain('first strike');
+    expect(granted).toContain('vigilance');
+  });
+
+  it('parses oracle anthem specs without double-counting legacy regex', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'anthem_perm_1',
+          controller: 'p1',
+          card: {
+            id: 'glorious_anthem',
+            name: 'Glorious Anthem',
+            type_line: 'Enchantment',
+            oracle_text: 'Creatures you control get +1/+1.',
+          },
+        },
+        {
+          id: 'creature_perm_1',
+          controller: 'p1',
+          card: { id: 'bear', name: 'Bear', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('creature_perm_1')).toMatchObject({ pDelta: 1, tDelta: 1 });
+  });
+
   it('routes regex anthem P/T through getContinuousPTBonusForPermanent', () => {
     const state = {
       battlefield: [
@@ -668,6 +787,47 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
     expect(merged.perPermanent.get('elf_creature')).toMatchObject({ pDelta: 2, tDelta: 2 });
   });
 
+  it('applies Coat of Arms shared-type counting through declarative specs without legacy double-count', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'coat_of_arms',
+          controller: 'p1',
+          card: {
+            name: 'Coat of Arms',
+            type_line: 'Artifact',
+            oracle_text: 'Each creature gets +1/+1 for each other creature on the battlefield that shares at least one creature type with it.',
+          },
+        },
+        {
+          id: 'soldier_one',
+          controller: 'p1',
+          card: {
+            name: 'Soldier A',
+            type_line: 'Creature — Human Soldier',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'soldier_two',
+          controller: 'p2',
+          card: {
+            name: 'Soldier B',
+            type_line: 'Creature — Human Soldier',
+            oracle_text: '',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('soldier_one')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('soldier_two')).toMatchObject({ pDelta: 1, tDelta: 1 });
+
+    const specs = collectStaticEffectSpecsFromState(state);
+    expect(specs.some((spec) => spec.grant.countBasis === 'other_creatures_sharing_creature_type')).toBe(true);
+  });
+
   it('applies Coat of Arms shared-type counting', () => {
     const state = {
       battlefield: [
@@ -717,6 +877,215 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
 
     const soldierBonus = calculateAllPTBonuses(state.battlefield[1], state);
     expect(soldierBonus).toMatchObject({ power: 1, toughness: 1 });
+  });
+
+  it('applies Shalai hexproof to player, planeswalkers, and other creatures without self-buff', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'shalai_perm',
+          controller: 'p1',
+          card: {
+            name: 'Shalai, Voice of Plenty',
+            type_line: 'Legendary Creature — Human Cleric',
+            oracle_text: 'Flying\nYou, planeswalkers you control, and other creatures you control have hexproof.\n{4}{G}{G}: Put a +1/+1 counter on each creature you control.',
+          },
+        },
+        {
+          id: 'other_creature',
+          controller: 'p1',
+          card: {
+            name: 'Elite Vanguard',
+            type_line: 'Creature — Human Soldier',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'planeswalker_perm',
+          controller: 'p1',
+          card: {
+            name: 'Jace, the Mind Sculptor',
+            type_line: 'Legendary Planeswalker — Jace',
+            oracle_text: '',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect([...merged.playerHexproof]).toContain('p1');
+    expect(merged.perPermanent.get('other_creature')?.abilities?.has('hexproof')).toBe(true);
+    expect(merged.permanentAbilities.get('planeswalker_perm')?.has('hexproof')).toBe(true);
+    expect(merged.perPermanent.get('shalai_perm')?.abilities?.has('hexproof')).toBeFalsy();
+  });
+
+  it('applies Greymond chosen abilities through declarative specs without legacy double-count', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'greymond_perm',
+          controller: 'p1',
+          chosenOptions: ['vigilance', 'lifelink'],
+          card: {
+            name: "Greymond, Avacyn's Stalwart",
+            type_line: 'Legendary Creature — Human Noble',
+            oracle_text: 'Other Humans you control get +2/+2 and have all abilities of your choice among first strike, vigilance, and lifelink.\nOther creatures you control get +1/+1.',
+          },
+        },
+        {
+          id: 'human_perm',
+          controller: 'p1',
+          card: {
+            name: 'Field Marshal',
+            type_line: 'Creature — Human Soldier',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'elf_perm',
+          controller: 'p1',
+          card: {
+            name: 'Paradise Druid',
+            type_line: 'Creature — Elf Druid',
+            oracle_text: '',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('human_perm')).toMatchObject({ pDelta: 3, tDelta: 3 });
+    expect(merged.perPermanent.get('human_perm')?.abilities?.has('vigilance')).toBe(true);
+    expect(merged.perPermanent.get('human_perm')?.abilities?.has('lifelink')).toBe(true);
+    expect(merged.perPermanent.get('human_perm')?.abilities?.has('first strike')).toBe(false);
+    expect(merged.perPermanent.get('elf_perm')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('elf_perm')?.abilities?.has('vigilance')).toBe(false);
+  });
+
+  it('applies global chosen-type shroud through declarative specs', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'steely_resolve',
+          controller: 'p1',
+          chosenCreatureType: 'Elf',
+          card: {
+            name: 'Steely Resolve',
+            type_line: 'Enchantment',
+            oracle_text: 'As this enchantment enters, choose a creature type.\nCreatures of the chosen type have shroud. (They can\'t be the targets of spells or abilities.)',
+          },
+        },
+        {
+          id: 'ally_elf',
+          controller: 'p1',
+          card: { name: 'Llanowar Elves', type_line: 'Creature — Elf Druid', oracle_text: '' },
+        },
+        {
+          id: 'opponent_elf',
+          controller: 'p2',
+          card: { name: 'Enemy Elf', type_line: 'Creature — Elf Warrior', oracle_text: '' },
+        },
+        {
+          id: 'ally_goblin',
+          controller: 'p1',
+          card: { name: 'Goblin', type_line: 'Creature — Goblin', oracle_text: '' },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('ally_elf')?.abilities?.has('shroud')).toBe(true);
+    expect(merged.perPermanent.get('opponent_elf')?.abilities?.has('shroud')).toBe(true);
+    expect(merged.perPermanent.get('ally_goblin')?.abilities?.has('shroud')).toBe(false);
+  });
+
+  it('applies controlled chosen-type anthem buffs through declarative specs', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'radiant_destiny',
+          controller: 'p1',
+          chosenCreatureType: 'Vampire',
+          card: {
+            name: 'Radiant Destiny',
+            type_line: 'Enchantment',
+            oracle_text: 'Ascend\nAs this enchantment enters, choose a creature type.\nCreatures you control of the chosen type get +1/+1. As long as you have the city\'s blessing, they also have vigilance.',
+          },
+        },
+        {
+          id: 'vampire_ally',
+          controller: 'p1',
+          card: { name: 'Vampire', type_line: 'Creature — Vampire', oracle_text: '' },
+        },
+        {
+          id: 'opponent_vampire',
+          controller: 'p2',
+          card: { name: 'Enemy Vampire', type_line: 'Creature — Vampire', oracle_text: '' },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('vampire_ally')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('opponent_vampire')?.pDelta || 0).toBe(0);
+  });
+
+  it('applies Morophon chosen-type lord buffs without legacy double-count', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'morophon',
+          controller: 'p1',
+          chosenCreatureType: 'Merfolk',
+          card: {
+            name: 'Morophon, the Boundless',
+            type_line: 'Legendary Creature — Shapeshifter',
+            oracle_text: 'Changeling\nAs Morophon, the Boundless enters, choose a creature type.\nOther creatures you control of the chosen type get +1/+1.',
+          },
+        },
+        {
+          id: 'merfolk_ally',
+          controller: 'p1',
+          card: { name: 'Merfolk', type_line: 'Creature — Merfolk', oracle_text: '' },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('merfolk_ally')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('morophon')?.pDelta || 0).toBe(0);
+  });
+
+  it('applies Sliver Legion per-other-sliver counting through declarative specs without legacy double-count', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'sliver_legion',
+          controller: 'p1',
+          card: {
+            name: 'Sliver Legion',
+            type_line: 'Legendary Creature — Sliver',
+            oracle_text: 'All Sliver creatures get +1/+1 for each other Sliver on the battlefield.',
+          },
+        },
+        {
+          id: 'sliver_two',
+          controller: 'p1',
+          card: {
+            name: 'Metallic Sliver',
+            type_line: 'Artifact Creature — Sliver',
+            oracle_text: '',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('sliver_legion')).toMatchObject({ pDelta: 1, tDelta: 1 });
+    expect(merged.perPermanent.get('sliver_two')).toMatchObject({ pDelta: 1, tDelta: 1 });
+
+    const specs = collectStaticEffectSpecsFromState(state);
+    expect(specs.some((spec) => spec.grant.countBasis === 'other_creatures_matching_scope')).toBe(true);
   });
 
   it('applies Sliver Legion per-other-sliver counting', () => {

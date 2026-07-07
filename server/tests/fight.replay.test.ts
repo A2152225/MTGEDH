@@ -55,8 +55,8 @@ describe('fight replay semantics', () => {
 
     const taunter = ((game.state as any).battlefield || []).find((perm: any) => perm.id === 'taunter_1');
     const bear = ((game.state as any).battlefield || []).find((perm: any) => perm.id === 'bear_1');
-    expect(Number(taunter?.damage || 0)).toBe(2);
-    expect(Number(bear?.damage || 0)).toBe(1);
+    expect(Number(taunter?.damageMarked ?? taunter?.markedDamage ?? taunter?.damage ?? 0)).toBe(2);
+    expect(Number(bear?.damageMarked ?? bear?.markedDamage ?? bear?.damage ?? 0)).toBe(1);
 
     expect((game.state as any).pendingDamageTriggers).toBeUndefined();
 

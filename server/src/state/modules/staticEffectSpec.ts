@@ -5,13 +5,22 @@ import {
   resolveCompiledOverlayForCard,
 } from './oracleIrCompiledOverlayLookup.js';
 import { hydrateBattlefieldOracleText } from './cardOracleHydration.js';
+import {
+  collectDeclarativeStaticSourcePermanentIds,
+  parseStaticEffectSpecsFromOraclePermanent,
+} from './staticEffectSpecOracleParsing.js';
+import { scanBattlefieldContinuousEffectOverlayGaps } from './oracleIrContinuousEffectGapTelemetry.js';
 
 /** Declarative static spec (Phase 5.3). See docs/oracle-ir-phase5-continuous-effects-design.md */
 export type StaticEffectScopeKind =
   | 'creatures_you_control'
   | 'other_creatures_you_control'
+  | 'planeswalkers_you_control'
   | 'all_creatures'
+  | 'all_creatures_of_type'
+  | 'other_all_creatures_of_type'
   | 'creature_type'
+  | 'opponent_creatures_of_type'
   | 'player_you';
 
 export interface StaticEffectScope {
@@ -25,7 +34,14 @@ export interface StaticEffectGrant {
   abilities?: readonly string[];
   playerHexproof?: boolean;
   playerShroud?: boolean;
+  /** Multiply power/toughness by a battlefield count (Coat of Arms, Sliver Legion). */
+  countBasis?: StaticEffectCountBasis;
 }
+
+/** How to count "each other …" for dynamic P/T statics. */
+export type StaticEffectCountBasis =
+  | 'other_creatures_sharing_creature_type'
+  | 'other_creatures_matching_scope';
 
 export type StaticEffectLayer = 4 | 5 | 6 | 7;
 export type StaticEffectSublayer = '7a' | '7b' | '7c' | '7d';
@@ -34,12 +50,18 @@ export type StaticEffectConditionKind =
   | 'controller_life_at_least_starting_plus'
   | 'target_is_token'
   | 'target_is_not_token'
-  | 'during_source_controller_turn';
+  | 'target_is_token_during_source_controller_turn'
+  | 'during_source_controller_turn'
+  | 'target_has_mana_color'
+  | 'target_is_not_black_creature'
+  | 'target_is_not_human_creature';
 
 export interface StaticEffectCondition {
   kind: StaticEffectConditionKind;
   /** Life above starting total required (Leyline of Hope). */
   offset?: number;
+  /** Mana color name for chosen-color anthems (Caged Sun). */
+  color?: string;
 }
 
 export interface StaticEffectSpec {
@@ -61,10 +83,77 @@ function isCreaturePermanent(permanent: BattlefieldPermanent): boolean {
   return typeLine.includes('creature') || typeLine.includes('kindred') || typeLine.includes('tribal');
 }
 
+function isPlaneswalkerPermanent(permanent: BattlefieldPermanent): boolean {
+  const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
+  return typeLine.includes('planeswalker');
+}
+
 function hasCreatureType(permanent: BattlefieldPermanent, creatureType: string): boolean {
   const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
   const typePattern = new RegExp(`\\b${String(creatureType || '').trim().toLowerCase()}s?\\b`, 'i');
   return typePattern.test(typeLine);
+}
+
+function getCreatureSubtypeWords(permanent: BattlefieldPermanent): string[] {
+  const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
+  const dashSplit = typeLine.split(/—|\s-\s/);
+  const subtypePart = dashSplit.length > 1 ? dashSplit.slice(1).join(' ') : '';
+  return subtypePart
+    .split(/\s+/)
+    .map((token) => token.replace(/[^a-z0-9-]/g, '').trim())
+    .filter(Boolean);
+}
+
+function creaturesShareCreatureType(
+  left: BattlefieldPermanent,
+  right: BattlefieldPermanent,
+): boolean {
+  const leftTypes = getCreatureSubtypeWords(left);
+  const rightTypes = getCreatureSubtypeWords(right);
+  if (leftTypes.length === 0 || rightTypes.length === 0) return false;
+  return leftTypes.some((type) => rightTypes.includes(type));
+}
+
+function countOtherCreaturesSharingType(
+  creature: BattlefieldPermanent,
+  battlefield: readonly BattlefieldPermanent[],
+): number {
+  let count = 0;
+  for (const other of battlefield) {
+    if (!isCreaturePermanent(other) || other.id === creature.id) continue;
+    if (creaturesShareCreatureType(creature, other)) count += 1;
+  }
+  return count;
+}
+
+function countOtherCreaturesMatchingScope(
+  target: BattlefieldPermanent,
+  spec: StaticEffectSpec,
+  battlefield: readonly BattlefieldPermanent[],
+): number {
+  let count = 0;
+  for (const other of battlefield) {
+    if (!isCreaturePermanent(other) || other.id === target.id) continue;
+    if (permanentMatchesScope(other, spec)) count += 1;
+  }
+  return count;
+}
+
+function resolveStaticCountMultiplier(
+  grant: StaticEffectGrant,
+  spec: StaticEffectSpec,
+  target: BattlefieldPermanent,
+  battlefield: readonly BattlefieldPermanent[],
+): number {
+  if (!grant.countBasis) return 1;
+  switch (grant.countBasis) {
+    case 'other_creatures_sharing_creature_type':
+      return countOtherCreaturesSharingType(target, battlefield);
+    case 'other_creatures_matching_scope':
+      return countOtherCreaturesMatchingScope(target, spec, battlefield);
+    default:
+      return 1;
+  }
 }
 
 const SUBLAYER_SORT_ORDER: Record<StaticEffectSublayer, number> = {
@@ -184,6 +273,32 @@ function readOverlayStaticSpecs(ability: {
   return Array.isArray(specs) ? specs : [];
 }
 
+function permanentHasOverlayStaticSpecs(perm: BattlefieldPermanent): boolean {
+  const lookupKeys = extractOracleCardLookupKeys({ card: perm.card, effectiveCard: perm.card });
+  const overlay = resolveCompiledOverlayForCard(lookupKeys);
+  if (!overlay?.abilities?.length) return false;
+  for (const ability of overlay.abilities) {
+    if (String(ability.ability_type || '').toUpperCase() !== 'STATIC') continue;
+    if (readOverlayStaticSpecs(ability).length > 0) return true;
+  }
+  return false;
+}
+
+function creatureHasManaColor(permanent: BattlefieldPermanent, colorName: string): boolean {
+  const colorMap: Record<string, string> = {
+    white: 'W',
+    blue: 'U',
+    black: 'B',
+    red: 'R',
+    green: 'G',
+  };
+  const symbol = colorMap[String(colorName || '').trim().toLowerCase()];
+  const colors = ((permanent.card as any)?.colors || []).map((entry: string) => String(entry).toUpperCase());
+  if (symbol && colors.includes(symbol)) return true;
+  const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
+  return typeLine.includes(String(colorName || '').trim().toLowerCase());
+}
+
 export function collectStaticEffectSpecsFromState(state: unknown): StaticEffectSpec[] {
   const specs: StaticEffectSpec[] = [];
   const battlefield = Array.isArray((state as any)?.battlefield) ? (state as any).battlefield : [];
@@ -198,18 +313,22 @@ export function collectStaticEffectSpecsFromState(state: unknown): StaticEffectS
 
     const lookupKeys = extractOracleCardLookupKeys({ card: perm.card, effectiveCard: perm.card });
     const overlay = resolveCompiledOverlayForCard(lookupKeys);
-    if (!overlay?.abilities?.length) continue;
-
-    for (const ability of overlay.abilities) {
-      if (String(ability.ability_type || '').toUpperCase() !== 'STATIC') continue;
-      for (const rawSpec of readOverlayStaticSpecs(ability)) {
-        const normalized = normalizeOverlayStaticSpec(rawSpec, {
-          sourcePermanentId,
-          sourceController,
-          sourceName,
-        });
-        if (normalized) specs.push(normalized);
+    if (overlay?.abilities?.length) {
+      for (const ability of overlay.abilities) {
+        if (String(ability.ability_type || '').toUpperCase() !== 'STATIC') continue;
+        for (const rawSpec of readOverlayStaticSpecs(ability)) {
+          const normalized = normalizeOverlayStaticSpec(rawSpec, {
+            sourcePermanentId,
+            sourceController,
+            sourceName,
+          });
+          if (normalized) specs.push(normalized);
+        }
       }
+    }
+
+    if (!permanentHasOverlayStaticSpecs(perm)) {
+      specs.push(...parseStaticEffectSpecsFromOraclePermanent(perm));
     }
   }
 
@@ -235,9 +354,23 @@ function permanentMatchesScope(
         && String(permanent.controller || '') === controller
         && String(permanent.id || '') !== String(spec.sourcePermanentId || '')
         && (!spec.scope.creatureType || hasCreatureType(permanent, spec.scope.creatureType));
+    case 'planeswalkers_you_control':
+      return isPlaneswalkerPermanent(permanent)
+        && String(permanent.controller || '') === controller;
     case 'creature_type':
       return isCreaturePermanent(permanent)
         && String(permanent.controller || '') === controller
+        && hasCreatureType(permanent, String(spec.scope.creatureType || ''));
+    case 'all_creatures_of_type':
+      return isCreaturePermanent(permanent)
+        && hasCreatureType(permanent, String(spec.scope.creatureType || ''));
+    case 'other_all_creatures_of_type':
+      return isCreaturePermanent(permanent)
+        && String(permanent.id || '') !== String(spec.sourcePermanentId || '')
+        && hasCreatureType(permanent, String(spec.scope.creatureType || ''));
+    case 'opponent_creatures_of_type':
+      return isCreaturePermanent(permanent)
+        && String(permanent.controller || '') !== controller
         && hasCreatureType(permanent, String(spec.scope.creatureType || ''));
     default:
       return false;
@@ -272,6 +405,19 @@ function specMatchesStaticCondition(
       return permanent.isToken !== true;
     case 'during_source_controller_turn':
       return String(state.turnPlayer || '') === String(spec.sourceController || '');
+    case 'target_is_token_during_source_controller_turn':
+      return permanent.isToken === true
+        && String(state.turnPlayer || '') === String(spec.sourceController || '');
+    case 'target_has_mana_color':
+      return creatureHasManaColor(permanent, String(condition.color || ''));
+    case 'target_is_not_black_creature': {
+      const colors = ((permanent.card as any)?.colors || []).map((entry: string) => String(entry).toUpperCase());
+      return !colors.includes('B');
+    }
+    case 'target_is_not_human_creature': {
+      const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
+      return !typeLine.includes('human');
+    }
     default:
       return true;
   }
@@ -331,8 +477,9 @@ export function applyDeclarativeStaticSpecs(
       const permanentId = String(permanent.id || '');
       if (!permanentId) continue;
 
-      const power = Number(spec.grant.power || 0);
-      const toughness = Number(spec.grant.toughness || 0);
+      const multiplier = resolveStaticCountMultiplier(spec.grant, spec, permanent, battlefield);
+      const power = Number(spec.grant.power || 0) * multiplier;
+      const toughness = Number(spec.grant.toughness || 0) * multiplier;
       if (power !== 0 || toughness !== 0) {
         ensureCreatureAggregate(result, permanentId);
         const agg = result.perPermanent.get(permanentId)!;
@@ -362,9 +509,10 @@ export function applyDeclarativeStaticSpecs(
 export function recomputeContinuousEffects(state: {
   battlefield?: readonly BattlefieldPermanent[];
 }): ContinuousEffectResult {
-  const base = computeContinuousEffects(state as any);
-  const overlaySpecs = collectStaticEffectSpecsFromState(state);
-  return applyDeclarativeStaticSpecs(base, overlaySpecs, state);
+  const specs = collectStaticEffectSpecsFromState(state);
+  const skipDeclarativeStaticForSourceIds = collectDeclarativeStaticSourcePermanentIds(specs);
+  const base = computeContinuousEffects(state as any, { skipDeclarativeStaticForSourceIds });
+  return applyDeclarativeStaticSpecs(base, specs, state);
 }
 
 export interface OverlayStaticPTBonusSource {
@@ -429,12 +577,14 @@ export function getOverlayStaticPTBonusForPermanent(
   let power = 0;
   let toughness = 0;
   const sources: OverlayStaticPTBonusSource[] = [];
+  const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
 
   for (const spec of specs) {
     if (!permanentMatchesScope(permanent, spec)) continue;
     if (!specMatchesStaticCondition(permanent, spec, state as StaticConditionState)) continue;
-    const p = Number(spec.grant.power || 0);
-    const t = Number(spec.grant.toughness || 0);
+    const multiplier = resolveStaticCountMultiplier(spec.grant, spec, permanent, battlefield);
+    const p = Number(spec.grant.power || 0) * multiplier;
+    const t = Number(spec.grant.toughness || 0) * multiplier;
     if (p === 0 && t === 0) continue;
     power += p;
     toughness += t;
@@ -492,6 +642,11 @@ export function syncDerivedContinuousEffects(state: unknown): ContinuousEffectRe
     // best-effort only
   }
   const derived = recomputeContinuousEffects(state as { battlefield?: readonly BattlefieldPermanent[] });
+  try {
+    scanBattlefieldContinuousEffectOverlayGaps(state);
+  } catch {
+    // Telemetry must never break derived-view sync.
+  }
   if (state && typeof state === 'object') {
     Object.defineProperty(state, '_derivedContinuousEffects', {
       value: derived,

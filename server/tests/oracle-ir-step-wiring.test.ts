@@ -72,6 +72,31 @@ describe('oracle IR step wiring guardrails', () => {
     expect(areAllOracleEffectStepsRuntimeWired(steps)).toBe(true);
   });
 
+  it('parses Kethis exile-cost grant from full activated ability text', () => {
+    const oracleText =
+      'Exile two legendary cards from your graveyard: Until end of turn, each legendary card in your graveyard gains "You may play this card from your graveyard."';
+    const steps = collectActivatedAbilitySteps(oracleText, 'Kethis, the Hidden Hand');
+    expect(steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        permission: 'play',
+        what: { kind: 'raw', text: 'legendary card' },
+        duration: 'this_turn',
+      },
+    ]);
+    expect(isActivatedAbilityEffectFullyWired(steps)).toBe(true);
+  });
+
+  it('parses Magus exile-self grant and replacement rider from full activated text', () => {
+    const oracleText =
+      '{2}{B}, {T}, Exile this creature: Until end of turn, you may play lands and cast spells from your graveyard. If a card would be put into your graveyard from anywhere this turn, exile that card instead.';
+    const steps = collectActivatedAbilitySteps(oracleText, 'Magus of the Will');
+    expect(steps.some((step) => step.kind === 'grant_graveyard_permission' && (step as any).permission === 'play')).toBe(true);
+    expect(steps.some((step) => step.kind === 'grant_graveyard_permission' && (step as any).permission === 'cast')).toBe(true);
+    expect(steps.some((step) => step.kind === 'modify_graveyard_permissions')).toBe(true);
+    expect(isActivatedAbilityEffectFullyWired(steps)).toBe(true);
+  });
+
   it('treats Kheru-style reanimation triggers as primary-owned when env is on', () => {
     const previous = process.env.ORACLE_IR_TRIGGER_PRIMARY;
     process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';

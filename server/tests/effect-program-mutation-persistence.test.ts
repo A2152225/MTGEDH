@@ -349,4 +349,42 @@ describe('effect program replay mutation persistence', () => {
       oracleIrReplayMutation: true,
     });
   });
+
+  it('persists goadPermanent events from goad replayMutations', () => {
+    const ctx = {
+      gameId: 'game_goad',
+      seq: 9,
+      isReplaying: false,
+      bumpSeq: vi.fn(),
+      state: {},
+    };
+
+    persistOracleIrReplayMutationsFromExecution(
+      ctx as any,
+      {
+        state: ctx.state,
+        log: ['Goaded 1 creature(s)'],
+        appliedSteps: [],
+        skippedSteps: [],
+        automationGaps: [],
+        pendingOptionalSteps: [],
+        replayMutations: [{
+          kind: 'goad',
+          permanentId: 'bear_1',
+          goaderId: 'p1',
+          expiryTurn: 6,
+        }],
+      } as any,
+      { sourceId: 'ancestor_1', sourceName: 'Vengeful Ancestor' },
+    );
+
+    expect(appendEvent).toHaveBeenCalledWith('game_goad', 9, 'goadPermanent', {
+      permanentId: 'bear_1',
+      goaderId: 'p1',
+      expiryTurn: 6,
+      oracleIrSourceId: 'ancestor_1',
+      oracleIrSourceName: 'Vengeful Ancestor',
+      oracleIrReplayMutation: true,
+    });
+  });
 });

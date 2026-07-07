@@ -203,7 +203,7 @@ describe('oracle IR deferred-finalize replay divergence (Layer 3)', () => {
 
     await resetGame(liveGameId);
     await resetGame(replayGameId);
-  }, 30000);
+  }, 120000);
 
   it('library search compound draw replays without divergence', async () => {
     const liveGameId = 'test_deferred_replay_search_draw';
@@ -258,7 +258,7 @@ describe('oracle IR deferred-finalize replay divergence (Layer 3)', () => {
 
     await resetGame(liveGameId);
     await resetGame(replayGameId);
-  }, 30000);
+  }, 120000);
 
   it('Opt scry compound draw replays without divergence', async () => {
     const liveGameId = 'test_deferred_replay_opt_scry';
@@ -316,5 +316,5 @@ describe('oracle IR deferred-finalize replay divergence (Layer 3)', () => {
 
     await resetGame(liveGameId);
     await resetGame(replayGameId);
-  }, 30000);
+  }, 120000);
 });

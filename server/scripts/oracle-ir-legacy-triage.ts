@@ -171,6 +171,8 @@ function main(): void {
     legacyHandledEvents: snapshot.byKind?.legacy_handled ?? 0,
     allOrNothingFailures: snapshot.byKind?.all_or_nothing_failure ?? 0,
     ownedButUnhandled: snapshot.byKind?.owned_but_unhandled ?? 0,
+    staticOwnedButUnhandled: snapshot.byScopeKind?.['static:owned_but_unhandled'] ?? 0,
+    replacementOwnedButUnhandled: snapshot.byScopeKind?.['replacement:owned_but_unhandled'] ?? 0,
     firedLegacyFamilies: [...firedFamilies].sort(),
     firedLegacyHandlers: [...firedHandlers].sort(),
     orphanedExports: orphaned,

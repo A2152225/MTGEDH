@@ -163,6 +163,7 @@ export function getCounterLeaveBattlefieldReplacement(
   permanent: any,
   destination: 'graveyard' | 'exile' | 'hand' | 'library'
 ): 'graveyard' | 'exile' | 'hand' | 'library' {
+  /** @deprecated Prefer getDeclarativeLeaveBattlefieldReplacementHint / tryApplyDeclarativeLeaveBattlefieldDestinationReplacement */
   const result = evaluateLeaveBattlefieldDestinationReplacement(permanent, destination);
   return (result.replacementDestination || destination) as 'graveyard' | 'exile' | 'hand' | 'library';
 }

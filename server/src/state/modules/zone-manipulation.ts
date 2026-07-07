@@ -11,13 +11,20 @@
  * - Self-replacement (card shuffling itself into library)
  */
 
+import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from "../context.js";
-import { evaluateReplacementEvent, type ReplacementZone } from './replacement-effects.js';
+import {
+  evaluateReplacementEvent,
+  type ReplacementEffectResult,
+  type ReplacementZone,
+} from './replacement-effects.js';
 import { matchesSelfShuffleIntoLibraryReplacementOracle } from './replacementEffectSpec.js';
+import { processLifeChange } from './game-state-effects.js';
 import { moveRemovedPermanentToExile } from './zones.js';
 import { debug } from "../../utils/debug.js";
 import { recordCardLeftGraveyardThisTurn } from "./turn-tracking.js";
 import { movePermanentToLibrary } from "./zones.js";
+import { triggerLifeGainEffects } from '../utils.js';
 
 /**
  * Shuffle cards from one zone into library.
@@ -363,6 +370,172 @@ export interface GraveyardDestinationReplacementOutcome {
   handled: boolean;
   effectId?: string;
   replacementDestination?: ReplacementZone;
+  lifeGain?: number;
+  ceasesToExist?: boolean;
+}
+
+export interface LeaveBattlefieldDestinationReplacementOptions {
+  intendedDestination: ReplacementZone;
+  controller?: string;
+  owner?: string;
+  objectId?: string;
+  permanentId?: string;
+  cause?: string;
+}
+
+export type {
+  LeaveBattlefieldReplacementHint,
+} from './leaveBattlefieldReplacementHint.js';
+export {
+  getDeclarativeLeaveBattlefieldReplacementHint,
+} from './leaveBattlefieldReplacementHint.js';
+
+function buildDeclarativeReplacementOutcome(
+  result: ReplacementEffectResult,
+): Pick<GraveyardDestinationReplacementOutcome, 'effectId' | 'lifeGain'> {
+  return {
+    effectId: result.effectId,
+    lifeGain: typeof result.lifeGain === 'number' && result.lifeGain > 0 ? result.lifeGain : undefined,
+  };
+}
+
+function applyDeclarativeZoneChangeReplacementOutcome(
+  ctx: GameContext,
+  object: any,
+  ownerId: string,
+  result: ReplacementEffectResult,
+  options: { sourceZone: ReplacementZone; permanentId?: string },
+): GraveyardDestinationReplacementOutcome {
+  const owner = String(ownerId || '').trim();
+  const baseOutcome = buildDeclarativeReplacementOutcome(result);
+
+  if (result.metadata?.ceasesToExist === true) {
+    return {
+      handled: true,
+      ...baseOutcome,
+      ceasesToExist: true,
+    };
+  }
+
+  const zoneCard = ((object as any)?.isFaceDown === true && (object as any)?.faceUpCard)
+    ? (object as any).faceUpCard
+    : ((object as any)?.card || object);
+
+  if (
+    result.replacementDestination === 'library'
+    && result.metadata?.shuffleIntoOwnerLibrary === true
+  ) {
+    const shuffled = options.sourceZone === 'battlefield' && (object as any)?.card
+      ? shuffleRemovedPermanentIntoOwnerLibrary(ctx, object, owner)
+      : shuffleCardCopyIntoOwnerLibrary(ctx, zoneCard, owner);
+    return shuffled
+      ? {
+          handled: true,
+          ...baseOutcome,
+          replacementDestination: result.replacementDestination,
+        }
+      : { handled: false };
+  }
+
+  if (result.replacementDestination === 'exile') {
+    if (options.sourceZone === 'battlefield' && options.permanentId) {
+      moveRemovedPermanentToExile(ctx, object, options.permanentId);
+      return {
+        handled: true,
+        ...baseOutcome,
+        replacementDestination: result.replacementDestination,
+      };
+    }
+    const exiled = exileCardCopyForOwner(ctx, zoneCard, owner);
+    return exiled
+      ? {
+          handled: true,
+          ...baseOutcome,
+          replacementDestination: result.replacementDestination,
+        }
+      : { handled: false };
+  }
+
+  return { handled: false };
+}
+
+/** Phase 5.2 leave-BF replacement choke point (exile instead, token cease-to-exist, self-shuffle). */
+export function tryApplyDeclarativeLeaveBattlefieldDestinationReplacement(
+  ctx: GameContext,
+  object: any,
+  ownerId: string,
+  options: LeaveBattlefieldDestinationReplacementOptions,
+): GraveyardDestinationReplacementOutcome {
+  const owner = String(ownerId || options.owner || '').trim();
+  if (!object || !owner) {
+    return { handled: false };
+  }
+
+  const result = evaluateReplacementEvent({
+    type: 'zone-change',
+    state: (ctx as any).state,
+    object,
+    objectId: String(options.objectId || options.permanentId || object?.id || object?.card?.id || ''),
+    sourceZone: 'battlefield',
+    destinationZone: options.intendedDestination,
+    controller: options.controller || owner,
+    owner: options.owner || owner,
+    cause: options.cause,
+  });
+
+  if (result.choiceRequired || !result.applied) {
+    return { handled: false };
+  }
+
+  return applyDeclarativeZoneChangeReplacementOutcome(ctx, object, owner, result, {
+    sourceZone: 'battlefield',
+    permanentId: options.permanentId,
+  });
+}
+
+export function applyLeaveBattlefieldReplacementLifeGain(
+  ctx: GameContext,
+  outcome: GraveyardDestinationReplacementOutcome,
+  controllerId: string,
+): void {
+  const amount = Number(outcome.lifeGain || 0);
+  if (amount <= 0 || outcome.effectId !== 'leave-battlefield-exile-instead') {
+    return;
+  }
+
+  const playerId = String(controllerId || '').trim() as PlayerID;
+  if (!playerId) return;
+
+  const state = (ctx as any).state;
+  const startingLife = state?.startingLife || 40;
+  const currentLife = state?.life?.[playerId] ?? startingLife;
+  const result = processLifeChange(ctx, playerId, amount, true);
+  if (result.prevented || result.finalAmount === 0) {
+    return;
+  }
+
+  if (!state.life) state.life = {};
+  state.life[playerId] = currentLife + result.finalAmount;
+
+  const player = Array.isArray(state.players)
+    ? state.players.find((entry: any) => String(entry?.id || '') === String(playerId || ''))
+    : undefined;
+  if (player) {
+    player.life = state.life[playerId];
+  }
+
+  try {
+    if (result.finalAmount > 0) {
+      (state as any).lifeGainedThisTurn = (state as any).lifeGainedThisTurn || {};
+      (state as any).lifeGainedThisTurn[playerId] = ((state as any).lifeGainedThisTurn[playerId] || 0) + result.finalAmount;
+      triggerLifeGainEffects(state, playerId, result.finalAmount);
+    } else if (result.finalAmount < 0) {
+      (state as any).lifeLostThisTurn = (state as any).lifeLostThisTurn || {};
+      (state as any).lifeLostThisTurn[playerId] = ((state as any).lifeLostThisTurn[playerId] || 0) + Math.abs(result.finalAmount);
+    }
+  } catch {
+    // best-effort tracking only
+  }
 }
 
 export function tryApplyDeclarativeGraveyardDestinationReplacement(
@@ -374,6 +547,17 @@ export function tryApplyDeclarativeGraveyardDestinationReplacement(
   const owner = String(ownerId || options.owner || '').trim();
   if (!object || !owner) {
     return { handled: false };
+  }
+
+  if (options.sourceZone === 'battlefield') {
+    return tryApplyDeclarativeLeaveBattlefieldDestinationReplacement(ctx, object, owner, {
+      intendedDestination: 'graveyard',
+      controller: options.controller,
+      owner: options.owner,
+      objectId: options.objectId,
+      permanentId: options.permanentId,
+      cause: options.cause,
+    });
   }
 
   const result = evaluateReplacementEvent({
@@ -392,46 +576,10 @@ export function tryApplyDeclarativeGraveyardDestinationReplacement(
     return { handled: false };
   }
 
-  const zoneCard = ((object as any)?.isFaceDown === true && (object as any)?.faceUpCard)
-    ? (object as any).faceUpCard
-    : ((object as any)?.card || object);
-
-  if (
-    result.replacementDestination === 'library'
-    && result.metadata?.shuffleIntoOwnerLibrary === true
-  ) {
-    const shuffled = options.sourceZone === 'battlefield' && (object as any)?.card
-      ? shuffleRemovedPermanentIntoOwnerLibrary(ctx, object, owner)
-      : shuffleCardCopyIntoOwnerLibrary(ctx, zoneCard, owner);
-    return shuffled
-      ? {
-          handled: true,
-          effectId: result.effectId,
-          replacementDestination: result.replacementDestination,
-        }
-      : { handled: false };
-  }
-
-  if (result.replacementDestination === 'exile') {
-    if (options.sourceZone === 'battlefield' && options.permanentId) {
-      moveRemovedPermanentToExile(ctx, object, options.permanentId);
-      return {
-        handled: true,
-        effectId: result.effectId,
-        replacementDestination: result.replacementDestination,
-      };
-    }
-    const exiled = exileCardCopyForOwner(ctx, zoneCard, owner);
-    return exiled
-      ? {
-          handled: true,
-          effectId: result.effectId,
-          replacementDestination: result.replacementDestination,
-        }
-      : { handled: false };
-  }
-
-  return { handled: false };
+  return applyDeclarativeZoneChangeReplacementOutcome(ctx, object, owner, result, {
+    sourceZone: options.sourceZone,
+    permanentId: options.permanentId,
+  });
 }
 
 export function tryApplyGraveyardSelfShuffleReplacementForCard(

@@ -33,7 +33,7 @@ const CORPUS: ReadonlyArray<{
     label: 'God-Pharaoh\'s Gift 4/4 Zombie',
     effect:
       "create a token that's a copy of that card, except it's a 4/4 black Zombie. It gains haste until end of turn.",
-    expect: { power: 4, toughness: 4, colors: ['B'], addSubtypes: ['Zombie'] },
+    expect: { power: 4, toughness: 4, colors: ['B'], replaceSubtypes: ['Zombie'] },
   },
   {
     label: 'Feldon artifact + haste',

@@ -13339,11 +13339,15 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   }
 
   const castInstantOrSorceryWithoutSpellWord = oracleText.match(
-    /whenever you cast an? (instant|sorcery),?\s*([^.]+)/gi,
+    /whenever you cast an? (instant|sorcery)(?! or )\b,?\s*([^.]+)/gi,
   );
   if (castInstantOrSorceryWithoutSpellWord) {
     for (const rawMatch of castInstantOrSorceryWithoutSpellWord) {
-      const effectMatch = /whenever you cast an? (instant|sorcery),?\s*([^.]+)/i.exec(rawMatch);
+      const lowerRaw = String(rawMatch || '').toLowerCase();
+      if (/\bspell\b/.test(lowerRaw) || /\binstant or sorcery\b/.test(lowerRaw)) {
+        continue;
+      }
+      const effectMatch = /whenever you cast an? (instant|sorcery)(?! or )\b,?\s*([^.]+)/i.exec(rawMatch);
       if (!effectMatch) continue;
       const effectText = extractSpellCastEffect(oracleText, effectMatch, 2);
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'instant_sorcery')) {
@@ -13578,12 +13582,16 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
 
   const castShortTypePatterns = [
     /whenever you cast a (blue|green|red|white|black|cat|dog|kraken|pegasus|lesson)(?:\s+spell)?,?\s*([^.]+)/gi,
-    /whenever you cast an (aura|artifact|enchantment|instant|sorcery)(?:\s+spell)?,?\s*([^.]+)/gi,
+    /whenever you cast an (aura|artifact|enchantment|instant(?!\s+or\s+sorcery)|sorcery)(?:\s+spell)?,?\s*([^.]+)/gi,
   ];
   for (const pattern of castShortTypePatterns) {
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
+      const lowerMatchText = String(match[0] || '').toLowerCase();
+      if (/\binstant or sorcery\b/.test(lowerMatchText)) {
+        continue;
+      }
       const rawType = String(match[1] || '').trim().toLowerCase();
       const effectText = extractSpellCastEffect(oracleText, match, 2);
       const { spellCondition, tribalType } = getSpellCastConditionData(rawType);
@@ -13790,7 +13798,15 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
   if (chosenType && lowerOracle.includes('whenever you cast a spell of the chosen type')) {
     const effectMatch = /whenever you cast a spell of the chosen type,?\s*([^.]+)/i.exec(oracleText);
     if (effectMatch) {
-      const effect = String(effectMatch[1] || '').trim();
+      let effect = String(effectMatch[1] || '').trim();
+      const lowerEffect = effect.toLowerCase();
+      if (
+        (lowerEffect.includes('copy that spell') || lowerEffect.includes('copy it'))
+        && !lowerEffect.includes('choose new targets for the copy')
+        && /you may choose new targets? for the copy\.?/i.test(oracleText)
+      ) {
+        effect = `${effect} You may choose new targets for the copy.`.trim();
+      }
       const copiesSpell = effect.toLowerCase().includes('copy that spell') || effect.toLowerCase().includes('copy it');
       const chosenTypeLower = chosenType.toLowerCase();
 

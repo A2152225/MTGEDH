@@ -95,6 +95,11 @@ import {
 } from "../state/modules/spellLegacyChoiceBatchUtils.js";
 import { returnExiledCardToBattlefield, scheduleExiledCardReturnToBattlefield } from "../state/modules/executeSpellEffect.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
+import {
+  extractControlledExploitTriggeredEffects,
+  extractSelfExploitTriggeredEffects,
+  pushSingleExploitRewardTrigger,
+} from "../state/modules/exploitKeywordTriggerUtils.js";
 import { executeTriggerEffect } from "../state/modules/stackExecuteTriggerEffectUtils.js";
 import { resolveTriggerStackItemEffectText } from "../state/modules/stackResolveTriggeredAbilityOrchestratorUtils.js";
 import { applyPermanentBecomeCopyOfTargetPermanent } from "../state/modules/permanent-copy.js";
@@ -14829,80 +14834,6 @@ function buildTriggeredAbilitySourceContext(sourcePermanentSnapshot: any): Recor
   };
 }
 
-function normalizeExploitTriggerText(value: string): string {
-  return String(value || '')
-    .replace(/[’]/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function extractSelfExploitTriggeredEffects(sourceCard: any, sourceName: string): Array<{ fullText: string; effectText: string }> {
-  const oracleText = String(sourceCard?.oracle_text || '').trim();
-  if (!oracleText) {
-    return [];
-  }
-
-  const normalizedName = normalizeExploitTriggerText(String(sourceCard?.name || sourceName || '')).toLowerCase();
-  const lines = oracleText
-    .split(/\r?\n/)
-    .map((line) => String(line || '').trim())
-    .filter(Boolean);
-
-  const effects: Array<{ fullText: string; effectText: string }> = [];
-  for (const line of lines) {
-    const normalizedLine = normalizeExploitTriggerText(line);
-    const lowerLine = normalizedLine.toLowerCase();
-    const selfPrefix = 'when this creature exploits a creature, ';
-    const namedPrefix = normalizedName ? `when ${normalizedName} exploits a creature, ` : '';
-
-    if (lowerLine.startsWith(selfPrefix)) {
-      const effectText = normalizedLine.slice(selfPrefix.length).trim();
-      if (effectText) {
-        effects.push({ fullText: normalizedLine, effectText });
-      }
-      continue;
-    }
-
-    if (namedPrefix && lowerLine.startsWith(namedPrefix)) {
-      const effectText = normalizedLine.slice(namedPrefix.length).trim();
-      if (effectText) {
-        effects.push({ fullText: normalizedLine, effectText });
-      }
-    }
-  }
-
-  return effects;
-}
-
-function extractControlledExploitTriggeredEffects(sourceCard: any): Array<{ fullText: string; effectText: string }> {
-  const oracleText = String(sourceCard?.oracle_text || '').trim();
-  if (!oracleText) {
-    return [];
-  }
-
-  const lines = oracleText
-    .split(/\r?\n/)
-    .map((line) => String(line || '').trim())
-    .filter(Boolean);
-  const prefix = 'whenever a creature you control exploits a creature, ';
-
-  const effects: Array<{ fullText: string; effectText: string }> = [];
-  for (const line of lines) {
-    const normalizedLine = normalizeExploitTriggerText(line);
-    const lowerLine = normalizedLine.toLowerCase();
-    if (!lowerLine.startsWith(prefix)) {
-      continue;
-    }
-
-    const effectText = normalizedLine.slice(prefix.length).trim();
-    if (effectText) {
-      effects.push({ fullText: normalizedLine, effectText });
-    }
-  }
-
-  return effects;
-}
-
 function pushExploitTriggeredEffectOntoStack(
   game: any,
   gameId: string,
@@ -14921,70 +14852,28 @@ function pushExploitTriggeredEffectOntoStack(
     return;
   }
 
-  const metadata = inferTriggeredAbilityTargetMetadata(trigger.effectText, {
-    gameState: game.state,
+  const ctx = {
+    gameId,
+    state: game.state,
+    zones: game.state?.zones,
+    libraries: (game as any).libraries,
+    commandZone: (game.state as any).commandZone || {},
+    applyEvent: typeof (game as any).applyEvent === 'function' ? (game as any).applyEvent.bind(game) : undefined,
+    bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : undefined,
+    seq: (game as any).seq,
+    isReplaying: false,
+  } as unknown as GameContext;
+
+  pushSingleExploitRewardTrigger(ctx, gameId, trigger, {
+    sourceForMetadata,
+    sourceSnapshot,
     controllerId,
     sourceName,
-    sourcePermanent: sourceForMetadata,
+    exploitedPermanentId: options?.exploitedPermanentId,
+    exploitedPermanentName: options?.exploitedPermanentName,
+    exploitedPermanentSnapshot: options?.exploitedPermanentSnapshot,
+    persistEvent: true,
   });
-  const triggerId = uid('trigger');
-  const effectData = {
-    ...(options?.exploitedPermanentId ? { exploitedPermanentId: String(options.exploitedPermanentId) } : null),
-    ...(options?.exploitedPermanentName ? { exploitedPermanentName: String(options.exploitedPermanentName) } : null),
-    ...(options?.exploitedPermanentSnapshot && typeof options.exploitedPermanentSnapshot === 'object'
-      ? { exploitedPermanentSnapshot: options.exploitedPermanentSnapshot }
-      : null),
-  } as Record<string, any>;
-  const payload = {
-    triggerId,
-    sourceId: String(sourceForMetadata?.id || sourceSnapshot?.id || ''),
-    ...(sourceForMetadata?.id ? { permanentId: String(sourceForMetadata.id) } : null),
-    sourceName,
-    controllerId,
-    description: trigger.fullText,
-    triggerType: 'exploit',
-    effect: trigger.effectText,
-    mandatory: true,
-    ...(typeof metadata.requiresTarget === 'boolean' ? { requiresTarget: metadata.requiresTarget } : null),
-    ...(metadata.targetType ? { targetType: metadata.targetType } : null),
-    ...(metadata.targetConstraint ? { targetConstraint: metadata.targetConstraint } : null),
-    ...(metadata.requiresTarget ? { needsTargetSelection: true } : null),
-    ...(metadata.targetZone ? { targetZone: metadata.targetZone } : null),
-    ...(metadata.targetDestination ? { targetDestination: metadata.targetDestination } : null),
-    ...(metadata.targetGraveyardScope ? { targetGraveyardScope: metadata.targetGraveyardScope } : null),
-    ...(metadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
-    ...(metadata.battlefieldControllerMode ? { battlefieldControllerMode: metadata.battlefieldControllerMode } : null),
-    ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
-    ...(metadata.targetAction ? { targetAction: metadata.targetAction } : null),
-    ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
-    ...(Array.isArray(metadata.targetFilterRequiredTypeWords) ? { targetFilterRequiredTypeWords: metadata.targetFilterRequiredTypeWords } : null),
-    ...(Array.isArray(metadata.targetFilterExcludeTypes) ? { targetFilterExcludeTypes: metadata.targetFilterExcludeTypes } : null),
-    ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
-    ...(typeof metadata.targetFilterExactManaValue === 'number' ? { targetFilterExactManaValue: metadata.targetFilterExactManaValue } : null),
-    ...(typeof metadata.targetFilterMinManaValue === 'number' ? { targetFilterMinManaValue: metadata.targetFilterMinManaValue } : null),
-    ...(typeof metadata.targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue: metadata.targetFilterMaxManaValue } : null),
-    ...(typeof metadata.targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit: metadata.targetTotalPowerLimit } : null),
-    ...(metadata.targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
-    ...(metadata.targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
-    ...(typeof metadata.minTargets === 'number' ? { minTargets: metadata.minTargets } : null),
-    ...(typeof metadata.maxTargets === 'number' ? { maxTargets: metadata.maxTargets } : null),
-    ...(Object.keys(effectData).length > 0 ? { effectData } : null),
-    ...(sourceForMetadata?.card && typeof sourceForMetadata.card === 'object' ? { card: { ...sourceForMetadata.card } } : null),
-    ...(sourceSnapshot && typeof sourceSnapshot === 'object' ? { sourcePermanentSnapshot: sourceSnapshot } : null),
-  } as any;
-
-  if (typeof (game as any).applyEvent === 'function') {
-    (game as any).applyEvent({
-      type: 'pushTriggeredAbility',
-      ...payload,
-    });
-  }
-
-  try {
-    appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', payload);
-  } catch (err) {
-    debugWarn(1, '[Resolution] Failed to persist exploit trigger pushTriggeredAbility:', err);
-  }
 }
 
 function pushExertTriggeredAbilityOntoStack(
@@ -15450,8 +15339,8 @@ async function handleExploitChoiceResponse(
   response: ResolutionStepResponse
 ): Promise<void> {
   const selectedPermanentId = String(extractResolutionChoiceId(response.selections) || '').trim();
-  appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'exploit', selectedPermanentId });
   if (response.cancelled) {
+    appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'exploit', selectedPermanentId });
     return;
   }
 
@@ -15545,6 +15434,17 @@ async function handleExploitChoiceResponse(
     }
   }
 
+  appendKeywordPromptResolveEvent(gameId, game, step, response, {
+    keyword: 'exploit',
+    selectedPermanentId,
+    sourceName,
+    sourceId: String((step as any)?.permanentId || step.sourceId || '').trim(),
+    permanentId: String((step as any)?.permanentId || step.sourceId || '').trim(),
+    sourcePermanentSnapshot: cloneResolutionPermanentSnapshot(currentSourcePermanent || sourceSnapshot),
+    exploitedPermanentName,
+    exploitedPermanentSnapshot,
+  });
+
   if (typeof game.bumpSeq === 'function') {
     game.bumpSeq();
   }
@@ -15563,8 +15463,9 @@ function handleExtortPaymentResponse(
   const pid = String(response.playerId || step.playerId || '').trim();
   const manaCost = String(stepData?.manaCost || '{W/B}').trim();
   const payment = extractResolutionPaymentItems(response.selections as any);
-  appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'extort', choiceId, manaCost, payment });
+
   if (response.cancelled || choiceId === 'skip') {
+    appendKeywordPromptResolveEvent(gameId, game, step, response, { keyword: 'extort', choiceId, manaCost, payment });
     return;
   }
 
@@ -15577,6 +15478,22 @@ function handleExtortPaymentResponse(
     });
     return;
   }
+
+  appendKeywordPromptResolveEvent(gameId, game, step, response, {
+    keyword: 'extort',
+    choiceId,
+    manaCost,
+    payment,
+    ...(applied.paymentManaDelta && Object.keys(applied.paymentManaDelta).length > 0
+      ? { paymentManaDelta: applied.paymentManaDelta }
+      : {}),
+    ...(Array.isArray(applied.tappedPermanents) && applied.tappedPermanents.length > 0
+      ? { tappedPermanents: applied.tappedPermanents }
+      : {}),
+    ...(Array.isArray(applied.sacrificedPermanents) && applied.sacrificedPermanents.length > 0
+      ? { sacrificedPermanents: applied.sacrificedPermanents }
+      : {}),
+  });
 
   const stateAny = game.state as any;
   stateAny.life = stateAny.life || {};
@@ -17845,6 +17762,26 @@ async function handleTargetSelectionResponse(
     const sourceName = String(stepAny?.targetedTriggeredAbilitySourceName || step.sourceName || stepAny?.triggerItem?.sourceName || 'Triggered ability');
     const description = String(stepAny?.targetedTriggeredAbilityDescription || stepAny?.triggerItem?.description || '');
     const controller = String(stepAny?.targetedTriggeredAbilityController || stepAny?.triggerItem?.controller || pid);
+    const triggerStackItemId = String(step.sourceId || stepAny?.triggerItem?.id || '').trim();
+    if (triggerStackItemId) {
+      if (Array.isArray(game.state?.stack)) {
+        const stackItem = game.state.stack.find((item: any) => item && String(item.id || '') === triggerStackItemId);
+        if (stackItem) {
+          stackItem.targets = triggerTargets;
+        }
+      }
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'assignTriggeredAbilityTargets', {
+          triggerStackItemId,
+          targets: triggerTargets,
+          ...(String((step as any).id || '').trim()
+            ? { resolvedStepId: String((step as any).id).trim() }
+            : {}),
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] appendEvent(assignTriggeredAbilityTargets) failed:', err);
+      }
+    }
     const triggerItem = {
       ...(stepAny.triggerItem || {}),
       sourceName,
@@ -19372,7 +19309,21 @@ async function handleTargetSelectionResponse(
     if (stackItem) {
       stackItem.targets = selections;
       debug(2, `[Resolution] Stored targets for ${sourceId}: ${selections.join(', ')}`);
-      if (String(stackItem.type || '') === 'ability') {
+    } else {
+      debugWarn(2, `[Resolution] Stack item ${sourceId} not found to store targets`);
+    }
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'assignTriggeredAbilityTargets', {
+        triggerStackItemId: String(sourceId),
+        targets: selections.map((value: any) => String(value || '')).filter(Boolean),
+        ...(String((step as any).id || '').trim()
+          ? { resolvedStepId: String((step as any).id).trim() }
+          : {}),
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(assignTriggeredAbilityTargets) failed:', err);
+    }
+    if (stackItem && String(stackItem.type || '') === 'ability') {
         const targetedTriggers = triggerPermanentTargetedTriggersFromAbility(game as any, {
           activatedBy: String(stackItem.controller || pid) as any,
           sourcePermanentId: String(stackItem.source || ''),
@@ -19381,9 +19332,6 @@ async function handleTargetSelectionResponse(
         });
         persistTargetedTriggeredStackItems(gameId, game, targetedTriggers);
       }
-    } else {
-      debugWarn(2, `[Resolution] Stack item ${sourceId} not found to store targets`);
-    }
   }
 
   // ===== LORWYN ECLIPSED: Blight N (generic hook) =====
@@ -34437,6 +34385,9 @@ async function handleGraveyardSelectionResponse(
       appendEvent(gameId, (game as any).seq ?? 0, 'assignTriggeredAbilityTargets', {
         triggerStackItemId,
         targets: selectedCardIds.slice(),
+        ...(String((step as any).id || '').trim()
+          ? { resolvedStepId: String((step as any).id).trim() }
+          : {}),
       });
     } catch (err) {
       debugWarn(1, '[Resolution] appendEvent(assignTriggeredAbilityTargets) failed:', err);
@@ -36078,6 +36029,7 @@ async function handleSoldierProgramChoice(
         {
           colors: ['W'], // White Soldier (not colorless like Myrel's)
           typeLine: 'Token Creature — Soldier',
+          skipEventPersistence: true,
         }
       );
 

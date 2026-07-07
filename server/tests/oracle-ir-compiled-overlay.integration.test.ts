@@ -1,4 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import {
@@ -12,6 +14,12 @@ import {
 import { resetLocalCardLookupForTests } from '../src/services/localCardLookup.js';
 import { resetCompiledOracleIROverlayTableForTests } from '../src/services/oracleIrCompiledOverlayStore.js';
 import { extractOracleCardLookupKeys } from '../src/state/modules/oracleIrCompiledOverlayLookup.js';
+import { collectStaticEffectSpecsFromState } from '../src/state/modules/staticEffectSpec.js';
+import { collectReplacementEffectSpecsFromState } from '../src/state/modules/replacementEffectSpec.js';
+import {
+  normalizeOverlayImportRecord,
+  validateCompilerEnvelope,
+} from '../scripts/oracleIrOverlayImportUtils.js';
 
 const TEST_CARD_NAME = 'Overlay Test Gribble';
 const TEST_CARD_ID = 'overlay-test-gribble';
@@ -104,5 +112,57 @@ describe('oracle ir compiled overlay integration', () => {
 
     expect(keys.cardId).toBeUndefined();
     expect(keys.cardName).toBe('Mystery Spell');
+  });
+
+  it('imports declarative STATIC and REPLACEMENT example overlays end-to-end', () => {
+    const overlayDir = path.join(process.cwd(), 'data', 'compiled-oracle-ir-overlays');
+    const anthemRecord = normalizeOverlayImportRecord(
+      JSON.parse(fs.readFileSync(path.join(overlayDir, 'anthem-static.example.json'), 'utf8')),
+      'anthem-static.example.json',
+    );
+    const millRecord = normalizeOverlayImportRecord(
+      JSON.parse(fs.readFileSync(path.join(overlayDir, 'mill-replacement.example.json'), 'utf8')),
+      'mill-replacement.example.json',
+    );
+
+    expect(validateCompilerEnvelope(anthemRecord.envelope).ok).toBe(true);
+    expect(validateCompilerEnvelope(millRecord.envelope).ok).toBe(true);
+
+    upsertCompiledOracleIROverlaySync({
+      cardId: anthemRecord.cardId!,
+      name: anthemRecord.name!,
+      envelope: anthemRecord.envelope,
+    });
+    upsertCompiledOracleIROverlaySync({
+      cardId: millRecord.cardId!,
+      name: millRecord.name!,
+      envelope: millRecord.envelope,
+    });
+
+    const staticSpecs = collectStaticEffectSpecsFromState({
+      battlefield: [{
+        id: 'custom_anthem_perm',
+        controller: 'p1',
+        card: { id: anthemRecord.cardId, name: anthemRecord.name, oracle_text: '' },
+      }],
+    });
+    expect(staticSpecs).toHaveLength(1);
+    expect(staticSpecs[0]).toMatchObject({
+      scope: { kind: 'creatures_you_control' },
+      grant: { power: 1, toughness: 1 },
+    });
+
+    const replacementSpecs = collectReplacementEffectSpecsFromState({
+      battlefield: [{
+        id: 'custom_mill_perm',
+        controller: 'p1',
+        card: { id: millRecord.cardId, name: millRecord.name, oracle_text: '' },
+      }],
+    });
+    expect(replacementSpecs).toHaveLength(1);
+    expect(replacementSpecs[0]).toMatchObject({
+      event: 'mill',
+      instead: { modify: 'double' },
+    });
   });
 });

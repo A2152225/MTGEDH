@@ -18,6 +18,7 @@ import { syncPreparedPermanentAfterControlChange } from "../../modules/prepared.
 import { getPlaneswalkerTemplateMatch } from "./registry.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../../modules/graveyardEntryUtils.js";
 import { getBattlefield, getGameId, getPlaneswalkerX, getTargets, modifyLifeLikeStack, normalizeOracleEffectText, parseCountTokenWord, parseCreateTokenDescriptor } from "./utils.js";
+import { queueResolveTopOfStackPrompt } from "../../modules/resolutionPromptEvents.js";
 
 function discardHandCardsToGraveyard(
   ctx: GameContext,
@@ -4628,7 +4629,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const hand: any[] = zones?.[controller]?.hand || [];
       if (!hand.length) return true;
 
-      ResolutionQueueManager.addStep(gameId, {
+      queueResolveTopOfStackPrompt(ctx, {
         type: ResolutionStepType.OPTION_CHOICE,
         playerId: controller,
         description: `${sourceName}: You may discard a card. If you do, draw a card.`,

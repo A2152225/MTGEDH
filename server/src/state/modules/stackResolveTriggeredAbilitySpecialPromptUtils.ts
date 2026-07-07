@@ -3,7 +3,7 @@ import type { GameContext } from '../context.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { ResolutionStepType } from '../resolution/index.js';
 import type { ChoiceOption } from '../../../../rules-engine/src/choiceEvents.js';
-import { getCounterLeaveBattlefieldReplacement } from './counter-common-effects.js';
+import { getDeclarativeLeaveBattlefieldReplacementHint } from './leaveBattlefieldReplacementHint.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import {
   buildTriggerSourcePermanentSnapshot,
@@ -62,17 +62,7 @@ export function tryDeferTriggeredAbilitySpecialPrompts(
             permanentId: permanent.id,
             cardName: permanent.card?.name || 'Land',
             imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
-            ...(getCounterLeaveBattlefieldReplacement(permanent, 'hand') === 'exile'
-              ? {
-                  leaveBattlefieldReplacementDestination: 'exile' as const,
-                  ...((permanent as any).leaveBattlefieldReplacementSourceName || (permanent.card as any)?.leaveBattlefieldReplacementSourceName
-                    ? { leaveBattlefieldReplacementSourceName: String((permanent as any).leaveBattlefieldReplacementSourceName || (permanent.card as any)?.leaveBattlefieldReplacementSourceName) }
-                    : {}),
-                  ...(Number((permanent as any).leaveBattlefieldReplacementLifeGain || (permanent.card as any)?.leaveBattlefieldReplacementLifeGain || 0) > 0
-                    ? { leaveBattlefieldReplacementLifeGain: Number((permanent as any).leaveBattlefieldReplacementLifeGain || (permanent.card as any)?.leaveBattlefieldReplacementLifeGain || 0) }
-                    : {}),
-                }
-              : {}),
+            ...getDeclarativeLeaveBattlefieldReplacementHint(permanent, 'hand', state),
           })),
           stackItemId: item.id,
         } as any);

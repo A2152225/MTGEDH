@@ -384,6 +384,7 @@ describe('Summon the School loop replay persistence (integration)', () => {
     createGameIfNotExists(replayGameId, 'commander', 40);
     const replayGame = ensureGame(replayGameId);
     if (!replayGame) throw new Error('ensureGame returned undefined for replay');
+    (replayGame as any).isReplaying = true;
     applyMerfolkLoopState(replayGame);
 
     for (const event of afterReturnEvents) {

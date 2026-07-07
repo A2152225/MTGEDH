@@ -16,12 +16,15 @@ import { ensureInitialDayNightDesignationFromBattlefield } from "./day-night.js"
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
-import { applyShieldCounterDamagePrevention, getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
+import { applyShieldCounterDamagePrevention } from "./counter-common-effects.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 import { detectKeywords } from "./keyword-detection.js";
-import { moveRemovedPermanentToExile } from "./zones.js";
-import { tryApplyDeclarativeGraveyardDestinationReplacement } from "./zone-manipulation.js";
+import {
+  applyLeaveBattlefieldReplacementLifeGain,
+  tryApplyDeclarativeGraveyardDestinationReplacement,
+  tryApplyDeclarativeLeaveBattlefieldDestinationReplacement,
+} from "./zone-manipulation.js";
 import { registerLinkedExile } from "./triggers/linked-exile.js";
 import { queueCounterPlacedTriggers, queueCounterRemovedTriggers } from "./triggers/counters.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
@@ -874,6 +877,67 @@ export function getTokenDoublerMultiplier(controller: PlayerID, state: any): num
   return multiplier;
 }
 
+export type CreateTokenOptions = {
+  colors?: string[];
+  typeLine?: string;
+  abilities?: string[];
+  isArtifact?: boolean;
+  entersTapped?: boolean;
+  withCounters?: Record<string, number>;
+  /** When true, do not append executeEffect/createToken to the event log (replay/applyEvent paths). */
+  skipEventPersistence?: boolean;
+};
+
+function buildCreateTokenReplayPayload(controllerId: PlayerID, tokenPermanent: any): Record<string, unknown> {
+  const keywords = Array.isArray(tokenPermanent?.card?.keywords) ? tokenPermanent.card.keywords : [];
+  const rawPower = tokenPermanent?.basePower ?? tokenPermanent?.card?.power;
+  const rawToughness = tokenPermanent?.baseToughness ?? tokenPermanent?.card?.toughness;
+  const power = Number.isFinite(Number(rawPower)) ? Number(rawPower) : undefined;
+  const toughness = Number.isFinite(Number(rawToughness)) ? Number(rawToughness) : undefined;
+
+  return {
+    effectType: 'createToken',
+    controllerId,
+    tokenData: {
+      id: String(tokenPermanent?.id || ''),
+      name: String(tokenPermanent?.card?.name || 'Token'),
+      typeLine: String(tokenPermanent?.card?.type_line || 'Token'),
+      ...(power != null ? { power } : {}),
+      ...(toughness != null ? { toughness } : {}),
+      colors: Array.isArray(tokenPermanent?.card?.colors) ? [...tokenPermanent.card.colors] : [],
+      abilities: keywords.map((keyword: unknown) => String(keyword || '')),
+      hasHaste: keywords.some((keyword: unknown) => String(keyword || '').toLowerCase() === 'haste'),
+    },
+  };
+}
+
+function persistCreateTokenEvents(
+  ctx: GameContext,
+  controllerId: PlayerID,
+  createdPermanentIds: readonly string[],
+): void {
+  if ((ctx as any).isReplaying) return;
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown') return;
+
+  const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+  for (const tokenId of createdPermanentIds) {
+    const tokenPermanent = battlefield.find((entry: any) => entry && String(entry.id || '') === String(tokenId));
+    if (!tokenPermanent) continue;
+
+    try {
+      appendEvent(
+        gameId,
+        Number((ctx as any).seq?.value ?? (ctx as any).seq ?? ((ctx as any).state as any)?.seq ?? 0),
+        'executeEffect',
+        buildCreateTokenReplayPayload(controllerId, tokenPermanent),
+      );
+    } catch (err) {
+      debugWarn(1, '[createToken] appendEvent(executeEffect/createToken) failed:', err);
+    }
+  }
+}
+
 export function createToken(
   ctx: GameContext,
   controller: PlayerID,
@@ -881,14 +945,7 @@ export function createToken(
   count = 1,
   basePower?: number,
   baseToughness?: number,
-  options?: {
-    colors?: string[];
-    typeLine?: string;
-    abilities?: string[];
-    isArtifact?: boolean;
-    entersTapped?: boolean;
-    withCounters?: Record<string, number>;
-  },
+  options?: CreateTokenOptions,
   skipMirrormindReplacement = false
 ) : string[] {
   const { state, bumpSeq } = ctx;
@@ -1098,6 +1155,10 @@ export function createToken(
     typeLine,
   });
 
+  if (!options?.skipEventPersistence) {
+    persistCreateTokenEvents(ctx, controller, createdPermanentIds);
+  }
+
   bumpSeq();
   runSBA(ctx);
 
@@ -1280,18 +1341,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     },
   );
   if (graveyardReplacement.handled) {
-    if (graveyardReplacement.effectId === 'leave-battlefield-exile-instead') {
-      const leaveBattlefieldReplacementLifeGain = Number(
-        (perm as any)?.leaveBattlefieldReplacementLifeGain || (perm as any)?.card?.leaveBattlefieldReplacementLifeGain || 0
-      );
-      if (leaveBattlefieldReplacementLifeGain > 0 && controller) {
-        try {
-          applyProcessedLifeGain(ctx, String(controller) as PlayerID, leaveBattlefieldReplacementLifeGain);
-        } catch (err) {
-          debugWarn(1, '[movePermanentToGraveyard] Failed to apply leave-battlefield life gain:', err);
-        }
-      }
-    }
+    applyLeaveBattlefieldReplacementLifeGain(ctx, graveyardReplacement, String(controller || ''));
     try {
       recalculatePlayerEffects(ctx);
     } catch (err) {
@@ -1679,22 +1729,41 @@ export function removePermanent(ctx: GameContext, permanentId: string) {
     const perm = state.battlefield.splice(idx,1)[0];
     clearPreparedStateOnBattlefieldExit(state, perm);
     const removedPermanentId = String((perm as any)?.id || permanentId || '').trim();
+    const controller = String((perm as any)?.controller || (perm as any)?.owner || '').trim();
+    const owner = String((perm as any)?.owner || controller || '').trim();
     try {
-      const controller = (perm as any)?.controller || (perm as any)?.owner;
       if (controller) {
         (state as any).permanentLeftBattlefieldThisTurn = (state as any).permanentLeftBattlefieldThisTurn || {};
-        (state as any).permanentLeftBattlefieldThisTurn[String(controller)] = true;
+        (state as any).permanentLeftBattlefieldThisTurn[controller] = true;
       }
     } catch {
       // best-effort tracking only
     }
-    if (getCounterLeaveBattlefieldReplacement(perm, 'graveyard') === 'exile') {
-      moveRemovedPermanentToExile(ctx, perm, removedPermanentId);
+
+    const leaveReplacement = tryApplyDeclarativeLeaveBattlefieldDestinationReplacement(
+      ctx,
+      perm,
+      owner,
+      {
+        intendedDestination: 'graveyard',
+        controller,
+        permanentId: removedPermanentId,
+        cause: 'leave',
+      },
+    );
+    if (leaveReplacement.handled) {
+      applyLeaveBattlefieldReplacementLifeGain(ctx, leaveReplacement, controller);
+      if (removedPermanentId) {
+        processLinkedExileReturns(ctx, removedPermanentId);
+      }
+      if (leaveReplacement.replacementDestination !== 'exile') {
+        bumpSeq();
+      }
       runSBA(ctx);
       try {
         recalculatePlayerEffects(ctx);
       } catch (err) {
-        debugWarn(1, '[removePermanent] Failed to recalculate player effects after exile replacement:', err);
+        debugWarn(1, '[removePermanent] Failed to recalculate player effects after replacement:', err);
       }
       return;
     }

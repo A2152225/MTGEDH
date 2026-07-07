@@ -584,6 +584,7 @@ function normalizeCopyReferenceBody(body: string): string {
   reference = reference.replace(/\s+tapped\s+and\s+attacking\b.*$/i, '');
   reference = reference.replace(/,\s*where\s+x\s+is\b.*$/i, '');
   reference = reference.replace(/\.\s*exile\b.*$/i, '');
+  reference = reference.replace(/\.\s*sacrifice\b.*$/i, '');
   reference = reference.replace(/\.\s*at\s+the\s+beginning\b.*$/i, '');
   reference = reference.replace(/\s+at the beginning of the next end step\b.*$/i, '');
   reference = reference.replace(/\s+instead$/i, '');
@@ -705,7 +706,9 @@ function createCopiedTokenPermanent(params: {
     ? split.supertypes.filter(type => type.toLowerCase() !== 'legendary')
     : split.supertypes;
   const cardTypes = dedupeStrings([...(split.cardTypes || []), ...(params.overrides.addCardTypes || [])]);
-  const subtypes = dedupeStrings([...(split.subtypes || []), ...(params.overrides.addSubtypes || [])]);
+  const subtypes = params.overrides.replaceSubtypes && params.overrides.replaceSubtypes.length > 0
+    ? dedupeStrings([...params.overrides.replaceSubtypes])
+    : dedupeStrings([...(split.subtypes || []), ...(params.overrides.addSubtypes || [])]);
   const typeLine = buildTypeLine({ supertypes, cardTypes, subtypes });
 
   const keywordSource = [

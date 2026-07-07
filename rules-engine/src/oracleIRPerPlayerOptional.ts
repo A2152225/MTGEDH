@@ -44,10 +44,16 @@ export function isEachPlayerMayPutLandFromHandOracleStep(step: OracleEffectStep)
   return /^each player may put a land card from their hand onto the battlefield$/i.test(raw);
 }
 
+function normalizeControllerLandPlayStepRaw(raw: string): string {
+  return normalizePerPlayerOptionalText(raw)
+    .replace(/^then,?\s+/i, '')
+    .trim();
+}
+
 export function isControllerMayPutLandFromHandOracleStep(step: OracleEffectStep): boolean {
   if (step.kind !== 'move_zone') return false;
   if ((step as { optional?: boolean }).optional !== true) return false;
-  const raw = normalizePerPlayerOptionalText(String(step.raw || ''));
+  const raw = normalizeControllerLandPlayStepRaw(String(step.raw || ''));
   return /^you may put a land card from your hand onto the battlefield$/i.test(raw);
 }
 

@@ -40,6 +40,8 @@ interface Props {
     phaseCount: number;
     previousPhaseCount: number;
     turnCount: number;
+    semanticStepCount?: number;
+    semanticPhaseCount?: number;
     previews?: {
       step?: UndoBoundaryPreview;
       phase?: UndoBoundaryPreview;
@@ -126,6 +128,17 @@ export function GameStatusIndicator({
     { scope: 'turn', label: 'Current Turn', count: Number(smartUndoCounts?.turnCount || 0), preview: smartUndoCounts?.previews?.turn },
     { scope: 'previousPhase', label: 'Previous Phase', count: Number(smartUndoCounts?.previousPhaseCount || 0), preview: smartUndoCounts?.previews?.previousPhase },
   ];
+  const formatUndoCountLabel = (scope: UndoScope, eventCount: number): string => {
+    const semanticCount = scope === 'step'
+      ? Number(smartUndoCounts?.semanticStepCount || 0)
+      : scope === 'phase'
+        ? Number(smartUndoCounts?.semanticPhaseCount || 0)
+        : 0;
+    if (semanticCount > 0 && semanticCount < eventCount) {
+      return `${semanticCount} action${semanticCount === 1 ? '' : 's'} (${eventCount} events)`;
+    }
+    return `${eventCount} event${eventCount === 1 ? '' : 's'}`;
+  };
   const hasAnyUndoOption = undoOptions.some((option) => option.count > 0);
   const canOpenUndoMenu = Boolean(isYouPlayer && availableUndoCount > 0);
   const undoOptionsLoading = canOpenUndoMenu && !hasAnyUndoOption;
@@ -745,7 +758,7 @@ export function GameStatusIndicator({
                           gap: 12,
                         }}
                         title={enabled
-                          ? `${option.label} (${option.count} event${option.count === 1 ? '' : 's'})${option.preview?.summary ? ` - ${option.preview.summary}` : ''}`
+                          ? `${option.label} (${formatUndoCountLabel(option.scope, option.count)})${option.preview?.summary ? ` - ${option.preview.summary}` : ''}`
                           : `${option.label} unavailable`}
                       >
                         <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

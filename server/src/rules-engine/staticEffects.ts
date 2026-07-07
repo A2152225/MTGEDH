@@ -315,7 +315,17 @@ const CREATURE_TYPES = [
   'zombie', 'zubera'
 ];
 
-export function computeContinuousEffects(state: GameState): ContinuousEffectResult {
+export interface ComputeContinuousEffectsOptions {
+  /** Skip legacy anthem/lord/ability regex when declarative StaticEffectSpec owns the source. */
+  skipDeclarativeStaticForSourceIds?: ReadonlySet<string>;
+  /** @deprecated Use skipDeclarativeStaticForSourceIds */
+  skipDeclarativePtForSourceIds?: ReadonlySet<string>;
+}
+
+export function computeContinuousEffects(
+  state: GameState,
+  options?: ComputeContinuousEffectsOptions,
+): ContinuousEffectResult {
   const perPermanent = new Map<string, EffectAggregate>();
   const playerHexproof = new Set<PlayerID>();
   const playerShroud = new Set<PlayerID>();
@@ -336,11 +346,16 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     const oracle = ((source.card as any)?.oracle_text || '').toLowerCase();
     if (!oracle) continue;
     const controller = source.controller;
+    const skipLegacyStatic = Boolean(
+      options?.skipDeclarativeStaticForSourceIds?.has(String(source.id || ''))
+      || options?.skipDeclarativePtForSourceIds?.has(String(source.id || '')),
+    );
 
     // Player hexproof/shroud
     if (/\byou have hexproof\b/.test(oracle)) playerHexproof.add(controller);
     if (/\byou have shroud\b/.test(oracle)) playerShroud.add(controller);
 
+    if (!skipLegacyStatic) {
     // Global patterns
     // All creatures get +X/+Y
     const allMatch = oracle.match(/all creatures get (\+\d+\s*\/\s*\+\d+)/);
@@ -485,7 +500,9 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
         }
       }
     }
+    }
 
+    if (!skipLegacyStatic) {
     // "Other creatures you control have <abilities>" (e.g., Shalai for OTHER creatures)
     // Must check before "creatures you control have" to handle "other" correctly
     const otherCtrlHaveMatch = oracle.match(/other creatures you control have ([^.]+)/);
@@ -692,7 +709,9 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
         }
       }
     }
+    }
 
+    if (!skipLegacyStatic) {
     // Specific pattern: Eldrazi Monument style "creatures you control get +1/+1 and have flying and indestructible"
     const monumentMatch = oracle.match(/(?<!nonblack )(?<!non[- ]?human )creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/);
     if (monumentMatch) {
@@ -892,7 +911,9 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
         }
       }
     }
+    }
 
+    if (!skipLegacyStatic) {
     const coatOfArmsMatch = oracle.match(
       /each creature gets \+(\d+)\/\+(\d+) for each other creature on the battlefield that shares at least one creature type with it/i,
     );
@@ -931,6 +952,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
         }
       }
     }
+    }
     
     // Handle "chosen type" effects (Morophon, Reflections of Littjara, etc.)
     // Pattern: "Other creatures you control of the chosen type get +X/+Y"
@@ -940,6 +962,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
       const oracle = ((source.card as any)?.oracle_text || '').toLowerCase();
       
       // Morophon pattern: "Other creatures you control of the chosen type get +1/+1"
+      if (!skipLegacyStatic) {
       const chosenTypeBuffMatch = oracle.match(/other creatures you control of the chosen type get\s+(\+\d+\s*\/\s*\+\d+)/i);
       if (chosenTypeBuffMatch) {
         const buff = parseBuffSegment(chosenTypeBuffMatch[1]);
@@ -956,8 +979,10 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
           }
         }
       }
-      
+      }
+
       // Generic "chosen type" ability grants: "Creatures you control of the chosen type have [ABILITY]"
+      if (!skipLegacyStatic) {
       const chosenTypeAbilitiesMatch = oracle.match(/creatures you control of the chosen type have\s+([^.]+)/i);
       if (chosenTypeAbilitiesMatch) {
         const abilities = resolveGrantedAbilities(source, chosenTypeAbilitiesMatch[1]);
@@ -981,7 +1006,9 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
           }
         }
       }
+      }
 
+      if (!skipLegacyStatic) {
       const globalChosenTypeBuffMatch = oracle.match(/creatures of the chosen type get\s+(\+\d+\s*\/\s*\+\d+)/i);
       if (globalChosenTypeBuffMatch) {
         const buff = parseBuffSegment(globalChosenTypeBuffMatch[1]);
@@ -995,7 +1022,9 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
           }
         }
       }
+      }
 
+      if (!skipLegacyStatic) {
       const controlledChosenTypeBuffMatch = oracle.match(/creatures you control of the chosen type get\s+(\+\d+\s*\/\s*\+\d+)/i);
       if (controlledChosenTypeBuffMatch) {
         const buff = parseBuffSegment(controlledChosenTypeBuffMatch[1]);
@@ -1011,7 +1040,9 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
           }
         }
       }
+      }
 
+      if (!skipLegacyStatic) {
       const opponentChosenTypeDebuffMatch = oracle.match(
         /creatures of the chosen type your opponents control get\s+([+-]?\d+)\s*\/\s*([+-]?\d+)/i,
       );
@@ -1028,9 +1059,11 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
           }
         }
       }
+      }
 
     }
 
+    if (!skipLegacyStatic) {
     const chosenColor = String(
       (source as any).chosenColor || (source as any).card?.chosenColor || '',
     ).trim().toLowerCase();
@@ -1048,6 +1081,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
           }
         }
       }
+    }
     }
   }
 

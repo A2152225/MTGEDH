@@ -171,4 +171,30 @@ describe('oracleIRCompilerEnvelope', () => {
     expect(resolved.abilities[0]?.type).toBe('static');
     expect(resolved.abilities[0]?.steps).toEqual([]);
   });
+
+  it('validates Phase 5.4 static scope and condition kinds in overlay specs', () => {
+    const overlay: OracleIRCompilerEnvelope = {
+      abilities: [{
+        ability_type: 'STATIC',
+        effect_text: 'Other Merfolk get +1/+1.',
+        steps: [],
+        static_specs: [{
+          id: 'global-merfolk-lord',
+          scope: { kind: 'other_all_creatures_of_type', creatureType: 'merfolk' },
+          grant: { power: 1, toughness: 1 },
+        }, {
+          id: 'shalai-hexproof',
+          scope: { kind: 'planeswalkers_you_control' },
+          grant: { abilities: ['hexproof'] },
+        }, {
+          id: 'chosen-color-anthem',
+          scope: { kind: 'creatures_you_control', creatureType: 'elf' },
+          grant: { power: 1, toughness: 1 },
+          condition: { kind: 'target_has_mana_color', color: 'green' },
+        }],
+      }],
+    };
+
+    expect(validateCompiledOverlayEnvelope(overlay).ok).toBe(true);
+  });
 });

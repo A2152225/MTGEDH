@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
@@ -15,6 +15,16 @@ function makeLibrary(prefix: string, count: number) {
 }
 
 describe('trigger scry and surveil oracle IR fallback', () => {
+  beforeEach(() => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+  });
+
+  afterEach(() => {
+    delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+  });
+
   it('queues scry via oracle IR when a trigger effect scries', () => {
     const gameId = 'trigger_scry_ir';
     const game = createInitialGameState(gameId);

@@ -494,7 +494,9 @@ describe('Undo and Replay', () => {
       // Initial game setup - both players import, shuffle, draw
       const game = createInitialGameState(gameId);
       
-      // These events simulate what would be persisted to the database
+      // These events simulate what would be persisted to the database.
+      // Opening shuffle/draw after setCommander are appended for replay/undo only —
+      // live memory already got the opening hand inside setCommander (see commander.ts socket handler).
       const allEvents = [
         { type: 'rngSeed', seed },
         // AI player setup
@@ -511,8 +513,16 @@ describe('Undo and Replay', () => {
         { type: 'drawCards', playerId: p1, count: 1 }, // Turn 1 draw
       ];
 
-      // Apply all events
-      for (const e of allEvents) game.applyEvent(e);
+      const liveMemoryEvents = [
+        allEvents[0],
+        allEvents[1],
+        allEvents[2],
+        allEvents[5],
+        allEvents[6],
+        allEvents[9],
+      ];
+
+      for (const e of liveMemoryEvents) game.applyEvent(e);
       
       const humanHand1 = (game.state.zones?.[p1]?.hand ?? []).map((c: any) => c.name);
       const aiHand1 = (game.state.zones?.[p2]?.hand ?? []).map((c: any) => c.name);

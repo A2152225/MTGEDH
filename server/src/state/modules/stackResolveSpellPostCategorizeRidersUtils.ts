@@ -9,6 +9,8 @@ import {
 } from './oracleIrSpellLegacyTokenUtils.js';
 import { parseNumberWord } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { buildResolvedSpellCopySnapshot, wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
+import { buildOracleOverlayCollectOptions } from './oracleIrCompiledOverlayLookup.js';
+import { collectOracleEffectSteps } from './trigger-runtime-wiring.js';
 import {
   isSpellEffectOwnedByOracleIrPrimary,
   skipRetiredSpellLegacyHandler,
@@ -101,6 +103,17 @@ export function applyInstantSorceryCopyStackSpellRiders(
   }
 
   const spellName = String(options.effectiveCard?.name || 'spell');
+  if (
+    /copy target instant or sorcery spell you control/i.test(options.oracleText)
+    && collectOracleEffectSteps(
+      options.oracleText,
+      spellName,
+      buildOracleOverlayCollectOptions({ cardName: spellName, sourceName: spellName }),
+    ).some((step) => step.kind === 'copy_spell')
+  ) {
+    return;
+  }
+
   if (skipRetiredSpellLegacyHandler(options.oracleText, spellName)) {
     return;
   }

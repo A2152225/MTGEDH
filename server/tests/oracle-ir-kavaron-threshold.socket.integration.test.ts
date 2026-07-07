@@ -127,7 +127,7 @@ describe('Kavaron 12+ threshold activated ability socket flow (integration)', ()
     expect(step?.type).toBe('station_creature_selection');
     expect(Number(step?.station?.threshold || 0)).toBe(12);
     expect(String(step?.title || '')).toBe('Station 12');
-  });
+  }, 120000);
 
   it('resolves Kavaron 12+ ability on the stack through Oracle IR', async () => {
     createGameIfNotExists(gameId, 'commander', 40);

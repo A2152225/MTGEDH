@@ -921,6 +921,16 @@ function lookChooseFromTopRequiresPlayerChoice(
 ): boolean {
   if (ctx.interactivePlayerChoices === false) return false;
   if (getNormalizedChosenIds(ctx).length > 0) return false;
+
+  if (
+    usedOracleIrServerBridge(ctx)
+    && step.destination === 'battlefield'
+    && step.amount?.kind === 'reference_amount'
+  ) {
+    const built = buildLookChooseFromTopSelectionOptions(state, step, ctx, runtime);
+    return Boolean(built && built.selectableCardIds.length > 0);
+  }
+
   if (step.optional === true && ctx.deferOptionalLookChoices !== true) return false;
   const built = buildLookChooseFromTopSelectionOptions(state, step, ctx, runtime);
   if (!built) return false;

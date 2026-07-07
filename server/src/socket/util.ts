@@ -2275,7 +2275,11 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
       debug(2, `${ts()} [executeAutoPass] Proceeding with auto-pass for ${priority} (ID: ${debugCallId})`);
       
       // Mark that we're processing auto-pass for this player
-      stateAny._autoPassInProgress.add(priority);
+      const autoPassState = game.state as any;
+      if (!autoPassState._autoPassInProgress) {
+        autoPassState._autoPassInProgress = new Set<string>();
+      }
+      autoPassState._autoPassInProgress.add(priority);
       debug(2, `${ts()} [executeAutoPass] Set _autoPassInProgress flag for ${priority} (ID: ${debugCallId})`);
       
       // Call passPriority with isAutoPass flag
@@ -2316,7 +2320,7 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
             
             // Clear the in-progress flag before broadcasting
             // This allows the next player to be checked
-            stateAny._autoPassInProgress.delete(priority);
+            autoPassState._autoPassInProgress?.delete(priority);
             debug(2, `${ts()} [executeAutoPass] Cleared _autoPassInProgress flag for ${priority} (ID: ${debugCallId})`);
             
             // Broadcast updated state after auto-pass
@@ -2327,17 +2331,17 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
           } else {
             // Priority pass didn't change state - clear flag
             debug(2, `${ts()} [executeAutoPass] Priority pass didn't change state (ID: ${debugCallId})`);
-            stateAny._autoPassInProgress.delete(priority);
+            autoPassState._autoPassInProgress?.delete(priority);
           }
         } catch (err) {
           debugError(1, `${ts()} [executeAutoPass] Error passing priority for ${priority} (ID: ${debugCallId}):`, err);
           // Clear flag on error
-          stateAny._autoPassInProgress.delete(priority);
+          autoPassState._autoPassInProgress?.delete(priority);
         }
       } else {
         // passPriority function not available - clear flag
         debug(2, `${ts()} [executeAutoPass] passPriority function not available (ID: ${debugCallId})`);
-        stateAny._autoPassInProgress.delete(priority);
+        autoPassState._autoPassInProgress?.delete(priority);
       }
     };
     
@@ -2473,6 +2477,7 @@ export function schedulePriorityTimeout(
             (game as any).nextStep();
             flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
             appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'noPriority' });
+            suppressAutomationOnNextBroadcast(game);
             broadcastGame(io, game, gameId);
             debug(2, `[schedulePriorityTimeout] Auto-advanced step (no priority) for game ${gameId}`,
               { bootId: BOOT_ID, gameId }

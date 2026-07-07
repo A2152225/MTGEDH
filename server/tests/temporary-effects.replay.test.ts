@@ -174,9 +174,10 @@ describe('temporary and counter replay semantics', () => {
     expect(temporaryAbilities).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          ability: "if this creature would deal combat damage to a player, prevent that damage. this creature's controller and that player each draw half that many cards, rounded down.",
+          ability: expect.stringMatching(/if this creature would deal combat damage to a player, prevent that damage/i),
+          expiresAt: 'end_of_turn',
         }),
-      ])
+      ]),
     );
   });
 

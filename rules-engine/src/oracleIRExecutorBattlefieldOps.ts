@@ -103,20 +103,6 @@ export function resolveTapOrUntapTargetIds(
     /^any number of\b/i.test(text) ||
     /^up to (?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/i.test(text);
 
-  if (!isAnotherTarget && !isMassTapSelector) {
-    const explicitPermanentId = String(ctx.targetPermanentId || '').trim();
-    if (explicitPermanentId) {
-      const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitPermanentId);
-      return matched ? [explicitPermanentId] : [];
-    }
-
-    const explicitCreatureId = String(ctx.targetCreatureId || '').trim();
-    if (explicitCreatureId) {
-      const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitCreatureId);
-      return matched ? [explicitCreatureId] : [];
-    }
-  }
-
   const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
     ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
     : [];
@@ -131,6 +117,20 @@ export function resolveTapOrUntapTargetIds(
     if (chosenMatches.length > 0) {
       const ids = chosenMatches.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean);
       return isAnotherTarget ? ids.slice(0, 1) : ids;
+    }
+  }
+
+  if (!isAnotherTarget && !isMassTapSelector) {
+    const explicitPermanentId = String(ctx.targetPermanentId || '').trim();
+    if (explicitPermanentId) {
+      const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitPermanentId);
+      return matched ? [explicitPermanentId] : [];
+    }
+
+    const explicitCreatureId = String(ctx.targetCreatureId || '').trim();
+    if (explicitCreatureId) {
+      const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitCreatureId);
+      return matched ? [explicitCreatureId] : [];
     }
   }
 

@@ -1,7 +1,7 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import { cardHasCreatureType, isValidCreatureType } from '../../shared/src/creatureTypes';
 import type { OracleEffectStep } from './oracleIR';
-import { isPerPlayerOptionalOracleStep } from './oracleIRPerPlayerOptional';
+import { isPerPlayerOptionalOracleStep, normalizePerPlayerOptionalText } from './oracleIRPerPlayerOptional';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import {
   buildMoveZoneReplayMutations,
@@ -2434,7 +2434,9 @@ export function applyMoveZoneStep(
     };
   }
 
-  const optionalLandPlayRaw = String(step.raw || '').replace(/\u2019/g, "'").trim();
+  const optionalLandPlayRaw = normalizePerPlayerOptionalText(String(step.raw || ''))
+    .replace(/^then,?\s+/i, '')
+    .trim();
   const isEachPlayerOptionalLandPlay =
     step.optional === true
     && step.to === 'battlefield'

@@ -17,10 +17,51 @@ export function normalizeOracleText(text: string): string {
 export function splitIntoClauses(line: string): string[] {
   const parts: string[] = [];
 
-  const firstPass = String(line)
-    .split(/(?:(?<=[.;])|(?<=\.\))|(?<=;\)))\s+/)
-    .map(p => p.trim())
-    .filter(Boolean);
+  const firstPass: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let quoteChar = '';
+
+  const pushCurrent = () => {
+    const trimmed = current.trim();
+    if (trimmed) firstPass.push(trimmed);
+    current = '';
+  };
+
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if ((ch === '"' || ch === "'") && !inQuotes) {
+      inQuotes = true;
+      quoteChar = ch;
+      current += ch;
+      continue;
+    }
+    if (inQuotes && ch === quoteChar) {
+      inQuotes = false;
+      quoteChar = '';
+      current += ch;
+      continue;
+    }
+
+    if (!inQuotes && (ch === '.' || ch === ';')) {
+      const next = line[i + 1] ?? '';
+      const afterNext = line[i + 2] ?? '';
+      if (ch === '.' && next === ')' && (afterNext === '' || /\s/.test(afterNext))) {
+        current += ch;
+        continue;
+      }
+      if (next === '' || /\s/.test(next)) {
+        pushCurrent();
+        while (i + 1 < line.length && /\s/.test(line[i + 1] ?? '')) {
+          i += 1;
+        }
+        continue;
+      }
+    }
+
+    current += ch;
+  }
+  pushCurrent();
 
   for (const p of firstPass) {
     const bulletSplit = p

@@ -23,8 +23,6 @@ import {
 import { isOracleIrExecutionHandled } from './oracleIrSpellExecution.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
-import { detectInstantSorcerySpellShapeFlags } from './oracleIrSpellLegacySpellShapeUtils.js';
-import { applyInstantSorceryNibelheimAflameEffect } from './stackResolveSpellSpecialCaseUtils.js';
 import { isCelestialReunionOracle } from './chosen-creature-type.js';
 
 const UNLESS_PAY_KINDS = new Set<string>([
@@ -126,6 +124,12 @@ export function applyOracleIRUncategorizedSpellFallback(
     if (!text || !wouldOracleIRFallbackPrefilterMatch(text)) return 0;
 
     const textLower = text.toLowerCase();
+    const isNibelheimShape = /choose target creature you control\. it deals damage equal to its power to each other creature/i.test(textLower);
+    if (isNibelheimShape) {
+      // Structural sweep + graveyard rider are owned by applyInstantSorceryNibelheimAflameEffect.
+      return 0;
+    }
+
     const allSteps = collectSpellSteps(text, spellName, sourceItem);
     let fallbackSteps = allSteps.filter(shouldIncludeUncategorizedSpellFallbackStep);
     const hasGraveyardTokenInsteadRider = Boolean(
@@ -140,10 +144,6 @@ export function applyOracleIRUncategorizedSpellFallback(
         }
         return true;
       });
-    }
-    const isNibelheimShape = /choose target creature you control\. it deals damage equal to its power to each other creature/i.test(textLower);
-    if (isNibelheimShape) {
-      fallbackSteps = fallbackSteps.filter((step) => step.kind !== 'deal_damage');
     }
     fallbackSteps = excludeCelestialLegacyOwnedSteps(fallbackSteps, text);
     if (fallbackSteps.length === 0) return 0;
@@ -164,8 +164,9 @@ export function applyOracleIRUncategorizedSpellFallback(
     const allStepsForMandatory = preselectedChosenCreatureType
       ? allSteps.filter((step) => step.kind !== 'choose_creature_type')
       : allSteps;
+    const mandatorySourceSteps = allStepsForMandatory;
 
-    const mandatoryAll = mandatoryStepsFrom(excludeCelestialLegacyOwnedSteps(allStepsForMandatory, text));
+    const mandatoryAll = mandatoryStepsFrom(excludeCelestialLegacyOwnedSteps(mandatorySourceSteps, text));
     const mandatoryIncluded = mandatoryStepsFrom(fallbackSteps);
     if (mandatoryAll.length > 0 && mandatoryIncluded.length < mandatoryAll.length) {
       logOracleIrAllOrNothingFailure(
@@ -273,6 +274,7 @@ export function applyOracleIRUncategorizedSpellFallback(
       ...(targetPlayerId ? { targetPlayerId } : {}),
       applyMillReplacements: true,
       ...(sourceItem ? { sourceItem } : {}),
+      oracleText: text,
     };
 
     const baseExecutionOptions: OracleIRExecutionOptions = {
@@ -358,18 +360,6 @@ export function applyOracleIRUncategorizedSpellFallback(
         targets: Array.isArray(targets) ? [...targets] : [],
         spellXValue: xValue,
         uncategorizedSpellFallbackApplied: applied,
-      });
-    }
-
-    if (sourceObjectType === 'spell' && isNibelheimShape && Array.isArray(targets) && targets.length > 0 && sourceItem) {
-      const shapeFlags = detectInstantSorcerySpellShapeFlags(spellName, textLower);
-      applyInstantSorceryNibelheimAflameEffect(ctx, {
-        controller: caster,
-        effectiveCard: { name: spellName },
-        item: sourceItem,
-        targets: [...targets],
-        isNibelheimAflameStyleSweep: true,
-        hasNibelheimGraveyardRider: shapeFlags.hasNibelheimGraveyardRider,
       });
     }
 

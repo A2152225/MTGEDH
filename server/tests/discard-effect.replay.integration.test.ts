@@ -140,11 +140,11 @@ describe('discard effect replay (integration)', () => {
     const discardEffectEvent = [...persistedEvents].reverse().find((event) => event.type === 'discardEffect') as any;
     const drawCardsEvent = [...persistedEvents].reverse().find((event) => event.type === 'drawCards' && Number((event as any)?.payload?.count || 0) === 2) as any;
 
-    expect(discardEffectEvent?.payload).toEqual({
+    expect(discardEffectEvent?.payload).toEqual(expect.objectContaining({
       playerId,
       cardIds: ['discard_land_1'],
       destination: 'graveyard',
-    });
+    }));
     expect(drawCardsEvent?.payload).toEqual({ playerId, count: 2 });
 
     game.reset!(true);

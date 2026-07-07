@@ -8,6 +8,7 @@ import { movePermanentToHand, movePermanentToLibrary } from '../src/state/module
 import { replay as replayEvents } from '../src/state/modules/replay.js';
 import { chooseAIReturnControlledPermanentId, handleBounceLandETB } from '../src/socket/ai.js';
 import { evaluateReplacementEvent } from '../src/state/modules/replacement-effects.js';
+import { getDeclarativeLeaveBattlefieldReplacementHint } from '../src/state/modules/leaveBattlefieldReplacementHint.js';
 
 function createBaseGame(gameId: string) {
   const game = createInitialGameState(gameId);
@@ -88,6 +89,26 @@ function zoneIds(game: any, playerId: string, zoneName: 'graveyard' | 'exile') {
 }
 
 describe('leave-battlefield replacement helper convergence', () => {
+  it('builds declarative leave-battlefield hints for sacrifice and bounce prompts', () => {
+    const permanent = {
+      ...replacementCreature('hint_perm_1', 'Marked Traveler'),
+      leaveBattlefieldReplacementSourceName: 'Serra Paragon',
+      leaveBattlefieldReplacementLifeGain: 2,
+    };
+
+    expect(getDeclarativeLeaveBattlefieldReplacementHint(permanent, 'graveyard')).toMatchObject({
+      leaveBattlefieldReplacementDestination: 'exile',
+      leaveBattlefieldReplacementSourceName: 'Serra Paragon',
+      leaveBattlefieldReplacementLifeGain: 2,
+    });
+    expect(getDeclarativeLeaveBattlefieldReplacementHint(permanent, 'hand')).toMatchObject({
+      leaveBattlefieldReplacementDestination: 'exile',
+      leaveBattlefieldReplacementSourceName: 'Serra Paragon',
+      leaveBattlefieldReplacementLifeGain: 2,
+    });
+    expect(getDeclarativeLeaveBattlefieldReplacementHint(landPermanent('plain_1', 'Ordinary Plains'), 'hand')).toEqual({});
+  });
+
   it('evaluates leave-battlefield replacement events with replayable outcome metadata', () => {
     const permanent = {
       ...replacementCreature('replacement_event_1', 'Marked Traveler'),

@@ -1,6 +1,7 @@
 import type { GameContext } from '../context.js';
 import {
   applyInstantSorcerySpecialCaseSpellEffects,
+  applyInstantSorceryNibelheimAflameEffect,
 } from './stackResolveSpellSpecialCaseUtils.js';
 import { tryApplyInstantSorceryUncategorizedSpellFallback } from './stackResolveSpellUncategorizedUtils.js';
 import {
@@ -133,6 +134,17 @@ export function tryResolveInstantSorceryLegacyResolution(
     graveyardEffectiveOracleText,
     executeTriggerEffect,
   });
+
+  if (isNibelheimAflameStyleSweep && targets.length > 0 && !oracleIrSpellHandled) {
+    applyInstantSorceryNibelheimAflameEffect(ctx, {
+      controller,
+      effectiveCard,
+      item,
+      targets,
+      isNibelheimAflameStyleSweep: true,
+      hasNibelheimGraveyardRider,
+    });
+  }
 
   applyGraveyardPermissionEffectsFromText(
     ctx,

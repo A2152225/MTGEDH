@@ -5,7 +5,6 @@ import {
   applyInstantSorceryFracturedIdentityAndFallbackRiders,
   applyInstantSorceryGraveyardConditionalTokenRider,
 } from './stackResolveSpellPostCategorizeRidersUtils.js';
-import { applyInstantSorceryNibelheimAflameEffect } from './stackResolveSpellSpecialCaseUtils.js';
 import {
   logLegacySpellRegexPrimaryMiss,
 } from './stackResolveSpellLegacyRegexDrawUtils.js';
@@ -71,16 +70,6 @@ export function tryApplyInstantSorceryLegacyBodyHandlers(
       spellXValue,
       uncategorizedSpellFallbackApplied,
     });
-    if (preface.isNibelheimAflameStyleSweep && targets.length > 0) {
-      applyInstantSorceryNibelheimAflameEffect(ctx, {
-        controller,
-        effectiveCard,
-        item,
-        targets,
-        isNibelheimAflameStyleSweep: preface.isNibelheimAflameStyleSweep,
-        hasNibelheimGraveyardRider: preface.hasNibelheimGraveyardRider,
-      });
-    }
     logLegacySpellRegexPrimaryMiss(oracleIrSpellHandled, spellName, oracleText);
     debug(
       2,

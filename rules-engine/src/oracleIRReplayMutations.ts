@@ -63,6 +63,12 @@ export type OracleIRReplayMutation =
       readonly permanentId: string;
       readonly sourcePermanentId?: string;
       readonly sourceName?: string;
+    }
+  | {
+      readonly kind: 'goad';
+      readonly permanentId: string;
+      readonly goaderId: PlayerID;
+      readonly expiryTurn?: number;
     };
 
 function normalizeReplayZone(value: unknown): EffectProgramCardZone | null {
@@ -270,6 +276,33 @@ function collectMoveZoneReplayMutations(
   });
 }
 
+function collectGoadReplayMutations(
+  appliedResult: Record<string, unknown>,
+  state: GameState,
+  ctx: OracleIRExecutionContext,
+): OracleIRReplayMutation[] {
+  const goaderId = String(ctx.controllerId || '').trim() as PlayerID;
+  if (!goaderId) return [];
+
+  const creatures = Array.isArray(appliedResult.lastGoadedCreatures)
+    ? (appliedResult.lastGoadedCreatures as readonly any[])
+    : [];
+  if (creatures.length === 0) return [];
+
+  const turnNumber = Number((state as any)?.turnNumber ?? 0) || 0;
+  const expiryTurn = turnNumber + 1;
+
+  return creatures
+    .map((permanent) => String((permanent as any)?.id || '').trim())
+    .filter(Boolean)
+    .map((permanentId) => ({
+      kind: 'goad' as const,
+      permanentId,
+      goaderId,
+      expiryTurn,
+    }));
+}
+
 function collectExileReplayMutations(
   appliedResult: Record<string, unknown>,
   ctx: OracleIRExecutionContext,
@@ -318,6 +351,8 @@ export function collectReplayMutationsFromAppliedStep(
       return collectMoveZoneReplayMutations(step, appliedResult, state, ctx);
     case 'exile':
       return collectExileReplayMutations(appliedResult, ctx);
+    case 'goad':
+      return collectGoadReplayMutations(appliedResult, state, ctx);
     default:
       return [];
   }

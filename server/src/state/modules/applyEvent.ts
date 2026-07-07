@@ -364,9 +364,12 @@ import { restoreOracleIrLedgerOnState, restoreOracleIrPendingCompoundResumeOnSta
 import { ensureDeferredOracleIrStackItem } from "./oracleIrDeferredStackFinalize.js";
 import {
   consumeReplayedTriggeredAbilityStackItems,
+  consumeReplayedActivatedAbilityStackItems,
   finalizeGameStateAfterReplay,
   replayPopTopOfStackDuringEventReplay,
 } from "./replay-prompt-cleanup.js";
+import { applyKeywordPromptResolveOutcome } from "./keywordPromptReplayOutcomes.js";
+import { applyBattlefieldPermanentReplayPatch } from "../effects/battlefieldPermanentReplayPersistence.js";
 import { applyJoinForcesPaidManaPowerPump } from "./joinForcesResolutionQueue.js";
 import { parseManaCost } from "./mana-check.js";
 import { addRestrictedManaToPool, calculateManaProduction, consumeManaFromPool, getOrInitManaPool, recordCreatureSpellHasteManaProduced, resolveManaCostForPoolPayment } from "../../socket/util.js";
@@ -1498,6 +1501,7 @@ function applyOpponentMayPayResolve(ctx: GameContext, e: any): void {
         typeLine: 'Token Artifact — Treasure',
         abilities: ['{T}, Sacrifice this artifact: Add one mana of any color.'],
         isArtifact: true,
+        skipEventPersistence: true,
       }
     );
     appliedDeclineOutcome = true;
@@ -2584,7 +2588,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           (e as any).name,
           (e as any).count,
           (e as any).basePower,
-          (e as any).baseToughness
+          (e as any).baseToughness,
+          { skipEventPersistence: true },
         );
         break;
       }
@@ -3656,7 +3661,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   playerId: String((queuedStep as any).playerId || playerId || '') as any,
                   description: String((queuedStep as any).description || ''),
                   mandatory: (queuedStep as any).mandatory !== false,
-                } as any);
+                } as any, { allowDuringReplay: true });
               }
             }
 
@@ -4245,6 +4250,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               return Boolean(stepType || playerId || permanentId || sourceId);
             });
           }
+
+          applyKeywordPromptResolveOutcome(ctx, e as Record<string, unknown>);
 
           ctx.bumpSeq();
         } catch (err) {
@@ -4903,7 +4910,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "assignTriggeredAbilityTargets": {
         try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
           const triggerStackItemId = String((e as any).triggerStackItemId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
           const targets = Array.isArray((e as any).targets) ? (e as any).targets.map((t: any) => String(t)) : [];
           if (!triggerStackItemId) break;
           const stack: any[] = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
@@ -4911,8 +4920,63 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           if (stackItem) {
             stackItem.targets = targets.slice();
           }
+          if (replayGameId && resolvedStepId) {
+            clearReplayQueuedStepById(replayGameId, resolvedStepId);
+          }
+          ctx.bumpSeq();
         } catch {
           // best-effort replay
+        }
+        break;
+      }
+
+      case "goadPermanent": {
+        try {
+          if (
+            (ctx as any).isReplaying
+            && ((e as any).oracleIrReplayMutation === true || (e as any).effectProgramMutation === true)
+          ) {
+            consumeReplayedTriggeredAbilityStackItems(ctx, e as Record<string, unknown>);
+          }
+
+          const permanentId = String((e as any).permanentId || '').trim();
+          const goaderId = String((e as any).goaderId || '').trim() as PlayerID;
+          if (!permanentId || !goaderId) break;
+
+          const idx = ctx.state.battlefield.findIndex((p: any) => String(p?.id || '') === permanentId);
+          if (idx < 0) break;
+
+          const perm = ctx.state.battlefield[idx] as any;
+          const existing = Array.isArray(perm.goadedBy) ? perm.goadedBy : [];
+          if (!existing.includes(goaderId)) {
+            perm.goadedBy = [...existing, goaderId];
+          }
+
+          const persistedExpiryTurn = Number((e as any).expiryTurn ?? 0);
+          const currentTurn = Number((ctx.state as any).turnNumber ?? 0) || 0;
+          const expiryTurn = persistedExpiryTurn > 0 ? persistedExpiryTurn : currentTurn + 1;
+          perm.goadedUntil = { ...(perm.goadedUntil || {}), [goaderId]: expiryTurn };
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(goadPermanent): failed', err);
+        }
+        break;
+      }
+
+      case "battlefieldPermanentPatch": {
+        try {
+          const permanentId = String((e as any).permanentId || '').trim();
+          const patch = (e as any).patch;
+          if (!permanentId || !patch || typeof patch !== 'object' || Array.isArray(patch)) break;
+
+          const idx = ctx.state.battlefield.findIndex((p: any) => String(p?.id || '') === permanentId);
+          if (idx < 0) break;
+
+          applyBattlefieldPermanentReplayPatch(ctx.state.battlefield[idx] as any, patch as any);
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(battlefieldPermanentPatch): failed', err);
         }
         break;
       }
@@ -6327,6 +6391,60 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "lifeRedistributionResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const redistributionId = String((e as any).redistributionId || '').trim();
+          const lifeByPlayerId = (e as any).lifeByPlayerId;
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '').trim() === String(ResolutionStepType.LIFE_REDISTRIBUTION) &&
+                (!redistributionId || String((step as any)?.redistributionId || '').trim() === redistributionId)
+              );
+            });
+          }
+
+          if (!lifeByPlayerId || typeof lifeByPlayerId !== 'object' || Array.isArray(lifeByPlayerId)) break;
+
+          const startingLife = Number((ctx.state as any)?.startingLife ?? 40);
+          for (const [targetPlayerId, lifeRaw] of Object.entries(lifeByPlayerId as Record<string, unknown>)) {
+            const pid = String(targetPlayerId || '').trim();
+            if (!pid) continue;
+            const nextLife = Math.max(0, Math.floor(Number(lifeRaw) || 0));
+            const current = Number((ctx.state as any)?.life?.[pid] ?? ctx.life?.[pid as PlayerID] ?? startingLife);
+
+            (ctx.state as any).life = (ctx.state as any).life || {};
+            (ctx.state as any).life[pid] = nextLife;
+            if (ctx.life) ctx.life[pid as PlayerID] = nextLife;
+
+            const players = Array.isArray((ctx.state as any).players) ? (ctx.state as any).players : [];
+            const player = players.find((entry: any) => String(entry?.id || '').trim() === pid);
+            if (player) player.life = nextLife;
+
+            const diff = nextLife - current;
+            const stateAny = ctx.state as any;
+            if (diff > 0) {
+              stateAny.lifeGainedThisTurn = stateAny.lifeGainedThisTurn || {};
+              stateAny.lifeGainedThisTurn[pid] = (stateAny.lifeGainedThisTurn[pid] || 0) + diff;
+            } else if (diff < 0) {
+              stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
+              stateAny.lifeLostThisTurn[pid] = (stateAny.lifeLostThisTurn[pid] || 0) + Math.abs(diff);
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(lifeRedistributionResolve): failed', err);
+        }
+        break;
+      }
+
       case "proliferateResolve": {
         try {
           const playerId = String((e as any).playerId || '').trim();
@@ -6373,23 +6491,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             }
 
             const player = players.find((entry: any) => entry && String(entry.id || '') === targetId);
-            const poisonCount = Math.max(
-              0,
-              Number((ctx.state as any).poisonCounters?.[targetId]) ||
-                Number(player?.poisonCounters) ||
-                Number(player?.counters?.poison) ||
-                0,
-            );
-            if (poisonCount > 0) {
-              applyPoisonCountersToPlayer(ctx as any, targetId, 1);
-              continue;
-            }
-
             if (player && player.counters && typeof player.counters === 'object') {
               for (const [counterType, count] of Object.entries(player.counters as Record<string, number>)) {
                 if (Number(count || 0) > 0) {
                   (player.counters as any)[counterType] = Number(count || 0) + 1;
                 }
+              }
+              const poisonTotal = Number((player.counters as any).poison || 0);
+              if (poisonTotal > 0) {
+                (ctx as any).poison = (ctx as any).poison || {};
+                (ctx.state as any).poisonCounters = (ctx.state as any).poisonCounters || {};
+                (ctx as any).poison[targetId] = poisonTotal;
+                (ctx.state as any).poisonCounters[targetId] = poisonTotal;
+                (player as any).poisonCounters = poisonTotal;
               }
             }
           }
@@ -6844,6 +6958,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const pid = (e as any).playerId;
         const count = (e as any).count || 1;
         if (!pid) break;
+        if (
+          (ctx as any).isReplaying
+          && ((e as any).oracleIrReplayMutation === true || (e as any).effectProgramMutation === true)
+        ) {
+          consumeReplayedActivatedAbilityStackItems(ctx, e as Record<string, unknown>);
+        }
         try {
           const lib = ctx.libraries.get(pid) || [];
           const zones = ctx.state.zones || {};
@@ -12866,7 +12986,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 mandatory,
                 triggers,
                 requireAll,
-              } as any);
+              } as any, { allowDuringReplay: true });
             }
           }
 
@@ -15866,6 +15986,7 @@ export function replay(
     try {
       delete (ctx as any)._replayCurrentEventType;
       delete (ctx as any)._replayNextEventType;
+      (ctx as any)._replayLastEvent = events.length > 0 ? events[events.length - 1] : undefined;
       (ctx as any)._replayLastEventType = events.length > 0
         ? String((events[events.length - 1] as any)?.type || '').trim()
         : '';

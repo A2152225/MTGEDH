@@ -8,7 +8,9 @@ import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime
 import { tryApplyTriggerEffectLegacyBodyHandlers } from './stackExecuteTriggerEffectLegacyBodyUtils.js';
 import { tryApplyTriggerEffectLegacyTailHandlers } from './stackExecuteTriggerEffectTailUtils.js';
 import { isOracleIrTriggerPrimaryEnabled, tryResolveTriggerViaOracleIR } from './oracleIrTriggerExecution.js';
-import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
+import { tryResolvePlaneswalkerLoyaltyTemplate } from '../planeswalker/templates/resolve.js';
+import { isTriggerEffectOwnedByOracleIrPrimary, isTriggerEffectFullyIrWired } from './oracleIrTriggerLegacyRouting.js';
+import { getPlaneswalkerTemplateMatch } from '../planeswalker/templates/registry.js';
 import { maybeApplyPreparedStateChange } from './triggerPreparedStateUtils.js';
 import { getTriggerSourcePermanent } from './triggerSourceUtils.js';
 import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
@@ -100,6 +102,29 @@ export function executeTriggerEffect(
   if (triggerIrOutcome.handled) {
     tryApplyRoomDoorStateFromResolvedEffect(ctx, controller, normalizedDescription, triggerItem);
     return;
+  }
+
+  if (!isOracleIrTriggerPrimaryEnabled()) {
+    const templateMatch = getPlaneswalkerTemplateMatch(normalizedDescription);
+    const skipIrWiredPlaneswalkerTemplate =
+      Boolean(templateMatch)
+      && isTriggerEffectFullyIrWired(normalizedDescription, sourceName)
+      && templateMatch!.id !== 'YOU_MAY_DISCARD_A_CARD_IF_YOU_DO_DRAW_A_CARD';
+
+    if (
+      !skipIrWiredPlaneswalkerTemplate
+      && tryResolvePlaneswalkerLoyaltyTemplate(ctx, controller, sourceName, normalizedDescription, triggerItem)
+    ) {
+      recordLegacyTriggerHandled(
+        ctx,
+        sourceName,
+        normalizedDescription,
+        'planeswalker_template',
+        'tryResolvePlaneswalkerLoyaltyTemplate',
+      );
+      tryApplyRoomDoorStateFromResolvedEffect(ctx, controller, normalizedDescription, triggerItem);
+      return;
+    }
   }
 
   if (

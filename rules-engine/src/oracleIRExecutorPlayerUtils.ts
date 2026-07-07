@@ -68,6 +68,11 @@ export function stampCardsPutIntoGraveyardThisTurn(state: GameState, cards: read
   return (Array.isArray(cards) ? cards : []).map(card => stampCardPutIntoGraveyardThisTurn(state, card));
 }
 
+export function impulseExileTopRequiresChooseOne(step: { readonly raw?: string } | null | undefined): boolean {
+  const raw = normalizeOracleText(String(step?.raw || ''));
+  return /choose one of them/i.test(raw);
+}
+
 export function getPlayableUntilTurnForImpulseDuration(state: GameState, duration: any): number | null {
   const turnNumber = getCurrentTurnNumber(state);
   const d = String(duration || '').trim();
@@ -102,6 +107,9 @@ export function applyImpulsePermissionMarkers(
     readonly playableUntilTurn: number | null;
     readonly condition?: any;
     readonly exiledBy?: string;
+    readonly permissionRecipient?: PlayerID;
+    readonly withoutPayingManaCost?: boolean;
+    readonly spendManaAsThoughAnyType?: boolean;
   }
 ): { state: GameState; granted: number } {
   const player = state.players.find(p => p.id === playerId) as any;
@@ -112,9 +120,15 @@ export function applyImpulsePermissionMarkers(
 
   const stateAny: any = state as any;
   stateAny.playableFromExile = stateAny.playableFromExile || {};
-  stateAny.playableFromExile[playerId] = stateAny.playableFromExile[playerId] || {};
+  const permissionRecipient = String(meta.permissionRecipient || playerId).trim() || playerId;
+  stateAny.playableFromExile[permissionRecipient] = stateAny.playableFromExile[permissionRecipient] || {};
 
   const playableUntilTurn = meta.playableUntilTurn;
+  const resolvedPlayableUntilTurn = (
+    typeof playableUntilTurn === 'number' && Number.isFinite(playableUntilTurn)
+      ? playableUntilTurn
+      : Number.MAX_SAFE_INTEGER
+  );
   const condition = meta.condition as any;
 
   let granted = 0;
@@ -148,18 +162,95 @@ export function applyImpulsePermissionMarkers(
       ...card,
       zone: 'exile',
       ...(meta.exiledBy ? { exiledBy: meta.exiledBy } : {}),
-      ...(grant ? { canBePlayedBy: playerId, playableUntilTurn } : {}),
+      ...(grant ? { canBePlayedBy: permissionRecipient, playableUntilTurn: resolvedPlayableUntilTurn } : {}),
+      ...(grant && meta.withoutPayingManaCost ? { withoutPayingManaCost: true, castWithoutPayingManaCost: true } : {}),
+      ...(grant && meta.spendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
     };
     exileArr[i] = next;
 
     if (grant) {
-      stateAny.playableFromExile[playerId][id] = playableUntilTurn ?? Number.MAX_SAFE_INTEGER;
+      stateAny.playableFromExile[permissionRecipient][id] = resolvedPlayableUntilTurn;
       granted++;
     }
   }
 
   const updatedPlayers = state.players.map(p => (p.id === playerId ? ({ ...(p as any), exile: exileArr } as any) : p));
-  return { state: { ...(stateAny as any), players: updatedPlayers as any }, granted };
+  let nextState = { ...(stateAny as any), players: updatedPlayers as any } as GameState;
+
+  const zones = (nextState as any).zones;
+  if (zones && typeof zones === 'object' && Array.isArray(zones[playerId]?.exile)) {
+    const zoneExile = zones[playerId].exile as any[];
+    let zoneChanged = false;
+    const updatedZoneExile = zoneExile.map((card: any) => {
+      const id = String(card?.id ?? card?.cardId ?? '').trim();
+      if (!id || !exiledIds.has(id)) return card;
+      const grant = shouldGrant(card);
+      const next = {
+        ...card,
+        zone: 'exile',
+        ...(meta.exiledBy ? { exiledBy: meta.exiledBy } : {}),
+        ...(grant ? { canBePlayedBy: permissionRecipient, playableUntilTurn: resolvedPlayableUntilTurn } : {}),
+        ...(grant && meta.withoutPayingManaCost ? { withoutPayingManaCost: true, castWithoutPayingManaCost: true } : {}),
+        ...(grant && meta.spendManaAsThoughAnyType ? { spendManaAsThoughAnyType: true } : {}),
+      };
+      if (next !== card) zoneChanged = true;
+      return next;
+    });
+    if (zoneChanged) {
+      (nextState as any).zones = {
+        ...zones,
+        [playerId]: {
+          ...zones[playerId],
+          exile: updatedZoneExile,
+        },
+      };
+    }
+  }
+
+  return { state: nextState, granted };
+}
+
+export function stampExiledCardsForDeferredChoice(
+  state: GameState,
+  playerId: PlayerID,
+  exiledCards: readonly any[],
+  exiledBy: string,
+): GameState {
+  const exiledIds = new Set(
+    exiledCards
+      .map(card => String((card as any)?.id ?? (card as any)?.cardId ?? '').trim())
+      .filter(Boolean),
+  );
+  if (exiledIds.size === 0) return state;
+
+  const stampCard = (card: any): any => {
+    const id = String(card?.id ?? card?.cardId ?? '').trim();
+    if (!id || !exiledIds.has(id) || card?.canBePlayedBy) return card;
+    return {
+      ...card,
+      zone: 'exile',
+      exiledBy,
+    };
+  };
+
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    if (String(player?.id || '') !== String(playerId)) return player;
+    const exile = Array.isArray(player?.exile) ? player.exile : [];
+    const updatedExile = exile.map(stampCard);
+    return { ...player, exile: updatedExile };
+  });
+
+  const stateAny: any = { ...(state as any), players: updatedPlayers };
+  const zones = stateAny.zones && typeof stateAny.zones === 'object' ? { ...stateAny.zones } : null;
+  if (zones && Array.isArray(zones[playerId]?.exile)) {
+    zones[playerId] = {
+      ...zones[playerId],
+      exile: zones[playerId].exile.map(stampCard),
+    };
+    stateAny.zones = zones;
+  }
+
+  return stateAny as GameState;
 }
 
 export function applyGraveyardPermissionMarkers(
