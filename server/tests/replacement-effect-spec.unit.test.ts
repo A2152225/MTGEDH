@@ -533,4 +533,121 @@ describe('replacementEffectSpec (Phase 5.1 declarative registry)', () => {
       metadata: { reversedToLoss: true },
     });
   });
+
+  it('routes Rest in Peace graveyard-to-exile replacement through declarative registry', () => {
+    const state = {
+      battlefield: [{
+        id: 'rest_in_peace_1',
+        controller: 'p2',
+        card: {
+          name: 'Rest in Peace',
+          oracle_text: 'If a card would be put into a graveyard from anywhere, exile it instead.',
+        },
+      }],
+    };
+
+    const result = evaluateDeclarativeReplacementEvent({
+      type: 'zone-change',
+      object: {
+        id: 'bolt_1',
+        name: 'Lightning Bolt',
+        type_line: 'Instant',
+      },
+      objectId: 'bolt_1',
+      sourceZone: 'stack',
+      destinationZone: 'graveyard',
+      controller: 'p1',
+      cause: 'spell_resolution',
+    }, state);
+
+    expect(result).toMatchObject({
+      applied: true,
+      effectId: 'graveyard-to-exile-replacement',
+      sourceName: 'Rest in Peace',
+      originalDestination: 'graveyard',
+      replacementDestination: 'exile',
+      reason: 'graveyard_to_exile_replacement',
+    });
+  });
+
+  it('does not treat Blightsteel self-shuffle as graveyard-to-exile replacement', () => {
+    const state = {
+      battlefield: [{
+        id: 'blightsteel_1',
+        controller: 'p1',
+        card: {
+          name: 'Blightsteel Colossus',
+          type_line: 'Artifact Creature — Phyrexian Golem',
+          oracle_text: 'Trample, infect, indestructible\nIf Blightsteel Colossus would be put into a graveyard from anywhere, reveal it and shuffle it into its owner\'s library instead.',
+        },
+      }],
+    };
+
+    const specs = collectReplacementEffectSpecsFromState(state);
+    expect(specs.some((spec) => spec.effectId === 'graveyard-to-exile-replacement')).toBe(false);
+  });
+
+  it('routes creature-would-die exile replacement through declarative registry', () => {
+    const state = {
+      battlefield: [{
+        id: 'graf_replacement_1',
+        controller: 'p2',
+        card: {
+          name: 'Test Replacement',
+          oracle_text: 'If a creature would die, exile it instead.',
+        },
+      }],
+    };
+
+    const result = evaluateDeclarativeReplacementEvent({
+      type: 'zone-change',
+      object: {
+        id: 'bear_1',
+        name: 'Grizzly Bears',
+        type_line: 'Creature — Bear',
+      },
+      objectId: 'bear_1',
+      sourceZone: 'battlefield',
+      destinationZone: 'graveyard',
+      controller: 'p1',
+      cause: 'destroy',
+    }, state);
+
+    expect(result).toMatchObject({
+      applied: true,
+      effectId: 'creature-die-exile-instead',
+      sourceName: 'Test Replacement',
+      replacementDestination: 'exile',
+      reason: 'creature_die_exile_instead',
+    });
+  });
+
+  it('routes Blightsteel self-shuffle replacement through declarative registry', () => {
+    const blightsteel = {
+      id: 'blightsteel_card',
+      name: 'Blightsteel Colossus',
+      type_line: 'Artifact Creature — Phyrexian Golem',
+      oracle_text: 'Trample, infect, indestructible\nIf Blightsteel Colossus would be put into a graveyard from anywhere, reveal it and shuffle it into its owner\'s library instead.',
+    };
+
+    const result = evaluateDeclarativeReplacementEvent({
+      type: 'zone-change',
+      object: blightsteel,
+      objectId: 'blightsteel_card',
+      sourceZone: 'battlefield',
+      destinationZone: 'graveyard',
+      controller: 'p1',
+      cause: 'destroy',
+    });
+
+    expect(result).toMatchObject({
+      applied: true,
+      effectId: 'self-shuffle-into-library',
+      sourceName: 'Blightsteel Colossus',
+      originalDestination: 'graveyard',
+      replacementDestination: 'library',
+      reason: 'graveyard_self_shuffle_into_library',
+      metadata: { shuffleIntoOwnerLibrary: true },
+    });
+  });
 });

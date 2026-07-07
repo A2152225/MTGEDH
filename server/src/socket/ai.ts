@@ -66,6 +66,15 @@ import { type AdditionalCostResult } from "./land-helpers.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getOptionalPaymentValidationFailure } from "./optional-payment-prompts.js";
+import {
+  chooseSpellXValueFromStep,
+  getMaxAffordableSpellX,
+  isSpellWorthCastingAtX,
+} from "../state/modules/spellXCastUtils.js";
+
+export function chooseAIXValueSelection(game: any, playerId: PlayerID, step: any): number {
+  return chooseSpellXValueFromStep(game, playerId, step);
+}
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -107,66 +116,6 @@ function getAIManaLifeEffect(card: any, producesColoredMana: boolean): { amount:
   }
 
   return { amount: 1, isDamage };
-}
-
-function applyChosenXToManaCost(manaCost: string, xValue: number): string {
-  const safeXValue = Math.max(0, Math.floor(Number(xValue) || 0));
-  return String(manaCost || '')
-    .replace(/\{X\}/gi, `{${safeXValue}}`)
-    .replace(/\bX\b/g, `{${safeXValue}}`);
-}
-
-function findSpellCardForXSelection(game: any, playerId: PlayerID, step: any): any | null {
-  const cardId = String(step?.spellCardId || step?.sourceId || '').trim();
-  if (!cardId) return null;
-
-  const requestedZone = String(step?.spellFromZone || '').trim();
-  const zonesToSearch = [requestedZone, 'hand', 'exile', 'graveyard'].filter(
-    (zoneName, index, entries) => zoneName && entries.indexOf(zoneName) === index,
-  );
-
-  for (const zoneName of zonesToSearch) {
-    const zoneCards = (game?.state as any)?.zones?.[playerId]?.[zoneName];
-    if (!Array.isArray(zoneCards)) continue;
-
-    const found = zoneCards.find((card: any) => String(card?.id || '') === cardId);
-    if (found) return found;
-  }
-
-  return null;
-}
-
-export function chooseAIXValueSelection(game: any, playerId: PlayerID, step: any): number {
-  const minValue = Number.isFinite(Number(step?.minValue))
-    ? Math.max(0, Math.floor(Number(step.minValue)))
-    : 0;
-  const maxValue = Number.isFinite(Number(step?.maxValue))
-    ? Math.max(minValue, Math.floor(Number(step.maxValue)))
-    : minValue;
-
-  if (step?.spellCastWithoutPayingManaCost === true) {
-    return minValue;
-  }
-
-  if (step?.spellCastXSelection === true) {
-    const spellCard = findSpellCardForXSelection(game, playerId, step);
-    const manaCost = String(spellCard?.manaCost || spellCard?.mana_cost || '').trim();
-    const exactManaOptions = spellCard?.id
-      ? { excludedHandCardIds: [String(spellCard.id)] }
-      : undefined;
-
-    if (manaCost.includes('X')) {
-      for (let candidate = maxValue; candidate >= minValue; candidate -= 1) {
-        const expandedManaCost = applyChosenXToManaCost(manaCost, candidate);
-        const parsedCost = parseManaCost(expandedManaCost);
-        if (canPayManaCostWithAvailableSources(game.state, playerId, parsedCost, Infinity, exactManaOptions)) {
-          return candidate;
-        }
-      }
-    }
-  }
-
-  return minValue;
 }
 
 function normalizeRequestedGameSeed(rawSeed: unknown): number | undefined {
@@ -6077,6 +6026,25 @@ function findCastableSpells(
       const excludedHandCardIds = candidate.sourceZone === 'hand'
         ? [String(candidate.card?.id || '').trim()].filter(Boolean)
         : [];
+      if (candidate.cost?.hasX) {
+        const manaCost = String(
+          candidate.manaCost
+          || candidate.castCard?.mana_cost
+          || candidate.castCard?.manaCost
+          || '',
+        ).trim();
+        const maxX = getMaxAffordableSpellX(game, playerId, manaCost, {
+          excludedHandCardIds,
+        });
+        const oracleText = String(candidate.castCard?.oracle_text || candidate.castCard?.oracleText || '');
+        if (!isSpellWorthCastingAtX(oracleText, maxX)) {
+          debug(
+            1,
+            `[AI] findCastableSpells: Skipping ${candidate.castCard?.name || candidate.card?.name} because X=${maxX} would have no meaningful effect`,
+          );
+          return false;
+        }
+      }
       return canAIAssembleSpellPaymentPlan(game, playerId, candidate.payableCost || candidate.cost!, excludedHandCardIds);
     })
     .map((candidate) => {
@@ -9061,6 +9029,18 @@ export async function handleAIPriority(
     // COMBAT PHASES: Handle attack/block declarations
     if (phase === 'combat') {
       if (step.includes('attackers') || step === 'declare_attackers') {
+        const state = game.state as any;
+        const attackersDeclaredBy: string[] = Array.isArray(state.attackersDeclaredBy) ? state.attackersDeclaredBy : [];
+        if (attackersDeclaredBy.includes(playerId)) {
+          if (await tryAIResponseActions(io, gameId, playerId, game)) {
+            return;
+          }
+
+          debug(1, '[AI] Attackers already declared (in attackersDeclaredBy), passing priority for responses');
+          await executePassPriority(io, gameId, playerId);
+          return;
+        }
+
         // Check if attackers have already been declared this step
         // by looking for any creatures marked as attacking
         const battlefield = game.state?.battlefield || [];
@@ -10643,7 +10623,7 @@ async function executeAIDecision(
       if (decision.action?.attackers?.length > 0) {
         await executeDeclareAttackers(io, gameId, playerId, decision.action.attackers);
       } else {
-        await executePassPriority(io, gameId, playerId);
+        await executeDeclareAttackers(io, gameId, playerId, []);
       }
       break;
       
@@ -11692,41 +11672,8 @@ async function executeDeclareAttackers(
   
   try {
     if (attackers.length === 0) {
-      const state = game.state as any;
-
-      state.attackedPlayersThisTurnByPlayer = state.attackedPlayersThisTurnByPlayer || {};
-      state.attackedPlayersThisTurnByPlayer[String(playerId)] = [];
-      state.attackedDefendingPlayersThisCombatByPlayer = state.attackedDefendingPlayersThisCombatByPlayer || {};
-      state.attackedDefendingPlayersThisCombatByPlayer[String(playerId)] = [];
-
-      await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', {
-        playerId,
-        attackers: [],
-      });
-
-      if (typeof (game as any).nextStep === 'function') {
-        await (game as any).nextStep();
-        flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
-        await appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
-          playerId,
-          isAI: true,
-          reason: 'declareNoAttackers',
-        });
-      }
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `${getPlayerName(game, playerId)} attacks with no creatures.`,
-        ts: Date.now(),
-      });
-
-      if (typeof (game as any).bumpSeq === 'function') {
-        (game as any).bumpSeq();
-      }
-
-      broadcastGame(io, game, gameId);
+      await executeCombatDeclareAttackers(io, gameId, playerId, []);
+      await executePassPriority(io, gameId, playerId);
       return;
     }
 

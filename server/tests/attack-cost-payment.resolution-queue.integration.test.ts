@@ -296,4 +296,212 @@ describe('attack cost payment via Resolution Queue (integration)', () => {
     expect((persisted?.payload?.sacrificedPermanents || []).map(String)).toContain('treasure_1');
     expect(persisted?.payload?.paymentManaDelta).toEqual({ colorless: -1 });
   });
+
+  it('refunds attack tax and keeps the prompt when declare fails after payment', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    await resetGame(gameId);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).step = 'declareAttackers';
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      [p2]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'attacker_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          name: 'Silvercoat Lion',
+          type_line: 'Creature — Cat',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'muse_1',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        card: {
+          name: 'Windborn Muse',
+          type_line: 'Creature — Spirit',
+          oracle_text: "Flying\nCreatures can't attack you unless their controller pays {2} for each creature they control that's attacking you.",
+          power: '2',
+          toughness: '3',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers['declareAttackers']({
+      gameId,
+      attackers: [{ creatureId: 'attacker_1', targetPlayerId: p2 }],
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((entry: any) => entry?.attackCostPayment === true) as any;
+    expect(step).toBeDefined();
+
+    const attacker = (game.state as any).battlefield.find((perm: any) => perm.id === 'attacker_1');
+    attacker.tapped = true;
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(step.id),
+      selections: 'pay_attack_cost',
+    });
+
+    expect(attacker?.attacking).toBeFalsy();
+    expect((game.state as any).manaPool[p1].colorless).toBe(2);
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => entry?.attackCostPayment === true)).toBe(true);
+    expect((game.state as any).attackersDeclaredBy || []).not.toContain(p1);
+  });
+
+  it('fires Agent of the Shadow Thieves attack trigger after paying attack tax via resolution queue', async () => {
+    const gameId = createGameId();
+    trackedGameIds.add(gameId);
+    await resetGame(gameId);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).step = 'declareAttackers';
+    (game.state as any).phase = 'combat';
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+      [p2]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      [p2]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'baeloth_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        isCommander: true,
+        counters: {},
+        temporaryAbilities: [],
+        basePower: 2,
+        baseToughness: 5,
+        card: {
+          id: 'baeloth_card_1',
+          name: 'Baeloth Barrityl, Entertainer',
+          type_line: 'Legendary Creature — Elf Shaman',
+          oracle_text: 'Choose a Background',
+          power: '2',
+          toughness: '5',
+        },
+      },
+      {
+        id: 'agent_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'agent_card_1',
+          name: 'Agent of the Shadow Thieves',
+          type_line: 'Legendary Enchantment — Background',
+          oracle_text:
+            'Commander creatures you own have "Whenever this creature attacks a player, if no opponent has more life than that player, put a +1/+1 counter on this creature. It gains deathtouch and indestructible until end of turn."',
+        },
+      },
+      {
+        id: 'muse_1',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        card: {
+          name: 'Windborn Muse',
+          type_line: 'Creature — Spirit',
+          oracle_text:
+            "Flying\nCreatures can't attack you unless their controller pays {2} for each creature they control that's attacking you.",
+          power: '2',
+          toughness: '3',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    (socket.data as any).gameId = gameId;
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerCombatHandlers(io as any, socket as any);
+
+    await handlers['declareAttackers']({
+      gameId,
+      attackers: [{ creatureId: 'baeloth_1', targetPlayerId: p2 }],
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((entry: any) => entry?.attackCostPayment === true) as any;
+    expect(step).toBeDefined();
+    expect(step.attackCostAmount).toBe(2);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(step.id),
+      selections: 'pay_attack_cost',
+    });
+
+    const baeloth = (game.state as any).battlefield.find((perm: any) => perm.id === 'baeloth_1');
+    expect(baeloth?.attacking).toBe(p2);
+
+    const stack = (game.state as any).stack || [];
+    const trigger = stack.find(
+      (item: any) => item?.type === 'triggered_ability' && item?.source === 'baeloth_1',
+    );
+    expect(trigger).toBeTruthy();
+    expect(String(trigger?.description || '').toLowerCase()).toContain('put a +1/+1 counter on this creature');
+
+    game.resolveTopOfStack();
+
+    const baelothAfter = (game.state as any).battlefield.find((perm: any) => perm.id === 'baeloth_1');
+    expect(baelothAfter?.counters?.['+1/+1']).toBe(1);
+  });
 });

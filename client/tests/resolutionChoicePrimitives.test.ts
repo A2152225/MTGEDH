@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildGenericOptionChoiceRequestFromStep,
+  buildLibrarySearchModalStateFromStep,
   buildPendingSpellXSelectionFromStep,
   isGenericNumberChoiceStep,
   isGenericOptionChoiceFallbackStep,
+  isGraveyardSourceLibrarySearchStep,
   isNamedGenericOptionChoiceStep,
+  resolveLibrarySearchMoveTo,
 } from '../src/utils/resolutionChoicePrimitives';
 
 describe('resolutionChoicePrimitives', () => {
@@ -80,9 +83,34 @@ describe('resolutionChoicePrimitives', () => {
     ).toMatchObject({
       gameId: 'game-1',
       stepId: 'step-2',
-      sourceName: 'Source',
+      minSelections: 0,
+      maxSelections: 1,
       mandatory: false,
-      options: [{ id: 'a', label: 'A' }],
+    });
+  });
+
+  it('maps library_search exile destination and graveyard-origin prompts', () => {
+    const step = {
+      id: 'gift-step',
+      sourceName: "God-Pharaoh's Gift",
+      description: "God-Pharaoh's Gift: exile target creature card from your graveyard",
+      searchCriteria: 'exile target creature card from your graveyard',
+      destination: 'exile',
+      mandatory: false,
+      minSelections: 0,
+      maxSelections: 1,
+      availableCards: [{ id: 'gy_bear', name: 'Grizzly Bears' }],
+    };
+
+    expect(resolveLibrarySearchMoveTo(step)).toBe('exile');
+    expect(isGraveyardSourceLibrarySearchStep(step)).toBe(true);
+    expect(buildLibrarySearchModalStateFromStep(step)).toMatchObject({
+      moveTo: 'exile',
+      mandatory: false,
+      minSelections: 0,
+      maxSelections: 1,
+      title: "God-Pharaoh's Gift: Choose from graveyard",
+      stepId: 'gift-step',
     });
   });
 });

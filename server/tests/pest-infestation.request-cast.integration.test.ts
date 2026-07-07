@@ -224,4 +224,106 @@ describe('Pest Infestation request-cast flow', () => {
     const handIds = (((game.state as any).zones?.[playerId]?.hand) || []).map((card: any) => card.id);
     expect(handIds).not.toContain('pest_infestation_1');
   });
+
+  it('completes X=0 casts without re-requesting targets after payment', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'forest_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '{T}: Add {G}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'pest_infestation_1',
+            name: 'Pest Infestation',
+            mana_cost: '{X}{X}{G}',
+            manaCost: '{X}{X}{G}',
+            type_line: 'Sorcery',
+            oracle_text: 'Destroy up to X target artifacts and/or enchantments. Create twice X 1/1 black and green Pest creature tokens with "When this creature dies, you gain 1 life."',
+            image_uris: { small: 'https://example.com/pest-infestation.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'pest_infestation_1' });
+
+    let queue = ResolutionQueueManager.getQueue(gameId);
+    const xStep = queue.steps.find((entry: any) => entry.type === 'x_value_selection') as any;
+    expect(xStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(xStep.id),
+      selections: { xValue: 0 },
+    });
+
+    queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((entry: any) => entry.type === 'target_selection')).toBe(false);
+
+    const paymentStep = queue.steps.find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep.manaCost).toBe('{G}');
+
+    emitted.length = 0;
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [{ permanentId: 'forest_1', mana: 'G', count: 1 }],
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const castError = emitted.find((event) => event.event === 'error' && event.payload?.code === 'TARGETING_LOOP_DETECTED');
+    expect(castError).toBeUndefined();
+
+    const stackNames = ((game.state as any).stack || []).map((entry: any) => entry.card?.name || entry.sourceName || entry.id);
+    expect(stackNames).toContain('Pest Infestation');
+    expect((((game.state as any).zones?.[playerId]?.hand) || []).map((card: any) => card.id)).not.toContain('pest_infestation_1');
+  });
 });

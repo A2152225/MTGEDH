@@ -839,7 +839,7 @@ function queueTopLibraryChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     const kind = String(gap.stepKind || '');
     if (kind !== 'scry' && kind !== 'surveil') continue;
 
@@ -970,7 +970,7 @@ function queueSacrificeChoicePromptsFromOracleIRResult(
   const fizzledSacrificeSteps: OracleEffectStep[] = [];
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'sacrifice') continue;
 
     const step = (result.skippedSteps || []).find(
@@ -1074,7 +1074,7 @@ function queueDiscardChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'discard') continue;
 
     const step = findSkippedOracleStep(result, gap);
@@ -1149,7 +1149,7 @@ function queueProliferateChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'proliferate') continue;
 
     const step = findSkippedOracleStep(result, gap);
@@ -1233,7 +1233,7 @@ function queueRedistributeLifeTotalsPromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'redistribute_life_totals') continue;
 
     const step = findSkippedOracleStep(result, gap);
@@ -1309,7 +1309,7 @@ function queueExploreChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'explore') continue;
 
     const step = findSkippedOracleStep(result, gap);
@@ -1367,7 +1367,7 @@ function queueBlightChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'blight') continue;
 
     const step = findSkippedOracleStep(result, gap);
@@ -1446,7 +1446,7 @@ function queuePopulateChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'populate') continue;
 
     const step = findSkippedOracleStep(result, gap);
@@ -1499,7 +1499,7 @@ function queueLookChooseChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     const kind = String(gap.stepKind || '');
     if (kind !== 'look_choose_from_top' && kind !== 'look_select_top') continue;
 
@@ -1635,7 +1635,7 @@ function queueSearchLibraryChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'search_library') continue;
 
     const step = findSkippedOracleStep(result, gap);
@@ -1868,7 +1868,7 @@ function queueChoosePileChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'choose_pile') continue;
 
     const step = findSkippedOracleStep(result, gap);
@@ -2022,7 +2022,7 @@ function queueChangeTargetChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'change_target') continue;
 
     const step = findSkippedOracleStep(result, gap);
@@ -2494,7 +2494,7 @@ function queueAddManaChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'add_mana') continue;
 
     const step = findSkippedOracleStep(result, gap);
@@ -2730,7 +2730,7 @@ function queueCounterDistributionPromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'add_counter') continue;
     if (!Array.isArray(gap.metadata?.distributionTargetIds)) continue;
 
@@ -2777,7 +2777,7 @@ function queueConniveChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'connive') continue;
 
     const step = findSkippedOracleStep(result, gap);
@@ -2833,7 +2833,7 @@ function queuePlayerChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'player_choice') continue;
 
     const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'player_choice' }> | undefined;
@@ -2935,7 +2935,7 @@ function syncIrPendingDiscardFromOracleIRResult(
   const sourceName = String(params.sourceName || 'Spell').trim() || 'Spell';
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'discard') continue;
 
     const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'discard' }> | undefined;
@@ -2976,6 +2976,11 @@ function findSkippedOracleStep(
       String(candidate.kind || '') === String(gap.stepKind || '') &&
       String((candidate as any).raw || '') === String(gap.raw || '')
   ) as OracleEffectStep | undefined;
+}
+
+function isOracleIrPlayerChoiceGap(gap: { reasonCode?: string }): boolean {
+  const reason = String(gap.reasonCode || '');
+  return reason === 'player_choice_required' || reason === 'optional_step_requires_player_choice';
 }
 
 function inferTapUntapTargetFilter(
@@ -3028,7 +3033,7 @@ function queueTapOrUntapChoicePromptsFromOracleIRResult(
     if (String(gap.stepKind || '') !== 'tap_or_untap') continue;
     if (
       gap.reasonCode !== 'no_deterministic_target'
-      && gap.reasonCode !== 'player_choice_required'
+      && !isOracleIrPlayerChoiceGap(gap)
     ) {
       continue;
     }
@@ -3189,10 +3194,7 @@ function collectMoveZoneChoiceSteps(
 
   for (const gap of result.automationGaps || []) {
     if (String(gap.stepKind || '') !== 'move_zone') continue;
-    if (
-      gap.reasonCode !== 'player_choice_required'
-      && gap.reasonCode !== 'optional_step_requires_player_choice'
-    ) {
+    if (!isOracleIrPlayerChoiceGap(gap)) {
       continue;
     }
     const destinationChoice = (gap.metadata as any)?.moveZoneDestinationChoice;
@@ -3295,7 +3297,7 @@ function queueMoveZoneDestinationChoicePromptsFromOracleIRResult(
     .filter(Boolean);
 
   for (const gap of result.automationGaps || []) {
-    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (!isOracleIrPlayerChoiceGap(gap)) continue;
     if (String(gap.stepKind || '') !== 'move_zone') continue;
 
     const destinations = (gap.metadata as any)?.moveZoneDestinationChoice;
@@ -3420,6 +3422,16 @@ function queueOptionalStepChoicePromptsFromOracleIRResult(
     if (!step) continue;
 
     if (isOracleIrOptionalStepBridgedToDedicatedResolutionPrompt(step)) {
+      continue;
+    }
+
+    if (
+      stepKind === 'move_zone'
+      && step.kind === 'move_zone'
+      && params.irCtx
+      && buildMoveZoneSelectionOptions(state, step, params.irCtx)
+    ) {
+      // queueMoveZoneChoicePromptsFromOracleIRResult queues LIBRARY_SEARCH (or graveyard UX).
       continue;
     }
 
@@ -3587,10 +3599,7 @@ function queueUnlessPayChoicePromptsFromOracleIRResult(
   const queuedKeys = new Set<string>();
 
   for (const gap of result.automationGaps || []) {
-    if (
-      gap.reasonCode !== 'player_choice_required'
-      && gap.reasonCode !== 'optional_step_requires_player_choice'
-    ) {
+    if (!isOracleIrPlayerChoiceGap(gap)) {
       continue;
     }
 

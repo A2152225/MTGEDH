@@ -162,3 +162,91 @@ export function buildGenericOptionChoiceRequestFromStep(
     mandatory,
   };
 }
+
+export type LibrarySearchMoveTo = 'hand' | 'battlefield' | 'top' | 'graveyard' | 'exile' | 'split';
+
+const LIBRARY_SEARCH_DESTINATIONS = new Set<LibrarySearchMoveTo>([
+  'hand',
+  'battlefield',
+  'top',
+  'graveyard',
+  'exile',
+]);
+
+export function resolveLibrarySearchMoveTo(step: Record<string, unknown>): LibrarySearchMoveTo {
+  if (step.splitDestination === true) return 'split';
+  const destination = String(step.destination || 'hand') as LibrarySearchMoveTo;
+  return LIBRARY_SEARCH_DESTINATIONS.has(destination) ? destination : 'hand';
+}
+
+export function isGraveyardSourceLibrarySearchStep(step: Record<string, unknown>): boolean {
+  const haystack = `${String(step.searchCriteria || '')} ${String(step.description || '')}`.toLowerCase();
+  return haystack.includes('graveyard');
+}
+
+export interface LibrarySearchModalStateShape {
+  cards: unknown[];
+  nonSelectableCards: unknown[];
+  revealedCards: unknown[];
+  castableWhileSearchingCards: unknown[];
+  title: string;
+  description: string;
+  filter: Record<string, unknown>;
+  minSelections: number;
+  maxSelections: number;
+  maxTotalManaValue?: number;
+  moveTo: LibrarySearchMoveTo;
+  shuffleAfter: boolean;
+  targetPlayerId?: string;
+  splitDestination: boolean;
+  toBattlefield: number;
+  toHand: number;
+  entersTapped: boolean;
+  mandatory: boolean;
+  stepId: string;
+}
+
+export function buildLibrarySearchModalStateFromStep(
+  step: Record<string, unknown>,
+): LibrarySearchModalStateShape {
+  const sourceName = String(step.sourceName || '').trim();
+  const searchCriteria = String(step.searchCriteria || '').trim();
+  const stepDescription = String(step.description || '').trim();
+  const fromGraveyard = isGraveyardSourceLibrarySearchStep(step);
+  const defaultTitle = fromGraveyard
+    ? (sourceName ? `${sourceName}: Choose from graveyard` : 'Choose from graveyard')
+    : (sourceName || 'Search Library');
+  const defaultDescription = fromGraveyard
+    ? (searchCriteria || stepDescription || 'Choose a card from your graveyard')
+    : (stepDescription || searchCriteria || 'Search your library');
+
+  return {
+    cards: Array.isArray(step.availableCards) ? step.availableCards : [],
+    nonSelectableCards: Array.isArray(step.nonSelectableCards) ? step.nonSelectableCards : [],
+    revealedCards: Array.isArray(step.revealedCards) ? step.revealedCards : [],
+    castableWhileSearchingCards: Array.isArray(step.castableWhileSearchingCards)
+      ? step.castableWhileSearchingCards
+      : [],
+    title: defaultTitle,
+    description: defaultDescription,
+    filter: (step.filter && typeof step.filter === 'object' ? step.filter : {}) as Record<string, unknown>,
+    minSelections: Math.max(0, Number(step.minSelections ?? 0)),
+    maxSelections: Math.max(0, Number(step.maxSelections ?? 1)),
+    maxTotalManaValue: Number.isFinite(Number(step.maxTotalManaValue))
+      ? Number(step.maxTotalManaValue)
+      : undefined,
+    moveTo: resolveLibrarySearchMoveTo(step),
+    shuffleAfter: step.shuffleAfter !== false,
+    targetPlayerId: step.targetPlayerId != null
+      ? String(step.targetPlayerId)
+      : step.playerId != null
+        ? String(step.playerId)
+        : undefined,
+    splitDestination: step.splitDestination === true,
+    toBattlefield: Math.max(0, Number(step.toBattlefield ?? 0)),
+    toHand: Math.max(0, Number(step.toHand ?? 0)),
+    entersTapped: step.entersTapped === true,
+    mandatory: step.mandatory !== false,
+    stepId: String(step.id || ''),
+  };
+}

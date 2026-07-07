@@ -2,11 +2,11 @@
 
 **Purpose:** Track post–Track D executor/Layer 3 work and document the path to **seamless automation for cards not yet in the corpus** (new sets, custom cards, novel phrasing).
 
-**Last updated:** 2026-07-05 (E9 batch 531 — D3 ratchet **14**; migration **811/811**; telemetry **0**)
+**Last updated:** 2026-07-07 (Phase 5.2 graveyard replacements wired; migration **873/873**; D3 ratchet **0**)
 
 **Read first:** [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) · [oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md) · `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` · `.cursor/rules/oracle-ir-compiled-overlay.mdc`
 
-**Next session:** Copy the prompt at the top of [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) (batch 532 — body/preface legacy handlers).
+**Next session:** Copy the prompt at the top of [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) (Phase 5.3 static effects / anthem registry).
 
 ## Goal: Semantic atomic parsing + seamless effect automation (new cards)
 

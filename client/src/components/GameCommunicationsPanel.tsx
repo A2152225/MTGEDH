@@ -55,7 +55,7 @@ export function GameCommunicationsPanel({
         message: `${resolvePlayerName(String(m.from))}: ${m.message}`,
       }));
 
-    return dedupeGameLogEntries([...gameLogEntries, ...chatAsLog, ...playerChat])
+    return dedupeGameLogEntries([...chatAsLog, ...playerChat, ...gameLogEntries])
       .sort((a, b) => a.ts - b.ts)
       .slice(-300);
   }, [chatMessages, gameLogEntries, resolvePlayerName]);

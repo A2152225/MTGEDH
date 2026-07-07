@@ -4,6 +4,7 @@ import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/
 import { createInitialGameState } from '../src/state/gameState.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerCombatHandlers } from '../src/socket/combat.js';
+import { collectBattlefieldAbilityBadgesForView } from '../src/state/modules/battlefieldAbilityBadges.js';
 import { games } from '../src/socket/socket.js';
 import type { PlayerID } from '../../shared/src';
 
@@ -1025,9 +1026,17 @@ describe('combat trigger persistence', () => {
     game.resolveTopOfStack();
 
     const baeloth = ((game.state as any).battlefield || []).find((perm: any) => perm?.id === 'baeloth_1');
+    const agent = ((game.state as any).battlefield || []).find((perm: any) => perm?.id === 'agent_1');
     expect(baeloth?.counters?.['+1/+1']).toBe(1);
     expect(Array.isArray(baeloth?.temporaryAbilities) ? baeloth.temporaryAbilities : []).toEqual(
-      expect.arrayContaining(['deathtouch', 'indestructible'])
+      expect.arrayContaining([
+        expect.objectContaining({ ability: 'deathtouch', expiresAt: 'end_of_turn' }),
+        expect.objectContaining({ ability: 'indestructible', expiresAt: 'end_of_turn' }),
+      ])
     );
+    expect(collectBattlefieldAbilityBadgesForView(baeloth, [])).toEqual(
+      expect.arrayContaining(['deathtouch', 'indestructible']),
+    );
+    expect(collectBattlefieldAbilityBadgesForView(agent, [])).toEqual([]);
   });
 });

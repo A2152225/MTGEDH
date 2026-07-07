@@ -9765,13 +9765,19 @@ export function registerGameActions(io: Server, socket: Socket) {
       const multiTargetClauses = !isAura
         ? buildSpellTargetSelectionClauses(game, String(playerId), String(cardInHand.name || ''), oracleText, xValue)
         : [];
+      const resolvedMinTargets = spellSpec && !preferParsedTargetReqs
+        ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, xValue)
+        : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, xValue);
+      const resolvedMaxTargets = spellSpec && !preferParsedTargetReqs
+        ? resolveTargetCount(spellSpec.maxTargets, (spellSpec as any).maxTargetsIsX === true, xValue)
+        : resolveTargetCount(targetReqs?.maxTargets, (targetReqs as any)?.maxTargetsIsX === true, xValue);
       
       // Only request target selection if:
-      // 1. The spell requires targets (minTargets > 0 OR needsTargets)
+      // 1. The spell still requires targets after resolving X (min > 0, or optional up-to-X with max > 0)
       // 2. AND no targets have been provided yet
       // This prevents double-targeting when completeCastSpell is called with targets already set
-      const needsTargetSelection = ((spellSpec && !preferParsedTargetReqs) && spellSpec.minTargets > 0 && (!targets || targets.length === 0)) || 
-                                   (targetReqs && targetReqs.needsTargets && (!targets || targets.length === 0));
+      const needsTargetSelection = ((spellSpec && !preferParsedTargetReqs) && resolvedMinTargets > 0 && (!targets || targets.length === 0)) || 
+                                   (targetReqs && targetReqs.needsTargets && resolvedMaxTargets > 0 && (!targets || targets.length === 0));
       
       // DEBUG: Log targeting logic to debug infinite loop
       debug(2, `[handleCastSpellFromHand] ${cardInHand.name}: spellSpec=${!!spellSpec}, targetReqs=${!!targetReqs}, needsTargetSelection=${needsTargetSelection}, hasTargets=${!!(targets && targets.length > 0)}`);
@@ -9934,25 +9940,23 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Use BOTH spellSpec (for known patterns) and targetReqs (for any "target" text)
       if (needsTargetSelection) {
         // This spell requires targets - check if we have them already
-        const requiredMinTargets = (spellSpec && !preferParsedTargetReqs)
-          ? spellSpec.minTargets
-          : (targetReqs?.minTargets ?? spellSpec?.minTargets ?? 1);
-        const requiredMaxTargets = (spellSpec && !preferParsedTargetReqs)
-          ? spellSpec.maxTargets
-          : (targetReqs?.maxTargets ?? spellSpec?.maxTargets ?? 1);
+        const requiredMinTargets = resolvedMinTargets;
+        const requiredMaxTargets = resolvedMaxTargets;
         
         // CRITICAL: Check if there's already a pending cast for this card to prevent infinite loop
         // If a pending cast exists, it means we've already requested targets before
-        const existingPendingCast = (game.state as any).pendingSpellCasts ? 
-          Object.values((game.state as any).pendingSpellCasts).find((pc: any) => pc.cardId === cardId) : null;
-        
-        if (existingPendingCast) {
-          debugError(1, `[castSpellFromHand] LOOP PREVENTION: Pending cast already exists for ${cardInHand.name}. This should not happen!`);
-          socket.emit("error", {
-            code: "TARGETING_LOOP_DETECTED",
-            message: `Targeting error for ${cardInHand.name}. Please try casting again.`,
-          });
-          return;
+        if (!skipInteractivePrompts) {
+          const existingPendingCast = (game.state as any).pendingSpellCasts ? 
+            Object.values((game.state as any).pendingSpellCasts).find((pc: any) => pc.cardId === cardId) : null;
+          
+          if (existingPendingCast) {
+            debugError(1, `[castSpellFromHand] LOOP PREVENTION: Pending cast already exists for ${cardInHand.name}. This should not happen!`);
+            socket.emit("error", {
+              code: "TARGETING_LOOP_DETECTED",
+              message: `Targeting error for ${cardInHand.name}. Please try casting again.`,
+            });
+            return;
+          }
         }
         
         // CRITICAL FIX: Skip target request if we're completing a previous cast (prevents infinite loop)

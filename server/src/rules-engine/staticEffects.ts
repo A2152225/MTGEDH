@@ -170,10 +170,14 @@ function parseAbilities(text: string): string[] {
   return found;
 }
 
+function stripCommanderGrantedAbilityQuotes(text: string): string {
+  return String(text || '').replace(/commander\s+creatures?\s+you\s+own\s+have\s+"[^"]*"/gi, '');
+}
+
 function resolveGrantedAbilities(source: BattlefieldPermanent, text: string): string[] {
   const lowerText = String(text || '').toLowerCase();
   if (!lowerText.includes('abilities of your choice among')) {
-    const granted = parseAbilities(text);
+    const granted = parseAbilities(stripCommanderGrantedAbilityQuotes(text));
     if (/\{t\}:\s*add\s+one\s+mana\s+of\s+any\s+color/i.test(lowerText)) {
       granted.push('tap_for_any_color');
     }

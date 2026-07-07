@@ -12,6 +12,9 @@
  */
 
 import type { GameContext } from "../context.js";
+import { evaluateReplacementEvent, type ReplacementZone } from './replacement-effects.js';
+import { matchesSelfShuffleIntoLibraryReplacementOracle } from './replacementEffectSpec.js';
+import { moveRemovedPermanentToExile } from './zones.js';
 import { debug } from "../../utils/debug.js";
 import { recordCardLeftGraveyardThisTurn } from "./turn-tracking.js";
 import { movePermanentToLibrary } from "./zones.js";
@@ -277,21 +280,8 @@ export function hasGraveyardMassShuffleIntoLibraryTrigger(card: any): boolean {
  * reveal X and shuffle it into its owner's library instead." (Blightsteel Colossus, Nexus of Fate)
  */
 export function hasGraveyardSelfShuffleIntoLibraryReplacement(card: any): boolean {
-  const oracleText = String(card?.oracle_text || card?.card?.oracle_text || '').trim().toLowerCase();
-  if (!oracleText) return false;
-
-  if (hasGraveyardMassShuffleIntoLibraryTrigger(card)) {
-    return false;
-  }
-
-  if (!/\bwould be put into a graveyard from anywhere\b/.test(oracleText)) {
-    return false;
-  }
-
-  return (
-    /\bshuffle (?:it|this(?: card| permanent)?)\b/.test(oracleText)
-    && /\binto (?:its|their|the) owner(?:'|'|')s library\b/.test(oracleText)
-  );
+  const oracleText = String(card?.oracle_text || card?.card?.oracle_text || '').trim();
+  return matchesSelfShuffleIntoLibraryReplacementOracle(oracleText);
 }
 
 function shuffleCardCopyIntoOwnerLibrary(ctx: GameContext, card: any, ownerId: string): boolean {
@@ -344,15 +334,114 @@ export function shuffleRemovedPermanentIntoOwnerLibrary(
   return shuffleCardCopyIntoOwnerLibrary(ctx, zoneCard, owner);
 }
 
+function exileCardCopyForOwner(ctx: GameContext, card: any, ownerId: string): boolean {
+  const owner = String(ownerId || '').trim();
+  if (!owner || !card) return false;
+
+  const state = (ctx as any).state;
+  const zones = state.zones || {};
+  const playerZones = { ...(zones[owner] || {}) };
+  const exile = Array.isArray(playerZones.exile) ? [...playerZones.exile] : [];
+  exile.push({ ...card, zone: 'exile' });
+  playerZones.exile = exile;
+  playerZones.exileCount = exile.length;
+  state.zones = { ...zones, [owner]: playerZones };
+  ctx.bumpSeq();
+  return true;
+}
+
+export interface GraveyardDestinationReplacementOptions {
+  sourceZone: ReplacementZone;
+  controller?: string;
+  owner?: string;
+  objectId?: string;
+  permanentId?: string;
+  cause?: string;
+}
+
+export interface GraveyardDestinationReplacementOutcome {
+  handled: boolean;
+  effectId?: string;
+  replacementDestination?: ReplacementZone;
+}
+
+export function tryApplyDeclarativeGraveyardDestinationReplacement(
+  ctx: GameContext,
+  object: any,
+  ownerId: string,
+  options: GraveyardDestinationReplacementOptions,
+): GraveyardDestinationReplacementOutcome {
+  const owner = String(ownerId || options.owner || '').trim();
+  if (!object || !owner) {
+    return { handled: false };
+  }
+
+  const result = evaluateReplacementEvent({
+    type: 'zone-change',
+    state: (ctx as any).state,
+    object,
+    objectId: String(options.objectId || options.permanentId || object?.id || object?.card?.id || ''),
+    sourceZone: options.sourceZone,
+    destinationZone: 'graveyard',
+    controller: options.controller || owner,
+    owner: options.owner || owner,
+    cause: options.cause,
+  });
+
+  if (result.choiceRequired || !result.applied) {
+    return { handled: false };
+  }
+
+  const zoneCard = ((object as any)?.isFaceDown === true && (object as any)?.faceUpCard)
+    ? (object as any).faceUpCard
+    : ((object as any)?.card || object);
+
+  if (
+    result.replacementDestination === 'library'
+    && result.metadata?.shuffleIntoOwnerLibrary === true
+  ) {
+    const shuffled = options.sourceZone === 'battlefield' && (object as any)?.card
+      ? shuffleRemovedPermanentIntoOwnerLibrary(ctx, object, owner)
+      : shuffleCardCopyIntoOwnerLibrary(ctx, zoneCard, owner);
+    return shuffled
+      ? {
+          handled: true,
+          effectId: result.effectId,
+          replacementDestination: result.replacementDestination,
+        }
+      : { handled: false };
+  }
+
+  if (result.replacementDestination === 'exile') {
+    if (options.sourceZone === 'battlefield' && options.permanentId) {
+      moveRemovedPermanentToExile(ctx, object, options.permanentId);
+      return {
+        handled: true,
+        effectId: result.effectId,
+        replacementDestination: result.replacementDestination,
+      };
+    }
+    const exiled = exileCardCopyForOwner(ctx, zoneCard, owner);
+    return exiled
+      ? {
+          handled: true,
+          effectId: result.effectId,
+          replacementDestination: result.replacementDestination,
+        }
+      : { handled: false };
+  }
+
+  return { handled: false };
+}
+
 export function tryApplyGraveyardSelfShuffleReplacementForCard(
   ctx: GameContext,
   card: any,
   ownerId: string,
 ): boolean {
-  if (!hasGraveyardSelfShuffleIntoLibraryReplacement(card)) {
-    return false;
-  }
-  return shuffleCardCopyIntoOwnerLibrary(ctx, card, ownerId);
+  return tryApplyDeclarativeGraveyardDestinationReplacement(ctx, card, ownerId, {
+    sourceZone: 'hand',
+  }).handled;
 }
 
 /**

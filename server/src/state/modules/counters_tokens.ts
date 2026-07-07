@@ -21,10 +21,7 @@ import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils
 import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 import { detectKeywords } from "./keyword-detection.js";
 import { moveRemovedPermanentToExile } from "./zones.js";
-import {
-  hasGraveyardSelfShuffleIntoLibraryReplacement,
-  shuffleRemovedPermanentIntoOwnerLibrary,
-} from "./zone-manipulation.js";
+import { tryApplyDeclarativeGraveyardDestinationReplacement } from "./zone-manipulation.js";
 import { registerLinkedExile } from "./triggers/linked-exile.js";
 import { queueCounterPlacedTriggers, queueCounterRemovedTriggers } from "./triggers/counters.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
@@ -1262,16 +1259,6 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
 
   clearPreparedStateOnBattlefieldExit(state, perm);
 
-  if (hasGraveyardSelfShuffleIntoLibraryReplacement(zoneCard || card)) {
-    shuffleRemovedPermanentIntoOwnerLibrary(ctx, perm, String(owner || ''));
-    try {
-      recalculatePlayerEffects(ctx);
-    } catch (err) {
-      debugWarn(1, '[movePermanentToGraveyard] Failed to recalculate player effects after self-shuffle replacement:', err);
-    }
-    return true;
-  }
-
   // Per-turn tracking for morbid/revolt-style conditions
   try {
     (state as any).permanentLeftBattlefieldThisTurn = (state as any).permanentLeftBattlefieldThisTurn || {};
@@ -1280,23 +1267,35 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     // best-effort tracking only
   }
 
-  const leaveReplacementDestination = getCounterLeaveBattlefieldReplacement(perm, 'graveyard');
-  if (leaveReplacementDestination === 'exile') {
-    moveRemovedPermanentToExile(ctx, perm, removedPermanentId);
-    const leaveBattlefieldReplacementLifeGain = Number(
-      (perm as any)?.leaveBattlefieldReplacementLifeGain || (perm as any)?.card?.leaveBattlefieldReplacementLifeGain || 0
-    );
-    if (leaveBattlefieldReplacementLifeGain > 0 && controller) {
-      try {
-        applyProcessedLifeGain(ctx, String(controller) as PlayerID, leaveBattlefieldReplacementLifeGain);
-      } catch (err) {
-        debugWarn(1, '[movePermanentToGraveyard] Failed to apply leave-battlefield life gain:', err);
+  const graveyardReplacement = tryApplyDeclarativeGraveyardDestinationReplacement(
+    ctx,
+    perm,
+    String(owner || ''),
+    {
+      sourceZone: 'battlefield',
+      controller: String(controller || ''),
+      objectId: removedPermanentId,
+      permanentId: removedPermanentId,
+      cause: 'destroy',
+    },
+  );
+  if (graveyardReplacement.handled) {
+    if (graveyardReplacement.effectId === 'leave-battlefield-exile-instead') {
+      const leaveBattlefieldReplacementLifeGain = Number(
+        (perm as any)?.leaveBattlefieldReplacementLifeGain || (perm as any)?.card?.leaveBattlefieldReplacementLifeGain || 0
+      );
+      if (leaveBattlefieldReplacementLifeGain > 0 && controller) {
+        try {
+          applyProcessedLifeGain(ctx, String(controller) as PlayerID, leaveBattlefieldReplacementLifeGain);
+        } catch (err) {
+          debugWarn(1, '[movePermanentToGraveyard] Failed to apply leave-battlefield life gain:', err);
+        }
       }
     }
     try {
       recalculatePlayerEffects(ctx);
     } catch (err) {
-      debugWarn(1, '[movePermanentToGraveyard] Failed to recalculate player effects after exile replacement:', err);
+      debugWarn(1, '[movePermanentToGraveyard] Failed to recalculate player effects after replacement:', err);
     }
     return true;
   }

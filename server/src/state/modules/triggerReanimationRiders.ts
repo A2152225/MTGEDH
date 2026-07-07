@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug, debugWarn } from '../../utils/debug.js';
+import { isCommanderGrantBackgroundOracle } from './battlefieldAbilityBadges.js';
 import { getNextEndStepFireTurnNumber } from './triggerDelayedEffectUtils.js';
 
 function applyReanimatedPermanentLeaveBattlefieldRiders(
@@ -61,6 +62,12 @@ export function applyPermanentKeywordGrantFromText(
   targetLabel?: string,
 ): boolean {
   if (!permanent) return false;
+
+  const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+  const oracleText = String(permanent?.card?.oracle_text || fullText || '');
+  if (typeLine.includes('background') && isCommanderGrantBackgroundOracle(oracleText)) {
+    return false;
+  }
 
   try {
     const KEYWORD_GRANT_VOCAB_TRIG = [

@@ -23,8 +23,8 @@ export type CopyPermanentTriggerPattern =
 export function classifyCopyPermanentTriggerPattern(
   step: Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
 ): CopyPermanentTriggerPattern | null {
-  const targetText = oracleObjectSelectorText(step.target).toLowerCase();
-  const sourceText = oracleObjectSelectorText(step.source).toLowerCase();
+  const targetText = normalizeSelectorText(oracleObjectSelectorText(step.target));
+  const sourceText = normalizeSelectorText(oracleObjectSelectorText(step.source));
   const raw = String(step.raw || '').toLowerCase();
 
   if (
@@ -64,7 +64,8 @@ export function classifyCopyPermanentTriggerPattern(
 
   if (
     /creature card exiled with/.test(sourceText) ||
-    /card exiled with/.test(sourceText)
+    /card exiled with/.test(sourceText) ||
+    /^the exiled card$/.test(sourceText)
   ) {
     return /^(that creature|for as long as this equipment remains attached to it, that creature)$/.test(targetText) ||
       /that creature/.test(targetText)
@@ -415,6 +416,16 @@ export function applyCopyPermanentTriggerStep(
     if (validTargets.length === 0) {
       debug(2, `[executeTriggerEffect] ${sourceName}: no exiled cards to copy`);
       return 0;
+    }
+    if (pattern === 'self_from_exiled_card_choice' && validTargets.length === 1 && !isOptional) {
+      const imprintedCard = exiledCards[0];
+      const result = applyPermanentBecomeCopyOfCardData(
+        state,
+        sourcePermanentId,
+        imprintedCard,
+        retainedAbilityText || undefined,
+      );
+      return result.applied ? 1 : 0;
     }
     return queueCopyTargetSelection(ctx, {
       controller,

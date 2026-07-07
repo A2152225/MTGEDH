@@ -11,6 +11,7 @@ import type { GameContext } from "../context.js";
 import { parsePT, calculateVariablePT, calculateAllPTBonusesWithSources, resolveSetBasePTFromAttachedAuras, type PTBonusSource } from "../utils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "./staticEffectSpec.js";
+import { collectBattlefieldAbilityBadgesForView } from "./battlefieldAbilityBadges.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
 import { maskFaceDownExileCardForViewer } from "./impulse-exile-utils.js";
 
@@ -129,16 +130,8 @@ export function viewFor(
     let effectivePower: number | undefined;
     let effectiveToughness: number | undefined;
     
-    // Collect granted abilities from continuous effects (Avacyn, Svyelun, anthems, overlays, etc.)
-    const existingAbilities = Array.isArray((perm as any).grantedAbilities) 
-      ? [...(perm as any).grantedAbilities] 
-      : [];
-    
-    for (const ability of getContinuousGrantedAbilitiesForPermanent(perm, state)) {
-      if (!existingAbilities.includes(ability)) {
-        existingAbilities.push(ability);
-      }
-    }
+    const continuousAbilities = getContinuousGrantedAbilitiesForPermanent(perm, state);
+    const existingAbilities = collectBattlefieldAbilityBadgesForView(perm, continuousAbilities);
 
     if (isCreature) {
       let baseP =
@@ -216,8 +209,9 @@ export function viewFor(
       !!cz &&
       Array.isArray(cz.commanderIds) &&
       cz.commanderIds.includes((perm.card as any)?.id);
+    const { grantedAbilities: _rawGrantedAbilities, ...permWithoutRawGrants } = perm as any;
     return {
-      ...perm,
+      ...permWithoutRawGrants,
       card: perm.card,
       ...(typeof effectivePower === "number" &&
       typeof effectiveToughness === "number"

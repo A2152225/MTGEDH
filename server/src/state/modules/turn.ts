@@ -22,6 +22,7 @@ import { resetConvokeGrantsForNewTurn } from "./casting-modifiers.js";
 import { recalculatePlayerEffects, canDamageBePrevented, clearTemporaryLandBonuses, processLifeChange, resolveCombatDamageToOpponent } from "./game-state-effects.js";
 import { clearTemporaryEtbTriggers } from './triggerEtbEntryEffects.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
+import { detectEntersWithCounters } from './detectEntersWithCounters.js';
 import { 
   getBeginningOfCombatTriggers, 
   getEndStepTriggers, 
@@ -46,6 +47,7 @@ import {
   creatureDiesFromCombatDamage,
   resolvePlayerCombatDamage,
 } from "./combat-damage-processing.js";
+import { queueCombatDamageChat } from "./combatDamageChat.js";
 import { runSBA, createToken, updateCounters } from "./counters_tokens.js";
 import { applyDamageToPermanentWithCounterEffects, applyShieldCounterDamagePrevention, clearMarkedPermanentDamage } from "./counter-common-effects.js";
 import { calculateAllPTBonuses, calculateVariablePT, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
@@ -3012,9 +3014,51 @@ function endTemporaryEffects(ctx: GameContext) {
     for (const permanent of battlefield) {
       if (!permanent) continue;
       
-      // Clear "until end of turn" modifiers
+      // Clear "until end of turn" modifiers (remove tracked granted abilities first)
       if (permanent.untilEndOfTurn) {
+        const toRemove = Array.isArray(permanent.untilEndOfTurn.grantedAbilitiesToRemove)
+          ? permanent.untilEndOfTurn.grantedAbilitiesToRemove
+          : [];
+        if (toRemove.length > 0 && Array.isArray(permanent.grantedAbilities)) {
+          const removeSet = new Set(toRemove.map((ability: any) => String(ability || '').toLowerCase()));
+          permanent.grantedAbilities = permanent.grantedAbilities.filter(
+            (ability: any) => !removeSet.has(String(ability || '').toLowerCase()),
+          );
+          if (permanent.grantedAbilities.length === 0) {
+            delete permanent.grantedAbilities;
+          }
+        }
         delete permanent.untilEndOfTurn;
+        endedCount++;
+      }
+
+      if (Array.isArray((permanent as any).temporaryEffects) && (permanent as any).temporaryEffects.length > 0) {
+        const expiredKeywords = new Set<string>();
+        const remainingEffects = (permanent as any).temporaryEffects.filter((effect: any) => {
+          if (String(effect?.expiresAt || '') !== 'end_of_turn') {
+            return true;
+          }
+          for (const granted of Array.isArray(effect?.grantedAbilities) ? effect.grantedAbilities : []) {
+            const normalized = String(granted || '').trim().toLowerCase();
+            if (normalized) expiredKeywords.add(normalized);
+          }
+          return false;
+        });
+
+        if (expiredKeywords.size > 0 && Array.isArray(permanent.grantedAbilities)) {
+          permanent.grantedAbilities = permanent.grantedAbilities.filter(
+            (ability: any) => !expiredKeywords.has(String(ability || '').toLowerCase()),
+          );
+          if (permanent.grantedAbilities.length === 0) {
+            delete permanent.grantedAbilities;
+          }
+        }
+
+        if (remainingEffects.length > 0) {
+          (permanent as any).temporaryEffects = remainingEffects;
+        } else {
+          delete (permanent as any).temporaryEffects;
+        }
         endedCount++;
       }
       
@@ -3116,6 +3160,17 @@ function endTemporaryEffects(ctx: GameContext) {
         }
         endedCount++;
       }
+    }
+
+    if (Array.isArray(state.staticAbilityGrantEffects) && state.staticAbilityGrantEffects.length > 0) {
+      const before = state.staticAbilityGrantEffects.length;
+      state.staticAbilityGrantEffects = state.staticAbilityGrantEffects.filter(
+        (effect: any) => String(effect?.duration || '') !== 'end_of_turn',
+      );
+      if (state.staticAbilityGrantEffects.length === 0) {
+        delete state.staticAbilityGrantEffects;
+      }
+      endedCount += before - (state.staticAbilityGrantEffects?.length || 0);
     }
 
     endedCount += clearTemporaryGraveyardKeywordGrants(state);
@@ -5030,6 +5085,7 @@ export function nextStep(ctx: GameContext) {
             const combatResult = dealCombatDamage(ctx, true); // Pass flag for first strike phase
             debug(2, `${ts()} [COMBAT_STEP] First strike damage completed`);
             (ctx as any).state.lastFirstStrikeDamageResult = combatResult;
+            queueCombatDamageChat((ctx as any).state, combatResult, { firstStrike: true });
           } catch (err) {
             debugError(1, `${ts()} [COMBAT_STEP] CRASH in first strike dealCombatDamage:`, err);
           }
@@ -5043,6 +5099,7 @@ export function nextStep(ctx: GameContext) {
             debug(2, `${ts()} [COMBAT_STEP] dealCombatDamage completed successfully`);
             debug(2, `${ts()} [COMBAT_STEP] Result: damageToPlayers=${JSON.stringify(combatResult.damageToPlayers)}, creaturesDestroyed=${combatResult.creaturesDestroyed.length}`);
             (ctx as any).state.lastCombatDamageResult = combatResult;
+            queueCombatDamageChat((ctx as any).state, combatResult);
           } catch (err) {
             debugError(1, `${ts()} [COMBAT_STEP] CRASH in dealCombatDamage:`, err);
             debugWarn(1, `${ts()} [nextStep] Failed to deal combat damage:`, err);
@@ -5059,6 +5116,7 @@ export function nextStep(ctx: GameContext) {
           const combatResult = dealCombatDamage(ctx, false); // Regular damage phase
           debug(2, `${ts()} [COMBAT_STEP] Regular damage completed`);
           (ctx as any).state.lastCombatDamageResult = combatResult;
+          queueCombatDamageChat((ctx as any).state, combatResult);
         } catch (err) {
           debugError(1, `${ts()} [COMBAT_STEP] CRASH in regular dealCombatDamage:`, err);
         }

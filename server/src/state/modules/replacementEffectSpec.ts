@@ -218,7 +218,14 @@ const ORACLE_DRAW_REPLACEMENT_TEMPLATES: readonly OracleDrawReplacementTemplate[
 function readCardOracleText(card: unknown): string {
   if (!card || typeof card !== 'object') return '';
   const record = card as Record<string, unknown>;
-  return String(record.oracle_text || record.oracleText || '').trim();
+  const direct = String(record.oracle_text || record.oracleText || '').trim();
+  if (direct) return direct;
+  const nested = record.card;
+  if (nested && typeof nested === 'object') {
+    const nestedRecord = nested as Record<string, unknown>;
+    return String(nestedRecord.oracle_text || nestedRecord.oracleText || '').trim();
+  }
+  return '';
 }
 
 export function collectOraclePatternDrawReplacementSpecsFromState(state: unknown): ReplacementEffectSpec[] {
@@ -332,6 +339,145 @@ export function collectOraclePatternLifeGainReplacementSpecsFromState(state: unk
 
     for (const template of ORACLE_LIFE_GAIN_REPLACEMENT_TEMPLATES) {
       if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
+      specs.push({
+        ...template.spec,
+        id: `${sourcePermanentId}:${template.templateId}`,
+        sourcePermanentId,
+        sourceController,
+        sourceName,
+      });
+    }
+  }
+
+  return specs;
+}
+
+export function matchesSelfShuffleIntoLibraryReplacementOracle(oracleText: string): boolean {
+  const normalized = normalizeOraclePatternText(oracleText);
+  if (!normalized) return false;
+  if (/shuffles? (?:their )?graveyard into (?:their )?library/.test(normalized)) {
+    return false;
+  }
+  if (!normalized.includes('would be put into a graveyard from anywhere')) {
+    return false;
+  }
+  return (
+    /\bshuffle (?:it|this(?: card| permanent)?|that card)\b/.test(normalized)
+    && /\binto (?:its|their|the) owner(?:'|')?s library\b/.test(normalized)
+  );
+}
+
+interface IntrinsicZoneChangeReplacementTemplate {
+  templateId: string;
+  matchesOracle: (oracleText: string) => boolean;
+  spec: Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
+}
+
+/** Replacements defined on the object being moved (Blightsteel, Nexus of Fate). */
+const INTRINSIC_ZONE_CHANGE_REPLACEMENT_TEMPLATES: readonly IntrinsicZoneChangeReplacementTemplate[] = [
+  {
+    templateId: 'self-shuffle-into-library',
+    matchesOracle: matchesSelfShuffleIntoLibraryReplacementOracle,
+    spec: {
+      event: 'zone-change',
+      match: { destinationZone: 'graveyard' },
+      instead: { redirectZone: 'library' },
+      effectId: 'self-shuffle-into-library',
+      reason: 'graveyard_self_shuffle_into_library',
+      metadata: { shuffleIntoOwnerLibrary: true },
+    },
+  },
+];
+
+export function collectIntrinsicZoneChangeReplacementSpecsFromObject(
+  object: unknown,
+): ReplacementEffectSpec[] {
+  const oracle = readCardOracleText(object);
+  if (!oracle) return [];
+
+  const specs: ReplacementEffectSpec[] = [];
+  const sourceName = String(
+    (object as { name?: string; card?: { name?: string } })?.name
+    || (object as { card?: { name?: string } })?.card?.name
+    || '',
+  ).trim();
+  const objectId = getObjectCardId(object as any) || sourceName || 'object';
+
+  for (const template of INTRINSIC_ZONE_CHANGE_REPLACEMENT_TEMPLATES) {
+    if (!template.matchesOracle(oracle)) continue;
+    specs.push({
+      ...template.spec,
+      id: `intrinsic:${objectId}:${template.templateId}`,
+      sourceName: sourceName || undefined,
+    });
+  }
+
+  return specs;
+}
+
+interface OracleZoneChangeReplacementTemplate {
+  templateId: string;
+  oracleMustIncludeAll: readonly string[];
+  oracleMustExcludeAny?: readonly string[];
+  spec: Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
+}
+
+/** Oracle-pattern zone-change replacements (Phase 5.2 — no card-name routing). */
+const ORACLE_ZONE_CHANGE_REPLACEMENT_TEMPLATES: readonly OracleZoneChangeReplacementTemplate[] = [
+  {
+    templateId: 'graveyard-to-exile-from-anywhere',
+    oracleMustIncludeAll: ['would be put into a graveyard from anywhere', 'exile it instead'],
+    oracleMustExcludeAny: [
+      'shuffle it into',
+      'shuffle this card into',
+      'shuffle that card into',
+      'shuffles their graveyard into',
+    ],
+    spec: {
+      event: 'zone-change',
+      match: { destinationZone: 'graveyard' },
+      instead: { redirectZone: 'exile' },
+      effectId: 'graveyard-to-exile-replacement',
+      reason: 'graveyard_to_exile_replacement',
+    },
+  },
+  {
+    templateId: 'creature-die-exile-instead',
+    oracleMustIncludeAll: ['if a creature would die', 'exile it instead'],
+    spec: {
+      event: 'zone-change',
+      match: { destinationZone: 'graveyard', objectTypeLineIncludes: 'creature' },
+      instead: { redirectZone: 'exile' },
+      effectId: 'creature-die-exile-instead',
+      reason: 'creature_die_exile_instead',
+    },
+  },
+];
+
+export function collectOraclePatternZoneChangeReplacementSpecsFromState(state: unknown): ReplacementEffectSpec[] {
+  const specs: ReplacementEffectSpec[] = [];
+  const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
+    ? (state as { battlefield: unknown[] }).battlefield
+    : [];
+
+  for (const perm of battlefield) {
+    if (!perm || typeof perm !== 'object' || !(perm as { card?: unknown }).card) continue;
+    const permRecord = perm as {
+      id?: string;
+      controller?: string;
+      card?: { name?: string; oracle_text?: string; oracleText?: string };
+    };
+    const oracle = normalizeOraclePatternText(readCardOracleText(permRecord.card));
+    if (!oracle) continue;
+
+    const sourcePermanentId = String(permRecord.id || '').trim();
+    const sourceController = String(permRecord.controller || '').trim();
+    const sourceName = String(permRecord.card?.name || 'Unknown').trim();
+    if (!sourcePermanentId) continue;
+
+    for (const template of ORACLE_ZONE_CHANGE_REPLACEMENT_TEMPLATES) {
+      if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
+      if (template.oracleMustExcludeAny?.some((phrase) => oracle.includes(phrase))) continue;
       specs.push({
         ...template.spec,
         id: `${sourcePermanentId}:${template.templateId}`,
@@ -629,6 +775,7 @@ export function collectReplacementEffectSpecsFromState(state: unknown): Replacem
 
   specs.push(...collectOraclePatternDrawReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternLifeGainReplacementSpecsFromState(state));
+  specs.push(...collectOraclePatternZoneChangeReplacementSpecsFromState(state));
   return specs;
 }
 
@@ -691,9 +838,13 @@ export function evaluateReplacementEffectSpec(
       applied: true,
       eventType: event.type,
       effectId: explicitExileAfterResolution ? 'stack-exile-after-resolution' : (spec.effectId || spec.id),
-      sourceName: isLeaveBattlefieldExile
-        ? readReplacementSourceName(permanent)
-        : String(stackItem?.card?.name || stackItem?.name || spec.sourceName || '').trim() || undefined,
+      sourceName: String(
+        spec.sourceName
+        || (isLeaveBattlefieldExile ? readReplacementSourceName(permanent) : '')
+        || stackItem?.card?.name
+        || stackItem?.name
+        || '',
+      ).trim() || undefined,
       originalDestination: event.destinationZone,
       replacementDestination: redirectZone,
       reason: explicitExileAfterResolution ? 'exile_after_resolution' : spec.reason,
@@ -918,7 +1069,10 @@ export function evaluateDeclarativeReplacementEvent(
   }
 
   const dynamicSpecs = state ? collectReplacementEffectSpecsFromState(state) : [];
-  for (const spec of [...dynamicSpecs, ...BUILTIN_REPLACEMENT_EFFECT_SPECS]) {
+  const intrinsicSpecs = event.type === 'zone-change'
+    ? collectIntrinsicZoneChangeReplacementSpecsFromObject((event as ZoneChangeReplacementEvent).object)
+    : [];
+  for (const spec of [...intrinsicSpecs, ...dynamicSpecs, ...BUILTIN_REPLACEMENT_EFFECT_SPECS]) {
     if ((event.type === 'mill' || event.type === 'counter-placement') && spec.instead.modify) {
       continue;
     }

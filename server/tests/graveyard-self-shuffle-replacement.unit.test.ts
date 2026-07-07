@@ -23,6 +23,8 @@ function createSelfShuffleTestCtx(playerId: PlayerID): GameContext {
         handCount: 0,
         graveyard: [],
         graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
         library: [],
         libraryCount: 0,
       },
@@ -109,5 +111,30 @@ describe('graveyard self-shuffle replacement (batch 180)', () => {
 
     expect(graveyard).toHaveLength(0);
     expect(ctx.libraries.get(playerId)?.some((card) => card.name === 'Nexus of Fate')).toBe(true);
+  });
+
+  it('exiles discarded cards when Rest in Peace is on the battlefield', () => {
+    const playerId = 'p1' as PlayerID;
+    const ctx = createSelfShuffleTestCtx(playerId);
+    const rip = lookupLocalCardByNameSync('Rest in Peace');
+    const bolt = lookupLocalCardByNameSync('Lightning Bolt');
+    expect(rip).toBeTruthy();
+    expect(bolt).toBeTruthy();
+
+    (ctx as any).state.battlefield = [{
+      id: 'rip_1',
+      controller: 'p2',
+      card: rip,
+    }];
+
+    const handCard = { ...(bolt as any), id: 'bolt_hand', zone: 'hand' };
+    const graveyard = (ctx as any).state.zones[playerId].graveyard as any[];
+    const exiled = pushCardToPlayerGraveyardWithReplacements(ctx, playerId, handCard, graveyard, {
+      sourceZone: 'hand',
+    });
+
+    expect(exiled).toBe(false);
+    expect(graveyard).toHaveLength(0);
+    expect((ctx as any).state.zones[playerId].exile.some((card: any) => card.name === 'Lightning Bolt')).toBe(true);
   });
 });

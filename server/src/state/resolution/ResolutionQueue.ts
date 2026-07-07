@@ -207,20 +207,25 @@ export function cancelStep(queue: ResolutionQueue, stepId: string): ResolutionSt
   return step;
 }
 
+function isUnresolvedStep(step: ResolutionStep | undefined): step is ResolutionStep {
+  return Boolean(
+    step &&
+    (step.status === ResolutionStepStatus.PENDING || step.status === ResolutionStepStatus.ACTIVE),
+  );
+}
+
 /**
  * Check if the queue has any pending steps
  */
 export function hasPendingSteps(queue: ResolutionQueue): boolean {
-  return queue.steps.some(s => s.status === ResolutionStepStatus.PENDING);
+  return queue.steps.some(isUnresolvedStep);
 }
 
 /**
  * Check if a specific player has any pending steps
  */
 export function playerHasPendingSteps(queue: ResolutionQueue, playerId: PlayerID): boolean {
-  return queue.steps.some(s => 
-    s.playerId === playerId && s.status === ResolutionStepStatus.PENDING
-  );
+  return queue.steps.some(s => s.playerId === playerId && isUnresolvedStep(s));
 }
 
 /**
@@ -232,7 +237,7 @@ export function getPendingSummary(queue: ResolutionQueue): {
   pendingTypes: ResolutionStepType[];
   pendingByPlayer: Record<PlayerID, number>;
 } {
-  const pendingSteps = queue.steps.filter(s => s.status === ResolutionStepStatus.PENDING);
+  const pendingSteps = queue.steps.filter(isUnresolvedStep);
   
   const pendingByPlayer: Record<PlayerID, number> = {};
   const pendingTypes = new Set<ResolutionStepType>();

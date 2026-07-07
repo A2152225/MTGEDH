@@ -1,32 +1,65 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-07-06 (copy-token death triggers; God-Pharaoh live resolve)
+Last updated: 2026-07-07 (Phase 5.2 graveyard replacements wired; migration 873/873)
 
 ## Next session prompt (copy-paste)
 
 ```
-Oracle IR — copy-token corpus + begin-combat KNOWN retirement (in progress)
+Oracle IR — Phase 5.2 graveyard replacements wired (stable)
 
-Done this session:
-- Copy-token death triggers: "this creature or another creature you control dies" now matches hydrated copies
-- KNOWN_DEATH_TRIGGERS: dynamic-first skip when oracle matched; zulaport shorthand uses "and" not comma
-- Helm Zulaport copy death: full life resolution test (activePlayer +41, opponent 39)
-- God-Pharaoh's Gift: begin-combat queue + 4/4 black Zombie copy integration test
-- applyCopyTokenOverrides type_line merge; hydrateCardOracleInPlace import fix
+Done recently:
+- Phase 5.2 replacement registry: graveyard-to-exile-from-anywhere (Rest in Peace / Leyline), creature-die-exile-instead, intrinsic self-shuffle (Blightsteel / Nexus)
+- Declarative graveyard-entry wiring: tryApplyDeclarativeGraveyardDestinationReplacement → evaluateReplacementEvent
+  - pushCardToPlayerGraveyardWithReplacements (mill / discard / surveil)
+  - movePermanentToGraveyard (battlefield destroy; self-shuffle + leave-BF exile unified)
+- readCardOracleText reads nested permanent.card.oracle_text for intrinsic specs
+- D6 client: LIBRARY_SEARCH exile destination, optional minSelections, Skip/Continue (God-Pharaoh's Gift)
+- Optional search_library queue bridge: optional_step_requires_player_choice → LIBRARY_SEARCH (Fierce Empath)
+- Copy-token IR-primary + Dermotaxi / God-Pharaoh integration tests green
+- D3 complete: TRIGGER_LEGACY_EXPORT_CEILING = 0
+- Delta baseline updated (6 changed cards, 0 gaps)
 
 Verify at session start:
 cd server
-npx vitest run tests/copy-token-overrides.unit.test.ts tests/copy-token-except-modifiers.integration.test.ts tests/copy-token-death-trigger.integration.test.ts tests/god-pharaohs-gift.begin-combat.integration.test.ts tests/helm-of-the-host.begin-combat.test.ts tests/card-oracle-hydration.unit.test.ts tests/zulaport-death-trigger.unit.test.ts tests/legion-warboss.begin-combat.integration.test.ts
+npx vitest run tests/graveyard-self-shuffle-replacement.unit.test.ts tests/replacement-effect-spec.unit.test.ts tests/god-pharaohs-gift.begin-combat.integration.test.ts tests/stack.generic-library-and-untap.regression.test.ts tests/copy-token-ir-primary.integration.test.ts
+cd ../client
+npx vitest run tests/resolutionChoicePrimitives.test.ts
+cd ../server
+npm run test:oracle-ir-migration
 
-Architecture: docs/oracle-ir-architecture-guide.md §16
+Expect: migration 873/873; graveyard-self-shuffle 7/7; replacement-effect-spec 21/21
+
+Key files:
+- server/src/state/modules/replacementEffectSpec.ts — oracle-pattern + intrinsic replacement specs
+- server/src/state/modules/zone-manipulation.ts — tryApplyDeclarativeGraveyardDestinationReplacement
+- server/src/state/modules/graveyardEntryUtils.ts — non-battlefield graveyard entry choke point
+- client/src/utils/resolutionChoicePrimitives.ts — buildLibrarySearchModalStateFromStep
+
+Architecture: docs/oracle-ir-phase5-continuous-effects-design.md §4 (5.2 done → 5.3 next)
 
 Next work (priority):
-1. Delina / Evil Twin / Dermotaxi IR-primary integration tests
-2. God-Pharaoh optional exile without pre-set selectorContext (resolution queue UX)
-3. Phase 5 / D6 / delta ingest if no regressions
+1. Phase 5.3 — StaticEffectSpec + derived-view recompute for anthem / lord P/T grants (avoid double-count with computeContinuousEffects)
+2. Wire removePermanent leave-BF exile through declarative evaluator (still uses getCounterLeaveBattlefieldReplacement)
+3. New-set overlay workflow when oracle-cards.json changes (npm run oracle-ir:delta → overlay probe)
+4. Live EDH soak + telemetry watch (owned_but_unhandled)
 ```
 
-## Previous session prompt (replay hygiene + Phase 5)
+## Session 2026-07-06 — Phase 5.2 graveyard replacements + D6 UX
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Replacement registry (5.2)** | Oracle-pattern specs: `graveyard-to-exile-from-anywhere`, `creature-die-exile-instead`; intrinsic self-shuffle from moving object's oracle text | `replacementEffectSpec.ts` — 21/21 `replacement-effect-spec.unit.test.ts` |
+| **Graveyard-entry wiring** | `tryApplyDeclarativeGraveyardDestinationReplacement` routes library shuffle + exile via `evaluateReplacementEvent` | `zone-manipulation.ts`, `graveyardEntryUtils.ts`, `counters_tokens.ts` |
+| **Rest in Peace on discard** | Cards exiled instead of entering graveyard when RIP on battlefield | `graveyard-self-shuffle-replacement.unit.test.ts` (7/7) |
+| **D6 library_search UX** | Exile destination, graveyard-origin titles, optional `minSelections` Skip/Continue | `resolutionChoicePrimitives.ts`, `LibrarySearchModal.tsx`, `App.tsx` — client 6/6 |
+| **Optional tutor bridge** | `optional_step_requires_player_choice` queues `LIBRARY_SEARCH` (Fierce Empath) | `oracleIrServerZoneSync.ts` — `isOracleIrPlayerChoiceGap()` across 17 bridge fns |
+| **God-Pharaoh optional exile** | Optional begin-combat graveyard exile via `move_zone` → `LIBRARY_SEARCH` | `god-pharaohs-gift.begin-combat.integration.test.ts` (4/4) |
+| **D3 ratchet** | `TRIGGER_LEGACY_EXPORT_CEILING = 0` | `oracle-ir-legacy-handler-ratchet.unit.test.ts` |
+| **Migration bar** | **873/873** (122 files) | `npm run test:oracle-ir-migration` |
+
+**Not yet wired:** `removePermanent` still calls `getCounterLeaveBattlefieldReplacement` directly — candidate for same declarative path.
+
+## Previous session prompt (copy-token + God-Pharaoh)
 
 ```
 Track E9 / D3 legacy handler retirement — continue from batch 531.

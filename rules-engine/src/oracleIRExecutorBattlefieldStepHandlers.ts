@@ -3310,10 +3310,27 @@ function applyTemporaryEffectToPermanents(
       normalizedGrantedAbilities.includes('haste')
       || effect.descriptions.some((description) => /\bhaste\b/i.test(String(description || '')));
 
+    let untilEndOfTurn = (perm as any).untilEndOfTurn
+      ? { ...(perm as any).untilEndOfTurn }
+      : undefined;
+    if (effect.expiresAt === 'end_of_turn' && normalizedGrantedAbilities.length > 0) {
+      const grantedAbilitiesToRemove = Array.isArray(untilEndOfTurn?.grantedAbilitiesToRemove)
+        ? [...untilEndOfTurn.grantedAbilitiesToRemove]
+        : [];
+      for (const ability of normalizedGrantedAbilities) {
+        const canonical = ability.charAt(0).toUpperCase() + ability.slice(1);
+        if (!grantedAbilitiesToRemove.some((entry: unknown) => String(entry || '').toLowerCase() === ability)) {
+          grantedAbilitiesToRemove.push(canonical);
+        }
+      }
+      untilEndOfTurn = { ...(untilEndOfTurn || {}), grantedAbilitiesToRemove };
+    }
+
     return {
       ...perm,
       ...(existingEffects.length > 0 ? { temporaryEffects: existingEffects } : {}),
       ...(existingGrantedAbilities.length > 0 ? { grantedAbilities: existingGrantedAbilities } : {}),
+      ...(untilEndOfTurn ? { untilEndOfTurn } : {}),
       ...(grantsHaste ? { summoningSickness: false } : {}),
     } as any;
   });
@@ -9579,6 +9596,24 @@ export function applyCopyPermanentStep(
       grantedAbilities.push(retainedAbilityText);
     }
 
+    const existingCard =
+      (perm as any)?.card && typeof (perm as any).card === 'object'
+        ? { ...(perm as any).card }
+        : {};
+    const nextCard = {
+      ...existingCard,
+      ...(copiedName ? { name: copiedName } : {}),
+      ...(sourceTypeLine ? { type_line: sourceTypeLine } : {}),
+      ...(copiedOracleText ? { oracle_text: copiedOracleText } : {}),
+      ...(Array.isArray(sourceCard?.colors) ? { colors: [...sourceCard.colors] } : {}),
+      ...(sourceCard?.mana_cost || sourceCard?.manaCost
+        ? { mana_cost: sourceCard?.mana_cost ?? sourceCard?.manaCost, manaCost: sourceCard?.mana_cost ?? sourceCard?.manaCost }
+        : {}),
+      ...(copiedPower !== undefined ? { power: String(copiedPower) } : {}),
+      ...(copiedToughness !== undefined ? { toughness: String(copiedToughness) } : {}),
+      id: String(existingCard?.id || (perm as any)?.id || sourceCard?.id || '').trim() || existingCard?.id,
+    };
+
     return {
       ...perm,
       ...(copiedName ? { name: copiedName } : {}),
@@ -9596,6 +9631,7 @@ export function applyCopyPermanentStep(
         : {}),
       ...(grantedAbilities.length > 0 ? { grantedAbilities } : {}),
       copiedFromCardId: String(sourceCard?.id || '').trim() || undefined,
+      card: nextCard,
     } as BattlefieldPermanent;
   });
 

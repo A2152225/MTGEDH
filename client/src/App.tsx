@@ -76,6 +76,7 @@ import { ResolutionMinimizedChip, ResolutionPromptMinimizeButton } from "./compo
 import { isResolutionStepMandatory } from "./utils/resolutionStepUtils";
 import {
   buildGenericOptionChoiceRequestFromStep,
+  buildLibrarySearchModalStateFromStep,
   buildPendingSpellXSelectionFromStep,
   isGenericNumberChoiceStep,
   isGenericOptionChoiceFallbackStep,
@@ -553,9 +554,11 @@ export function App() {
     title: string;
     description?: string;
     filter?: { types?: string[]; subtypes?: string[]; maxCmc?: number };
+    minSelections: number;
     maxSelections: number;
     maxTotalManaValue?: number;
-    moveTo: 'hand' | 'battlefield' | 'top' | 'graveyard' | 'split';
+    moveTo: 'hand' | 'battlefield' | 'top' | 'graveyard' | 'exile' | 'split';
+    mandatory: boolean;
     shuffleAfter: boolean;
     targetPlayerId?: string; // Whose library we're searching (for Gitaxian Probe, etc.)
     // Split destination props
@@ -1810,7 +1813,13 @@ export function App() {
         const attackersDeclaredBy: string[] = Array.isArray((safeView as any).attackersDeclaredBy)
           ? (safeView as any).attackersDeclaredBy
           : [];
-        const youAlreadyDeclaredAttackers = !!you && attackersDeclaredBy.includes(you);
+        const ownedCreaturesAttacking = (safeView.battlefield || []).some(
+          (p: BattlefieldPermanent) => p.controller === you && !!(p as any).attacking,
+        );
+        const youAlreadyDeclaredAttackers =
+          !!you && attackersDeclaredBy.includes(you) && ownedCreaturesAttacking;
+        const awaitingAttackCostChoice =
+          myPendingResolutionCount > 0 || !!activeResolutionPrompt || !!minimizedResolutionStep;
 
         // Check if there are any valid creatures that can attack
         const validAttackers = (safeView.battlefield || []).filter((p: BattlefieldPermanent) => {
@@ -1832,6 +1841,11 @@ export function App() {
           }
           // Don't show the modal either way
           setCombatModalOpen(false);
+          setCombatModalReadOnly(false);
+        } else if (awaitingAttackCostChoice) {
+          setCombatModalOpen(false);
+          setCombatModalMinimized(false);
+          setCombatModalError(null);
           setCombatModalReadOnly(false);
         } else if (youAlreadyDeclaredAttackers) {
           setCombatModalOpen(false);
@@ -1961,7 +1975,7 @@ export function App() {
         hasShownBlockersModal.current = null;
       }
     }
-  }, [safeView, you]);
+  }, [safeView, you, myPendingResolutionCount, activeResolutionPrompt, minimizedResolutionStep]);
 
   // Live attacker allocation preview from the active player (read-only viewers)
   React.useEffect(() => {
@@ -3424,34 +3438,8 @@ export function App() {
       
       // Handle Library Search resolution step
       else if (step.type === 'library_search') {
-        const isSplit = (step as any).splitDestination === true;
-        const destinationRaw = String((step as any).destination || 'hand');
-        const entersTapped = Boolean((step as any).entersTapped);
-        const moveTo: 'hand' | 'battlefield' | 'top' | 'graveyard' | 'split' = isSplit
-          ? 'split'
-          : (destinationRaw === 'battlefield' || destinationRaw === 'hand' || destinationRaw === 'top' || destinationRaw === 'graveyard')
-            ? destinationRaw
-            : 'hand';
-
-        setLibrarySearchData({
-          cards: step.availableCards || [],
-          nonSelectableCards: (step as any).nonSelectableCards || [],
-          revealedCards: (step as any).revealedCards || [],
-          castableWhileSearchingCards: step.castableWhileSearchingCards || [],
-          title: step.sourceName || 'Search Library',
-          description: step.description || step.searchCriteria || 'Search your library',
-          filter: step.filter || {},
-          maxSelections: step.maxSelections || 1,
-          maxTotalManaValue: Number.isFinite(Number((step as any).maxTotalManaValue)) ? Number((step as any).maxTotalManaValue) : undefined,
-          moveTo,
-          shuffleAfter: step.shuffleAfter !== false,
-          targetPlayerId: (step as any).targetPlayerId || step.playerId,
-          splitDestination: (step as any).splitDestination || false,
-          toBattlefield: (step as any).toBattlefield || 0,
-          toHand: (step as any).toHand || 0,
-          entersTapped,
-          stepId: step.id,  // Store for resolution response
-        });
+        const built = buildLibrarySearchModalStateFromStep(step as Record<string, unknown>);
+        setLibrarySearchData(built);
         setLibrarySearchModalOpen(true);
       }
 
@@ -4493,7 +4481,7 @@ export function App() {
       gameId: safeView.id,
       attackers,
     });
-    setCombatModalOpen(false);
+    // Keep the modal open until the server either commits attackers or queues attack-tax payment.
     setCombatModalMinimized(false);
   };
 
@@ -7777,9 +7765,11 @@ export function App() {
         title={librarySearchData?.title || 'Search Library'}
         description={librarySearchData?.description}
         filter={librarySearchData?.filter}
+        minSelections={librarySearchData?.minSelections ?? 1}
         maxSelections={librarySearchData?.maxSelections || 1}
         maxTotalManaValue={librarySearchData?.maxTotalManaValue}
         moveTo={librarySearchData?.moveTo || 'hand'}
+        mandatory={librarySearchData?.mandatory ?? true}
         shuffleAfter={librarySearchData?.shuffleAfter ?? true}
         splitDestination={librarySearchData?.splitDestination}
         toBattlefield={librarySearchData?.toBattlefield}

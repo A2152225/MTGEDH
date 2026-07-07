@@ -27,6 +27,12 @@ import { calculateCostReduction, creatureHasHaste, runPostResolutionPermanentPro
 import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRestrictions.js";
 import { hasValidTargetsForSpell } from "../rules-engine/target-availability.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
+import { emitPendingCombatDamageChat } from "./combatLogUtils.js";
+import {
+  formatGameOverDrawMessage,
+  formatGameOverVictoryMessage,
+  formatPlayerEliminatedMessage,
+} from "../../../shared/src/gameLogFormat.js";
 import { canCastFromTop } from "../state/modules/game-state-effects.js";
 import { cardHasCreatureType, getCreatureTypesNow } from "../state/creatureTypeNow.js";
 import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
@@ -1781,6 +1787,8 @@ export function broadcastGame(
   
   // Check for newly eliminated players (commander damage, life loss, etc.)
   checkAndEmitPlayerElimination(io, game, gameId);
+
+  emitPendingCombatDamageChat(io, game, gameId);
 }
 
 /** AI reaction delay - matches timing in ai.ts */
@@ -1859,6 +1867,14 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
           playerName,
           reason,
         });
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          gameId,
+          from: 'system',
+          message: formatPlayerEliminatedMessage(playerName, reason),
+          ts: Date.now(),
+        });
         
         debug(1, `[checkAndEmitPlayerElimination] Player ${playerName} eliminated: ${reason}`);
         
@@ -1887,6 +1903,14 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
             loserName: playerName,
             message: `${winnerName} Wins!`,
           });
+
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            gameId,
+            from: 'system',
+            message: formatGameOverVictoryMessage(winnerName),
+            ts: Date.now(),
+          });
           
           // Mark game as over
           gameState.gameOver = true;
@@ -1899,6 +1923,14 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
             gameId,
             type: 'draw',
             message: "Draw!",
+          });
+
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            gameId,
+            from: 'system',
+            message: formatGameOverDrawMessage(),
+            ts: Date.now(),
           });
           
           gameState.gameOver = true;
@@ -3250,6 +3282,29 @@ export function consumeManaFromPool(
       paymentManaDelta,
       consumed,
     };
+  }
+
+  export function refundGenericManaPayment(
+    gameState: any,
+    playerId: string,
+    payment: Pick<GenericManaPaymentResult, 'paymentManaDelta' | 'tappedPermanents'>,
+  ): void {
+    const pool = getOrInitManaPool(gameState, playerId) as any;
+    for (const [poolKey, rawAmount] of Object.entries(payment.paymentManaDelta || {})) {
+      const amount = Number(rawAmount || 0);
+      if (!Number.isFinite(amount) || amount === 0) continue;
+      pool[poolKey] = Number(pool[poolKey] || 0) - amount;
+    }
+
+    const tappedIds = new Set((payment.tappedPermanents || []).map((id) => String(id)).filter(Boolean));
+    if (tappedIds.size === 0) return;
+
+    const battlefield = Array.isArray(gameState?.battlefield) ? gameState.battlefield : [];
+    for (const permanent of battlefield) {
+      if (!permanent) continue;
+      if (!tappedIds.has(String((permanent as any).id || ''))) continue;
+      (permanent as any).tapped = false;
+    }
   }
 
 type ManaPoolColorKey = 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';

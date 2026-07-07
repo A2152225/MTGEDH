@@ -33,7 +33,9 @@ export interface LibrarySearchModalProps {
   };
   maxSelections?: number;  // Default 1 for most tutors
   maxTotalManaValue?: number;
-  moveTo?: 'hand' | 'battlefield' | 'top' | 'graveyard' | 'split';
+  moveTo?: 'hand' | 'battlefield' | 'top' | 'graveyard' | 'exile' | 'split';
+  minSelections?: number;
+  mandatory?: boolean;
   shuffleAfter?: boolean;
   // For split destination effects (Cultivate, Kodama's Reach)
   splitDestination?: boolean;
@@ -53,6 +55,7 @@ function getDestinationSummary(
     return entersTapped ? 'Selected cards will go onto the battlefield tapped.' : 'Selected cards will go onto the battlefield.';
   }
   if (moveTo === 'graveyard') return 'Selected cards will go to your graveyard.';
+  if (moveTo === 'exile') return 'Selected cards will be exiled.';
   if (moveTo === 'top') return 'Selected cards will go on top of your library.';
   return 'Selected cards will go to your hand.';
 }
@@ -70,6 +73,7 @@ function getConfirmLabel(
     return entersTapped ? `Put ${selectionCount} ${noun} onto Battlefield Tapped` : `Put ${selectionCount} ${noun} onto Battlefield`;
   }
   if (moveTo === 'graveyard') return `Put ${selectionCount} ${noun} into Graveyard`;
+  if (moveTo === 'exile') return `Exile ${selectionCount} ${noun}`;
   if (moveTo === 'top') return `Put ${selectionCount} ${noun} on Top`;
   return `Put ${selectionCount} ${noun} into Hand`;
 }
@@ -185,8 +189,10 @@ export function LibrarySearchModal({
   description,
   filter,
   maxSelections = 1,
+  minSelections = 1,
   maxTotalManaValue,
   moveTo = 'hand',
+  mandatory = true,
   shuffleAfter = true,
   splitDestination = false,
   toBattlefield = 0,
@@ -375,7 +381,13 @@ export function LibrarySearchModal({
   };
 
   const destinationSummary = getDestinationSummary(moveTo, entersTapped);
-  const confirmLabel = getConfirmLabel(moveTo, selectedIds.size, entersTapped, splitDestination);
+  const allowsEmptyConfirm = minSelections <= 0;
+  const confirmLabel = selectedIds.size === 0 && allowsEmptyConfirm
+    ? 'Continue'
+    : getConfirmLabel(moveTo, selectedIds.size, entersTapped, splitDestination);
+  const canConfirm = (selectedIds.size > 0 || allowsEmptyConfirm)
+    && (!splitDestination || splitAssignmentsComplete);
+  const declineLabel = !mandatory && allowsEmptyConfirm ? 'Skip' : 'Fail to Find';
   
   // Handle backdrop click - only allow closing if no valid targets
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -914,18 +926,18 @@ export function LibrarySearchModal({
               fontSize: 14,
             }}
           >
-            Fail to Find
+            {declineLabel}
           </button>
           <button
             onClick={handleConfirm}
-            disabled={selectedIds.size === 0 || (splitDestination && !splitAssignmentsComplete)}
+            disabled={!canConfirm}
             style={{
               padding: '10px 24px',
               borderRadius: 6,
               border: 'none',
-              backgroundColor: (selectedIds.size > 0 && (!splitDestination || splitAssignmentsComplete)) ? '#3b82f6' : '#4a4a6a',
+              backgroundColor: canConfirm ? '#3b82f6' : '#4a4a6a',
               color: '#fff',
-              cursor: (selectedIds.size > 0 && (!splitDestination || splitAssignmentsComplete)) ? 'pointer' : 'not-allowed',
+              cursor: canConfirm ? 'pointer' : 'not-allowed',
               fontSize: 14,
               fontWeight: 500,
             }}

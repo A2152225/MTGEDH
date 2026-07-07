@@ -320,6 +320,7 @@ function applyTemporaryGrantedAbilitiesToToken(
     ...token,
     grantedAbilities: nextGrantedAbilities,
     temporaryEffects: nextTemporaryEffects,
+    ...(normalizedAbilities.includes('haste') ? { summoningSickness: false } : {}),
   } as any;
 }
 
@@ -1015,6 +1016,10 @@ function resolveCopyTokenSource(
           kind: 'player_choice_required',
           availableIds: explicit.map(card => String((card as any)?.id || '').trim()).filter(Boolean),
         };
+      }
+      if (chosenObjectIds.length === 1) {
+        const antecedentCard = findSourceObjectByIdAcrossState(state, chosenObjectIds[0]!);
+        if (antecedentCard) return { kind: 'resolved', sourceObject: antecedentCard };
       }
     }
     if (movedCards.length === 1) return { kind: 'resolved', sourceObject: movedCards[0] };

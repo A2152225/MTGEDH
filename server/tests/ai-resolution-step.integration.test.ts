@@ -9,6 +9,7 @@ import { applyOracleIRStepsOnServer } from '../src/state/modules/oracleIrServerZ
 import { broadcastGame, ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { cleanupGameAI, handleAIPriority, registerAIPlayer } from '../src/socket/ai.js';
+import { AIEngine, AIDecisionType } from '../../rules-engine/src/AIEngine.js';
 
 function createNoopIo() {
   return {
@@ -5165,6 +5166,60 @@ describe('AI resolution-step integration', () => {
 
     expect(String((game.state as any).step || '').toUpperCase()).not.toBe('DECLARE_ATTACKERS');
     expect((game.state as any).attackedPlayersThisTurnByPlayer?.[playerId] || []).toEqual([]);
+  });
+
+  it('advances out of declare attackers when the AI skips attack with valid attackers on battlefield', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'Attacking AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40, isAI: true },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'DECLARE_ATTACKERS';
+    (game.state as any).stack = [];
+    (game.state as any).attackersDeclaredBy = [];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'cmd_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        enteredThisTurn: false,
+        card: {
+          name: 'Test Commander',
+          type_line: 'Legendary Creature — Human',
+          oracle_text: '',
+          power: '3',
+          toughness: '3',
+        },
+      },
+    ];
+
+    registerAIPlayer(gameId, playerId as any);
+    registerAIPlayer(gameId, 'opp1' as any);
+
+    vi.spyOn(AIEngine.prototype, 'makeDecision').mockResolvedValue({
+      type: AIDecisionType.DECLARE_ATTACKERS,
+      playerId,
+      action: { attackers: [] },
+      reasoning: 'Skip attack in test',
+      confidence: 1,
+    } as any);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(AIEngine.prototype.makeDecision).toHaveBeenCalled();
+    expect(String((game.state as any).step || '').toUpperCase()).not.toBe('DECLARE_ATTACKERS');
   });
 
   it('does not synchronously chain multiple step advances after one AI auto-pass', async () => {

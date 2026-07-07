@@ -1008,7 +1008,8 @@ export function applyOracleIRStepsToGameStateImpl(
           classification: 'player_choice',
         }
       );
-      continue;
+      pendingContinuationSteps = steps.slice(relativeIndex + 1) as OracleEffectStep[];
+      break;
     }
 
     switch (step.kind) {

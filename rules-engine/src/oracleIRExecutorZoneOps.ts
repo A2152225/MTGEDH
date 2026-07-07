@@ -7900,7 +7900,28 @@ export function findCardsExiledWithSource(
   if (!wantedSourceId) return [];
 
   const matches: { playerId: PlayerID; cardId: string; card: any }[] = [];
+  const seenCardIds = new Set<string>();
   const currentTurn = getCurrentTurnNumber(state);
+
+  const sourcePermanent = (state.battlefield || []).find(
+    (perm: any) => String(perm?.id || '').trim() === wantedSourceId,
+  ) as any;
+  if (sourcePermanent) {
+    const ownerId = String(
+      sourcePermanent?.owner
+      || sourcePermanent?.controller
+      || '',
+    ).trim() as PlayerID;
+    const linkedOnPermanent = Array.isArray(sourcePermanent?.exiledCards) ? sourcePermanent.exiledCards : [];
+    for (const card of linkedOnPermanent) {
+      const cardId = String(card?.id || card?.cardId || '').trim();
+      if (!cardId || seenCardIds.has(cardId)) continue;
+      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, undefined, currentTurn)) continue;
+      seenCardIds.add(cardId);
+      matches.push({ playerId: ownerId, cardId, card });
+    }
+  }
+
   for (const player of state.players as any[]) {
     const playerId = String(player?.id || '').trim() as PlayerID;
     if (!playerId) continue;
@@ -7908,9 +7929,10 @@ export function findCardsExiledWithSource(
     const exile = Array.isArray(player?.exile) ? player.exile : [];
     for (const card of exile) {
       const cardId = String(card?.id || card?.cardId || '').trim();
-      if (!cardId) continue;
+      if (!cardId || seenCardIds.has(cardId)) continue;
       if (!isCardExiledWithSource(card, wantedSourceId)) continue;
       if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, undefined, currentTurn)) continue;
+      seenCardIds.add(cardId);
       matches.push({ playerId, cardId, card });
     }
   }

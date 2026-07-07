@@ -30,16 +30,35 @@ export function collectTriggerExecutionSteps(
   return parseTriggerEffectSteps(effectText, sourceName);
 }
 
+export function resolveTriggerPreselectedObjectIds(triggerItem?: any): readonly string[] {
+  const normalizedTargetIds = Array.isArray(triggerItem?.targets)
+    ? triggerItem.targets.map((target: unknown) => String(target || '').trim()).filter(Boolean)
+    : [];
+  const ids = [
+    triggerItem?.interveningIfSubjectPermanentId,
+    ...normalizedTargetIds,
+    triggerItem?.effectData?.discardedCardId,
+    triggerItem?.boundGraveyardCardId,
+    ...(Array.isArray(triggerItem?.chosenObjectIds) ? triggerItem.chosenObjectIds : []),
+  ]
+    .map((id: unknown) => String(id || '').trim())
+    .filter(Boolean);
+  return Array.from(new Set(ids));
+}
+
 export function buildTriggerExecutionOptionsFromSteps(
   steps: readonly OracleEffectStep[],
   triggerItem?: any,
 ): {
-  allowOptional: true;
+  allowOptional: boolean;
   selectedModeIds?: readonly string[];
 } {
   const rawModeIds = resolveTriggerSelectedModeIds(triggerItem);
+  const hasPreselectedObjects = resolveTriggerPreselectedObjectIds(triggerItem).length > 0;
   return {
-    allowOptional: true,
+    // Defer optional "you may …" steps to resolution prompts unless the trigger
+    // already carries explicit object ids (graveyard pick, etc.).
+    allowOptional: hasPreselectedObjects,
     selectedModeIds: normalizeOracleIrSelectedModeIds(steps, rawModeIds),
   };
 }
