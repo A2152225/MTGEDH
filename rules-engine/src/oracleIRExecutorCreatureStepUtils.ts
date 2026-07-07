@@ -390,18 +390,33 @@ export function resolveSingleCreatureTargetId(
   const targetOpponentId = String(ctx.selectorContext?.targetOpponentId || (ctx as any).targetOpponentId || '').trim();
 
   const pickFromControllerPool = (pool: BattlefieldPermanent[]): string | undefined => {
-    const preferredIds = [
-      String(ctx.selectorContext?.combatOpponentCreatureId || '').trim(),
-      String(ctx.selectorContext?.targetCreatureId || '').trim(),
-      String(ctx.selectorContext?.targetPermanentId || '').trim(),
-      String(ctx.targetCreatureId || '').trim(),
-      String(ctx.targetPermanentId || '').trim(),
-      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds)
-        ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
-        : []),
-    ];
+    const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+      ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+      : [];
+    const preferredIds = (chosenIds.length > 1
+      ? [
+          String(ctx.selectorContext?.combatOpponentCreatureId || '').trim(),
+          ...chosenIds,
+          String(ctx.selectorContext?.targetCreatureId || '').trim(),
+          String(ctx.selectorContext?.targetPermanentId || '').trim(),
+          String(ctx.targetCreatureId || '').trim(),
+          String(ctx.targetPermanentId || '').trim(),
+        ]
+      : [
+          String(ctx.selectorContext?.combatOpponentCreatureId || '').trim(),
+          String(ctx.selectorContext?.targetCreatureId || '').trim(),
+          String(ctx.selectorContext?.targetPermanentId || '').trim(),
+          String(ctx.targetCreatureId || '').trim(),
+          String(ctx.targetPermanentId || '').trim(),
+          ...chosenIds,
+        ])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    const seenPreferredIds = new Set<string>();
     for (const preferredId of preferredIds) {
-      if (preferredId && pool.some(permanent => String((permanent as any)?.id || '').trim() === preferredId)) {
+      if (!preferredId || seenPreferredIds.has(preferredId)) continue;
+      seenPreferredIds.add(preferredId);
+      if (pool.some(permanent => String((permanent as any)?.id || '').trim() === preferredId)) {
         return preferredId;
       }
     }
@@ -425,6 +440,28 @@ export function resolveSingleCreatureTargetId(
       permanent => String((permanent as any)?.controller || '').trim() === targetOpponentId
     );
     return pickFromControllerPool(pool);
+  }
+
+  const controllerId = String(ctx.controllerId || '').trim();
+  const controlledCreatures = creatures.filter(
+    permanent => String((permanent as any)?.controller || '').trim() === controllerId
+  );
+  const opponentsControlledCreatures = creatures.filter(
+    permanent => String((permanent as any)?.controller || '').trim() !== controllerId
+  );
+
+  if (targetText.includes('target creature you control')) {
+    return pickFromControllerPool(controlledCreatures);
+  }
+
+  if (
+    targetText.includes('target creature your opponents control') ||
+    targetText.includes('target creature an opponent controls') ||
+    targetText.includes("target creature you don't control") ||
+    targetText.includes('target creature you dont control') ||
+    (targetText.includes('target') && targetText.includes('creature') && targetText.includes('opponent') && targetText.includes('controls'))
+  ) {
+    return pickFromControllerPool(opponentsControlledCreatures);
   }
 
   const directTargetCreatureId = String(ctx.targetCreatureId || '').trim();
@@ -452,28 +489,6 @@ export function resolveSingleCreatureTargetId(
   }
 
   const sourceId = String(ctx.sourceId || '').trim();
-
-  const controllerId = String(ctx.controllerId || '').trim();
-  const controlledCreatures = creatures.filter(
-    permanent => String((permanent as any)?.controller || '').trim() === controllerId
-  );
-  const opponentsControlledCreatures = creatures.filter(
-    permanent => String((permanent as any)?.controller || '').trim() !== controllerId
-  );
-
-  if (targetText.includes('target creature you control')) {
-    return pickFromControllerPool(controlledCreatures);
-  }
-
-  if (
-    targetText.includes('target creature your opponents control') ||
-    targetText.includes('target creature an opponent controls') ||
-    targetText.includes("target creature you don't control") ||
-    targetText.includes('target creature you dont control') ||
-    (targetText.includes('target') && targetText.includes('creature') && targetText.includes('opponent') && targetText.includes('controls'))
-  ) {
-    return pickFromControllerPool(opponentsControlledCreatures);
-  }
 
   if (targetText === 'target creature' || targetText === 'creature' || targetText.includes('target creature')) {
     const preferredTarget = pickFromControllerPool(creatures);

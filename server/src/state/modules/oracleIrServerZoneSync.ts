@@ -83,7 +83,7 @@ import {
   resolveOracleIrChoiceStepIndex,
   resolveOracleIrContinuationStepIndex,
 } from './oracleIrTransitionPipeline.js';
-import { persistOracleIrReplayMutationsFromExecution } from '../effects/effectProgramReplayMutationPersistence.js';
+import { persistOracleIrReplayMutationsFromExecution, persistCounterDiffsFromOracleIR } from '../effects/effectProgramReplayMutationPersistence.js';
 import { createEmptyStepLedger } from '../../../../rules-engine/src/oracleIRStepLedger.js';
 import type { OracleIRTransitionHaltState } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
 import { resolveOracleIrBoundTargetSpellId } from '../../../../rules-engine/src/oracleIrTargetBinding.js';
@@ -515,6 +515,7 @@ function syncCounterReplacementEffectsAfterOracleIR(
     updateCounters(ctx, permanentId, deltas, {
       deferRunSBA: true,
       skipCounterModifications: true,
+      skipEventPersistence: true,
     });
   }
 }
@@ -1195,6 +1196,96 @@ function queueProliferateChoicePromptsFromOracleIRResult(
         type: target.type,
         ...(target.controller ? { controller: target.controller } : {}),
       })),
+    } as any, result, params) as any);
+  }
+}
+
+function readServerPlayerLifeTotal(state: any, playerId: string): number {
+  const normalizedId = String(playerId || '').trim();
+  if (!normalizedId) return 0;
+  const lifeRecord = state?.life;
+  if (lifeRecord && Number.isFinite(Number(lifeRecord[normalizedId]))) {
+    return Math.max(0, Math.floor(Number(lifeRecord[normalizedId])));
+  }
+  const player = (state?.players || []).find((entry: any) => String(entry?.id || '').trim() === normalizedId);
+  if (player && Number.isFinite(Number(player.life))) {
+    return Math.max(0, Math.floor(Number(player.life)));
+  }
+  return Math.max(0, Math.floor(Number(state?.startingLife ?? 40)));
+}
+
+function queueRedistributeLifeTotalsPromptsFromOracleIRResult(
+  ctx: GameContext,
+  state: any,
+  result: OracleIRExecutionResult,
+  params: {
+    controller: PlayerID;
+    sourceName?: string;
+    sourceId?: string;
+    irCtx: OracleIRExecutionContext;
+  },
+): void {
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
+
+  const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
+  const sourceId = String(params.sourceId || '').trim() || undefined;
+  const queuedKeys = new Set<string>();
+
+  for (const gap of result.automationGaps || []) {
+    if (gap.reasonCode !== 'player_choice_required') continue;
+    if (String(gap.stepKind || '') !== 'redistribute_life_totals') continue;
+
+    const step = findSkippedOracleStep(result, gap);
+    if (!step || step.kind !== 'redistribute_life_totals') continue;
+
+    const players = (state?.players || [])
+      .map((player: any) => {
+        const id = String(player?.id || '').trim();
+        if (!id) return null;
+        return {
+          id,
+          name: String(player?.name || id).trim() || id,
+          life: readServerPlayerLifeTotal(state, id),
+        };
+      })
+      .filter(Boolean) as Array<{ id: string; name: string; life: number }>;
+
+    if (players.length <= 1) continue;
+
+    const choosingPlayerId = params.controller;
+    const queueKey = `redistribute_life:${String((step as any).raw || '')}:${choosingPlayerId}`;
+    if (queuedKeys.has(queueKey)) continue;
+    queuedKeys.add(queueKey);
+
+    try {
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, choosingPlayerId)
+        .find(
+          (candidate) =>
+            candidate.type === ResolutionStepType.LIFE_REDISTRIBUTION &&
+            sourceId &&
+            String((candidate as any)?.sourceId || '') === sourceId &&
+            String((candidate as any)?.description || '').includes(String((step as any).raw || '')),
+        );
+      if (existing) continue;
+    } catch {
+      // ignore
+    }
+
+    ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
+      type: ResolutionStepType.LIFE_REDISTRIBUTION,
+      playerId: choosingPlayerId,
+      description: `${sourceName}: ${String((step as any).raw || 'Redistribute life totals')}`,
+      mandatory: (step as any).optional !== true,
+      sourceId,
+      sourceName,
+      redistributionId: `${sourceId || sourceName}:${String((step as any).raw || 'redistribute_life')}`,
+      players,
+      oracleIrChoiceStepJson: JSON.stringify([step]),
+      oracleIrControllerId: params.controller,
+      oracleIrSourceId: sourceId,
+      oracleIrSourceName: sourceName,
     } as any, result, params) as any);
   }
 }
@@ -4045,6 +4136,26 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
     if (splitAssignments && typeof splitAssignments === 'object' && !Array.isArray(splitAssignments)) {
       selectorContext = { chosenObjectIds: selectionIds, splitAssignments };
     }
+  } else if (
+    firstStep?.kind === 'redistribute_life_totals'
+    && response.selections
+    && typeof response.selections === 'object'
+    && !Array.isArray(response.selections)
+  ) {
+    const payload = response.selections as Record<string, unknown>;
+    const lifeByPlayerIdRaw = payload.lifeByPlayerId ?? payload;
+    if (!lifeByPlayerIdRaw || typeof lifeByPlayerIdRaw !== 'object' || Array.isArray(lifeByPlayerIdRaw)) {
+      return null;
+    }
+    const lifeRedistributionByPlayerId: Record<string, number> = {};
+    for (const [playerId, amountRaw] of Object.entries(lifeByPlayerIdRaw as Record<string, unknown>)) {
+      const normalizedId = String(playerId || '').trim();
+      if (!normalizedId) continue;
+      const amount = Number(amountRaw ?? NaN);
+      if (!Number.isFinite(amount)) continue;
+      lifeRedistributionByPlayerId[normalizedId] = Math.max(0, Math.floor(amount));
+    }
+    selectorContext = { lifeRedistributionByPlayerId };
   } else if (firstStep?.kind === 'player_choice' || playerChoiceKind) {
     const choiceId = selectionIds[0] || '';
     if (!choiceId) {
@@ -4570,6 +4681,12 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
   });
+  queueRedistributeLifeTotalsPromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
   queueBlightChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
@@ -4682,6 +4799,11 @@ export function applyOracleIRStepsOnServer(
     params,
   );
   if (!(ctx as any).isReplaying) {
+    persistCounterDiffsFromOracleIR(ctx, countersBefore, state, {
+      sourceId: String(irCtx.sourceId || '').trim() || undefined,
+      sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+      ...(params?.compoundResume ? { compoundResume: true } : {}),
+    });
     persistOracleIrReplayMutationsFromExecution(ctx, result, {
       sourceId: String(irCtx.sourceId || '').trim() || undefined,
       sourceName: String(irCtx.sourceName || '').trim() || undefined,

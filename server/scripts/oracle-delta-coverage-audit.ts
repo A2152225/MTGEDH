@@ -25,6 +25,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  readOracleCardsSync,
+  resolveOracleCardsPath,
+} from '../src/services/oracleCardsIndex.js';
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import { parseTriggeredAbilitiesFromText } from '../../rules-engine/src/triggeredAbilitiesParsing.js';
 import {
@@ -111,12 +115,12 @@ function parseArgs(): DeltaArgs {
 }
 
 function loadEligibleCards(): { cards: OracleCard[]; identities: OracleDeltaCardIdentity[] } {
-  const oraclePath = path.join(repoRoot, 'oracle-cards.json');
+  const oraclePath = resolveOracleCardsPath(repoRoot);
   if (!fs.existsSync(oraclePath)) {
-    console.error(`oracle-cards.json not found at ${oraclePath} — run npm run card-lookup:refresh first`);
+    console.error(`Oracle cards file not found at ${oraclePath} — run npm run card-lookup:refresh first`);
     process.exit(1);
   }
-  const all = JSON.parse(fs.readFileSync(oraclePath, 'utf8')) as OracleCard[];
+  const all = readOracleCardsSync(repoRoot) as OracleCard[];
   const seen = new Set<string>();
   const cards: OracleCard[] = [];
   const identities: OracleDeltaCardIdentity[] = [];

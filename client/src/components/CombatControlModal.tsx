@@ -15,7 +15,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { BattlefieldPermanent, PlayerRef, PlayerID, KnownCardRef, CombatControlEffect } from '../../../shared/src';
-import { canCreatureAttackNow, hasCurrentKeyword, isCurrentlyCreature } from '../utils/creatureUtils';
+import { canCreatureAttackNow, canCreatureBlockNow, getCounterCombatRestrictionReason, hasCurrentKeyword, isCurrentlyCreature } from '../utils/creatureUtils';
 import { canBlockAttacker } from '../utils/combatBlocking';
 import { getBlockerCapacity } from '../utils/blockerCapacity';
 import { getCombinedPermanentText } from '../utils/permanentText';
@@ -132,11 +132,18 @@ function getCreatureInfo(
   
   if (mode === 'attackers' && canAttack && !canCreatureAttackNow(perm, battlefield)) {
     canAttack = false;
-    attackReason = attackReason || (hasCurrentKeyword(perm, 'defender', battlefield) ? 'Has defender' : 'Summoning sickness');
+    attackReason = attackReason
+      || getCounterCombatRestrictionReason(perm, battlefield, 'attack')
+      || (hasCurrentKeyword(perm, 'defender', battlefield) ? 'Has defender' : 'Summoning sickness');
+  }
+
+  if (mode === 'blockers' && canBlock && !canCreatureBlockNow(perm, battlefield)) {
+    canBlock = false;
+    blockReason = blockReason || getCounterCombatRestrictionReason(perm, battlefield, 'block') || "Can't block";
   }
   
-  // Check can't block
-  if (combinedText.includes("can't block") && !combinedText.includes("can't be blocked")) {
+  // Check can't block from card text (non-counter sources)
+  if (canBlock && combinedText.includes("can't block") && !combinedText.includes("can't be blocked")) {
     canBlock = false;
     blockReason = blockReason || "Can't block";
   }

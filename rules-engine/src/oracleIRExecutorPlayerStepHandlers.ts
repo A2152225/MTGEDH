@@ -7972,3 +7972,139 @@ export function evaluateUnlessPaysManaStep(
     log: [`Resolved unless-pays-mana step (payer cannot pay ${step.mana}): ${step.raw}`],
   };
 }
+
+function readPlayerLifeTotal(state: GameState, playerId: string): number {
+  const normalizedId = String(playerId || '').trim();
+  if (!normalizedId) return 0;
+
+  const lifeRecord = (state as any).life as Record<string, number> | undefined;
+  if (lifeRecord && Number.isFinite(Number(lifeRecord[normalizedId]))) {
+    return Math.max(0, Math.floor(Number(lifeRecord[normalizedId])));
+  }
+
+  const player = (state.players || []).find((entry) => String(entry?.id || '').trim() === normalizedId) as any;
+  if (player && Number.isFinite(Number(player.life))) {
+    return Math.max(0, Math.floor(Number(player.life)));
+  }
+
+  return Math.max(0, Math.floor(Number((state as any).startingLife ?? 40)));
+}
+
+function setPlayerLifeTotal(
+  state: GameState,
+  playerId: string,
+  nextLife: number,
+): { state: GameState; delta: number } {
+  const normalizedId = String(playerId || '').trim() as PlayerID;
+  const safeLife = Math.max(0, Math.floor(Number(nextLife) || 0));
+  const currentLife = readPlayerLifeTotal(state, normalizedId);
+  const delta = safeLife - currentLife;
+
+  const updatedPlayers = (state.players || []).map((player) =>
+    String(player?.id || '').trim() === normalizedId ? { ...player, life: safeLife } : player,
+  );
+
+  const nextState = {
+    ...state,
+    players: updatedPlayers as any,
+    life: {
+      ...(((state as any).life && typeof (state as any).life === 'object') ? (state as any).life : {}),
+      [normalizedId]: safeLife,
+    },
+  } as GameState;
+
+  return { state: nextState, delta };
+}
+
+export function applyRedistributeLifeTotalsStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'redistribute_life_totals' }>,
+  ctx: OracleIRExecutionContext,
+): PlayerStepHandlerResult {
+  const redistributionRaw = (ctx.selectorContext as any)?.lifeRedistributionByPlayerId;
+  const redistribution =
+    redistributionRaw && typeof redistributionRaw === 'object' && !Array.isArray(redistributionRaw)
+      ? redistributionRaw as Record<string, number>
+      : null;
+
+  const activePlayers = (state.players || [])
+    .map((player) => String(player?.id || '').trim())
+    .filter(Boolean);
+
+  if (activePlayers.length <= 1) {
+    return {
+      applied: true,
+      state,
+      log: [`Redistribute life totals had no other players: ${step.raw}`],
+    };
+  }
+
+  if (redistribution) {
+    const participantIds = Object.keys(redistribution)
+      .map((playerId) => String(playerId || '').trim())
+      .filter((playerId) => activePlayers.includes(playerId));
+
+    if (participantIds.length === 0) {
+      return {
+        applied: true,
+        state,
+        log: [`Redistribute life totals: no players selected (${step.raw})`],
+      };
+    }
+
+    const poolTotal = participantIds.reduce(
+      (sum, playerId) => sum + readPlayerLifeTotal(state, playerId),
+      0,
+    );
+    const assignedTotal = participantIds.reduce(
+      (sum, playerId) => sum + Math.max(0, Math.floor(Number(redistribution[playerId]) || 0)),
+      0,
+    );
+    if (assignedTotal !== poolTotal) {
+      return {
+        applied: false,
+        message: `Skipped redistribute life totals (assigned total ${assignedTotal} != pool ${poolTotal}): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'invalid_input' },
+      };
+    }
+
+    let nextState = state;
+    const log: string[] = [];
+    const replayMutations: OracleIRReplayMutation[] = [];
+
+    for (const playerId of participantIds) {
+      const nextLife = Math.max(0, Math.floor(Number(redistribution[playerId]) || 0));
+      const currentLife = readPlayerLifeTotal(nextState, playerId);
+      if (nextLife === currentLife) continue;
+      const result = setPlayerLifeTotal(nextState, playerId, nextLife);
+      nextState = result.state;
+      if (result.delta !== 0) {
+        log.push(`${playerId} life total set to ${nextLife} (was ${currentLife})`);
+        replayMutations.push({ kind: 'adjustLife', playerId: playerId as PlayerID, delta: result.delta });
+      }
+    }
+
+    return {
+      applied: true,
+      state: nextState,
+      log: log.length > 0 ? log : [`Redistribute life totals left life unchanged (${step.raw})`],
+      ...(replayMutations.length > 0 ? { replayMutations } : {}),
+    };
+  }
+
+  return {
+    applied: false,
+    message: `Skipped redistribute life totals (requires player choice): ${step.raw}`,
+    reason: 'player_choice_required',
+    options: {
+      classification: 'player_choice',
+      metadata: {
+        playerIds: activePlayers,
+        playerLifeTotals: Object.fromEntries(
+          activePlayers.map((playerId) => [playerId, readPlayerLifeTotal(state, playerId)]),
+        ),
+      },
+    },
+  };
+}

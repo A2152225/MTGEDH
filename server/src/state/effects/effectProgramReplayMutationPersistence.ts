@@ -148,6 +148,43 @@ function persistReplayMutation(
   }
 }
 
+/** Persist net counter changes from an oracle IR execution for undo/replay. */
+export function persistCounterDiffsFromOracleIR(
+  ctx: GameContext,
+  countersBefore: ReadonlyMap<string, Record<string, number>>,
+  state: any,
+  bridge?: OracleIrReplayMutationBridge,
+): void {
+  if ((ctx as any).isReplaying) return;
+
+  const mutationPayload = buildReplayMutationPayload(bridge);
+  for (const perm of state?.battlefield || []) {
+    const permanentId = String(perm?.id || '').trim();
+    if (!permanentId) continue;
+
+    const oldCounters = countersBefore.get(permanentId) || {};
+    const newCounters = (perm?.counters || {}) as Record<string, number>;
+    const counterKeys = new Set([...Object.keys(oldCounters), ...Object.keys(newCounters)]);
+    const deltas: Record<string, number> = {};
+
+    for (const counterType of counterKeys) {
+      const delta = Number(newCounters[counterType] || 0) - Number(oldCounters[counterType] || 0);
+      if (delta !== 0) {
+        deltas[counterType] = delta;
+      }
+    }
+
+    if (Object.keys(deltas).length === 0) continue;
+
+    appendMutationEvent(ctx, 'updateCounters', {
+      permanentId,
+      deltas,
+      skipCounterModifications: true,
+      ...mutationPayload,
+    });
+  }
+}
+
 function bridgeToReplayMutationBridge(
   bridge?: EffectProgramOracleIrBridgeConfig,
 ): OracleIrReplayMutationBridge | undefined {

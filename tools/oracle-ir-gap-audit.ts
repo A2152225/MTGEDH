@@ -4,6 +4,10 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 import { parseOracleTextToIR } from '../rules-engine/src/oracleIRParser.ts';
+import {
+  iterateOracleCards,
+  resolveOracleCardsPath,
+} from '../server/src/services/oracleCardsIndex.js';
 
 const require = createRequire(import.meta.url);
 const { chain } = require('stream-chain');
@@ -54,7 +58,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 
 function parseArgs(argv: string[]): AuditArgs {
   const args: AuditArgs = {
-    oraclePath: path.join(repoRoot, 'oracle-cards.json'),
+    oraclePath: resolveOracleCardsPath(repoRoot),
     atomicPath: path.join(repoRoot, 'AtomicCards.json'),
     outPath: path.join(repoRoot, 'tools', 'oracle-ir-gap-audit.json'),
     maxExamples: 5,
@@ -349,14 +353,7 @@ function processCard(card: AuditCard, gapMap: Map<string, GapRecord>, stats: Cor
 async function readOracleCards(args: AuditArgs, seenOracleIds: Set<string>, gapMap: Map<string, GapRecord>, stats: CorpusStats): Promise<void> {
   if (!args.includeOracle || !fs.existsSync(args.oraclePath)) return;
 
-  const pipeline = chain([
-    fs.createReadStream(args.oraclePath),
-    parser(),
-    streamArray(),
-  ]);
-
-  for await (const chunk of pipeline) {
-    const card = chunk?.value;
+  for await (const card of iterateOracleCards(args.oraclePath)) {
     if (!isOracleEligible(card)) continue;
 
     const oracleText = String(card.oracle_text || '');

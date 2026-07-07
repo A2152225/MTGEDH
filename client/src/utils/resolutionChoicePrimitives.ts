@@ -45,6 +45,7 @@ const SPECIALIZED_STEP_TYPES = new Set([
   'surveil',
   'bottom_order',
   'proliferate',
+  'life_redistribution',
   'fateseal',
   'clash',
   'vote',

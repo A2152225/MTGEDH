@@ -1,6 +1,7 @@
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import {
   canActivateTapAbility,
+  getActivatedAbilityActivationStatus,
   getConditionalManaAbilityStatus,
   getThresholdActivationStatus,
   parseActivatedAbilities,
@@ -62,13 +63,6 @@ export function getBattlefieldTapActionDecision(
 
   const abilities = parseActivatedAbilities(card, permanent.grantedAbilities);
   const battlefieldList = Array.isArray(battlefield) ? [...battlefield] : [];
-  const tapManaAbilities = dedupeTapManaAbilities(
-    abilities.filter((ability) => ability.isManaAbility && ability.requiresTap),
-  );
-  if (tapManaAbilities.length === 0) {
-    return { kind: 'tap' };
-  }
-
   const activationContext: ActivationContext = {
     ...context,
     isTapped: !!permanent.tapped,
@@ -76,67 +70,101 @@ export function getBattlefieldTapActionDecision(
     hasHaste: hasCurrentHaste(permanent, battlefieldList),
   };
 
-  const activatableTapManaAbilities = tapManaAbilities.filter((ability) => {
-    const tapCheck = canActivateTapAbility(ability.requiresTap, activationContext, true);
-    if (!tapCheck.canActivate) {
-      return false;
-    }
+  const tapManaAbilities = dedupeTapManaAbilities(
+    abilities.filter((ability) => ability.isManaAbility && ability.requiresTap),
+  );
 
-    const thresholdCheck = getThresholdActivationStatus(ability, permanent);
-    if (!thresholdCheck.canActivate) {
-      return false;
-    }
-
-    const conditionalCheck = getConditionalManaAbilityStatus(ability, permanent, battlefieldList);
-    if (!conditionalCheck.canActivate) {
-      return false;
-    }
-
-    if (ability.timingRestriction === 'sorcery') {
-      return context.isMainPhase && context.isOwnTurn && context.stackEmpty;
-    }
-
-    return true;
-  });
-
-  if (activatableTapManaAbilities.length === 1) {
-    return { kind: 'activate', ability: activatableTapManaAbilities[0] };
-  }
-
-  if (activatableTapManaAbilities.length > 1) {
-    return {
-      kind: 'disabled',
-      reason: 'Multiple tap mana abilities; choose one below.',
-    };
-  }
-
-  const disabledReason = tapManaAbilities
-    .map((ability) => {
+  if (tapManaAbilities.length > 0) {
+    const activatableTapManaAbilities = tapManaAbilities.filter((ability) => {
       const tapCheck = canActivateTapAbility(ability.requiresTap, activationContext, true);
       if (!tapCheck.canActivate) {
-        return tapCheck.reason;
+        return false;
       }
 
       const thresholdCheck = getThresholdActivationStatus(ability, permanent);
       if (!thresholdCheck.canActivate) {
-        return thresholdCheck.reason;
+        return false;
       }
 
       const conditionalCheck = getConditionalManaAbilityStatus(ability, permanent, battlefieldList);
       if (!conditionalCheck.canActivate) {
-        return conditionalCheck.reason;
+        return false;
       }
 
       if (ability.timingRestriction === 'sorcery') {
-        return 'Sorcery timing required';
+        return context.isMainPhase && context.isOwnTurn && context.stackEmpty;
       }
 
-      return undefined;
-    })
-    .find((reason): reason is string => typeof reason === 'string' && reason.length > 0);
+      return true;
+    });
 
-  return {
-    kind: 'disabled',
-    reason: disabledReason || 'No tappable mana ability is currently available.',
-  };
+    if (activatableTapManaAbilities.length === 1) {
+      return { kind: 'activate', ability: activatableTapManaAbilities[0] };
+    }
+
+    if (activatableTapManaAbilities.length > 1) {
+      return {
+        kind: 'disabled',
+        reason: 'Multiple tap mana abilities; choose one below.',
+      };
+    }
+
+    const disabledReason = tapManaAbilities
+      .map((ability) => {
+        const tapCheck = canActivateTapAbility(ability.requiresTap, activationContext, true);
+        if (!tapCheck.canActivate) {
+          return tapCheck.reason;
+        }
+
+        const thresholdCheck = getThresholdActivationStatus(ability, permanent);
+        if (!thresholdCheck.canActivate) {
+          return thresholdCheck.reason;
+        }
+
+        const conditionalCheck = getConditionalManaAbilityStatus(ability, permanent, battlefieldList);
+        if (!conditionalCheck.canActivate) {
+          return conditionalCheck.reason;
+        }
+
+        if (ability.timingRestriction === 'sorcery') {
+          return 'Sorcery timing required';
+        }
+
+        return undefined;
+      })
+      .find((reason): reason is string => typeof reason === 'string' && reason.length > 0);
+
+    return {
+      kind: 'disabled',
+      reason: disabledReason || 'No tappable mana ability is currently available.',
+    };
+  }
+
+  const tapActivatedAbilities = abilities.filter((ability) => ability.requiresTap && !ability.isManaAbility);
+  const activatableTapActivatedAbilities = tapActivatedAbilities.filter((ability) => {
+    return getActivatedAbilityActivationStatus(ability, permanent, activationContext, battlefieldList).canActivate;
+  });
+
+  if (activatableTapActivatedAbilities.length === 1) {
+    return { kind: 'activate', ability: activatableTapActivatedAbilities[0] };
+  }
+
+  if (activatableTapActivatedAbilities.length > 1) {
+    return {
+      kind: 'disabled',
+      reason: 'Multiple activated abilities; choose one below.',
+    };
+  }
+
+  if (tapActivatedAbilities.length > 0) {
+    const blockedReason = tapActivatedAbilities
+      .map((ability) => getActivatedAbilityActivationStatus(ability, permanent, activationContext, battlefieldList).reason)
+      .find((reason): reason is string => typeof reason === 'string' && reason.length > 0);
+    return {
+      kind: 'disabled',
+      reason: blockedReason || 'Activated ability unavailable',
+    };
+  }
+
+  return { kind: 'tap' };
 }

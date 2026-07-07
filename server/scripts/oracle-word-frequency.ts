@@ -16,9 +16,14 @@ import { fileURLToPath } from 'node:url';
 
 import Database from 'better-sqlite3';
 
+import {
+  readOracleCardsSync,
+  resolveOracleCardsPath,
+} from '../src/services/oracleCardsIndex.js';
+
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
-const oracleCardsPath = path.join(repoRoot, 'oracle-cards.json');
+const oracleCardsPath = resolveOracleCardsPath(repoRoot);
 const sqlitePath = path.join(repoRoot, 'server', 'data', 'card-lookup.sqlite');
 const outDir = path.join(scriptDir, 'out');
 const outJsonPath = path.join(outDir, 'oracle-word-frequencies.json');
@@ -112,15 +117,11 @@ function collectOracleTextsFromCard(card: OracleCard): string[] {
 
 function loadEntriesFromJson(): OracleEntry[] {
   if (!fs.existsSync(oracleCardsPath)) {
-    throw new Error(`oracle-cards.json not found at ${oracleCardsPath}`);
+    throw new Error(`Oracle cards file not found at ${oracleCardsPath}`);
   }
 
   console.log(`Reading ${oracleCardsPath} ...`);
-  const raw = fs.readFileSync(oracleCardsPath, 'utf8');
-  const cards = JSON.parse(raw) as OracleCard[];
-  if (!Array.isArray(cards)) {
-    throw new Error('oracle-cards.json must be a JSON array');
-  }
+  const cards = readOracleCardsSync(repoRoot) as OracleCard[];
 
   const byOracleId = new Map<string, OracleEntry>();
 

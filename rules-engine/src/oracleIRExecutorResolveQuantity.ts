@@ -11,11 +11,13 @@ import {
 } from './oracleIRExecutorPlayerUtils';
 import {
   getControlledPermanents,
+  getProcessedBattlefield,
   getSourceBattlefieldPermanent,
   permanentHasSubtype,
   permanentIsCreature,
   readPermanentPower,
 } from './oracleIRExecutorCreatureStepUtils';
+import { getCounterCountOnObject } from './oracleIRExecutorModifyPtWhereUtils';
 import { tryResolveForEachReferenceAmount } from './oracleIRExecutorForEachQuantity';
 import { tryEvaluateCombatDamageReferenceCount } from './oracleIRExecutorCombatDamageCounts';
 
@@ -294,6 +296,16 @@ export function resolveOracleQuantity(
   if (qty.kind === 'object_stat') {
     const multiplier = Number.isFinite(Number((qty as any).multiplier)) ? Math.max(0, Number((qty as any).multiplier)) : 1;
     const readStat = (entry: any): number | null => {
+      if (qty.stat === 'power') {
+        if (typeof entry?.effectivePower === 'number' && Number.isFinite(entry.effectivePower)) {
+          return Math.max(0, Math.floor(entry.effectivePower * multiplier));
+        }
+        const basePower = readPermanentPower(entry);
+        if (basePower === null) return null;
+        const plusOne = getCounterCountOnObject(entry, '+1/+1') ?? 0;
+        const minusOne = getCounterCountOnObject(entry, '-1/-1') ?? 0;
+        return Math.max(0, (basePower + plusOne - minusOne) * multiplier);
+      }
       const value = readObjectStat(entry, qty.stat);
       return value === null ? null : Math.max(0, value * multiplier);
     };
@@ -421,6 +433,23 @@ export function resolveOracleQuantity(
     }
 
     if (qty.subject === 'it' || qty.subject === 'that_creature' || qty.subject === 'source') {
+      const antecedentIds = [
+        ...(Array.isArray(ctx.lastMovedBattlefieldPermanentIds) ? ctx.lastMovedBattlefieldPermanentIds : []),
+        ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds) ? ctx.lastAntecedentBattlefieldPermanentIds : []),
+        String(ctx.lastReferencedPermanentId || '').trim(),
+      ]
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
+      for (const antecedentId of antecedentIds) {
+        const antecedentPermanent = getProcessedBattlefield(state).find(
+          (entry) => String((entry as any)?.id || '').trim() === antecedentId,
+        );
+        if (antecedentPermanent) {
+          const antecedentAmount = readStat(antecedentPermanent);
+          if (antecedentAmount !== null) return antecedentAmount;
+        }
+      }
+
       const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
       if (sourcePermanent) {
         const statAmount = readStat(sourcePermanent);

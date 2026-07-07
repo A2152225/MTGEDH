@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   canCreatureAttackNow,
+  canCreatureBlockNow,
   canCreatureUseTapAbilityNow,
   hasCurrentKeyword,
   hasCurrentHaste,
@@ -263,5 +264,34 @@ describe('current combat keyword helpers', () => {
     } as BattlefieldPermanent;
 
     expect(canCreatureAttackNow(creature)).toBe(true);
+  });
+});
+
+describe('bribery counter combat restrictions', () => {
+  const gwafaOracle =
+    "{W}{U}, {T}: Put a bribery counter on target creature you don't control. Its controller draws a card.\nCreatures with bribery counters on them can't attack or block.";
+
+  it('blocks attack and block while Gwafa is on the battlefield', () => {
+    const gwafa = createMockPermanent('Legendary Creature — Human Rogue', gwafaOracle);
+    const creature = {
+      ...createMockPermanent('Creature — Human', ''),
+      counters: { bribery: 1 },
+      summoningSickness: false,
+    } as BattlefieldPermanent;
+    const battlefield = [gwafa, creature];
+
+    expect(canCreatureAttackNow(creature, battlefield)).toBe(false);
+    expect(canCreatureBlockNow(creature, battlefield)).toBe(false);
+  });
+
+  it('allows combat again when Gwafa leaves the battlefield', () => {
+    const creature = {
+      ...createMockPermanent('Creature — Human', ''),
+      counters: { bribery: 1 },
+      summoningSickness: false,
+    } as BattlefieldPermanent;
+
+    expect(canCreatureAttackNow(creature, [creature])).toBe(true);
+    expect(canCreatureBlockNow(creature, [creature])).toBe(true);
   });
 });

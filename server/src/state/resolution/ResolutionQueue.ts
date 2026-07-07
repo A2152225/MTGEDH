@@ -389,6 +389,7 @@ function mapChoiceEventType(choiceType: string): ResolutionStepType {
     mana_payment_choice: ResolutionStepType.MANA_PAYMENT_CHOICE,
     explore_decision: ResolutionStepType.EXPLORE_DECISION,
     proliferate: ResolutionStepType.PROLIFERATE,
+    life_redistribution: ResolutionStepType.LIFE_REDISTRIBUTION,
     clash: ResolutionStepType.CLASH,
     scry: ResolutionStepType.SCRY,
     surveil: ResolutionStepType.SURVEIL,

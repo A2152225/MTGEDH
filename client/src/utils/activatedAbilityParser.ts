@@ -314,6 +314,55 @@ export function getConditionalManaAbilityStatus(
 }
 
 /**
+ * Shared activation gating for context menus, ability buttons, and tap routing.
+ */
+export function getActivatedAbilityActivationStatus(
+  ability: ParsedActivatedAbility,
+  permanent: BattlefieldPermanent,
+  context: ActivationContext,
+  battlefield?: readonly BattlefieldPermanent[],
+): { canActivate: boolean; reason?: string } {
+  const tapCheck = canActivateTapAbility(ability.requiresTap, context, ability.isManaAbility);
+  const thresholdCheck = getThresholdActivationStatus(ability, permanent);
+  const conditionalManaCheck = getConditionalManaAbilityStatus(ability, permanent, battlefield);
+
+  let canActivateAbility = tapCheck.canActivate && thresholdCheck.canActivate && conditionalManaCheck.canActivate;
+  let reason = conditionalManaCheck.reason || thresholdCheck.reason || tapCheck.reason;
+
+  if (ability.isLoyaltyAbility) {
+    if (!context.isMainPhase) {
+      canActivateAbility = false;
+      reason = 'Only during main phase';
+    } else if (!context.isOwnTurn) {
+      canActivateAbility = false;
+      reason = 'Only on your turn';
+    } else if (!context.stackEmpty) {
+      canActivateAbility = false;
+      reason = 'Stack must be empty';
+    } else if (ability.loyaltyCost !== undefined && context.loyaltyCounters !== undefined) {
+      if (ability.loyaltyCost < 0 && context.loyaltyCounters < Math.abs(ability.loyaltyCost)) {
+        canActivateAbility = false;
+        reason = 'Not enough loyalty';
+      }
+    }
+  }
+
+  if (ability.timingRestriction === 'sorcery') {
+    if (!context.isMainPhase || !context.isOwnTurn || !context.stackEmpty) {
+      canActivateAbility = false;
+      reason = 'Sorcery timing required';
+    }
+  }
+
+  if (!ability.isManaAbility && !context.controllerHasPriority) {
+    canActivateAbility = false;
+    reason = 'No priority';
+  }
+
+  return { canActivate: canActivateAbility, reason };
+}
+
+/**
  * Parse mill effects from oracle text
  * Returns mill count and target type if this is a mill ability
  * 

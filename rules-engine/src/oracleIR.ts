@@ -1440,6 +1440,13 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'redistribute_life_totals';
+      readonly who?: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'investigate';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;

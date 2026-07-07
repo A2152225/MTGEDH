@@ -124,4 +124,114 @@ describe('counter event replay semantics', () => {
     expect(ResolutionQueueManager.getQueue(gameId).steps.some((entry: any) => String(entry?.id || '') === 'counter_placement_step_1')).toBe(false);
     ResolutionQueueManager.removeQueue(gameId);
   });
+
+  it('replays updateCounters events with accumulated +1/+1 counters (Ouroboroid-style)', () => {
+    const game = createInitialGameState('t_update_counters_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'ouro_1',
+        controller: p1,
+        owner: p1,
+        counters: {},
+        card: { id: 'ouro_card', name: 'Ouroboroid', type_line: 'Creature — Snake' },
+      },
+      {
+        id: 'merfolk_1',
+        controller: p1,
+        owner: p1,
+        counters: {},
+        card: { id: 'merfolk_card', name: 'Merfolk', type_line: 'Creature — Merfolk' },
+      },
+    ];
+
+    const replayEvents = [
+      { type: 'updateCounters', permanentId: 'ouro_1', deltas: { '+1/+1': 3 }, skipCounterModifications: true },
+      { type: 'updateCounters', permanentId: 'merfolk_1', deltas: { '+1/+1': 3 }, skipCounterModifications: true },
+      { type: 'updateCounters', permanentId: 'ouro_1', deltas: { '+1/+1': 3 }, skipCounterModifications: true },
+      { type: 'updateCounters', permanentId: 'merfolk_1', deltas: { '+1/+1': 3 }, skipCounterModifications: true },
+    ];
+
+    for (const event of replayEvents) {
+      game.applyEvent(event as any);
+    }
+
+    const countersBeforeUndo = {
+      ouro: Number(((game.state as any).battlefield || []).find((p: any) => p.id === 'ouro_1')?.counters?.['+1/+1'] || 0),
+      merfolk: Number(((game.state as any).battlefield || []).find((p: any) => p.id === 'merfolk_1')?.counters?.['+1/+1'] || 0),
+    };
+    expect(countersBeforeUndo).toEqual({ ouro: 6, merfolk: 6 });
+
+    game.reset!(true);
+    (game.state as any).battlefield = [
+      {
+        id: 'ouro_1',
+        controller: p1,
+        owner: p1,
+        counters: {},
+        card: { id: 'ouro_card', name: 'Ouroboroid', type_line: 'Creature — Snake' },
+      },
+      {
+        id: 'merfolk_1',
+        controller: p1,
+        owner: p1,
+        counters: {},
+        card: { id: 'merfolk_card', name: 'Merfolk', type_line: 'Creature — Merfolk' },
+      },
+    ];
+    game.replay!(replayEvents.slice(0, 2));
+
+    const countersAfterPartialUndo = {
+      ouro: Number(((game.state as any).battlefield || []).find((p: any) => p.id === 'ouro_1')?.counters?.['+1/+1'] || 0),
+      merfolk: Number(((game.state as any).battlefield || []).find((p: any) => p.id === 'merfolk_1')?.counters?.['+1/+1'] || 0),
+    };
+    expect(countersAfterPartialUndo).toEqual({ ouro: 3, merfolk: 3 });
+  });
+
+  it('replays updateCounters removal events', () => {
+    const game = createInitialGameState('t_update_counters_remove_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'bear_1',
+        controller: p1,
+        owner: p1,
+        counters: { '+1/+1': 4 },
+        card: { id: 'bear_card', name: 'Bear', type_line: 'Creature — Bear' },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'updateCounters',
+      permanentId: 'bear_1',
+      deltas: { '+1/+1': -2 },
+      skipCounterModifications: true,
+      skipEventPersistence: true,
+    } as any);
+
+    expect(((game.state as any).battlefield || [])[0]?.counters?.['+1/+1']).toBe(2);
+
+    game.reset!(true);
+    (game.state as any).battlefield = [
+      {
+        id: 'bear_1',
+        controller: p1,
+        owner: p1,
+        counters: { '+1/+1': 4 },
+        card: { id: 'bear_card', name: 'Bear', type_line: 'Creature — Bear' },
+      },
+    ];
+    game.replay!([{
+      type: 'updateCounters',
+      permanentId: 'bear_1',
+      deltas: { '+1/+1': -2 },
+      skipCounterModifications: true,
+    }]);
+
+    expect(((game.state as any).battlefield || [])[0]?.counters?.['+1/+1']).toBe(2);
+  });
 });

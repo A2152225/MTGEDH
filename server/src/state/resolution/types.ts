@@ -104,6 +104,7 @@ export enum ResolutionStepType {
   JOIN_FORCES = 'join_forces',
   TEMPTING_OFFER = 'tempting_offer',
   PROLIFERATE = 'proliferate',
+  LIFE_REDISTRIBUTION = 'life_redistribution',
   KYNAIOS_CHOICE = 'kynaios_choice',
   CASCADE = 'cascade',
   SCRY = 'scry',
@@ -726,6 +727,22 @@ export interface ProliferateStep extends BaseResolutionStep {
 }
 
 /**
+ * Life redistribution resolution step (Reverse the Sands, etc.)
+ *
+ * Controller chooses any number of players and assigns life totals among them.
+ * Reference: Rule 701.18 - Redistribute
+ */
+export interface LifeRedistributionStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.LIFE_REDISTRIBUTION;
+  readonly redistributionId: string;
+  readonly players: readonly {
+    id: string;
+    name: string;
+    life: number;
+  }[];
+}
+
+/**
  * Fateseal resolution step
  * 
  * Like scry but player looks at opponent's library instead of their own.
@@ -957,6 +974,7 @@ export type ResolutionStep =
   | ScryStep
   | SurveilStep
   | ProliferateStep
+  | LifeRedistributionStep
   | FatesealStep
   | ClashStep
   | VoteStep

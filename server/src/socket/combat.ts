@@ -14,6 +14,10 @@ import {
   isStationPermanentTypeLine,
 } from "../../../rules-engine/src/stationPermanentUtils.js";
 import { getLandwalkUnblockableReason } from "../../../shared/src/combatLandwalk.js";
+import {
+  isCounterPreventingAttack,
+  isCounterPreventingBlock,
+} from "../../../shared/src/counterCombatRestrictions.js";
 import { getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
 import { buildTapTriggeredStackItem, collectTapTriggersForTapEvent, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
 import { canExertAsItAttacks, getAttackTriggersForCreatures, getSupportedExertAttackReward } from "../state/modules/triggers/combat.js";
@@ -30,6 +34,82 @@ import { getEnergyCount, spendEnergyCounters } from "../state/utils.js";
 import { processEquippedAttackRevealUntilLandPumps, emitEquippedAttackRevealPumpMessages } from "../state/modules/equippedAttackRevealPump.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 import { normalizeAttackerSelections, parseGroupedPermanentRef, resolveGroupedPermanentRef } from "./tokenGroupResolve.js";
+import {
+  formatDeclareAttackersMessage,
+  formatDeclareBlockersMessage,
+} from "../../../shared/src/gameLogFormat.js";
+
+function lookupBattlefieldPermanentName(battlefield: any[], permanentId: string): string {
+  const perm = battlefield.find((entry: any) => entry?.id === permanentId);
+  return perm?.card?.name || perm?.card?.card_faces?.[0]?.name || 'Creature';
+}
+
+function lookupDefenderLabel(
+  game: any,
+  battlefield: any[],
+  targetPlayerId?: string,
+  targetPermanentId?: string,
+): string {
+  if (targetPermanentId) {
+    const permanent = battlefield.find((entry: any) => entry?.id === targetPermanentId);
+    const name = permanent?.card?.name || permanent?.card?.card_faces?.[0]?.name || 'Permanent';
+    const controllerId = permanent?.controller;
+    if (controllerId) {
+      const controllerName = getPlayerName(game, controllerId);
+      return controllerName ? `${name} (${controllerName}'s)` : name;
+    }
+    return name;
+  }
+  if (targetPlayerId) return getPlayerName(game, targetPlayerId);
+  return 'an opponent';
+}
+
+function emitDeclareAttackersChat(
+  io: Server,
+  gameId: string,
+  game: any,
+  playerId: PlayerID,
+  attackers: Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>,
+  prefix?: string,
+): void {
+  const battlefield = game.state?.battlefield || [];
+  const message = formatDeclareAttackersMessage(
+    getPlayerName(game, playerId),
+    attackers,
+    (creatureId) => lookupBattlefieldPermanentName(battlefield, creatureId),
+    (targetPlayerId, targetPermanentId) => lookupDefenderLabel(game, battlefield, targetPlayerId, targetPermanentId),
+  );
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: prefix ? `${prefix}${message}` : message,
+    ts: Date.now(),
+  });
+}
+
+function emitDeclareBlockersChat(
+  io: Server,
+  gameId: string,
+  game: any,
+  playerId: PlayerID,
+  blockers: Array<{ blockerId: string; attackerId: string }>,
+  prefix?: string,
+): void {
+  const battlefield = game.state?.battlefield || [];
+  const message = formatDeclareBlockersMessage(
+    getPlayerName(game, playerId),
+    blockers,
+    (permanentId) => lookupBattlefieldPermanentName(battlefield, permanentId),
+  );
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: prefix ? `${prefix}${message}` : message,
+    ts: Date.now(),
+  });
+}
 
 function getDefendingPlayerIdFromAttackDeclaration(
   attackers: Array<{ targetPlayerId?: string; targetPermanentId?: string }>,
@@ -1002,66 +1082,6 @@ function isFullyUnblockableRestriction(entry: string): boolean {
 }
 
 /**
- * Check if a permanent has counters that prevent it from attacking/blocking
- * Uses scalable pattern matching: "creatures with [X] counters on them can't attack/block"
- * 
- * @param permanent - The permanent to check
- * @param battlefield - All permanents on the battlefield
- * @param action - The action to check: 'attack' or 'block'
- * @returns Object with isPrevented flag, counterType, and source card name
- */
-function hasCounterPreventingAction(
-  permanent: any,
-  battlefield: any[],
-  action: 'attack' | 'block'
-): { isPrevented: boolean; counterType?: string; sourceName?: string } {
-  if (!permanent?.counters) {
-    return { isPrevented: false };
-  }
-  
-  // Get all counter types on this permanent
-  const counterTypes = Object.keys(permanent.counters).filter(
-    key => typeof permanent.counters[key] === 'number' && permanent.counters[key] > 0
-  );
-  
-  if (counterTypes.length === 0) {
-    return { isPrevented: false };
-  }
-  
-  // Check battlefield for effects that prevent creatures with specific counters from attacking/blocking
-  // Pattern: "Creatures with [X] counters on them can't [attack/block]"
-  for (const perm of battlefield) {
-    if (!perm?.card?.oracle_text) continue;
-    
-    const oracle = perm.card.oracle_text.toLowerCase();
-    const cardName = perm.card.name || 'Unknown';
-    
-    // Check if this permanent has an effect preventing the action
-    const preventsAction = action === 'attack'
-      ? (oracle.includes("can't attack") || oracle.includes("cannot attack"))
-      : (oracle.includes("can't") || oracle.includes("cannot")) && oracle.includes("block");
-    
-    if (!preventsAction) continue;
-    
-    // Check each counter type this creature has
-    for (const counterType of counterTypes) {
-      // Pattern matching: "creatures with [counterType] counters"
-      // Examples: "bribery counters", "stun counters", "shield counters", etc.
-      const counterPattern = new RegExp(`creatures? with ${counterType} counters? on them`, 'i');
-      if (counterPattern.test(oracle)) {
-        return { 
-          isPrevented: true, 
-          counterType, 
-          sourceName: cardName 
-        };
-      }
-    }
-  }
-  
-  return { isPrevented: false };
-}
-
-/**
  * Check if a permanent can attack (checking for defender and "as though it didn't have defender" effects)
  * 
  * @param permanent - The permanent to check
@@ -1076,7 +1096,7 @@ function canPermanentAttack(
 ): { canAttack: boolean; reason?: string } {
   // Check for counters that prevent attacking (e.g., bribery counters with Gwafa Hazid)
   // Uses scalable pattern matching instead of hardcoded card checks
-  const counterCheck = hasCounterPreventingAction(permanent, battlefield, 'attack');
+  const counterCheck = isCounterPreventingAttack(permanent, battlefield);
   if (counterCheck.isPrevented) {
     return { 
       canAttack: false, 
@@ -1139,7 +1159,7 @@ function canBlockAttacker(
 ): { canBlock: boolean; reason?: string } {
   // Check for counters that prevent blocking (e.g., bribery counters with Gwafa Hazid)
   // Uses scalable pattern matching instead of hardcoded card checks
-  const counterCheck = hasCounterPreventingAction(blocker, battlefield, 'block');
+  const counterCheck = isCounterPreventingBlock(blocker, battlefield);
   if (counterCheck.isPrevented) {
     return { 
       canBlock: false, 
@@ -1548,15 +1568,7 @@ export async function executeDeclareAttackers(
     debugWarn(1, '[combat] Failed to enqueue enlist choice steps:', e);
   }
 
-  // Broadcast chat message
-  const attackerCount = attackers.length;
-  io.to(gameId).emit('chat', {
-    id: `m_${Date.now()}`,
-    gameId,
-    from: 'system',
-    message: `${getPlayerName(game, playerId)} declares ${attackerCount} attacker${attackerCount !== 1 ? 's' : ''}.`,
-    ts: Date.now(),
-  });
+  emitDeclareAttackersChat(io, gameId, game, playerId, resolvedAttackers);
 
   // Clear any live preview now that attackers are locked in.
   io.to(gameId).emit('combatPreviewAttackers', {
@@ -2143,15 +2155,13 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         debugWarn(1, "[combat] Failed to record attackersDeclaredBy:", e);
       }
 
-      // Broadcast chat message
-      const attackerCount = (attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>).length;
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
+      emitDeclareAttackersChat(
+        io,
         gameId,
-        from: "system",
-        message: `${getPlayerName(game, playerId)} declares ${attackerCount} attacker${attackerCount !== 1 ? "s" : ""}.`,
-        ts: Date.now(),
-      });
+        game,
+        playerId,
+        resolvedAttackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>,
+      );
 
       // Process attack triggers
       try {
@@ -2833,15 +2843,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         debugWarn(1, "[combat] Failed to persist declareBlockers event:", e);
       }
 
-      // Broadcast chat message
-      const blockerCount = resolvedBlockers.length;
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, playerId)} declares ${blockerCount} blocker${blockerCount !== 1 ? "s" : ""}.`,
-        ts: Date.now(),
-      });
+      emitDeclareBlockersChat(io, gameId, game, playerId, resolvedBlockers);
 
       // Process block triggers
       try {
@@ -3476,23 +3478,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         debugWarn(1, "[combat] Failed to persist declareControlledAttackers event:", e);
       }
 
-      // Broadcast chat message
-      const creatureControllers = new Set(
-        attackers.map(a => {
-          const creature = battlefield.find((p: any) => p.id === a.creatureId);
-          return (creature as any)?.controller;
-        }).filter(Boolean)
-      );
-      
-      const controllerNames = Array.from(creatureControllers).map(c => getPlayerName(game, c as string));
-      
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
+      emitDeclareAttackersChat(
+        io,
         gameId,
-        from: "system",
-        message: `🎯 ${combatControl.sourceName}: ${getPlayerName(game, playerId)} declares ${attackers.length} attacker${attackers.length !== 1 ? "s" : ""} (controlled: ${controllerNames.join(", ")}).`,
-        ts: Date.now(),
-      });
+        game,
+        playerId,
+        attackers,
+        `🎯 ${combatControl.sourceName}: `,
+      );
 
       // Process attack triggers for controlled combat declarations
       try {
@@ -4034,14 +4027,14 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         debugWarn(1, "[combat] Failed to persist declareControlledBlockers event:", e);
       }
 
-      // Broadcast chat message
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
+      emitDeclareBlockersChat(
+        io,
         gameId,
-        from: "system",
-        message: `🎯 ${combatControl.sourceName}: ${getPlayerName(game, playerId)} declares ${blockers.length} blocker${blockers.length !== 1 ? "s" : ""}.`,
-        ts: Date.now(),
-      });
+        game,
+        playerId,
+        blockers,
+        `🎯 ${combatControl.sourceName}: `,
+      );
 
       if (typeof (game as any).bumpSeq === "function") {
         (game as any).bumpSeq();

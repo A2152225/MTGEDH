@@ -24,6 +24,8 @@
     "executor:keyword-audit": "node --enable-source-maps --import tsx/esm scripts/semantic-keyword-audit.ts",
     "card-lookup:rebuild": "node --enable-source-maps --import tsx/esm scripts/rebuild-card-lookup.ts",
     "card-lookup:refresh": "node --enable-source-maps --import tsx/esm scripts/refresh-card-oracle-index.ts",
+    "precon:bake": "node --enable-source-maps --import tsx/esm scripts/bake-precon-decklists.ts",
+    "precon:bake:json": "node --enable-source-maps --import tsx/esm scripts/bake-precon-decklists.ts --json-only",
     "oracle-ir:overlay:upsert": "node --enable-source-maps --import tsx/esm scripts/upsert-compiled-oracle-ir-overlay.ts",
     "oracle-ir:overlay:import": "node --enable-source-maps --import tsx/esm scripts/import-compiled-oracle-ir-overlays.ts",
     "oracle-ir:overlay:validate": "node --enable-source-maps --import tsx/esm scripts/validate-compiled-oracle-ir-overlay.ts",

@@ -161,7 +161,7 @@ import {
   getManaMultiplier,
 } from "../state/modules/mana-abilities.js";
 import { buildAnyCombinationManaSelectionFields } from "../state/modules/manaColorSelectionStepUtils.js";
-import { continueCastFromGraveyardAbility, resolveManaAbilityActivationShape } from "./interaction.js";
+import { continueCastFromGraveyardAbility, queueCounterTargetStepForBattlefieldAbility, resolveManaAbilityActivationShape } from "./interaction.js";
 import {
   advanceDungeonProgress,
   createDungeonProgress,
@@ -3945,6 +3945,26 @@ async function handleAIResolutionStep(
         break;
       }
 
+      case ResolutionStepType.LIFE_REDISTRIBUTION: {
+        const redistributionStep = step as any;
+        const players: any[] = Array.isArray(redistributionStep.players) ? redistributionStep.players : [];
+        const lifeByPlayerId: Record<string, number> = {};
+        for (const player of players) {
+          const id = String(player?.id || '').trim();
+          if (!id) continue;
+          lifeByPlayerId[id] = Math.max(0, Math.floor(Number(player?.life ?? 0)));
+        }
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: { lifeByPlayerId },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI life redistribution: keeping life totals unchanged for ${Object.keys(lifeByPlayerId).length} player(s)`);
+        break;
+      }
+
       case ResolutionStepType.FATESEAL: {
         const fatesealStep = step as any;
         const cards = Array.isArray(fatesealStep.cards) ? fatesealStep.cards : [];
@@ -6538,6 +6558,48 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       }
     }
 
+    if (step.type === ResolutionStepType.LIFE_REDISTRIBUTION) {
+      if (cancelled) {
+        if (step.mandatory) {
+          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+          return;
+        }
+      } else {
+        const stepAny = step as any;
+        const raw: any = response.selections as any;
+        const lifeByPlayerId = raw?.lifeByPlayerId ?? raw;
+        if (!lifeByPlayerId || typeof lifeByPlayerId !== 'object' || Array.isArray(lifeByPlayerId)) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid life redistribution selection format' });
+          return;
+        }
+
+        const players: any[] = Array.isArray(stepAny?.players) ? stepAny.players : [];
+        const allowed = new Map<string, number>(
+          players.map((player: any) => [String(player?.id || ''), Math.max(0, Math.floor(Number(player?.life ?? 0)))]),
+        );
+
+        const participantIds = Object.keys(lifeByPlayerId).map(String).filter((id) => allowed.has(id));
+        const poolTotal = participantIds.reduce((sum, id) => sum + (allowed.get(id) ?? 0), 0);
+        const assignedTotal = participantIds.reduce((sum, id) => {
+          const amount = Number((lifeByPlayerId as Record<string, unknown>)[id] ?? NaN);
+          return sum + (Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0);
+        }, 0);
+
+        if (participantIds.some((id) => !allowed.has(id))) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'One or more selected players are not valid' });
+          return;
+        }
+
+        if (participantIds.length > 0 && assignedTotal !== poolTotal) {
+          socket.emit('error', {
+            code: 'INVALID_SELECTION',
+            message: `Assigned life total (${assignedTotal}) must equal the selected players' pool (${poolTotal})`,
+          });
+          return;
+        }
+      }
+    }
+
     // Validate CLASH selections before completing the step.
     // If we complete first, malformed input would permanently consume the step.
     if (step.type === ResolutionStepType.CLASH) {
@@ -7101,6 +7163,11 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         }
         if (targetControllerRule === 'opponent' && String(targetPermanent.controller) === String(pid)) {
           socket.emit('error', { code: 'INVALID_TARGET', message: "Target must be a permanent you don't control" });
+          return;
+        }
+
+        if (!canPermanentBeTargetedByPlayer(targetPermanent as any, game.state as any, pid as any)) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target cannot be legally targeted' });
           return;
         }
       }
@@ -9166,6 +9233,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('proliferateId' in step) fields.proliferateId = step.proliferateId;
       if ('availableTargets' in step) fields.availableTargets = step.availableTargets;
       break;
+
+    case ResolutionStepType.LIFE_REDISTRIBUTION:
+      if ('redistributionId' in step) fields.redistributionId = step.redistributionId;
+      if ('players' in step) fields.players = step.players;
+      break;
       
     case ResolutionStepType.FATESEAL:
       if ('opponentId' in step) fields.opponentId = step.opponentId;
@@ -10787,48 +10859,66 @@ async function handleStepResponse(
         break;
       }
 
-      const targetCounters = (targetPermanent as any).counters || {};
-      targetCounters[counterType] = Number(targetCounters[counterType] || 0) + 1;
-      (targetPermanent as any).counters = targetCounters;
-
+      const sourceId = String(step.sourceId || stepData.sourceId || '').trim();
       const sourceName = String(step.sourceName || stepData.title || 'an ability');
       const targetName = String((targetPermanent as any).card?.name || 'permanent');
-      const targetController = String((targetPermanent as any).controller || '').trim();
+      const activatedAbilityText = String(stepData.oracleText || step.description || '').trim();
+      const description = activatedAbilityText || `${sourceName} puts a ${counterType} counter on target ${String(stepData.targetDescription || 'permanent')}`;
+
+      (game.state as any).stack = Array.isArray((game.state as any).stack) ? (game.state as any).stack : [];
+      const stackItem = {
+        id: uid('ability'),
+        type: 'ability' as const,
+        controller: pid,
+        source: sourceId,
+        sourceName,
+        description,
+        activatedAbilityText: activatedAbilityText || description,
+        abilityType: 'add_counter' as const,
+        targets: [targetId],
+        counterParams: {
+          targetId,
+          targetName,
+          counterType,
+          targetControllerRule,
+          oracleText: String(stepData.oracleText || ''),
+          scalingText: stepData.scalingText ? String(stepData.scalingText) : null,
+        },
+      };
+      (game.state as any).stack.push(stackItem);
+
+      fireBattlefieldAbilityActivatedTriggers(game, String(pid), sourceId, description, gameId, stackItem.id, () => {
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            ...battlefieldAbilityStackReplayEvidence(stackItem.id),
+            playerId: pid,
+            resolvedStepId: String((step as any).id || ''),
+            permanentId: sourceId,
+            abilityId: String(stepData.abilityId || ''),
+            cardName: sourceName,
+            abilityText: description,
+            activatedAbilityText: activatedAbilityText || description,
+            abilityType: 'add_counter',
+            targets: [targetId],
+            counterParams: stackItem.counterParams,
+          });
+        } catch (e) {
+          debugWarn(1, 'appendEvent(activateBattlefieldAbility:add_counter) failed:', e);
+        }
+      });
+
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
 
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
         from: 'system',
-        message: `${getPlayerName(game, pid)} puts a ${counterType} counter on ${targetName} with ${sourceName}.`,
+        message: `${sourceName} targets ${targetName}. Ability on the stack.`,
         ts: Date.now(),
       });
 
-      if (/draw a card/i.test(String(stepData.oracleText || '')) && targetController) {
-        debug(2, `[Resolution] COUNTER_TARGET: ${String(targetController)} should draw a card (oracle text effect)`);
-        io.to(gameId).emit('chat', {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: 'system',
-          message: `${getPlayerName(game, targetController)} draws a card.`,
-          ts: Date.now(),
-        });
-      }
-
-      try {
-        await appendEvent(gameId, (game as any).seq ?? 0, 'counterTargetChosen', {
-          playerId: pid,
-          sourceName,
-          targetId,
-          targetName,
-          counterType,
-        });
-      } catch (e) {
-        debugWarn(1, '[Resolution] appendEvent(counterTargetChosen) failed:', e);
-      }
-
-      if (typeof game.bumpSeq === 'function') {
-        game.bumpSeq();
-      }
       broadcastGame(io, game, gameId);
       break;
     }
@@ -11744,6 +11834,73 @@ async function handleStepResponse(
         const tappedPaymentPermanents = applied.tappedPermanents;
         const sacrificedPaymentPermanents = applied.sacrificedPermanents;
         const paymentManaDelta = applied.paymentManaDelta;
+
+        if (stepData.activationPaymentContext === 'battlefield_counter_target') {
+          const controllerId = String(step.playerId || pid);
+          const permanentId = String(stepData?.permanentId || step.sourceId || '').trim();
+          const abilityId = String(stepData?.abilityId || '').trim();
+          const cardName = String(stepData?.cardName || step.sourceName || 'Ability');
+          const scopedAbilityFullText = String(stepData?.scopedAbilityFullText || stepData?.activatedAbilityText || step.description || '').trim();
+          const counterType = String(stepData?.counterType || '').toLowerCase();
+          const targetController = (stepData?.targetController || 'any') as 'opponent' | 'any' | 'you';
+          const targetType = String(stepData?.targetType || 'creature');
+          const scalingText = stepData?.scalingText ? String(stepData.scalingText) : null;
+          const requiresTap = stepData.requiresTap === true;
+          const tappedPaymentPermanents = applied.tappedPermanents;
+
+          const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+          const sourcePerm = battlefield.find((perm: any) => perm && String(perm.id) === permanentId);
+          if (!sourcePerm) {
+            emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+            break;
+          }
+
+          if (requiresTap && !(sourcePerm as any).tapped) {
+            (sourcePerm as any).tapped = true;
+          }
+
+          const counterStep = queueCounterTargetStepForBattlefieldAbility({
+            gameId,
+            game,
+            pid: controllerId,
+            permanentId,
+            abilityId,
+            card: (sourcePerm as any).card,
+            cardName,
+            scopedAbilityFullText,
+            counterType,
+            targetController,
+            scalingText,
+            targetType,
+            requiresTap,
+            tappedPermanentIds: tappedPaymentPermanents,
+          });
+
+          if (!counterStep) {
+            if (requiresTap) {
+              (sourcePerm as any).tapped = false;
+            }
+            emitToPlayer(io, controllerId, 'error', {
+              code: 'NO_VALID_TARGETS',
+              message: targetController === 'opponent'
+                ? `No valid opponent ${targetType} targets for ${cardName}.`
+                : `No valid ${targetType} targets for ${cardName}.`,
+            });
+            break;
+          }
+
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${getPlayerName(game, controllerId)} paid for ${cardName}'s ability. Choose a target.`,
+            ts: Date.now(),
+          });
+
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          broadcastGame(io, game, gameId);
+          break;
+        }
 
         if (stepData.activationPaymentContext === 'battlefield_targeted') {
           const controllerId = String(step.playerId || pid);
@@ -14440,6 +14597,10 @@ async function handleStepResponse(
       
     case ResolutionStepType.PROLIFERATE:
       handleProliferateResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.LIFE_REDISTRIBUTION:
+      handleLifeRedistributionResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.FATESEAL:
@@ -23495,6 +23656,70 @@ function handleProliferateResponse(
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();
   }
+}
+
+function handleLifeRedistributionResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  const lifeByPlayerId = selections?.lifeByPlayerId ?? selections ?? {};
+  const redistributionStep = step as any;
+  const redistributionId = redistributionStep.redistributionId;
+
+  debug(2, `[Resolution] Life redistribution response: player=${pid}, participants=${Object.keys(lifeByPlayerId || {}).length}`);
+
+  const ctx = ((game as any).ctx || game) as any;
+  ctx.gameId = gameId;
+  ctx.state = game.state;
+
+  const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, response);
+  if (resumed) {
+    maybeResumeOracleIRStepsAfterResolution(ctx, step);
+    syncAllOracleIRPlayerZonesAfterResolution(ctx);
+  }
+
+  const changes: string[] = [];
+  for (const [playerId, lifeRaw] of Object.entries(lifeByPlayerId || {})) {
+    const life = Math.max(0, Math.floor(Number(lifeRaw) || 0));
+    changes.push(`${getPlayerName(game, String(playerId))} → ${life}`);
+  }
+
+  let message = `${getPlayerName(game, pid)} redistributes life totals`;
+  if (changes.length > 0) {
+    message += `: ${changes.join(', ')}`;
+  } else {
+    message += ' (no players selected)';
+  }
+
+  io.to(gameId).emit("chat", {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: "system",
+    message,
+    ts: Date.now(),
+  });
+
+  try {
+    appendEvent(gameId, game.seq ?? 0, "lifeRedistributionResolve", {
+      playerId: pid,
+      resolvedStepId: String((step as any).id || ''),
+      redistributionId,
+      lifeByPlayerId,
+    });
+  } catch {
+    // Ignore persistence failures
+  }
+
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+
+  maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
 }
 
 /**

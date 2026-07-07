@@ -14,6 +14,7 @@ import {
   isTriggerShortcutType,
   isTriggerShortcutPreferenceAllowed,
 } from "../../../shared/src/index.js";
+import { formatCastSpellMessage } from "../../../shared/src/gameLogFormat.js";
 
 import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection, getOfferedCreatureTypesForSelection } from "./creature-type";
 import { requiresColorChoice } from "./color-choice";
@@ -12555,12 +12556,30 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
 
-      if (castSourceZone === 'command') {
+      {
+        const stackTop = Array.isArray(game.state.stack) && game.state.stack.length > 0
+          ? game.state.stack[game.state.stack.length - 1]
+          : undefined;
+        const castSuffix = castSourceZone === 'command'
+          ? 'from the command zone'
+          : castSourceZone === 'graveyard'
+            ? 'from their graveyard'
+            : castSourceZone === 'exile'
+              ? 'from exile'
+              : castSourceZone === 'library'
+                ? 'from their library'
+                : undefined;
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `${getPlayerName(game, playerId)} cast ${cardInHand.name} from the command zone.`,
+          message: formatCastSpellMessage(
+            getPlayerName(game, playerId),
+            cardInHand.name,
+            stackTop?.targetDetails,
+            (id) => getPlayerName(game, id),
+            castSuffix,
+          ),
           ts: Date.now(),
         });
       }

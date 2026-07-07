@@ -35,6 +35,7 @@ import { OpeningHandActionsModal } from "./components/OpeningHandActionsModal";
 import { LibrarySearchModal } from "./components/LibrarySearchModal";
 import { TargetSelectionModal, type TargetOption } from "./components/TargetSelectionModal";
 import { ProliferateModal, type ProliferateTarget } from "./components/ProliferateModal";
+import { LifeRedistributionModal, type LifeRedistributionPlayer } from "./components/LifeRedistributionModal";
 import { UndoRequestModal, type UndoBoundaryPreview, type UndoRequestData } from "./components/UndoRequestModal";
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
@@ -90,6 +91,9 @@ import { useGameSocket } from "./hooks/useGameSocket";
 import { useViewport } from "./hooks/useViewport";
 import { useIsTouch } from "./hooks/useIsTouch";
 import { useMobilePlayLayout } from "./hooks/useMobilePlayLayout";
+import { useGameStateLog } from "./hooks/useGameStateLog";
+import { useRandomDeckPicker } from "./hooks/useRandomDeckPicker";
+import { GameCommunicationsPanel } from "./components/GameCommunicationsPanel";
 import { MobileActionDock } from "./components/MobileActionDock";
 import { SeatStrip } from "./components/SeatStrip";
 import { MobileHandStrip } from "./components/MobileHandStrip";
@@ -108,7 +112,7 @@ import {
   getTextColorsForBackground,
 } from "./utils/appearanceSettings";
 import { prettyPhase, prettyStep, isLandTypeLine } from "./utils/gameDisplayHelpers";
-import { canCreatureAttackNow, isCurrentlyCreature } from "./utils/creatureUtils";
+import { canCreatureAttackNow, canCreatureBlockNow, isCurrentlyCreature } from "./utils/creatureUtils";
 import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
 import { PriorityModal } from "./components/PriorityModal";
 import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
@@ -385,6 +389,7 @@ export function App() {
 
   // Deck Builder modal state (standalone, outside of game)
   const [deckBuilderOpen, setDeckBuilderOpen] = useState(false);
+  const [deckBuilderInitialAction, setDeckBuilderInitialAction] = useState<'random' | null>(null);
 
   // Combat selection modal state
   const [combatModalOpen, setCombatModalOpen] = useState(false);
@@ -449,6 +454,15 @@ export function App() {
     sourceImageUrl?: string;
     validTargets: ProliferateTarget[];
     stepId?: string; // For resolution queue
+  } | null>(null);
+
+  const [lifeRedistributionModalOpen, setLifeRedistributionModalOpen] = useState(false);
+  const [lifeRedistributionData, setLifeRedistributionData] = useState<{
+    redistributionId: string;
+    sourceName: string;
+    imageUrl?: string;
+    players: LifeRedistributionPlayer[];
+    stepId?: string;
   } | null>(null);
   
   // Fateseal modal state
@@ -2511,6 +2525,8 @@ export function App() {
     setReturnControlledPermanentModalOpen(false);
     setHideawayChoiceModalOpen(false);
     setProliferateModalOpen(false);
+    setLifeRedistributionModalOpen(false);
+    setLifeRedistributionData(null);
     setFatesealModalOpen(false);
     setClashModalOpen(false);
     setVoteModalOpen(false);
@@ -3299,6 +3315,21 @@ export function App() {
           stepId: step.id,
         });
         setProliferateModalOpen(true);
+      }
+
+      else if (step.type === 'life_redistribution') {
+        setLifeRedistributionData({
+          redistributionId: step.redistributionId || step.id,
+          sourceName: step.sourceName || 'Redistribute Life Totals',
+          imageUrl: step.sourceImage || step.sourceImageUrl,
+          players: (step.players || []).map((player: any) => ({
+            id: String(player.id || ''),
+            name: String(player.name || player.id || 'Player'),
+            life: Number(player.life ?? 0),
+          })),
+          stepId: step.id,
+        });
+        setLifeRedistributionModalOpen(true);
       }
       
       // Handle Fateseal resolution step
@@ -4095,6 +4126,18 @@ export function App() {
   }, [isPreGame, allPlayersHaveDecks, allPlayersKeptHands]);
 
   const showTopPanelPregameActions = isYouPlayer && isPreGame && showMulliganUI;
+
+  const {
+    pickRandomDeck,
+    pickingRandomDeck,
+    randomDeckMessage,
+    randomDeckError,
+  } = useRandomDeckPicker({
+    gameId: safeView?.id,
+    canServer: isYouPlayer,
+    onImportText: requestImportDeck,
+    onUseSavedDeck: requestUseSavedDeck,
+  });
   const showTableMulliganUI = showMulliganUI && !isPreGame;
 
   const damageReplacementEffectActiveCount = useMemo(() => {
@@ -4216,7 +4259,6 @@ export function App() {
   const stepLabelRaw = safeView?.step ? String(safeView.step) : "";
   const stepLabel = prettyStep(stepLabelRaw);
 
-  // chat send function shared with TableLayout
   const sendChat = (txt: string) => {
     if (!safeView) return;
     const trimmed = txt.trim();
@@ -4238,6 +4280,13 @@ export function App() {
     socket.emit("chat", payload);
     setChat((prev) => [...prev, payload]);
   };
+
+  const resolvePlayerName = React.useCallback((playerId: string) => {
+    const player = safeView?.players?.find((p: any) => String(p.id) === String(playerId));
+    return player?.name || playerId;
+  }, [safeView?.players]);
+
+  const gameLogEntries = useGameStateLog(safeView, resolvePlayerName);
 
   // Hand interaction helpers: used to gate client UI; server still validates rules.
   const getHandPlayableTypeLine = (card: {
@@ -4566,6 +4615,25 @@ export function App() {
     
     setProliferateModalOpen(false);
     setProliferateData(null);
+  };
+  
+  const handleLifeRedistributionConfirm = (payload: { lifeByPlayerId: Record<string, number> }) => {
+    if (!safeView || !lifeRedistributionData) return;
+
+    if (!lifeRedistributionData.stepId) {
+      console.error('[LifeRedistribution] Missing stepId - must use resolution queue');
+      return;
+    }
+
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId: lifeRedistributionData.stepId,
+      selections: payload,
+      cancelled: false,
+    });
+
+    setLifeRedistributionModalOpen(false);
+    setLifeRedistributionData(null);
   };
   
   // Fateseal handler - player orders opponent's library
@@ -5215,7 +5283,7 @@ export function App() {
       // Tapped creatures cannot block
       if (p.tapped) return false;
       // All untapped creatures can block (even with summoning sickness or defender)
-      return true;
+      return canCreatureBlockNow(p, safeView.battlefield || []);
     });
     return expandGroupedTokens(filtered);
   }, [safeView, you]);
@@ -5623,6 +5691,36 @@ export function App() {
                   📚 {yourLibraryCount === 0 ? 'Import Deck' : 'Decks'}
                 </button>
 
+                {isPreGame && (
+                  <button
+                    type="button"
+                    onClick={() => { void pickRandomDeck(); }}
+                    disabled={pickingRandomDeck}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      background: yourLibraryCount === 0
+                        ? 'rgba(76, 29, 149, 0.35)'
+                        : 'rgba(139, 92, 246, 0.18)',
+                      border: yourLibraryCount === 0
+                        ? '1px solid rgba(167, 139, 250, 0.55)'
+                        : '1px solid rgba(167, 139, 250, 0.35)',
+                      borderRadius: 4,
+                      color: '#fff',
+                      cursor: pickingRandomDeck ? 'wait' : 'pointer',
+                      opacity: pickingRandomDeck ? 0.7 : 1,
+                    }}
+                    title={
+                      randomDeckError
+                      || randomDeckMessage
+                      || 'Pick a random deck from local saves, server decks, or precons'
+                    }
+                  >
+                    {pickingRandomDeck ? 'Rolling…' : '🎲 Random Deck'}
+                  </button>
+                )}
+
                 {showTopPanelPregameActions && (
                   <div
                     style={{
@@ -5793,24 +5891,46 @@ export function App() {
             <div style={{ fontSize: 13, color: "#ede9fe", lineHeight: 1.4 }}>
               <strong>Import a deck to play.</strong> Choose from local saves, server decks, or Commander precons.
             </div>
-            <button
-              type="button"
-              onClick={() => handleDeckMgrOpenChange(true)}
-              style={{
-                minHeight: 44,
-                padding: "8px 16px",
-                borderRadius: 8,
-                border: "1px solid rgba(167, 139, 250, 0.8)",
-                background: "linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)",
-                color: "#fff",
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Open Deck Manager
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => handleDeckMgrOpenChange(true)}
+                style={{
+                  minHeight: 44,
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(167, 139, 250, 0.8)",
+                  background: "linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)",
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Open Deck Manager
+              </button>
+              <button
+                type="button"
+                onClick={() => { void pickRandomDeck(); }}
+                disabled={pickingRandomDeck}
+                style={{
+                  minHeight: 44,
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(167, 139, 250, 0.55)",
+                  background: "rgba(76, 29, 149, 0.35)",
+                  color: "#ede9fe",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: pickingRandomDeck ? "wait" : "pointer",
+                  whiteSpace: "nowrap",
+                  opacity: pickingRandomDeck ? 0.7 : 1,
+                }}
+              >
+                {pickingRandomDeck ? 'Rolling…' : 'Random Deck'}
+              </button>
+            </div>
           </div>
         )}
 
@@ -6008,10 +6128,7 @@ export function App() {
               gameId={safeView.id}
               stackItems={safeView.stack as any}
               importedCandidates={importedCandidates}
-              chatMessages={chat}
-              onSendChat={sendChat}
               chatView={view || undefined}
-              chatYou={you || undefined}
               priority={safeView.priority}
               phase={String(safeView.phase || '')}
               step={String(safeView.step || '')}
@@ -7305,6 +7422,8 @@ export function App() {
         playerName={nameInput || undefined}
         canServer={true}
         wide
+        initialAction={deckBuilderInitialAction}
+        onInitialActionConsumed={() => setDeckBuilderInitialAction(null)}
       />
 
       {/* Appearance Settings Modal */}
@@ -7426,6 +7545,14 @@ export function App() {
         imageUrl={proliferateData?.imageUrl}
         validTargets={proliferateData?.validTargets || []}
         onConfirm={handleProliferateConfirm}
+      />
+
+      <LifeRedistributionModal
+        open={resolutionPromptOpen(lifeRedistributionModalOpen, lifeRedistributionData?.stepId)}
+        sourceName={lifeRedistributionData?.sourceName || 'Redistribute Life Totals'}
+        imageUrl={lifeRedistributionData?.imageUrl}
+        players={lifeRedistributionData?.players || []}
+        onConfirm={handleLifeRedistributionConfirm}
       />
       
       {/* Fateseal Modal */}
@@ -8834,6 +8961,16 @@ export function App() {
           playerId={you}
           currentShortcuts={(safeView as any).triggerShortcuts?.[you] || []}
           activeCards={safeView.battlefield?.map((p: any) => p.card?.name || '').filter(Boolean) || []}
+        />
+      )}
+
+      {safeView && (
+        <GameCommunicationsPanel
+          chatMessages={chat}
+          gameLogEntries={gameLogEntries}
+          onSendChat={sendChat}
+          resolvePlayerName={resolvePlayerName}
+          bottomInset={showMobileChrome ? mobilePlayLayout.playAreaBottomInset : 0}
         />
       )}
 

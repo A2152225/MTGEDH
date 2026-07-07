@@ -16,6 +16,10 @@
 
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
+import {
+  isCounterPreventingAttack,
+  isCounterPreventingBlock,
+} from "../../../../shared/src/counterCombatRestrictions.js";
 import { parseManaCost, normalizeParsedManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "./mana-check";
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
@@ -3178,6 +3182,10 @@ function isCreatureGoaded(permanent: any, battlefield: any[], currentTurn?: numb
  * @param playerId The player to check
  * @returns true if the player has any goaded creatures that can attack
  */
+export function turnPlayerMustDeclareAttackers(ctx: GameContext, playerId: PlayerID): boolean {
+  return hasValidAttackers(ctx, playerId) || hasGoadedCreaturesThatMustAttack(ctx, playerId);
+}
+
 function hasGoadedCreaturesThatMustAttack(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     const { state } = ctx;
@@ -3238,7 +3246,7 @@ function hasGoadedCreaturesThatMustAttack(ctx: GameContext, playerId: PlayerID):
  * Check if player has any valid attackers (untapped creatures that can attack)
  * Used to prevent auto-pass from skipping attack phase when creatures are available
  */
-function hasValidAttackers(ctx: GameContext, playerId: PlayerID): boolean {
+export function hasValidAttackers(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     const { state } = ctx;
     const battlefield = state.battlefield || [];
@@ -3281,6 +3289,9 @@ function hasValidAttackers(ctx: GameContext, playerId: PlayerID): boolean {
       });
       
       if (hasCantAttack) continue; // Granted ability prevents attacking
+
+      const briberyAttackCheck = isCounterPreventingAttack(permanent, battlefield);
+      if (briberyAttackCheck.isPrevented) continue;
       
       // If we have an untapped creature without summoning sickness that can attack, return true
       return true;
@@ -3338,6 +3349,9 @@ function hasValidBlockers(ctx: GameContext, playerId: PlayerID): boolean {
       });
       
       if (hasCantBlock) continue; // Granted ability prevents blocking
+
+      const counterBlockCheck = isCounterPreventingBlock(permanent, battlefield);
+      if (counterBlockCheck.isPrevented) continue;
       
       // Note: Flying/reach restrictions are complex and would require checking all attackers
       // For Smart Auto-Pass purposes, we're conservative: if any untapped creature exists, 

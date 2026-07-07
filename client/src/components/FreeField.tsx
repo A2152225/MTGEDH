@@ -11,6 +11,10 @@ import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 import { hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
 import {
+  isCounterPreventingAttack,
+  isCounterPreventingBlock,
+} from '../../../shared/src/counterCombatRestrictions';
+import {
   assignPermanentsToCells,
   arrowKeyToShiftDirection,
   BATTLEFIELD_SCROLL_VISIBLE_ROWS,
@@ -1365,6 +1369,54 @@ export function FreeField(props: {
                     }}
                   >
                     {counterLabel}
+                  </span>
+                </div>
+              );
+            })()}
+
+            {/* Bribery counters — Gwafa Hazid and similar static effects */}
+            {(() => {
+              const briberyCount = Number(counters['bribery'] ?? 0);
+              if (briberyCount <= 0) return null;
+
+              const battlefieldForCheck = allBattlefieldPerms || perms;
+              const attackRestricted = isCounterPreventingAttack(raw, battlefieldForCheck).isPrevented;
+              const blockRestricted = isCounterPreventingBlock(raw, battlefieldForCheck).isPrevented;
+              const restrictionNote = attackRestricted && blockRestricted
+                ? " — can't attack or block while Gwafa Hazid is on the battlefield"
+                : '';
+
+              return (
+                <div
+                  title={`${briberyCount} bribery counter${briberyCount === 1 ? '' : 's'}${restrictionNote}`}
+                  style={{
+                    position: 'absolute',
+                    top: Math.round(4 * scale),
+                    right: Math.round(4 * scale),
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: Math.round(3 * scale),
+                    padding: `${Math.round(3 * scale)}px ${Math.round(7 * scale)}px`,
+                    borderRadius: Math.round(6 * scale),
+                    background: 'linear-gradient(135deg, rgba(202,138,4,0.95), rgba(161,98,7,0.95))',
+                    border: '1px solid rgba(253,224,71,0.8)',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+                    zIndex: 19,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  <span style={{ fontSize: Math.round(11 * scale) }}>🪙</span>
+                  <span
+                    style={{
+                      fontSize: Math.round(10 * scale),
+                      fontWeight: 700,
+                      color: '#fff',
+                      lineHeight: 1,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.03em',
+                    }}
+                  >
+                    {briberyCount}
                   </span>
                 </div>
               );

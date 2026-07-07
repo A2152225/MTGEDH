@@ -13,6 +13,7 @@ type RefreshPair = {
 };
 
 const refreshPairs: RefreshPair[] = [
+  { source: 'oracle-cards-20260629210229.jsonl', target: 'oracle-cards.jsonl' },
   { source: 'oracle-cards-20260629210229.json', target: 'oracle-cards.json' },
   { source: 'AtomicCards (2).json', target: 'AtomicCards.json' },
   { source: 'rulings-20260629210037.json', target: 'rulings.json' },

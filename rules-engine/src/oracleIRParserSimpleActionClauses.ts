@@ -240,6 +240,16 @@ export function tryParseSimpleActionClause(args: {
   const { withMeta } = args;
 
   {
+    if (/^redistribute any number of players(?:'|'|') life totals\.?$/i.test(clause)) {
+      return withMeta({
+        kind: 'redistribute_life_totals',
+        who: { kind: 'any_number_of_target_players' },
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
+  {
     const oppositionAgentSearchExile = clause.match(
       /^while an opponent is searching their library, they exile each card they find\.?$/i
     );

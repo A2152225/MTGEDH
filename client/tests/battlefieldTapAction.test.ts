@@ -106,4 +106,22 @@ describe('getBattlefieldTapActionDecision', () => {
     }
     expect(decision.ability.id).toBe('mox-amber-card-1-ability-0');
   });
+
+  it('routes single non-mana tap activated abilities through activateBattlefieldAbility', () => {
+    const permanent = buildPermanent({
+      id: 'gwafa-card-1',
+      name: 'Gwafa Hazid, Profiteer',
+      type_line: 'Legendary Creature — Human Rogue',
+      oracle_text: "{W}{U}, {T}: Put a bribery counter on target creature you don't control. Its controller draws a card.\nCreatures with bribery counters on them can't attack or block.",
+    }, {
+      summoningSickness: false,
+    });
+
+    const decision = getBattlefieldTapActionDecision(permanent, [permanent], defaultContext);
+    expect(decision.kind).toBe('activate');
+    if (decision.kind !== 'activate') {
+      throw new Error('expected activate decision');
+    }
+    expect(decision.ability.id).toBe('gwafa-card-1-ability-0');
+  });
 });

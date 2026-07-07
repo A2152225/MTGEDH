@@ -3,6 +3,10 @@
  */
 
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
+import {
+  isCounterPreventingAttack,
+  isCounterPreventingBlock,
+} from '../../../shared/src/counterCombatRestrictions';
 import { getCombinedPermanentText } from './permanentText';
 
 function escapeRegExp(value: string): string {
@@ -154,9 +158,45 @@ export function canCreatureAttackNow(
   perm: BattlefieldPermanent,
   battlefield?: BattlefieldPermanent[],
 ): boolean {
+  const field = battlefield || [];
+  const counterCheck = isCounterPreventingAttack(perm, field);
+  if (counterCheck.isPrevented) {
+    return false;
+  }
+
   if (hasCurrentKeyword(perm, 'defender', battlefield) && !canAttackDespiteDefender(perm)) {
     return false;
   }
 
   return canCreatureUseTapAbilityNow(perm, battlefield);
+}
+
+export function canCreatureBlockNow(
+  perm: BattlefieldPermanent,
+  battlefield?: BattlefieldPermanent[],
+): boolean {
+  const field = battlefield || [];
+  const counterCheck = isCounterPreventingBlock(perm, field);
+  if (counterCheck.isPrevented) {
+    return false;
+  }
+
+  const combinedText = getCombinedPermanentText(perm);
+  if (combinedText.includes("can't block") && !combinedText.includes("can't be blocked")) {
+    return false;
+  }
+
+  return true;
+}
+
+export function getCounterCombatRestrictionReason(
+  perm: BattlefieldPermanent,
+  battlefield: BattlefieldPermanent[],
+  action: 'attack' | 'block',
+): string | undefined {
+  const check = action === 'attack'
+    ? isCounterPreventingAttack(perm, battlefield)
+    : isCounterPreventingBlock(perm, battlefield);
+  if (!check.isPrevented) return undefined;
+  return `Has ${check.counterType} counter (${check.sourceName} effect)`;
 }

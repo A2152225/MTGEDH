@@ -1,6 +1,6 @@
 import type { PlayerID, PlayerRef } from "../../../../shared/src";
 import type { GameContext } from "../context";
-import { isPlayerIdleForAutoPass } from "./can-respond";
+import { isPlayerIdleForAutoPass, turnPlayerMustDeclareAttackers } from "./can-respond";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager, ResolutionQueueEvent } from "../resolution/ResolutionQueueManager.js";
 import type { ResolutionStep } from "../resolution/types.js";
@@ -44,6 +44,21 @@ function advancePriorityClockwise(ctx: GameContext, from: PlayerID): PlayerID {
   return active[nextIdx].id as PlayerID;
 }
 
+function isDeclareAttackersStep(step: string): boolean {
+  const normalized = String(step || '').toUpperCase();
+  return normalized === 'DECLARE_ATTACKERS' || (normalized.includes('ATTACKERS') && !normalized.includes('BLOCKERS'));
+}
+
+function shouldBlockStepAdvance(ctx: GameContext): boolean {
+  const pending = getPendingInteractions(ctx);
+  return pending.pendingTypes.some(type => type !== 'stack_not_empty');
+}
+
+function turnPlayerHasNotDeclaredAttackers(stateAny: any, turnPlayer: PlayerID): boolean {
+  const attackersDeclaredBy: string[] = Array.isArray(stateAny.attackersDeclaredBy) ? stateAny.attackersDeclaredBy : [];
+  return !attackersDeclaredBy.includes(turnPlayer);
+}
+
 export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: boolean): { changed: boolean; resolvedNow: boolean; advanceStep: boolean } {
   const { state, passesInRow, bumpSeq } = ctx;
   
@@ -76,9 +91,20 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
     // Don't change state, don't bump sequence - just block the priority pass
     return { changed: false, resolvedNow: false, advanceStep: false };
   }
+
+  const stateAny = state as any;
+  const currentStep = String(stateAny.step || '').toUpperCase();
+  const turnPlayer = state.turnPlayer as PlayerID;
+
+  // Turn player cannot pass priority during declare attackers until they declare (including empty).
+  if (isDeclareAttackersStep(currentStep) && playerId === turnPlayer && turnPlayerHasNotDeclaredAttackers(stateAny, turnPlayer)) {
+    if (turnPlayerMustDeclareAttackers(ctx, turnPlayer)) {
+      debug(1, `[priority] Cannot pass priority - ${turnPlayer} must declare attackers first`);
+      return { changed: false, resolvedNow: false, advanceStep: false };
+    }
+  }
   
   // Track that this player passed priority
-  const stateAny = state as any;
   if (!stateAny.priorityPassedBy || !(stateAny.priorityPassedBy instanceof Set)) {
     stateAny.priorityPassedBy = new Set<string>();
   }
@@ -116,9 +142,13 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
         if (result.resolved) {
           // Another item was resolved from stack
           resolvedNow = true;
-        } else {
+        } else if (!shouldBlockStepAdvance(ctx)) {
           // Empty stack now - advance step
           advanceStep = true;
+        } else {
+          stateAny.priorityPassedBy = new Set<string>();
+          state.priority = turnPlayer;
+          debug(1, `[priority] Cannot advance step after stack resolution - pending interactions`);
         }
       }
     } else {
@@ -141,12 +171,14 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
     passesInRow.value = 0;
     // If all players passed with empty stack, advance step
     if (allPassed) {
-      advanceStep = true;
       stateAny.priorityPassedBy = new Set<string>(); // Reset tracking
       // Priority stays with the active player (turn player) for the next step
-      state.priority = state.turnPlayer as PlayerID;
-      // Note: Don't auto-pass here because we're advancing to the next step.
-      // The step advancement logic will give priority and can check auto-pass there.
+      state.priority = turnPlayer;
+      if (!shouldBlockStepAdvance(ctx)) {
+        advanceStep = true;
+      } else {
+        debug(1, `[priority] Cannot advance step - pending interactions: ${getPendingInteractions(ctx).pendingTypes.join(', ')}`);
+      }
     } else {
       // Not all players have passed yet, advance priority clockwise
       state.priority = advancePriorityClockwise(ctx, playerId);
@@ -161,9 +193,13 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
           if (result.resolved) {
             // Stack was resolved
             resolvedNow = true;
-          } else {
+          } else if (!shouldBlockStepAdvance(ctx)) {
             // Empty stack - advance step
             advanceStep = true;
+          } else {
+            stateAny.priorityPassedBy = new Set<string>();
+            state.priority = turnPlayer;
+            debug(1, `[priority] Cannot advance step after auto-pass - pending interactions`);
           }
         }
       }
@@ -193,6 +229,8 @@ export function tryAutoPass(ctx: GameContext): { allPassed: boolean; resolved: b
     if (result.resolved) {
       // Stack was resolved
       return { allPassed: true, resolved: true, advanceStep: false };
+    } else if (shouldBlockStepAdvance(ctx)) {
+      return { allPassed: false, resolved: false, advanceStep: false };
     } else {
       // Empty stack - should advance step
       return { allPassed: true, resolved: false, advanceStep: true };
@@ -278,6 +316,11 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
         stateAny.priorityPassedBy = new Set<string>();
         state.priority = state.turnPlayer as PlayerID;
         return { allPassed: true, resolved: true };
+      } else if (shouldBlockStepAdvance(ctx)) {
+        stateAny.priorityPassedBy = new Set<string>();
+        state.priority = turnPlayer;
+        debug(2, `[priority] autoPassLoop - all passed but cannot advance (pending interactions)`);
+        return { allPassed: false, resolved: false };
       } else {
         // Advance step
         stateAny.priorityPassedBy = new Set<string>();
@@ -305,6 +348,17 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
     const autoPassForTurn = stateAny.autoPassForTurn?.[currentPlayer] || false;
     const triggerAutoPassReason = getTopTriggeredAbilityAutoPassReason(state, currentPlayer);
     const currentStep = String(stateAny.step || '').toUpperCase();
+
+    if (
+      autoPassForTurn
+      && isDeclareAttackersStep(currentStep)
+      && currentPlayer === turnPlayer
+      && turnPlayerHasNotDeclaredAttackers(stateAny, turnPlayer)
+      && turnPlayerMustDeclareAttackers(ctx, turnPlayer)
+    ) {
+      debug(2, `[priority] autoPassLoop - stopping at ${turnPlayer}: must declare attackers (auto-pass for turn blocked)`);
+      return { allPassed: false, resolved: false };
+    }
 
     // If player has "Auto-Pass Rest of Turn" enabled, skip all ability checks
     // and auto-pass them through everything

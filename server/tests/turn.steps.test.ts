@@ -32,6 +32,11 @@ function buildPreparedCleanupCard() {
   };
 }
 
+function markAttackersDeclaredForTurnPlayer(g: ReturnType<typeof createInitialGameState>) {
+  const turnPlayer = String(g.state.turnPlayer || '');
+  (g.state as any).attackersDeclaredBy = turnPlayer ? [turnPlayer] : [];
+}
+
 describe('Turn step engine basics', () => {
   it('advances steps with untap and draw automation, and maps phases for main steps', () => {
     const g = createInitialGameState('t_steps_1');
@@ -83,6 +88,7 @@ describe('Turn step engine basics', () => {
     // Skip through combat micro-steps
     g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
     g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
+    markAttackersDeclaredForTurnPlayer(g);
     g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
     g.applyEvent({ type: 'nextStep' }); // DAMAGE
     g.applyEvent({ type: 'nextStep' }); // END_COMBAT
@@ -101,6 +107,51 @@ describe('Turn step engine basics', () => {
     expect(g.state.turnPlayer).not.toBe(prevTurnPlayer);
     expect(g.state.phase).toBe(GamePhase.BEGINNING);
     expect(g.state.step).toBe(GameStep.UNTAP);
+  });
+
+  it('clears damageMarked from permanents during cleanup step (Rule 514.2)', () => {
+    const g = createInitialGameState('t_steps_cleanup_damage');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    const sampleDeck = Array.from({ length: 10 }, (_, i) => ({
+      id: `card_${i}`,
+      name: `Test Card ${i}`,
+      type_line: 'Creature',
+      oracle_text: '',
+    }));
+    g.importDeckResolved(p1, sampleDeck);
+    g.importDeckResolved(p2, sampleDeck);
+
+    g.applyEvent({ type: 'nextTurn' });
+
+    g.createToken(g.state.turnPlayer, 'Damaged Test', 3, 3, 3);
+    const damagedPerm = g.state.battlefield[0] as any;
+    damagedPerm.damageMarked = 2;
+    damagedPerm.markedDamage = 1;
+
+    g.applyEvent({ type: 'nextStep' }); // UPKEEP
+    g.applyEvent({ type: 'nextStep' }); // DRAW
+    g.applyEvent({ type: 'nextStep' }); // MAIN1
+    g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
+    g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
+    markAttackersDeclaredForTurnPlayer(g);
+    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
+    g.applyEvent({ type: 'nextStep' }); // DAMAGE
+    g.applyEvent({ type: 'nextStep' }); // END_COMBAT
+    g.applyEvent({ type: 'nextStep' }); // MAIN2
+    g.applyEvent({ type: 'nextStep' }); // END
+
+    expect(Number(damagedPerm.damageMarked || 0)).toBe(2);
+
+    g.applyEvent({ type: 'nextStep' }); // CLEANUP -> next turn
+
+    expect(Number(damagedPerm.damageMarked || 0)).toBe(0);
+    expect(Number(damagedPerm.markedDamage || 0)).toBe(0);
+    expect(Boolean(damagedPerm.deathtouchDamageMarked)).toBe(false);
   });
 
   it('pauses at cleanup step when Sundial of the Infinite is on battlefield', () => {
@@ -150,6 +201,7 @@ describe('Turn step engine basics', () => {
     g.applyEvent({ type: 'nextStep' }); // MAIN1
     g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
     g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
+    markAttackersDeclaredForTurnPlayer(g);
     g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
     g.applyEvent({ type: 'nextStep' }); // DAMAGE
     g.applyEvent({ type: 'nextStep' }); // END_COMBAT
@@ -237,5 +289,80 @@ describe('Turn step engine basics', () => {
       preparedSourcePermanentId: 'prepared_cleanup_perm',
     });
     expect((g.state as any).controlChangeEffects).toBeUndefined();
+  });
+});
+
+describe('Declare attackers step guards', () => {
+  it('blocks turn player from passing priority until attackers are declared', () => {
+    const g = createInitialGameState('declare_attackers_pass_block');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'Attacker' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'Defender' });
+
+    g.createToken(p1, 'Goblin', 1, 2, 1);
+
+    (g.state as any).phase = GamePhase.COMBAT;
+    (g.state as any).step = GameStep.DECLARE_ATTACKERS;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+    (g.state as any).stack = [];
+    (g.state as any).attackersDeclaredBy = [];
+
+    const blocked = g.passPriority(p1);
+    expect(blocked.changed).toBe(false);
+    expect(blocked.advanceStep).toBe(false);
+    expect(g.state.priority).toBe(p1);
+    expect(String((g.state as any).step || '').toUpperCase()).toBe('DECLARE_ATTACKERS');
+  });
+
+  it('does not advance to declare blockers when all opponents pass without attacker declaration', () => {
+    const g = createInitialGameState('declare_attackers_no_skip');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'Attacker' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'Defender' });
+
+    g.createToken(p1, 'Goblin', 1, 2, 1);
+
+    (g.state as any).phase = GamePhase.COMBAT;
+    (g.state as any).step = GameStep.DECLARE_ATTACKERS;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p2;
+    (g.state as any).stack = [];
+    (g.state as any).attackersDeclaredBy = [];
+    (g.state as any).priorityPassedBy = new Set([p1]);
+
+    const result = g.passPriority(p2, true);
+    expect(result.advanceStep).toBe(false);
+    expect(String((g.state as any).step || '').toUpperCase()).toBe('DECLARE_ATTACKERS');
+    expect(g.state.priority).toBe(p1);
+  });
+
+  it('allows advancing after turn player declares attackers and all players pass', () => {
+    const g = createInitialGameState('declare_attackers_after_declare');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'Attacker' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'Defender' });
+
+    (g.state as any).phase = GamePhase.COMBAT;
+    (g.state as any).step = GameStep.DECLARE_ATTACKERS;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+    (g.state as any).stack = [];
+    (g.state as any).attackersDeclaredBy = [p1];
+
+    g.passPriority(p1);
+    expect(g.state.priority).toBe(p2);
+
+    const result = g.passPriority(p2);
+    expect(result.advanceStep).toBe(true);
   });
 });

@@ -712,9 +712,181 @@ function parseActivationCost(oracleText: string, abilityPattern: RegExp): {
   
   const requiresTap = costStr.includes('{t}') || costStr.includes('tap');
   const manaCostMatch = costStr.match(/\{[^}]+\}/g);
-  const manaCost = manaCostMatch ? manaCostMatch.filter(c => !c.includes('T')).join('') : "";
+  const manaCost = manaCostMatch ? manaCostMatch.filter(c => !/\{t\}/i.test(c)).join('') : "";
   
   return { requiresTap, manaCost, costText: costStr };
+}
+
+type BattlefieldManaPaymentResult = 'paid' | 'queued' | 'failed';
+
+function payBattlefieldAbilityManaCostOrQueue(params: {
+  game: any;
+  gameId: string;
+  pid: string;
+  permanentId: string;
+  abilityId: string;
+  cardName: string;
+  card: any;
+  manaCost: string;
+  requiresTap: boolean;
+  activatedAbilityText: string;
+  activationPaymentContext: string;
+  deferredActivationFields?: Record<string, unknown>;
+}): BattlefieldManaPaymentResult {
+  const parsedCost = parseManaCost(params.manaCost);
+  const pool = getOrInitManaPool(params.game.state, params.pid);
+  const totalAvailable = calculateTotalAvailableMana(pool, []);
+  const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+
+  if (!validationError) {
+    consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateBattlefieldAbility:${params.activationPaymentContext}]`);
+    return 'paid';
+  }
+
+  if (!canPayManaCostWithAvailableSources(params.game.state, params.pid, parsedCost)) {
+    return 'failed';
+  }
+
+  ResolutionQueueManager.addStep(params.gameId, {
+    type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+    playerId: params.pid as PlayerID,
+    sourceId: params.permanentId,
+    sourceName: params.cardName,
+    sourceImage: (params.card as any)?.image_uris?.small || (params.card as any)?.image_uris?.normal,
+    description: `Choose how to pay ${params.manaCost} for ${params.cardName}.`,
+    mandatory: true,
+    activationPaymentChoice: true,
+    activationPaymentContext: params.activationPaymentContext,
+    confirmLabel: 'Pay and Activate',
+    permanentId: params.permanentId,
+    abilityId: params.abilityId,
+    cardName: params.cardName,
+    activatedAbilityText: params.activatedAbilityText,
+    manaCost: params.manaCost,
+    requiresTap: params.requiresTap,
+    ...(params.deferredActivationFields || null),
+  } as any);
+
+  return 'queued';
+}
+
+function buildCounterTargetValidTargets(
+  gameState: any,
+  pid: string,
+  targetType: string,
+  targetController: 'opponent' | 'any' | 'you',
+): Array<{ id: string; label: string; description: string; imageUrl?: string }> {
+  const battlefield = gameState?.battlefield || [];
+  const targetTypeLower = String(targetType || '').toLowerCase();
+  const wantsCreature = targetTypeLower.includes('creature');
+
+  return (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
+    if (!perm || typeof perm.id !== 'string') return false;
+    if (wantsCreature) {
+      const tl = String(perm.card?.type_line || '').toLowerCase();
+      if (!tl.includes('creature')) return false;
+    }
+    if (targetController === 'you' && perm.controller !== pid) return false;
+    if (targetController === 'opponent' && perm.controller === pid) return false;
+    return true;
+  }).map((perm: any) => ({
+    id: String(perm.id),
+    label: String(perm.card?.name || 'permanent'),
+    description: 'permanent',
+    imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+  }));
+}
+
+export function queueCounterTargetStepForBattlefieldAbility(params: {
+  gameId: string;
+  game: any;
+  pid: string;
+  permanentId: string;
+  abilityId: string;
+  card: any;
+  cardName: string;
+  scopedAbilityFullText: string;
+  counterType: string;
+  targetController: 'opponent' | 'any' | 'you';
+  scalingText: string | null;
+  targetType: string;
+  requiresTap?: boolean;
+  manaPoolBeforePayment?: Record<string, number>;
+  poolAfterPayment?: any;
+  tappedPermanentIds?: string[];
+}): ReturnType<typeof ResolutionQueueManager.addStep> | null {
+  const wantsCreature = String(params.targetType || '').toLowerCase().includes('creature');
+  const validTargets = buildCounterTargetValidTargets(
+    params.game.state,
+    params.pid,
+    params.targetType,
+    params.targetController,
+  );
+  if (validTargets.length === 0) {
+    return null;
+  }
+
+  const counterStep = ResolutionQueueManager.addStep(params.gameId, {
+    type: ResolutionStepType.COUNTER_TARGET,
+    playerId: params.pid as PlayerID,
+    sourceId: params.permanentId,
+    sourceName: params.cardName,
+    sourceImage: (params.card as any)?.image_uris?.small || (params.card as any)?.image_uris?.normal,
+    description: params.scopedAbilityFullText,
+    mandatory: true,
+    counterType: params.counterType,
+    targetController: params.targetController,
+    oracleText: params.scopedAbilityFullText,
+    scalingText: params.scalingText,
+    validTargets,
+    targetTypes: wantsCreature ? ['creature'] : ['permanent'],
+    minTargets: 1,
+    maxTargets: 1,
+    targetDescription: String(params.targetType || '').toLowerCase() || 'target',
+    title: `${params.cardName} - Add ${params.counterType} counter`,
+  });
+
+  if (typeof params.game.bumpSeq === 'function') {
+    params.game.bumpSeq();
+  }
+
+  persistQueuedBattlefieldAbilityStepActivation({
+    gameId: params.gameId,
+    game: params.game,
+    playerId: String(params.pid),
+    permanentId: String(params.permanentId),
+    abilityId: String(params.abilityId),
+    cardName: params.cardName,
+    activatedAbilityText: String(params.scopedAbilityFullText || '').trim(),
+    tappedPermanents: params.requiresTap || (params.tappedPermanentIds || []).length > 0
+      ? Array.from(new Set([...(params.tappedPermanentIds || []), ...(params.requiresTap ? [String(params.permanentId)] : [])]))
+      : undefined,
+    paymentManaDelta: params.manaPoolBeforePayment && params.poolAfterPayment
+      ? calculateInteractionManaPoolDelta(params.manaPoolBeforePayment, params.poolAfterPayment)
+      : undefined,
+    queuedStep: {
+      id: String((counterStep as any).id || ''),
+      type: ResolutionStepType.COUNTER_TARGET,
+      playerId: params.pid,
+      sourceId: params.permanentId,
+      sourceName: params.cardName,
+      sourceImage: (params.card as any)?.image_uris?.small || (params.card as any)?.image_uris?.normal,
+      description: params.scopedAbilityFullText,
+      mandatory: true,
+      counterType: params.counterType,
+      targetController: params.targetController,
+      oracleText: params.scopedAbilityFullText,
+      scalingText: params.scalingText,
+      validTargets: validTargets.map((target) => ({ ...target })),
+      targetTypes: wantsCreature ? ['creature'] : ['permanent'],
+      minTargets: 1,
+      maxTargets: 1,
+      targetDescription: String(params.targetType || '').toLowerCase() || 'target',
+      title: `${params.cardName} - Add ${params.counterType} counter`,
+    },
+  });
+
+  return counterStep;
 }
 
 function costRequiresSelfExert(costText: string): boolean {
@@ -7261,6 +7433,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const { requiresTap, manaCost } = parseActivationCost(scopedAbilityFullText, /put (?:a|an|one) [^\s]+ counter/i);
       let manaPoolBeforePayment: Record<string, number> | undefined;
       let poolAfterPayment: any;
+
+      const isCreaturePermanent = /\bcreature\b/.test(typeLine) && !typeLine.includes('land');
+      if (requiresTap && isCreaturePermanent) {
+        if ((permanent as any).summoningSickness && !creatureHasHaste(permanent, battlefield, pid)) {
+          socket.emit('error', {
+            code: 'SUMMONING_SICKNESS',
+            message: `${cardName} has summoning sickness and cannot use tap abilities this turn`,
+          });
+          return;
+        }
+      }
       
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
@@ -7271,20 +7454,47 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       if (manaCost) {
-        // Validate and consume mana
-        const parsedCost = parseManaCost(manaCost);
         const pool = getOrInitManaPool(game.state, pid);
         manaPoolBeforePayment = snapshotInteractionManaPool(pool);
         poolAfterPayment = pool;
-        const totalAvailable = calculateTotalAvailableMana(pool, []);
-        
-        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-        if (validationError) {
-          socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+        const paymentResult = payBattlefieldAbilityManaCostOrQueue({
+          game,
+          gameId,
+          pid,
+          permanentId: String(permanentId),
+          abilityId: String(abilityId),
+          cardName,
+          card,
+          manaCost,
+          requiresTap,
+          activatedAbilityText: scopedAbilityFullText,
+          activationPaymentContext: 'battlefield_counter_target',
+          deferredActivationFields: {
+            counterType,
+            targetController: targetRestriction?.includes("don't control") || targetRestriction?.includes('do not control')
+              ? 'opponent'
+              : targetRestriction?.includes('you control')
+                ? 'you'
+                : 'any',
+            targetType,
+            scalingText,
+            scopedAbilityFullText,
+          },
+        });
+        if (paymentResult === 'failed') {
+          socket.emit('error', {
+            code: 'INSUFFICIENT_MANA',
+            message: `Cannot pay ${manaCost} to activate ${cardName}.`,
+          });
           return;
         }
-        
-        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:counter]');
+        if (paymentResult === 'queued') {
+          if (typeof game.bumpSeq === 'function') {
+            game.bumpSeq();
+          }
+          broadcastGame(io, game, gameId);
+          return;
+        }
       }
       
       // Tap the permanent if required
@@ -7301,86 +7511,38 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           targetController = 'you';
         }
       }
-      
-      // Store pending counter activation
 
-      // Compute valid targets now (client no longer listens for bespoke counterTargetRequest).
-      const battlefield = game.state?.battlefield || [];
-      const targetTypeLower = String(targetType || '').toLowerCase();
-      const wantsCreature = targetTypeLower.includes('creature');
-
-      const validTargets = (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
-        if (!perm || typeof perm.id !== 'string') return false;
-        if (wantsCreature) {
-          const tl = String(perm.card?.type_line || '').toLowerCase();
-          if (!tl.includes('creature')) return false;
-        }
-        if (targetController === 'you' && perm.controller !== pid) return false;
-        if (targetController === 'opponent' && perm.controller === pid) return false;
-        return true;
-      }).map((perm: any) => ({
-        id: String(perm.id),
-        label: String(perm.card?.name || 'permanent'),
-        description: 'permanent',
-        imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
-      }));
-
-      // Queue target selection via Resolution Queue
-      const counterStep = ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.COUNTER_TARGET,
-        playerId: pid as PlayerID,
-        sourceId: permanentId,
-        sourceName: cardName,
-        sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-        description: scopedAbilityFullText,
-        mandatory: true,
-        counterType,
-        targetController,
-        oracleText: scopedAbilityFullText,
-        scalingText,
-        validTargets,
-        targetTypes: wantsCreature ? ['creature'] : ['permanent'],
-        minTargets: 1,
-        maxTargets: 1,
-        targetDescription: targetTypeLower || 'target',
-        title: `${cardName} - Add ${counterType} counter`,
-      });
-      
-      debug(2, `[activateBattlefieldAbility] Counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target (controller: ${targetController}, counter: ${counterType})`);
-      if (typeof game.bumpSeq === 'function') {
-        game.bumpSeq();
-      }
-      persistQueuedBattlefieldAbilityStepActivation({
+      const counterStep = queueCounterTargetStepForBattlefieldAbility({
         gameId,
         game,
-        playerId: String(pid),
+        pid,
         permanentId: String(permanentId),
         abilityId: String(abilityId),
+        card,
         cardName,
-        activatedAbilityText: String(scopedAbilityFullText || '').trim(),
-        tappedPermanents: requiresTap ? [String(permanentId)] : undefined,
-        paymentManaDelta: manaPoolBeforePayment && poolAfterPayment ? calculateInteractionManaPoolDelta(manaPoolBeforePayment, poolAfterPayment) : undefined,
-        queuedStep: {
-          id: String((counterStep as any).id || ''),
-          type: ResolutionStepType.COUNTER_TARGET,
-          playerId: pid,
-          sourceId: permanentId,
-          sourceName: cardName,
-          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-          description: scopedAbilityFullText,
-          mandatory: true,
-          counterType,
-          targetController,
-          oracleText: scopedAbilityFullText,
-          scalingText,
-          validTargets: validTargets.map((target: any) => ({ ...target })),
-          targetTypes: wantsCreature ? ['creature'] : ['permanent'],
-          minTargets: 1,
-          maxTargets: 1,
-          targetDescription: targetTypeLower || 'target',
-          title: `${cardName} - Add ${counterType} counter`,
-        },
+        scopedAbilityFullText,
+        counterType,
+        targetController,
+        scalingText,
+        targetType,
+        requiresTap,
+        manaPoolBeforePayment,
+        poolAfterPayment,
       });
+      if (!counterStep) {
+        if (requiresTap) {
+          (permanent as any).tapped = false;
+        }
+        socket.emit('error', {
+          code: 'NO_VALID_TARGETS',
+          message: targetController === 'opponent'
+            ? `No valid opponent ${targetType || 'permanent'} targets for ${cardName}.`
+            : `No valid ${targetType || 'permanent'} targets for ${cardName}.`,
+        });
+        return;
+      }
+      
+      debug(2, `[activateBattlefieldAbility] Counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target (controller: ${targetController}, counter: ${counterType})`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -13015,6 +13177,74 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       // Handle standard mana abilities
       else {
+        const scopedManaProduction = calculateManaProduction(
+          game.state,
+          permanent,
+          pid,
+          undefined,
+          String(abilityId || ''),
+        );
+
+        if (
+          scopedManaProduction.requiresColorChoice === true
+          && scopedManaProduction.dynamicAmountSource === 'devotion'
+        ) {
+          const combinationFields = buildAnyCombinationManaSelectionFields({
+            totalAmount: 0,
+            cardName,
+            allowedColors: ['W', 'U', 'B', 'R', 'G'],
+          });
+          const queuedManaChoiceStep = ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MANA_COLOR_SELECTION,
+            playerId: pid as PlayerID,
+            sourceId: permanentId,
+            sourceName: cardName,
+            sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+            description: combinationFields.description,
+            mandatory: true,
+            selectionKind: combinationFields.selectionKind,
+            permanentId,
+            abilityId,
+            cardName,
+            abilityText: String(resolvedAbilityText || '').trim() || String(abilityText || '').trim(),
+            activatedAbilityText: String(resolvedActivatedAbilityText || '').trim(),
+            allowedColors: combinationFields.allowedColors,
+            singleColor: true,
+            dynamicAmountSource: 'devotion',
+            manaMultiplier: effectiveMultiplier,
+            lifeToPayForCost: pendingLifePaymentForCost || undefined,
+            tappedPermanentsForCost: tappedPermanentsForCost,
+            sacrificedPermanentsForCost: sacrificedPermanentsForCost,
+            ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
+          } as any);
+
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+              playerId: pid,
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText: String(resolvedAbilityText || '').trim() || String(abilityText || '').trim(),
+              activatedAbilityText: String(resolvedActivatedAbilityText || '').trim() || undefined,
+              tappedPermanents: tappedPermanentsForCost,
+              queuedResolutionStep: queuedManaChoiceStep,
+            });
+          } catch (err) {
+            debugWarn(1, '[activateBattlefieldAbility] appendEvent(devotion mana color queued step) failed:', err);
+          }
+
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, pid)} activated ${cardName} and must choose a color for devotion mana.`,
+            ts: Date.now(),
+          });
+
+          broadcastGame(io, game, gameId);
+          return;
+        }
+
         const {
           ability,
           produces,

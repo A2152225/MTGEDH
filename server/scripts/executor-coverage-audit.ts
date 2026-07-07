@@ -21,6 +21,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  readOracleCardsSync,
+  resolveOracleCardsPath,
+} from '../src/services/oracleCardsIndex.js';
 import type { GameState, PlayerID } from '../../shared/src/index.js';
 import type { OracleEffectStep } from '../../rules-engine/src/oracleIR.js';
 import type { OracleIRExecutionResult } from '../../rules-engine/src/oracleIRExecutionTypes.js';
@@ -19317,13 +19321,13 @@ async function main(): Promise<void> {
   const args = parseArgs();
   await loadEffectIrParser();
 
-  const oraclePath = path.join(repoRoot, 'oracle-cards.json');
+  const oraclePath = resolveOracleCardsPath(repoRoot);
   if (!fs.existsSync(oraclePath)) {
-    console.error(`oracle-cards.json not found at ${oraclePath}`);
+    console.error(`Oracle cards file not found at ${oraclePath}`);
     process.exit(1);
   }
 
-  const cards = JSON.parse(fs.readFileSync(oraclePath, 'utf8')) as OracleCard[];
+  const cards = readOracleCardsSync(repoRoot) as OracleCard[];
   const patterns = new Map<string, PatternRecord>();
   const gapCards = new Set<string>();
 

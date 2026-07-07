@@ -10,9 +10,10 @@ import { canPermanentBeTargetedByPlayer } from '../../rules-engine/targeting.js'
 import { getEffectivePower } from '../../socket/util.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
 import { applyFightDamageBetweenCreatures } from './combat-damage-processing.js';
-import { runSBA } from './counters_tokens.js';
+import { runSBA, updateCounters } from './counters_tokens.js';
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from './triggers/damage-received.js';
 import { attachEquipmentToCreature } from './triggerEquipmentUtils.js';
+import { drawCards } from './zones.js';
 
 function resolveCreatureUpgradeAbility(ctx: GameContext, item: any, controller: PlayerID): void {
   const state = (ctx as any).state;
@@ -66,6 +67,74 @@ function resolveCreatureUpgradeAbility(ctx: GameContext, item: any, controller: 
   }
 
   debug(1, `[resolveCreatureUpgradeAbility] Creature upgrade applied to ${sourceName}: ${changes.join(', ')}`);
+}
+
+function resolveAddCounterAbility(ctx: GameContext, item: any, controller: PlayerID): void {
+  const state = (ctx as any).state;
+  const sourceName = item?.sourceName || 'Unknown';
+  const counterParams = item?.counterParams || {};
+  const targetId = String(counterParams.targetId || item?.targets?.[0] || '');
+  const counterType = String(counterParams.counterType || '').toLowerCase();
+  debug(2, `[resolveAddCounterAbility] Resolving add-counter ability from ${sourceName} for ${controller}`);
+
+  if (!targetId || !counterType) {
+    debugWarn(2, `[resolveAddCounterAbility] Missing target or counter type`);
+    return;
+  }
+
+  const battlefield = state.battlefield || [];
+  const targetPermanent = battlefield.find((entry: any) => entry.id === targetId);
+  if (!targetPermanent) {
+    debug(2, `[resolveAddCounterAbility] Target ${counterParams.targetName || targetId} no longer on battlefield`);
+    return;
+  }
+
+  const targetControllerRule: 'opponent' | 'any' | 'you' = counterParams.targetControllerRule || 'any';
+  if (targetControllerRule === 'you' && String(targetPermanent.controller) !== String(controller)) {
+    debug(2, `[resolveAddCounterAbility] Target is no longer controlled by activating player`);
+    return;
+  }
+  if (targetControllerRule === 'opponent' && String(targetPermanent.controller) === String(controller)) {
+    debug(2, `[resolveAddCounterAbility] Target is no longer an opponent permanent`);
+    return;
+  }
+  if (!canPermanentBeTargetedByPlayer(targetPermanent as any, state as any, controller as any)) {
+    debug(2, `[resolveAddCounterAbility] Target ${counterParams.targetName || targetId} is no longer a legal target`);
+    return;
+  }
+
+  updateCounters(ctx, targetId, { [counterType]: 1 }, { skipEventPersistence: true });
+
+  const targetName = String((targetPermanent as any).card?.name || counterParams.targetName || 'permanent');
+  const targetController = String((targetPermanent as any).controller || '').trim();
+  const oracleText = String(counterParams.oracleText || item?.activatedAbilityText || item?.description || '');
+
+  if (/draw a card/i.test(oracleText) && targetController) {
+    try {
+      drawCards(ctx, targetController as PlayerID, 1);
+    } catch (err) {
+      debugWarn(1, '[resolveAddCounterAbility] drawCards failed:', err);
+    }
+  }
+
+  try {
+    const gameId = String((ctx as any).gameId || '').trim();
+    if (gameId) {
+      appendEvent(gameId, (state as any).seq ?? 0, 'counterTargetChosen', {
+        playerId: controller,
+        sourceName,
+        sourceId: String(item?.source || ''),
+        targetId,
+        targetName,
+        counterType,
+      });
+    }
+  } catch (err) {
+    debugWarn(1, '[resolveAddCounterAbility] appendEvent(counterTargetChosen) failed:', err);
+  }
+
+  debug(2, `[resolveAddCounterAbility] ${sourceName} put a ${counterType} counter on ${targetName}`);
+  runSBA(ctx);
 }
 
 function resolveFightAbility(ctx: GameContext, item: any, controller: PlayerID): void {
@@ -487,6 +556,11 @@ export function tryResolveStackActivatedAbilityMidHandlers(
   }
   if (abilityType === 'fight') {
     resolveFightAbility(ctx, item, controller);
+    ctx.bumpSeq();
+    return true;
+  }
+  if (abilityType === 'add_counter') {
+    resolveAddCounterAbility(ctx, item, controller);
     ctx.bumpSeq();
     return true;
   }

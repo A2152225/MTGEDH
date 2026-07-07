@@ -271,6 +271,7 @@ export function CardOverlay({
           'energy': { color: '#f59e0b', icon: '🔋' },
           'poison': { color: '#84cc16', icon: '☠️' },
           'bounty': { color: '#eab308', icon: '💰' },
+          'bribery': { color: '#ca8a04', icon: '🪙' },
           'doom': { color: '#7c3aed', icon: '💀' },
           'hatchling': { color: '#f97316', icon: '🥚' },
           'brick': { color: '#d97706', icon: '🧱' },

@@ -19,7 +19,8 @@ import {
 import { syncArcaneAdaptationForNewCreature } from './chosen-creature-type.js';
 import { applyMetallicMimicEntryBonus } from './triggerChosenTypeSpellUtils.js';
 import { cardEntersPrepared, setPermanentPrepared } from './prepared.js';
-import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
+import { hydratePermanentCardOracleInPlace, hydrateCardOracleInPlace } from './cardOracleHydration.js';
+import { lookupLocalCardByNameSync } from '../../services/localCardLookup.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { parseTriggeredAbilitiesFromText, TriggerEvent as ParsedTriggerEvent } from '../../../../rules-engine/src/triggeredAbilities.js';
 import type {
@@ -29,9 +30,42 @@ import type {
 
 export type { PermanentBattlefieldEntryOutcome } from './stackResolveSharedTypes.js';
 
+function readPrintedLoyalty(source: unknown): number | undefined {
+  if (!source || typeof source !== 'object') return undefined;
+  const raw = (source as { loyalty?: unknown }).loyalty;
+  if (raw == null || String(raw).trim() === '') return undefined;
+  const parsed = parseInt(String(raw), 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function getEnteringPlaneswalkerLoyaltyValue(_state: unknown, _controller: unknown, card: any): number | undefined {
-  const loyalty = card?.loyalty != null ? parseInt(String(card.loyalty), 10) : NaN;
-  return Number.isFinite(loyalty) ? loyalty : undefined;
+  if (!card || typeof card !== 'object') return undefined;
+
+  hydrateCardOracleInPlace(card);
+
+  const direct = readPrintedLoyalty(card);
+  if (direct != null) return direct;
+
+  const faces = Array.isArray((card as any).card_faces) ? (card as any).card_faces : [];
+  for (const face of faces) {
+    const faceLoyalty = readPrintedLoyalty(face);
+    if (faceLoyalty != null) return faceLoyalty;
+  }
+
+  const cardName = String((card as any).name || '').trim();
+  if (!cardName) return undefined;
+
+  const record = lookupLocalCardByNameSync(cardName);
+  const fromLookup = readPrintedLoyalty(record);
+  if (fromLookup != null) return fromLookup;
+
+  const lookupFaces = Array.isArray(record?.card_faces) ? record.card_faces : [];
+  for (const face of lookupFaces) {
+    const faceLoyalty = readPrintedLoyalty(face);
+    if (faceLoyalty != null) return faceLoyalty;
+  }
+
+  return undefined;
 }
 
 function buildFullTriggeredAbilityText(trigger: any): string {
@@ -485,9 +519,20 @@ export function resolvePermanentSpellBattlefieldEntry(
   
   // Add loyalty metadata only for planeswalkers
   if (isPlaneswalker) {
-    // Keep both for client display: loyalty = current counters, baseLoyalty = printed
-    newPermanent.loyalty = modifiedCounters.loyalty ?? initialCounters.loyalty;
-    newPermanent.baseLoyalty = initialCounters.loyalty ?? 0;
+    const resolvedLoyalty = modifiedCounters.loyalty
+      ?? initialCounters.loyalty
+      ?? getEnteringPlaneswalkerLoyaltyValue(state, controller, effectiveCard);
+    if (typeof resolvedLoyalty === 'number' && resolvedLoyalty > 0) {
+      newPermanent.loyalty = resolvedLoyalty;
+      newPermanent.baseLoyalty = resolvedLoyalty;
+      if (!newPermanent.counters || typeof newPermanent.counters !== 'object') {
+        newPermanent.counters = { loyalty: resolvedLoyalty };
+      } else if ((newPermanent.counters as any).loyalty == null) {
+        (newPermanent.counters as any).loyalty = resolvedLoyalty;
+      }
+    } else {
+      debugWarn(1, `[PLANESWALKER] ${effectiveCard.name} entering without loyalty counters`);
+    }
     debug(1, `[PLANESWALKER DEBUG] ${effectiveCard.name} entering battlefield:`, {
       loyalty: newPermanent.loyalty,
       baseLoyalty: newPermanent.baseLoyalty,

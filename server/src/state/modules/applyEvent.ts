@@ -2558,13 +2558,22 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         updateCounters(
           ctx as any,
           (e as any).permanentId,
-          (e as any).deltas || {}
+          (e as any).deltas || {},
+          {
+            skipCounterModifications: (e as any).skipCounterModifications === true,
+            deferRunSBA: (e as any).deferRunSBA === true,
+            skipEventPersistence: true,
+          },
         );
         break;
       }
 
       case "updateCountersBulk": {
-        applyUpdateCountersBulk(ctx as any, (e as any).updates || []);
+        applyUpdateCountersBulk(ctx as any, (e as any).updates || [], {
+          skipCounterModifications: (e as any).skipCounterModifications === true,
+          deferRunSBA: (e as any).deferRunSBA === true,
+          skipEventPersistence: true,
+        });
         break;
       }
 
@@ -8781,6 +8790,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const isEquipActivation = persistedAbilityType === 'equip';
             const isFortifyActivation = persistedAbilityType === 'fortify';
             const isFightActivation = persistedAbilityType === 'fight';
+            const isAddCounterActivation = persistedAbilityType === 'add_counter';
             const isLevelUpActivation = persistedAbilityType === 'level_up';
             const isOutlastActivation = persistedAbilityType === 'outlast';
             const isMonstrosityActivation = persistedAbilityType === 'monstrosity';
@@ -8810,6 +8820,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               isEquipActivation ||
               isFortifyActivation ||
               isFightActivation ||
+              isAddCounterActivation ||
               isLevelUpActivation ||
               isOutlastActivation ||
               isMonstrosityActivation ||
@@ -8919,6 +8930,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     sourceCreatureName: String((e as any).cardName || rebuiltStackItem.sourceName || 'Creature'),
                     targetCreatureName: String(validTarget?.name || validTarget?.card?.name || ''),
                   };
+                } else if (isAddCounterActivation) {
+                  const targetPermanentId = String(persistedTargets?.[0] || (e as any)?.counterParams?.targetId || '');
+                  const validTarget = retargetValidTargets
+                    ? retargetValidTargets.find((target: any) => String(target?.id || '') === targetPermanentId)
+                    : battlefield.find((target: any) => target && String(target.id || '') === targetPermanentId);
+                  const counterParams = (e as any)?.counterParams || {};
+                  rebuiltStackItem.abilityType = 'add_counter';
+                  rebuiltStackItem.counterParams = {
+                    targetId: targetPermanentId,
+                    targetName: String(counterParams.targetName || validTarget?.name || validTarget?.card?.name || ''),
+                    counterType: String(counterParams.counterType || ''),
+                    targetControllerRule: counterParams.targetControllerRule || 'any',
+                    oracleText: String(counterParams.oracleText || activatedAbilityText || replayAbilityDescription || ''),
+                    scalingText: counterParams.scalingText ? String(counterParams.scalingText) : null,
+                  };
                 } else if (isLevelUpActivation) {
                   rebuiltStackItem.abilityType = 'level_up';
                   rebuiltStackItem.levelUpParams = {
@@ -9019,6 +9045,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                       targetCreatureId,
                       sourceCreatureName: String((e as any).cardName || item.sourceName || 'Creature'),
                       targetCreatureName: String(validTarget?.name || ''),
+                    };
+                  } else if (isAddCounterActivation) {
+                    const targetPermanentId = String(persistedTargets?.[0] || (e as any)?.counterParams?.targetId || '');
+                    const validTarget = retargetValidTargets
+                      ? retargetValidTargets.find((target: any) => String(target?.id || '') === targetPermanentId)
+                      : null;
+                    const counterParams = (e as any)?.counterParams || {};
+                    (item as any).abilityType = 'add_counter';
+                    (item as any).counterParams = {
+                      targetId: targetPermanentId,
+                      targetName: String(counterParams.targetName || validTarget?.name || ''),
+                      counterType: String(counterParams.counterType || ''),
+                      targetControllerRule: counterParams.targetControllerRule || 'any',
+                      oracleText: String(counterParams.oracleText || activatedAbilityText || ''),
+                      scalingText: counterParams.scalingText ? String(counterParams.scalingText) : null,
                     };
                   } else if (isLevelUpActivation) {
                     (item as any).abilityType = 'level_up';

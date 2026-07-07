@@ -12,8 +12,15 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
-import { getThresholdActivationStatus, parseActivatedAbilities as parseAbilitiesFull, type ParsedActivatedAbility } from '../utils/activatedAbilityParser';
+import {
+  getThresholdActivationStatus,
+  parseActivatedAbilities as parseAbilitiesFull,
+  getActivatedAbilityActivationStatus,
+  type ParsedActivatedAbility,
+  type ActivationContext,
+} from '../utils/activatedAbilityParser';
 import { getBattlefieldTapActionDecision } from '../utils/battlefieldTapAction';
+import { canCreatureUseTapAbilityNow, hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
 
 export interface ActivatedAbilityOption {
   id: string;
@@ -158,6 +165,17 @@ export function CardContextMenu({
   const tapMenuTitle = !isTapped && tapActionDecision.kind === 'disabled'
     ? tapActionDecision.reason
     : undefined;
+
+  const activationContext = useMemo((): ActivationContext => ({
+    isTapped,
+    hasSummoningSickness: isCurrentlyCreature(permanent) && !canCreatureUseTapAbilityNow(permanent, battlefield || [permanent]),
+    hasHaste: hasCurrentHaste(permanent, battlefield || [permanent]),
+    hasThousandYearElixirEffect,
+    controllerHasPriority: hasPriority,
+    isMainPhase,
+    isOwnTurn,
+    stackEmpty,
+  }), [battlefield, hasPriority, hasThousandYearElixirEffect, isMainPhase, isOwnTurn, isTapped, permanent, stackEmpty]);
   
   // Adjust position to keep menu on screen
   useEffect(() => {
@@ -324,9 +342,16 @@ export function CardContextMenu({
             Abilities
           </div>
           {abilities.map((ability) => {
-            const thresholdCheck = getThresholdActivationStatus(ability as ParsedActivatedAbility, permanent);
-            const canUse = canActivate && (!ability.requiresTap || !isTapped) && thresholdCheck.canActivate;
-            const title = thresholdCheck.reason ? `${ability.description} ${thresholdCheck.reason}` : ability.description;
+            const activationStatus = getActivatedAbilityActivationStatus(
+              parsedAbilities.find((entry) => entry.id === ability.id) || (ability as ParsedActivatedAbility),
+              permanent,
+              activationContext,
+              battlefield || [permanent],
+            );
+            const canUse = canActivate && activationStatus.canActivate;
+            const title = activationStatus.reason
+              ? `${ability.description} (${activationStatus.reason})`
+              : ability.description;
             
             return (
               <div

@@ -21,7 +21,6 @@ import { drawCards } from "./zones.js";
 import { resetConvokeGrantsForNewTurn } from "./casting-modifiers.js";
 import { recalculatePlayerEffects, canDamageBePrevented, clearTemporaryLandBonuses, processLifeChange, resolveCombatDamageToOpponent } from "./game-state-effects.js";
 import { clearTemporaryEtbTriggers } from './triggerEtbEntryEffects.js';
-import { detectEntersWithCounters } from './detectEntersWithCounters.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { 
   getBeginningOfCombatTriggers, 
@@ -48,9 +47,9 @@ import {
   resolvePlayerCombatDamage,
 } from "./combat-damage-processing.js";
 import { runSBA, createToken, updateCounters } from "./counters_tokens.js";
-import { applyDamageToPermanentWithCounterEffects, applyShieldCounterDamagePrevention } from "./counter-common-effects.js";
+import { applyDamageToPermanentWithCounterEffects, applyShieldCounterDamagePrevention, clearMarkedPermanentDamage } from "./counter-common-effects.js";
 import { calculateAllPTBonuses, calculateVariablePT, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
-import { canAct, canRespond } from "./can-respond.js";
+import { canAct, canRespond, turnPlayerMustDeclareAttackers } from "./can-respond.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
@@ -1390,11 +1389,35 @@ function checkPendingInteractions(ctx: GameContext): {
       result.details.stackCount = state.stack.length;
     }
     
+    const currentStep = (state.step || '').toString().toUpperCase();
+
+    // Check for pending attacker declarations during DECLARE_ATTACKERS step.
+    // Per Rule 508.1, the active player must declare attackers before the step can end.
+    if (currentStep === 'DECLARE_ATTACKERS' || (currentStep.includes('ATTACKERS') && !currentStep.includes('BLOCKERS'))) {
+      const turnPlayer = String(state.turnPlayer || '').trim();
+      const attackersDeclaredBy: string[] = Array.isArray(state.attackersDeclaredBy) ? state.attackersDeclaredBy : [];
+
+      if (turnPlayer && !attackersDeclaredBy.includes(turnPlayer)) {
+        if (turnPlayerMustDeclareAttackers(ctx, turnPlayer as PlayerID)) {
+          result.hasPending = true;
+          result.pendingTypes.push('attacker_declaration');
+          result.details.attackersNeeded = true;
+          result.details.turnPlayer = turnPlayer;
+          debug(2, `${ts()} [checkPendingInteractions] Waiting for ${turnPlayer} to declare attackers`);
+        } else {
+          debug(2, `${ts()} [checkPendingInteractions] Auto-declaring empty attackers for ${turnPlayer} (no valid attackers)`);
+          attackersDeclaredBy.push(turnPlayer);
+          state.attackersDeclaredBy = attackersDeclaredBy;
+          state.attackedPlayersThisTurnByPlayer = state.attackedPlayersThisTurnByPlayer || {};
+          state.attackedPlayersThisTurnByPlayer[turnPlayer] = [];
+        }
+      }
+    }
+
     // Check for pending blocker declarations during DECLARE_BLOCKERS step
     // Per Rule 509, defending players must be given the opportunity to declare blockers
     // Blockers are declared in APNAP (Active Player, Non-Active Player) order
     // Don't auto-advance if there are attackers and potential blockers, unless all defenders have declared
-    const currentStep = (state.step || '').toString().toUpperCase();
     if (currentStep === 'DECLARE_BLOCKERS' || currentStep.includes('BLOCKERS')) {
       const battlefield = state.battlefield || [];
       const hasAttackers = battlefield.some((perm: any) => perm && perm.attacking);
@@ -2941,51 +2964,30 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
  * Rule 514.2 / 703.4p: During the cleanup step, all damage marked on permanents
  * is removed simultaneously. This happens after discarding to hand size and
  * before "until end of turn" effects end.
- * 
- * Damage can be tracked in multiple ways:
- * - `markedDamage`: Direct damage tracking property
- * - `damage`: Alternative damage tracking property
- * - `counters.damage`: Counter-based damage tracking
  */
 function clearDamageFromPermanents(ctx: GameContext) {
   try {
     const battlefield = (ctx as any).state?.battlefield;
     if (!Array.isArray(battlefield)) return;
-    
+
     let clearedCount = 0;
-    
+
     for (const permanent of battlefield) {
       if (!permanent) continue;
-      
-      let hadDamage = false;
-      
-      // Clear markedDamage property
-      if (permanent.markedDamage !== undefined && permanent.markedDamage > 0) {
-        hadDamage = true;
-        permanent.markedDamage = 0;
-      }
-      
-      // Clear damage property (alternative tracking)
-      if (permanent.damage !== undefined && permanent.damage > 0) {
-        hadDamage = true;
-        permanent.damage = 0;
-      }
-      if (permanent.deathtouchDamageMarked) {
-        hadDamage = true;
-        permanent.deathtouchDamageMarked = false;
-      }
-      
-      // Clear damage counter if present (safely check for undefined)
-      if (permanent.counters && typeof permanent.counters.damage === 'number' && permanent.counters.damage > 0) {
-        hadDamage = true;
-        permanent.counters.damage = 0;
-      }
-      
-      if (hadDamage) {
-        clearedCount++;
-      }
+
+      const hadDamage =
+        Number(permanent.damageMarked || 0) > 0 ||
+        Number(permanent.markedDamage || 0) > 0 ||
+        Number(permanent.damage || 0) > 0 ||
+        Boolean(permanent.deathtouchDamageMarked) ||
+        (permanent.counters && typeof permanent.counters.damage === 'number' && permanent.counters.damage > 0);
+
+      if (!hadDamage) continue;
+
+      clearMarkedPermanentDamage(permanent);
+      clearedCount++;
     }
-    
+
     if (clearedCount > 0) {
       debug(2, `${ts()} [clearDamageFromPermanents] Cleared damage from ${clearedCount} permanent(s) (Rule 514.2/703.4p)`);
     }

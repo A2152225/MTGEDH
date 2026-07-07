@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDecklist, type ParsedLine } from './scryfall.js';
+import { getPreconDecklistLines as getPreconDecklistLinesFromDb } from './preconDecklistStore.js';
+import { normalizeWizardsPreconCardName } from './wizardsPreconDecklists.js';
 
 const DATA_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -45,6 +47,31 @@ export function parseWizardsRunOnDecklist(text: string): ParsedLine[] {
   }
 
   return lines;
+}
+
+function normalizePreconDeckLines(lines: ParsedLine[]): ParsedLine[] {
+  const merged = new Map<string, ParsedLine>();
+  for (const line of lines) {
+    const name = normalizeWizardsPreconCardName(String(line.name || '').trim());
+    if (!name) continue;
+    const count = Math.max(1, Number(line.count) || 1);
+    const key = name.toLowerCase();
+    const existing = merged.get(key);
+    if (existing) {
+      existing.count += count;
+    } else {
+      merged.set(key, { name, count });
+    }
+  }
+  return [...merged.values()];
+}
+
+/** Primary lookup: SQLite precon database, then legacy JSON bundles. */
+export function getPreconDecklistLines(setCode: string, deckName: string): ParsedLine[] | null {
+  const fromDb = getPreconDecklistLinesFromDb(setCode, deckName);
+  if (fromDb && fromDb.length > 0) return normalizePreconDeckLines(fromDb);
+  const fromJson = getBundledPreconDecklistLines(setCode, deckName);
+  return fromJson ? normalizePreconDeckLines(fromJson) : null;
 }
 
 export function getBundledPreconDecklistLines(setCode: string, deckName: string): ParsedLine[] | null {

@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent, GameState, KnownCardRef, PlayerID } from '../../shared/src';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { cardAnalyzer, CardCategory, SynergyArchetype } from './CardAnalyzer';
 import type { AIPlayerConfig } from './AIEngine';
 import {
@@ -11,6 +12,7 @@ import {
   readPermanentPower,
 } from './aiEngineManaPoolSupport';
 import { getCombinedPermanentText } from './permanentText';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import {
   isStationPermanentTypeLine,
   readStationChargeCreatureThresholdFromOracleText,
@@ -20,6 +22,16 @@ type HasPermanentType = (perm: BattlefieldPermanent, type: string) => boolean;
 type GetPrimaryArchetypes = (config: AIPlayerConfig) => readonly SynergyArchetype[];
 type HasPotentialManaSink = (gameState: GameState, playerId: PlayerID) => boolean;
 type GetProcessedBattlefield = (gameState: GameState) => BattlefieldPermanent[];
+
+function readProcessedBattlefield(
+  deps: { readonly getProcessedBattlefield?: GetProcessedBattlefield },
+  gameState: GameState,
+): BattlefieldPermanent[] {
+  if (typeof deps.getProcessedBattlefield === 'function') {
+    return deps.getProcessedBattlefield(gameState);
+  }
+  return applyStaticAbilitiesToBattlefield((gameState.battlefield || []) as BattlefieldPermanent[]);
+}
 
 export interface ActivatedAbilityChoice {
   readonly permanent: BattlefieldPermanent;
@@ -228,6 +240,7 @@ export function evaluateActivatedAbilityValue(
   deps: {
     readonly getPrimaryArchetypes: GetPrimaryArchetypes;
     readonly hasPotentialManaSink: HasPotentialManaSink;
+    readonly getProcessedBattlefield: GetProcessedBattlefield;
   }
 ): number {
   let value = 0;
@@ -254,7 +267,7 @@ export function evaluateActivatedAbilityValue(
     !lowerText.includes('search your library') &&
     !lowerText.includes('create') &&
     !lowerText.includes('damage');
-  const battlefield = deps.getProcessedBattlefield(gameState);
+  const battlefield = readProcessedBattlefield(deps, gameState);
   const hasRetention = battlefieldHasManaRetention(battlefield, playerId);
 
   if (lowerText.includes('draw') && !lowerText.includes('opponent draws')) {
@@ -464,7 +477,7 @@ export function findBestActivatedAbility(
     readonly hasPotentialManaSink: HasPotentialManaSink;
   }
 ): ActivatedAbilityChoice | null {
-  const battlefield = deps.getProcessedBattlefield(gameState);
+  const battlefield = readProcessedBattlefield(deps, gameState);
   const myPermanents = battlefield.filter((perm: BattlefieldPermanent) => perm.controller === playerId);
 
   let bestAbility: ActivatedAbilityChoice | null = null;
@@ -487,6 +500,7 @@ export function findBestActivatedAbility(
       const value = evaluateActivatedAbilityValue(perm, candidate.abilityText, gameState, playerId, config, {
         getPrimaryArchetypes: deps.getPrimaryArchetypes,
         hasPotentialManaSink: deps.hasPotentialManaSink,
+        getProcessedBattlefield: deps.getProcessedBattlefield,
       });
 
       if (value > bestValue) {

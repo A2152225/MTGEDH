@@ -170,4 +170,50 @@ describe('Nykthos devotion color choice (integration)', () => {
     expect(Number((game.state as any).manaPool[p1].blue || 0)).toBe(3);
     expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(0);
   });
+
+  it('tapping for {T}: Add {C} adds colorless mana without a color prompt', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'nykthos_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'nykthos_card',
+          name: 'Nykthos, Shrine to Nyx',
+          type_line: 'Legendary Land',
+          oracle_text: '{T}: Add {C}.\n{2}, {T}: Choose a color. Add an amount of mana of that color equal to your devotion to that color.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['tapPermanent']({
+      gameId,
+      permanentId: 'nykthos_1',
+    });
+
+    expect(Boolean(((game.state as any).battlefield || []).find((perm: any) => perm.id === 'nykthos_1')?.tapped)).toBe(true);
+    expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(1);
+    expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(0);
+  });
 });

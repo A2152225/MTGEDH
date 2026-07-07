@@ -25,6 +25,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import {
+  readOracleCardsSync,
+  resolveOracleCardsPath,
+} from '../src/services/oracleCardsIndex.js';
 import { parseTriggeredAbilitiesFromText } from '../../rules-engine/src/triggeredAbilitiesParsing.js';
 import { parseTriggeredAbility } from '../../rules-engine/src/oracleTextParser.js';
 import { detectTriggeredAbilityEvent } from '../../rules-engine/src/triggeredAbilitiesEventDetection.js';
@@ -3543,13 +3547,13 @@ function pushExample(target: string[], value: string): void {
 
 async function main(): Promise<void> {
   await loadEffectIrParser();
-  const oraclePath = path.join(repoRoot, 'oracle-cards.json');
+  const oraclePath = resolveOracleCardsPath(repoRoot);
   if (!fs.existsSync(oraclePath)) {
-    console.error(`oracle-cards.json not found at ${oraclePath}`);
+    console.error(`Oracle cards file not found at ${oraclePath}`);
     process.exit(1);
   }
 
-  const cards = JSON.parse(fs.readFileSync(oraclePath, 'utf8')) as OracleCard[];
+  const cards = readOracleCardsSync(repoRoot) as OracleCard[];
   const seenOracleIds = new Set<string>();
   const patterns = new Map<string, PatternRecord>();
 

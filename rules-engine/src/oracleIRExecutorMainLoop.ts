@@ -131,6 +131,7 @@ import {
   applyRegisterLoseGameReplacementStep,
   applyGainLifeStep,
   applyLoseLifeStep,
+  applyRedistributeLifeTotalsStep,
   applyLookHandStep,
   applyLookChooseFromTopStep,
   applyLookTopStep,
@@ -653,6 +654,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'pay_mana',
   'player_choice',
   'proliferate',
+  'redistribute_life_totals',
   'populate',
   'sacrifice',
   'scry',
@@ -2196,6 +2198,11 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'redistribute_life_totals': {
+        const result = applyRedistributeLifeTotalsStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'investigate': {
         const result = applyInvestigateStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
@@ -2760,10 +2767,14 @@ export function applyOracleIRStepsToGameStateImpl(
           lastMovedBattlefieldPermanentIds = Array.isArray(appliedResult.lastMovedBattlefieldPermanentIds)
             ? [...appliedResult.lastMovedBattlefieldPermanentIds]
             : lastMovedBattlefieldPermanentIds;
+          const referencedPermanentId = lastMovedBattlefieldPermanentIds.length > 0
+            ? String(lastMovedBattlefieldPermanentIds[lastMovedBattlefieldPermanentIds.length - 1] || '').trim()
+            : '';
           currentCtx = {
             ...currentCtx,
             lastMovedCards,
             lastMovedBattlefieldPermanentIds,
+            ...(referencedPermanentId ? { lastReferencedPermanentId: referencedPermanentId } : {}),
           };
         });
         break;

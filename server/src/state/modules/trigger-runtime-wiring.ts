@@ -51,6 +51,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'counter_spell',
   'goad',
   'proliferate',
+  'redistribute_life_totals',
   'populate',
   'schedule_delayed_trigger',
   'explore',

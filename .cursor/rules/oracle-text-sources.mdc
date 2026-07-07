@@ -9,19 +9,19 @@ When implementing or verifying card behavior, **do not rely on memorized oracle 
 
 ## Lookup order (use first match)
 
-1. **`oracle-cards.json`** (repo root) — canonical oracle index; each entry has `oracle_text`, `name`, `type_line`, etc.
-2. **Local card database** — `server/data/card-lookup.sqlite`, built from `oracle-cards.json` (+ `AtomicCards.json` when present). Query via `server/src/services/localCardLookup.ts` (same data the server uses for deck import **before** Scryfall).
+1. **`oracle-cards.jsonl`** (repo root) — canonical Scryfall oracle dump (one JSON object per line). Legacy **`oracle-cards.json`** (JSON array) is still supported when present.
+2. **Local card database** — `server/data/card-lookup.sqlite`, built from the oracle corpus (+ `AtomicCards.json` when present). Query via `server/src/services/localCardLookup.ts` (same data the server uses for deck import **before** Scryfall).
 3. **Scryfall API** — only if the card is missing or you need fields not in local data (rulings, printings, images). See `server/src/services/scryfall.ts`.
 4. **Training knowledge** — last resort; flag uncertainty and prefer verifying against (1)–(3).
 
 ## Quick checks
 
 ```bash
-# By name in oracle-cards.json (large file — use jq/rg, not full read)
-rg -i '"name": "Lightning Bolt"' oracle-cards.json
+# By name in oracle-cards.jsonl (large file — use rg, not full read)
+rg -i '"name": "Lightning Bolt"' oracle-cards.jsonl
 
 # Or grep oracle_text for a phrase
-rg -i 'convoke' oracle-cards.json | head
+rg -i 'convoke' oracle-cards.jsonl | head
 ```
 
 For type-line changes: prefer `type_line` from local sources; **Kindred** supersedes **Tribal** on newer oracle snapshots.
@@ -38,7 +38,9 @@ Use these exports — **do not invent names** (e.g. `lookupCardByName` does not 
 
 Copy imports from existing callers when unsure: `server/src/socket/resolution.ts` (single), `server/src/services/deckImport.ts` (batch). Before writing a new `_tmp-probe-*.ts`, grep the module for `^export` or read those files.
 
-For a single card, prefer `rg '"name": "Card Name"' oracle-cards.json` first — often no script is needed.
+For a single card, prefer `rg '"name": "Card Name"' oracle-cards.jsonl` first — often no script is needed.
+
+Programmatic reads: `server/src/services/oracleCardsIndex.ts` (`readOracleCardsSync`, `resolveOracleCardsPath`, `iterateOracleCards`).
 
 ## Probe scripts
 
@@ -52,7 +54,8 @@ When a script is required (see `terminal-hygiene.mdc`):
 
 | Purpose | Location |
 |---------|----------|
-| Oracle index | `oracle-cards.json` |
+| Oracle index | `oracle-cards.jsonl` (preferred), `oracle-cards.json` (legacy) |
+| Loader | `server/src/services/oracleCardsIndex.ts` |
 | Local DB | `server/data/card-lookup.sqlite` |
 | Lookup service | `server/src/services/localCardLookup.ts` |
 | Deck import order | Local lookup → Scryfall fallback |

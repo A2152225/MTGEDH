@@ -9,6 +9,11 @@ import type { ScryfallCardInput } from '../../../shared/src/cardFactory.js';
 
 import { normalizeName } from './scryfall.js';
 import { debug, debugWarn } from '../utils/debug.js';
+import {
+  resolveOracleCardsPath,
+  readOracleCards,
+  readOracleCardsSync,
+} from './oracleCardsIndex.js';
 
 type DB = Database.Database;
 
@@ -194,11 +199,8 @@ function matchesCardNameChoiceCriteria(typeLine: string, criteria: CardNameChoic
   return true;
 }
 
-function resolveOracleCardsPath(): string {
-  const configured = String(process.env.CARD_LOOKUP_ORACLE_FILE || '').trim();
-  return configured
-    ? (path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured))
-    : path.join(repoRoot, 'oracle-cards.json');
+function resolveOracleCardsPathForLookup(): string {
+  return resolveOracleCardsPath(repoRoot);
 }
 
 function resolveAtomicCardsPath(): string {
@@ -291,7 +293,7 @@ function readMetaValue(database: DB, key: string): string | null {
 function isLookupCurrent(database: DB): boolean {
   return readMetaValue(database, 'ready') === '1'
     && readMetaValue(database, 'schema_version') === schemaVersion
-    && readMetaValue(database, 'oracle_signature') === getSourceSignature(resolveOracleCardsPath())
+    && readMetaValue(database, 'oracle_signature') === getSourceSignature(resolveOracleCardsPathForLookup())
     && readMetaValue(database, 'atomic_signature') === getSourceSignature(resolveAtomicCardsPath());
 }
 
@@ -494,19 +496,17 @@ function toAtomicRecord(name: string, rawPrinting: any): LocalCardLookupRecord |
 
 async function buildLookupMap(options?: LocalCardLookupOptions): Promise<Map<string, StoredCandidate>> {
   const aliasMap = new Map<string, StoredCandidate>();
-  const oracleCardsPath = resolveOracleCardsPath();
+  const oracleCardsPath = resolveOracleCardsPathForLookup();
   const atomicCardsPath = resolveAtomicCardsPath();
 
   if (fs.existsSync(oracleCardsPath)) {
     emitStatus(options, { phase: 'building', message: `Reading oracle-cards index source from ${oracleCardsPath}` });
-    const raw = await readFile(oracleCardsPath, 'utf8');
-    const parsed = JSON.parse(raw);
-    const cards = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.data) ? parsed.data : [];
+    const cards = await readOracleCards(repoRoot);
     for (const entry of cards) {
       const card = toOracleRecord(entry);
       if (!card || !shouldIndexOracleCard(card)) continue;
       indexAlias(aliasMap, card.name, card, 1);
-      indexAlias(aliasMap, entry?.asciiName, card, 1);
+      indexAlias(aliasMap, (entry as any)?.asciiName, card, 1);
       if (Array.isArray(card.card_faces)) {
         for (const face of card.card_faces) {
           indexAlias(aliasMap, face?.name, card, 1);
@@ -514,7 +514,7 @@ async function buildLookupMap(options?: LocalCardLookupOptions): Promise<Map<str
       }
     }
   } else {
-    debugWarn(1, `[card-lookup] oracle-cards.json not found at ${oracleCardsPath}`);
+    debugWarn(1, `[card-lookup] oracle cards file not found at ${oracleCardsPath}`);
   }
 
   if (fs.existsSync(atomicCardsPath)) {
@@ -542,19 +542,17 @@ async function buildLookupMap(options?: LocalCardLookupOptions): Promise<Map<str
 
 function buildLookupMapSync(options?: LocalCardLookupOptions): Map<string, StoredCandidate> {
   const aliasMap = new Map<string, StoredCandidate>();
-  const oracleCardsPath = resolveOracleCardsPath();
+  const oracleCardsPath = resolveOracleCardsPathForLookup();
   const atomicCardsPath = resolveAtomicCardsPath();
 
   if (fs.existsSync(oracleCardsPath)) {
     emitStatus(options, { phase: 'building', message: `Reading oracle-cards index source from ${oracleCardsPath}` });
-    const raw = fs.readFileSync(oracleCardsPath, 'utf8');
-    const parsed = JSON.parse(raw);
-    const cards = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.data) ? parsed.data : [];
+    const cards = readOracleCardsSync(repoRoot);
     for (const entry of cards) {
       const card = toOracleRecord(entry);
       if (!card || !shouldIndexOracleCard(card)) continue;
       indexAlias(aliasMap, card.name, card, 1);
-      indexAlias(aliasMap, entry?.asciiName, card, 1);
+      indexAlias(aliasMap, (entry as any)?.asciiName, card, 1);
       if (Array.isArray(card.card_faces)) {
         for (const face of card.card_faces) {
           indexAlias(aliasMap, face?.name, card, 1);
@@ -562,7 +560,7 @@ function buildLookupMapSync(options?: LocalCardLookupOptions): Map<string, Store
       }
     }
   } else {
-    debugWarn(1, `[card-lookup] oracle-cards.json not found at ${oracleCardsPath}`);
+    debugWarn(1, `[card-lookup] oracle cards file not found at ${oracleCardsPath}`);
   }
 
   if (fs.existsSync(atomicCardsPath)) {
@@ -609,7 +607,7 @@ async function rebuildLookupIndex(database: DB, options?: LocalCardLookupOptions
 
     insertMeta.run('ready', '1');
     insertMeta.run('schema_version', schemaVersion);
-    insertMeta.run('oracle_signature', getSourceSignature(resolveOracleCardsPath()));
+    insertMeta.run('oracle_signature', getSourceSignature(resolveOracleCardsPathForLookup()));
     insertMeta.run('atomic_signature', getSourceSignature(resolveAtomicCardsPath()));
     insertMeta.run('built_at', String(now));
     database.exec('COMMIT');
@@ -647,7 +645,7 @@ function rebuildLookupIndexSync(database: DB, options?: LocalCardLookupOptions):
 
     insertMeta.run('ready', '1');
     insertMeta.run('schema_version', schemaVersion);
-    insertMeta.run('oracle_signature', getSourceSignature(resolveOracleCardsPath()));
+    insertMeta.run('oracle_signature', getSourceSignature(resolveOracleCardsPathForLookup()));
     insertMeta.run('atomic_signature', getSourceSignature(resolveAtomicCardsPath()));
     insertMeta.run('built_at', String(now));
     database.exec('COMMIT');
@@ -678,7 +676,7 @@ export async function ensureLocalCardLookupIndex(options: LocalCardLookupOptions
       return;
     }
 
-    emitStatus(options, { phase: 'building', message: 'Building local card lookup table from oracle-cards.json and AtomicCards.json' });
+    emitStatus(options, { phase: 'building', message: 'Building local card lookup table from oracle-cards and AtomicCards.json' });
     await rebuildLookupIndex(database, options);
     emitStatus(options, { phase: 'ready', message: 'Local card lookup table is ready' });
   })().catch((error) => {
@@ -700,7 +698,7 @@ export function ensureLocalCardLookupIndexSync(options: LocalCardLookupOptions =
     return;
   }
 
-  emitStatus(options, { phase: 'building', message: 'Building local card lookup table from oracle-cards.json and AtomicCards.json' });
+  emitStatus(options, { phase: 'building', message: 'Building local card lookup table from oracle-cards and AtomicCards.json' });
   rebuildLookupIndexSync(database, options);
   emitStatus(options, { phase: 'ready', message: 'Local card lookup table is ready' });
 }

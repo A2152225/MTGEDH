@@ -1044,6 +1044,7 @@ export class AIEngine {
     return evaluateActivatedAbilityValue(perm, abilityText, gameState, playerId, config, {
       getPrimaryArchetypes: this.getPrimaryArchetypes.bind(this),
       hasPotentialManaSink: this.hasPotentialManaSink.bind(this),
+      getProcessedBattlefield: this.getProcessedBattlefield.bind(this),
     });
   }
   

@@ -14,7 +14,6 @@ import type {
   KnownCardRef,
   CardRef,
   ClientGameView,
-  ChatMsg,
   CardCostAdjustment,
   ManaPool,
 } from '../../../shared/src';
@@ -275,11 +274,8 @@ export function TableLayout(props: {
   importedCandidates?: KnownCardRef[]; // no longer used for commander UI, but kept for potential future UI
   energyCounters?: Record<PlayerID, number>;
   energy?: Record<PlayerID, number>;
-  // chat overlay props
-  chatMessages?: ChatMsg[];
-  onSendChat?: (text: string) => void;
+  // Game view for stack overlay (CentralStack)
   chatView?: ClientGameView;
-  chatYou?: PlayerID;
   // Special game designations (Rules 724-730)
   monarch?: PlayerID | null;
   initiative?: PlayerID | null;
@@ -351,7 +347,7 @@ export function TableLayout(props: {
     externalDeckMgrOpen, onDeckMgrOpenChange, externalDeckMgrAnchorEl,
     focusedPlayerId,
     gameId, stackItems, importedCandidates, energyCounters, energy,
-    chatMessages, onSendChat, chatView, chatYou,
+    chatView,
     monarch, initiative, dayNight, cityBlessing,
     priority, phase, step, turnPlayer,
     hasThousandYearElixirEffect = false,
@@ -1075,64 +1071,6 @@ export function TableLayout(props: {
       background: 'linear-gradient(145deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
     };
   }, [appearanceSettings]);
-
-  // local chat input state for overlay
-  const [chatText, setChatText] = useState("");
-  
-  // Chat panel state: collapsed and size
-  const [chatCollapsed, setChatCollapsed] = useState(true);
-  const [chatSize, setChatSize] = useState<'small' | 'medium' | 'large'>('small');
-  
-  // Chat auto-scroll: ref and state to track if user has manually scrolled up
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-  const [chatUserScrolledUp, setChatUserScrolledUp] = useState(false);
-  
-  // Chat size dimensions
-  const chatSizeConfig = {
-    small: { width: 220, height: 150 },
-    medium: { width: 300, height: 220 },
-    large: { width: 400, height: 300 },
-  };
-  
-  // Auto-scroll chat to bottom when new messages arrive (unless user has scrolled up)
-  useEffect(() => {
-    const container = chatContainerRef.current;
-    if (!container || chatUserScrolledUp) return;
-    
-    // Scroll to bottom
-    container.scrollTop = container.scrollHeight;
-  }, [chatMessages, chatUserScrolledUp]);
-  
-  // Handle chat scroll: detect if user scrolled up or back to bottom
-  const SCROLL_BOTTOM_THRESHOLD = 10; // Pixels from bottom to consider "at bottom"
-  const handleChatScroll = () => {
-    const container = chatContainerRef.current;
-    if (!container) return;
-    
-    // Check if user is at the bottom (with a small threshold for rounding errors)
-    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < SCROLL_BOTTOM_THRESHOLD;
-    
-    // If user scrolls back to bottom, resume auto-scroll
-    if (isAtBottom && chatUserScrolledUp) {
-      setChatUserScrolledUp(false);
-    }
-    // If user scrolls up (away from bottom), pause auto-scroll
-    else if (!isAtBottom && !chatUserScrolledUp) {
-      setChatUserScrolledUp(true);
-    }
-  };
-
-  const handleSendChat = () => {
-    if (!chatText.trim() || !onSendChat) return;
-    onSendChat(chatText.trim());
-    setChatText("");
-  };
-
-  const displaySender = (from: string | "system") => {
-    if (from === "system") return "system";
-    const player = chatView?.players?.find((p: any) => p.id === from);
-    return player?.name || from;
-  };
 
   // Opponent-hand thumbnail sizing (≈50% larger than before)
   const OPP_THUMB_W = 42;  // was 28
@@ -2131,185 +2069,6 @@ export function TableLayout(props: {
             }}
           >Fit All</button>
           <span style={{ opacity: 0.85 }}>Zoom: {cam.z.toFixed(2)}</span>
-        </div>
-      )}
-
-      {/* Inline chat overlay in bottom-left of play area */}
-      {onSendChat && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 8,
-            bottom: enablePanZoom ? 52 : 8, // just above zoom controls
-            zIndex: 11,
-            width: chatCollapsed ? 'auto' : chatSizeConfig[chatSize].width,
-            height: chatCollapsed ? 'auto' : chatSizeConfig[chatSize].height,
-            background: 'rgba(10,10,10,0.6)',
-            borderRadius: 8,
-            border: '1px solid rgba(255,255,255,0.18)',
-            padding: 6,
-            color: '#f9f9f9',
-            fontSize: 11,
-            display: 'flex',
-            flexDirection: 'column',
-            opacity: chatCollapsed ? 0.6 : 0.35,
-            transition: 'opacity 0.15s ease-in-out, width 0.2s ease-in-out, height 0.2s ease-in-out',
-            pointerEvents: 'auto',
-            overflow: 'hidden',
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLDivElement).style.opacity = '1';
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLDivElement).style.opacity = chatCollapsed ? '0.6' : '0.35';
-          }}
-        >
-          <div
-            style={{
-              fontWeight: 600,
-              marginBottom: chatCollapsed ? 0 : 4,
-              fontSize: 11,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <button
-                type="button"
-                onClick={() => setChatCollapsed(!chatCollapsed)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#f9f9f9',
-                  cursor: 'pointer',
-                  padding: 0,
-                  fontSize: 10,
-                }}
-                title={chatCollapsed ? 'Expand chat' : 'Collapse chat'}
-              >
-                {chatCollapsed ? '▶' : '▼'}
-              </button>
-              <span>Chat</span>
-              <span style={{ opacity: 0.7, fontSize: 10 }}>
-                ({chatMessages?.length ?? 0})
-              </span>
-            </div>
-            {!chatCollapsed && (
-              <div style={{ display: 'flex', gap: 2 }}>
-                <button
-                  type="button"
-                  onClick={() => setChatSize('small')}
-                  style={{
-                    background: chatSize === 'small' ? 'rgba(255,255,255,0.2)' : 'none',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: 3,
-                    color: '#f9f9f9',
-                    cursor: 'pointer',
-                    padding: '1px 4px',
-                    fontSize: 9,
-                  }}
-                  title="Small"
-                >
-                  S
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setChatSize('medium')}
-                  style={{
-                    background: chatSize === 'medium' ? 'rgba(255,255,255,0.2)' : 'none',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: 3,
-                    color: '#f9f9f9',
-                    cursor: 'pointer',
-                    padding: '1px 4px',
-                    fontSize: 9,
-                  }}
-                  title="Medium"
-                >
-                  M
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setChatSize('large')}
-                  style={{
-                    background: chatSize === 'large' ? 'rgba(255,255,255,0.2)' : 'none',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    borderRadius: 3,
-                    color: '#f9f9f9',
-                    cursor: 'pointer',
-                    padding: '1px 4px',
-                    fontSize: 9,
-                  }}
-                  title="Large"
-                >
-                  L
-                </button>
-              </div>
-            )}
-          </div>
-          {!chatCollapsed && (
-            <>
-              <div
-                ref={chatContainerRef}
-                onScroll={handleChatScroll}
-                style={{
-                  flex: 1,
-                  overflowY: 'auto',
-                  marginBottom: 4,
-                  paddingRight: 2,
-                  minHeight: 0, // Allow flex child to shrink below content size for proper scrolling
-                }}
-              >
-                {(!chatMessages || chatMessages.length === 0) && (
-                  <div style={{ color: '#bbb' }}>No messages</div>
-                )}
-                {chatMessages &&
-                  chatMessages.slice(-40).map((m) => (
-                    <div key={m.id} style={{ marginBottom: 3 }}>
-                      <span style={{ fontWeight: 600 }}>
-                        {displaySender(m.from)}:
-                      </span>{" "}
-                      <span>{m.message}</span>
-                    </div>
-                  ))}
-              </div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <input
-                  value={chatText}
-                  onChange={(e) => setChatText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSendChat();
-                  }}
-                  placeholder="Type..."
-                  style={{
-                    flex: 1,
-                    fontSize: 11,
-                    padding: '2px 4px',
-                    borderRadius: 4,
-                    border: '1px solid #444',
-                    background: '#111',
-                    color: '#f9f9f9',
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={handleSendChat}
-                  style={{
-                    fontSize: 11,
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                    border: '1px solid #4ade80',
-                    background: '#166534',
-                    color: '#f9f9f9',
-                  }}
-                >
-                  Send
-                </button>
-              </div>
-            </>
-          )}
         </div>
       )}
 

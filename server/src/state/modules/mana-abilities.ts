@@ -1746,20 +1746,6 @@ export function getCreatureCountManaAmount(
     };
   }
 
-  if (
-    cardName.includes('nykthos, shrine to nyx') ||
-    cardName.includes('nyx lotus') ||
-    (oracleText.includes('choose a color') && oracleText.includes('devotion to that color'))
-  ) {
-    return {
-      color: 'any_combination',
-      amount: 0,
-      activationCost: cardName.includes('nykthos') ? '{2}' : undefined,
-      requiresColorChoice: true,
-      dynamicAmountSource: 'devotion',
-    };
-  }
-  
   // Priest of Titania: "Add {G} for each Elf on the battlefield"
   if (cardName.includes("priest of titania")) {
     const battlefield = gameState?.battlefield || [];

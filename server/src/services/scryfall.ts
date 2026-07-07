@@ -46,6 +46,7 @@ export type ScryfallCard = {
 };
 
 const defaultScryfallRequestTimeoutMs = Number(process.env.SCRYFALL_REQUEST_TIMEOUT_MS ?? 8000);
+export const SCRYFALL_USER_AGENT = process.env.SCRYFALL_USER_AGENT?.trim() || 'MTGEDH/1.0 (+https://github.com/MTGEDH)';
 
 //
 // Normalization + decklist parsing
@@ -301,6 +302,7 @@ async function doFetchJSON(
         ...(options || {}),
         headers: {
           Accept: "application/json",
+          "User-Agent": SCRYFALL_USER_AGENT,
           ...(options?.headers || {}),
         },
         signal: controller?.signal,
@@ -688,11 +690,15 @@ export async function fetchCardsFromSetByColorIdentity(
   const query = `set:${setCode.toLowerCase()} ${colorQuery}`.trim();
   
   let url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&order=cmc&unique=cards`;
+  const f = ensureFetch();
   
   try {
     while (url) {
-      const resp = await fetch(url, {
-        headers: { 'User-Agent': 'MTGEDH-DeckImporter/1.0' }
+      const resp = await f(url, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': SCRYFALL_USER_AGENT,
+        },
       });
       
       if (!resp.ok) {

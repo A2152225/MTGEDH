@@ -782,7 +782,7 @@ describe('Oracle IR gap batch 23 support', () => {
       ['Exquisite Blood', 'the amount of life they lost this turn'],
       ['Honden of Lifes Gate', 'you gain 2 life for each shrine you control'],
       ['Mikaeus, the Unhallowed', 'you gain 2 life for each age counter on it'],
-      ['Reverse the Sands', 'you may have two target players exchange life totals'],
+      ['Reverse the Sands', "Redistribute any number of players' life totals"],
       ['Wildfire Eternal', 'add {r} at the beginning of your next main phase this turn'],
       ['Ad Nauseam', 'your life total becomes 7'],
       ['Explore reminder', '(to have it explore, reveal the top card of your library'],

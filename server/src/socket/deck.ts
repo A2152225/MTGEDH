@@ -2,7 +2,6 @@ import type { Server, Socket } from "socket.io";
 import * as crypto from "node:crypto";
 import {
   parseDecklist,
-  fetchCardByExactNameStrict,
   validateDeck,
   shouldSkipDeckLine,
   fetchDeckFromMoxfield,
@@ -10,7 +9,9 @@ import {
   parsedDecklistToExpandedString,
 } from "../services/scryfall";
 import { resolveDeckList, type ResolveDeckListStatus } from "../services/deckImport.js";
-import { getBundledPreconDecklistLines } from "../services/bundledPreconDecklists.js";
+import { getPreconDecklistLines } from "../services/bundledPreconDecklists.js";
+import { fetchWizardsPreconDecklist } from "../services/wizardsPreconDecklists.js";
+import { getPreconWizardsAnnouncementUrl } from "../data/preconWizardsUrls.js";
 import { ensureGame, broadcastGame } from "./util";
 import { appendEvent } from "../db";
 import {
@@ -3106,19 +3107,18 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           ts: Date.now(),
         });
 
-        // First, resolve the commanders
-        const resolvedCommanders: any[] = [];
-        for (const commanderName of commanders) {
-          try {
-            const card = await fetchCardByExactNameStrict(commanderName);
-            if (card) {
-              // Generate unique instance ID even for commanders
-              resolvedCommanders.push(createCardFromScryfall(card, { instanceId: generateUniqueCardInstanceId(card.id) }));
-            }
-          } catch (e) {
-            debugWarn(1, `Failed to fetch commander "${commanderName}":`, e);
-          }
-        }
+        // Resolve commanders (local lookup first, then Scryfall)
+        const commanderResolution = await resolveDeckList(
+          commanders.map((commanderName) => ({ name: commanderName, count: 1 })),
+          {
+            uniqueInstanceIds: true,
+            onStatus: createDeckResolutionStatusReporter(io, socket, gameId, "importPreconDeck.commanders", {
+              playerId: pid,
+              slowFallbackNotice: "room",
+            }),
+          },
+        );
+        const resolvedCommanders = commanderResolution.resolvedCards;
 
         if (resolvedCommanders.length === 0) {
           socket.emit("deckError", {
@@ -3128,12 +3128,80 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        // Try to fetch the full decklist from Moxfield first (if decklistUrl is available)
-        // Fall back to fetching all matching cards from the set if Moxfield fails
+        // Resolve mainboard: local precon SQLite first, optional live Wizards/Moxfield fallback.
         let resolvedCards: any[] = [...resolvedCommanders];
         let fetchedFullDeck = false;
+        const allowLivePreconFetch = process.env.PRECON_ALLOW_LIVE_FETCH === '1';
+        const commanderNamesSet = new Set(
+          resolvedCommanders.map((card) => String(card?.name || '').trim().toLowerCase()).filter(Boolean),
+        );
 
-        if (preconDecklistUrl) {
+        const applyPreconMainboardLines = async (
+          lines: Array<{ name: string; count?: number }>,
+          sourceLabel: string,
+          statusKey: string,
+        ) => {
+          const entries = lines
+            .filter((line) => !commanderNamesSet.has(String(line.name || '').trim().toLowerCase()))
+            .map((line) => ({ name: line.name, count: line.count || 1 }));
+          if (entries.length === 0) return false;
+
+          const resolution = await resolveDeckList(entries, {
+            uniqueInstanceIds: true,
+            onStatus: createDeckResolutionStatusReporter(io, socket, gameId, statusKey, {
+              playerId: pid,
+              slowFallbackNotice: "room",
+            }),
+          });
+
+          resolvedCards = [...resolvedCommanders, ...resolution.resolvedCards];
+          fetchedFullDeck = resolvedCards.length >= MIN_PRECON_DECK_SIZE;
+          debug(1, `[deck] importPreconDeck loaded mainboard from ${sourceLabel}`, {
+            gameId,
+            deckName,
+            cardCount: resolvedCards.length,
+            missing: resolution.missing?.length ?? 0,
+            fetchedFullDeck,
+          });
+          return fetchedFullDeck;
+        };
+
+        if (preconSetCode) {
+          const localLines = getPreconDecklistLines(preconSetCode, deckName);
+          if (localLines && localLines.length > 0) {
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `📦 Loading precon decklist for "${deckName}" (${preconSetCode}) from local database...`,
+              ts: Date.now(),
+            });
+            await applyPreconMainboardLines(localLines, 'local precon database', 'importPreconDeck.local');
+          }
+        }
+
+        if (!fetchedFullDeck && allowLivePreconFetch && preconSetCode) {
+          const wizardsUrl = getPreconWizardsAnnouncementUrl(preconSetCode);
+          if (wizardsUrl) {
+            try {
+              io.to(gameId).emit("chat", {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: "system",
+                message: `📦 Fetching official decklist from Wizards...`,
+                ts: Date.now(),
+              });
+              const wizardsLines = await fetchWizardsPreconDecklist(preconSetCode, deckName, wizardsUrl);
+              if (wizardsLines && wizardsLines.length > 0) {
+                await applyPreconMainboardLines(wizardsLines, 'Wizards announcement', 'importPreconDeck.wizards');
+              }
+            } catch (e) {
+              debugWarn(1, "importPreconDeck: failed to fetch from Wizards, trying Moxfield next", e);
+            }
+          }
+        }
+
+        if (!fetchedFullDeck && allowLivePreconFetch && preconDecklistUrl) {
           try {
             io.to(gameId).emit("chat", {
               id: `m_${Date.now()}`,
@@ -3144,33 +3212,13 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             });
 
             const moxfieldDeck = await fetchDeckFromMoxfield(preconDecklistUrl);
-            
+
             if (moxfieldDeck && moxfieldDeck.cards && moxfieldDeck.cards.length > 0) {
-              // Already have commanders, now resolve the rest of the cards
-              const commanderNamesSet = new Set(resolvedCommanders.map(c => c.name.toLowerCase()));
-              
-              for (const parsedCard of moxfieldDeck.cards) {
-                // Skip commanders (already added)
-                if (commanderNamesSet.has(parsedCard.name.toLowerCase())) {
-                  continue;
-                }
-                
-                // Fetch card data from Scryfall for each card
-                try {
-                  const card = await fetchCardByExactNameStrict(parsedCard.name);
-                  if (card) {
-                    // Add multiple copies if count > 1
-                    for (let i = 0; i < parsedCard.count; i++) {
-                      resolvedCards.push(createCardFromScryfall(card, { instanceId: generateUniqueCardInstanceId(card.id) }));
-                    }
-                  }
-                } catch (e) {
-                  debugWarn(1, `Failed to fetch card "${parsedCard.name}":`, e);
-                }
-              }
-              
-              fetchedFullDeck = resolvedCards.length > 10;
-              
+              await applyPreconMainboardLines(
+                moxfieldDeck.cards,
+                'Moxfield',
+                'importPreconDeck.moxfield',
+              );
               debug(1, "[deck] importPreconDeck fetched cards from Moxfield", {
                 gameId,
                 deckName,
@@ -3179,47 +3227,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
               });
             }
           } catch (e) {
-            debugWarn(1, "importPreconDeck: failed to fetch from Moxfield, falling back to set cards", e);
-          }
-        }
-
-        if (!fetchedFullDeck && preconSetCode) {
-          const bundledLines = getBundledPreconDecklistLines(preconSetCode, deckName);
-          if (bundledLines && bundledLines.length > 0) {
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `📦 Loading bundled decklist for "${deckName}" (${preconSetCode})...`,
-              ts: Date.now(),
-            });
-
-            const commanderNamesSet = new Set(
-              resolvedCommanders.map((card) => String(card?.name || '').trim().toLowerCase()).filter(Boolean),
-            );
-            const bundledEntries = bundledLines
-              .filter((line) => !commanderNamesSet.has(String(line.name || '').trim().toLowerCase()))
-              .map((line) => ({ name: line.name, count: line.count || 1 }));
-
-            const bundledResult = await resolveDeckList(bundledEntries, {
-              uniqueInstanceIds: true,
-              onStatus: createDeckResolutionStatusReporter(io, socket, gameId, "importPreconDeck.bundled", {
-                playerId: pid,
-                slowFallbackNotice: "room",
-              }),
-            });
-
-            resolvedCards = [...resolvedCommanders, ...bundledResult.resolvedCards];
-            fetchedFullDeck = resolvedCards.length >= MIN_PRECON_DECK_SIZE;
-
-            debug(1, "[deck] importPreconDeck bundled decklist resolved", {
-              gameId,
-              deckName,
-              setCode: preconSetCode,
-              cardCount: resolvedCards.length,
-              missing: bundledResult.missing?.length ?? 0,
-              fetchedFullDeck,
-            });
+            debugWarn(1, "importPreconDeck: failed to fetch from Moxfield", e);
           }
         }
 
@@ -3251,7 +3259,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             id: `m_${Date.now()}`,
             gameId,
             from: "system",
-            message: `✅ Found commanders: ${commanderNames}. Note: Could not fetch full decklist from Scryfall. Visit Moxfield or EDHREC to get the complete list.`,
+            message: `✅ Found commanders: ${commanderNames}. Full decklist not in local precon database (${preconSetCode || 'unknown set'}). Run \`npm run precon:bake\` on the server, or paste the decklist manually.`,
             ts: Date.now(),
           });
         }

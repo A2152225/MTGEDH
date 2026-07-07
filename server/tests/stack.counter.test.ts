@@ -344,4 +344,52 @@ describe('Target fizzle stack leave-zone replacement', () => {
     expect((playerOneZones?.exile || []).map(card => (card as any).id)).toContain('card_flashback_fizzle_replay');
     expect((playerOneZones?.graveyard || []).map(card => (card as any).id)).not.toContain('card_flashback_fizzle_replay');
   });
+
+  it('fizzles Declaration in Stone when the target gains hexproof before resolution (608.2b)', () => {
+    const game = createInitialGameState('t_fizzle_hexproof_declaration');
+    const playerOne = 'p1' as PlayerID;
+    const playerTwo = 'p2' as PlayerID;
+
+    game.applyEvent({ type: 'join', playerId: playerOne, name: 'P1' });
+    game.applyEvent({ type: 'join', playerId: playerTwo, name: 'P2' });
+
+    const targetId = 'mossborn_1';
+    game.state.battlefield.push({
+      id: targetId,
+      owner: playerTwo,
+      controller: playerTwo,
+      tapped: false,
+      card: {
+        id: 'mossborn_card',
+        name: 'Mossborn Hydra',
+        type_line: 'Creature — Hydra',
+        oracle_text: 'This creature enters with a +1/+1 counter on it.',
+      },
+      grantedAbilities: ['hexproof'],
+    } as any);
+
+    game.applyEvent({
+      type: 'pushStack',
+      item: {
+        id: 'stack_declaration',
+        type: 'spell',
+        controller: playerOne,
+        card: {
+          id: 'declaration_card',
+          name: 'Declaration in Stone',
+          type_line: 'Sorcery',
+          oracle_text: "Exile target creature and all other creatures its controller controls with the same name as that creature. That player investigates for each nontoken creature exiled this way.",
+          mana_cost: '{1}{W}',
+        },
+        targets: [targetId],
+      },
+    });
+
+    game.resolveTopOfStack();
+
+    expect(game.state.stack).toHaveLength(0);
+    expect(game.state.battlefield.some((perm) => perm.id === targetId)).toBe(true);
+    const playerOneZones = game.state.zones?.[playerOne];
+    expect((playerOneZones?.graveyard || []).map(card => (card as any).id)).toContain('declaration_card');
+  });
 });

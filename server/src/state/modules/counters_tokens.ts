@@ -28,6 +28,41 @@ import {
 import { registerLinkedExile } from "./triggers/linked-exile.js";
 import { queueCounterPlacedTriggers, queueCounterRemovedTriggers } from "./triggers/counters.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
+
+export type UpdateCountersOptions = {
+  deferRunSBA?: boolean;
+  skipCounterModifications?: boolean;
+  /** When true, do not append updateCounters to the event log (replay/applyEvent/oracle-IR batch paths). */
+  skipEventPersistence?: boolean;
+};
+
+function persistUpdateCountersEvent(
+  ctx: GameContext,
+  permanentId: string,
+  effectiveDeltas: Record<string, number>,
+  options?: Pick<UpdateCountersOptions, 'skipCounterModifications'>,
+): void {
+  if ((ctx as any).isReplaying) return;
+  if (Object.keys(effectiveDeltas).length === 0) return;
+
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown') return;
+
+  try {
+    appendEvent(
+      gameId,
+      Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (ctx.state as any)?.seq ?? 0),
+      'updateCounters',
+      {
+        permanentId,
+        deltas: effectiveDeltas,
+        ...(options?.skipCounterModifications ? { skipCounterModifications: true } : {}),
+      },
+    );
+  } catch (err) {
+    debugWarn(1, '[updateCounters] appendEvent(updateCounters) failed:', err);
+  }
+}
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
 import { queueTokenCreatedTriggers } from "./triggers/tokens.js";
@@ -664,7 +699,7 @@ export function updateCounters(
   ctx: GameContext,
   permanentId: string,
   deltas: Record<string, number>,
-  options?: { deferRunSBA?: boolean; skipCounterModifications?: boolean },
+  options?: UpdateCountersOptions,
 ) {
   const { state, bumpSeq } = ctx;
   const p = state.battlefield.find(b => b.id === permanentId);
@@ -685,6 +720,7 @@ export function updateCounters(
   
   const current: Record<string, number> = { ...(p.counters ?? {}) };
   const removedDeltas: Record<string, number> = {};
+  const effectiveDeltas: Record<string, number> = {};
   for (const [k, vRaw] of Object.entries(modifiedDeltas)) {
     const v = Math.floor(Number(vRaw) || 0);
     if (!v) continue;
@@ -692,7 +728,10 @@ export function updateCounters(
       const removed = Math.min(Number(current[k] || 0), Math.abs(v));
       if (removed > 0) {
         removedDeltas[k] = (removedDeltas[k] || 0) + removed;
+        effectiveDeltas[k] = (effectiveDeltas[k] || 0) - removed;
       }
+    } else {
+      effectiveDeltas[k] = (effectiveDeltas[k] || 0) + v;
     }
     current[k] = (current[k] ?? 0) + v;
     if (current[k] <= 0) delete current[k];
@@ -700,9 +739,26 @@ export function updateCounters(
   p.counters = Object.keys(current).length ? current : undefined;
   queueCounterPlacedTriggers(ctx, p, permanentId, modifiedDeltas);
   queueCounterRemovedTriggers(ctx, p, permanentId, removedDeltas);
+
+  if (!options?.skipEventPersistence) {
+    persistUpdateCountersEvent(ctx, permanentId, effectiveDeltas, {
+      skipCounterModifications: options?.skipCounterModifications,
+    });
+  }
+
   bumpSeq();
   if (!options?.deferRunSBA) {
     runSBA(ctx);
+  }
+}
+
+export function applyUpdateCountersBulk(
+  ctx: GameContext,
+  updates: { permanentId: string; deltas: Record<string, number> }[],
+  options?: UpdateCountersOptions,
+) {
+  for (const u of updates) {
+    updateCounters(ctx, u.permanentId, u.deltas, options);
   }
 }
 
@@ -785,10 +841,6 @@ export function trackCountersPlacedThisTurn(
   } catch {
     // best-effort only
   }
-}
-
-export function applyUpdateCountersBulk(ctx: GameContext, updates:{ permanentId:string; deltas:Record<string,number> }[]) {
-  for (const u of updates) updateCounters(ctx, u.permanentId, u.deltas);
 }
 
 export function getTokenDoublerMultiplier(controller: PlayerID, state: any): number {

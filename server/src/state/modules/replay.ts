@@ -236,11 +236,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       break;
 
     case "updateCounters":
-      updateCounters(ctx, (e as any).permanentId, (e as any).deltas);
+      updateCounters(ctx, (e as any).permanentId, (e as any).deltas, {
+        skipCounterModifications: (e as any).skipCounterModifications === true,
+        skipEventPersistence: true,
+      });
       break;
 
     case "updateCountersBulk":
-      applyUpdateCountersBulk(ctx, (e as any).updates);
+      applyUpdateCountersBulk(ctx, (e as any).updates || [], {
+        skipCounterModifications: (e as any).skipCounterModifications === true,
+        skipEventPersistence: true,
+      });
       break;
 
     case "createToken":

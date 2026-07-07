@@ -2957,6 +2957,34 @@ function matchesMultiFilter(p: BattlefieldPermanent, filters: PermanentFilter[])
   return false;
 }
 
+function permanentHasKeywordFromRuntimeGrants(
+  permanent: BattlefieldPermanent,
+  keyword: 'hexproof' | 'shroud',
+): boolean {
+  const grantedAbilities = Array.isArray((permanent as any)?.grantedAbilities)
+    ? (permanent as any).grantedAbilities
+    : [];
+  if (grantedAbilities.some((ability: unknown) => String(ability || '').toLowerCase().includes(keyword))) {
+    return true;
+  }
+
+  const temporaryEffects = Array.isArray((permanent as any)?.temporaryEffects)
+    ? (permanent as any).temporaryEffects
+    : [];
+  for (const effect of temporaryEffects) {
+    const effectGranted = Array.isArray(effect?.grantedAbilities) ? effect.grantedAbilities : [];
+    if (effectGranted.some((ability: unknown) => String(ability || '').toLowerCase().includes(keyword))) {
+      return true;
+    }
+    const description = String(effect?.description || '').toLowerCase();
+    if (description.includes(keyword)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function hasGrantedProtectionKeyword(
   p: BattlefieldPermanent,
   s: Readonly<GameState>,
@@ -2964,6 +2992,8 @@ function hasGrantedProtectionKeyword(
 ): boolean {
   const self = (((p.card as any)?.oracle_text) || '').toLowerCase();
   if (self.includes(keyword)) return true;
+
+  if (permanentHasKeywordFromRuntimeGrants(p, keyword)) return true;
 
   // Check if any attached aura or equipment grants the protection keyword.
   const hasFromAttachment = s.battlefield.some(a => {

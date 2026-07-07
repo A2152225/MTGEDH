@@ -591,6 +591,21 @@ export function getPreconDeck(year: number, setCode: string, deckName: string): 
 }
 
 /**
+ * List every Commander precon deck entry.
+ */
+export function listAllPrecons(): Array<{ year: number; set: PreconSet; deck: PreconDeck }> {
+  const results: Array<{ year: number; set: PreconSet; deck: PreconDeck }> = [];
+  for (const yearData of COMMANDER_PRECONS) {
+    for (const set of yearData.sets) {
+      for (const deck of set.decks) {
+        results.push({ year: yearData.year, set, deck });
+      }
+    }
+  }
+  return results;
+}
+
+/**
  * Search precons by name or commander
  */
 export function searchPrecons(query: string): Array<{ year: number; set: PreconSet; deck: PreconDeck }> {

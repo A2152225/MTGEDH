@@ -16,27 +16,17 @@ import {
   saveServerDeckViaApi,
   updateServerDeckViaApi,
 } from '../utils/serverDeckApi';
+import {
+  describeRandomDeckSource,
+  executeRandomDeckPick,
+} from '../utils/randomDeckSelection';
+import {
+  createLocalDeckId,
+  loadLocalSavedDecks,
+  saveLocalSavedDecks,
+} from '../utils/localDeckStorage';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
-
-const STORAGE_KEY = 'mtgedh:savedDecksLocal';
-
-function loadLocal(): SavedLocalDeck[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw) as SavedLocalDeck[];
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
-}
-function saveLocalAll(list: SavedLocalDeck[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-}
-function uid(prefix = 'd'): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
-}
 
 export interface DeckManagerModalProps {
   open: boolean;
@@ -51,6 +41,9 @@ export interface DeckManagerModalProps {
   // optional hook: when user clicks "Use" on a server deck, call this instead of emitting directly.
   // Parent can show a confirm modal first and then call socket.emit('useSavedDeck', ...) or onImportText accordingly.
   onUseSavedDeck?: (deckId: string) => void;
+  /** When set, runs once after the modal opens (e.g. mobile "Random Deck" shortcut). */
+  initialAction?: 'random' | null;
+  onInitialActionConsumed?: () => void;
 }
 
 export function DeckManagerModal({
@@ -63,7 +56,9 @@ export function DeckManagerModal({
   canServer,
   anchorEl,
   wide,
-  onUseSavedDeck
+  onUseSavedDeck,
+  initialAction,
+  onInitialActionConsumed,
 }: DeckManagerModalProps) {
   const isTouch = useIsTouch();
   const useSheet = isTouch;
@@ -78,6 +73,8 @@ export function DeckManagerModal({
   const [alsoSaveToServer, setAlsoSaveToServer] = useState(false);
   const [cacheCards, setCacheCards] = useState(true);
   const [cachingDeckId, setCachingDeckId] = useState<string | null>(null);
+  const [randomDeckMessage, setRandomDeckMessage] = useState<string | null>(null);
+  const [pickingRandomDeck, setPickingRandomDeck] = useState(false);
 
   // Server decks
   const [serverDecks, setServerDecks] = useState<SavedDeckSummary[]>([]);
@@ -148,7 +145,8 @@ export function DeckManagerModal({
   // Init
   useEffect(() => {
     if (!open) return;
-    setLocalList(loadLocal());
+    setRandomDeckMessage(null);
+    setLocalList(loadLocalSavedDecks());
     if (canServer && gameId) socket.emit('listSavedDecks', { gameId });
     if (useRestServer) void refreshRestServerDecks();
   }, [open, canServer, gameId, useRestServer, refreshRestServerDecks]);
@@ -295,6 +293,115 @@ export function DeckManagerModal({
     return serverDecks.filter(d => d.name.toLowerCase().includes(q));
   }, [serverDecks, serverFilter]);
 
+  const initialActionHandledRef = useRef(false);
+
+  const importPreconDeck = React.useCallback((
+    commanders: string[],
+    deckName: string,
+    setName: string,
+    year: number,
+    setCode: string,
+    colorIdentity: string,
+  ) => {
+    if (!gameId) {
+      setLocalErr('Join a game to import precon decks.');
+      return;
+    }
+    socket.emit('importPreconDeck', {
+      gameId,
+      commanders,
+      deckName,
+      setName,
+      year,
+      setCode,
+      colorIdentity,
+      cacheCards,
+    });
+    onClose();
+  }, [cacheCards, gameId, onClose]);
+
+  const handleRandomDeck = React.useCallback(() => {
+    setPickingRandomDeck(true);
+    setLocalErr(null);
+
+    const result = executeRandomDeckPick({
+      localDecks: localList,
+      serverDecks,
+      includeServer: !!canServer,
+      includePrecons: !!gameId,
+      handlers: {
+        onImportLocal: (text, name) => {
+          onImportText(text, name, cacheCards);
+          if (alsoSaveToServer && canServer && gameId) {
+            socket.emit('saveDeck', {
+              gameId,
+              name: name || 'Deck',
+              list: text,
+              cacheCards,
+            });
+          }
+        },
+        onUseServerDeck: (deckId) => {
+          if (onUseSavedDeck) {
+            onUseSavedDeck(deckId);
+          } else if (gameId) {
+            socket.emit('useSavedDeck', { gameId, deckId });
+          }
+        },
+        onImportPrecon: ({
+          commanders,
+          deckName,
+          setName,
+          year,
+          setCode,
+          colorIdentity,
+        }) => {
+          importPreconDeck(commanders, deckName, setName, year, setCode, colorIdentity);
+        },
+      },
+    });
+
+    if (!result.ok) {
+      setRandomDeckMessage(null);
+      setLocalErr(result.error);
+      setPickingRandomDeck(false);
+      return;
+    }
+
+    setRandomDeckMessage(`Random pick: ${result.choice.label} (${describeRandomDeckSource(result.choice)})`);
+
+    if (result.choice.source !== 'precon') {
+      onClose();
+    }
+
+    setPickingRandomDeck(false);
+  }, [
+    alsoSaveToServer,
+    cacheCards,
+    canServer,
+    gameId,
+    importPreconDeck,
+    onClose,
+    onImportText,
+    onUseSavedDeck,
+    localList,
+    serverDecks,
+  ]);
+
+  useEffect(() => {
+    if (!open) {
+      initialActionHandledRef.current = false;
+      return;
+    }
+    if (initialAction !== 'random' || initialActionHandledRef.current) return;
+    initialActionHandledRef.current = true;
+    const timer = window.setTimeout(() => {
+      handleRandomDeck();
+      onInitialActionConsumed?.();
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [open, initialAction, handleRandomDeck, onInitialActionConsumed]);
+
   if (!open) return null;
 
   const stopBubble = (e: React.MouseEvent) => {
@@ -310,7 +417,7 @@ export function DeckManagerModal({
           ? { ...entry, name: localName.trim(), text: localText, savedAt: Date.now() }
           : entry
       ));
-      saveLocalAll(next);
+      saveLocalSavedDecks(next);
       setLocalList(next);
       clearEditMode();
       setLocalName('');
@@ -318,9 +425,9 @@ export function DeckManagerModal({
       setLocalErr(null);
       return;
     }
-    const deck: SavedLocalDeck = { id: uid('l'), name: localName.trim(), text: localText, savedAt: Date.now() };
+    const deck: SavedLocalDeck = { id: createLocalDeckId('l'), name: localName.trim(), text: localText, savedAt: Date.now() };
     const next = [deck, ...localList].slice(0, 200);
-    saveLocalAll(next);
+    saveLocalSavedDecks(next);
     setLocalList(next);
     setLocalName('');
     setLocalText('');
@@ -599,10 +706,31 @@ export function DeckManagerModal({
             />
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
             <h4 style={{ margin: 0, fontSize: useSheet ? fontSize.xl : 15 }}>Deck Manager</h4>
-            <button type="button" onClick={onClose} style={actionButtonStyle}>Close</button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={handleRandomDeck}
+                disabled={pickingRandomDeck}
+                style={{
+                  ...actionButtonStyle,
+                  border: '1px solid #a78bfa',
+                  background: 'rgba(124, 58, 237, 0.18)',
+                  color: '#ede9fe',
+                  fontWeight: 600,
+                }}
+                title="Pick a random deck from local saves, server decks, or precons"
+              >
+                {pickingRandomDeck ? 'Rolling…' : '🎲 Random Deck'}
+              </button>
+              <button type="button" onClick={onClose} style={actionButtonStyle}>Close</button>
+            </div>
           </div>
+
+          {randomDeckMessage && (
+            <div style={{ marginBottom: 8, fontSize: 12, color: '#c4b5fd' }}>{randomDeckMessage}</div>
+          )}
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
             <button type="button" onClick={() => { setTab('local'); setDetail(null); }} disabled={tab === 'local'} style={tabButtonStyle(tab === 'local')}>Local</button>
@@ -716,7 +844,7 @@ export function DeckManagerModal({
                         onClick={() => {
                           if (!confirm(`Delete local deck "${d.name}"?`)) return;
                           const next = localList.filter(x => x.id !== d.id);
-                          saveLocalAll(next);
+                          saveLocalSavedDecks(next);
                           setLocalList(next);
                           if (editingLocalId === d.id) clearEditMode();
                         }}
@@ -862,22 +990,7 @@ export function DeckManagerModal({
           {tab === 'precons' && (
             <PreconBrowser
               onSelectDeck={(commanders, deckName, setName, year, setCode, colorIdentity) => {
-                // When a precon is selected, we need to fetch the decklist
-                // For now, we'll emit a request to get the precon decklist from the server
-                // The server will fetch from Scryfall using the set code and color identity
-                if (gameId) {
-                  socket.emit('importPreconDeck', { 
-                    gameId, 
-                    commanders, 
-                    deckName, 
-                    setName, 
-                    year,
-                    setCode,
-                    colorIdentity,
-                    cacheCards 
-                  });
-                }
-                onClose();
+                importPreconDeck(commanders, deckName, setName, year, setCode, colorIdentity);
               }}
             />
           )}
