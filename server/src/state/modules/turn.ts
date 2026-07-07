@@ -748,20 +748,24 @@ function dequeuePendingNextEndStepZoneChangeTriggers(ctx: GameContext): any[] {
     const pendingExile: any[] = Array.isArray(stateAny.pendingExileAtNextEndStep)
       ? stateAny.pendingExileAtNextEndStep
       : [];
+    const pendingReturnHand: any[] = Array.isArray(stateAny.pendingReturnToHandAtNextEndStep)
+      ? stateAny.pendingReturnToHandAtNextEndStep
+      : [];
     const pendingDelayedReturns: any[] = Array.isArray(stateAny.pendingDelayedGraveyardReturns)
       ? stateAny.pendingDelayedGraveyardReturns
       : [];
 
-    if (pendingSac.length === 0 && pendingExile.length === 0 && pendingDelayedReturns.length === 0) return [];
+    if (pendingSac.length === 0 && pendingExile.length === 0 && pendingReturnHand.length === 0 && pendingDelayedReturns.length === 0) return [];
 
     const remainingSac: any[] = [];
     const remainingExile: any[] = [];
+    const remainingReturnHand: any[] = [];
     const remainingDelayedReturns: any[] = [];
 
     type Group = {
       controllerId: string;
       sourceName: string;
-      action: 'sacrifice' | 'exile';
+      action: 'sacrifice' | 'exile' | 'return_hand';
       permanentIds: string[];
     };
 
@@ -814,6 +818,15 @@ function dequeuePendingNextEndStepZoneChangeTriggers(ctx: GameContext): any[] {
       }
     }
 
+    for (const entry of pendingReturnHand) {
+      const fireAt = Number(entry?.fireAtTurnNumber ?? 0) || 0;
+      if (fireAt === currentTurn) {
+        addToGroup(entry, 'return_hand');
+      } else {
+        remainingReturnHand.push(entry);
+      }
+    }
+
     const delayedReturnTriggers: any[] = [];
     for (const entry of pendingDelayedReturns) {
       const fireAt = Number(entry?.fireAtTurnNumber ?? 0) || 0;
@@ -858,6 +871,7 @@ function dequeuePendingNextEndStepZoneChangeTriggers(ctx: GameContext): any[] {
 
     stateAny.pendingSacrificeAtNextEndStep = remainingSac;
     stateAny.pendingExileAtNextEndStep = remainingExile;
+    stateAny.pendingReturnToHandAtNextEndStep = remainingReturnHand;
     stateAny.pendingDelayedGraveyardReturns = remainingDelayedReturns;
 
     const triggers: any[] = [];
@@ -865,7 +879,9 @@ function dequeuePendingNextEndStepZoneChangeTriggers(ctx: GameContext): any[] {
       const effectText =
         group.action === 'sacrifice'
           ? 'Sacrifice them.'
-          : 'Exile them.';
+          : group.action === 'return_hand'
+            ? 'Return them to their owner\'s hand.'
+            : 'Exile them.';
 
       triggers.push({
         controllerId: group.controllerId,

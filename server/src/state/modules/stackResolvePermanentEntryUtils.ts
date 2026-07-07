@@ -10,6 +10,13 @@ import { creatureWillHaveHaste } from './creatureEntryHasteUtils.js';
 import { applyCounterModifications } from './counters_tokens.js';
 import { evaluateBattlefieldEntryReplacementEvent } from './replacement-effects.js';
 import { applyTriggeredReanimationEntryRiders } from './triggerReanimationRiders.js';
+import { scheduleWarpDelayedExileOnPermanentEntry } from './warpDelayedEffects.js';
+import {
+  scheduleKeywordCastDelayedEffectsOnPermanentEntry,
+  spellWasCastWithBlitzPaid,
+  spellWasCastWithDashPaid,
+} from './keywordCastDelayedEffects.js';
+import { applySneakPermanentBattlefieldEntry } from './sneakCastUtils.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
 import {
   createMutatedPermanent,
@@ -284,6 +291,8 @@ export function resolvePermanentSpellBattlefieldEntry(
   );
   const hasHaste = isCreature && (
     gainsHasteUntilEndOfTurnFromManaSpent ||
+    spellWasCastWithDashPaid(item, effectiveCard) ||
+    spellWasCastWithBlitzPaid(item, effectiveCard) ||
     creatureWillHaveHaste(effectiveCard, controller, battlefield)
   );
   
@@ -549,6 +558,24 @@ export function resolvePermanentSpellBattlefieldEntry(
     controller,
     String(effectiveCard?.oracle_text || ''),
   );
+
+  scheduleWarpDelayedExileOnPermanentEntry(
+    ctx,
+    newPermanent,
+    controller,
+    String(effectiveCard?.name || (item as any)?.card?.name || 'Permanent'),
+    item,
+  );
+
+  scheduleKeywordCastDelayedEffectsOnPermanentEntry(
+    ctx,
+    newPermanent,
+    controller,
+    String(effectiveCard?.name || (item as any)?.card?.name || 'Permanent'),
+    item,
+  );
+
+  applySneakPermanentBattlefieldEntry(newPermanent, item);
 
   hydratePermanentCardOracleInPlace(newPermanent);
 

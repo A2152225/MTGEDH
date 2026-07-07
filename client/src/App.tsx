@@ -289,6 +289,15 @@ export function App() {
       }>;
       messages: string[];
     };
+    sneakOptions?: {
+      availableCreatures: Array<{
+        id: string;
+        name: string;
+        attackTarget: string;
+        imageUrl?: string;
+      }>;
+      messages: string[];
+    };
     extraAlternateCosts?: AlternateCost[];
   } | null>(null);
     const battlefieldAlternateCosts = useMemo(() => {
@@ -2916,6 +2925,7 @@ export function App() {
       else if (step.type === 'mana_payment_choice' && (step.spellPaymentRequired === true || (step as any).wardPayment === true)) {
         const ca = (step as any).costAdjustment as PaymentCostAdjustment | undefined;
         const co = (step as any).convokeOptions;
+        const so = (step as any).sneakOptions;
         const isWardPayment = (step as any).wardPayment === true;
 
         setSpellToCast({
@@ -2925,12 +2935,18 @@ export function App() {
             : String((step as any).cardName || step.sourceName || 'Spell'),
           manaCost: String((step as any).wardCost || (step as any).manaCost || ''),
           fromZone: isWardPayment ? undefined : (((step as any).fromZone != null ? String((step as any).fromZone) : undefined) as any),
-          oracleText: isWardPayment ? String(step.description || '') : undefined,
+          oracleText: isWardPayment
+            ? String(step.description || '')
+            : String((step as any).oracleText || ''),
+          extraAlternateCosts: isWardPayment
+            ? undefined
+            : (Array.isArray((step as any).extraAlternateCosts) ? (step as any).extraAlternateCosts : undefined),
           targets: Array.isArray((step as any).targets) ? (step as any).targets : undefined,
           effectId: isWardPayment ? undefined : String((step as any).effectId || ''),
           xValue: isWardPayment ? undefined : (Number.isFinite((step as any).xValue) ? Math.max(0, Number((step as any).xValue)) : undefined),
           costAdjustment: isWardPayment ? undefined : ca,
           convokeOptions: isWardPayment ? undefined : co,
+          sneakOptions: isWardPayment ? undefined : so,
           forcedAlternateCostId: isWardPayment ? undefined : ((step as any).forcedAlternateCostId != null ? String((step as any).forcedAlternateCostId) : undefined),
           // Track the resolution step id so confirm/cancel responds via the queue.
           paymentStepId: String(step.id),
@@ -4385,7 +4401,13 @@ export function App() {
   }, [spellToCast, you, safeView?.battlefield]);
 
   // Handle cast spell confirmation from modal - works for both hand and commander spells
-  const handleCastSpellConfirm = (payment: PaymentItem[], alternateCostId?: string, xValue?: number, convokeTappedCreatures?: string[]) => {
+  const handleCastSpellConfirm = (
+    payment: PaymentItem[],
+    alternateCostId?: string,
+    xValue?: number,
+    convokeTappedCreatures?: string[],
+    sneakReturnedCreatureId?: string,
+  ) => {
     if (!safeView || !spellToCast) return;
 
     // Resolution Queue spell payment: respond to the step instead of emitting payment completion directly.
@@ -4399,6 +4421,7 @@ export function App() {
           xValue,
           alternateCostId,
           convokeTappedCreatures,
+          sneakReturnedCreatureId,
         },
         cancelled: false,
       });
@@ -4431,6 +4454,7 @@ export function App() {
         xValue,
         alternateCostId,
         convokeTappedCreatures,
+        sneakReturnedCreatureId,
       });
     } else {
       // Legacy flow: direct cast from hand (will check targets on server)
@@ -4440,6 +4464,7 @@ export function App() {
         payment: payment.length > 0 ? payment : undefined,
         xValue,
         alternateCostId,
+        sneakReturnedCreatureId,
         convokeTappedCreatures,
       });
     }
@@ -7355,6 +7380,8 @@ export function App() {
         initialXValue={spellToCast?.xValue}
         costAdjustment={spellToCast?.costAdjustment}
         convokeOptions={spellToCast?.convokeOptions}
+        sneakOptions={spellToCast?.sneakOptions}
+        currentStep={String((safeView as any)?.step || '')}
         onConfirm={handleCastSpellConfirm}
         onCancel={handleCastSpellCancel}
       />

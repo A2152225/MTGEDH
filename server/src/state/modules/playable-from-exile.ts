@@ -4,6 +4,7 @@ import {
   removeCardIdFromDurablePlayableFromExilePermissions,
   type DurablePlayableFromExileAction,
 } from "./durable-permissions.js";
+import { canCastWarpedCardFromExile } from "./warpDelayedEffects.js";
 
 export function getPlayableFromExileDurablePermissionForCard(
   state: any,
@@ -100,6 +101,12 @@ export function cardMeetsPlayFromExileConditions(state: any, card: any, playerId
 
 export function cardAllowsPlayerToPlayFromExile(card: any, playerId: PlayerID, currentTurn: number, state?: any): boolean {
   if (!card || typeof card !== 'object') return false;
+
+  if ((card as any).isWarped === true || (card as any).exiledBecauseWarped === true) {
+    return canCastWarpedCardFromExile(card, playerId, currentTurn)
+      && (state ? cardMeetsPlayFromExileConditions(state, card, playerId) : true);
+  }
+
   if (!playerMatchesPlayableFromExilePermission((card as any)?.canBePlayedBy, playerId)) {
     return false;
   }

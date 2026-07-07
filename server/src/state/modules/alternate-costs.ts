@@ -399,6 +399,39 @@ export function parseMutateCost(oracleText: string): string | undefined {
   return match ? match[1].trim() : undefined;
 }
 
+export function parseWarpCost(oracleText: string): string | undefined {
+  if (!oracleText) return undefined;
+  const match = oracleText.match(/warp\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  return match ? match[1].replace(/\s+/g, '').trim() : undefined;
+}
+
+/** Parse mana cost for keyword alternate costs (dash, warp, blitz, etc.). */
+export function parseKeywordAlternateManaCost(
+  oracleText: string,
+  keyword: string,
+): string | undefined {
+  const normalizedKeyword = String(keyword || '').trim().toLowerCase();
+  if (!normalizedKeyword || !oracleText) return undefined;
+  const match = oracleText.match(
+    new RegExp(`\\b${normalizedKeyword}\\s*(\\{[^}]+\\}(?:\\s*\\{[^}]+\\})*)`, 'i'),
+  );
+  return match ? match[1].replace(/\s+/g, '').trim() : undefined;
+}
+
+export function buildWarpPaymentAlternateCost(
+  adjustedWarpManaCost: string,
+  oracleText?: string,
+): { id: 'warp'; label: string; description: string; manaCost: string } | undefined {
+  const warpCost = parseWarpCost(String(oracleText || ''));
+  if (!warpCost || !adjustedWarpManaCost) return undefined;
+  return {
+    id: 'warp',
+    label: 'Warp',
+    description: 'Cast for warp cost; exile at the beginning of the next end step',
+    manaCost: adjustedWarpManaCost,
+  };
+}
+
 export function parseMadnessCost(oracleText: string): string | undefined {
   if (!oracleText) return undefined;
   const match = oracleText.match(/madness(?:\s*[—–-]\s*|\s+)(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);

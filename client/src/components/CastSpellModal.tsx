@@ -30,7 +30,7 @@ export type DisplayedCostAdjustment = PaymentCostAdjustment;
 /**
  * Parse alternate costs from card oracle text
  */
-function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName: string): AlternateCost[] {
+export function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName: string): AlternateCost[] {
   const costs: AlternateCost[] = [];
   const text = oracleText || '';
   const lowerText = text.toLowerCase();
@@ -188,6 +188,42 @@ function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName:
       manaCost: blitzMatch[1],
     });
   }
+
+  const sneakMatch = text.match(/sneak\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (sneakMatch) {
+    costs.push({
+      id: 'sneak',
+      label: 'Sneak',
+      description: 'Declare blockers step: return an unblocked attacker to hand',
+      manaCost: sneakMatch[1],
+      additionalCost: 'Return an unblocked attacking creature to hand',
+    });
+  }
+
+  // Warp - cast from hand for warp cost (exile at next end step; may recast from exile)
+  const warpMatch = text.match(/warp\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (warpMatch) {
+    costs.push({
+      id: 'warp',
+      label: 'Warp',
+      description: 'Cast for warp cost; exile at the beginning of the next end step',
+      manaCost: warpMatch[1],
+    });
+  }
+
+  // Self-WUBRG (Bringers): pay {W}{U}{B}{R}{G} instead of this spell's mana cost
+  if (
+    lowerText.includes('{w}{u}{b}{r}{g}')
+    && lowerText.includes('rather than pay')
+    && lowerText.includes('this spell')
+  ) {
+    costs.push({
+      id: 'wubrg_self',
+      label: 'WUBRG Cost',
+      description: 'Pay {W}{U}{B}{R}{G} instead of mana cost',
+      manaCost: '{W}{U}{B}{R}{G}',
+    });
+  }
   
   // Prototype (smaller stats, cheaper cost) - Phyrexian construct cards
   const prototypeMatch = text.match(/prototype\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*[-—]\s*(\d+)\/(\d+)/i);
@@ -280,11 +316,7 @@ function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName:
     // The echo cost is paid on the next upkeep, not when casting
     costs[0].additionalCost = `Echo: ${echoMatch[1]} (pay on your next upkeep or sacrifice)`;
   }
-  
-  // Warp - cast from exile (typically through cascade or similar)
-  // Note: "Warp" isn't a standard keyword, but there are effects that cast from exile
-  // This handles cards like Prosper's treasure tokens or similar effects
-  
+
   // Foretell - exile face down, cast later for foretell cost
   const foretellMatch = text.match(/foretell\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
   if (foretellMatch) {
@@ -520,7 +552,23 @@ interface CastSpellModalProps {
     }>;
     messages: string[];
   };
-  onConfirm: (payment: PaymentItem[], alternateCostId?: string, xValue?: number, convokeTappedCreatures?: string[]) => void;
+  sneakOptions?: {
+    availableCreatures: Array<{
+      id: string;
+      name: string;
+      attackTarget: string;
+      imageUrl?: string;
+    }>;
+    messages: string[];
+  };
+  currentStep?: string;
+  onConfirm: (
+    payment: PaymentItem[],
+    alternateCostId?: string,
+    xValue?: number,
+    convokeTappedCreatures?: string[],
+    sneakReturnedCreatureId?: string,
+  ) => void;
   onCancel: () => void;
 }
 
@@ -542,6 +590,8 @@ export function CastSpellModal({
   initialXValue,
   costAdjustment,
   convokeOptions,
+  sneakOptions,
+  currentStep,
   onConfirm,
   onCancel,
 }: CastSpellModalProps) {
@@ -549,6 +599,7 @@ export function CastSpellModal({
   const [xValue, setXValue] = useState(0);
   const [selectedCostId, setSelectedCostId] = useState('normal');
   const [selectedConvokeCreatures, setSelectedConvokeCreatures] = useState<string[]>([]);
+  const [selectedSneakCreatureId, setSelectedSneakCreatureId] = useState('');
 
   // When the server forces an alternate cost (e.g., Miracle), lock the selection.
   useEffect(() => {
@@ -570,10 +621,27 @@ export function CastSpellModal({
     if (Array.isArray(extraAlternateCosts) && extraAlternateCosts.length > 0) {
       const existingIds = new Set(costs.map(cost => cost.id));
       for (const extraCost of extraAlternateCosts) {
-        if (!extraCost || existingIds.has(extraCost.id)) continue;
+        if (!extraCost) continue;
+        if (existingIds.has(extraCost.id)) {
+          costs = costs.map((cost) => (cost.id === extraCost.id ? extraCost : cost));
+          continue;
+        }
         costs.push(extraCost);
         existingIds.add(extraCost.id);
       }
+    }
+
+    // Warp is only castable from hand.
+    if (castFromZone !== 'hand') {
+      costs = costs.filter((cost) => cost.id !== 'warp');
+    }
+
+    const normalizedStep = String(currentStep || '').toUpperCase();
+    const isDeclareBlockersStep = normalizedStep === 'DECLARE_BLOCKERS' || normalizedStep.includes('BLOCKERS');
+    if (!isDeclareBlockersStep) {
+      costs = costs.filter((cost) => cost.id !== 'sneak');
+    } else if (sneakOptions && sneakOptions.availableCreatures.length === 0) {
+      costs = costs.filter((cost) => cost.id !== 'sneak');
     }
     
     // If casting from graveyard, filter to only graveyard-castable costs
@@ -591,7 +659,7 @@ export function CastSpellModal({
     }
     
     return costs;
-  }, [oracleText, manaCost, cardName, castFromZone, extraAlternateCosts]);
+  }, [oracleText, manaCost, cardName, castFromZone, extraAlternateCosts, currentStep, sneakOptions]);
 
   // Get the currently selected cost
   const currentCost = useMemo(() => {
@@ -609,6 +677,20 @@ export function CastSpellModal({
       costAdjustment,
     });
   }, [currentCost, manaCost, selectedCostId, forcedAlternateCostId, costAdjustment]);
+
+  const alternateCostDisplayMana = useMemo(() => {
+    const displayById = new Map<string, string>();
+    for (const cost of alternateCosts) {
+      displayById.set(cost.id, resolveEffectiveManaCostForCastStep({
+        selectedManaCost: cost.manaCost,
+        queuedManaCost: manaCost,
+        selectedCostId: cost.id,
+        forcedAlternateCostId,
+        costAdjustment,
+      }));
+    }
+    return displayById;
+  }, [alternateCosts, manaCost, forcedAlternateCostId, costAdjustment]);
 
   const floatingPaymentSources = useMemo(() => {
     if (!manualFloatingManaSelection || !floatingMana) return [] as ManaPaymentSource[];
@@ -745,16 +827,22 @@ export function CastSpellModal({
       ? forcedAlternateCostId
       : selectedCostId;
 
+    if (effectiveCostId === 'sneak' && !selectedSneakCreatureId) {
+      return;
+    }
+
     onConfirm(
       finalPayment,
       effectiveCostId !== 'normal' ? effectiveCostId : undefined,
       xValue,
-      selectedConvokeCreatures.length > 0 ? selectedConvokeCreatures : undefined
+      selectedConvokeCreatures.length > 0 ? selectedConvokeCreatures : undefined,
+      effectiveCostId === 'sneak' ? selectedSneakCreatureId : undefined,
     );
     setPayment([]);
     setXValue(0);
     setSelectedCostId('normal');
     setSelectedConvokeCreatures([]);
+    setSelectedSneakCreatureId('');
   };
 
   const handleCancel = () => {
@@ -824,8 +912,15 @@ export function CastSpellModal({
                         borderRadius: 4,
                         fontSize: 12,
                       }}>
-                        {cost.manaCost || '{0}'}
+                        {alternateCostDisplayMana.get(cost.id) || cost.manaCost || '{0}'}
                       </span>
+                      {alternateCostDisplayMana.get(cost.id)
+                        && cost.manaCost
+                        && alternateCostDisplayMana.get(cost.id) !== cost.manaCost && (
+                        <span style={{ fontSize: 11, color: '#888', textDecoration: 'line-through' }}>
+                          {cost.manaCost}
+                        </span>
+                      )}
                     </div>
                     {cost.description && (
                       <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
@@ -973,6 +1068,38 @@ export function CastSpellModal({
                 ✓ Tapping {selectedConvokeCreatures.length} creature{selectedConvokeCreatures.length !== 1 ? 's' : ''}
               </div>
             )}
+          </div>
+        )}
+
+        {selectedCostId === 'sneak' && sneakOptions && sneakOptions.availableCreatures.length > 0 && (
+          <div style={{ marginBottom: 12, padding: 12, background: '#1a1a2e', borderRadius: 8, border: '1px solid #334155' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#fbbf24' }}>
+              Return an unblocked attacker to hand
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {sneakOptions.availableCreatures.map((creature) => (
+                <label
+                  key={creature.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 8px',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    background: selectedSneakCreatureId === creature.id ? '#2d3748' : 'transparent',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="sneak-creature"
+                    checked={selectedSneakCreatureId === creature.id}
+                    onChange={() => setSelectedSneakCreatureId(creature.id)}
+                  />
+                  <span style={{ fontWeight: 500 }}>{creature.name}</span>
+                </label>
+              ))}
+            </div>
           </div>
         )}
 

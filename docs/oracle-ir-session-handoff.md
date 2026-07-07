@@ -1,6 +1,8 @@
 # Oracle IR Session Handoff
 
-Last updated: 2026-07-07 (Phase 5 complete; graveyard-permission IR fixes; migration 889/889)
+Last updated: 2026-07-07 (dynamic lords declarative; delta→probe workflow; migration 889/889)
+
+> **Cost reducers / alternate costs** (separate workstream): see [`docs/cost-reduction-handoff.md`](cost-reduction-handoff.md).
 
 ## Next session prompt (copy-paste)
 
@@ -8,7 +10,8 @@ Last updated: 2026-07-07 (Phase 5 complete; graveyard-permission IR fixes; migra
 Oracle IR — Phase 5 complete; graveyard-permission IR stable
 
 Done recently:
-- Phase 5.3–5.5: StaticEffectSpec declarative oracle parsing + derived-view recompute (anthem/lord P/T, ability grants)
+- Dynamic lords declarative: Coat of Arms / Sliver Legion via StaticEffectGrant.countBasis (29/29 static-effect-spec)
+- Delta→overlay probe workflow: npm run oracle-ir:delta:probe batches overlay probes from overlayWorkQueue
 - Anti-double-count: skipDeclarativeStaticForSourceIds gates legacy regex when declarative specs own a source
 - Leave-BF declarative path: tryApplyDeclarativeLeaveBattlefieldDestinationReplacement + hint preview
 - Continuous-effect gap telemetry: owned_but_unhandled for incomplete STATIC/REPLACEMENT overlays (SBA scan)
@@ -26,9 +29,11 @@ cd ../server
 npm run test:oracle-ir-migration
 npm run oracle-ir:legacy-triage:soak
 
-Expect: migration 889/889; request-cast.graveyard-permission 32/32; static-effect-spec 27/27; delta 0 cards
+Expect: migration 889/889; request-cast.graveyard-permission 32/32; static-effect-spec 29/29; delta 0 cards
 
 Key files:
+- server/scripts/oracle-delta-probe-gaps.ts — delta overlayWorkQueue → batch probe summary
+- server/scripts/probeCompiledOracleIrOverlayCore.ts — shared single-card probe logic
 - server/src/state/modules/staticEffectSpec.ts — declarative static registry + derived view
 - server/src/state/modules/staticEffectSpecOracleParsing.ts — anthem/lord oracle → StaticEffectSpec
 - server/src/state/modules/oracleIrServerZoneSync.ts — graveyard/exile permission queue bridges
@@ -38,10 +43,17 @@ Key files:
 Architecture: docs/oracle-ir-phase5-continuous-effects-design.md §4 (5.1–5.5 done)
 
 Next work (priority):
-1. New-set overlay workflow when oracle-cards.json changes (npm run oracle-ir:delta → overlay probe)
-2. Live EDH soak + telemetry watch (static:owned_but_unhandled, replacement:owned_but_unhandled)
-3. Windows migration stability — sharded vitest if single-process crash (exit 3221225477)
+1. Live EDH soak + telemetry watch (static:owned_but_unhandled, replacement:owned_but_unhandled)
+2. Windows migration stability — default 8 shards on win32 via run-oracle-ir-migration.ts (ORACLE_IR_MIGRATION_SHARDS=1 for single run)
 ```
+
+## Session 2026-07-07 (PM) — Delta→probe workflow + dynamic lords
+
+| Area | Outcome | Key files / tests |
+|------|---------|-------------------|
+| **Dynamic lords** | Coat of Arms / Sliver Legion via `countBasis` declarative specs | `staticEffectSpec.ts`, `staticEffectSpecOracleParsing.ts` — **29/29** |
+| **Overlay workflow** | `npm run oracle-ir:delta:probe` batches probes from `overlayWorkQueue` | `oracle-delta-probe-gaps.ts`, `probeCompiledOracleIrOverlayCore.ts` — **2/2** probe unit tests |
+| **Delta audit** | **0** changed cards | `npm run oracle-ir:delta` |
 
 ## Session 2026-07-07 — Graveyard-permission IR + migration stable
 

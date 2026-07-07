@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { resolveEffectiveManaCostForCastStep } from '../src/components/CastSpellModal';
+import { parseAlternateCosts, resolveEffectiveManaCostForCastStep } from '../src/components/CastSpellModal';
 
 describe('resolveEffectiveManaCostForCastStep', () => {
+  it('parses warp alternate cost from oracle text', () => {
+    const oracleText =
+      'Flying, lifelink\nIf one or more tokens would be created under your control, twice that many of those tokens are created instead.\nWarp {1}{W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)';
+    const costs = parseAlternateCosts(oracleText, '{3}{W}{W}', 'Exalted Sunborn');
+    const warp = costs.find((cost) => cost.id === 'warp');
+    expect(warp).toMatchObject({
+      id: 'warp',
+      label: 'Warp',
+      manaCost: '{1}{W}',
+    });
+    expect(costs.some((cost) => cost.id === 'normal')).toBe(true);
+  });
+
   it('treats the queued normal mana cost as authoritative instead of reducing it again', () => {
     expect(resolveEffectiveManaCostForCastStep({
       selectedManaCost: '{W}',
@@ -58,6 +71,34 @@ describe('resolveEffectiveManaCostForCastStep', () => {
         kind: 'reduction',
       },
     })).toBe('{R}');
+  });
+
+  it('parses self-WUBRG alternate cost from oracle text', () => {
+    const oracleText = 'You may pay {W}{U}{B}{R}{G} rather than pay this spell\'s mana cost.';
+    const costs = parseAlternateCosts(oracleText, '{7}', 'Bringer of the White Dawn');
+    expect(costs.find((cost) => cost.id === 'wubrg_self')).toMatchObject({
+      id: 'wubrg_self',
+      manaCost: '{W}{U}{B}{R}{G}',
+    });
+  });
+
+  it('reduces warp cost when Pearl Medallion is on the battlefield', () => {
+    expect(resolveEffectiveManaCostForCastStep({
+      selectedManaCost: '{1}{W}',
+      queuedManaCost: '{4}{W}',
+      selectedCostId: 'warp',
+      costAdjustment: {
+        originalManaCost: '{3}{W}{W}',
+        adjustedManaCost: '{4}{W}',
+        genericReduction: 1,
+        coloredReductions: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        genericTax: 0,
+        reductionMessages: ['Pearl Medallion: -{1} (white)'],
+        taxMessages: [],
+        sources: [{ kind: 'reduction', message: 'Pearl Medallion: -{1} (white)' }],
+        kind: 'reduction',
+      },
+    })).toBe('{W}');
   });
 
   it('applies generic taxes when the user switches to a different alternate cost in the modal', () => {

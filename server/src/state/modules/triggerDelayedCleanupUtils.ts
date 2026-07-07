@@ -1,7 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid, parsePT } from '../utils.js';
-import { drawCards as drawCardsFromZone } from './zones.js';
+import { drawCards as drawCardsFromZone, movePermanentToHand } from './zones.js';
 import { recordCardLeftGraveyardThisTurn } from './turn-tracking.js';
 import {
   markPermanentEnteredFromZone,
@@ -21,7 +21,7 @@ export interface TriggerDelayedCleanupParams {
 export function applyDelayedCleanupTriggersFromMetadata(
   params: TriggerDelayedCleanupParams,
 ): boolean {
-  const action = params.triggerItem?.delayedAction as ('draw' | 'exile' | 'sacrifice' | 'graveyard_return' | undefined);
+  const action = params.triggerItem?.delayedAction as ('draw' | 'exile' | 'sacrifice' | 'return_hand' | 'graveyard_return' | undefined);
 
   if (action === 'draw') {
     const count = Math.max(1, Math.floor(Number(params.triggerItem?.delayedDrawCount || 1)));
@@ -128,6 +128,15 @@ export function applyDelayedCleanupTriggersFromMetadata(
         }
       }
 
+      return true;
+    }
+
+    if (action === 'return_hand' && Array.isArray(permanentIds) && permanentIds.length > 0) {
+      for (const rawId of permanentIds) {
+        const permanentId = String(rawId || '').trim();
+        if (!permanentId) continue;
+        movePermanentToHand(params.ctx, permanentId);
+      }
       return true;
     }
 

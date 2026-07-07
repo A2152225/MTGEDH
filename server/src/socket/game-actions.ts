@@ -56,7 +56,8 @@ import { isSpellEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIrSp
 import { queueOptionalPaymentStep, queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { tryQueueMoxDiamondBeforeStackResolve } from "../state/modules/mox-diamond-choice.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
-import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
+import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, parseWarpCost, parseKeywordAlternateManaCost, getValidMutateTargets, hasSelfWUBRGAlternateCost, getExternalWUBRGSource } from "../state/modules/alternate-costs.js";
+import { calculateSneakOptions, canCastWithSneakAtCurrentTiming, validateSneakReturnedCreature, applySneakReturnedCreatureCost, parseSneakCost } from "../state/modules/sneakCastUtils.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
 import { getDeclarativeLeaveBattlefieldReplacementHint } from "../state/modules/leaveBattlefieldReplacementHint.js";
@@ -64,6 +65,7 @@ import { cardAllowsPlayerToPlayFromExile, cardMeetsPlayFromExileConditions, clea
 import { isPreparedCopyActive, syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { buildCostAdjustmentPlan, buildLiveSpellCostAdjustment } from "../state/modules/cost-adjustments.js";
+import { adjustActivationManaCostForPayment } from "../state/modules/ability-cost-adjustments.js";
 import { buildNormalizedManaPaymentModel, stringifyParsedManaCost, type NormalizedManaPaymentModel } from "../state/modules/mana-check.js";
 import {
   consumeConvokeGrantsAfterCast,
@@ -76,6 +78,8 @@ import {
 } from "../state/modules/casting-modifiers.js";
 import { processMillTriggers } from "../state/modules/zones.js";
 import { queueLifegainTriggers } from "../state/modules/triggers/lifegain.js";
+
+const WUBRG_ALTERNATE_MANA_COST = '{W}{U}{B}{R}{G}';
 import { queueLifeLossTriggers } from "../state/modules/triggers/life-loss.js";
 import { queueLifePaymentTriggers } from "../state/modules/triggers/pay-life.js";
 import { queueBecomesUntappedTriggers } from "../state/modules/triggers/tap-untap.js";
@@ -655,6 +659,141 @@ function getPendingCastPaymentFields(
   };
 
   return { costMetadata };
+}
+
+function buildAlternateCostPaymentExtrasForCast(
+  oracleText: string,
+  castSourceZone: SpellCastSourceZone,
+  paymentMetadata: PendingCastCostMetadata,
+  chosenXValue?: number,
+  timingContext?: { game?: any; playerId?: string },
+): { oracleText: string; extraAlternateCosts?: Array<{ id: string; label: string; description: string; manaCost: string }> } {
+  const normalizedOracleText = String(oracleText || '').trim();
+  if (!normalizedOracleText) {
+    return { oracleText: undefined as any };
+  }
+
+  if (castSourceZone !== 'hand') {
+    return { oracleText: normalizedOracleText };
+  }
+
+  const handKeywordAlternateCosts: Array<{
+    id: string;
+    label: string;
+    description: string;
+    rawCost: string;
+  }> = [];
+
+  const warpCost = parseWarpCost(normalizedOracleText);
+  if (warpCost) {
+    handKeywordAlternateCosts.push({
+      id: 'warp',
+      label: 'Warp',
+      description: 'Cast for warp cost; exile at the beginning of the next end step',
+      rawCost: warpCost,
+    });
+  }
+
+  const genericKeywordIds = [
+    'dash', 'blitz', 'mutate', 'surge', 'spectacle', 'prowl', 'bestow', 'emerge', 'evoke',
+    'overload', 'craft', 'cleave', 'ninjutsu', 'foretell', 'suspend', 'madness', 'miracle',
+    'disturb', 'escape', 'flashback', 'retrace', 'harmonize', 'jump-start',
+  ] as const;
+
+  const genericLabels: Record<string, { label: string; description: string }> = {
+    dash: { label: 'Dash', description: 'Cast for dash cost; return to hand at the beginning of the next end step' },
+    blitz: { label: 'Blitz', description: 'Cast for blitz cost; sacrifice at the beginning of the next end step' },
+    mutate: { label: 'Mutate', description: 'Cast for mutate cost' },
+    surge: { label: 'Surge', description: 'Cast for surge cost' },
+    spectacle: { label: 'Spectacle', description: 'Cast for spectacle cost' },
+    prowl: { label: 'Prowl', description: 'Cast for prowl cost' },
+    bestow: { label: 'Bestow', description: 'Cast for bestow cost' },
+    emerge: { label: 'Emerge', description: 'Cast for emerge cost' },
+    evoke: { label: 'Evoke', description: 'Cast for evoke cost' },
+    overload: { label: 'Overload', description: 'Cast for overload cost' },
+    craft: { label: 'Craft', description: 'Cast for craft cost' },
+    cleave: { label: 'Cleave', description: 'Cast for cleave cost' },
+    ninjutsu: { label: 'Ninjutsu', description: 'Cast for ninjutsu cost' },
+    foretell: { label: 'Foretell', description: 'Cast for foretell cost' },
+    suspend: { label: 'Suspend', description: 'Cast for suspend cost' },
+    madness: { label: 'Madness', description: 'Cast for madness cost' },
+    miracle: { label: 'Miracle', description: 'Cast for miracle cost' },
+    disturb: { label: 'Disturb', description: 'Cast for disturb cost' },
+    escape: { label: 'Escape', description: 'Cast for escape cost' },
+    flashback: { label: 'Flashback', description: 'Cast for flashback cost' },
+    retrace: { label: 'Retrace', description: 'Cast for retrace cost' },
+    harmonize: { label: 'Harmonize', description: 'Cast for harmonize cost' },
+    'jump-start': { label: 'Jump-start', description: 'Cast for jump-start cost' },
+  };
+
+  for (const keywordId of genericKeywordIds) {
+    if (keywordId === 'warp') continue;
+    const rawCost = parseKeywordAlternateManaCost(normalizedOracleText, keywordId);
+    if (!rawCost) continue;
+    const meta = genericLabels[keywordId] || { label: keywordId, description: `Cast for ${keywordId} cost` };
+    handKeywordAlternateCosts.push({
+      id: keywordId,
+      label: meta.label,
+      description: meta.description,
+      rawCost,
+    });
+  }
+
+  const sneakCost = parseSneakCost(normalizedOracleText);
+  if (
+    sneakCost
+    && timingContext?.game
+    && timingContext?.playerId
+    && canCastWithSneakAtCurrentTiming(timingContext.game, timingContext.playerId, { oracle_text: normalizedOracleText })
+  ) {
+    handKeywordAlternateCosts.push({
+      id: 'sneak',
+      label: 'Sneak',
+      description: 'Declare blockers step: return an unblocked attacker to hand',
+      rawCost: sneakCost,
+    });
+  }
+
+  if (hasSelfWUBRGAlternateCost({ oracle_text: normalizedOracleText })) {
+    handKeywordAlternateCosts.push({
+      id: 'wubrg_self',
+      label: 'WUBRG Cost',
+      description: 'Pay {W}{U}{B}{R}{G} instead of mana cost',
+      rawCost: WUBRG_ALTERNATE_MANA_COST,
+    });
+  }
+
+  if (timingContext?.game && timingContext?.playerId) {
+    const wubrgSource = getExternalWUBRGSource(
+      { state: timingContext.game.state } as any,
+      timingContext.playerId as PlayerID,
+    );
+    if (wubrgSource) {
+      handKeywordAlternateCosts.push({
+        id: 'wubrg_external',
+        label: 'WUBRG Alternative',
+        description: `Pay {W}{U}{B}{R}{G} via ${wubrgSource.sourceName}`,
+        rawCost: WUBRG_ALTERNATE_MANA_COST,
+      });
+    }
+  }
+
+  const extraAlternateCosts = handKeywordAlternateCosts.map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    description: entry.description,
+    manaCost: formatManaCostWithCostAdjustment(
+      entry.rawCost,
+      paymentMetadata.costReduction,
+      chosenXValue,
+      paymentMetadata.genericCostTax,
+    ),
+  }));
+
+  return {
+    oracleText: normalizedOracleText,
+    ...(extraAlternateCosts.length > 0 ? { extraAlternateCosts } : {}),
+  };
 }
 
 function validateTopOfLibraryLandAccess(
@@ -4757,6 +4896,117 @@ export function formatManaCostWithCostAdjustment(
   return reducedCostStr || '{0}';
 }
 
+export const GRAVEYARD_ALTERNATE_CAST_ABILITY_IDS = [
+  'flashback',
+  'jump-start',
+  'retrace',
+  'escape',
+  'disturb',
+  'graveyard-cast',
+] as const;
+
+export function isGraveyardAlternateCastAbilityId(abilityId: string): boolean {
+  const normalized = String(abilityId || '').trim().toLowerCase();
+  return (GRAVEYARD_ALTERNATE_CAST_ABILITY_IDS as readonly string[]).includes(normalized);
+}
+
+export function buildAlternateCastSpellManaCost(
+  game: any,
+  playerId: string,
+  card: any,
+  alternateManaCost: string,
+  xValue?: number,
+): {
+  originalManaCost: string;
+  adjustedManaCost: string;
+  costReduction: ReturnType<typeof calculateCostReduction>;
+  genericCostTax: number;
+  costAdjustment?: PaymentStepCostAdjustment;
+} {
+  const originalManaCost = String(alternateManaCost || '').trim();
+  const costReduction = calculateCostReduction(game, playerId, card);
+  const staticCostTax = calculateStaticSourceGenericTax(game, playerId, card);
+  const adjustedManaCost = formatManaCostWithCostAdjustment(
+    originalManaCost,
+    costReduction,
+    xValue,
+    staticCostTax.generic,
+  );
+  const costAdjustment = buildPaymentCostAdjustmentPayload(
+    originalManaCost,
+    adjustedManaCost,
+    costReduction,
+    staticCostTax.generic,
+    staticCostTax.messages,
+  );
+
+  return {
+    originalManaCost,
+    adjustedManaCost,
+    costReduction,
+    genericCostTax: staticCostTax.generic,
+    ...(costAdjustment ? { costAdjustment } : {}),
+  };
+}
+
+export function resolveEffectiveSpellBaseManaCost(pendingCast: any): string {
+  const forcedAlternateCostId = String(pendingCast?.forcedAlternateCostId || '').trim().toLowerCase();
+  const oracleText = String(pendingCast?.oracleText || pendingCast?.card?.oracle_text || '');
+  const rawManaCost = String(pendingCast?.rawManaCost || '').trim();
+  const manaCost = String(pendingCast?.manaCost || '').trim();
+  const card = pendingCast?.card;
+
+  if (forcedAlternateCostId === 'mutate') {
+    return String(
+      pendingCast?.mutateCost
+      || parseMutateCost(oracleText)
+      || rawManaCost
+      || manaCost
+      || '',
+    ).trim();
+  }
+
+  if (forcedAlternateCostId === 'wubrg_self' || forcedAlternateCostId === 'wubrg_external') {
+    return WUBRG_ALTERNATE_MANA_COST;
+  }
+
+  if (forcedAlternateCostId === 'warp') {
+    return String(parseWarpCost(oracleText) || rawManaCost || manaCost || '').trim();
+  }
+
+  if (forcedAlternateCostId === 'madness') {
+    return String(parseMadnessCost(oracleText) || rawManaCost || manaCost || '').trim();
+  }
+
+  if (forcedAlternateCostId === 'miracle' && card) {
+    return String(checkMiracle(card).miracleCost || rawManaCost || manaCost || '').trim();
+  }
+
+  if (forcedAlternateCostId && forcedAlternateCostId !== 'normal' && forcedAlternateCostId !== 'free') {
+    const keywordCost = parseKeywordAlternateManaCost(oracleText, forcedAlternateCostId);
+    if (keywordCost) return keywordCost;
+  }
+
+  return rawManaCost || manaCost || String(card?.mana_cost || '').trim();
+}
+
+export function formatSpellAlternateCostWithReduction(
+  game: any,
+  playerId: string,
+  card: any,
+  alternateManaCost: string,
+  castSourceZone: SpellCastSourceZone = 'hand',
+  xValue?: number,
+): string {
+  const paymentMetadata = buildPendingCastCostMetadata(game, playerId, card, castSourceZone);
+  return formatManaCostWithCostAdjustment(
+    alternateManaCost,
+    paymentMetadata.costReduction,
+    xValue,
+    paymentMetadata.genericCostTax,
+  );
+}
+
 /** @deprecated Use formatManaCostWithCostAdjustment; this also supports generic taxes. */
 export function formatManaCostWithReduction(
   manaCost: string,
@@ -5909,6 +6159,15 @@ export async function requestCastSpellForSocket(
       const canMutate = Boolean(mutateCost) && hasMutateAlternateCost(ctx, playerId as any, cardInHand as any);
 
       if (canMutate) {
+        const mutatePaymentMetadata = buildPendingCastCostMetadata(game, playerId, cardForCast, castSourceZone);
+        const displayedMutateCost = mutateCost
+          ? formatManaCostWithCostAdjustment(
+            mutateCost,
+            mutatePaymentMetadata.costReduction,
+            chosenXValue,
+            mutatePaymentMetadata.genericCostTax,
+          )
+          : undefined;
         const existing = ResolutionQueueManager
           .getStepsForPlayer(gameId, playerId as any)
           .find((s: any) => s?.type === ResolutionStepType.OPTION_CHOICE && (s as any)?.mutateCastModeChoice === true && String((s as any)?.mutateCardId || '') === String(cardId));
@@ -5924,7 +6183,7 @@ export async function requestCastSpellForSocket(
             mandatory: true,
             options: [
               { id: 'cast_normal', label: 'Cast Normally' },
-              { id: 'cast_mutate', label: `Cast with Mutate${mutateCost ? ` (${mutateCost})` : ''}` },
+              { id: 'cast_mutate', label: `Cast with Mutate${displayedMutateCost ? ` (${displayedMutateCost})` : (mutateCost ? ` (${mutateCost})` : '')}` },
             ],
             minSelections: 1,
             maxSelections: 1,
@@ -6136,6 +6395,7 @@ export async function requestCastSpellForSocket(
         : undefined;
       const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast, castSourceZone);
       const harmonizeOptions = calculateHarmonizeOptions(game, playerId, cardForCast);
+      const sneakOptions = calculateSneakOptions(game, playerId, cardForCast);
 
       (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
       (game.state as any).pendingSpellCasts[effectId] = {
@@ -6154,6 +6414,7 @@ export async function requestCastSpellForSocket(
         ...getPendingCastPaymentFields(paymentMetadata, paymentCostAdjustment),
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         harmonizeOptions: harmonizeOptions.availableCreatures.length > 0 ? harmonizeOptions.availableCreatures : undefined,
+        sneakOptions: sneakOptions.availableCreatures.length > 0 ? sneakOptions : undefined,
         ignoreTimingRestrictions,
         ...(giftInfo.hasGift
           ? {
@@ -6293,6 +6554,7 @@ export async function requestCastSpellForSocket(
         const paymentCostAdjustment = castSourceZone === 'command'
           ? buildCommandZonePaymentCostAdjustment(game, playerId, cardForCast, commanderCandidate, resolvedManaCost)
           : undefined;
+        const warpPaymentExtras = buildAlternateCostPaymentExtrasForCast(oracleText, castSourceZone, paymentMetadata, chosenXValue, { game, playerId });
 
         (game.state as any).pendingSpellCasts[effectId] = {
           cardId,
@@ -6314,6 +6576,7 @@ export async function requestCastSpellForSocket(
           castWithEntwine: (cardForCast as any).castWithEntwine === true,
           validTargetIds: validTargetList.map((t: any) => t.id),
           card: { ...cardForCast },
+          ...warpPaymentExtras,
           ...getPendingCastPaymentFields(paymentMetadata, paymentCostAdjustment),
           forcedAlternateCostId: options?.forcedAlternateCostId,
           castWithoutPayingManaCost: isFreeCast,
@@ -6897,6 +7160,7 @@ export async function requestCastSpellForSocket(
     const paymentMetadata = buildPendingCastCostMetadata(game, playerId, cardForCast, castSourceZone);
     const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast, castSourceZone);
     const harmonizeOptions = calculateHarmonizeOptions(game, playerId, cardForCast);
+    const sneakOptions = calculateSneakOptions(game, playerId, cardForCast);
     const paymentManaCost = appendManaCost(
       castSourceZone === 'command'
         ? resolvedManaCost
@@ -6906,6 +7170,7 @@ export async function requestCastSpellForSocket(
     const paymentCostAdjustment = castSourceZone === 'command'
       ? buildCommandZonePaymentCostAdjustment(game, playerId, cardForCast, commanderCandidate, paymentManaCost)
       : undefined;
+    const warpPaymentExtras = buildAlternateCostPaymentExtrasForCast(oracleText, castSourceZone, paymentMetadata, chosenXValue, { game, playerId });
 
     (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
     const requestCastAdditionalCostPaid = (cardInHand as any).additionalCostPaid === true;
@@ -6936,9 +7201,11 @@ export async function requestCastSpellForSocket(
       card: { ...cardForCast },
       noTargets: true,
       pendingPaymentAfterAdditionalCost: false,
+      ...warpPaymentExtras,
       ...getPendingCastPaymentFields(paymentMetadata, paymentCostAdjustment),
       convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
       harmonizeOptions: harmonizeOptions.availableCreatures.length > 0 ? harmonizeOptions.availableCreatures : undefined,
+      sneakOptions: sneakOptions.availableCreatures.length > 0 ? sneakOptions : undefined,
       forcedAlternateCostId: options?.forcedAlternateCostId,
       castWithoutPayingManaCost: isFreeCast,
       bypassExilePermissionCheck,
@@ -7476,8 +7743,12 @@ export async function requestCastSpellForSocket(
         costReduction: paymentMetadata.costReduction.messages.length > 0 ? paymentMetadata.costReduction : undefined,
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         harmonizeOptions: harmonizeOptions.availableCreatures.length > 0 ? harmonizeOptions.availableCreatures : undefined,
+        sneakOptions: sneakOptions.availableCreatures.length > 0 ? sneakOptions : undefined,
         forcedAlternateCostId: options?.forcedAlternateCostId,
         castWithoutPayingManaCost: isFreeCast ? true : undefined,
+        oracleText: warpPaymentExtras.oracleText,
+        extraAlternateCosts: warpPaymentExtras.extraAlternateCosts,
+        fromZone: castSourceZone,
       } as any);
 
       persistQueuedSpellCastStepContinuation(gameId, game, {
@@ -8242,6 +8513,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     selectedCastMode?: unknown;
     convokeTappedCreatures?: unknown;
     harmonizeTappedCreatureId?: unknown;
+    sneakReturnedCreatureId?: unknown;
     fromZone?: unknown;
     bypassExilePermissionCheck?: unknown;
     ignoreTimingRestrictions?: unknown;
@@ -8268,6 +8540,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         : undefined;
       const harmonizeTappedCreatureId = typeof payload?.harmonizeTappedCreatureId === 'string'
         ? String(payload.harmonizeTappedCreatureId)
+        : undefined;
+      const sneakReturnedCreatureId = typeof payload?.sneakReturnedCreatureId === 'string'
+        ? String(payload.sneakReturnedCreatureId)
         : undefined;
       const fromZone = normalizeSpellCastSourceZone(payload?.fromZone);
       const bypassExilePermissionCheck = payload?.bypassExilePermissionCheck === true;
@@ -8306,6 +8581,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       if (harmonizeTappedCreatureId) {
         debug(2, `[handleCastSpellFromHand] harmonizeTappedCreatureId: ${harmonizeTappedCreatureId}`);
+      }
+      if (sneakReturnedCreatureId) {
+        debug(2, `[handleCastSpellFromHand] sneakReturnedCreatureId: ${sneakReturnedCreatureId}`);
       }
       debug(2, `[handleCastSpellFromHand] priority: ${game.state.priority}`);
 
@@ -8763,8 +9041,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       
       const isSorcerySpeed = !isInstant && !hasFlash;
+      const allowsSneakTiming = canCastWithSneakAtCurrentTiming(game, playerId, cardInHand);
       
-      if (isSorcerySpeed && !ignoreTimingRestrictions) {
+      if (isSorcerySpeed && !ignoreTimingRestrictions && !allowsSneakTiming) {
         // Sorcery-speed spells can only be cast during your main phase
         // when you have priority and the stack is empty
         const stepStr = String(game.state?.step || "").toUpperCase().trim();
@@ -10348,6 +10627,12 @@ export function registerGameActions(io: Server, socket: Socket) {
       const resolvedMutateCost = alternateCostId === 'mutate'
         ? (String((cardInHand as any).mutateCost || '') || parseMutateCost(String(cardInHand.oracle_text || '')) || '')
         : '';
+      const resolvedWarpCost = alternateCostId === 'warp'
+        ? (parseWarpCost(String(cardInHand.oracle_text || '')) || '')
+        : '';
+      const resolvedKeywordAlternateCost = (!resolvedWarpCost && alternateCostId && alternateCostId !== 'normal')
+        ? (parseKeywordAlternateManaCost(String(cardInHand.oracle_text || ''), alternateCostId) || '')
+        : '';
       const resolvedOverloadCost = overloadRequested
         ? String((cardInHand as any).overloadCost || '') || (() => {
             const match = String((cardInHand as any).oracle_text || '').match(/overload\s*\{([^}]+)\}/i);
@@ -10401,6 +10686,28 @@ export function registerGameActions(io: Server, socket: Socket) {
         (cardInHand as any).harmonizeGenericReduction = harmonizeGenericReduction;
       }
 
+      if (alternateCostId === 'sneak') {
+        if (!parseSneakCost(String(cardInHand.oracle_text || ''))) {
+          socket.emit('error', { code: 'NO_SNEAK', message: 'This card does not have sneak.' });
+          return;
+        }
+        if (!canCastWithSneakAtCurrentTiming(game, playerId, cardInHand)) {
+          socket.emit('error', {
+            code: 'SNEAK_TIMING',
+            message: 'Sneak can only be used during your declare blockers step with an unblocked attacking creature you control.',
+          });
+          return;
+        }
+        const sneakValidation = validateSneakReturnedCreature(game.state, playerId as PlayerID, String(sneakReturnedCreatureId || ''));
+        if (!sneakValidation.ok) {
+          socket.emit('error', { code: sneakValidation.code, message: sneakValidation.message });
+          return;
+        }
+        (cardInHand as any).sneakReturnedCreatureId = String(sneakReturnedCreatureId || '');
+        (cardInHand as any).sneakAttackTarget = sneakValidation.attackTarget;
+        (cardInHand as any).sneakCostWasPaid = true;
+      }
+
       if (alternateCostId === 'miracle' && !resolvedMiracleCost) {
         socket.emit('error', { code: 'NO_MIRACLE', message: 'This card does not have miracle.' });
         return;
@@ -10411,6 +10718,10 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
       if (alternateCostId === 'mutate' && !resolvedMutateCost) {
         socket.emit('error', { code: 'NO_MUTATE', message: 'This card does not have mutate.' });
+        return;
+      }
+      if (alternateCostId === 'warp' && !resolvedWarpCost) {
+        socket.emit('error', { code: 'NO_WARP', message: 'This card does not have warp.' });
         return;
       }
       if (alternateCostId === 'suspend') {
@@ -10441,6 +10752,10 @@ export function registerGameActions(io: Server, socket: Socket) {
                 ? resolvedMadnessCost
                 : resolvedMutateCost
                   ? resolvedMutateCost
+                  : resolvedWarpCost
+                    ? resolvedWarpCost
+                    : resolvedKeywordAlternateCost
+                      ? resolvedKeywordAlternateCost
                   : resolvedOverloadCost
                     ? resolvedOverloadCost
                     : (castSourceZone === 'command' ? (commandZoneManaCost || '') : (graveyardCastManaCost || cardInHand.mana_cost || "")),
@@ -10677,6 +10992,23 @@ export function registerGameActions(io: Server, socket: Socket) {
           castSpellPaymentCheckpoint.harmonizePermanentId = harmonizePermanentId;
           castSpellPaymentCheckpoint.tappedPermanentIds.add(harmonizePermanentId);
         }
+      }
+
+      if (alternateCostId === 'sneak' && (cardInHand as any).sneakReturnedCreatureId) {
+        const sneakResult = applySneakReturnedCreatureCost({
+          state: game.state,
+          bumpSeq: () => { if (typeof game.bumpSeq === 'function') game.bumpSeq(); },
+          gameId,
+        } as any, String((cardInHand as any).sneakReturnedCreatureId));
+        if (!sneakResult) {
+          abortCastSpellPayment({
+            code: 'SNEAK_RETURN_FAILED',
+            message: 'Failed to return the unblocked attacker to your hand for sneak.',
+          });
+          return;
+        }
+        (cardInHand as any).sneakAttackTarget = sneakResult.attackTarget;
+        (cardInHand as any).sneakCostWasPaid = true;
       }
 
       // ======================================================================
@@ -11993,11 +12325,19 @@ export function registerGameActions(io: Server, socket: Socket) {
                 (topStackItem as any).surgeCostWasPaid = altLower === 'surge';
                 (topStackItem as any).madnessCostWasPaid = altLower === 'madness';
                 (topStackItem as any).spectacleCostWasPaid = altLower === 'spectacle';
+                (topStackItem as any).warpCostWasPaid = altLower === 'warp';
+                (topStackItem as any).dashCostWasPaid = altLower === 'dash';
+                (topStackItem as any).blitzCostWasPaid = altLower === 'blitz';
+                (topStackItem as any).sneakCostWasPaid = altLower === 'sneak';
                 if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
                   (topStackItem as any).card.prowlCostWasPaid = (topStackItem as any).prowlCostWasPaid;
                   (topStackItem as any).card.surgeCostWasPaid = (topStackItem as any).surgeCostWasPaid;
                   (topStackItem as any).card.madnessCostWasPaid = (topStackItem as any).madnessCostWasPaid;
                   (topStackItem as any).card.spectacleCostWasPaid = (topStackItem as any).spectacleCostWasPaid;
+                  (topStackItem as any).card.warpCostWasPaid = (topStackItem as any).warpCostWasPaid;
+                  (topStackItem as any).card.dashCostWasPaid = (topStackItem as any).dashCostWasPaid;
+                  (topStackItem as any).card.blitzCostWasPaid = (topStackItem as any).blitzCostWasPaid;
+                  (topStackItem as any).card.sneakCostWasPaid = (topStackItem as any).sneakCostWasPaid;
                 }
               }
 
@@ -12168,11 +12508,19 @@ export function registerGameActions(io: Server, socket: Socket) {
                 (topStackItem as any).surgeCostWasPaid = altLower === 'surge';
                 (topStackItem as any).madnessCostWasPaid = altLower === 'madness';
                 (topStackItem as any).spectacleCostWasPaid = altLower === 'spectacle';
+                (topStackItem as any).warpCostWasPaid = altLower === 'warp';
+                (topStackItem as any).dashCostWasPaid = altLower === 'dash';
+                (topStackItem as any).blitzCostWasPaid = altLower === 'blitz';
+                (topStackItem as any).sneakCostWasPaid = altLower === 'sneak';
                 if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
                   (topStackItem as any).card.prowlCostWasPaid = (topStackItem as any).prowlCostWasPaid;
                   (topStackItem as any).card.surgeCostWasPaid = (topStackItem as any).surgeCostWasPaid;
                   (topStackItem as any).card.madnessCostWasPaid = (topStackItem as any).madnessCostWasPaid;
                   (topStackItem as any).card.spectacleCostWasPaid = (topStackItem as any).spectacleCostWasPaid;
+                  (topStackItem as any).card.warpCostWasPaid = (topStackItem as any).warpCostWasPaid;
+                  (topStackItem as any).card.dashCostWasPaid = (topStackItem as any).dashCostWasPaid;
+                  (topStackItem as any).card.blitzCostWasPaid = (topStackItem as any).blitzCostWasPaid;
+                  (topStackItem as any).card.sneakCostWasPaid = (topStackItem as any).sneakCostWasPaid;
                 }
               }
 
@@ -12999,6 +13347,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     alternateCostId?: unknown;
     convokeTappedCreatures?: unknown;
     harmonizeTappedCreatureId?: unknown;
+    sneakReturnedCreatureId?: unknown;
   }) => {
     const gameId = payload?.gameId;
     const cardId = payload?.cardId;
@@ -13012,6 +13361,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     const alternateCostId = payload?.alternateCostId;
     const convokeTappedCreatures = payload?.convokeTappedCreatures;
     const harmonizeTappedCreatureId = payload?.harmonizeTappedCreatureId;
+    const sneakReturnedCreatureId = payload?.sneakReturnedCreatureId;
 
     if (!gameId || typeof gameId !== 'string') return;
     if (!cardId || typeof cardId !== 'string') return;
@@ -13022,6 +13372,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     if (!(alternateCostId === undefined || typeof alternateCostId === 'string')) return;
     if (!(convokeTappedCreatures === undefined || (Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.every((id) => typeof id === 'string')))) return;
     if (!(harmonizeTappedCreatureId === undefined || typeof harmonizeTappedCreatureId === 'string')) return;
+    if (!(sneakReturnedCreatureId === undefined || typeof sneakReturnedCreatureId === 'string')) return;
 
     const effectIdStr = effectId as string | undefined;
     const convokeTapped = convokeTappedCreatures as string[] | undefined;
@@ -13268,6 +13619,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         alternateCostId: (alternateCostId as string | undefined) ?? pendingAlternateCostId,
         convokeTappedCreatures: convokeTapped,
         harmonizeTappedCreatureId: harmonizeTappedCreatureId as string | undefined,
+        sneakReturnedCreatureId: sneakReturnedCreatureId as string | undefined,
         fromZone: pendingFromZone,
         bypassExilePermissionCheck: pendingBypassExilePermissionCheck,
         ignoreTimingRestrictions: pendingIgnoreTimingRestrictions,
@@ -16774,7 +17126,20 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       // Check if payment is required
-      const parsedCost = parseManaCost(equipCost);
+      const equipCostAdjustment = adjustActivationManaCostForPayment({
+        state: game.state,
+        activatorId: playerId,
+        sourceCard: equipment.card,
+        sourceZone: 'battlefield',
+        sourceController: String(equipment.controller || playerId),
+        sourcePermanent: equipment,
+        sourceId: String(equipmentId),
+        isManaAbility: false,
+        manaCostString: equipCost,
+        sourceName: equipment.card?.name || 'Equipment',
+      });
+      const effectiveEquipCost = equipCostAdjustment.adjustedManaCost || equipCost;
+      const parsedCost = parseManaCost(effectiveEquipCost);
       const totalManaCost = parsedCost.generic + Object.values(parsedCost.colors).reduce((a: number, b: number) => a + b, 0);
       
       if (totalManaCost > 0) {
@@ -16792,7 +17157,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Consume mana
         consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[equipAbility]');
         
-        debug(2, `[equipAbility] ${playerId} paid ${equipCost} to equip ${equipment.card?.name} to ${targetCreature.card?.name}`);
+        debug(2, `[equipAbility] ${playerId} paid ${effectiveEquipCost} to equip ${equipment.card?.name} to ${targetCreature.card?.name}`);
       }
 
       const equipTargetDescription = targetsOpponentCreatures ? 'creature an opponent controls' : 'creature you control';

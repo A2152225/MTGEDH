@@ -28,6 +28,7 @@ import {
 import { registerLinkedExile } from "./triggers/linked-exile.js";
 import { queueCounterPlacedTriggers, queueCounterRemovedTriggers } from "./triggers/counters.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
+import { drawCards as drawCardsFromZone } from './zones.js';
 
 export type UpdateCountersOptions = {
   deferRunSBA?: boolean;
@@ -65,6 +66,7 @@ function persistUpdateCountersEvent(
 }
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
+import { buildWarpedExileCardMarkers, permanentShouldExileAsWarped } from "./warpDelayedEffects.js";
 import { queueTokenCreatedTriggers } from "./triggers/tokens.js";
 import { syncDerivedContinuousEffects } from "./staticEffectSpec.js";
 import { hydrateCardOracleInPlace, hydrateGameStateOracleText } from './cardOracleHydration.js';
@@ -1688,6 +1690,19 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     }
   }
 
+  if (
+    (perm as any).drawsCardOnBlitzDeath === true
+    || (perm as any).blitzCostWasPaid === true
+    || (perm as any).card?.drawsCardOnBlitzDeath === true
+    || (perm as any).card?.blitzCostWasPaid === true
+  ) {
+    try {
+      drawCardsFromZone(ctx, String(controller || owner || '') as any, 1);
+    } catch {
+      // best-effort only
+    }
+  }
+
   if (removedPermanentId) {
     processLinkedExileReturns(ctx, removedPermanentId);
   }
@@ -1929,6 +1944,16 @@ export function movePermanentToExile(
   
   // Move to exile zone (non-commander cards)
   const z = zones[owner] || (zones[owner] = { hand:[], handCount:0, libraryCount:0, graveyard:[], graveyardCount:0, exile:[] } as any);
+  const exiledOnTurn = Number((state as any)?.turnNumber ?? (state as any)?.turn ?? 0) || 0;
+  const warpedExileMarkers = permanentShouldExileAsWarped(perm)
+    ? buildWarpedExileCardMarkers(String(owner), exiledOnTurn)
+    : {};
+  if (permanentShouldExileAsWarped(perm)) {
+    (perm as any).exiledBecauseWarped = true;
+    if ((perm as any).card && typeof (perm as any).card === 'object') {
+      (perm as any).card.exiledBecauseWarped = true;
+    }
+  }
   const kc = {
     id: card.id,
     name: card.name,
@@ -1942,6 +1967,7 @@ export function movePermanentToExile(
     ...(options?.exiledWithOracleId ? { exiledWithOracleId: options.exiledWithOracleId } : {}),
     ...(options?.exiledWithSourceName ? { exiledWithSourceName: options.exiledWithSourceName } : {}),
     ...buildZoneObjectWithRetainedCounters(card, perm, 'exile'),
+    ...warpedExileMarkers,
   };
   (z as any).exile = (z as any).exile || [];
   (z as any).exile.push(kc);

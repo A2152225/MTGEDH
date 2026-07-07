@@ -6,7 +6,7 @@
 
 **Read first:** [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) · [oracle-ir-server-migration-plan.md](./oracle-ir-server-migration-plan.md) · `.cursor/rules/oracle-ir-no-bespoke-handlers.mdc` · `.cursor/rules/oracle-ir-compiled-overlay.mdc`
 
-**Next session:** Copy the prompt at the top of [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) (dynamic lords / overlay workflow / live telemetry soak).
+**Next session:** Copy the prompt at the top of [oracle-ir-session-handoff.md](./oracle-ir-session-handoff.md) (live telemetry soak / waterbender flake if soak regresses).
 
 ## Goal: Semantic atomic parsing + seamless effect automation (new cards)
 

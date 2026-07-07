@@ -116,6 +116,7 @@ import {
   handlePlayLandRequest,
   registerGameActions,
   requestCastSpellForSocket,
+  resolveEffectiveSpellBaseManaCost,
   type CostReductionMetadata,
   type PendingCastCostMetadata,
 } from "./game-actions.js";
@@ -692,13 +693,24 @@ function buildPendingCastPaymentStepCostFields(
   };
 }
 
+function buildSpellPaymentPresentationFields(pendingCast: any): Record<string, unknown> {
+  const oracleText = String(pendingCast?.oracleText || pendingCast?.card?.oracle_text || '').trim();
+  const fields: Record<string, unknown> = {};
+  if (oracleText) fields.oracleText = oracleText;
+  if (Array.isArray(pendingCast?.extraAlternateCosts) && pendingCast.extraAlternateCosts.length > 0) {
+    fields.extraAlternateCosts = pendingCast.extraAlternateCosts;
+  }
+  if (pendingCast?.fromZone) fields.fromZone = pendingCast.fromZone;
+  return fields;
+}
+
 function buildPendingCastPaymentManaCost(pendingCast: any): string {
   const costMetadata = ensurePendingCastCostMetadata(pendingCast);
   const commandAdjustedManaCost = String(costMetadata.paymentCostAdjustment?.adjustedManaCost || '').trim();
   const baseManaCost = String(pendingCast?.fromZone || '') === 'command' && commandAdjustedManaCost
     ? commandAdjustedManaCost
     : formatManaCostWithCostAdjustment(
-        String(pendingCast?.manaCost || ''),
+        resolveEffectiveSpellBaseManaCost(pendingCast),
         costMetadata.costReduction,
         pendingCast?.xValue,
         costMetadata.genericCostTax,
@@ -1258,6 +1270,7 @@ async function resumeAISpellCastAfterPayment(
     alternateCostId?: string;
     convokeTappedCreatures?: string[];
     harmonizeTappedCreatureId?: string;
+    sneakReturnedCreatureId?: string;
   },
 ): Promise<boolean> {
   return withTemporaryCastingPriorityForPaymentCompletion(
@@ -1283,6 +1296,7 @@ async function resumeAISpellCastAfterPayment(
         alternateCostId: payload.alternateCostId,
         convokeTappedCreatures: payload.convokeTappedCreatures,
         harmonizeTappedCreatureId: payload.harmonizeTappedCreatureId,
+        sneakReturnedCreatureId: payload.sneakReturnedCreatureId,
       });
     },
   );
@@ -1301,6 +1315,7 @@ async function resumePlayerSpellCastAfterPayment(
     alternateCostId?: string;
     convokeTappedCreatures?: string[];
     harmonizeTappedCreatureId?: string;
+    sneakReturnedCreatureId?: string;
   },
 ): Promise<boolean> {
   return withTemporaryCastingPriorityForPaymentCompletion(
@@ -1326,6 +1341,7 @@ async function resumePlayerSpellCastAfterPayment(
         alternateCostId: payload.alternateCostId,
         convokeTappedCreatures: payload.convokeTappedCreatures,
         harmonizeTappedCreatureId: payload.harmonizeTappedCreatureId,
+        sneakReturnedCreatureId: payload.sneakReturnedCreatureId,
       });
     },
   );
@@ -9075,6 +9091,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('costReduction' in step) fields.costReduction = (step as any).costReduction;
       if ('convokeOptions' in step) fields.convokeOptions = (step as any).convokeOptions;
       if ('harmonizeOptions' in step) fields.harmonizeOptions = (step as any).harmonizeOptions;
+      if ('sneakOptions' in step) fields.sneakOptions = (step as any).sneakOptions;
       if ('forcedAlternateCostId' in step) fields.forcedAlternateCostId = (step as any).forcedAlternateCostId;
       break;
 
@@ -12426,6 +12443,9 @@ async function handleStepResponse(
         const harmonizeTappedCreatureId = typeof selections.harmonizeTappedCreatureId === 'string'
           ? String(selections.harmonizeTappedCreatureId)
           : undefined;
+        const sneakReturnedCreatureId = typeof selections.sneakReturnedCreatureId === 'string'
+          ? String(selections.sneakReturnedCreatureId)
+          : undefined;
 
 
         // Graveyard spell cast payment (flashback, jump-start, etc.) queued by
@@ -12482,6 +12502,7 @@ async function handleStepResponse(
           alternateCostId,
           convokeTappedCreatures,
           harmonizeTappedCreatureId,
+          sneakReturnedCreatureId,
         });
 
         if (castCompleted) {
@@ -17347,6 +17368,7 @@ async function handleTargetSelectionResponse(
         costReduction: paymentCostFields.costReduction,
         convokeOptions: pendingCast.convokeOptions,
         forcedAlternateCostId: pendingCast.forcedAlternateCostId,
+        ...buildSpellPaymentPresentationFields(pendingCast),
       } as any);
 
       appendCastSpellContinuationEvent(gameId, game, {
@@ -21111,6 +21133,7 @@ async function handleTargetSelectionResponse(
           costReduction: paymentCostFields.costReduction,
           convokeOptions: pendingCast.convokeOptions,
           forcedAlternateCostId: pendingCast.forcedAlternateCostId,
+          ...buildSpellPaymentPresentationFields(pendingCast),
         } as any);
 
         appendCastSpellContinuationEvent(gameId, game, {
@@ -30546,6 +30569,7 @@ async function handleOptionChoiceResponse(
           costReduction: paymentCostFields.costReduction,
           convokeOptions: pendingCast.convokeOptions,
           forcedAlternateCostId: pendingCast.forcedAlternateCostId,
+          ...buildSpellPaymentPresentationFields(pendingCast),
         } as any);
 
         appendCastSpellContinuationEvent(gameId, game, {
@@ -34122,7 +34146,7 @@ async function handleMutateTargetSelectionResponse(
     );
 
   if (!existingPaymentStep) {
-    const mutateManaCost = String(pendingCast.mutateCost || pendingCast.manaCost || '');
+    const mutateManaCost = resolveEffectiveSpellBaseManaCost(pendingCast);
     const costMetadata = ensurePendingCastCostMetadata(pendingCast);
     const adjustedMutateManaCost = formatManaCostWithCostAdjustment(
       mutateManaCost,

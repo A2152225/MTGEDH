@@ -10,6 +10,7 @@ import {
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
 import { isSacrificeCreatureOfChosenTypeCost } from "../state/modules/chosen-creature-type.js";
+import { adjustActivationManaCostForPayment, isActivatedManaAbilityText } from "../state/modules/ability-cost-adjustments.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility, detectHideawayAbility } from "../state/modules/triggered-abilities";
 import { movePermanentToGraveyard, trackPermanentSacrificedThisTurn } from "../state/modules/counters_tokens.js";
@@ -51,7 +52,7 @@ import { parseStationAbilities } from "../utils/stationParser.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
-import { consumeDelayedSpellCopiesForCast, creatureHasHaste, processHeroicTriggersForTargets, processOpponentSpellCastTriggersForCast, processSpellCastTriggersForCast, recordSpellCastThisTurn } from "./game-actions.js";
+import { consumeDelayedSpellCopiesForCast, creatureHasHaste, processHeroicTriggersForTargets, processOpponentSpellCastTriggersForCast, processSpellCastTriggersForCast, recordSpellCastThisTurn, buildAlternateCastSpellManaCost, isGraveyardAlternateCastAbilityId } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import { pushWheneverYouExertTriggersOntoStack } from "./exert-triggers.js";
@@ -733,7 +734,23 @@ function payBattlefieldAbilityManaCostOrQueue(params: {
   activationPaymentContext: string;
   deferredActivationFields?: Record<string, unknown>;
 }): BattlefieldManaPaymentResult {
-  const parsedCost = parseManaCost(params.manaCost);
+  const battlefield = Array.isArray(params.game.state?.battlefield) ? params.game.state.battlefield : [];
+  const sourcePermanent = battlefield.find((perm: any) => perm && String(perm.id) === String(params.permanentId));
+  const isManaAbility = isActivatedManaAbilityText(params.activatedAbilityText);
+  const costAdjustment = adjustActivationManaCostForPayment({
+    state: params.game.state,
+    activatorId: params.pid,
+    sourceCard: params.card,
+    sourceZone: 'battlefield',
+    sourceController: String(sourcePermanent?.controller || params.pid),
+    sourcePermanent,
+    sourceId: params.permanentId,
+    isManaAbility,
+    manaCostString: params.manaCost,
+    sourceName: params.cardName,
+  });
+  const effectiveManaCost = costAdjustment.adjustedManaCost || params.manaCost;
+  const parsedCost = parseManaCost(effectiveManaCost);
   const pool = getOrInitManaPool(params.game.state, params.pid);
   const totalAvailable = calculateTotalAvailableMana(pool, []);
   const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
@@ -753,7 +770,7 @@ function payBattlefieldAbilityManaCostOrQueue(params: {
     sourceId: params.permanentId,
     sourceName: params.cardName,
     sourceImage: (params.card as any)?.image_uris?.small || (params.card as any)?.image_uris?.normal,
-    description: `Choose how to pay ${params.manaCost} for ${params.cardName}.`,
+    description: `Choose how to pay ${effectiveManaCost} for ${params.cardName}.`,
     mandatory: true,
     activationPaymentChoice: true,
     activationPaymentContext: params.activationPaymentContext,
@@ -762,7 +779,7 @@ function payBattlefieldAbilityManaCostOrQueue(params: {
     abilityId: params.abilityId,
     cardName: params.cardName,
     activatedAbilityText: params.activatedAbilityText,
-    manaCost: params.manaCost,
+    manaCost: effectiveManaCost,
     requiresTap: params.requiresTap,
     ...(params.deferredActivationFields || null),
   } as any);
@@ -2306,6 +2323,12 @@ export function continueCastFromGraveyardAbility(params: {
   }
   const recordedManaCost = String(activationCost.manaCost || '').trim();
   const recordedLifeCost = Number(activationCost.lifeCost || 0);
+  const alternateCastCost = recordedManaCost && isGraveyardAlternateCastAbilityId(normalizedAbilityId)
+    ? buildAlternateCastSpellManaCost(params.game, params.playerId, card, recordedManaCost, params.xValue)
+    : null;
+  const paymentManaCost = alternateCastCost?.adjustedManaCost || recordedManaCost;
+  const graveyardCastCostAdjustment = alternateCastCost?.costAdjustment;
+  const graveyardCastCostReduction = alternateCastCost?.costReduction;
   const discardCost = getCastFromGraveyardDiscardCost(card, params.abilityId);
   const exileCost = getCastFromGraveyardExileCost(card, params.abilityId, { game: params.game, playerId: params.playerId });
   const sacrificeCost = getCastFromGraveyardSacrificeCost(card, params.abilityId);
@@ -2352,7 +2375,7 @@ export function continueCastFromGraveyardAbility(params: {
       cardId: params.cardId,
       abilityId: params.abilityId,
       cardName,
-      manaCost: recordedManaCost || undefined,
+      manaCost: paymentManaCost || undefined,
       lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
       discardTypeRestriction: discardCost.discardTypeRestriction || undefined,
       targetsForCast: normalizedTargets.length > 0 ? normalizedTargets : undefined,
@@ -2417,7 +2440,7 @@ export function continueCastFromGraveyardAbility(params: {
       graveyardCastExileAsCost: true,
       exileCountIsX: dynamicExileCost || undefined,
       abilityId: params.abilityId,
-      manaCost: recordedManaCost || undefined,
+      manaCost: paymentManaCost || undefined,
       lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
       targetsForCast: normalizedTargets.length > 0 ? normalizedTargets : undefined,
     } as any);
@@ -2439,7 +2462,7 @@ export function continueCastFromGraveyardAbility(params: {
     const resourceValidationError = getCastFromGraveyardResourceValidationError(
       params.game,
       params.playerId,
-      recordedManaCost || undefined,
+      paymentManaCost || undefined,
       recordedLifeCost > 0 ? recordedLifeCost : undefined,
     );
     if (resourceValidationError) {
@@ -2506,7 +2529,7 @@ export function continueCastFromGraveyardAbility(params: {
         cardId: params.cardId,
         abilityId: params.abilityId,
         cardName,
-        manaCost: recordedManaCost || undefined,
+        manaCost: paymentManaCost || undefined,
         lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
         sacrificeType: sacrificeCost.sacrificeType,
         sacrificeSubtype: sacrificeCost.sacrificeSubtype,
@@ -2545,7 +2568,7 @@ export function continueCastFromGraveyardAbility(params: {
       cardId: params.cardId,
       abilityId: params.abilityId,
       card,
-      manaCost: recordedManaCost,
+      manaCost: paymentManaCost,
       lifeToPayForCost: recordedLifeCost,
       discardedCardIdsForCost: params.discardedCardIds,
       exiledCardIdsFromHandForCost: params.exiledCardIdsFromHandForCost,
@@ -2559,8 +2582,8 @@ export function continueCastFromGraveyardAbility(params: {
     }
   }
 
-  if (recordedManaCost && !params.manaCostAlreadyPaid) {
-    const parsedCost = parseManaCost(recordedManaCost);
+  if (paymentManaCost && !params.manaCostAlreadyPaid) {
+    const parsedCost = parseManaCost(paymentManaCost);
     const pool = getOrInitManaPool(params.game.state, params.playerId);
     const totalAvailable = calculateTotalAvailableMana(pool, []);
     const floatingError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
@@ -2578,7 +2601,7 @@ export function continueCastFromGraveyardAbility(params: {
         sourceId: params.cardId,
         sourceName: cardName,
         sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
-        description: `Pay ${recordedManaCost} to cast ${cardName} using ${params.abilityId}.`,
+        description: `Pay ${paymentManaCost} to cast ${cardName} using ${params.abilityId}.`,
         mandatory: true,
         // spellPaymentRequired drives the client payment modal and the AI payment assembly;
         // graveyardSpellCastManaPayment routes completion back through this function.
@@ -2586,7 +2609,7 @@ export function continueCastFromGraveyardAbility(params: {
         graveyardSpellCastManaPayment: true,
         cardId: params.cardId,
         cardName,
-        manaCost: recordedManaCost,
+        manaCost: paymentManaCost,
         fromZone: 'graveyard',
         abilityId: params.abilityId,
         targetsForCast: normalizedTargets.length > 0 ? normalizedTargets : undefined,
@@ -2596,10 +2619,14 @@ export function continueCastFromGraveyardAbility(params: {
         exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0 ? params.exiledCardIdsFromGraveyardForCost.slice() : undefined,
         sacrificedPermanentIdsForCost: Array.isArray(params.sacrificedPermanentIdsForCost) && params.sacrificedPermanentIdsForCost.length > 0 ? params.sacrificedPermanentIdsForCost.slice() : undefined,
         xValue: Number.isFinite(Number(params.xValue)) ? Math.max(0, Math.floor(Number(params.xValue))) : undefined,
+        ...(graveyardCastCostAdjustment ? { costAdjustment: graveyardCastCostAdjustment } : {}),
+        ...(graveyardCastCostReduction && graveyardCastCostReduction.messages.length > 0
+          ? { costReduction: graveyardCastCostReduction }
+          : {}),
       } as any);
       return 'queued';
     } else {
-      params.emitError({ code: 'INSUFFICIENT_MANA', message: `Cannot pay ${recordedManaCost}: ${floatingError}` });
+      params.emitError({ code: 'INSUFFICIENT_MANA', message: `Cannot pay ${paymentManaCost}: ${floatingError}` });
       return 'error';
     }
   }
@@ -2629,7 +2656,7 @@ export function continueCastFromGraveyardAbility(params: {
     cardId: params.cardId,
     abilityId: params.abilityId,
     targets: normalizedTargets,
-    manaCost: recordedManaCost || undefined,
+    manaCost: paymentManaCost || undefined,
     lifePaidForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
     discardedCardIds: params.discardedCardIds,
     exiledCardIdsFromHandForCost: params.exiledCardIdsFromHandForCost,
@@ -3987,14 +4014,26 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       const recordedManaCost = String(printedUnearthInfo.cost || grantedUnearthInfo.cost || '').trim();
       if (recordedManaCost) {
-        const parsedCost = parseManaCost(recordedManaCost);
+        const costAdjustment = adjustActivationManaCostForPayment({
+          state: game.state,
+          activatorId: String(pid),
+          sourceCard: card,
+          sourceZone: 'graveyard',
+          sourceController: String(pid),
+          sourceId: String(cardId),
+          isManaAbility: false,
+          manaCostString: recordedManaCost,
+          sourceName: cardName,
+        });
+        const effectiveManaCost = costAdjustment.adjustedManaCost || recordedManaCost;
+        const parsedCost = parseManaCost(effectiveManaCost);
         const pool = getOrInitManaPool(game.state, pid);
         const totalAvailable = calculateTotalAvailableMana(pool, []);
         const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
         if (validationError) {
           socket.emit("error", {
             code: "INSUFFICIENT_MANA",
-            message: `Cannot pay ${recordedManaCost}: ${validationError}`,
+            message: `Cannot pay ${effectiveManaCost}: ${validationError}`,
           });
           return;
         }
@@ -11892,10 +11931,23 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             ? applyXValueToText(manaOnly, selectedXValue)
             : manaOnly;
 
-          const parsedCost = parseManaCost(resolvedManaOnly);
+          const wouldBeManaAbility = isActivatedManaAbilityText(abilityText);
+          const costAdjustment = adjustActivationManaCostForPayment({
+            state: game.state,
+            activatorId: String(pid),
+            sourceCard: permanent.card,
+            sourceZone: 'battlefield',
+            sourceController: String(permanent.controller || pid),
+            sourcePermanent: permanent,
+            sourceId: String(permanentId),
+            isManaAbility: wouldBeManaAbility,
+            manaCostString: resolvedManaOnly,
+            sourceName: cardName,
+          });
+          const effectiveManaOnly = costAdjustment.adjustedManaCost || resolvedManaOnly;
+
+          const parsedCost = parseManaCost(effectiveManaOnly);
           const manaPool = getOrInitManaPool(game.state, pid);
-          const wouldBeManaAbility = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) &&
-            !/target/i.test(abilityText);
           
           // For Phyrexian mana costs, we need to check if player can pay with mana OR life
           const playerLife = game.state.life?.[pid] || 40;
@@ -11984,7 +12036,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             wouldBeManaAbility &&
             (!parsedCost.hybrids || parsedCost.hybrids.length === 0) &&
             !sacrificeType &&
-            shouldPromptForActivationPaymentChoice(resolvedManaOnly)
+            shouldPromptForActivationPaymentChoice(effectiveManaOnly)
           ) {
             const activatedAbilityText = (() => {
               const scopedAbilityText = String(abilityConditionText || '').trim();
@@ -11998,7 +12050,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               sourceId: permanentId,
               sourceName: cardName,
               sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-              description: `Choose how to pay ${resolvedManaOnly} for ${cardName}.`,
+              description: `Choose how to pay ${effectiveManaOnly} for ${cardName}.`,
               mandatory: true,
               activationPaymentChoice: true,
               activationPaymentContext: 'mana_ability',
@@ -12008,7 +12060,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               cardName,
               abilityText,
               activatedAbilityText,
-              manaCost: resolvedManaOnly,
+              manaCost: effectiveManaOnly,
               requiresTap,
             } as any);
 
@@ -12024,7 +12076,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             (!parsedCost.hybrids || parsedCost.hybrids.length === 0) &&
             !sacrificeType &&
             /each player draws?/i.test(String(abilityText || '')) &&
-            shouldPromptForActivationPaymentChoice(resolvedManaOnly)
+            shouldPromptForActivationPaymentChoice(effectiveManaOnly)
           ) {
             const activatedAbilityText = (() => {
               const scopedAbilityText = String(abilityConditionText || '').trim();
@@ -12038,7 +12090,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               sourceId: permanentId,
               sourceName: cardName,
               sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
-              description: `Choose how to pay ${resolvedManaOnly} for ${cardName}.`,
+              description: `Choose how to pay ${effectiveManaOnly} for ${cardName}.`,
               mandatory: true,
               activationPaymentChoice: true,
               activationPaymentContext: 'battlefield_group_draw',
@@ -12048,7 +12100,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               cardName,
               abilityText,
               activatedAbilityText,
-              manaCost: resolvedManaOnly,
+              manaCost: effectiveManaOnly,
               requiresTap,
               xValue: selectedXValue,
             } as any);
@@ -12096,7 +12148,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               if (!paid) {
                 socket.emit("error", {
                   code: "INSUFFICIENT_MANA",
-                  message: `Cannot pay ${resolvedManaOnly} - insufficient mana`,
+                  message: `Cannot pay ${effectiveManaOnly} - insufficient mana`,
                 });
                 return;
               }
@@ -12118,7 +12170,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             if (validationError) {
               socket.emit('error', {
                 code: 'INSUFFICIENT_MANA',
-                message: `Cannot pay ${resolvedManaOnly}: ${validationError}`,
+                message: `Cannot pay ${effectiveManaOnly}: ${validationError}`,
               });
               return;
             }
@@ -12130,7 +12182,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             id: `m_${Date.now()}`,
             gameId,
             from: "system",
-            message: `${getPlayerName(game, pid)} paid ${resolvedManaOnly} to activate ${cardName}.`,
+            message: `${getPlayerName(game, pid)} paid ${effectiveManaOnly} to activate ${cardName}.`,
             ts: Date.now(),
           });
         }
@@ -13912,7 +13964,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     const cyclingCostStr = cyclingDefinition.cost;
-    const parsedCost = parseManaCost(cyclingCostStr);
+    const costAdjustment = adjustActivationManaCostForPayment({
+      state: game.state,
+      activatorId: String(pid),
+      sourceCard: card,
+      sourceZone: 'hand',
+      sourceController: String(pid),
+      sourceId: String(cardId),
+      isManaAbility: false,
+      manaCostString: cyclingCostStr,
+      sourceName: cardName,
+    });
+    const effectiveCyclingCost = costAdjustment.adjustedManaCost || cyclingCostStr;
+    const parsedCost = parseManaCost(effectiveCyclingCost);
     const manaPool = getOrInitManaPool(game.state, pid);
 
     // Check if player can pay the cycling cost
@@ -13938,7 +14002,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       id: `m_${Date.now()}`,
       gameId,
       from: "system",
-      message: `${getPlayerName(game, pid)} paid ${cyclingCostStr} to activate ${cyclingDefinition.keywordLabel} on ${cardName}.`,
+      message: `${getPlayerName(game, pid)} paid ${effectiveCyclingCost} to activate ${cyclingDefinition.keywordLabel} on ${cardName}.`,
       ts: Date.now(),
     });
 

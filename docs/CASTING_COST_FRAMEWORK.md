@@ -11,6 +11,31 @@ This document provides a comprehensive guide to the enhanced casting cost framew
 5. **Convoke Mechanic** - Full support with creature tapping and mana contribution
 6. **Cost Reducers** - Urza's Incubator with chosen type tracking
 7. **Shared Static Cost Adjustments** - Battlefield, plane, and scheme reductions/taxes shared across server, client, and AI castability checks
+8. **Three cost-reduction buckets** - Spell reducers (medallions, Morophon), alternate **casting** costs (flashback, mutate, Leyline WUBRG), and activated **ability** reducers (Zirda, Convergence, Tortoise)
+
+## Cost reduction: three separate systems
+
+Spell cost reduction, alternate casting costs, and activated-ability cost reduction are **not interchangeable**.
+
+| System | Examples | Applies to | Server entry points |
+|--------|----------|------------|---------------------|
+| **Spell cost reduction** | Pearl/Ruby Medallion, Morophon, Bannerets | Casting spells, including alternate **cast** costs | `calculateCostReduction`, `formatManaCostWithCostAdjustment`, `buildAlternateCostPaymentExtrasForCast` |
+| **Alternate casting costs** | Flashback, escape, dash, disturb, Leyline WUBRG, mutate | A different way/zone to **cast** a spell | `resolveEffectiveSpellBaseManaCost`, `resolvedKeywordAlternateCost`, graveyard `continueCastFromGraveyardAbility` |
+| **Activated ability reduction** | Zirda, Convergence of Dominion, Blossoming Tortoise, Mutagen Man, Heartstone | Paying `{cost}:` on **activated abilities** (unearth, equip, cycling) | `adjustActivationManaCostForPayment` → `rules-engine/src/activatedAbilityCostReduction.ts` |
+
+**Unearth is not an alternate cast cost.** It is a graveyard activated ability and uses the activated-ability reducer path, not `buildAlternateCastSpellManaCost`.
+
+**Graveyard alternate casts** (flashback, escape, disturb, jump-start, retrace) use `buildAlternateCastSpellManaCost` so medallion-style spell reducers apply before mana payment is queued.
+
+### Hand-cast payment extras
+
+When `requestCastSpell` queues mana payment, `buildAlternateCostPaymentExtrasForCast` sends `extraAlternateCosts` with **pre-reduced** `manaCost` values for keyword alternates (`warp`, `dash`, `miracle`, …) and external WUBRG (`wubrg_external` from Leyline of Mutation / Jodah). The client `CastSpellModal` treats server `extraAlternateCosts` as authoritative and may show strikethrough printed costs when `costAdjustment` is present.
+
+Mutate is chosen in a separate `OptionChoice` step before payment; payment locks `forcedAlternateCostId: 'mutate'`.
+
+### Graveyard cast payment
+
+`continueCastFromGraveyardAbility` in `server/src/socket/interaction.ts` calls `buildAlternateCastSpellManaCost` for flashback/escape/etc., attaches `costAdjustment` to the mana-payment queue step, and resumes the cast after payment. Unearth bypasses this branch entirely.
 
 ## Architecture
 
@@ -244,9 +269,28 @@ Each creature tapped pays for {1} or one mana of its color
 
 ## Alternate Costs
 
-The casting UI can surface alternate costs and sends the chosen `alternateCostId` back to the server via the normal cast flow.
+The casting UI surfaces alternate costs and sends the chosen `alternateCostId` back to the server via the normal cast flow.
 
-Currently supported values:
+### Client (`CastSpellModal.tsx`)
+
+- Parses keyword alternate costs from oracle text (`parseAlternateCosts`), including `wubrg_self` on the spell itself.
+- When `alternateCosts.length > 1` and no `forcedAlternateCostId`, shows a **Choose Casting Cost** radio list.
+- Merges server `extraAlternateCosts` (pre-reduced) with client-detected battlefield costs (`App.tsx` → Leyline WUBRG, Omniscience free cast).
+- `resolveEffectiveManaCostForCastStep` applies `costAdjustment` when the player switches between normal and alternate costs in the modal.
+- Reduced alternate costs display with strikethrough on the printed cost when `costAdjustment` is available.
+
+### Server-supported alternate cost ids (hand cast)
+
+Keyword alternates resolved generically via `parseKeywordAlternateManaCost` unless explicitly branched: `warp`, `dash`, `blitz`, `miracle`, `madness`, `surge`, `spectacle`, `mutate`, etc.
+
+External WUBRG: `wubrg_external` (Leyline of Mutation, Jodah's Avenger) and `wubrg_self` (Bringer cycle).
+
+### Special cases
+
+- `force_of_will`: exile-a-blue-card prompt; no mana payment UI.
+- Graveyard modal: flashback, escape, disturb, jump-start, retrace (not unearth — that is activated).
+
+Currently supported values (legacy list):
 
 - `force_of_will`: Force of Will / Force of Negation style alternate cost.
   - Server will prompt (via Resolution Queue `OPTION_CHOICE`) to exile a blue card from hand.
@@ -339,12 +383,27 @@ if (wasColorSpent(manaPayment, 'red')) {
 - Permanent and card filters
 - Convoke and affinity cost types
 
+**Cost reduction integration tests** (`server/tests/cost-reduction-cast.integration.test.ts`):
+- Flashback + Ruby Medallion (graveyard alternate cast, `{2}{R}` → `{1}{R}`)
+- Convergence of Dominion + unearth (activated ability, `{1}{B}` → `{B}`)
+- Hakbal + Leyline of Mutation + Morophon (`extraAlternateCosts` on payment step)
+
+**Activated ability reducers** (`rules-engine/test/activatedAbilityCostReduction.test.ts`, `server/tests/ability-cost-adjustments.unit.test.ts`)
+
+**Alternate cost audit** (`server/scripts/alternate-cost-implementation-audit.ts`):
+```powershell
+cd server
+npx tsx scripts/alternate-cost-implementation-audit.ts
+```
+Report: `server/scripts/out/alternate-cost-implementation-audit.json`. Unearth is flagged as `activated_ability`, not `alternate_cast_spell`.
+
 ## Future Enhancements
 
-### Phase 4: Server Integration
-- Wire cost reduction to CastSpellModal from server
-- Handle convoke creature tapping
-- Apply mana reduction from tapped creatures
+### Phase 4: Server Integration — largely complete
+
+- Cost reduction wired to `CastSpellModal` via `costAdjustment` / `extraAlternateCosts`
+- Convoke creature tapping (existing)
+- Graveyard alternate casts and activated abilities use separate reducer paths (see above)
 
 ### Phase 5: Additional Cost Pickers
 - Sacrifice permanent picker with filtering UI
