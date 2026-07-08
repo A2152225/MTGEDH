@@ -43,6 +43,15 @@ export {
   logOracleIrAllOrNothingFailure,
 } from './oracleIrStepWiring.js';
 
+function stripInlineWaterbendReminder(text: string): string {
+  return String(text || '')
+    .replace(
+      /\s*\(\s*while paying a waterbend cost, you can tap your artifacts and creatures to help\.\s*each one pays for \{1\}\.\s*\)\s*$/i,
+      '',
+    )
+    .trim();
+}
+
 function extractActivatedEffectText(oracleText: string): string {
   const raw = String(oracleText || '').trim();
   if (!raw) return '';
@@ -73,7 +82,7 @@ export function collectActivatedAbilitySteps(
   sourceName: string,
   options?: CollectOracleEffectStepsOptions,
 ): OracleEffectStep[] {
-  const raw = String(oracleText || '').trim();
+  const raw = stripInlineWaterbendReminder(String(oracleText || '').trim());
   if (!raw) return [];
 
   const thresholdLine = raw.match(/^(\d+)\+\s*\|\s*(.+)$/is);

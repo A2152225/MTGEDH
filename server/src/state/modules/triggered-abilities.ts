@@ -37,7 +37,7 @@ import {
   hydrateBattlefieldOracleText,
   hydratePermanentCardOracleInPlace,
 } from "./cardOracleHydration.js";
-import { calculateVariablePT, getActualPowerToughness, normalizeCardNameForOracleText } from "../utils.js";
+import { getActivePermanentCardFace } from "./cardFaceOracle.js";
 import { handleEldraziShuffle, hasGraveyardMassShuffleIntoLibraryTrigger } from "./zone-manipulation.js";
 
 // Import card data tables from modularized submodule
@@ -12188,8 +12188,10 @@ export interface SpellCastTrigger {
   controllerId: string;
   description: string;
   effect: string;
-  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'colorless' | 'historic' | 'tribal_type' | 'color';
+  spellCondition: 'any' | 'creature' | 'noncreature' | 'instant_sorcery' | 'colorless' | 'historic' | 'tribal_type' | 'color' | 'artifact_or_creature';
   tribalType?: string; // For tribal triggers like "Merfolk spell" or color like "green"
+  /** When set, the cast must have used mana produced by this permanent (Barracks-style). */
+  requiresManaFromPermanentId?: string;
   copiesSpell?: boolean;
   firstSpellThisTurn?: boolean;
   firstSpellDuringOpponentTurn?: boolean;
@@ -12229,9 +12231,8 @@ export interface SpellCastTrigger {
  */
 export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTrigger[] {
   const triggers: SpellCastTrigger[] = [];
-  const oracleText = (card?.oracle_text || "");
+  const { cardName, oracleText } = getActivePermanentCardFace(card, permanent);
   const lowerOracle = oracleText.toLowerCase();
-  const cardName = card?.name || "Unknown";
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
 
@@ -12507,6 +12508,28 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
       isOptional: effectText.toLowerCase().includes('you may'),
     };
   };
+
+  const castUsingProducedManaMatch = oracleText.match(
+    /whenever you cast an (?:artifact or creature|creature or artifact) spell using mana produced by ([^,]+),?\s*([^.]+)/i,
+  );
+  if (
+    castUsingProducedManaMatch &&
+    !triggers.some((trigger) => trigger.spellCondition === 'artifact_or_creature' && trigger.requiresManaFromPermanentId === permanentId)
+  ) {
+    const effectText = timingTriggerEffect(oracleText, castUsingProducedManaMatch, 2).trim();
+    const { createsToken } = getSpellCastEffectMetadata(effectText);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `Whenever you cast an artifact or creature spell using mana produced by ${String(castUsingProducedManaMatch[1] || cardName).trim()}, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'artifact_or_creature',
+      requiresManaFromPermanentId: permanentId,
+      createsToken,
+      mandatory: true,
+    });
+  }
   
   const creatureSpellMinPowerMatch = oracleText.match(
     /(?:when|whenever) you cast a creature spell with power (\d+) or greater,?\s*([^.]+)/i,
@@ -13512,6 +13535,9 @@ export function getSpellCastTriggers(
           break;
         case 'historic':
           shouldTrigger = isHistoricSpell;
+          break;
+        case 'artifact_or_creature':
+          shouldTrigger = isCreatureSpell || spellTypeLine.includes('artifact');
           break;
         case 'tribal_type':
           // Check if the spell has the tribal type

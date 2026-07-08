@@ -5018,10 +5018,147 @@ function getAIAdjustedSpellCost(game: any, playerId: PlayerID, card: any): Parse
   );
 }
 
+function isAISorcerySpeedBattlefieldAbility(action: any, permanent: any): boolean {
+  const abilityId = String(action?.abilityId || '').toLowerCase();
+  const abilityText = String(action?.abilityText || '').toLowerCase();
+  const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
+
+  if (/-reconfigure-|-equip-|fortify/.test(abilityId)) {
+    return true;
+  }
+  if (/\breconfigure\b/.test(abilityText) || /\bequip\b/.test(abilityText) || /\bfortify\b/.test(abilityText)) {
+    return true;
+  }
+  if (/\breconfigure\b/.test(oracleText) || /\bequip\b/.test(oracleText) || /\bfortify\b/.test(oracleText)) {
+    return true;
+  }
+  return /(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(oracleText);
+}
+
+function resolveAIActivatedAbilityManaCostText(action: any, permanent: any): string {
+  const abilityText = String(action?.abilityText || '').trim();
+  const oracleText = String(permanent?.card?.oracle_text || '').trim();
+
+  const reconfigureMatch = abilityText.match(/reconfigure\s*(\{[^}]+\}(?:\{[^}]+\})*)/i)
+    || oracleText.match(/reconfigure\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (reconfigureMatch) {
+    return String(reconfigureMatch[1] || '').trim();
+  }
+
+  const equipMatch = abilityText.match(/equip\s+(\{[^}]+\}(?:\{[^}]+\})*)/i)
+    || oracleText.match(/equip\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (equipMatch) {
+    return String(equipMatch[1] || '').trim();
+  }
+
+  const fortifyMatch = abilityText.match(/fortify\s+(\{[^}]+\}(?:\{[^}]+\})*)/i)
+    || oracleText.match(/fortify\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  if (fortifyMatch) {
+    return String(fortifyMatch[1] || '').trim();
+  }
+
+  const genericMatch = abilityText.match(/^(\{[^}]+\}(?:\s*,?\s*\{[^}]+\})*)\s*:/i);
+  if (genericMatch) {
+    return String(genericMatch[1] || '')
+      .replace(/\{T\}/gi, '')
+      .replace(/,\s*,/g, ',')
+      .replace(/^,\s*|\s*,$/g, '')
+      .trim();
+  }
+
+  return '';
+}
+
+function canAIAssembleManaPaymentPlan(
+  game: any,
+  playerId: PlayerID,
+  parsedCost: ParsedManaCost,
+): boolean {
+  const pool = getOrInitManaPool(game.state, String(playerId)) as any;
+  const totalAvailable: Record<string, number> = {
+    white: Number(pool.white || 0),
+    blue: Number(pool.blue || 0),
+    black: Number(pool.black || 0),
+    red: Number(pool.red || 0),
+    green: Number(pool.green || 0),
+    colorless: Number(pool.colorless || 0),
+  };
+
+  if (!validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic)) {
+    return true;
+  }
+
+  const paymentSources = getPaymentSources(game, playerId, {
+    colors: { ...(parsedCost.colors || {}) },
+    generic: Number(parsedCost.generic || 0),
+  });
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+
+  for (const source of paymentSources) {
+    const permanent = battlefield.find((entry: any) =>
+      entry &&
+      String(entry.id || '') === String(source.sourceId || '') &&
+      entry.controller === playerId &&
+      !entry.tapped
+    );
+    if (!permanent) continue;
+
+    const manaInfo = calculateManaProduction(game.state, permanent, String(playerId), source.produceColor, source.abilityId);
+    const poolKey = COLOR_IDENTITY_MAP[String(source.produceColor || '').toUpperCase()] || 'colorless';
+    totalAvailable[poolKey] = Number(totalAvailable[poolKey] || 0) + Number(manaInfo.totalAmount || 0);
+
+    for (const bonus of manaInfo.bonusMana || []) {
+      const bonusKey = COLOR_IDENTITY_MAP[String(bonus?.color || '').toUpperCase()] || 'colorless';
+      totalAvailable[bonusKey] = Number(totalAvailable[bonusKey] || 0) + Number(bonus?.amount || 0);
+    }
+  }
+
+  return !validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+}
+
+function canAIActivateBattlefieldAbilityNow(
+  game: any,
+  playerId: PlayerID,
+  action: any,
+  mode: 'main' | 'response',
+): boolean {
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const permanent = battlefield.find((entry: any) => String(entry?.id || '') === String(action?.permanentId || ''));
+  if (!permanent) {
+    return false;
+  }
+
+  const stackEmpty = !game.state?.stack || game.state.stack.length === 0;
+  const phase = String(game.state?.phase || '').toLowerCase();
+  const isMainPhase = phase.includes('main');
+  const isOwnTurn = game.state?.turnPlayer === playerId;
+
+  if (isAISorcerySpeedBattlefieldAbility(action, permanent)) {
+    if (!stackEmpty || !isMainPhase || !isOwnTurn || mode === 'response') {
+      return false;
+    }
+  }
+
+  const manaCostText = resolveAIActivatedAbilityManaCostText(action, permanent);
+  if (!manaCostText) {
+    return true;
+  }
+
+  const parsedCost = parseManaCost(manaCostText);
+  const needsMana = Number(parsedCost.generic || 0) > 0
+    || Object.values(parsedCost.colors || {}).some((value) => Number(value || 0) > 0);
+  if (!needsMana) {
+    return true;
+  }
+
+  return canAIAssembleManaPaymentPlan(game, playerId, parsedCost);
+}
+
 async function getAIActivatedAbilityCandidate(
   game: any,
   playerId: PlayerID,
   willNeedToDiscard: boolean,
+  queryMode: 'main' | 'response' = 'main',
 ): Promise<AIActivatedAbilityCandidate | null> {
   const abilityDecision = await aiEngine.makeDecision({
     gameState: game.state as any,
@@ -5031,6 +5168,17 @@ async function getAIActivatedAbilityCandidate(
   });
 
   if (!abilityDecision.action?.activate) {
+    return null;
+  }
+
+  if (!canAIActivateBattlefieldAbilityNow(game, playerId, abilityDecision.action, queryMode)) {
+    debug(1, '[AI] Skipping activated ability candidate (timing or affordability):', {
+      playerId,
+      cardName: abilityDecision.action.cardName,
+      permanentId: abilityDecision.action.permanentId,
+      abilityId: abilityDecision.action.abilityId,
+      queryMode,
+    });
     return null;
   }
 
@@ -5074,7 +5222,12 @@ async function enumerateAIActionCandidates(
   }
 
   if (kinds.has('activate_ability')) {
-    const abilityCandidate = await getAIActivatedAbilityCandidate(game, playerId, willNeedToDiscard);
+    const abilityCandidate = await getAIActivatedAbilityCandidate(
+      game,
+      playerId,
+      willNeedToDiscard,
+      query.mode === 'response' ? 'response' : 'main',
+    );
     if (abilityCandidate) {
       const confidenceBonus = Math.round(Number(abilityCandidate.confidence || 0) * 10);
       const basePriority = query.mode === 'response'
@@ -5214,7 +5367,7 @@ async function tryAIResponseActions(
   for (const candidate of responseCandidates) {
     if (candidate.kind === 'activate_ability') {
       debug(1, '[AI] Taking response-window activated ability:', candidate.ability.action.cardName);
-      if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
+      if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action, false)) {
         return true;
       }
 
@@ -11148,7 +11301,11 @@ async function handleAIResolutionStep(
 
       case 'mana_payment_choice': {
         const stepData = step as any;
-        if (stepData.spellPaymentRequired === true || stepData.sacrificeUnlessPayChoice === true) {
+        if (
+          stepData.spellPaymentRequired === true ||
+          stepData.sacrificeUnlessPayChoice === true ||
+          stepData.activationPaymentChoice === true
+        ) {
           const selections = await chooseAISpellPaymentSelections(io as any, gameId, game, playerId as any, stepData);
           ResolutionQueueManager.completeStep(
             gameId,

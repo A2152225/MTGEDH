@@ -10752,7 +10752,12 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   const skipUntapPlayer = raw.match(/^that\s+player\s+skips\s+their\s+next\s+untap\s+step$/i);
   if (skipUntapPlayer) {
-    return staticMetadata('that player', 'skips their next untap step');
+    return [{
+      kind: 'skip_next_untap',
+      target: parseObjectSelector('that player'),
+      raw,
+      ...sequence,
+    } as OracleEffectStep];
   }
 
   const untapLand = raw.match(/^that\s+player\s+untaps\s+a\s+land\s+they\s+control$/i);

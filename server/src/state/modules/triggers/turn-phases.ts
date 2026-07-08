@@ -19,6 +19,7 @@ import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import { isInterveningIfSatisfied } from "./intervening-if.js";
 import { KNOWN_END_STEP_TRIGGERS } from "./card-data-tables.js";
+import { shouldSkipUntapStepForPlayer } from "../skipUntapStepUtils.js";
 
 // ============================================================================
 // Type Definitions for Turn Phase Triggers
@@ -1203,18 +1204,4 @@ export function isPermanentPreventedFromUntapping(
   return false;
 }
 
-/**
- * Rule 502.1 / Stasis-style effects: active player skips their untap step entirely.
- * Matches oracle text like "Players skip their untap steps" (Stasis).
- */
-export function shouldSkipUntapStepForPlayer(ctx: GameContext, _turnPlayer: string): boolean {
-  const battlefield = ctx.state?.battlefield || [];
-  for (const permanent of battlefield) {
-    if (!permanent?.card) continue;
-    const oracleText = String(permanent.card.oracle_text || '').toLowerCase();
-    if (/players\s+skip\s+their\s+untap\s+steps?/.test(oracleText)) {
-      return true;
-    }
-  }
-  return false;
-}
+export { shouldSkipUntapStepForPlayer } from "../skipUntapStepUtils.js";

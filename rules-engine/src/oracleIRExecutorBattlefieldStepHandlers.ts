@@ -4162,6 +4162,33 @@ export function applySkipNextUntapStep(
   const targetTextRaw = String((step.target as any)?.text || step.raw || '').trim();
   const targetTextLower = targetTextRaw.toLowerCase();
 
+  if (
+    /^(?:that|target)\s+player$/i.test(targetTextLower) ||
+    /^(?:target player|that player)\s+skips\s+their\s+next\s+untap\s+step\.?$/i.test(targetTextLower)
+  ) {
+    const playerId = String(
+      ctx.selectorContext?.targetPlayerId ||
+      ctx.selectorContext?.thatPlayerId ||
+      (step.target as any)?.playerId ||
+      ''
+    ).trim();
+    if (!playerId) {
+      return {
+        applied: false,
+        message: `Skipped next untap step (no target player): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    const stateAny = state as any;
+    stateAny.skipNextUntapStepByPlayer = stateAny.skipNextUntapStepByPlayer || {};
+    stateAny.skipNextUntapStepByPlayer[playerId] = true;
+    return {
+      applied: true,
+      state: stateAny as GameState,
+      log: [`${playerId} skips their next untap step`],
+    };
+  }
+
   if (/^those creatures(?: don't untap|$)/i.test(targetTextLower)) {
     const contextualIds = buildContextualBattlefieldTargetIds(battlefield, ctx, true);
     const antecedentIds = [

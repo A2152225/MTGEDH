@@ -9,7 +9,7 @@
 // NOTE: Small, safe additions: normalizeViewForEmit + ensureStateZonesForPlayers
 // and env-gated verbose logging when DEBUG_STATE=1.
 
-import type { Server } from "socket.io";
+import { sumActiveTemporaryPTMods } from "../state/modules/temporaryPtMods.js";
 import { games, priorityTimers, PRIORITY_TIMEOUT_MS } from "./socket.js";
 import { appendEvent, createGameIfNotExists, getEvents, gameExistsInDb } from "../db/index.js";
 import { createInitialGameState } from "../state/index.js";
@@ -3511,6 +3511,118 @@ export function deriveCreatureSpellHasteFromManaSpent(
   return false;
 }
 
+type ManaPoolColorKey = 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
+
+function getOrInitManaProducedByPermanentLowerBound(gameState: any, playerId: string): Record<string, Record<ManaPoolColorKey, number>> {
+  const pool = getOrInitManaPool(gameState, playerId) as any;
+  if (!pool.manaProducedByPermanentLowerBound || typeof pool.manaProducedByPermanentLowerBound !== 'object') {
+    Object.defineProperty(pool, 'manaProducedByPermanentLowerBound', {
+      value: {},
+      writable: true,
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  return pool.manaProducedByPermanentLowerBound as Record<string, Record<ManaPoolColorKey, number>>;
+}
+
+export function recordManaProducedByPermanentSource(
+  gameState: any,
+  playerId: string,
+  permanentId: string,
+  poolKey: ManaPoolColorKey,
+  amount: number,
+): void {
+  const sourceId = String(permanentId || '').trim();
+  const n = Number(amount || 0);
+  if (!sourceId || !Number.isFinite(n) || n <= 0) return;
+  const byPermanent = getOrInitManaProducedByPermanentLowerBound(gameState, playerId);
+  const entry = byPermanent[sourceId] || {
+    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0,
+  };
+  entry[poolKey] = Number(entry[poolKey] || 0) + n;
+  byPermanent[sourceId] = entry;
+}
+
+export function snapshotManaProducedByPermanentLowerBound(
+  gameState: any,
+  playerId: string,
+): Record<string, Record<ManaPoolColorKey, number>> {
+  const byPermanent = getOrInitManaProducedByPermanentLowerBound(gameState, playerId);
+  const snapshot: Record<string, Record<ManaPoolColorKey, number>> = {};
+  for (const [permanentId, colors] of Object.entries(byPermanent)) {
+    snapshot[permanentId] = { ...(colors as Record<ManaPoolColorKey, number>) };
+  }
+  return snapshot;
+}
+
+export function applyManaSpendToManaProducedByPermanentLowerBound(
+  gameState: any,
+  playerId: string,
+  consumed: Record<string, number> | null | undefined,
+): void {
+  if (!consumed || typeof consumed !== 'object') return;
+  const byPermanent = getOrInitManaProducedByPermanentLowerBound(gameState, playerId);
+  const keys: ManaPoolColorKey[] = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+  for (const permanentId of Object.keys(byPermanent)) {
+    const entry = byPermanent[permanentId];
+    if (!entry) continue;
+    for (const key of keys) {
+      const used = Number((consumed as any)[key] || 0);
+      if (!Number.isFinite(used) || used <= 0) continue;
+      entry[key] = Math.max(0, Number(entry[key] || 0) - used);
+    }
+  }
+}
+
+export function deriveCastUsedManaFromPermanentSource(
+  gameState: any,
+  playerId: string,
+  permanentId: string,
+  opts: {
+    poolBeforePayment?: Record<string, number> | null | undefined;
+    consumed?: Record<string, number> | null | undefined;
+    manaProducedByPermanentBeforePayment?: Record<string, Record<ManaPoolColorKey, number>> | null | undefined;
+    manaPayment?: Array<{ permanentId?: string }> | null | undefined;
+  },
+): boolean {
+  const sourceId = String(permanentId || '').trim();
+  if (!sourceId) return false;
+
+  const payment = Array.isArray(opts.manaPayment) ? opts.manaPayment : [];
+  if (payment.some((entry) => String(entry?.permanentId || '').trim() === sourceId)) {
+    return true;
+  }
+
+  const consumed = opts.consumed;
+  if (!consumed || typeof consumed !== 'object') return false;
+
+  const keys: ManaPoolColorKey[] = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
+  const spentTotal = keys.reduce((sum, key) => sum + Number((consumed as any)[key] || 0), 0);
+  if (spentTotal <= 0) return false;
+
+  const poolBefore = (opts.poolBeforePayment && typeof opts.poolBeforePayment === 'object')
+    ? opts.poolBeforePayment
+    : {};
+  const sourceLB = (opts.manaProducedByPermanentBeforePayment && typeof opts.manaProducedByPermanentBeforePayment === 'object')
+    ? (opts.manaProducedByPermanentBeforePayment[sourceId] || {})
+    : (snapshotManaProducedByPermanentLowerBound(gameState, playerId)[sourceId] || {});
+
+  for (const key of keys) {
+    const used = Number((consumed as any)[key] || 0);
+    if (!Number.isFinite(used) || used <= 0) continue;
+    const before = Number((poolBefore as any)[key] || 0);
+    const lb = Number((sourceLB as any)[key] || 0);
+    const maxNormalMana = Math.max(0, before - lb);
+    const minSourceManaSpent = Math.max(0, used - maxNormalMana);
+    if (minSourceManaSpent > 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Gets the current mana pool for a player, initializing it if needed.
  * Returns the enhanced ManaPool interface with support for restricted mana.
@@ -5488,7 +5600,8 @@ export function getEffectivePower(permanent: any): number {
 
   const temporaryPower =
     (typeof permanent.temporaryPowerBoost === 'number' ? permanent.temporaryPowerBoost : 0) +
-    (typeof permanent.powerBoost === 'number' ? permanent.powerBoost : 0);
+    (typeof permanent.powerBoost === 'number' ? permanent.powerBoost : 0) +
+    sumActiveTemporaryPTMods(permanent).power;
   
   return Math.max(0, basePower + counterDelta + otherCounterPower + modifierPower + temporaryPower);
 }
@@ -5545,7 +5658,8 @@ export function getEffectiveToughness(permanent: any): number {
 
   const temporaryToughness =
     (typeof permanent.temporaryToughnessBoost === 'number' ? permanent.temporaryToughnessBoost : 0) +
-    (typeof permanent.toughnessBoost === 'number' ? permanent.toughnessBoost : 0);
+    (typeof permanent.toughnessBoost === 'number' ? permanent.toughnessBoost : 0) +
+    sumActiveTemporaryPTMods(permanent).toughness;
   
   return Math.max(0, baseToughness + counterDelta + otherCounterToughness + modifierToughness + temporaryToughness);
 }

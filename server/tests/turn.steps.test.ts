@@ -3,6 +3,7 @@ import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, KnownCardRef } from '../../shared/src';
 import { GamePhase, GameStep } from '../../shared/src';
 import { setPermanentPrepared } from '../src/state/modules/prepared.js';
+import { markPlayerSkipsNextUntapStep } from '../src/state/modules/skipUntapStepUtils.js';
 
 function buildPreparedCleanupCard() {
   return {
@@ -140,6 +141,25 @@ describe('Turn step engine basics', () => {
     });
 
     g.applyEvent({ type: 'nextStep' }); // UPKEEP — untap step action skipped
+
+    expect(g.state.step).toBe(GameStep.UPKEEP);
+    const perm = g.state.battlefield.find((p) => p.id === permId)!;
+    expect(perm.tapped).toBe(true);
+  });
+
+  it('skips the untap step when the active player has a skip-next-untap flag', () => {
+    const g = createInitialGameState('t_steps_player_skip_untap');
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'nextTurn' });
+    markPlayerSkipsNextUntapStep(g, p1);
+
+    g.createToken(p1, 'Tapped Test', 1, 1, 1);
+    const permId = g.state.battlefield[0].id;
+    g.state.battlefield[0].tapped = true;
+
+    g.applyEvent({ type: 'nextStep' });
 
     expect(g.state.step).toBe(GameStep.UPKEEP);
     const perm = g.state.battlefield.find((p) => p.id === permId)!;

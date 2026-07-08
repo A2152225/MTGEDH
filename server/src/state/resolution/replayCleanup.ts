@@ -24,6 +24,17 @@ function cardStillBeingCast(state: any, cast: any): boolean {
   return stack.some((entry: any) => String(entry?.cardId || entry?.sourceCardId || '').trim() === cardId);
 }
 
+function battlefieldActivationAlreadyOnStack(state: any, step: any): boolean {
+  const permanentId = String(step?.permanentId || step?.sourceId || '').trim();
+  if (!permanentId) return false;
+
+  const stack = Array.isArray(state?.stack) ? state.stack : [];
+  return stack.some((entry: any) =>
+    String(entry?.type || '') === 'ability' &&
+    String(entry?.source || '') === permanentId
+  );
+}
+
 /**
  * After rebuilding in-memory state from persisted events, drop resolution prompts that
  * were already resolved in the event log but would otherwise be re-queued on replay.
@@ -58,6 +69,17 @@ export function pruneObsoleteResolutionQueueAfterReplay(gameId: string, state: a
     }
 
     if (CAST_FLOW_STEP_TYPES.has(stepType) && effectId && !pendingEffectIds.has(effectId)) {
+      ResolutionQueueManager.cancelStep(gameId, String(step.id || ''));
+      continue;
+    }
+
+    const isBattlefieldTargetStep =
+      stepType === ResolutionStepType.TARGET_SELECTION &&
+      (step as any)?.battlefieldAbilityTargetSelection === true;
+    const isBattlefieldPaymentStep =
+      stepType === ResolutionStepType.MANA_PAYMENT_CHOICE &&
+      (step as any)?.activationPaymentChoice === true;
+    if ((isBattlefieldTargetStep || isBattlefieldPaymentStep) && battlefieldActivationAlreadyOnStack(state, step)) {
       ResolutionQueueManager.cancelStep(gameId, String(step.id || ''));
     }
   }

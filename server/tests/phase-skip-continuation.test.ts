@@ -6,6 +6,7 @@ import {
   resumePendingPhaseSkip,
   completePendingPhaseSkipCore,
 } from '../src/state/modules/phaseSkipUtils.js';
+import { markPlayerSkipsNextUntapStep } from '../src/state/modules/skipUntapStepUtils.js';
 import type { PlayerID } from '../../shared/src/index.js';
 
 function addPlayer(game: any, id: PlayerID, name: string) {
@@ -23,6 +24,7 @@ describe('phase skip continuation', () => {
       'phase_skip_untap_upkeep',
       'phase_skip_untap_no_double',
       'phase_skip_stasis_skip_untap',
+      'phase_skip_player_skip_untap',
       'phase_skip_main1_end_combat',
       'phase_skip_upkeep_upkeep',
       'phase_skip_main1_postcombat',
@@ -426,6 +428,59 @@ describe('phase skip continuation', () => {
     expect(String((game.state as any).step || '')).toBe('UPKEEP');
     expect((game.state as any).pendingPhaseSkip?.untapStepActionPerformed).toBe(true);
     expect((game.state as any).pendingPhaseSkip?.untappedDuringSkipIds).toBeUndefined();
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield.find((p: any) => p.id === 'tapped_land')?.tapped).toBe(true);
+  });
+
+  it('does not untap when the active player has skip-next-untap flag during phase skip scan', () => {
+    const gameId = 'phase_skip_player_skip_untap';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    markPlayerSkipsNextUntapStep(game, p1);
+
+    (game.state as any).phase = 'beginning';
+    (game.state as any).step = 'UNTAP';
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).turn = 2;
+    (game.state as any).battlefield = [
+      {
+        id: 'tapped_land',
+        controller: p1,
+        owner: p1,
+        tapped: true,
+        card: {
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'upkeep_perm',
+        controller: p1,
+        owner: p1,
+        card: {
+          name: 'Test Upkeep Draw',
+          type_line: 'Enchantment',
+          oracle_text: 'At the beginning of your upkeep, draw a card.',
+        },
+      },
+    ];
+
+    const result = processPhaseSkipTriggerStops({
+      game,
+      gameId,
+      playerId: p1,
+      turnPlayer: p1,
+      targetPhase: 'postcombatMain',
+      targetStep: 'MAIN2',
+      skipOriginPhase: 'beginning',
+      skipOriginStep: 'UNTAP',
+    });
+
+    expect(result).toBe('stopped');
+    expect(String((game.state as any).step || '')).toBe('UPKEEP');
+    expect((game.state as any).pendingPhaseSkip?.untapStepActionPerformed).toBe(true);
     const battlefield = (game.state as any).battlefield || [];
     expect(battlefield.find((p: any) => p.id === 'tapped_land')?.tapped).toBe(true);
   });

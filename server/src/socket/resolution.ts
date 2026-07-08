@@ -4407,7 +4407,11 @@ async function handleAIResolutionStep(
       case ResolutionStepType.MANA_PAYMENT_CHOICE: {
         const stepData = step as any;
 
-        if (stepData.spellPaymentRequired === true || stepData.sacrificeUnlessPayChoice === true) {
+        if (
+          stepData.spellPaymentRequired === true ||
+          stepData.sacrificeUnlessPayChoice === true ||
+          stepData.activationPaymentChoice === true
+        ) {
           const selections = await chooseAISpellPaymentSelections(io, gameId, game, step.playerId as any, stepData);
           if (!selections) {
             debugWarn(1, `[Resolution] AI could not assemble payment for ${String(stepData.cardName || stepData.sourceName || 'spell')}; cancelling prompt`);

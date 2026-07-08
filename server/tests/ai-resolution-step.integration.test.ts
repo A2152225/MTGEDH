@@ -3133,6 +3133,95 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.selections).toEqual({ targetPermanentId: 'host_1', onTop: true });
   });
 
+  it('auto-resolves AI activation mana payment choice from floating mana', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+        { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'beginning';
+      (game.state as any).step = 'draw';
+      (game.state as any).stack = [];
+      (game.state as any).manaPool = {
+        [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 7, colorless: 0 },
+      };
+      (game.state as any).battlefield = [
+        {
+          id: 'tanuki_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          card: {
+            id: 'tanuki_card_1',
+            name: 'Tanuki Transplanter',
+            type_line: 'Artifact Creature — Dog Equipment',
+            oracle_text: 'Reconfigure {3}',
+          },
+        },
+        {
+          id: 'host_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          card: {
+            id: 'host_card_1',
+            name: 'Priest of Titania',
+            type_line: 'Creature — Elf Druid',
+          },
+        },
+      ];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+        playerId: playerId as any,
+        sourceId: 'tanuki_1',
+        sourceName: 'Tanuki Transplanter',
+        description: 'Choose how to pay {3} for Tanuki Transplanter.',
+        mandatory: true,
+        activationPaymentChoice: true,
+        activationPaymentContext: 'battlefield_targeted',
+        confirmLabel: 'Pay and Activate',
+        permanentId: 'tanuki_1',
+        abilityId: 'tanuki_card_1-reconfigure-attach-0',
+        cardName: 'Tanuki Transplanter',
+        manaCost: '{3}',
+        abilityText: 'Attach to target creature you control',
+        activatedAbilityText: 'Reconfigure {3}',
+        targetIds: ['host_1'],
+        validTargets: [{ id: 'host_1', label: 'Priest of Titania' }],
+        targetTypes: ['creature'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'another creature you control',
+        abilityType: 'reconfigure_attach',
+        reconfigureCost: '{3}',
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.cancelled).toBe(false);
+        expect(completed?.response?.selections).toEqual({ payment: [] });
+        expect((game.state as any).manaPool?.[playerId]?.green).toBe(4);
+        expect((game.state as any).stack || []).toHaveLength(1);
+        expect((game.state as any).stack?.[0]?.abilityType).toBe('reconfigure_attach');
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
   it('auto-resolves AI mutate target selection from the shared resolution queue handler and queues mutate payment', async () => {
     const io = createNoopIo();
     const aiHandler = initializeAIResolutionHandler(io as any);

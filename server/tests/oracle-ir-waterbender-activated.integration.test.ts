@@ -72,4 +72,26 @@ describe('oracle IR Waterbender Ascension activated ability (Layer 3)', () => {
       || (target as any)?.unblockableThisTurn === true;
     expect(hasUnblockable || viaFlag).toBe(true);
   });
+
+  it('parses activated ability text with inline waterbend reminder', () => {
+    const ctx = makeCtx();
+    const activatedLine =
+      "Waterbend {4}: Target creature can't be blocked this turn. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)";
+    const result = tryApplyOracleIRToActivatedAbility(ctx, {
+      controller: 'p1',
+      sourceName: 'Waterbender Ascension',
+      oracleText: activatedLine,
+      sourcePermanentId: 'enchant-1',
+      targets: ['bf-target'],
+      allowOptional: true,
+    });
+
+    expect(result.handled).toBe(true);
+    const target = (ctx.state.battlefield || []).find((perm: any) => perm.id === 'bf-target');
+    const granted = (target as any)?.grantedAbilities || (target as any)?.temporaryAbilities || [];
+    const hasUnblockable = Array.isArray(granted)
+      && granted.some((entry: any) =>
+        String(entry?.ability || entry || '').toLowerCase().includes("can't be blocked"));
+    expect(hasUnblockable).toBe(true);
+  });
 });

@@ -46,4 +46,48 @@ describe('pruneObsoleteResolutionQueueAfterReplay', () => {
     expect(pending).toHaveLength(0);
     expect(state.pendingSpellCasts.stale_cast).toBeUndefined();
   });
+
+  it('removes replayed battlefield activation payment prompts when the ability is already on the stack', () => {
+    const gameId = 'game_replay_battlefield_activation_cleanup';
+    const state: any = {
+      players: [{ id: 'p1' }],
+      turnPlayer: 'p1',
+      priority: 'p1',
+      step: 'MAIN1',
+      phase: 'precombatMain',
+      stack: [{
+        id: 'ability_1',
+        type: 'ability',
+        controller: 'p1',
+        source: 'tanuki_1',
+        sourceName: 'Tanuki Transplanter',
+        abilityType: 'reconfigure_attach',
+      }],
+      battlefield: [{
+        id: 'tanuki_1',
+        controller: 'p1',
+        card: { name: 'Tanuki Transplanter', type_line: 'Artifact Creature — Dog Equipment', oracle_text: 'Reconfigure {3}' },
+      }],
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: 'p1' as any,
+      sourceId: 'tanuki_1',
+      permanentId: 'tanuki_1',
+      description: 'Choose how to pay {3} for Tanuki Transplanter.',
+      mandatory: true,
+      activationPaymentChoice: true,
+      activationPaymentContext: 'battlefield_targeted',
+      manaCost: '{3}',
+      abilityId: 'tanuki_card_1-reconfigure-attach-0',
+      abilityType: 'reconfigure_attach',
+    } as any);
+
+    pruneObsoleteResolutionQueueAfterReplay(gameId, state);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const pending = queue.steps.filter((step) => step.status === ResolutionStepStatus.PENDING);
+    expect(pending).toHaveLength(0);
+  });
 });

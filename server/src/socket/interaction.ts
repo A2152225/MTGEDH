@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, recordCreatureSpellHasteManaProduced, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction, resolveClientStyleManaAbilityById } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction, resolveClientStyleManaAbilityById } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket.js";
 import { 
@@ -13124,6 +13124,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
           recordCreatureSpellHasteManaProduced(game.state, String(pid), String(poolKey) as any, totalAmount);
         }
+        recordManaProducedByPermanentSource(game.state, String(pid), String(permanentId || ''), String(poolKey) as any, totalAmount);
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -13428,6 +13429,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
                 recordCreatureSpellHasteManaProduced(game.state, String(pid), String(extraPoolKey) as any, extra.amount);
               }
+              recordManaProducedByPermanentSource(game.state, String(pid), String(permanentId || ''), String(extraPoolKey) as any, extra.amount);
               totalAmount += extra.amount;
             }
 
@@ -13436,6 +13438,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
               recordCreatureSpellHasteManaProduced(game.state, String(pid), String(poolKey) as any, baseAmount * effectiveMultiplier);
             }
+            recordManaProducedByPermanentSource(game.state, String(pid), String(permanentId || ''), String(poolKey) as any, baseAmount * effectiveMultiplier);
 
             let message = `${getPlayerName(game, pid)} tapped ${cardName}`;
             if (effectiveMultiplier > 1 && extraMana.length > 0) {

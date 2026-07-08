@@ -31,6 +31,8 @@ import {
   maybeProcessPendingAttractionVisitRoll,
   processAttractionVisitRollAtPrecombatMain,
 } from './triggers/attraction-visit.js';
+import { consumePlayerSkipNextUntapStep, playerHasSkipNextUntapStep } from './skipUntapStepUtils.js';
+import { getMaxHandSizeForPlayer } from './handSizeUtils.js';
 import { performUntapStepTurnAction, shouldPerformDrawStepTurnAction, shouldPerformUntapStepTurnAction } from './turn.js';
 import { drawCards } from './zones.js';
 import { recalculatePlayerEffects } from './game-state-effects.js';
@@ -148,6 +150,9 @@ function performUntapStepTurnActionDuringPhaseSkip(ctx: PhaseSkipContext): strin
       ...(pendingExisting ?? buildPendingPhaseSkip(ctx)),
       untapStepActionPerformed: true,
     };
+    if (playerHasSkipNextUntapStep(game, String(turnPlayer))) {
+      consumePlayerSkipNextUntapStep(game, String(turnPlayer));
+    }
     debug(2, `[phaseSkip] Skipped untap step turn action for ${turnPlayer} (untap step skipped)`);
     return [];
   }
@@ -935,4 +940,96 @@ export function resumePendingPhaseSkip(ctx: PhaseSkipContext): PhaseSkipResumeRe
   }
 
   return 'completed';
+}
+
+export type SkipToCleanupResult = {
+  queuedCleanupDiscard: boolean;
+};
+
+export type SkipToCleanupContext = {
+  game: any;
+  gameId: string;
+  turnPlayer: string;
+  onAfterNextStep?: () => void;
+};
+
+/**
+ * Rule 514.1–514.2: cleanup discard prompt or auto-advance via nextStep when skipping to CLEANUP.
+ */
+export function handleSkipToCleanupPhase(ctx: SkipToCleanupContext): SkipToCleanupResult {
+  const result: SkipToCleanupResult = { queuedCleanupDiscard: false };
+  const { game, gameId, turnPlayer, onAfterNextStep } = ctx;
+  if (!turnPlayer) return result;
+
+  try {
+    const zones = game.state?.zones?.[turnPlayer];
+    const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+    const maxHandSize = getMaxHandSizeForPlayer(game.state, turnPlayer);
+
+    if (maxHandSize !== Infinity) {
+      const discardCount = Math.max(0, hand.length - maxHandSize);
+      if (discardCount > 0) {
+        const handOptions = hand
+          .filter((c: any) => c && c.id)
+          .map((c: any) => ({
+            id: String(c.id),
+            label: String(c.name || 'Unknown'),
+            imageUrl: c.imageUrl || c.image_url || c.image_uris?.normal,
+          }));
+
+        if (handOptions.length > 0) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.DISCARD_SELECTION,
+            playerId: turnPlayer as any,
+            sourceName: 'Cleanup Step',
+            description: `Cleanup: discard ${discardCount} card(s) to maximum hand size (${maxHandSize}).`,
+            mandatory: true,
+            hand: handOptions,
+            discardCount,
+            currentHandSize: handOptions.length,
+            maxHandSize,
+            reason: 'cleanup',
+            priority: -10,
+          } as any);
+          result.queuedCleanupDiscard = true;
+          debug(2, `[phaseSkip] Queued cleanup discard step for ${turnPlayer}: discard ${discardCount}`);
+        } else {
+          debugWarn(1, `[phaseSkip] Cannot queue cleanup discard step - hand is empty/unknown for ${turnPlayer}`);
+        }
+      }
+    } else {
+      debug(2, `[phaseSkip] Player ${turnPlayer} has no maximum hand size effect`);
+    }
+  } catch (err) {
+    debugWarn(1, '[phaseSkip] Failed to check discard during cleanup:', err);
+  }
+
+  if (!result.queuedCleanupDiscard) {
+    try {
+      const battlefield = (game.state as any)?.battlefield;
+      if (Array.isArray(battlefield)) {
+        for (const permanent of battlefield) {
+          if (permanent && typeof permanent.damage === 'number' && permanent.damage > 0) {
+            permanent.damage = 0;
+          }
+        }
+      }
+      debug(2, '[phaseSkip] Cleared damage from permanents during cleanup');
+    } catch (err) {
+      debugWarn(1, '[phaseSkip] Failed to clear damage during cleanup:', err);
+    }
+
+    try {
+      if (typeof game.nextStep === 'function') {
+        game.nextStep();
+        onAfterNextStep?.();
+        appendEvent(gameId, game?.seq || 0, 'nextStep', { reason: 'skipToPhaseCleanup' });
+        debug(2, `[phaseSkip] Cleanup complete, advanced via nextStep for game ${gameId}`);
+      }
+    } catch (err) {
+      debugWarn(1, '[phaseSkip] Failed to advance after cleanup:', err);
+    }
+  }
+
+  return result;
 }

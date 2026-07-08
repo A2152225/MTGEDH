@@ -8405,8 +8405,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           if (replayGameId && (persistedStackItemId || persistedTargets.length > 0)) {
             clearReplayQueuedSteps(replayGameId, (step: any) => {
               if (!step) return false;
-              if (String((step as any)?.type || '') !== String(ResolutionStepType.TARGET_SELECTION)) return false;
-              if ((step as any)?.battlefieldAbilityTargetSelection !== true) return false;
+
+              const stepType = String((step as any)?.type || '');
+              const isBattlefieldTargetStep =
+                stepType === String(ResolutionStepType.TARGET_SELECTION) &&
+                (step as any)?.battlefieldAbilityTargetSelection === true;
+              const isBattlefieldPaymentStep =
+                stepType === String(ResolutionStepType.MANA_PAYMENT_CHOICE) &&
+                (step as any)?.activationPaymentChoice === true;
+              if (!isBattlefieldTargetStep && !isBattlefieldPaymentStep) {
+                return false;
+              }
 
               const stepPermId = String((step as any)?.permanentId || (step as any)?.sourceId || '').trim();
               if (permId != null && stepPermId !== String(permId)) return false;

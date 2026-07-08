@@ -1,6 +1,6 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, addCastSpellPaymentProducedMana, buildManaTotalsIncludingEligibleRestricted, consumeManaFromPool, consumeManaFromPoolForPurpose, deriveCreatureSpellHasteFromManaSpent, getFloatingPaymentPoolColorKey, getOrInitManaPool, calculateTotalAvailableMana, parseFloatingPaymentPermanentId, validateManaPayment, validateSelectedFloatingPoolMana, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, resolveActivatedAbilityLineById, resolvePaymentManaAbilitySpendRestriction, restrictedManaSpendRestrictionAllowsPurpose, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower, type RestrictedManaSpendPurpose } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, applyManaSpendToCreatureSpellHasteManaLowerBound, addCastSpellPaymentProducedMana, buildManaTotalsIncludingEligibleRestricted, consumeManaFromPool, consumeManaFromPoolForPurpose, deriveCreatureSpellHasteFromManaSpent, deriveCastUsedManaFromPermanentSource, getFloatingPaymentPoolColorKey, getOrInitManaPool, calculateTotalAvailableMana, parseFloatingPaymentPermanentId, validateManaPayment, validateSelectedFloatingPoolMana, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, snapshotManaProducedByPermanentLowerBound, applyManaSpendToManaProducedByPermanentLowerBound, resolveActivatedAbilityLineById, resolvePaymentManaAbilitySpendRestriction, restrictedManaSpendRestrictionAllowsPurpose, snapshotCreatureSpellHasteManaLowerBound, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction, getEffectivePower, type RestrictedManaSpendPurpose } from "./util";
 import { emitResolutionStepPrompt, completeDanceWithCalamityDeferredAdvance, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingOracleIrCompoundResume, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
@@ -33,7 +33,7 @@ import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferG
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
-import { processPhaseSkipTriggerStops, completePendingPhaseSkipCore, resumePendingPhaseSkip, canResumePendingPhaseSkip } from "../state/modules/phaseSkipUtils.js";
+import { processPhaseSkipTriggerStops, completePendingPhaseSkipCore, resumePendingPhaseSkip, canResumePendingPhaseSkip, handleSkipToCleanupPhase } from "../state/modules/phaseSkipUtils.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
 import {
@@ -2111,68 +2111,6 @@ async function processOracleIRInteractions(
 // getLandSubtypes are now imported from ./land-helpers.ts
 
 /**
- * Get maximum hand size for a player, accounting for:
- * 1. No maximum hand size effects (Reliquary Tower, Praetor's Counsel)
- * 2. Increased maximum hand size effects (Spellbook, Library of Leng)
- * 3. Reduced maximum hand size effects (Jin-Gitaxias, Core Augur)
- * 4. Other player-specific overrides
- * 
- * @param gameState The game state
- * @param playerId The player ID
- * @returns Maximum hand size (Infinity for no maximum, 7 by default)
- */
-function getMaxHandSizeForPlayer(gameState: any, playerId: string): number {
-  try {
-    if (!gameState) return 7;
-
-    const playerMaxHandSize = gameState.maxHandSize?.[playerId];
-    if (playerMaxHandSize === Infinity || playerMaxHandSize === Number.POSITIVE_INFINITY) {
-      return Infinity;
-    }
-    if (typeof playerMaxHandSize === 'number' && playerMaxHandSize > 0) {
-      return playerMaxHandSize;
-    }
-
-    const noMaxHandSize = gameState.noMaximumHandSize?.[playerId];
-    if (noMaxHandSize === true) {
-      return Infinity;
-    }
-
-    const playerEffects = gameState.playerEffects?.[playerId] || [];
-    for (const effect of playerEffects) {
-      if (effect && (effect.type === 'no_maximum_hand_size' || effect.effect === 'no_maximum_hand_size')) {
-        return Infinity;
-      }
-    }
-
-    const battlefield = Array.isArray(gameState.battlefield) ? gameState.battlefield : [];
-    for (const perm of battlefield) {
-      if (perm && perm.controller === playerId) {
-        const oracle = String(perm.card?.oracle_text || '').toLowerCase();
-        if (oracle.includes('you have no maximum hand size') || oracle.includes('no maximum hand size')) {
-          return Infinity;
-        }
-      }
-    }
-
-    const emblems = Array.isArray(gameState.emblems) ? gameState.emblems : [];
-    for (const emblem of emblems) {
-      if (emblem && emblem.controller === playerId) {
-        const effectText = String(emblem.effect || emblem.text || '').toLowerCase();
-        if (effectText.includes('no maximum hand size')) {
-          return Infinity;
-        }
-      }
-    }
-
-    return 7;
-  } catch (err) {
-    debugWarn(1, `[getMaxHandSizeForPlayer] failed:`, err);
-    return 7;
-  }
-}
-
-/**
  * Check if a hand qualifies for a free mulligan under "no lands or all lands" house rule.
  * Returns true if the hand has 0 lands or all cards are lands.
  */
@@ -3422,6 +3360,8 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
         return isColorlessSpell;
       case 'historic':
         return isHistoricSpell;
+      case 'artifact_or_creature':
+        return isCreatureSpell || spellTypeLine.includes('artifact');
       case 'tribal_type': {
         if (!trigger.tribalType) return false;
         const spellSubtypes = extractCreatureTypes(spellTypeLine);
@@ -3681,7 +3621,30 @@ export function processSpellCastTriggersForCast(
 
     const resolvedTriggeringStackItemId = triggeringStackItem ? String(triggeringStackItem.id || '') : undefined;
     const spellCastTriggers = getSpellCastTriggersForCard(game, casterId, spellCard, castSourceZone);
+    const castManaPayment = Array.isArray((triggeringStackItem as any)?.manaPayment)
+      ? (triggeringStackItem as any).manaPayment
+      : (Array.isArray((triggeringStackItem as any)?.card?.manaPayment)
+        ? (triggeringStackItem as any).card.manaPayment
+        : undefined);
+    const castManaProducedByPermanentBeforePayment = (triggeringStackItem as any)?.manaProducedByPermanentBeforePayment
+      || (triggeringStackItem as any)?.card?.manaProducedByPermanentBeforePayment;
+    const castPoolBeforePayment = (triggeringStackItem as any)?.poolBeforeSpellPayment
+      || (triggeringStackItem as any)?.card?.poolBeforeSpellPayment;
+    const castManaSpentBreakdown = (triggeringStackItem as any)?.manaSpentBreakdown
+      || (triggeringStackItem as any)?.card?.manaSpentBreakdown;
     for (const trigger of spellCastTriggers) {
+      if (trigger.requiresManaFromPermanentId) {
+        const usedSourceMana = deriveCastUsedManaFromPermanentSource(game.state, String(casterId), trigger.requiresManaFromPermanentId, {
+          poolBeforePayment: castPoolBeforePayment,
+          consumed: castManaSpentBreakdown,
+          manaProducedByPermanentBeforePayment: castManaProducedByPermanentBeforePayment,
+          manaPayment: castManaPayment,
+        });
+        if (!usedSourceMana) {
+          debug(2, `[processSpellCastTriggersForCast] Skipping ${trigger.cardName}: cast did not use mana produced by ${trigger.requiresManaFromPermanentId}`);
+          continue;
+        }
+      }
       if (hasSpellCastTriggerTriggeredThisTurn(game, trigger)) {
         debug(2, `[processSpellCastTriggersForCast] Skipping once-per-turn spell-cast trigger already used: ${trigger.cardName}`);
         continue;
@@ -11345,6 +11308,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
                 recordCreatureSpellHasteManaProduced(game.state, String(playerId), String(explicitPoolKey) as any, amount);
               }
+              recordManaProducedByPermanentSource(game.state, String(playerId), String(permanentId || ''), String(explicitPoolKey) as any, amount);
               if (isSnowSource) {
                 producedSnowByColor[explicitPoolKey] = (producedSnowByColor[explicitPoolKey] || 0) + amount;
               } else {
@@ -11370,6 +11334,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
               recordCreatureSpellHasteManaProduced(game.state, String(playerId), String(poolKey) as any, producedAmount);
             }
+            recordManaProducedByPermanentSource(game.state, String(playerId), String(permanentId || ''), String(poolKey) as any, producedAmount);
             if (isSnowSource) {
               producedSnowByColor[poolKey] = (producedSnowByColor[poolKey] || 0) + producedAmount;
             } else {
@@ -11405,6 +11370,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
               recordCreatureSpellHasteManaProduced(game.state, String(playerId), String(bonusPoolKey) as any, bonus.amount);
             }
+            recordManaProducedByPermanentSource(game.state, String(playerId), String(permanentId || ''), String(bonusPoolKey) as any, bonus.amount);
             if (isSnowSource) {
               producedSnowByColor[bonusPoolKey] = (producedSnowByColor[bonusPoolKey] || 0) + bonus.amount;
             } else {
@@ -11429,6 +11395,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       const poolBeforeSpellPayment = { ...getOrInitManaPool(game.state, playerId) } as any;
       const creatureSpellHasteLowerBoundBeforeSpellPayment = snapshotCreatureSpellHasteManaLowerBound(game.state, playerId);
+      const manaProducedByPermanentBeforeSpellPayment = snapshotManaProducedByPermanentLowerBound(game.state, playerId);
 
       const allowResolutionModeCompletion = skipPriorityCheck === true && skipInteractivePrompts === true;
       if (!canCompleteSpellCastAtCurrentTiming(game, playerId, allowResolutionModeCompletion)) {
@@ -11488,6 +11455,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (explicitPaymentSelected) {
         applyManaSpendToCreatureSpellHasteManaLowerBound(game.state, String(playerId), (manaConsumption as any).consumed);
       }
+      applyManaSpendToManaProducedByPermanentLowerBound(game.state, String(playerId), (manaConsumption as any).consumed);
 
       const manaSpentTotal = Object.values(manaConsumption.consumed as Record<string, number>).reduce(
         (sum: number, value) => sum + (typeof value === 'number' ? value : 0),
@@ -12252,6 +12220,11 @@ export function registerGameActions(io: Server, socket: Socket) {
                 .map(([color]) => color);
               (topStackItem as any).manaSpentTotal = manaSpentTotal;
               (topStackItem as any).manaSpentBreakdown = { ...manaConsumption.consumed };
+              if (Array.isArray(payment) && payment.length > 0) {
+                (topStackItem as any).manaPayment = payment.map((entry: any) => ({ ...entry }));
+              }
+              (topStackItem as any).poolBeforeSpellPayment = { ...poolBeforeSpellPayment };
+              (topStackItem as any).manaProducedByPermanentBeforePayment = { ...manaProducedByPermanentBeforeSpellPayment };
 
               // Plumb chosen alternate-cost id onto the stack item so intervening-if clauses can evaluate.
               if (alternateCostId) {
@@ -12435,6 +12408,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               const topStackItem = game.state.stack[game.state.stack.length - 1];
               (topStackItem as any).manaSpentTotal = manaSpentTotal;
               (topStackItem as any).manaSpentBreakdown = { ...manaConsumption.consumed };
+              if (Array.isArray(payment) && payment.length > 0) {
+                (topStackItem as any).manaPayment = payment.map((entry: any) => ({ ...entry }));
+              }
+              (topStackItem as any).poolBeforeSpellPayment = { ...poolBeforeSpellPayment };
+              (topStackItem as any).manaProducedByPermanentBeforePayment = { ...manaProducedByPermanentBeforeSpellPayment };
 
               // Plumb chosen alternate-cost id onto the stack item so intervening-if clauses can evaluate.
               if (alternateCostId) {
@@ -14794,83 +14772,13 @@ export function registerGameActions(io: Server, socket: Socket) {
       let queuedCleanupDiscard = false;
 
       if (isCleanupPhase && turnPlayer) {
-        // Rule 514.1: Check if the active player needs to discard to maximum hand size
-        try {
-          const zones = game.state?.zones?.[turnPlayer];
-          const hand = Array.isArray(zones?.hand) ? zones.hand : [];
-          // Use getMaxHandSizeForPlayer to properly check for "no maximum hand size" effects
-          // like Reliquary Tower, Thought Vessel, Spellbook, etc.
-          const maxHandSize = getMaxHandSizeForPlayer(game.state, turnPlayer);
-          
-          // If max hand size is Infinity, no discard needed
-          if (maxHandSize === Infinity) {
-            debug(2, `[skipToPhase] Player ${turnPlayer} has no maximum hand size effect`);
-          } else {
-            const discardCount = Math.max(0, hand.length - maxHandSize);
-
-            if (discardCount > 0) {
-              const handOptions = hand
-                .filter((c: any) => c && c.id)
-                .map((c: any) => ({
-                  id: String(c.id),
-                  label: String(c.name || 'Unknown'),
-                  imageUrl: c.imageUrl || c.image_url || c.image_uris?.normal,
-                }));
-
-              if (handOptions.length > 0) {
-                ResolutionQueueManager.addStep(gameId, {
-                  type: ResolutionStepType.DISCARD_SELECTION,
-                  playerId: turnPlayer as any,
-                  sourceName: 'Cleanup Step',
-                  description: `Cleanup: discard ${discardCount} card(s) to maximum hand size (${maxHandSize}).`,
-                  mandatory: true,
-                  hand: handOptions,
-                  discardCount,
-                  currentHandSize: handOptions.length,
-                  maxHandSize,
-                  reason: 'cleanup',
-                  priority: -10,
-                } as any);
-                queuedCleanupDiscard = true;
-                debug(2, `[skipToPhase] Queued cleanup discard step for ${turnPlayer}: discard ${discardCount}`);
-              } else {
-                debugWarn(1, `[skipToPhase] Cannot queue cleanup discard step - hand is empty/unknown for ${turnPlayer}`);
-              }
-            }
-          }
-        } catch (err) {
-          debugWarn(1, `[skipToPhase] Failed to check discard during cleanup:`, err);
-        }
-
-        // If no discard needed, clear damage from permanents and advance via normal nextStep logic
-        if (!queuedCleanupDiscard) {
-          try {
-            // Rule 514.2: Clear damage from all permanents
-            const battlefield = (game.state as any)?.battlefield;
-            if (Array.isArray(battlefield)) {
-              for (const permanent of battlefield) {
-                if (permanent && typeof permanent.damage === 'number' && permanent.damage > 0) {
-                  permanent.damage = 0;
-                }
-              }
-            }
-            debug(2, `[skipToPhase] Cleared damage from permanents during cleanup`);
-          } catch (err) {
-            debugWarn(1, `[skipToPhase] Failed to clear damage during cleanup:`, err);
-          }
-
-          // Auto-advance through cleanup using the canonical turn logic (handles EOT cleanup and Sundial pause)
-          try {
-            if (typeof (game as any).nextStep === "function") {
-              (game as any).nextStep();
-              flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
-              appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'skipToPhaseCleanup' });
-              debug(2, `[skipToPhase] Cleanup complete, advanced via nextStep for game ${gameId}`);
-            }
-          } catch (err) {
-            debugWarn(1, `[skipToPhase] Failed to advance after cleanup:`, err);
-          }
-        }
+        const cleanupResult = handleSkipToCleanupPhase({
+          game,
+          gameId,
+          turnPlayer,
+          onAfterNextStep: () => flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId),
+        });
+        queuedCleanupDiscard = cleanupResult.queuedCleanupDiscard;
       }
 
       // Bump sequence

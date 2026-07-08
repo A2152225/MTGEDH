@@ -33,10 +33,11 @@ import {
   getUntapStepEffects,
   applyUntapStepEffect,
   isPermanentPreventedFromUntapping,
-  shouldSkipUntapStepForPlayer,
   detectCombatDamageTriggers,
   checkDamageReceivedTrigger
 } from "./triggered-abilities.js";
+import { shouldSkipUntapStepForPlayer } from "./skipUntapStepUtils.js";
+import { consumePlayerSkipNextUntapStep, playerHasSkipNextUntapStep } from "./skipUntapStepUtils.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { queueBecomesUntappedTriggers } from "./triggers/tap-untap.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, recordUpkeepBegan } from "./upkeep-triggers.js";
@@ -3555,6 +3556,9 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
 export function performUntapStepTurnAction(ctx: GameContext, turnPlayer: string): string[] {
   const untappedPermanentIds: string[] = [];
   if (!shouldPerformUntapStepTurnAction(ctx, turnPlayer)) {
+    if (playerHasSkipNextUntapStep(ctx, turnPlayer)) {
+      consumePlayerSkipNextUntapStep(ctx, turnPlayer);
+    }
     return untappedPermanentIds;
   }
   try {

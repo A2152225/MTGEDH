@@ -841,6 +841,15 @@ export function tryParseLifeAndCombatClause(args: {
       });
     }
 
+    const playerSkipNextUntapStep = clause.match(/^(target player|that player)\s+skips\s+their\s+next\s+untap\s+step\.?$/i);
+    if (playerSkipNextUntapStep) {
+      return withMeta({
+        kind: 'skip_next_untap',
+        target: parseObjectSelector(String(playerSkipNextUntapStep[1] || 'that player')),
+        raw: rawClause,
+      });
+    }
+
     const skipNextUntap = clause.match(
       /^((?:(?:all|(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target|that|those|this|enchanted|equipped)\s+.+|it|them))\s+do(?:es)?(?:n't|\s+not)\s+untap during (?:its|their) controller(?:'|â€™)?s next untap step$/i
     );

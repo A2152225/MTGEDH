@@ -66,7 +66,7 @@ For each segment the scan may:
 
 | Step | Action | Flag / replay |
 |------|--------|----------------|
-| UNTAP | `performUntapStepTurnAction` (skipped when `shouldPerformUntapStepTurnAction` is false, e.g. Stasis) | `untapStepActionPerformed`; `untappedDuringSkipIds` on stop events |
+| UNTAP | `performUntapStepTurnAction` (skipped when `shouldSkipUntapStepForPlayer` is true — global Stasis or per-player `skipNextUntapStepByPlayer`) | `untapStepActionPerformed`; `untappedDuringSkipIds` on stop events |
 | DRAW | `performDrawStepTurnActionDuringPhaseSkip` | `drawStepActionPerformed`; separate `drawCards` event |
 
 ### MAIN1 synchronous effects (Rule 714.3b alignment)
@@ -123,7 +123,18 @@ Skipping **past** declare attackers while a goaded, attackable creature exists r
 6. Reset priority to turn player
 7. Append final `skipToPhase` event
 
-CLEANUP discard and `nextStep` after CLEANUP remain in `game-actions.ts` (not in `phaseSkipUtils`).
+CLEANUP discard and `nextStep` after CLEANUP are handled by `handleSkipToCleanupPhase` in `phaseSkipUtils.ts` (called from `game-actions.ts` `skipToPhase` when the target is CLEANUP).
+
+## Skip-untap (global and per-player)
+
+| Mechanism | Detection | State |
+|-----------|-----------|-------|
+| Global (Stasis) | `hasGlobalPlayersSkipUntapSteps` — battlefield oracle contains “Players skip their untap steps” | None (derived each check) |
+| Per-player (Yosei, etc.) | `playerHasSkipNextUntapStep` | `game.state.skipNextUntapStepByPlayer[playerId]` |
+
+`shouldSkipUntapStepForPlayer` returns true for either case. When untap is skipped, `consumePlayerSkipNextUntapStep` clears the per-player flag (global Stasis is unaffected).
+
+Oracle IR `skip_next_untap` steps set the per-player flag via `applySkipNextUntapStep` in the rules engine executor.
 
 ## Replay
 
@@ -142,6 +153,8 @@ Final completion events may include `untappedPermanentIds` from deferred untap. 
 | Area | Path |
 |------|------|
 | Phase skip core | `server/src/state/modules/phaseSkipUtils.ts` |
+| Skip-untap helpers | `server/src/state/modules/skipUntapStepUtils.ts` |
+| Hand size (CLEANUP discard) | `server/src/state/modules/handSizeUtils.ts` |
 | Untap / draw turn actions | `server/src/state/modules/turn.ts` (`performUntapStepTurnAction`, `shouldPerformDrawStepTurnAction`) |
 | Saga lore at MAIN1 | `server/src/state/modules/triggerSagaLoreUtils.ts` |
 | Trigger getters | `server/src/state/modules/triggered-abilities.ts` (re-exports from `triggers/*`) |
@@ -151,7 +164,8 @@ Final completion events may include `untappedPermanentIds` from deferred untap. 
 
 | File | Coverage |
 |------|----------|
-| `server/tests/phase-skip-continuation.test.ts` | Unit: scan, resume, `lastStopStep`, untap/draw flags, no double-untap/draw |
+| `server/tests/skip-untap-step.utils.test.ts` | Per-player skip flag mark/consume + untap action |
+| `server/tests/phase-skip-continuation.test.ts` | Unit: scan, resume, `lastStopStep`, untap/draw flags, Stasis + per-player skip |
 | `server/tests/skip-to-phase.continuation.integration.test.ts` | Socket: stops, full UPKEEP and UNTAP chains, DRAW/END_COMBAT stops |
 | `server/tests/skip-to-phase.replay.test.ts` | Replay: pending skip, untap ids, draw/untap flags |
 | `server/tests/skipToPhase.test.ts` | Legacy untap/draw preconditions |
@@ -162,7 +176,5 @@ Integration tests reset `GameManager`, `games`, DB, and `ResolutionQueueManager`
 
 ## Known limitations
 
-- **Per-player skip-untap** (e.g. Yosei) is not modeled — only global Stasis-style `Players skip their untap steps` via `shouldSkipUntapStepForPlayer`.
-- **CLEANUP** handling (discard, advance turn) stays in `game-actions.ts`, not unified in `phaseSkipUtils`.
 - **DECLARE_ATTACKERS / damage steps** are not individual trigger stops; goad enforcement is the main guard when skipping past combat.
 - Replay of live skip paths relies on persisted events; not every side effect has a dedicated replay assertion yet.

@@ -7,7 +7,7 @@ import type {
   ClientGameView,
   BattlefieldPermanent,
 } from "../../../../shared/src/index.js";
-import type { GameContext } from "../context.js";
+import { sumActiveTemporaryPTMods } from "./temporaryPtMods.js";
 import { parsePT, calculateVariablePT, calculateAllPTBonusesWithSources, resolveSetBasePTFromAttachedAuras, type PTBonusSource } from "../utils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "./staticEffectSpec.js";
@@ -182,9 +182,10 @@ export function viewFor(
         
         // Calculate ALL other bonuses with source tracking (equipment, auras, anthems, lords, emblems, etc.)
         const allBonusesResult = calculateAllPTBonusesWithSources(perm, state);
+        const temporaryPtBonus = sumActiveTemporaryPTMods(perm);
         
-        effectivePower = baseP + counterDelta + otherCounterPower + allBonusesResult.power;
-        effectiveToughness = baseT + counterDelta + otherCounterToughness + allBonusesResult.toughness;
+        effectivePower = baseP + counterDelta + otherCounterPower + allBonusesResult.power + temporaryPtBonus.power;
+        effectiveToughness = baseT + counterDelta + otherCounterToughness + allBonusesResult.toughness + temporaryPtBonus.toughness;
         
         // Build P/T sources array for tooltip display
         const ptSources: PTBonusSource[] = [];
@@ -195,6 +196,9 @@ export function viewFor(
         }
         if (otherCounterPower !== 0 || otherCounterToughness !== 0) {
           ptSources.push({ name: 'Other counters', power: otherCounterPower, toughness: otherCounterToughness, type: 'counter' });
+        }
+        if (temporaryPtBonus.power !== 0 || temporaryPtBonus.toughness !== 0) {
+          ptSources.push({ name: 'Until end of turn', power: temporaryPtBonus.power, toughness: temporaryPtBonus.toughness, type: 'effect' });
         }
         
         // Add all other sources
