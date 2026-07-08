@@ -6,7 +6,7 @@
   OraclePlayerSelector,
   OracleQuantity,
 } from './oracleIR';
-import { AbilityType } from './oracleTextParser';
+import { AbilityType, type ParsedAbility } from './oracleTextParser';
 import { parseKeywordActionAbility } from './oracleTextParserKeywordActionAbilities';
 import { parseKeywordsFromOracleText } from './oracleTextParserSupport';
 import { parseEffectLevelImpulsePermissionClause } from './oracleIRParserEffectImpulsePermission';
@@ -4026,11 +4026,18 @@ function buildStaticGrantMetadataStep(
   } as OracleEffectStep;
 }
 
-function tryParseBareStaticCostReductionSteps(
+function tryParseSingleBareStaticCostReductionSentence(
   raw: string,
   sequence: { sequence?: 'then' },
 ): readonly OracleEffectStep[] | null {
-  const spellsYouCastCostLess = raw.match(
+  const normalizedRaw = normalizeOracleText(String(raw || ''))
+    .replace(/^as long as you control your commander,\s*/i, '')
+    .replace(/^[^-]+-\s*/, '')
+    .replace(/[.!?]+$/, '')
+    .trim();
+  if (!normalizedRaw) return null;
+
+  const spellsYouCastCostLess = normalizedRaw.match(
     /^(.+?\bspells\s+you\s+cast(?:\s+this\s+turn)?)\s+cost\s+(.+?)\s+less\s+to\s+cast(?:,?\s+(.+))?$/i,
   );
   if (spellsYouCastCostLess) {
@@ -4043,7 +4050,7 @@ function tryParseBareStaticCostReductionSteps(
     )];
   }
 
-  const spellsYouControlCostLess = raw.match(
+  const spellsYouControlCostLess = normalizedRaw.match(
     /^(.+?\bspells\s+you\s+control)\s+cost\s+(.+?)\s+less\s+to\s+cast(?:,?\s+(.+))?$/i,
   );
   if (spellsYouControlCostLess) {
@@ -4056,20 +4063,20 @@ function tryParseBareStaticCostReductionSteps(
     )];
   }
 
-  const abilitiesYouActivateCostLess = raw.match(
-    /^(.+?\babilities\s+you\s+activate)\s+cost\s+(.+?)\s+less\s+to\s+activate(?:,?\s+(.+))?$/i,
+  const abilitiesYouActivateCostLess = normalizedRaw.match(
+    /^abilities you activate(?: that aren't mana abilities)? cost (\{[^}]+\}) less to activate/i,
   );
   if (abilitiesYouActivateCostLess) {
-    const tail = String(abilitiesYouActivateCostLess[3] || '').trim();
+    const qualifier = /aren't mana abilities/i.test(normalizedRaw) ? " that aren't mana abilities" : '';
     return [buildStaticGrantMetadataStep(
-      String(abilitiesYouActivateCostLess[1] || '').trim(),
-      `cost ${String(abilitiesYouActivateCostLess[2] || '').trim()} less to activate${tail ? ` ${tail}` : ''}`,
+      `abilities you activate${qualifier}`,
+      `cost ${String(abilitiesYouActivateCostLess[1] || '').trim()} less to activate`,
       raw,
       sequence,
     )];
   }
 
-  const activatedAbilitiesCostLess = raw.match(
+  const activatedAbilitiesCostLess = normalizedRaw.match(
     /^activated\s+abilities\s+of\s+(.+?)\s+cost\s+(.+?)\s+less\s+to\s+activate(?:,?\s+(.+))?$/i,
   );
   if (activatedAbilitiesCostLess) {
@@ -4082,7 +4089,7 @@ function tryParseBareStaticCostReductionSteps(
     )];
   }
 
-  const genericSpellsCostMoreCast = raw.match(/^(.+?)\s+cost\s+(.+?)\s+more\s+to\s+cast(?:,?\s+(.+))?$/i);
+  const genericSpellsCostMoreCast = normalizedRaw.match(/^(.+?)\s+cost\s+(.+?)\s+more\s+to\s+cast(?:,?\s+(.+))?$/i);
   if (genericSpellsCostMoreCast && /\bspells\b/i.test(String(genericSpellsCostMoreCast[1] || ''))) {
     const tail = String(genericSpellsCostMoreCast[3] || '').trim();
     return [buildStaticGrantMetadataStep(
@@ -4093,7 +4100,7 @@ function tryParseBareStaticCostReductionSteps(
     )];
   }
 
-  const thisSpellCostsLess = raw.match(/^this\s+spell\s+costs\s+(.+?)\s+less\s+to\s+cast(?:,?\s+(.+))?$/i);
+  const thisSpellCostsLess = normalizedRaw.match(/^this\s+spell\s+costs\s+(.+?)\s+less\s+to\s+cast(?:,?\s+(.+))?$/i);
   if (thisSpellCostsLess) {
     const tail = String(thisSpellCostsLess[2] || '').trim();
     return [buildStaticGrantMetadataStep(
@@ -4104,7 +4111,7 @@ function tryParseBareStaticCostReductionSteps(
     )];
   }
 
-  const thisAbilityCostsLess = raw.match(/^this\s+ability\s+costs\s+(.+?)\s+less\s+to\s+activate(?:,?\s+(.+))?$/i);
+  const thisAbilityCostsLess = normalizedRaw.match(/^this\s+ability\s+costs\s+(.+?)\s+less\s+to\s+activate(?:,?\s+(.+))?$/i);
   if (thisAbilityCostsLess) {
     const tail = String(thisAbilityCostsLess[2] || '').trim();
     return [buildStaticGrantMetadataStep(
@@ -4115,7 +4122,7 @@ function tryParseBareStaticCostReductionSteps(
     )];
   }
 
-  const firstInstantSorceryCostLess = raw.match(
+  const firstInstantSorceryCostLess = normalizedRaw.match(
     /^the\s+first\s+instant\s+or\s+sorcery\s+spell\s+you\s+cast\s+each\s+turn\s+costs\s+(.+?)\s+less\s+to\s+cast(?:,?\s+(.+))?$/i,
   );
   if (firstInstantSorceryCostLess) {
@@ -4128,19 +4135,19 @@ function tryParseBareStaticCostReductionSteps(
     )];
   }
 
-  if (/^dash\s+costs\s+you\s+pay\s+cost\s+(.+?)\s+less\b/i.test(raw)) {
-    return [buildStaticGrantMetadataStep('dash costs you pay', raw.replace(/^dash\s+costs\s+you\s+pay\s+/i, ''), raw, sequence)];
+  if (/^dash\s+costs\s+you\s+pay\s+cost\s+(.+?)\s+less\b/i.test(normalizedRaw)) {
+    return [buildStaticGrantMetadataStep('dash costs you pay', normalizedRaw.replace(/^dash\s+costs\s+you\s+pay\s+/i, ''), raw, sequence)];
   }
 
-  if (/^equip\s+costs\s+you\s+pay\s+cost\s+(.+?)\s+less\.?$/i.test(raw)) {
-    return [buildStaticGrantMetadataStep('equip costs you pay', raw.replace(/^equip\s+costs\s+you\s+pay\s+/i, ''), raw, sequence)];
+  if (/^equip\s+costs\s+you\s+pay\s+cost\s+(.+?)\s+less\.?$/i.test(normalizedRaw)) {
+    return [buildStaticGrantMetadataStep('equip costs you pay', normalizedRaw.replace(/^equip\s+costs\s+you\s+pay\s+/i, ''), raw, sequence)];
   }
 
-  if (/^power-up abilities of other creatures you control cost .+ less to activate\.?$/i.test(raw)) {
-    return [buildStaticGrantMetadataStep('other creatures you control', raw, raw, sequence)];
+  if (/^power-up abilities of other creatures you control cost .+ less to activate\.?$/i.test(normalizedRaw)) {
+    return [buildStaticGrantMetadataStep('other creatures you control', normalizedRaw, raw, sequence)];
   }
 
-  const activatedAbilitiesCostMore = raw.match(
+  const activatedAbilitiesCostMore = normalizedRaw.match(
     /^activated\s+abilities\s+cost\s+(.+?)\s+more\s+to\s+activate(?:,?\s+(.+))?$/i,
   );
   if (activatedAbilitiesCostMore) {
@@ -4154,6 +4161,83 @@ function tryParseBareStaticCostReductionSteps(
   }
 
   return null;
+}
+
+function tryParseBareStaticCostReductionSteps(
+  raw: string,
+  sequence: { sequence?: 'then' },
+): readonly OracleEffectStep[] | null {
+  const normalized = normalizeOracleText(String(raw || '')).trim();
+  if (!normalized) return null;
+  const sentences = normalized.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).filter(Boolean);
+  for (const sentence of sentences.length > 0 ? sentences : [normalized]) {
+    const parsed = tryParseSingleBareStaticCostReductionSentence(sentence, sequence);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+export function expandActivatedAbilityCostReductionStaticAbilities(
+  abilities: readonly OracleIRAbility[],
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (ability.type !== AbilityType.STATIC) return ability;
+    const text = String(ability.effectText || ability.text || '').trim();
+    if (!/less to activate/i.test(text)) return ability;
+
+    const hasCostReductionGrant = ability.steps.some((step) => {
+      if (step.kind !== 'grant_static_ability') return false;
+      const effectLines = Array.isArray((step as { effectText?: readonly string[] }).effectText)
+        ? (step as { effectText?: readonly string[] }).effectText || []
+        : [];
+      return effectLines.some((line) => /less to activate/i.test(String(line || '')));
+    });
+    if (hasCostReductionGrant) return ability;
+
+    const parsedSteps = tryParseBareStaticCostReductionSteps(text, {});
+    if (!parsedSteps || parsedSteps.length === 0) return ability;
+    return { ...ability, steps: [...parsedSteps] };
+  });
+}
+
+export function recoverDroppedActivationCostReductionStaticAbilities(
+  abilities: readonly OracleIRAbility[],
+  parsedAbilities: readonly ParsedAbility[],
+): OracleIRAbility[] {
+  const normalizedPresent = new Set(
+    abilities.map((ability) => normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/[.!?]+$/g, '')
+      .trim()
+      .toLowerCase()),
+  );
+
+  const recovered: OracleIRAbility[] = [];
+  for (const parsedAbility of parsedAbilities) {
+    if (parsedAbility.type !== AbilityType.STATIC) continue;
+    const line = String(parsedAbility.text || '').trim();
+    if (!/less to activate/i.test(line)) continue;
+    const normalizedLine = normalizeOracleText(line).replace(/[.!?]+$/g, '').trim().toLowerCase();
+    if (normalizedPresent.has(normalizedLine)) continue;
+
+    const expanded = expandActivatedAbilityCostReductionStaticAbilities([{
+      type: AbilityType.STATIC,
+      text: line,
+      effectText: line,
+      steps: [],
+    }]);
+    const candidate = expanded[0];
+    if (!candidate) continue;
+    const hasGrant = candidate.steps.some((step) => {
+      if (step.kind !== 'grant_static_ability') return false;
+      const effectLines = Array.isArray((step as { effectText?: readonly string[] }).effectText)
+        ? (step as { effectText?: readonly string[] }).effectText || []
+        : [];
+      return effectLines.some((effectLine) => /less to activate/i.test(String(effectLine || '')));
+    });
+    if (hasGrant) recovered.push(candidate);
+  }
+
+  return recovered.length > 0 ? [...abilities, ...recovered] : abilities;
 }
 
 function parseStructuredTriggerResidualGrant(

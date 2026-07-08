@@ -4548,6 +4548,10 @@ function permanentMatchesTappedFilter(perm: any, filterText: string): boolean {
     .trim();
   if (!normalizedFilter) return true;
 
+  if (/\bartifacts?\s+and\/or\s+creatures?\b/i.test(normalizedFilter)) {
+    return permanentMatchesType(perm, 'artifact') || permanentMatchesType(perm, 'creature');
+  }
+
   const simpleType = parseSimplePermanentTypeFromText(normalizedFilter);
   if (simpleType) {
     if (simpleType === 'permanent') return true;
@@ -4607,6 +4611,17 @@ export function applyTapMatchingPermanentsStep(
         applied: false,
         message: `Skipped tap matching permanents (no deterministic target): ${step.raw}`,
         reason: 'no_deterministic_target',
+      };
+    }
+    if (
+      exactCount > 1
+      && ctx.interactivePlayerChoices !== false
+    ) {
+      return {
+        applied: false,
+        message: `Skipped tap matching permanents (needs player choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
       };
     }
     selectedIds = eligible.slice(0, exactCount).map((perm: any) => String(perm?.id || '').trim()).filter(Boolean);

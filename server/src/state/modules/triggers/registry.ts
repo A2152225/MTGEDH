@@ -278,7 +278,11 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
 }
 
 /**
- * Register all triggers for a permanent when it enters the battlefield
+ * Register all triggers for a permanent when it enters the battlefield.
+ *
+ * @deprecated Unused in production paths — step/phase triggers use live battlefield
+ * scans (`getDrawStepTriggers`, `getEndOfCombatTriggers`, etc.) instead of
+ * `state.triggerRegistry`. Kept for tooling/tests only; do not wire new features here.
  */
 export function registerPermanentTriggers(ctx: GameContext, permanent: any): void {
   const state = (ctx as any).state;
@@ -321,7 +325,9 @@ export function unregisterPermanentTriggers(ctx: GameContext, permanentId: strin
 }
 
 /**
- * Get all triggers that should fire for a given timing
+ * Get all triggers that should fire for a given timing.
+ *
+ * @deprecated Unused in production paths — prefer live scan helpers per step.
  */
 export function getTriggersForTiming(ctx: GameContext, timing: TriggerTiming, activePlayerId?: string): RegisteredTrigger[] {
   const state = (ctx as any).state;

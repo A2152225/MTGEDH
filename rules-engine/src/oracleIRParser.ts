@@ -151,6 +151,8 @@ import {
   pruneRedundantChampionReminderAbilities,
   pruneExternallyHandledStaticUnknownAbilities,
   expandStandaloneStaticKeywordAbilities,
+  expandActivatedAbilityCostReductionStaticAbilities,
+  recoverDroppedActivationCostReductionStaticAbilities,
   pruneExternallyHandledTemporaryLandBonusUnknownSteps,
   pruneCurrentBatchReminderUnknownAbilities,
   repairSubjectlessDrawAfterZoneShuffleAbilities,
@@ -1598,6 +1600,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
 
   let abilities = parsed.abilities.map(ability => parseAbilityToIRAbility(ability, cardName));
   abilities = mergeAdditionalCombatContinuationAbilities(abilities);
+  abilities = expandActivatedAbilityCostReductionStaticAbilities(abilities);
   abilities = applyGlobalImpulseUpgrades(abilities, normalizedOracleText);
   abilities = mergeDieRollResultTableAbilities(abilities);
   abilities = mergeRevealFollowupAbilities(abilities);
@@ -1776,6 +1779,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandRepeatedProliferateUnknownAbilities(abilities);
   abilities = pruneRedundantProliferateReminderUnknownAbilities(abilities);
   abilities = expandStandaloneStaticKeywordAbilities(abilities);
+  abilities = expandActivatedAbilityCostReductionStaticAbilities(abilities);
   abilities = pruneExternallyHandledStaticUnknownAbilities(abilities);
   abilities = repairSubjectlessDrawAfterZoneShuffleAbilities(abilities);
   abilities = mergeConditionalLookChooseFromTopAbilities(abilities);
@@ -1845,6 +1849,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneBatch382MisparseExecutableSteps(abilities);
   abilities = upgradeSpryAndMightyCompoundSteps(abilities);
   abilities = pruneIgnorableEffectReminderUnknownSteps(abilities);
+  abilities = recoverDroppedActivationCostReductionStaticAbilities(abilities, parsed.abilities);
 
   return {
     normalizedOracleText,

@@ -11,25 +11,23 @@ Done:
 - Three reducer systems wired: spell reducers (medallions, Morophon), alternate cast costs (flashback/escape/mutate/Leyline WUBRG), activated ability reducers (Zirda, Convergence, Tortoise, Mutagen Man, Heartstone)
 - Graveyard alternate casts use buildAlternateCastSpellManaCost; unearth uses adjustActivationManaCostForPayment
 - CastSpellModal: wubrg_self parse, reduced alternate-cost labels, server extraAlternateCosts authoritative
-- Integration tests: cost-reduction-cast.integration.test.ts (flashback+Ruby, Convergence+unearth, Hakbal+Leyline+Morophon)
-- Alternate-cost audit updated (unearth = activated ability)
+- Unified payment step: normal + mutate + Leyline WUBRG in one CastSpellModal; mutate target deferred after payment
+- Integration tests: cost-reduction-cast.integration.test.ts, mutate.cast-prompt.integration.test.ts (incl. unified mutate e2e)
 
 Verify at session start:
 cd rules-engine
-npx vitest run test/activatedAbilityCostReduction.test.ts
+npx vitest run test/activatedAbilityCostReduction.test.ts test/activatedAbilityCostReductionOracle.test.ts
 
 cd ../server
-npx vitest run tests/ability-cost-adjustments.unit.test.ts tests/graveyard-alternate-cast-cost-reduction.unit.test.ts tests/alternate-cost-spell-reduction.unit.test.ts tests/cost-reduction-cast.integration.test.ts
+npx vitest run tests/ability-cost-adjustments.unit.test.ts tests/graveyard-alternate-cast-cost-reduction.unit.test.ts tests/alternate-cost-spell-reduction.unit.test.ts tests/cost-reduction-cast.integration.test.ts tests/mutate.cast-prompt.integration.test.ts
 npx tsx scripts/alternate-cost-implementation-audit.ts
 
 cd ../client
 npx vitest run tests/castSpellModal.test.ts
 
-Next work (priority):
-1. Oracle IR static grants for ability cost reduction (replace name tables in activatedAbilityCostReduction.ts)
-2. Audit remaining activation payment paths (equip, cycling, planeswalker loyalty) for adjustActivationManaCostForPayment
-3. Optional UI: unify mutate vs Leyline vs normal in one payment step (currently split across modals)
-4. Flashback integration test with mana-payment queue step (tap land) when reduced cost still > {0}
+Next work (optional / longer term):
+- Document or extend generic-only reducers vs single-pip colored costs (Ruby + flashback {R} stays {R} — correct rules behavior)
+- Root-cause IR pipeline drops for activation-cost-reduction static abilities (recovered via recoverDroppedActivationCostReductionStaticAbilities)
 
 Do not commit unless asked. Windows: chain shell commands with `;`.
 ```
@@ -77,10 +75,20 @@ Do not commit unless asked. Windows: chain shell commands with `;`.
 
 ## Remaining / longer term
 
-1. **Oracle IR static effects** for ability cost reduction (`grant_static_ability`) instead of `ACTIVATED_ABILITY_COST_REDUCERS` name table
-2. **Equip / cycling / loyalty** activation paths — confirm all call `adjustActivationManaCostForPayment`
-3. **UI polish** — optional single-step cost chooser for mutate + Leyline + normal
-4. **Generic-only reducers** do not reduce single-pip colored costs (e.g. flashback `{R}` + Ruby stays `{R}`); document or extend colored reduction if desired
+1. ~~**UI polish** — optional single-step cost chooser for mutate + Leyline + normal (`CastSpellModal.tsx`)~~ — done
+2. **Generic-only reducers** do not reduce single-pip colored costs (e.g. flashback `{R}` + Ruby Medallion stays `{R}`). This matches rules: Ruby only reduces generic in the cost; `{R}` has no generic component. Document in `CASTING_COST_FRAMEWORK.md` if players ask; extend only if a future reducer explicitly reduces colored pips.
+3. **Root-cause** why some activation-cost-reduction static abilities are dropped mid-IR-pipeline (recovered at end via `recoverDroppedActivationCostReductionStaticAbilities`)
+
+### Unified mutate payment flow (2026-07-07)
+
+| Step | UI | Server |
+|------|-----|--------|
+| 1 | `CastSpellModal` — pick normal / mutate / WUBRG + pay | `mana_payment_choice` with `extraAlternateCosts` |
+| 2a (normal/WUBRG) | Confirm | `resumePlayerSpellCastAfterPayment` → stack |
+| 2b (mutate) | `MutateTargetModal` | Payment stored on `pendingSpellCasts.deferredSpellPaymentCompletion`; target step queued |
+| 3 (mutate only) | Pick host creature | `resumePlayerSpellCastAfterPayment` with stored payment + `alternateCostId: mutate` |
+
+Mutate appears in `extraAlternateCosts` only when `hasMutateAlternateCost` (legal non-Human host you own).
 
 ## Related docs
 

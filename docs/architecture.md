@@ -34,3 +34,7 @@ Effect Program Resolution
 
 Testing
 - Start with vitest for rules engine
+- Socket integration tests should call `resetIntegrationGame` (`server/tests/helpers/integrationGameReset.ts`) in `beforeEach`/`afterEach` so `GameManager`, `games`, DB events, and resolution queues do not leak between tests
+
+Turn flow
+- [Phase skip architecture](./phase-skip-architecture.md) — `skipToPhase` trigger stops, untap/draw turn actions, resume via `passPriority`

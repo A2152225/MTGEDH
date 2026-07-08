@@ -1469,6 +1469,16 @@ export function extractInterveningIfClause(text: string): string | null {
   const leading = extractLeadingInterveningIfClause(normalized);
   if (leading) return leading;
 
+  // Multi-ability oracle often prefixes static text before the trigger clause
+  // (e.g. "First strike\nWhen this creature enters, if ...").
+  const triggerAnywhereMatch = normalized.match(
+    /\b(?:when|whenever|at)\b[^,]+,\s*(if\s+.+?)(?:,|$)/i,
+  );
+  if (triggerAnywhereMatch) {
+    const clause = normalizeText(triggerAnywhereMatch[1]).replace(/[.\s]+$/, "").trim();
+    if (clause) return clause;
+  }
+
   // Only treat comma-delimited ", if ..." as intervening-if when the text looks like a trigger template.
   // This avoids false positives for effect text like "... . If you do, ...".
   if (!/^(when|whenever|at)\b/i.test(normalized)) return null;

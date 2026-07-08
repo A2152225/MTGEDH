@@ -41,6 +41,7 @@ const OPTIONAL_NO_CHOICE_KINDS = new Set<string>([
   'look_select_top',
   // Optional put-from-hand queues LIBRARY_SEARCH via move_zone player_choice bridge.
   'move_zone',
+  'tap_matching_permanents',
 ]);
 
 const SEQUENTIAL_CHOICE_KINDS = new Set<string>([

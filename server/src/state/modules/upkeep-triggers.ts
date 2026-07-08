@@ -770,41 +770,6 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   }
   
   // ============================================================================
-  // SAGA HANDLING (Rule 714)
-  // ============================================================================
-  // Sagas gain a lore counter at the beginning of controller's precombat main phase
-  // and when they enter the battlefield. Each lore counter triggers the next chapter.
-  // When the final chapter ability has left the stack, sacrifice the Saga.
-  const typeLine = (card?.type_line || '').toLowerCase();
-  if (typeLine.includes('saga')) {
-    const currentLore = counters['lore'] || 1; // Sagas enter with 1 lore counter
-    
-    // Parse chapter abilities from oracle text
-    // Pattern: "I — effect", "II — effect", "III — effect", etc.
-    const chapterAbilities = parseSagaChapters(oracleText);
-    const maxChapter = chapterAbilities.length > 0 
-      ? Math.max(...chapterAbilities.map(c => c.chapter)) 
-      : 3; // Default to 3 chapters if parsing fails
-    
-    // Only add lore counter trigger if saga isn't at final chapter
-    if (currentLore < maxChapter) {
-      triggers.push({
-        permanentId,
-        cardName,
-        triggerType: 'saga_lore_counter',
-        description: `Add lore counter to ${cardName} (currently ${currentLore}/${maxChapter})`,
-        effect: 'add_lore_counter',
-        mandatory: true,
-        controllerTrigger: true,
-        anyPlayerTrigger: false,
-        chapterAbilities,
-        currentChapter: currentLore,
-        maxChapter,
-      });
-    }
-  }
-  
-  // ============================================================================
   // SACRIFICE CREATURE OR SELF PATTERN (Dynamic Detection)
   // ============================================================================
   // Pattern: "At the beginning of your upkeep, sacrifice a creature. If you can't, sacrifice ~"
@@ -847,6 +812,64 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
 }
 
 /**
+ * Detect saga lore-counter turn-based triggers for precombat main (Rule 714.3b).
+ */
+export function detectSagaLoreCounterTrigger(card: any, permanent: any): UpkeepTrigger | null {
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  if (!typeLine.includes('saga')) {
+    return null;
+  }
+
+  const cardName = card?.name || 'Unknown';
+  const permanentId = permanent?.id || '';
+  const oracleText = card?.oracle_text || '';
+  const counters = permanent?.counters || {};
+  const currentLore = Number(counters['lore'] ?? 0) || 0;
+
+  const chapterAbilities = parseSagaChapters(oracleText);
+  const maxChapter = chapterAbilities.length > 0
+    ? Math.max(...chapterAbilities.map((chapter) => chapter.chapter))
+    : 3;
+
+  if (currentLore >= maxChapter) {
+    return null;
+  }
+
+  return {
+    permanentId,
+    cardName,
+    triggerType: 'saga_lore_counter',
+    description: `Add lore counter to ${cardName} (currently ${currentLore}/${maxChapter})`,
+    effect: 'add_lore_counter',
+    mandatory: true,
+    controllerTrigger: true,
+    anyPlayerTrigger: false,
+    chapterAbilities,
+    currentChapter: currentLore,
+    maxChapter,
+    imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+  };
+}
+
+/**
+ * Rule 714.3b: Sagas gain a lore counter at the beginning of controller's precombat main phase.
+ */
+export function getSagaLoreCounterTriggers(ctx: GameContext, activePlayerId: string): UpkeepTrigger[] {
+  const triggers: UpkeepTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+
+  for (const permanent of battlefield) {
+    if (!permanent?.card || permanent.controller !== activePlayerId) continue;
+    const trigger = detectSagaLoreCounterTrigger(permanent.card, permanent);
+    if (trigger) {
+      triggers.push(trigger);
+    }
+  }
+
+  return triggers;
+}
+
+/**
  * Parse saga chapter abilities from oracle text.
  * Format: "I — effect", "II, III — effect", "I, II — effect", etc.
  */
@@ -868,7 +891,7 @@ function parseSagaChapters(oracleText: string): { chapter: number; effect: strin
   // ([^IVX\n]+?) - Capture group 2: The effect text (non-greedy)
   //   [^IVX\n]+? - Any characters except Roman numerals or newlines
   // (?=\n[IVX]+\s*[—-]|$) - Lookahead: Stop at next chapter or end of string
-  const chapterPattern = /([IVX]+(?:\s*,\s*[IVX]+)*)\s*[—-]\s*([^IVX\n]+?)(?=\n[IVX]+\s*[—-]|$)/gi;
+  const chapterPattern = /([IVX]+(?:\s*,\s*[IVX]+)*)\s*[\u2014-]\s*([^\n]+?)(?=\n[IVX]+\s*[\u2014-]|$)/g;
   
   let match;
   while ((match = chapterPattern.exec(oracleText)) !== null) {

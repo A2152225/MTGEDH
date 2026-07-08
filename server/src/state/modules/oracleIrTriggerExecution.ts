@@ -318,7 +318,8 @@ function buildTriggerIrContext(
     || '',
   ).trim();
 
-  return buildOracleIRExecutionContext(
+  const optionalTriggerAccepted = (params.triggerItem as any)?.optionalTriggeredAbilityDecisionApplied === true;
+  const irCtx = buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
       sourceId: binding.sourcePermanentId || binding.sourceId,
@@ -348,6 +349,10 @@ function buildTriggerIrContext(
       ...(chosenCreatureType ? { chosenCreatureType } : {}),
     },
   );
+  if (optionalTriggerAccepted) {
+    return { ...irCtx, optionalOfferAccepted: true } as typeof irCtx;
+  }
+  return irCtx;
 }
 
 function probeOracleIrTriggerShadow(

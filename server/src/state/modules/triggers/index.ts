@@ -63,6 +63,11 @@ export { inferGenericTriggeredAbilityTargetMetadata, hasUnsupportedTargetRequire
 
 // Export from sub-modules (these re-export from triggered-abilities.ts)
 export {
+  detectEndOfCombatTriggers,
+  getEndOfCombatTriggers,
+  type EndOfCombatTrigger,
+} from "./end-combat.js";
+export {
   // Combat damage triggers
   detectCombatDamageTriggers,
   getCombatDamageTriggersForCreature,
@@ -75,9 +80,6 @@ export {
   // Beginning of combat
   detectBeginningOfCombatTriggers,
   getBeginningOfCombatTriggers,
-  // End of combat
-  detectEndOfCombatTriggers,
-  getEndOfCombatTriggers,
   // Block triggers
   detectBlockTriggers,
   getBlockTriggersForCreatures,
@@ -104,6 +106,7 @@ export {
   // Doesn't untap effects
   detectDoesntUntapEffects,
   isPermanentPreventedFromUntapping,
+  shouldSkipUntapStepForPlayer,
 } from "./turn-phases.js";
 // Types from turn-phases that override types.ts
 export type {

@@ -3,6 +3,17 @@ import { lookupLocalCardByNameSync } from '../../server/src/services/localCardLo
 import {
   parseActivatedAbilityCostReducerSpecsFromOracleText,
 } from '../src/activatedAbilityCostReductionOracle';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
+
+function collectStaticActivationReductionGrants(oracleText: string, cardName: string) {
+  const ir = parseOracleTextToIR(oracleText, cardName);
+  return (ir.abilities || []).flatMap((ability) => [...(ability.steps || [])])
+    .filter((step) => step.kind === 'grant_static_ability')
+    .flatMap((step) => Array.isArray((step as { effectText?: readonly string[] }).effectText)
+      ? ((step as { effectText?: readonly string[] }).effectText || [])
+      : [])
+    .filter((line) => /less to activate/i.test(String(line || '')));
+}
 
 describe('activated ability cost reduction oracle parsing', () => {
   it('parses known reducers from local oracle text', () => {
@@ -79,6 +90,21 @@ describe('activated ability cost reduction oracle parsing', () => {
       if ('expectMinimum' in testCase && testCase.expectMinimum !== undefined) {
         expect(spec.minimumTotalMana).toBe(testCase.expectMinimum);
       }
+    }
+  });
+
+  it('parses activation cost reduction grant_static_ability IR for gap cards', () => {
+    const cases = [
+      'Zirda, the Dawnwaker',
+      'Blossoming Tortoise',
+      'Mutagen Man, Living Ooze',
+    ] as const;
+
+    for (const name of cases) {
+      const card = lookupLocalCardByNameSync(name);
+      const oracleText = String(card?.oracle_text || '');
+      const grants = collectStaticActivationReductionGrants(oracleText, name);
+      expect(grants.length, name).toBeGreaterThan(0);
     }
   });
 });

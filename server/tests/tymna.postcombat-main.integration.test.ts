@@ -5,7 +5,6 @@ import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
-import { registerPermanentTriggers } from '../src/state/modules/triggered-abilities.js';
 import { games } from '../src/socket/socket.js';
 
 function createNoopIo() {
@@ -129,7 +128,6 @@ describe('Tymna postcombat main integration', () => {
     };
 
     (game.state as any).battlefield.push(tymna);
-    registerPermanentTriggers(game as any, tymna as any);
 
     game.applyEvent({ type: 'nextStep' });
 

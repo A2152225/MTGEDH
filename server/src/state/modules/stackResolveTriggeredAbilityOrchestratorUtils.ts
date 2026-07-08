@@ -4,6 +4,7 @@ import { debug } from '../../utils/debug.js';
 import { tryDeferTriggeredAbilityBeforeExecution } from './stackResolveTriggeredAbilityDeferralUtils.js';
 import type { TriggeredAbilityStackResolveOptions } from './stackResolveSharedTypes.js';
 import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
+import { maybeSacrificeSagaAfterChapterResolve } from './triggerSagaLoreUtils.js';
 
 export { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
 
@@ -51,6 +52,7 @@ export function resolveTriggeredAbilityStackItem(
 
   debug(2, `[resolveTopOfStack] Executing trigger effect: controller=${triggerController}, sourceName=${sourceName}, triggerType=${triggerType}`);
   executeTriggerEffect(ctx, triggerController, sourceName, effectText, item);
+  maybeSacrificeSagaAfterChapterResolve(ctx, triggerController as PlayerID, item);
   bumpSeq();
   return true;
 }

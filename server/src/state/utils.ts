@@ -1077,6 +1077,16 @@ export function calculateVariablePT(
   // "power and toughness are each equal to" patterns
   if (oracleText.includes('power and toughness are each equal to')) {
     
+    // "artifacts and/or creatures you control" (each permanent counted once)
+    if (oracleText.includes('artifacts and/or creatures you control')) {
+      const permanents = battlefield.filter((p: any) =>
+        p.controller === controllerId &&
+        /\b(artifact|creature)\b/.test((p.card?.type_line || '').toLowerCase())
+      );
+      const count = permanents.length;
+      return { power: count, toughness: count };
+    }
+
     // "number of creatures you control"
     if (oracleText.includes('number of creatures you control')) {
       const creatures = battlefield.filter((p: any) => 

@@ -1,11 +1,10 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { resetIntegrationGame } from './helpers/integrationGameReset.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
-import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { createInitialGameState } from '../src/state/gameState.js';
-import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { getCurrentGoaders } from '../src/state/modules/goad-effects.js';
 import type { PlayerID } from '../../shared/src';
 
@@ -38,9 +37,7 @@ function createMockSocket(playerId: string, gameId: string, emitted: Array<{ roo
 }
 
 async function resetGame(gameId: string) {
-  ResolutionQueueManager.removeQueue(gameId);
-  games.delete(gameId as any);
-  await deleteGame(gameId);
+  await resetIntegrationGame(gameId);
 }
 
 describe('Baeloth static goad (integration)', () => {

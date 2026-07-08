@@ -3,7 +3,8 @@ import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, KnownCardRef } from '../../shared/src';
 import { GamePhase } from '../../shared/src';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
-import { isInterveningIfSatisfied } from '../src/state/modules/triggers/intervening-if';
+import { isInterveningIfSatisfied, extractInterveningIfClause } from '../src/state/modules/triggers/intervening-if';
+import { lookupLocalCardByNameSync } from '../src/services/localCardLookup.js';
 
 describe('Knight of the White Orchid - conditional land search trigger', () => {
   beforeEach(() => {
@@ -358,17 +359,17 @@ describe('Knight of the White Orchid - conditional land search trigger', () => {
     expect(g.state.stack.length).toBe(1);
     expect(g.state.stack[0]?.type).toBe('triggered_ability');
 
-    // Resolve the ETB trigger (should enqueue a library search step)
+    // Resolve the ETB trigger (condition met — should queue optional "you may" prompt)
     g.resolveTopOfStack();
 
-    // Check that library search WAS set up (since opponent has MORE lands)
+    expect(g.state.stack.length).toBe(0);
+
     const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p1);
-    expect(steps.length).toBeGreaterThan(0);
-    const step = steps.find(s => s.type === ResolutionStepType.LIBRARY_SEARCH);
-    expect(step).toBeDefined();
-    expect((step as any).destination).toBe('battlefield');
-    expect((step as any).mandatory).toBe(false); // "you may" search
-    expect((step as any).availableCards?.some((c: any) => c.name === 'Plains')).toBe(true);
+    const optionalStep = steps.find(
+      (s: any) => s.effectProgramFamily === 'optional_triggered_ability',
+    );
+    expect(optionalStep).toBeDefined();
+    expect(String((optionalStep as any).description || '')).toMatch(/you may/i);
   });
 
   it('should NOT resolve the trigger if the intervening-if condition becomes false before resolution', () => {
@@ -449,5 +450,47 @@ describe('Knight of the White Orchid - conditional land search trigger', () => {
     const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p1);
     const searchSteps = steps.filter((s: any) => s?.type === ResolutionStepType.LIBRARY_SEARCH);
     expect(searchSteps).toHaveLength(0);
+  });
+
+  it('extracts intervening-if from full oracle text that starts with a static ability', () => {
+    const oracle = lookupLocalCardByNameSync('Knight of the White Orchid')?.oracle_text || '';
+    expect(oracle).toMatch(/first strike/i);
+    const clause = extractInterveningIfClause(oracle);
+    expect(clause).toMatch(/if\s+an\s+opponent\s+(?:controls|has)\s+more\s+lands\s+than\s+you/i);
+  });
+
+  it('marks the ETB trigger optional when the effect includes "you may"', () => {
+    const gameId = 'knight_optional_flag';
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'Player 2' });
+    (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+
+    g.importDeckResolved(p1, [
+      { id: 'plains_lib', name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '' },
+    ]);
+
+    g.state.battlefield = [
+      { id: 'plains_1', controller: p1, owner: p1, card: { type_line: 'Basic Land — Plains' } },
+      { id: 'plains_2', controller: p1, owner: p1, card: { type_line: 'Basic Land — Plains' } },
+      { id: 'mountain_1', controller: p2, owner: p2, card: { type_line: 'Basic Land — Mountain' } },
+      { id: 'mountain_2', controller: p2, owner: p2, card: { type_line: 'Basic Land — Mountain' } },
+      { id: 'mountain_3', controller: p2, owner: p2, card: { type_line: 'Basic Land — Mountain' } },
+    ] as any;
+
+    const knight = lookupLocalCardByNameSync('Knight of the White Orchid');
+    (g.state.zones as any)[p1] = { hand: [knight], library: [], graveyard: [], exile: [] };
+    g.state.stack = [{ id: 'spell_knight', type: 'spell', controller: p1, card: knight, targets: [] } as any];
+
+    g.resolveTopOfStack();
+    expect(g.state.stack).toHaveLength(1);
+    expect((g.state.stack[0] as any).mandatory).toBe(false);
+
+    ResolutionQueueManager.removeQueue(gameId);
   });
 });

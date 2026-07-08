@@ -22,7 +22,7 @@ import {
   KNOWN_ATTACK_TRIGGERS,
   KNOWN_BEGINNING_COMBAT_TRIGGERS,
 } from "./card-data-tables.js";
-import type { BeginningOfCombatTrigger, EndOfCombatTrigger } from "./types.js";
+import type { BeginningOfCombatTrigger } from "./types.js";
 import { escapeCardNameForRegex } from "./types.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 import { permanentHasCreatureType } from "../../../../../shared/src/creatureTypes.js";
@@ -422,7 +422,8 @@ function countEnergySymbols(cost: string): number {
 }
 
 // Re-export types from types.ts for consumers
-export type { BeginningOfCombatTrigger, EndOfCombatTrigger };
+export type { BeginningOfCombatTrigger };
+export type { EndOfCombatTrigger } from './end-combat.js';
 
 // ============================================================================
 // Combat Damage Triggers
@@ -1221,11 +1222,11 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
 
   // "At the beginning of each combat" - triggers on all players' combats
   const eachCombatMatch = oracleText.match(/at the beginning of each combat,?\s*([^.]+)/i);
-  if (eachCombatMatch && !triggers.some(t => t.description.includes(eachCombatMatch[1].trim()))) {
+  if (eachCombatMatch && triggers.length === 0) {
     const effectText = timingTriggerEffect(oracleText, eachCombatMatch);
     const requiresChoice = /\bchoose\b/i.test(effectText) || /\byou may\b/i.test(effectText);
     const createsToken = /\bcreate\b.*\btoken\b/i.test(effectText);
-    
+
     triggers.push({
       permanentId,
       cardName,
@@ -1237,26 +1238,118 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any): Begi
       createsToken,
     });
   }
-  
-  // KNOWN table fallback — only when dynamic oracle detection did not match
-  for (const [knownName, info] of Object.entries(KNOWN_BEGINNING_COMBAT_TRIGGERS)) {
-    if (lowerName.includes(knownName) && !triggers.some(t => t.permanentId === permanentId)) {
-      const effectText = beginCombatMatch
-        ? timingTriggerEffect(oracleText, beginCombatMatch)
-        : info.effect;
-      triggers.push({
-        permanentId,
-        cardName,
-        controllerId,
-        description: effectText,
-        effect: effectText,
-        mandatory: true,
-        requiresChoice: info.requiresChoice ?? (/\bchoose\b/i.test(effectText) || /\byou may\b/i.test(effectText)),
-        createsToken: info.createsToken ?? /\bcreate\b.*\btoken\b/i.test(effectText),
-      });
+
+  const thatCombatMatch = oracleText.match(/at the beginning of that combat,?\s*([^.]+)/i);
+  if (thatCombatMatch && !triggers.some((t) => (t as any).triggerType === 'that_combat')) {
+    const effectText = timingTriggerEffect(oracleText, thatCombatMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'that_combat' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
+  const opponentCombatMatch = oracleText.match(
+    /at the beginning of combat on each opponent's turn,?\s*([^.]+)/i,
+  );
+  if (opponentCombatMatch && !triggers.some((t) => (t as any).triggerType === 'opponent_turn_combat')) {
+    const effectText = timingTriggerEffect(oracleText, opponentCombatMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'opponent_turn_combat' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
+  const enchantedOpponentCombatMatch = oracleText.match(
+    /at the beginning of combat on enchanted opponent's turn,?\s*([^.]+)/i,
+  );
+  if (
+    enchantedOpponentCombatMatch &&
+    !triggers.some((t) => (t as any).triggerType === 'enchanted_opponent_turn_combat')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, enchantedOpponentCombatMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'enchanted_opponent_turn_combat' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
+  const eachPlayerCombatMatch = oracleText.match(
+    /at the beginning of combat on each player's turn,?\s*([^.]+)/i,
+  );
+  if (eachPlayerCombatMatch && !triggers.some((t) => (t as any).triggerType === 'each_player_turn_combat')) {
+    const effectText = timingTriggerEffect(oracleText, eachPlayerCombatMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'each_player_turn_combat' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
+  const combatThisTurnMatch = oracleText.match(/at the beginning of combat this turn,?\s*([^.]+)/i);
+  if (combatThisTurnMatch && !triggers.some((t) => (t as any).triggerType === 'combat_this_turn')) {
+    const effectText = timingTriggerEffect(oracleText, combatThisTurnMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'combat_this_turn' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
+  const combatStepMatch = oracleText.match(/at the beginning of your combat step,?\s*([^.]+)/i);
+  if (combatStepMatch && !triggers.some((t) => (t as any).triggerType === 'your_combat_step')) {
+    const effectText = timingTriggerEffect(oracleText, combatStepMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+      triggerType: 'your_combat_step' as any,
+    } as BeginningOfCombatTrigger);
+  }
+
+  // KNOWN table fallback only when oracle regex did not match (legacy shorthand / odd wording)
+  if (triggers.length === 0) {
+    for (const [knownName, info] of Object.entries(KNOWN_BEGINNING_COMBAT_TRIGGERS)) {
+      if (lowerName.includes(knownName)) {
+        triggers.push({
+          permanentId,
+          cardName,
+          controllerId,
+          description: info.effect,
+          effect: info.effect,
+          mandatory: true,
+          requiresChoice: info.requiresChoice,
+          createsToken: info.createsToken,
+        });
+      }
     }
   }
-  
+
   return triggers;
 }
 
@@ -1376,76 +1469,13 @@ export function getBeginningOfCombatTriggers(
 }
 
 // ============================================================================
-// End of Combat Triggers
+// End of Combat Triggers (canonical implementation in end-combat.ts)
 // ============================================================================
 
-/**
- * Detect end of combat triggers from a card's oracle text
- */
-export function detectEndOfCombatTriggers(card: any, permanent: any): EndOfCombatTrigger[] {
-  const triggers: EndOfCombatTrigger[] = [];
-  const oracleText = (card?.oracle_text || "");
-  const cardName = card?.name || "Unknown";
-  const permanentId = permanent?.id || "";
-  const controllerId = permanent?.controller || "";
-  
-  // "At end of combat" or "At the end of combat"
-  const endCombatMatch = oracleText.match(/at (?:the )?end of combat,?\s*([^.]+)/i);
-  if (endCombatMatch) {
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: timingTriggerEffect(oracleText, endCombatMatch),
-      effect: timingTriggerEffect(oracleText, endCombatMatch),
-      mandatory: true,
-    });
-  }
-  
-  return triggers;
-}
-
-/**
- * Get all end of combat triggers
- */
-export function getEndOfCombatTriggers(
-  ctx: GameContext,
-  activePlayerId: string
-): EndOfCombatTrigger[] {
-  const triggers: EndOfCombatTrigger[] = [];
-  const battlefield = ctx.state?.battlefield || [];
-  
-  for (const permanent of battlefield) {
-    if (!permanent || !permanent.card) continue;
-    
-    const permTriggers = detectEndOfCombatTriggers(permanent.card, permanent);
-    for (const trigger of permTriggers) {
-      const raw = String(trigger.effect || trigger.description || '').trim();
-      let interveningText = raw;
-      if (interveningText && !/^(?:when|whenever|at)\b/i.test(interveningText)) {
-        interveningText = `At end of combat, ${interveningText}`;
-      }
-      const needsThatPlayerRef = /\bthat player\b/i.test(interveningText) || /\btheir\b/i.test(interveningText);
-      const ok = isInterveningIfSatisfied(
-        ctx,
-        (trigger as any).controllerId || permanent.controller,
-        interveningText,
-        permanent,
-        needsThatPlayerRef
-          ? {
-              thatPlayerId: activePlayerId,
-              referencedPlayerId: activePlayerId,
-              theirPlayerId: activePlayerId,
-            }
-          : undefined
-      );
-      if (ok === false) continue;
-      triggers.push(trigger);
-    }
-  }
-  
-  return triggers;
-}
+export {
+  detectEndOfCombatTriggers,
+  getEndOfCombatTriggers,
+} from './end-combat.js';
 
 // ============================================================================
 // Damage Received Triggers

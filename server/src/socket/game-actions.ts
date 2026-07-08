@@ -32,8 +32,8 @@ import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTrigg
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType, inferGenericTriggeredAbilityTargetMetadata } from "../state/modules/triggers/index.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
-import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificePermanent } from "../state/modules/upkeep-triggers";
-import { getCurrentGoaders } from "../state/modules/goad-effects.js";
+import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
+import { processPhaseSkipTriggerStops, completePendingPhaseSkipCore, resumePendingPhaseSkip, canResumePendingPhaseSkip } from "../state/modules/phaseSkipUtils.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
 import {
@@ -51,6 +51,8 @@ import {
 import { spellOracleUsesTeamworkChooseBoth } from "../state/modules/marvelMechanicsHelpers.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import { shouldPerformDrawStepTurnAction } from "../state/modules/turn.js";
+import { tryAutoStartGameFromPreGame } from "./pregame-auto-start.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import { isSpellEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIrSpellLegacyRouting.js";
 import { queueOptionalPaymentStep, queueShockLandPaymentStep } from "./optional-payment-prompts.js";
@@ -728,6 +730,13 @@ function buildAlternateCostPaymentExtrasForCast(
 
   for (const keywordId of genericKeywordIds) {
     if (keywordId === 'warp') continue;
+    if (keywordId === 'mutate') {
+      if (!timingContext?.game || !timingContext?.playerId) continue;
+      const mutateCtx: any = { state: timingContext.game.state };
+      if (!hasMutateAlternateCost(mutateCtx, timingContext.playerId as PlayerID, { oracle_text: normalizedOracleText })) {
+        continue;
+      }
+    }
     const rawCost = parseKeywordAlternateManaCost(normalizedOracleText, keywordId);
     if (!rawCost) continue;
     const meta = genericLabels[keywordId] || { label: keywordId, description: `Cast for ${keywordId} cost` };
@@ -2284,8 +2293,13 @@ function checkAllPlayersKeptHands(game: any): { allKept: boolean; waitingPlayers
       
       // Player hasn't kept their hand if:
       // 1. No mulligan state exists, OR
-      // 2. hasKeptHand is explicitly false
-      if (!playerMulliganState || !playerMulliganState.hasKeptHand) {
+      // 2. hasKeptHand is explicitly false, OR
+      // 3. Still choosing cards to put on the bottom (London mulligan)
+      if (
+        !playerMulliganState ||
+        !playerMulliganState.hasKeptHand ||
+        Number(playerMulliganState.pendingBottomCount || 0) > 0
+      ) {
         waitingPlayers.push(player.name || playerId);
       }
     }
@@ -6144,69 +6158,8 @@ export async function requestCastSpellForSocket(
     const spellTypeLine = faceTypeLine || effectiveTypeLine || typeLine;
     const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
 
-    // Mutate casting-mode prompt (for mutate creatures).
-    // Mutate reminder text lives on the card, but a creature spell only targets when cast for its mutate cost.
-    // We prompt once here to choose normal vs mutate.
-    if (
-      options?.skipMutateModePrompt !== true &&
-      options?.forcedAlternateCostId == null &&
-      !isInstantOrSorcery &&
-      spellTypeLine.includes('creature')
-    ) {
-      const ctx: any = { state: game.state };
-      const hasMutate = /\bmutate\b/i.test(String(oracleText || ''));
-      const mutateCost = hasMutate ? (parseMutateCost(oracleText) || parseMutateCost(cardInHand.oracle_text || '')) : undefined;
-      const canMutate = Boolean(mutateCost) && hasMutateAlternateCost(ctx, playerId as any, cardInHand as any);
-
-      if (canMutate) {
-        const mutatePaymentMetadata = buildPendingCastCostMetadata(game, playerId, cardForCast, castSourceZone);
-        const displayedMutateCost = mutateCost
-          ? formatManaCostWithCostAdjustment(
-            mutateCost,
-            mutatePaymentMetadata.costReduction,
-            chosenXValue,
-            mutatePaymentMetadata.genericCostTax,
-          )
-          : undefined;
-        const existing = ResolutionQueueManager
-          .getStepsForPlayer(gameId, playerId as any)
-          .find((s: any) => s?.type === ResolutionStepType.OPTION_CHOICE && (s as any)?.mutateCastModeChoice === true && String((s as any)?.mutateCardId || '') === String(cardId));
-
-        if (!existing) {
-          const mutateModeStep = ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.OPTION_CHOICE,
-            playerId: playerId as any,
-            sourceId: String(cardId),
-            sourceName: cardName,
-            sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-            description: `Choose how to cast ${cardName}.`,
-            mandatory: true,
-            options: [
-              { id: 'cast_normal', label: 'Cast Normally' },
-              { id: 'cast_mutate', label: `Cast with Mutate${displayedMutateCost ? ` (${displayedMutateCost})` : (mutateCost ? ` (${mutateCost})` : '')}` },
-            ],
-            minSelections: 1,
-            maxSelections: 1,
-
-            mutateCastModeChoice: true,
-            mutateCardId: String(cardId),
-            mutateFaceIndex: selectedFaceIndex,
-            mutateCost,
-          } as any);
-
-          persistQueuedSpellCastStepContinuation(gameId, game, {
-            playerId,
-            cardId,
-            queuedResolutionStep: {
-              ...(mutateModeStep as any),
-            },
-          });
-        }
-
-        debug(2, `[requestCastSpell] Queued mutate casting-mode choice for ${cardName}`);
-        return;
-      }
-    }
+    // Mutate cast mode (normal vs mutate) is chosen in the unified mana payment step via
+    // extraAlternateCosts; target selection is deferred when the player picks mutate there.
 
     const xCount = countXManaSymbols(manaCost);
 
@@ -13728,6 +13681,30 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       appendGameEvent(game, gameId, "passPriority", { by: playerId });
 
+      let suppressAdvanceStepAfterPhaseSkip = false;
+
+      const tryResumePendingPhaseSkipAfterPass = (): void => {
+        if (!canResumePendingPhaseSkip(game, gameId)) {
+          return;
+        }
+        const phaseSkipResume = resumePendingPhaseSkip({
+          game,
+          gameId,
+          io,
+          playerId: String((game.state as any).pendingPhaseSkip?.requestedBy || playerId || ''),
+          turnPlayer: String(game.state?.turnPlayer || ''),
+          targetPhase: String((game.state as any).pendingPhaseSkip?.targetPhase || ''),
+          targetStep: String((game.state as any).pendingPhaseSkip?.targetStep || ''),
+          logPrefix: '[passPriority]',
+        });
+        if (phaseSkipResume === 'stopped' || phaseSkipResume === 'completed' || phaseSkipResume === 'blocked') {
+          broadcastGame(io, game, gameId);
+          if (phaseSkipResume === 'stopped' || phaseSkipResume === 'completed') {
+            suppressAdvanceStepAfterPhaseSkip = true;
+          }
+        }
+      };
+
       if (resolvedNow) {
         // Capture the top spell before it resolves (for tutor effect handling)
         const stackBefore = game.state?.stack || [];
@@ -13866,61 +13843,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         processPendingProliferate(io, game, gameId);
         processPendingOracleIrCompoundResume(io, game, gameId);
         
-        // ========================================================================
-        // CRITICAL: Check if there's a pending phase skip that was interrupted
-        // by combat triggers. If stack is now empty and all triggers are resolved,
-        // automatically continue to the originally requested phase.
-        // ========================================================================
-        const pendingSkip = (game.state as any).pendingPhaseSkip;
-        if (pendingSkip && game.state.stack && game.state.stack.length === 0) {
-          const queueSummary = ResolutionQueueManager.getPendingSummary(gameId);
-          const noPendingResolutionSteps = !queueSummary.hasPending;
-          const noPendingOrdering = !(game.state as any).pendingTriggerOrdering || 
-                                    Object.keys((game.state as any).pendingTriggerOrdering).length === 0;
-          
-          if (noPendingResolutionSteps && noPendingOrdering) {
-            debug(2, `[passPriority] Continuing pending phase skip from BEGIN_COMBAT to ${pendingSkip.targetStep}`);
-            
-            // Update phase and step to the originally requested target
-            (game.state as any).phase = pendingSkip.targetPhase;
-            (game.state as any).step = pendingSkip.targetStep;
-            
-            // Clear the pending skip
-            delete (game.state as any).pendingPhaseSkip;
-            
-            // Append event to track this automatic continuation
-            try {
-              appendEvent(gameId, (game as any).seq || 0, "skipToPhase", {
-                playerId: pendingSkip.requestedBy,
-                from: 'BEGIN_COMBAT',
-                to: pendingSkip.targetStep,
-                targetPhase: pendingSkip.targetPhase,
-                targetStep: pendingSkip.targetStep,
-                auto: true,
-                reason: 'combat_triggers_resolved',
-              });
-            } catch (e) {
-              debugWarn(1, "appendEvent(skipToPhase auto) failed:", e);
-            }
-            
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `Combat triggers resolved. Continuing to ${pendingSkip.targetStep}.`,
-              ts: Date.now(),
-            });
-            
-            // Bump sequence to reflect phase change
-            if (typeof game.bumpSeq === 'function') {
-              game.bumpSeq();
-            }
-          }
-        }
+        // Resume pending phase skip incrementally after intermediate trigger stops resolve.
+        tryResumePendingPhaseSkipAfterPass();
+      } else if ((game.state as any).pendingPhaseSkip) {
+        // Stack already empty (e.g. trigger order finished) — continue pending skip without resolving.
+        tryResumePendingPhaseSkipAfterPass();
       }
 
       // If all players passed priority with empty stack, advance to next step
-      if (advanceStep) {
+      if (advanceStep && !suppressAdvanceStepAfterPhaseSkip) {
         if (typeof (game as any).nextStep === 'function') {
           (game as any).nextStep();
           flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
@@ -14077,7 +14008,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Claim turn (pre-game only) - set yourself as active player when pre-game and turnPlayer is unset.
-  socket.on("claimMyTurn", (payload?: { gameId?: unknown }) => {
+  socket.on("claimMyTurn", async (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;
@@ -14141,6 +14072,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           ts: Date.now(),
         });
         broadcastGame(io, game, gameId);
+        await tryAutoStartGameFromPreGame(io, game, gameId, 'claimTurn');
       } catch (e) {
         debugError(1, "claimMyTurn: failed to set turnPlayer", e);
         socket.emit("error", {
@@ -14154,7 +14086,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   });
 
   // Randomize starting player
-  socket.on("randomizeStartingPlayer", (payload?: { gameId?: unknown }) => {
+  socket.on("randomizeStartingPlayer", async (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;
@@ -14221,6 +14153,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           ts: Date.now(),
         });
         broadcastGame(io, game, gameId);
+        await tryAutoStartGameFromPreGame(io, game, gameId, 'randomizeStartingPlayer');
       } catch (e) {
         debugError(1, "randomizeStartingPlayer: failed to set turnPlayer", e);
         socket.emit("error", {
@@ -14297,20 +14230,19 @@ export function registerGameActions(io: Server, socket: Socket) {
           ? game.state.players
           : [];
 
-      // Only active player may advance if set
-      if (game.state.turnPlayer) {
-        if (game.state.turnPlayer !== playerId) {
-          socket.emit("error", {
-            code: "NEXT_TURN",
-            message: "Only the active player can advance the turn.",
-          });
-          debug(1, 
-            `[nextTurn] rejected - not active player (player=${playerId} turnPlayer=${game.state.turnPlayer})`
-          );
-          return;
-        }
-      } else {
-        // No turnPlayer set
+      // Only active player may advance if set (except pre-game start: any ready player may begin)
+      if (game.state.turnPlayer && game.state.turnPlayer !== playerId && !pregame) {
+        socket.emit("error", {
+          code: "NEXT_TURN",
+          message: "Only the active player can advance the turn.",
+        });
+        debug(1, 
+          `[nextTurn] rejected - not active player (player=${playerId} turnPlayer=${game.state.turnPlayer})`
+        );
+        return;
+      }
+
+      if (!game.state.turnPlayer) {
         if (playersArr.length <= 1) {
           try {
             game.state.turnPlayer = playerId;
@@ -14321,29 +14253,25 @@ export function registerGameActions(io: Server, socket: Socket) {
           } catch (e) {
             debugWarn(1, "nextTurn: auto-assign failed", e);
           }
+        } else if (!pregame) {
+          socket.emit("error", {
+            code: "NEXT_TURN",
+            message: "No active player set; cannot advance turn.",
+          });
+          debug(1, 
+            `[nextTurn] rejected - no turnPlayer and not pregame (phase=${phaseStr})`
+          );
+          return;
         } else {
-          if (!pregame) {
-            socket.emit("error", {
-              code: "NEXT_TURN",
-              message: "No active player set; cannot advance turn.",
-            });
-            debug(1, 
-              `[nextTurn] rejected - no turnPlayer and not pregame (phase=${phaseStr})`
-            );
-            return;
-          } else {
-            if (!game.state.turnPlayer) {
-              socket.emit("error", {
-                code: "NEXT_TURN_NO_CLAIM",
-                message:
-                  "No active player set. Use 'Claim Turn' to set first player.",
-              });
-              debug(1, 
-                `[nextTurn] rejected - no turnPlayer; ask user to claim (player=${playerId})`
-              );
-              return;
-            }
-          }
+          socket.emit("error", {
+            code: "NEXT_TURN_NO_CLAIM",
+            message:
+              "No active player set. Use 'Claim Turn' or Random Start to pick the first player.",
+          });
+          debug(1, 
+            `[nextTurn] rejected - no turnPlayer; ask user to claim (player=${playerId})`
+          );
+          return;
         }
       }
 
@@ -14562,18 +14490,17 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
         
-        // During pre-game, directly advance to start the game
-        // (no priority passing needed during pre-game setup)
+        // During pre-game, start the game via nextTurn (nextStep is blocked in pre_game).
         try {
-          if (typeof (game as any).nextStep === "function") {
-            await (game as any).nextStep();
+          if (typeof (game as any).nextTurn === "function") {
+            await (game as any).nextTurn();
             flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
             debug(2, 
-              `[nextStep] Pre-game: advanced step for game ${gameId}`
+              `[nextStep] Pre-game: started game via nextTurn for game ${gameId}`
             );
           }
         } catch (e) {
-          debugError(1, "nextStep: game.nextStep invocation failed:", e);
+          debugError(1, "nextStep: game.nextTurn invocation failed during pre-game:", e);
           socket.emit("error", {
             code: "NEXT_STEP_IMPL_ERROR",
             message: String(e),
@@ -14585,11 +14512,11 @@ export function registerGameActions(io: Server, socket: Socket) {
           appendEvent(
             gameId,
             (game as any).seq || 0,
-            "nextStep",
-            { by: playerId, pregame: true }
+            "nextTurn",
+            { by: playerId, pregame: true, reason: 'beginGame' }
           );
         } catch (e) {
-          debugWarn(1, "appendEvent(nextStep) failed", e);
+          debugWarn(1, "appendEvent(nextTurn) failed", e);
         }
         
         broadcastGame(io, game, gameId);
@@ -14818,559 +14745,49 @@ export function registerGameActions(io: Server, socket: Socket) {
       // CRITICAL FIX: Check if we're skipping through phases with triggers.
       // We must stop at each phase that has triggers, fire them in the correct
       // phase, and wait for them to resolve before continuing.
-      // This applies to: UPKEEP, BEGIN_COMBAT, and END_STEP
+      // This applies to: UPKEEP, DRAW, MAIN1, BEGIN_COMBAT, END_COMBAT, MAIN2, and END_STEP
       // ========================================================================
-      const currentPhaseOrder = ['untap', 'upkeep', 'draw', 'main1', 'begin_combat', 'declare_attackers',
-                                 'declare_blockers', 'combat_damage', 'end_combat', 'main2', 'end_step', 'cleanup'];
-      const currentStepNormalized = currentStep.toLowerCase().replace(/_/g, '');
-      const targetStepNormalized = targetStep.toLowerCase().replace(/_/g, '');
-      const currentIdx = currentPhaseOrder.indexOf(currentStepNormalized);
-      const targetIdx = currentPhaseOrder.indexOf(targetStepNormalized);
-
-      const persistTriggeredAbilityPush = (payload: Record<string, unknown>, reason: string) => {
-        try {
-          appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', payload);
-        } catch (err) {
-          debugWarn(1, `[skipToPhase] appendEvent(pushTriggeredAbility ${reason}) failed:`, err);
-        }
-      };
-
-      // Helper function to stop at a specific phase and process triggers
-      const stopAtPhaseForTriggers = (
-        stopPhase: string,
-        stopStep: string,
-        triggers: any[],
-        triggerType: string
-      ) => {
-        const ctxForInterveningIf = { state: game.state } as any;
-        const battlefield = (game.state as any)?.battlefield || [];
-
-        // Defensive: filter triggers by intervening-if at trigger time BEFORE we decide to stop.
-        // If upstream trigger detection already filtered, this is a no-op.
-        const filteredTriggers = (triggers || []).filter((t: any) => {
-          try {
-            const controller = String(t?.controllerId || turnPlayer || playerId || '').trim();
-            const raw = String(t?.description || t?.effect || '').trim();
-            let text = raw;
-            if (text && !/^(?:when|whenever|at)\b/i.test(text)) {
-              const tt = String(t?.triggerType || triggerType || stopStep || '').toLowerCase();
-              if (tt.includes('upkeep')) {
-                text = `At the beginning of upkeep, ${text}`;
-              } else if (tt.includes('draw')) {
-                text = `At the beginning of draw step, ${text}`;
-              } else if (tt.includes('begin_combat') || tt.includes('begincombat') || stopStep === 'begin_combat') {
-                text = `At the beginning of combat, ${text}`;
-              } else if (tt.includes('end_step') || tt.includes('endstep') || stopStep === 'end_step') {
-                text = `At the beginning of end step, ${text}`;
-              }
-            }
-            const sourcePerm = battlefield.find((p: any) => p?.id === t?.permanentId);
-            const thatPlayerId = String(turnPlayer || playerId || '').trim();
-            const needsThatPlayerRef = /\bthat player\b/i.test(text);
-            const ok = isInterveningIfSatisfied(
-              ctxForInterveningIf,
-              controller,
-              text,
-              sourcePerm,
-              needsThatPlayerRef && thatPlayerId
-                ? {
-                    thatPlayerId,
-                    referencedPlayerId: thatPlayerId,
-                    theirPlayerId: thatPlayerId,
-                  }
-                : undefined
-            );
-            return ok !== false;
-          } catch {
-            // Conservative fallback: keep the trigger if evaluation fails.
-            return true;
-          }
+      if (!turnPlayer) {
+        socket.emit("error", {
+          code: "SKIP_TO_PHASE",
+          message: "No active player for phase skip.",
         });
-
-        if (filteredTriggers.length === 0) return;
-
-        debug(2, `[skipToPhase] STOPPING at ${stopStep}: Found ${filteredTriggers.length} trigger(s) that must resolve first`);
-
-        // Stop at this phase instead of going directly to target
-        (game.state as any).phase = stopPhase;
-        (game.state as any).step = stopStep;
-
-        // Store the intended target so we can continue after triggers resolve
-        (game.state as any).pendingPhaseSkip = {
-          targetPhase,
-          targetStep,
-          requestedBy: playerId,
-        };
-
-        // Process the triggers
-        (game.state as any).stack = (game.state as any).stack || [];
-
-        // Group triggers by controller for APNAP ordering
-        const triggersByController = new Map<string, typeof triggers>();
-        const triggerItemsByController = new Map<string, Array<{
-          id: string;
-          sourceName: string;
-          effect: string;
-          imageUrl?: string;
-        }>>();
-        for (const trigger of filteredTriggers) {
-          const controller = trigger.controllerId || turnPlayer;
-          const existing = triggersByController.get(controller) || [];
-          existing.push(trigger);
-          triggersByController.set(controller, existing);
-        }
-
-        // Get player order for APNAP
-        const players = Array.isArray((game.state as any).players)
-          ? (game.state as any).players.map((p: any) => p.id)
-          : [];
-        const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
-
-        // Process triggers in APNAP order
-        for (const playerId of orderedPlayers) {
-          if (!playerId) continue;
-
-          const playerTriggers = triggersByController.get(playerId) || [];
-          if (playerTriggers.length === 0) continue;
-
-          // If multiple triggers, use Resolution Queue for ordering
-          if (playerTriggers.length > 1) {
-            const triggerItems = playerTriggers.map((trigger: any) => {
-              const triggerId = uid(`${triggerType}_trigger`);
-              return {
-                id: triggerId,
-                sourceId: trigger.permanentId,
-                sourceName: trigger.cardName,
-                effect: trigger.description || trigger.effect,
-                triggerType: triggerType,
-                mandatory: trigger.mandatory !== false,
-                imageUrl: trigger.imageUrl,
-              };
-            });
-            triggerItemsByController.set(String(playerId), triggerItems);
-
-            // Add all triggers to the stack first
-            for (const item of triggerItems) {
-              const stackItem = {
-                id: item.id,
-                type: 'triggered_ability',
-                controller: playerId,
-                source: item.sourceId,
-                permanentId: item.sourceId,
-                sourceName: item.sourceName,
-                description: item.effect,
-                triggerType,
-                mandatory: item.mandatory,
-                effect: item.effect,
-                triggeringPlayer: turnPlayer,
-              };
-              (game.state as any).stack.push(stackItem);
-              persistTriggeredAbilityPush({
-                triggerId: item.id,
-                sourceId: item.sourceId,
-                permanentId: item.sourceId,
-                sourceName: item.sourceName,
-                controllerId: playerId,
-                description: item.effect,
-                triggerType,
-                effect: item.effect,
-                mandatory: item.mandatory,
-                triggeringPlayer: turnPlayer,
-              }, `${triggerType} skip trigger`);
-            }
-
-            // Add Resolution Queue step for trigger ordering
-            ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.TRIGGER_ORDER,
-              playerId: playerId as PlayerID,
-              description: `Choose the order to put ${triggerItems.length} triggered abilities on the stack`,
-              mandatory: true,
-              triggers: triggerItems.map((item: any) => ({
-                id: item.id,
-                sourceName: item.sourceName,
-                effect: item.effect,
-                imageUrl: item.imageUrl,
-              })),
-              requireAll: true,
-            });
-
-            debug(2, `[skipToPhase] Added TRIGGER_ORDER step for ${playerId} with ${triggerItems.length} triggers`);
-          } else {
-            // Single trigger - push directly to stack
-            const trigger = playerTriggers[0];
-            const triggerId = uid(`${triggerType}_trigger`);
-            const stackItem = {
-              id: triggerId,
-              type: 'triggered_ability',
-              controller: playerId,
-              source: trigger.permanentId,
-              permanentId: trigger.permanentId,
-              sourceName: trigger.cardName,
-              description: trigger.description || trigger.effect,
-              triggerType: triggerType,
-              mandatory: trigger.mandatory !== false,
-              effect: trigger.effect,
-              triggeringPlayer: turnPlayer,
-            };
-            (game.state as any).stack.push(stackItem);
-            persistTriggeredAbilityPush({
-              triggerId,
-              sourceId: trigger.permanentId,
-              permanentId: trigger.permanentId,
-              sourceName: trigger.cardName,
-              controllerId: playerId,
-              description: trigger.description || trigger.effect,
-              triggerType,
-              effect: trigger.effect,
-              mandatory: trigger.mandatory !== false,
-              triggeringPlayer: turnPlayer,
-            }, `${triggerType} skip trigger`);
-          }
-        }
-
-        // Give priority to active player
-        (game.state as any).priority = turnPlayer;
-
-        debug(2, `[skipToPhase] Set phase to ${stopStep} with ${filteredTriggers.length} trigger(s). Will continue to ${targetStep} after resolution.`);
-
-        // Broadcast the updated game state
-        broadcastGame(io, game, gameId);
-
-        // Append skipToPhase event
-        try {
-          const triggerOrderRequests = orderedPlayers
-            .map((orderedPlayerId) => {
-              const playerTriggers = triggersByController.get(orderedPlayerId) || [];
-              if (playerTriggers.length <= 1) {
-                return null;
-              }
-
-              return {
-                playerId: orderedPlayerId,
-                description: `Choose the order to put ${playerTriggers.length} triggered abilities on the stack`,
-                requireAll: true,
-                triggers: (triggerItemsByController.get(String(orderedPlayerId)) || []).map((item) => ({
-                  id: item.id,
-                  sourceName: item.sourceName,
-                  effect: item.effect,
-                  imageUrl: item.imageUrl,
-                })),
-              };
-            })
-            .filter(Boolean);
-
-          appendEvent(gameId, (game as any).seq || 0, "skipToPhase", {
-            playerId,
-            from: currentStep,
-            to: stopStep,
-            targetPhase: stopPhase,
-            targetStep: stopStep,
-            finalTargetPhase: targetPhase,
-            finalTargetStep: targetStep,
-            pendingPhaseSkip: {
-              targetPhase,
-              targetStep,
-              requestedBy: playerId,
-            },
-            priority: turnPlayer,
-            triggerOrderRequests,
-          });
-        } catch (e) {
-          debugWarn(1, "appendEvent(skipToPhase) failed:", e);
-        }
-      };
-      
-      // Check UPKEEP triggers if we're skipping through upkeep
-      const upkeepIdx = currentPhaseOrder.indexOf('upkeep');
-      const isBeforeUpkeep = currentIdx < upkeepIdx || currentStepNormalized === '';
-      const isTargetAfterUpkeep = targetIdx > upkeepIdx;
-      const isSkippingThroughUpkeep = isBeforeUpkeep && isTargetAfterUpkeep && targetStepNormalized !== 'upkeep';
-      
-      if (isSkippingThroughUpkeep && turnPlayer) {
-        try {
-          // Auto-process cumulative upkeep mana effects (Braid of Fire, etc.) FIRST
-          const processedMana = autoProcessCumulativeUpkeepMana(game as any, turnPlayer);
-          if (processedMana.length > 0) {
-            for (const item of processedMana) {
-              const manaStr = Object.entries(item.manaAdded)
-                .map(([type, amount]) => `${amount} ${type}`)
-                .join(', ');
-              io.to(gameId).emit('chat', {
-                id: `m_${Date.now()}_${item.permanentId}`,
-                gameId,
-                from: 'system',
-                message: `${item.cardName}: Added ${manaStr} to ${getPlayerName(game, turnPlayer)}'s mana pool (${item.ageCounters} age counters)`,
-                ts: Date.now(),
-              });
-            }
-          }
-          
-          const upkeepTriggers = getUpkeepTriggersForPlayer(game as any, turnPlayer);
-          if (upkeepTriggers && upkeepTriggers.length > 0) {
-            stopAtPhaseForTriggers('beginning', 'UPKEEP', upkeepTriggers, 'upkeep');
-            return; // Exit early - triggers must be resolved before continuing
-          }
-        } catch (err) {
-          debugWarn(1, `[skipToPhase] Failed to check upkeep triggers:`, err);
-        }
-      }
-      
-      // Check BEGIN_COMBAT triggers if we're skipping through combat
-      const beginCombatIdx = currentPhaseOrder.indexOf('begin_combat');
-      const isBeforeCombat = currentIdx < beginCombatIdx || currentStepNormalized === '';
-      const isTargetCombatOrLater = targetIdx >= beginCombatIdx;
-      const isSkippingThroughCombat = isBeforeCombat && isTargetCombatOrLater && targetStepNormalized !== 'begincombat';
-      
-      if (isSkippingThroughCombat && turnPlayer) {
-        try {
-          const combatTriggers = getBeginningOfCombatTriggers(game as any, turnPlayer);
-          if (combatTriggers && combatTriggers.length > 0) {
-            stopAtPhaseForTriggers('combat', 'BEGIN_COMBAT', combatTriggers, 'begin_combat');
-            return; // Exit early - triggers must be resolved before continuing
-          }
-        } catch (err) {
-          debugWarn(1, `[skipToPhase] Failed to check combat triggers:`, err);
-        }
-      }
-      
-      // =======================================================================
-      // GOAD ENFORCEMENT (Rule 701.15b): Cannot skip past declare attackers
-      // if the player has goaded creatures that must attack.
-      // Goaded creatures MUST attack if able - the player cannot skip combat.
-      // =======================================================================
-      const declareAttackersIdx = currentPhaseOrder.indexOf('declare_attackers');
-      const isBeforeDeclareAttackers = currentIdx < declareAttackersIdx;
-      const isTargetAfterDeclareAttackers = targetIdx > declareAttackersIdx;
-      const isSkippingPastCombat = isBeforeDeclareAttackers && isTargetAfterDeclareAttackers;
-      
-      if (isSkippingPastCombat && turnPlayer) {
-        try {
-          // Check for goaded creatures that must attack
-          const battlefield = (game.state as any)?.battlefield || [];
-          const currentTurn = (game.state as any).turn;
-          
-          for (const permanent of battlefield) {
-            if (!permanent || permanent.controller !== turnPlayer) continue;
-            
-            const typeLine = (permanent.card?.type_line || "").toLowerCase();
-            if (!typeLine.includes("creature")) continue;
-            
-            // Check if creature is goaded (keyword action, static, or attached)
-            if (getCurrentGoaders(permanent, battlefield, currentTurn).length === 0) continue;
-            
-            // Can't attack if tapped
-            if (permanent.tapped) continue;
-            
-            // Can't attack with summoning sickness (unless haste)
-            const enteredThisTurn = permanent.enteredThisTurn === true;
-            if (enteredThisTurn) {
-              const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
-              const grantedAbilities = permanent.grantedAbilities || [];
-              const hasHaste = oracleText.includes("haste") || 
-                              grantedAbilities.some((a: string) => a && a.toLowerCase().includes("haste"));
-              if (!hasHaste) continue;
-            }
-            
-            // Check for "can't attack" effects
-            const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
-            const grantedAbilities = permanent.grantedAbilities || [];
-            
-            if (oracleText.includes("can't attack") || oracleText.includes("cannot attack")) continue;
-            
-            const hasCantAttack = grantedAbilities.some((a: string) => {
-              const abilityText = (a || "").toLowerCase();
-              return abilityText.includes("can't attack") || abilityText.includes("cannot attack");
-            });
-            if (hasCantAttack) continue;
-            
-            // Found a goaded creature that CAN and MUST attack
-            const creatureName = permanent.card?.name || "A creature";
-            debug(2, `[skipToPhase] BLOCKED: ${creatureName} is goaded and must attack (Rule 701.15b)`);
-            socket.emit("error", {
-              code: "SKIP_TO_PHASE",
-              message: `${creatureName} is goaded and must attack this combat. You cannot skip past the declare attackers step.`,
-            });
-            return; // Exit early - cannot skip past combat with goaded creatures
-          }
-        } catch (err) {
-          debugWarn(1, `[skipToPhase] Failed to check goaded creatures:`, err);
-        }
-      }
-      
-      // Check END_STEP triggers if we're skipping to end step
-      const endStepIdx = currentPhaseOrder.indexOf('end_step');
-      const isBeforeEndStep = currentIdx < endStepIdx;
-      const isTargetEndStepOrLater = targetIdx >= endStepIdx;
-      const isSkippingToEndStep = isBeforeEndStep && (targetStepNormalized === 'endstep' || targetStepNormalized === 'end');
-      
-      if (isSkippingToEndStep && turnPlayer) {
-        try {
-          const endTriggers = getEndStepTriggers(game as any, turnPlayer);
-          if (endTriggers && endTriggers.length > 0) {
-            stopAtPhaseForTriggers('ending', 'END_STEP', endTriggers, 'end_step');
-            return; // Exit early - triggers must be resolved before continuing
-          }
-        } catch (err) {
-          debugWarn(1, `[skipToPhase] Failed to check end step triggers:`, err);
-        }
+        return;
       }
 
-      // If we reach here, either we're not skipping through combat, or there were no triggers
-      // Update phase and step directly to target
-      (game.state as any).phase = targetPhase;
-      (game.state as any).step = targetStep;
-      
-      // Clear any pending skip since we've reached the target
-      delete (game.state as any).pendingPhaseSkip;
-			// Mark that we just arrived here via skipToPhase so automation/auto-pass
-			// can give the active player one full priority window at this step
-		try {
-			(game.state as any).justSkippedToPhase = {
-			playerId: playerId,
-			phase: targetPhase,
-			step: targetStep,
-			};
-			} catch {
-			// best-effort; don't fail skipToPhase if this metadata write fails
-			}
-      // Determine if we need to execute turn-based actions when skipping phases
-      // This ensures that skipping from early phases to main phases still triggers
-      // the appropriate untap and draw actions
+      const stopResult = processPhaseSkipTriggerStops({
+        game,
+        gameId,
+        io,
+        playerId,
+        turnPlayer,
+        targetPhase,
+        targetStep,
+        skipOriginPhase: currentPhase,
+        skipOriginStep: currentStep,
+        logPrefix: '[skipToPhase]',
+        emitError: (code, message) => socket.emit('error', { code, message }),
+      });
+      if (stopResult === 'stopped') return;
+      if (stopResult === 'blocked') return;
+
+      const { untappedPermanentIds, drawnCards } = completePendingPhaseSkipCore({
+        game,
+        gameId,
+        io,
+        playerId,
+        turnPlayer,
+        targetPhase,
+        targetStep,
+        skipOriginPhase: currentPhase,
+        skipOriginStep: currentStep,
+      });
+
+      if (Array.isArray(drawnCards) && drawnCards.length > 0) {
+        checkAndPromptMiracle(io, game, gameId, turnPlayer, drawnCards);
+      }
+
       const targetStepUpper = targetStep.toUpperCase();
-      const targetPhaseLower = targetPhase.toLowerCase();
-      
-      // Check if we're in the beginning phase and skipping to a main phase
-      const wasBeginningPhase = currentPhase === "beginning" || currentPhase === "pre_game" || currentPhase === "";
-      const isTargetMainPhase = targetPhaseLower.includes("main") || targetStepUpper === "MAIN1" || targetStepUpper === "MAIN2";
-      
-      // Determine what actions need to be executed based on what we're skipping over
-      const needsUntap = wasBeginningPhase && 
-        (currentStep === "" || currentStep === "UNTAP") && 
-        (targetStepUpper !== "UNTAP");
-      
-      const needsDraw = wasBeginningPhase && 
-        (currentStep === "" || currentStep === "UNTAP" || currentStep === "UPKEEP") && 
-        (isTargetMainPhase || targetStepUpper === "BEGIN_COMBAT" || targetStepUpper === "DECLARE_ATTACKERS");
-
-      const untappedPermanentIds: string[] = [];
-
-      // Execute untap if needed
-      if (needsUntap && turnPlayer) {
-        try {
-          // Untap all permanents controlled by the turn player
-          const battlefield = (game.state as any)?.battlefield || [];
-          let untappedCount = 0;
-          for (const permanent of battlefield) {
-            if (permanent && permanent.controller === turnPlayer && permanent.tapped) {
-              // Check for "doesn't untap" effects
-              if (!permanent.doesntUntap) {
-                permanent.tapped = false;
-                queueBecomesUntappedTriggers(game as any, permanent);
-                untappedPermanentIds.push(String(permanent.id || ''));
-                untappedCount++;
-              }
-            }
-          }
-          if (untappedCount > 0) {
-            debug(2, `[skipToPhase] Untapped ${untappedCount} permanent(s) for ${turnPlayer}`);
-          }
-        } catch (err) {
-          debugWarn(1, `[skipToPhase] Failed to untap permanents:`, err);
-        }
-      }
-
-      // Execute draw if needed
-      if (needsDraw && turnPlayer) {
-        try {
-          if (typeof (game as any).drawCards === "function") {
-            // Recalculate player effects to ensure additional draws from Howling Mine, etc. are counted
-            // This is important when skipping phases because the effects may not have been calculated yet
-            try {
-              recalculatePlayerEffects(game as any, turnPlayer);
-            } catch (recalcErr) {
-              debugWarn(1, `[skipToPhase] Failed to recalculate player effects:`, recalcErr);
-            }
-            
-            // Calculate total cards to draw: 1 (base) + any additional draws from effects
-            const additionalDraws = (game as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
-            const totalDraws = 1 + additionalDraws;
-            
-            const drawn = (game as any).drawCards(turnPlayer, totalDraws);
-            debug(2, 
-              `[skipToPhase] Drew ${drawn?.length || totalDraws} card(s) for ${turnPlayer} (skipped from ${currentStep} to ${targetStep}, additional: ${additionalDraws})`
-            );
-            
-            // Check for miracle on the first drawn card
-            if (Array.isArray(drawn) && drawn.length > 0) {
-              checkAndPromptMiracle(io, game, gameId, turnPlayer, drawn);
-            }
-            
-            // Persist the draw event
-            try {
-              appendEvent(gameId, (game as any).seq || 0, "drawCards", { 
-                playerId: turnPlayer, 
-                count: totalDraws,
-                reason: "skipToPhase"
-              });
-            } catch (e) {
-              debugWarn(1, "appendEvent(drawCards) failed:", e);
-            }
-          }
-        } catch (err) {
-          debugWarn(1, `[skipToPhase] Failed to draw card:`, err);
-        }
-      }
-
-      // ========================================================================
-      // CRITICAL: Process triggers for phases we're skipping through
-      // NOTE: UPKEEP, BEGIN_COMBAT, and END_STEP triggers are now handled EARLIER
-      // in the skipToPhase flow (before the phase is updated) to ensure they fire
-      // in the correct phase rather than the target phase.
-      // See lines ~4100-4230 for the new trigger handling that stops at each phase.
-      // ========================================================================
-
-      // Clear any combat state since we're skipping combat
-      try {
-        // Set combat to undefined rather than deleting for better performance
-        (game.state as any).combat = undefined;
-        
-        // Clear attacking/blocking states from permanents
-        const battlefield = (game.state as any)?.battlefield;
-        if (Array.isArray(battlefield)) {
-          for (const permanent of battlefield) {
-            if (!permanent) continue;
-            // Set to undefined instead of deleting for better performance
-            if (permanent.attacking !== undefined) permanent.attacking = undefined;
-            if (permanent.blocking !== undefined) permanent.blocking = undefined;
-            if (permanent.blockedBy !== undefined) permanent.blockedBy = undefined;
-          }
-        }
-      } catch (err) {
-        debugWarn(1, `[skipToPhase] Failed to clear combat state:`, err);
-      }
-
-      // CRITICAL: Reset priority tracking after skipping to a new phase
-      // This prevents the auto-pass cascade where:
-      // 1. Player uses skipToPhase to go to a specific step
-      // 2. Client has auto-pass enabled, sees priority, sends passPriority immediately
-      // 3. Server (single-player mode) auto-advances to next step
-      // 4. Repeat until end of turn
-      // 
-      // By resetting priorityPassedBy and ensuring priority is with the active player,
-      // we give the player a chance to act before any auto-advancement occurs.
-      try {
-        // Reset the priority tracking set
-        (game.state as any).priorityPassedBy = new Set<string>();
-        
-        // Ensure priority is with the turn player after skipping
-        if (turnPlayer) {
-          (game.state as any).priority = turnPlayer;
-        }
-        
-        debug(2, `[skipToPhase] Reset priority tracking, priority set to ${turnPlayer}`);
-      } catch (err) {
-        debugWarn(1, `[skipToPhase] Failed to reset priority tracking:`, err);
-      }
 
       // Handle CLEANUP phase specially - need to check for discard and auto-advance to next turn
       const isCleanupPhase = targetStepUpper === "CLEANUP";
@@ -16045,7 +15462,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
   // Keep hand - player accepts their current hand
   // If mulligans were taken, this triggers the London Mulligan bottom selection
-  socket.on("keepHand", (payload?: { gameId?: unknown }) => {
+  socket.on("keepHand", async (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
       if (!gameId || typeof gameId !== 'string') return;
@@ -16173,6 +15590,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         checkAndPromptOpeningHandActions(io, game, gameId, playerId);
 
         broadcastGame(io, game, gameId);
+        await tryAutoStartGameFromPreGame(io, game, gameId, 'allHandsKept');
       }
     } catch (err: any) {
       debugError(1, `keepHand error for game ${gameId}:`, err);

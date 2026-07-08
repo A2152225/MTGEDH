@@ -660,6 +660,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'scry',
   'search_library',
   'surveil',
+  'tap_matching_permanents',
 ]);
 
 export function applyOracleIRStepsToGameStateImpl(

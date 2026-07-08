@@ -8,6 +8,7 @@ import {
   createTokens,
   createTokensByName,
   parseTokenCreationFromText,
+  resolveTokenCharacteristicsFromOracleStep,
   detectTokenETBTriggers,
   detectTokenCreationTriggers,
   COMMON_TOKENS,
@@ -224,6 +225,48 @@ describe('Token Creation', () => {
     it('should return null for non-token text', () => {
       const result = parseTokenCreationFromText('draw a card');
       expect(result).toBeNull();
+    });
+
+    it('should parse artifact creature tokens with quoted variable P/T abilities', () => {
+      const clause =
+        'create a white Gnome Soldier artifact creature token with "This token\'s power and toughness are each equal to the number of artifacts and/or creatures you control."';
+      const result = parseTokenCreationFromText(clause);
+
+      expect(result).not.toBeNull();
+      expect(result!.characteristics.types).toEqual(['Artifact', 'Creature']);
+      expect(result!.characteristics.subtypes).toEqual(['Gnome', 'Soldier']);
+      expect(result!.characteristics.abilities).toContain(
+        "This token's power and toughness are each equal to the number of artifacts and/or creatures you control.",
+      );
+    });
+  });
+
+  describe('resolveTokenCharacteristicsFromOracleStep', () => {
+    it('should preserve artifact creature type and quoted ability from Thousand Moons Smithy token hint', () => {
+      const hint =
+        'white Gnome Soldier artifact creature, with "This token\'s power and toughness are each equal to the number of artifacts and/or creatures you control."';
+      const raw =
+        'create a white Gnome Soldier artifact creature token with "This token\'s power and toughness are each equal to the number of artifacts and/or creatures you control."';
+
+      const characteristics = resolveTokenCharacteristicsFromOracleStep(hint, raw);
+
+      expect(characteristics).not.toBeNull();
+      expect(characteristics!.types).toEqual(['Artifact', 'Creature']);
+      expect(characteristics!.abilities).toContain(
+        "This token's power and toughness are each equal to the number of artifacts and/or creatures you control.",
+      );
+    });
+
+    it('should recover creature type from clause when legacy hint dropped it', () => {
+      const hint =
+        'white Gnome Soldier artifact, with "This token\'s power and toughness are each equal to the number of artifacts and/or creatures you control"';
+      const raw =
+        'create a white Gnome Soldier artifact creature token with "This token\'s power and toughness are each equal to the number of artifacts and/or creatures you control."';
+
+      const characteristics = resolveTokenCharacteristicsFromOracleStep(hint, raw);
+
+      expect(characteristics).not.toBeNull();
+      expect(characteristics!.types).toEqual(['Artifact', 'Creature']);
     });
   });
 

@@ -149,6 +149,7 @@ const updatedBattlefield = applyConditionalGoad(
 ### Server Tests
 - `server/tests/goad-static-death.unit.test.ts` — static goad detection, death clause matching (6 tests)
 - `server/tests/goad-baeloth.integration.test.ts` — skipToPhase block, non-goaded skip allowed, Treasure on stack resolve (3 tests)
+- See [Phase skip architecture](./phase-skip-architecture.md) for goad enforcement during `skipToPhase`
 - Existing: `can-respond.test.ts` (Bloodthirsty Blade equipped goad), Oracle IR goad trigger/spell tests
 
 **All goad-focused tests passing ✅**

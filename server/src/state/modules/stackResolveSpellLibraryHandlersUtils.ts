@@ -289,9 +289,10 @@ export function applyInstantSorceryLibrarySearchSpellHandlers(
 
   const isGiftOfEstates = effectiveCard.name?.toLowerCase().includes('gift of estates')
     || (
-      oracleTextLower.includes('opponent controls more lands')
+      oracleTextLower.includes('if an opponent controls more lands than you')
       && oracleTextLower.includes('search')
       && oracleTextLower.includes('plains')
+      && !/\b(?:when|whenever|at)\b[^,]*,\s*if\s+an\s+opponent\s+controls\s+more\s+lands/i.test(oracleTextLower)
     );
 
   if (isGiftOfEstates) {

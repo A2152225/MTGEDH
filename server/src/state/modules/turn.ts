@@ -27,17 +27,22 @@ import {
   getBeginningOfCombatTriggers, 
   getEndStepTriggers, 
   getDrawStepTriggers,
+  getPrecombatMainTriggers,
+  getPostcombatMainTriggers,
   getEndOfCombatTriggers,
   getUntapStepEffects,
   applyUntapStepEffect,
   isPermanentPreventedFromUntapping,
+  shouldSkipUntapStepForPlayer,
   detectCombatDamageTriggers,
-  getTriggersForTiming,
   checkDamageReceivedTrigger
 } from "./triggered-abilities.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { queueBecomesUntappedTriggers } from "./triggers/tap-untap.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, recordUpkeepBegan } from "./upkeep-triggers.js";
+import { processSagaLoreCountersAtPrecombatMain } from "./triggerSagaLoreUtils.js";
+import { processRadCountersAtPrecombatMain } from "./triggers/rad-counters.js";
+import { processAttractionVisitRollAtPrecombatMain } from "./triggers/attraction-visit.js";
 import { pushTriggerDoublerCopies } from "./triggers/combat.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
@@ -52,6 +57,32 @@ import { runSBA, createToken, updateCounters } from "./counters_tokens.js";
 import { applyDamageToPermanentWithCounterEffects, applyShieldCounterDamagePrevention, clearMarkedPermanentDamage } from "./counter-common-effects.js";
 import { calculateAllPTBonuses, calculateVariablePT, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
 import { canAct, canRespond, turnPlayerMustDeclareAttackers } from "./can-respond.js";
+
+/**
+ * Rule 103.8: On turn 1, two-player games skip the starting player's draw step;
+ * multiplayer (3+) starting players still draw.
+ */
+export function shouldPerformDrawStepTurnAction(ctx: GameContext, turnPlayer: string): boolean {
+  const state = (ctx as any).state || {};
+  const turnNumber = Number(state.turnNumber ?? state.turn ?? 0) || 0;
+  if (turnNumber !== 1) return true;
+
+  const activePlayers = (Array.isArray(state.players) ? state.players : [])
+    .filter((p: any) => p && !p.spectator && !p.isSpectator);
+  if (activePlayers.length !== 2) return true;
+
+  const startingPlayer = String(
+    state.startingPlayerId ?? state.startingPlayer ?? state.turnPlayer ?? ''
+  ).trim();
+  if (!startingPlayer) return true;
+
+  return String(turnPlayer) !== startingPlayer;
+}
+
+/** Rule 502.1: false when Stasis-style effects skip the active player's untap step. */
+export function shouldPerformUntapStepTurnAction(ctx: GameContext, turnPlayer: string): boolean {
+  return !shouldSkipUntapStepForPlayer(ctx, turnPlayer);
+}
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { syncPreparedPermanentAfterControlChange } from "./prepared.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
@@ -3518,6 +3549,46 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
 }
 
 /**
+ * Rule 502.3: untap step turn action — untap active player's permanents plus
+ * other-players'-turn untap effects (Unwinding Clock, Seedborn Muse, etc.).
+ */
+export function performUntapStepTurnAction(ctx: GameContext, turnPlayer: string): string[] {
+  const untappedPermanentIds: string[] = [];
+  if (!shouldPerformUntapStepTurnAction(ctx, turnPlayer)) {
+    return untappedPermanentIds;
+  }
+  try {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return untappedPermanentIds;
+
+    const tappedBefore = new Set<string>();
+    for (const permanent of battlefield) {
+      if (permanent && permanent.controller === turnPlayer && permanent.tapped) {
+        tappedBefore.add(String(permanent.id || ''));
+      }
+    }
+
+    untapPermanentsForPlayer(ctx, turnPlayer);
+
+    const untapEffects = getUntapStepEffects(ctx, turnPlayer);
+    for (const effect of untapEffects) {
+      applyUntapStepEffect(ctx, effect);
+    }
+
+    for (const permanent of battlefield) {
+      if (!permanent) continue;
+      const id = String(permanent.id || '');
+      if (tappedBefore.has(id) && !permanent.tapped) {
+        untappedPermanentIds.push(id);
+      }
+    }
+  } catch (err) {
+    debugWarn(1, `${ts()} performUntapStepTurnAction failed:`, err);
+  }
+  return untappedPermanentIds;
+}
+
+/**
  * nextTurn: advance to next player's turn
  * - Checks for extra turns first (Rule 500.7)
  * - Updates turnPlayer to the next player in order
@@ -3531,6 +3602,7 @@ function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
 export function nextTurn(ctx: GameContext) {
   try {
     (ctx as any).state = (ctx as any).state || {};
+    const wasPreGame = String((ctx as any).state?.phase || '').toLowerCase() === 'pre_game';
     const allPlayers = Array.isArray((ctx as any).state.players)
       ? (ctx as any).state.players.map((p: any) => p.id)
       : [];
@@ -3598,6 +3670,10 @@ export function nextTurn(ctx: GameContext) {
         return;
       }
       debug(2, `${ts()} [nextTurn] Taking extra turn for ${next} (turn ${turnNumber})`);
+    } else if (wasPreGame) {
+      // Pre-game start: turnPlayer already designates the starting player.
+      next = (current && players.includes(current)) ? current : players[0];
+      debug(2, `${ts()} [nextTurn] Starting game — first active player: ${next}`);
     } else {
       // Normal turn progression - find next active player
       const currentIdx = players.indexOf(current);
@@ -4461,6 +4537,7 @@ export function nextTurn(ctx: GameContext) {
     for (const pid of players) {
       (ctx as any).state.dieRollsThisTurn[String(pid)] = [];
     }
+    delete (ctx as any).state._pendingAttractionVisitRollPlayer;
 
     // Reset dungeon completion tracking for this turn.
     (ctx as any).state.completedDungeonThisTurn = {};
@@ -5230,14 +5307,18 @@ export function nextStep(ctx: GameContext) {
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
         if (turnPlayer) {
-          // Calculate total cards to draw: 1 (base) + any additional draws from effects
-          const additionalDraws = (ctx as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
-          const totalDraws = 1 + additionalDraws;
-          
-          const drawn = drawCards(ctx, turnPlayer, totalDraws);
-          debug(2, 
-            `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step (base: 1, additional: ${additionalDraws})`
-          );
+          if (shouldPerformDrawStepTurnAction(ctx, String(turnPlayer))) {
+            // Calculate total cards to draw: 1 (base) + any additional draws from effects
+            const additionalDraws = (ctx as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
+            const totalDraws = 1 + additionalDraws;
+
+            const drawn = drawCards(ctx, turnPlayer, totalDraws);
+            debug(2,
+              `${ts()} [nextStep] Drew ${drawn.length} card(s) for ${turnPlayer} at draw step (base: 1, additional: ${additionalDraws})`
+            );
+          } else {
+            debug(2, `${ts()} [nextStep] Skipped draw step turn action for ${turnPlayer} (Rule 103.8a first-turn two-player)`);
+          }
         } else {
           debugWarn(2, `${ts()} [nextStep] No turnPlayer set, cannot draw card`);
         }
@@ -5311,6 +5392,13 @@ export function nextStep(ctx: GameContext) {
                     break;
                   case 'precombat_main':
                     textForEval = `At the beginning of your precombat main phase, ${textForEval}`;
+                    break;
+                  case 'saga_chapter':
+                  case 'saga_lore_counter':
+                    textForEval = `At the beginning of your precombat main phase, ${textForEval}`;
+                    break;
+                  case 'postcombat_main':
+                    textForEval = `At the beginning of your postcombat main phase, ${textForEval}`;
                     break;
                   case 'begin_combat':
                     textForEval = `At the beginning of combat, ${textForEval}`;
@@ -5648,7 +5736,7 @@ export function nextStep(ctx: GameContext) {
                   sourceName: card.name,
                   description: `You may cast a copy of ${card.name} from exile without paying its mana cost.`,
                   triggerType: 'paradigm',
-                  mandatory: true,
+                  mandatory: false,
                   paradigmCardId: card.id,
                   card,
                 };
@@ -5674,14 +5762,42 @@ export function nextStep(ctx: GameContext) {
             }
           }
 
-          const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
+          const sagaLoreResult = processSagaLoreCountersAtPrecombatMain(ctx as any, turnPlayer);
+          pushTriggersToStack(
+            sagaLoreResult.chapterTriggers.map((trigger) => ({
+              permanentId: trigger.permanentId,
+              cardName: trigger.cardName,
+              controllerId: trigger.controllerId,
+              description: trigger.description,
+              effect: trigger.effect,
+              mandatory: trigger.mandatory,
+              stackItem: {
+                triggerType: 'saga_chapter',
+                sagaChapter: trigger.sagaChapter,
+                sagaSacrificeAfterResolve: trigger.sagaSacrificeAfterResolve,
+              },
+            })),
+            'saga_chapter',
+            'saga_chapter',
+          );
+
+          if (sagaLoreResult.chapterTriggers.length === 0) {
+            processAttractionVisitRollAtPrecombatMain(ctx as any, turnPlayer);
+          } else {
+            (ctx as any).state._pendingAttractionVisitRollPlayer = turnPlayer;
+          }
+
+          const precombatMainTriggers = getPrecombatMainTriggers(ctx, turnPlayer);
           pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
-          debug(2, `${ts()} [nextStep] Checking precombat main triggers for ${turnPlayer}, found ${precombatMainTriggers.length} trigger(s)`);
+
+          processRadCountersAtPrecombatMain(ctx as any, turnPlayer);
+
+          debug(2, `${ts()} [nextStep] Checking precombat main triggers for ${turnPlayer}, found ${precombatMainTriggers.length} trigger(s), ${sagaLoreResult.loreCountersAdded} saga lore counter(s) added`);
         }
 
         // Beginning of postcombat main phase / second main phase triggers.
         else if (nextStep === "MAIN2") {
-          const postcombatMainTriggers = getTriggersForTiming(ctx, 'postcombat_main', turnPlayer);
+          const postcombatMainTriggers = getPostcombatMainTriggers(ctx, turnPlayer);
           pushTriggersToStack(postcombatMainTriggers, 'postcombat_main', 'main');
           debug(2, `${ts()} [nextStep] Checking postcombat main triggers for ${turnPlayer}, found ${postcombatMainTriggers.length} trigger(s)`);
         }
@@ -5932,7 +6048,7 @@ export function nextStep(ctx: GameContext) {
     if (shouldUntap) {
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
-        if (turnPlayer) {
+        if (turnPlayer && shouldPerformUntapStepTurnAction(ctx, String(turnPlayer))) {
           // Untap all permanents for the turn player
           untapPermanentsForPlayer(ctx, turnPlayer);
           
@@ -5945,7 +6061,7 @@ export function nextStep(ctx: GameContext) {
               debug(2, `${ts()} [nextStep] ${effect.cardName} untapped ${count} permanents for ${effect.controllerId}`);
             }
           }
-        } else {
+        } else if (!turnPlayer) {
           debugWarn(2, `${ts()} [nextStep] No turnPlayer set, cannot untap permanents`);
         }
       } catch (err) {

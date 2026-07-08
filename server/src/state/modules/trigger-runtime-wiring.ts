@@ -23,6 +23,8 @@ export type { CollectOracleEffectStepsOptions } from './oracleIrCompiledOverlayL
  */
 export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'tap_or_untap',
+  'tap_matching_permanents',
+  'turn_face_up',
   'exile_top',
   'impulse_exile_top',
   'add_mana',

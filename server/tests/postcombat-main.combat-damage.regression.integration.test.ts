@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID } from '../../shared/src';
-import { registerPermanentTriggers } from '../src/state/modules/triggered-abilities';
 
 function addPlayer(g: any, id: PlayerID, name: string) {
   g.applyEvent({ type: 'join', playerId: id, name });
@@ -87,7 +86,6 @@ describe('Postcombat main combat-damage regressions', () => {
     };
 
     (g.state.battlefield as any[]).push(estinien, dragon);
-    registerPermanentTriggers(g as any, estinien as any);
 
     const handCountBefore = Number((g.state as any).zones?.[activePlayer]?.handCount || 0);
     const lifeBefore = Number((g.state as any).life?.[activePlayer] || 40);

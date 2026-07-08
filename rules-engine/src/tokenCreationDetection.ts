@@ -5,6 +5,39 @@ import type {
   TokenTriggerInfo,
 } from './tokenCreationTypes';
 
+function extractQuotedTokenAbilities(text: string): { readonly descriptor: string; readonly quotedAbilities: readonly string[] } {
+  const quotedAbilities: string[] = [];
+  for (const match of String(text || '').matchAll(/\bwith\s+"([^"]+)"/gi)) {
+    const ability = String(match[1] || '').trim();
+    if (ability) quotedAbilities.push(ability);
+  }
+  const descriptor = String(text || '')
+    .replace(/\s*,?\s*with\s+"[^"]+"/gi, '')
+    .trim();
+  return { descriptor, quotedAbilities };
+}
+
+function mergeTokenCharacteristics(
+  primary: TokenCharacteristics,
+  fallback: TokenCharacteristics | null | undefined,
+  quotedAbilities: readonly string[],
+): TokenCharacteristics {
+  let merged = primary;
+  if (
+    fallback
+    && fallback.types.includes('Creature')
+    && !merged.types.includes('Creature')
+  ) {
+    merged = {
+      ...merged,
+      types: Array.from(new Set([...merged.types, ...fallback.types])),
+    };
+  }
+  if (quotedAbilities.length === 0) return merged;
+  const abilities = Array.from(new Set([...(merged.abilities || []), ...quotedAbilities]));
+  return { ...merged, abilities };
+}
+
 /**
  * Parse token creation from oracle text.
  * Returns token characteristics and count if the text describes token creation.
@@ -12,7 +45,8 @@ import type {
 export function parseTokenCreationFromText(
   oracleText: string
 ): { characteristics: TokenCharacteristics; count: number } | null {
-  const lowerText = oracleText.toLowerCase();
+  const { descriptor, quotedAbilities } = extractQuotedTokenAbilities(oracleText);
+  const lowerText = descriptor.toLowerCase();
   const wordCounts: Record<string, number> = {
     a: 1,
     an: 1,
@@ -143,6 +177,9 @@ export function parseTokenCreationFromText(
   if (lowerText.includes('prowess')) abilities.push('Prowess');
   if (lowerText.includes('decayed')) abilities.push('Decayed');
   if (lowerText.includes('toxic 1')) abilities.push('Toxic 1');
+  for (const quoted of quotedAbilities) {
+    if (!abilities.includes(quoted)) abilities.push(quoted);
+  }
 
   let name = subtypes.length > 1 ? subtypes.join(' ') : (subtypes[subtypes.length - 1] || 'Token');
   if (descriptors.includes('treasure')) name = 'Treasure';
@@ -173,14 +210,26 @@ export function resolveTokenCharacteristicsFromOracleStep(
   tokenHint: string,
   clauseRaw: string,
 ): TokenCharacteristics | null {
-  const hintText = String(tokenHint || '').trim();
-  if (hintText) {
-    const fromHint = parseTokenCreationFromText(`Create a ${hintText} token`);
-    if (fromHint) return fromHint.characteristics;
+  const hintParsed = extractQuotedTokenAbilities(String(tokenHint || '').trim());
+  const clauseParsed = extractQuotedTokenAbilities(String(clauseRaw || '').trim());
+  const quotedAbilities = Array.from(new Set([...hintParsed.quotedAbilities, ...clauseParsed.quotedAbilities]));
+
+  const fromHint = hintParsed.descriptor
+    ? parseTokenCreationFromText(`Create a ${hintParsed.descriptor} token`)
+    : null;
+  const fromClause = clauseParsed.descriptor
+    ? parseTokenCreationFromText(String(clauseRaw || '').trim())
+    : null;
+
+  if (fromHint) {
+    return mergeTokenCharacteristics(fromHint.characteristics, fromClause?.characteristics, quotedAbilities);
   }
 
-  const fromClause = parseTokenCreationFromText(String(clauseRaw || '').trim());
-  return fromClause?.characteristics ?? null;
+  if (fromClause) {
+    return mergeTokenCharacteristics(fromClause.characteristics, null, quotedAbilities);
+  }
+
+  return null;
 }
 
 /**

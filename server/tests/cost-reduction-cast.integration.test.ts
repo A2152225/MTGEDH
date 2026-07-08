@@ -147,6 +147,131 @@ describe('cost reduction cast integration', () => {
     await resetGame(gameId);
   });
 
+  it('queues flashback mana payment when Ruby reduction leaves a payable cost and pool is empty', async () => {
+    const gameId = 'test_cost_reduction_flashback_payment_queue';
+    await resetGame(gameId);
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'ruby_medallion_1',
+        controller: playerId,
+        owner: playerId,
+        card: {
+          name: 'Ruby Medallion',
+          type_line: 'Artifact',
+          oracle_text: 'Red spells you cast cost {1} less to cast.',
+        },
+      },
+      {
+        id: 'mountain_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          name: 'Mountain',
+          type_line: 'Basic Land — Mountain',
+          oracle_text: '{T}: Add {R}.',
+        },
+      },
+      {
+        id: 'forest_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '{T}: Add {G}.',
+        },
+      },
+      {
+        id: 'target_creature_1',
+        controller: 'p2',
+        owner: 'p2',
+        card: {
+          name: 'Grizzly Bears',
+          type_line: 'Creature — Bear',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'lightning_bolt_1',
+            name: 'Lightning Bolt',
+            type_line: 'Instant',
+            mana_cost: '{R}',
+            colors: ['R'],
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.\nFlashback {2}{R}',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId,
+      cardId: 'lightning_bolt_1',
+      abilityId: 'flashback',
+      targets: ['target_creature_1'],
+    });
+
+    const paymentStep = ResolutionQueueManager.getQueue(gameId).steps.find(
+      (entry: any) => entry.graveyardSpellCastManaPayment === true,
+    ) as any;
+    expect(paymentStep).toBeDefined();
+    expect(String(paymentStep.manaCost || '')).toBe('{1}{R}');
+    expect((game.state as any).stack || []).toHaveLength(0);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: 'mountain_1', mana: 'R', count: 1 },
+          { permanentId: 'forest_1', mana: 'G', count: 1 },
+        ],
+      },
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack.some((entry: any) => String(entry?.card?.name || '') === 'Lightning Bolt')).toBe(true);
+    expect(String(stack[0]?.card?.castWithAbility || '')).toBe('flashback');
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'mountain_1')?.tapped).toBe(true);
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'forest_1')?.tapped).toBe(true);
+    await resetGame(gameId);
+  });
+
   it('applies Convergence of Dominion to unearth activation cost', async () => {
     const gameId = 'test_cost_reduction_unearth';
     await resetGame(gameId);
@@ -278,6 +403,19 @@ describe('cost reduction cast integration', () => {
           oracle_text: '{T}: Add {G}.',
         },
       },
+      {
+        id: 'host_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          name: 'Merfolk Host',
+          type_line: 'Creature — Merfolk',
+          oracle_text: '',
+          power: '1',
+          toughness: '1',
+        },
+      },
     ];
     (game.state as any).zones = {
       [playerId]: {
@@ -310,23 +448,14 @@ describe('cost reduction cast integration', () => {
 
     await handlers['requestCastSpell']({ gameId, cardId: 'hakbal_1' });
 
-    const mutateModeStep = ResolutionQueueManager.getQueue(gameId).steps.find(
-      (entry: any) => entry.mutateCastModeChoice === true,
-    ) as any;
-    if (mutateModeStep) {
-      await handlers['submitResolutionResponse']({
-        gameId,
-        stepId: String(mutateModeStep.id),
-        selections: { optionId: 'cast_normal' },
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-
     const paymentStep = ResolutionQueueManager.getQueue(gameId).steps.find(
       (entry: any) => entry.type === 'mana_payment_choice' && entry.spellPaymentRequired === true,
     ) as any;
 
     expect(paymentStep).toBeDefined();
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some(
+      (entry: any) => entry.mutateCastModeChoice === true,
+    )).toBe(false);
     expect(paymentStep.extraAlternateCosts).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'mutate', manaCost: '{1}' }),
       expect.objectContaining({ id: 'wubrg_external', manaCost: '{0}' }),

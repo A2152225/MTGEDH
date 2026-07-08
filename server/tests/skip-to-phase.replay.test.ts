@@ -19,6 +19,8 @@ describe('skipToPhase replay semantics', () => {
       't_skip_to_phase_auto_continue_replay',
       't_skip_to_phase_untap_replay',
       't_skip_to_phase_final_state_replay',
+      't_skip_to_phase_draw_flag_replay',
+      't_skip_to_phase_untap_flag_replay',
     ]) {
       resetGame(gameId);
     }
@@ -70,6 +72,9 @@ describe('skipToPhase replay semantics', () => {
         targetPhase: 'postcombatMain',
         targetStep: 'MAIN2',
         requestedBy: p1,
+        skipOriginPhase: 'precombatMain',
+        skipOriginStep: 'MAIN1',
+        lastStopStep: 'BEGIN_COMBAT',
       },
       priority: p1,
       triggerOrderRequests: [
@@ -96,10 +101,13 @@ describe('skipToPhase replay semantics', () => {
     expect(String((game.state as any).phase || '')).toBe('combat');
     expect(String((game.state as any).step || '')).toBe('BEGIN_COMBAT');
     expect(String((game.state as any).priority || '')).toBe(p1);
-    expect((game.state as any).pendingPhaseSkip).toEqual({
+    expect((game.state as any).pendingPhaseSkip).toMatchObject({
       targetPhase: 'postcombatMain',
       targetStep: 'MAIN2',
       requestedBy: p1,
+      skipOriginPhase: 'precombatMain',
+      skipOriginStep: 'MAIN1',
+      lastStopStep: 'BEGIN_COMBAT',
     });
 
     const stack = (game.state as any).stack || [];
@@ -134,6 +142,8 @@ describe('skipToPhase replay semantics', () => {
         targetPhase: 'postcombatMain',
         targetStep: 'MAIN2',
         requestedBy: p1,
+        skipOriginPhase: 'precombatMain',
+        skipOriginStep: 'MAIN1',
       },
       priority: p1,
     } as any);
@@ -237,5 +247,79 @@ describe('skipToPhase replay semantics', () => {
     expect(battlefield.find((permanent: any) => permanent.id === 'perm_attacker_1')?.attacking).toBeUndefined();
     expect(battlefield.find((permanent: any) => permanent.id === 'perm_attacker_1')?.blockedBy).toBeUndefined();
     expect(battlefield.find((permanent: any) => permanent.id === 'perm_blocker_1')?.blocking).toBeUndefined();
+  });
+
+  it('replays pendingPhaseSkip drawStepActionPerformed for DRAW-stop continuation', () => {
+    const gameId = 't_skip_to_phase_draw_flag_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+
+    game.applyEvent({
+      type: 'skipToPhase',
+      playerId: p1,
+      from: 'UPKEEP',
+      to: 'DRAW',
+      targetPhase: 'beginning',
+      targetStep: 'DRAW',
+      finalTargetPhase: 'postcombatMain',
+      finalTargetStep: 'MAIN2',
+      pendingPhaseSkip: {
+        targetPhase: 'postcombatMain',
+        targetStep: 'MAIN2',
+        requestedBy: p1,
+        skipOriginPhase: 'beginning',
+        skipOriginStep: 'UPKEEP',
+        lastStopStep: 'DRAW',
+        drawStepActionPerformed: true,
+      },
+      priority: p1,
+    } as any);
+
+    expect(String((game.state as any).phase || '')).toBe('beginning');
+    expect(String((game.state as any).step || '')).toBe('DRAW');
+    expect((game.state as any).pendingPhaseSkip).toMatchObject({
+      targetStep: 'MAIN2',
+      lastStopStep: 'DRAW',
+      drawStepActionPerformed: true,
+    });
+  });
+
+  it('replays pendingPhaseSkip untapStepActionPerformed for UNTAP-scan continuation', () => {
+    const gameId = 't_skip_to_phase_untap_flag_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+
+    game.applyEvent({
+      type: 'skipToPhase',
+      playerId: p1,
+      from: 'UNTAP',
+      to: 'UPKEEP',
+      targetPhase: 'beginning',
+      targetStep: 'UPKEEP',
+      finalTargetPhase: 'postcombatMain',
+      finalTargetStep: 'MAIN2',
+      pendingPhaseSkip: {
+        targetPhase: 'postcombatMain',
+        targetStep: 'MAIN2',
+        requestedBy: p1,
+        skipOriginPhase: 'beginning',
+        skipOriginStep: 'UNTAP',
+        lastStopStep: 'UPKEEP',
+        untapStepActionPerformed: true,
+        untappedDuringSkipIds: ['perm_tapped_1'],
+      },
+      untappedPermanentIds: ['perm_tapped_1'],
+      priority: p1,
+    } as any);
+
+    expect(String((game.state as any).step || '')).toBe('UPKEEP');
+    expect((game.state as any).pendingPhaseSkip).toMatchObject({
+      untapStepActionPerformed: true,
+      untappedDuringSkipIds: ['perm_tapped_1'],
+    });
   });
 });

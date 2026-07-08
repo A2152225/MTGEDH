@@ -228,7 +228,7 @@ export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger
   }
 
   const endStepMatch = oracleText.match(
-    /at the beginning of (?:(?:the )?next|your next|each(?: player's)?|your|the) end step,?\s*(?:if\s+[^,]+,\s*)?([^.]+\.?)/i,
+    /at the beginning of (?:(?:the )?next|your next|each(?: player's)?|your|the) end step,?\s*([^.]+\.?)/i,
   );
   if (endStepMatch) {
     const effect = timingTriggerEffect(oracleText, endStepMatch);
@@ -377,6 +377,91 @@ export function detectPrecombatMainTriggers(card: any, permanent: any): EndStepT
     }
   }
 
+  const precombatMainMatch = oracleText.match(
+    /at the beginning of (?:each player's |your )?(?:pre-?combat )?main (?:phase|step),?\s*(?:if\s+[^,]+,\s*)?([^.]+)/i,
+  );
+  if (precombatMainMatch && !firstMainMatch && !eachPlayerFirstMainMatch && !eachYourMainPhasesMatch) {
+    const effect = timingTriggerEffect(oracleText, precombatMainMatch);
+    if (effect) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'end_step_effect',
+        description: effect,
+        effect,
+        mandatory: !effect.toLowerCase().includes('you may'),
+        requiresChoice: detectRequiresChoice(effect),
+        affectsAllPlayers: detectAffectsAllPlayers(effect),
+      });
+    }
+  }
+
+  return triggers;
+}
+
+/**
+ * Get all precombat main phase triggers for the active player's first main phase.
+ */
+export function getPrecombatMainTriggers(
+  ctx: GameContext,
+  activePlayerId: string,
+): EndStepTrigger[] {
+  const triggers: EndStepTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+
+    const permTriggers = detectPrecombatMainTriggers(permanent.card, permanent);
+    const { oracleText } = getActivePermanentCardFace(permanent.card, permanent);
+    const lowerOracle = oracleText.toLowerCase();
+
+    for (const trigger of permTriggers) {
+      const interveningText = String(trigger.effect || trigger.description || '').trim();
+      let synthetic = interveningText;
+      if (!/^(?:when|whenever|at)\b/i.test(synthetic)) {
+        if (lowerOracle.includes("each player's first main phase")) {
+          synthetic = `At the beginning of each player's first main phase, ${synthetic}`;
+        } else if (lowerOracle.includes('each of your main phases')) {
+          synthetic = `At the beginning of each of your main phases, ${synthetic}`;
+        } else if (lowerOracle.includes('first main phase')) {
+          synthetic = `At the beginning of your first main phase, ${synthetic}`;
+        } else {
+          synthetic = `At the beginning of your precombat main phase, ${synthetic}`;
+        }
+      }
+
+      const ok = isInterveningIfSatisfied(
+        ctx,
+        trigger.controllerId || permanent.controller,
+        synthetic,
+        permanent,
+      );
+      if (ok === false) continue;
+
+      if (
+        trigger.affectsAllPlayers
+        || lowerOracle.includes("each player's first main phase")
+        || lowerOracle.includes('each player')
+      ) {
+        triggers.push(trigger);
+        continue;
+      }
+
+      if (lowerOracle.includes('each of your main phases')) {
+        if (permanent.controller === activePlayerId) {
+          triggers.push(trigger);
+        }
+        continue;
+      }
+
+      if (permanent.controller === activePlayerId) {
+        triggers.push(trigger);
+      }
+    }
+  }
+
   return triggers;
 }
 
@@ -441,6 +526,66 @@ export function detectPostcombatMainTriggers(card: any, permanent: any): EndStep
       requiresChoice: detectRequiresChoice(effect),
       affectsAllPlayers: detectAffectsAllPlayers(effect),
     });
+  }
+
+  return triggers;
+}
+
+/**
+ * Get all postcombat main phase triggers for the active player's second main phase.
+ */
+export function getPostcombatMainTriggers(
+  ctx: GameContext,
+  activePlayerId: string,
+): EndStepTrigger[] {
+  const triggers: EndStepTrigger[] = [];
+  const battlefield = ctx.state?.battlefield || [];
+
+  for (const permanent of battlefield) {
+    if (!permanent || !permanent.card) continue;
+
+    const permTriggers = [
+      ...detectPostcombatMainTriggers(permanent.card, permanent),
+      ...detectPrecombatMainTriggers(permanent.card, permanent).filter((trigger) => {
+        const { oracleText } = getActivePermanentCardFace(permanent.card, permanent);
+        return oracleText.toLowerCase().includes('each of your main phases');
+      }),
+    ];
+    const { oracleText } = getActivePermanentCardFace(permanent.card, permanent);
+    const lowerOracle = oracleText.toLowerCase();
+
+    for (const trigger of permTriggers) {
+      const interveningText = String(trigger.effect || trigger.description || '').trim();
+      let synthetic = interveningText;
+      if (!/^(?:when|whenever|at)\b/i.test(synthetic)) {
+        if (lowerOracle.includes('postcombat main phase')) {
+          synthetic = `At the beginning of your postcombat main phase, ${synthetic}`;
+        } else if (lowerOracle.includes('second main phase')) {
+          synthetic = `At the beginning of your second main phase, ${synthetic}`;
+        } else if (lowerOracle.includes('each of your main phases')) {
+          synthetic = `At the beginning of each of your main phases, ${synthetic}`;
+        } else {
+          synthetic = `At the beginning of your postcombat main phase, ${synthetic}`;
+        }
+      }
+
+      const ok = isInterveningIfSatisfied(
+        ctx,
+        trigger.controllerId || permanent.controller,
+        synthetic,
+        permanent,
+      );
+      if (ok === false) continue;
+
+      if (trigger.affectsAllPlayers || lowerOracle.includes('each postcombat main phase')) {
+        triggers.push(trigger);
+        continue;
+      }
+
+      if (permanent.controller === activePlayerId) {
+        triggers.push(trigger);
+      }
+    }
   }
 
   return triggers;
@@ -1055,5 +1200,21 @@ export function isPermanentPreventedFromUntapping(
     return true;
   }
   
+  return false;
+}
+
+/**
+ * Rule 502.1 / Stasis-style effects: active player skips their untap step entirely.
+ * Matches oracle text like "Players skip their untap steps" (Stasis).
+ */
+export function shouldSkipUntapStepForPlayer(ctx: GameContext, _turnPlayer: string): boolean {
+  const battlefield = ctx.state?.battlefield || [];
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    const oracleText = String(permanent.card.oracle_text || '').toLowerCase();
+    if (/players\s+skip\s+their\s+untap\s+steps?/.test(oracleText)) {
+      return true;
+    }
+  }
   return false;
 }

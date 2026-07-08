@@ -158,6 +158,7 @@ import { maybeResumeDeferredOracleIrStackSpellOnGame } from '../state/modules/or
 import { applyJoinForcesPaidManaPowerPump } from '../state/modules/joinForcesResolutionQueue.js';
 import { cardMatchesReflexiveGraveyardExileType, consumeReflexiveManaAmountFromPool, formatReflexiveFixedPaymentLabel, formatReflexiveGraveyardExileLabel, formatReflexiveManaAmount, getAvailableReflexiveManaAmountFromPool, materializeReflexiveFollowupText, materializeReflexiveSourceText, parseReflexivePaymentChoiceAmount, permanentMatchesReflexiveSacrificeType } from '../state/modules/reflexive-triggers.js';
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import { tryAutoStartGameFromPreGame } from "./pregame-auto-start.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
 import { getDominantCreatureType } from "./creature-type.js";
 import {
@@ -185,7 +186,7 @@ import {
   applyDungeonTargetPlayerEffect,
   buildDungeonRoomPromptSteps,
 } from "../state/modules/dungeon-effects.js";
-import { parseMadnessCost } from "../state/modules/alternate-costs.js";
+import { getValidMutateTargets, parseMadnessCost, parseMutateCost } from "../state/modules/alternate-costs.js";
 import {
   applyPowerUpDiscountsToActivationManaCost,
   maybeMarkPowerUpAbilityUsedFromActivationContext,
@@ -8262,6 +8263,18 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
 
       // Broadcast updated game state
       broadcastGame(io, game, gameId);
+
+      if (
+        completedStep.type === ResolutionStepType.OPENING_HAND_ACTIONS ||
+        completedStep.type === ResolutionStepType.HAND_TO_BOTTOM
+      ) {
+        await tryAutoStartGameFromPreGame(
+          io,
+          game,
+          gameId,
+          `resolution:${completedStep.type}`
+        );
+      }
       
       // Check if there are more steps for this player
       const remainingSteps = ResolutionQueueManager.getStepsForPlayer(gameId, pid);
@@ -10456,6 +10469,25 @@ async function handleStepResponse(
         }
       }
 
+      if (!isTapOtherAsActivationCost && !isBattlefieldAbilityTapUntapSelection) {
+        const oracleIrChoiceJson = String((step as any)?.oracleIrChoiceStepJson || '').trim();
+        const oracleIrResumeJson = String((step as any)?.oracleIrResumeStepsJson || '').trim();
+        if (oracleIrChoiceJson || oracleIrResumeJson) {
+          const ctx = ((game as any).ctx || game) as any;
+          ctx.gameId = gameId;
+          ctx.state = game.state;
+          if (oracleIrChoiceJson) {
+            const resumed = maybeApplyOracleIrChoiceStepFromResolution(ctx, step, response);
+            if (resumed) {
+              maybeResumeOracleIRStepsAfterResolution(ctx, step);
+            }
+          } else {
+            maybeResumeOracleIRStepsAfterResolution(ctx, step);
+          }
+          game.state = ctx.state;
+        }
+      }
+
       // Activation-cost tap flow: resume the battlefield ability activation.
       if (isTapOtherAsActivationCost) {
         const stepAny = stepData as any;
@@ -12493,6 +12525,105 @@ async function handleStepResponse(
           }
           break;
         }
+
+        // Unified payment step: mutate target is chosen after paying when alternateCostId is mutate.
+        if (alternateCostId === 'mutate') {
+          const pendingCast = effectId ? (game.state as any)?.pendingSpellCasts?.[effectId] : undefined;
+          const existingMutateTarget = String(
+            pendingCast?.mutateTarget
+            || pendingCast?.targets?.[0]
+            || targets?.[0]
+            || '',
+          ).trim();
+
+          if (!existingMutateTarget) {
+            const mutateCtx: any = { state: game.state };
+            const validMutateTargets = getValidMutateTargets(mutateCtx, pid as PlayerID);
+            if (validMutateTargets.length === 0) {
+              emitToPlayer(io, pid as any, 'error', {
+                code: 'NO_VALID_TARGETS',
+                message: `No valid mutate targets for ${cardName}`,
+              });
+              break;
+            }
+
+            const oracleTextForMutate = String(
+              pendingCast?.oracleText
+              || pendingCast?.card?.oracle_text
+              || stepData.oracleText
+              || '',
+            );
+            const rawMutateCost = parseMutateCost(oracleTextForMutate) || String(
+              (Array.isArray(pendingCast?.extraAlternateCosts) ? pendingCast.extraAlternateCosts : [])
+                .find((entry: any) => String(entry?.id || '') === 'mutate')
+                ?.rawCost
+              || (Array.isArray(pendingCast?.extraAlternateCosts) ? pendingCast.extraAlternateCosts : [])
+                .find((entry: any) => String(entry?.id || '') === 'mutate')
+                ?.manaCost
+              || '',
+            ).trim();
+
+            if (pendingCast) {
+              pendingCast.forcedAlternateCostId = 'mutate';
+              pendingCast.alternateCostId = 'mutate';
+              if (rawMutateCost) pendingCast.mutateCost = rawMutateCost;
+              pendingCast.deferredSpellPaymentCompletion = {
+                payment,
+                xValue,
+                convokeTappedCreatures,
+                harmonizeTappedCreatureId,
+                sneakReturnedCreatureId,
+              };
+            }
+
+            const mutateTargetStep = ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.MUTATE_TARGET_SELECTION,
+              playerId: pid as any,
+              sourceId: effectId,
+              sourceName: cardName,
+              sourceImage: stepData.imageUrl || step.sourceImage,
+              description: `Choose a creature to mutate onto for ${cardName}.`,
+              mandatory: true,
+              effectId,
+              cardId,
+              cardName,
+              mutateCost: rawMutateCost,
+              imageUrl: stepData.imageUrl || step.sourceImage,
+              validTargets: validMutateTargets.map((target: any) => {
+                const perm: any = (game.state.battlefield || []).find((entry: any) => entry && String(entry.id) === String(target.permanentId));
+                return {
+                  id: String(target.permanentId),
+                  name: String(target.cardName || 'Creature'),
+                  typeLine: String(target.typeLine || ''),
+                  power: target.power,
+                  toughness: target.toughness,
+                  imageUrl: target.imageUrl,
+                  controller: String(target.controller || ''),
+                  owner: String(target.owner || ''),
+                  isAlreadyMutated: Boolean((perm as any)?.mutatedStack),
+                  mutationCount: Number((perm as any)?.mutatedStack?.length || 0),
+                };
+              }),
+            } as any);
+
+            appendCastSpellContinuationEvent(gameId, game, {
+              playerId: pid,
+              cardId,
+              effectId,
+              pendingSpellCast: {
+                ...(pendingCast || {}),
+              },
+              queuedResolutionStep: {
+                ...(mutateTargetStep as any),
+              },
+            });
+
+            if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+            broadcastGame(io, game, gameId);
+            break;
+          }
+        }
+
         const castCompleted = await resumePlayerSpellCastAfterPayment(io, gameId, String(pid), {
           cardId,
           effectId,
@@ -34135,7 +34266,41 @@ async function handleMutateTargetSelectionResponse(
   pendingCast.mutateTarget = targetPermanentId;
   pendingCast.mutateOnTop = onTop;
   pendingCast.forcedAlternateCostId = 'mutate';
-  pendingCast.mutateCost = String(stepData.mutateCost || pendingCast.manaCost || '');
+  pendingCast.mutateCost = String(stepData.mutateCost || pendingCast.mutateCost || pendingCast.manaCost || '');
+
+  const deferredPayment = pendingCast.deferredSpellPaymentCompletion as {
+    payment?: any[];
+    xValue?: number;
+    convokeTappedCreatures?: string[];
+    harmonizeTappedCreatureId?: string;
+    sneakReturnedCreatureId?: string;
+  } | undefined;
+
+  if (deferredPayment) {
+    delete pendingCast.deferredSpellPaymentCompletion;
+
+    const castCompleted = await resumePlayerSpellCastAfterPayment(io, gameId, String(pid), {
+      cardId: String(pendingCast.cardId || cardId),
+      effectId,
+      payment: deferredPayment.payment,
+      targets: [targetPermanentId],
+      xValue: deferredPayment.xValue,
+      alternateCostId: 'mutate',
+      convokeTappedCreatures: deferredPayment.convokeTappedCreatures,
+      harmonizeTappedCreatureId: deferredPayment.harmonizeTappedCreatureId,
+      sneakReturnedCreatureId: deferredPayment.sneakReturnedCreatureId,
+    });
+
+    if (castCompleted) {
+      debug(2, `[Resolution] Deferred mutate payment complete for ${cardName}; completed cast (effectId='${effectId}')`);
+    } else {
+      debugWarn(1, `[Resolution] Deferred mutate payment applied for ${cardName} but cast did not complete (effectId='${effectId}')`);
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
 
   const existingPaymentStep = ResolutionQueueManager
     .getStepsForPlayer(gameId, pid as any)

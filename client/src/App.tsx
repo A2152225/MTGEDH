@@ -4132,7 +4132,7 @@ export function App() {
     if (!isPreGame) return null; // Only block during pregame
     if (!allPlayersHaveDecks) return 'Waiting for all players to import decks';
     if (!allPlayersKeptHands) return 'Waiting for all players to keep hands';
-    return null;
+    return 'Starting game…';
   }, [isPreGame, allPlayersHaveDecks, allPlayersKeptHands]);
 
   const showTopPanelPregameActions = isYouPlayer && isPreGame && showMulliganUI;
@@ -5826,25 +5826,6 @@ export function App() {
                     >
                       🎲 Random Start
                     </button>
-                    {allPlayersKeptHands && hasKeptHand && (
-                      <button
-                        onClick={() => socket.emit("nextStep", { gameId: safeView.id })}
-                        style={{
-                          background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
-                          color: 'white',
-                          border: '2px solid #15803d',
-                          borderRadius: 6,
-                          padding: '6px 16px',
-                          cursor: 'pointer',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          boxShadow: '0 2px 8px rgba(34, 197, 94, 0.35)',
-                        }}
-                        title="All players are ready. Begin the game."
-                      >
-                        ▶ Begin Game
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
@@ -6168,7 +6149,6 @@ export function App() {
               onKeepHand={() => socket.emit("keepHand", { gameId: safeView?.id })}
               onMulligan={() => socket.emit("mulligan", { gameId: safeView?.id })}
               onRandomizeStart={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
-              onBeginGame={() => socket.emit("nextStep", { gameId: safeView?.id })}
               playableCards={(safeView as any)?.playableCards}
               costAdjustments={(safeView as any)?.costAdjustments}
               ignoredCardIds={ignoredCardIds}

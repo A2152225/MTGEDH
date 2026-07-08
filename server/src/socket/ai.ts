@@ -64,6 +64,7 @@ import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPerm
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
 import { type AdditionalCostResult } from "./land-helpers.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import { tryAutoStartGameFromPreGame } from "./pregame-auto-start.js";
 import { syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getOptionalPaymentValidationFailure } from "./optional-payment-prompts.js";
 import {
@@ -1165,8 +1166,9 @@ export async function handleAIGameFlow(
           
           // Broadcast updated state so human players see AI has kept hand
           broadcastGame(io, game, gameId);
+          await tryAutoStartGameFromPreGame(io, game, gameId, 'ai_keep_hand');
           
-          // After keeping hand, re-trigger game flow to check for advancement
+          // After keeping hand, re-trigger game flow if still pre-game
           scheduleAIGameFlow(io, gameId, playerId, AI_THINK_TIME_MS);
           return;
         } else {
@@ -1186,6 +1188,7 @@ export async function handleAIGameFlow(
               mulligansTaken: currentMulligans,
             };
             broadcastGame(io, game, gameId);
+            await tryAutoStartGameFromPreGame(io, game, gameId, 'ai_forced_keep');
             scheduleAIGameFlow(io, gameId, playerId, AI_THINK_TIME_MS);
             return;
           }
@@ -1256,107 +1259,8 @@ export async function handleAIGameFlow(
         }
       }
       
-      // AI has already kept hand - now check if we should advance from pre_game
-      // This happens when:
-      // 1. AI is the active player (turnPlayer)
-      // 2. All players have kept their hands
-      // 3. All pending Leyline/opening hand actions are resolved
-      if (isAITurn) {
-        debug(1, '[AI] AI is active player in pre_game, checking if ready to advance');
-        
-        // Get mulligan state for checking hand keeping status
-        const mulliganState = (game.state as any).mulliganState || {};
-        
-        // Check if all players have kept their hands
-        const allPlayers = players.filter(
-          (p: any) => p && !(p.spectator || p.isSpectator)
-        );
-        const allKeptHands = allPlayers.every((p: any) => {
-          const pMulliganState = mulliganState[p.id];
-          return pMulliganState && pMulliganState.hasKeptHand;
-        });
-        
-        if (!allKeptHands) {
-          debug(1, '[AI] Waiting for other players to keep their hands');
-          return;
-        }
-        
-        // Check for pending Leyline/opening hand actions
-        // Players with Leylines in hand will have a pending prompt
-        // We need to wait for them to either play or skip Leylines
-        
-        let hasPendingLeylineActions = false;
-        for (const player of allPlayers) {
-          const pid = player.id;
-          // Check if player has Leyline cards in hand
-          const pZones = game.state.zones?.[pid];
-          if (pZones && Array.isArray(pZones.hand)) {
-            const hasLeylines = pZones.hand.some((card: any) => isOpeningHandBattlefieldCard(card, pid, game.state));
-            
-            if (hasLeylines && !isAIPlayer(gameId, pid)) {
-              // Human player has Leylines - they might still need to resolve them
-              // Check if they've already been prompted (we track this implicitly by checking
-              // if the game has broadcast since they kept their hand)
-              // For safety, give them a brief window to act
-              hasPendingLeylineActions = true;
-              debug(1, `[AI] Player ${pid} has Leyline cards, waiting for resolution`);
-            }
-          }
-        }
-        
-        // If there are pending Leyline actions, wait a bit longer for players to resolve them
-        // This is a conservative check - in practice, the Leyline prompt should be shown
-        // immediately after keeping hand, but we give a small grace period
-        if (hasPendingLeylineActions) {
-          // Re-check after a delay to allow human players to play/skip Leylines
-          scheduleAIGameFlow(io, gameId, playerId, LEYLINE_RESOLUTION_DELAY_MS);
-          return;
-        }
-        
-        // All conditions met - advance from pre_game to beginning phase
-        debug(1, '[AI] All players ready, AI advancing from pre_game to beginning phase');
-        
-        try {
-          // Use nextTurn to advance from pre_game to the first turn
-          // nextTurn properly sets phase="beginning", step="UNTAP", untaps permanents, 
-          // then advances to step="UPKEEP" and sets priority to the active player.
-          // Note: nextStep() explicitly blocks during pre_game phase, so we must use nextTurn()
-          if (typeof (game as any).nextTurn === 'function') {
-            (game as any).nextTurn();
-            debug(1, '[AI] Advanced game from pre_game to beginning phase via nextTurn');
-            
-            // Persist the event
-            const gameSeq = (game as any).seq;
-            if (typeof gameSeq !== 'number') {
-              debugError(1, '[AI] game.seq is not a number, cannot persist event');
-            } else {
-              try {
-                await appendEvent(gameId, gameSeq, 'nextTurn', {
-                  playerId,
-                  reason: 'ai_pregame_advance',
-                  isAI: true,
-                });
-              } catch (e) {
-                debugWarn(1, '[AI] Failed to persist nextTurn event:', e);
-              }
-            }
-            
-            // Broadcast updated state
-            broadcastGame(io, game, gameId);
-            
-            // Re-trigger AI game flow to handle the new phase
-            scheduleAIGameFlow(io, gameId, playerId, AI_THINK_TIME_MS);
-          } else {
-            debugError(1, '[AI] game.nextTurn not available');
-          }
-        } catch (err) {
-          debugError(1, '[AI] Error advancing from pre_game:', err);
-        }
-        
-        return;
-      } else {
-        debug(1, '[AI] AI has kept hand but is not active player, waiting');
-      }
+      // AI has already kept hand — try auto-start once the table is ready
+      await tryAutoStartGameFromPreGame(io, game, gameId, 'ai_pregame_ready');
     }
     return;
   }

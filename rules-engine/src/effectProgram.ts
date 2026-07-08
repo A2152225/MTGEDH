@@ -978,7 +978,8 @@ function oracleStepOptionalRequiresChoice(step: OracleEffectStep): boolean {
     kind === 'grant_graveyard_keyword_ability' ||
     kind === 'modify_graveyard_permissions' ||
     kind === 'look_choose_from_top' ||
-    kind === 'look_select_top'
+    kind === 'look_select_top' ||
+    kind === 'tap_matching_permanents'
   );
 }
 

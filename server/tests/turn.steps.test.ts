@@ -56,8 +56,9 @@ describe('Turn step engine basics', () => {
     g.importDeckResolved(p1, sampleDeck);
     g.importDeckResolved(p2, sampleDeck);
 
-    // Start of game: nextTurn sets BEGINNING/UNTAP for p2 (since turnPlayer starts as p1 on join)
+    // Start of game: nextTurn leaves the designated starting player active (turnPlayer from join/claim/randomize)
     g.applyEvent({ type: 'nextTurn' });
+    expect(g.state.turnPlayer).toBe(p1);
     expect(g.state.phase).toBe(GamePhase.BEGINNING);
     expect(g.state.step).toBe(GameStep.UNTAP);
 
@@ -73,7 +74,10 @@ describe('Turn step engine basics', () => {
     const perm = g.state.battlefield.find(p => p.id === permId)!;
     expect(perm.tapped).toBe(false);
 
-    // Capture hand count BEFORE entering draw step (draw happens when entering DRAW)
+    // Capture hand count BEFORE entering draw step (draw happens when entering DRAW).
+    // Turn 1 starting player skips their first draw in two-player games (Rule 103.8a).
+    (g.state as any).turn = 2;
+    (g.state as any).turnNumber = 2;
     const startHand = g.state.zones?.[g.state.turnPlayer]?.handCount ?? 0;
     g.applyEvent({ type: 'nextStep' }); // DRAW - card is drawn here
     expect(g.state.step).toBe(GameStep.DRAW);
@@ -107,6 +111,39 @@ describe('Turn step engine basics', () => {
     expect(g.state.turnPlayer).not.toBe(prevTurnPlayer);
     expect(g.state.phase).toBe(GamePhase.BEGINNING);
     expect(g.state.step).toBe(GameStep.UNTAP);
+  });
+
+  it('skips the untap step turn action when Stasis is on the battlefield', () => {
+    const g = createInitialGameState('t_steps_stasis');
+
+    const p1 = 'p1' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+
+    g.applyEvent({ type: 'nextTurn' });
+    expect(g.state.step).toBe(GameStep.UNTAP);
+
+    g.createToken(p1, 'Tapped Test', 1, 1, 1);
+    const permId = g.state.battlefield[0].id;
+    g.state.battlefield[0].tapped = true;
+
+    (g.state.battlefield as any[]).push({
+      id: 'stasis_perm',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'stasis_card',
+        name: 'Stasis',
+        type_line: 'Enchantment',
+        oracle_text: 'Players skip their untap steps.',
+      },
+      tapped: false,
+    });
+
+    g.applyEvent({ type: 'nextStep' }); // UPKEEP — untap step action skipped
+
+    expect(g.state.step).toBe(GameStep.UPKEEP);
+    const perm = g.state.battlefield.find((p) => p.id === permId)!;
+    expect(perm.tapped).toBe(true);
   });
 
   it('clears damageMarked from permanents during cleanup step (Rule 514.2)', () => {
@@ -172,16 +209,15 @@ describe('Turn step engine basics', () => {
     g.importDeckResolved(p1, sampleDeck);
     g.importDeckResolved(p2, sampleDeck);
 
-    // Start of game
+    // Start of game: first active player is whoever joined first (p1)
     g.applyEvent({ type: 'nextTurn' });
-    expect(g.state.turnPlayer).toBe(p2);
+    expect(g.state.turnPlayer).toBe(p1);
 
-    // Add Sundial of the Infinite to player 2's battlefield
-    // This creates a minimal battlefield permanent for testing purposes
+    // Add Sundial of the Infinite to the active player's battlefield
     const sundialPermanent = {
       id: 'sundial_1',
-      controller: p2,
-      owner: p2,
+      controller: p1,
+      owner: p1,
       card: {
         id: 'sundial_card',
         name: 'Sundial of the Infinite',

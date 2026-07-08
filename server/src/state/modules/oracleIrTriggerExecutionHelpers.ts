@@ -55,10 +55,12 @@ export function buildTriggerExecutionOptionsFromSteps(
 } {
   const rawModeIds = resolveTriggerSelectedModeIds(triggerItem);
   const hasPreselectedObjects = resolveTriggerPreselectedObjectIds(triggerItem).length > 0;
+  const optionalTriggerAccepted = (triggerItem as any)?.optionalTriggeredAbilityDecisionApplied === true;
   return {
     // Defer optional "you may …" steps to resolution prompts unless the trigger
-    // already carries explicit object ids (graveyard pick, etc.).
-    allowOptional: hasPreselectedObjects,
+    // already carries explicit object ids (graveyard pick, etc.) or the player
+    // already accepted the optional triggered ability on the stack.
+    allowOptional: hasPreselectedObjects || optionalTriggerAccepted,
     selectedModeIds: normalizeOracleIrSelectedModeIds(steps, rawModeIds),
   };
 }
