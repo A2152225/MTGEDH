@@ -123,4 +123,75 @@ describe('Myrel soldier token replay / undo', () => {
 
     ResolutionQueueManager.removeQueue(gameId);
   });
+
+  it('counts Roaming Throne chosen Soldier type when resolving Myrel attack trigger', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+
+    const gameId = 'myrel_roaming_throne_soldier_count';
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+
+    const myrelId = 'myrel_perm_1';
+    const throneId = 'throne_perm_1';
+    const throneOracle =
+      'Ward {2}\n' +
+      'As this creature enters, choose a creature type.\n' +
+      'This creature is the chosen type in addition to its other types.\n' +
+      'If a triggered ability of another creature you control of the chosen type triggers, it triggers an additional time.';
+
+    (game.state as any).battlefield = [
+      {
+        id: myrelId,
+        controller: p1,
+        owner: p1,
+        card: {
+          name: 'Myrel, Shield of Argive',
+          type_line: 'Legendary Creature — Human Soldier',
+          oracle_text:
+            'Whenever Myrel attacks, create X 1/1 colorless Soldier artifact creature tokens, where X is the number of Soldiers you control.',
+        },
+      },
+      {
+        id: throneId,
+        controller: p1,
+        owner: p1,
+        chosenCreatureType: 'Soldier',
+        card: {
+          name: 'Roaming Throne',
+          type_line: 'Legendary Artifact Creature — Golem',
+          oracle_text: throneOracle,
+        },
+      },
+    ];
+
+    const ctx = game as any;
+    ctx.gameId = gameId;
+
+    const effectText =
+      'Create X 1/1 colorless Soldier artifact creature tokens, where X is the number of Soldiers you control.';
+    const triggerItem = {
+      id: 'myrel_attack_trigger_throne',
+      permanentId: myrelId,
+      source: myrelId,
+      triggerType: 'attacks',
+      description: effectText,
+      effectData: {
+        countType: 'soldiers',
+        power: 1,
+        toughness: 1,
+        tokenType: 'Soldier',
+        tokenTypes: ['Artifact', 'Creature', 'Soldier'],
+      },
+    };
+
+    executeTriggerEffect(ctx, p1, 'Myrel, Shield of Argive', effectText, triggerItem);
+
+    const soldierTokens = (game.state as any).battlefield.filter((perm: any) => perm.isToken);
+    expect(soldierTokens).toHaveLength(2);
+
+    ResolutionQueueManager.removeQueue(gameId);
+  });
 });

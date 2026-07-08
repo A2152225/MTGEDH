@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent } from '../../shared/src';
+import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
 import { hasPermanentType } from './permanentTypeUtils';
 
 const EXECUTOR_PERMANENT_CLASSES = new Set([
@@ -60,6 +61,15 @@ export function hasExecutorClass(permanent: BattlefieldPermanent | any, klass: s
   }
   if (EXECUTOR_PERMANENT_CLASSES.has(normalizedClass)) {
     return hasPermanentType(permanent, normalizedClass);
+  }
+  if (
+    hasPermanentType(permanent, 'creature') ||
+    hasPermanentType(permanent, 'tribal') ||
+    hasPermanentType(permanent, 'kindred')
+  ) {
+    if (permanentHasCreatureType(permanent, normalizedClass)) {
+      return true;
+    }
   }
   return tl.includes(normalizedClass);
 }

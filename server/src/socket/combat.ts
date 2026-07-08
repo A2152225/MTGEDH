@@ -2538,6 +2538,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
 
       // Check for Odric, Master Tactician style effects
       // "Whenever Odric, Master Tactician and at least three other creatures attack"
+      const attackerCount = attackerIds.length;
       try {
         if (attackerCount >= 4) {
           // Look for Odric or similar cards among the attacking creatures

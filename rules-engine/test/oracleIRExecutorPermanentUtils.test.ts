@@ -111,4 +111,22 @@ describe('oracleIRExecutorPermanentUtils', () => {
     expect(hasExecutorClass(subtypeOnlyLand, 'forest')).toBe(true);
     expect(hasExecutorClass(subtypeOnlyLand, 'island')).toBe(true);
   });
+
+  it('counts chosen creature type on Roaming Throne-style permanents', () => {
+    const roamingThrone = createPermanent({
+      chosenCreatureType: 'Soldier',
+      card: {
+        id: 'card-1',
+        name: 'Roaming Throne',
+        type_line: 'Legendary Artifact Creature — Golem',
+        oracle_text:
+          'As this creature enters, choose a creature type.\n' +
+          "Whenever you cast a creature spell of the chosen type, scry 1. This creature is the chosen type.\n" +
+          'If a triggered ability of another creature you control of the chosen type triggers, that ability triggers an additional time.',
+      } as KnownCardRef,
+    });
+
+    expect(hasExecutorClass(roamingThrone, 'soldier')).toBe(true);
+    expect(hasExecutorClass(roamingThrone, 'golem')).toBe(true);
+  });
 });
