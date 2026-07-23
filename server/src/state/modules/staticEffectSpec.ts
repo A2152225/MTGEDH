@@ -54,7 +54,8 @@ export type StaticEffectConditionKind =
   | 'during_source_controller_turn'
   | 'target_has_mana_color'
   | 'target_is_not_black_creature'
-  | 'target_is_not_human_creature';
+  | 'target_is_not_human_creature'
+  | 'target_is_legendary_creature';
 
 export interface StaticEffectCondition {
   kind: StaticEffectConditionKind;
@@ -81,6 +82,11 @@ export interface StaticEffectSpec {
 function isCreaturePermanent(permanent: BattlefieldPermanent): boolean {
   const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
   return typeLine.includes('creature') || typeLine.includes('kindred') || typeLine.includes('tribal');
+}
+
+function isLegendaryCreaturePermanent(permanent: BattlefieldPermanent): boolean {
+  const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
+  return typeLine.includes('legendary') && isCreaturePermanent(permanent);
 }
 
 function isPlaneswalkerPermanent(permanent: BattlefieldPermanent): boolean {
@@ -332,6 +338,24 @@ export function collectStaticEffectSpecsFromState(state: unknown): StaticEffectS
     }
   }
 
+  const emblems = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
+  for (const emblem of emblems) {
+    if (!emblem) continue;
+    const sourcePermanentId = String(emblem.id || '').trim() || `emblem-${specs.length}`;
+    const sourceController = String(emblem.controller || '').trim();
+    if (!sourceController) continue;
+
+    specs.push(...parseStaticEffectSpecsFromOraclePermanent({
+      id: sourcePermanentId,
+      controller: sourceController,
+      card: {
+        name: String(emblem.sourceName || emblem.name || 'Emblem'),
+        oracle_text: String(emblem.effect || emblem.text || emblem.oracle_text || ''),
+        type_line: 'Emblem',
+      },
+    } as BattlefieldPermanent));
+  }
+
   return specs;
 }
 
@@ -418,6 +442,8 @@ function specMatchesStaticCondition(
       const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
       return !typeLine.includes('human');
     }
+    case 'target_is_legendary_creature':
+      return isLegendaryCreaturePermanent(permanent);
     default:
       return true;
   }
@@ -506,10 +532,27 @@ export function applyDeclarativeStaticSpecs(
   return result;
 }
 
+function cacheDerivedStaticEffectSpecs(state: unknown, specs: readonly StaticEffectSpec[]): void {
+  if (!state || typeof state !== 'object') return;
+  Object.defineProperty(state, '_derivedStaticEffectSpecs', {
+    value: specs,
+    writable: true,
+    configurable: true,
+    enumerable: false,
+  });
+}
+
+export function readDerivedStaticEffectSpecs(state: unknown): StaticEffectSpec[] | null {
+  if (!state || typeof state !== 'object') return null;
+  const specs = (state as { _derivedStaticEffectSpecs?: StaticEffectSpec[] })._derivedStaticEffectSpecs;
+  return Array.isArray(specs) ? specs : null;
+}
+
 export function recomputeContinuousEffects(state: {
   battlefield?: readonly BattlefieldPermanent[];
 }): ContinuousEffectResult {
   const specs = collectStaticEffectSpecsFromState(state);
+  cacheDerivedStaticEffectSpecs(state, specs);
   const skipDeclarativeStaticForSourceIds = collectDeclarativeStaticSourcePermanentIds(specs);
   const base = computeContinuousEffects(state as any, { skipDeclarativeStaticForSourceIds });
   return applyDeclarativeStaticSpecs(base, specs, state);
@@ -569,7 +612,10 @@ export function getOverlayStaticPTBonusForPermanent(
   permanent: BattlefieldPermanent,
   state: { battlefield?: readonly BattlefieldPermanent[] },
 ): { power: number; toughness: number; sources: OverlayStaticPTBonusSource[] } {
-  const specs = sortStaticEffectSpecsForApplication(collectStaticEffectSpecsFromState(state), state);
+  const specs = sortStaticEffectSpecsForApplication(
+    readDerivedStaticEffectSpecs(state) ?? collectStaticEffectSpecsFromState(state),
+    state,
+  );
   if (specs.length === 0) {
     return { power: 0, toughness: 0, sources: [] };
   }
@@ -648,6 +694,7 @@ export function syncDerivedContinuousEffects(state: unknown): ContinuousEffectRe
     // Telemetry must never break derived-view sync.
   }
   if (state && typeof state === 'object') {
+    // recomputeContinuousEffects already caches _derivedStaticEffectSpecs on state.
     Object.defineProperty(state, '_derivedContinuousEffects', {
       value: derived,
       writable: true,

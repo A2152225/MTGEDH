@@ -44,6 +44,24 @@ describe('hydrateCardOracleText', () => {
       oracle_text: 'Should not apply',
     }))).toBe(false);
 
+    const humanSoldier = {
+      isToken: true,
+      card: {
+        name: 'Human Soldier',
+        type_line: 'Creature — Human Soldier',
+        power: '1',
+        toughness: '1',
+        oracle_text: '',
+      },
+    };
+    expect(
+      hydratePermanentCardOracle(humanSoldier, () => ({
+        oracle_text: 'Training\nWhenever this creature attacks with another creature with greater power, put a +1/+1 counter on this creature.',
+        type_line: 'Creature — Human Soldier',
+      })),
+    ).toBe(false);
+    expect(String(humanSoldier.card.oracle_text || '')).toBe('');
+
     const copy = {
       isToken: true,
       isCopyToken: true,

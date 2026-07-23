@@ -1161,7 +1161,7 @@ function buildSharedEmitBattlefieldCache(game: any, sourceBattlefield: any[]): S
 
   try {
     if (battlefield.length > 0) {
-      battlefield = applyStaticAbilitiesToBattlefield(battlefield);
+      battlefield = applyStaticAbilitiesToBattlefield(battlefield, game?.state);
     }
   } catch (e) {
     debugWarn(1, "Failed to apply static abilities to battlefield:", e);

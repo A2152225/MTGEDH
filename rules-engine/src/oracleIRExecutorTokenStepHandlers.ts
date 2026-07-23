@@ -1381,6 +1381,7 @@ function tokenCharacteristicsToEntryCard(characteristics: {
   if (characteristics.isArtifact && !cardTypes.includes('Artifact')) cardTypes.unshift('Artifact');
   const subtypeText = [...(characteristics.subtypes || [])].join(' ');
   const mainTypes = [
+    'Token',
     characteristics.isLegendary ? 'Legendary' : '',
     ...cardTypes,
   ].filter(Boolean).join(' ');

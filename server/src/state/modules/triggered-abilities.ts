@@ -59,6 +59,7 @@ import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { permanentHasCreatureTypeNow } from "../creatureTypeNow.js";
 import { isEtbCreatureTypeChoiceOracle, parseChosenTypeCreatureEtbTrigger } from "./chosen-creature-type.js";
 import { detectCastTrigger } from "../../../../rules-engine/src/cards/castTriggers.js";
+import { hasTrainingKeyword } from "../../../../rules-engine/src/keywordAbilities/training.js";
 import { timingTriggerEffect, findFirstRegexMatchAcrossOracleLines } from './triggers/timing-effect-extraction.js';
 import {
   buildRoomUnlockDoorRegisteredTrigger,
@@ -6433,7 +6434,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   }
 
   // Training
-  if (lowerOracle.includes("training")) {
+  if (hasTrainingKeyword(card)) {
     triggers.push({
       permanentId,
       cardName,

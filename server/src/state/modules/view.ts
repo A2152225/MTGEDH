@@ -10,7 +10,7 @@ import type {
 import { sumActiveTemporaryPTMods } from "./temporaryPtMods.js";
 import { parsePT, calculateVariablePT, calculateAllPTBonusesWithSources, resolveSetBasePTFromAttachedAuras, type PTBonusSource } from "../utils.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
-import { getContinuousGrantedAbilitiesForPermanent } from "./staticEffectSpec.js";
+import { getContinuousGrantedAbilitiesForPermanent, syncDerivedContinuousEffects } from "./staticEffectSpec.js";
 import { collectBattlefieldAbilityBadgesForView } from "./battlefieldAbilityBadges.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
 import { maskFaceDownExileCardForViewer } from "./impulse-exile-utils.js";
@@ -101,6 +101,13 @@ export function viewFor(
 ): ClientGameView {
   const { state, libraries, commandZone, inactive, poison, experience } = ctx;
   const zones = state.zones || {};
+
+  // One derived continuous-effects pass per view build (avoids O(n²) recompute per permanent).
+  try {
+    syncDerivedContinuousEffects(state);
+  } catch {
+    // Best-effort only; view construction must not fail.
+  }
 
   // Server-computed hints for client UX gating (avoid oracle-text heuristics client-side).
   // For damage replacement ordering, a player has a meaningful choice only when >=2 effects apply

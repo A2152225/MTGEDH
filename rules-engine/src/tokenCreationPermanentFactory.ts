@@ -23,11 +23,11 @@ export function createTokenPermanent(
       ? withCountersArg
       : sourceNameOrWithCounters;
 
-  const typeLineParts: string[] = [];
+  const typeLineParts: string[] = ['Token'];
   if (characteristics.isLegendary) typeLineParts.push('Legendary');
   typeLineParts.push(...characteristics.types);
   if (characteristics.subtypes.length > 0) {
-    typeLineParts.push('â€”');
+    typeLineParts.push('—');
     typeLineParts.push(...characteristics.subtypes);
   }
 

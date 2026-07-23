@@ -177,6 +177,9 @@ export function parseTokenCreationFromText(
   if (lowerText.includes('prowess')) abilities.push('Prowess');
   if (lowerText.includes('decayed')) abilities.push('Decayed');
   if (lowerText.includes('toxic 1')) abilities.push('Toxic 1');
+  // Grant Training only when the creation clause says "with training" (e.g. Torens), not
+  // from unrelated keyword lines elsewhere on the source card.
+  if (/\bwith\s+training\b/i.test(lowerText)) abilities.push('Training');
   for (const quoted of quotedAbilities) {
     if (!abilities.includes(quoted)) abilities.push(quoted);
   }

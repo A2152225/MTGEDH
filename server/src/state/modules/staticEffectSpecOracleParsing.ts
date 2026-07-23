@@ -1,5 +1,6 @@
 import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
 import type { StaticEffectCountBasis, StaticEffectGrant, StaticEffectSpec } from './staticEffectSpec.js';
+import { sanitizeOracleTextForStaticEffectScan } from '../../../../rules-engine/src/staticEffectOracleSanitize.js';
 
 const ABILITY_WORDS = [
   'flying', 'indestructible', 'vigilance', 'trample', 'hexproof', 'shroud',
@@ -210,7 +211,7 @@ function pushAbilityGrantSpecs(
   }
 
   if (!/other creatures you control have/i.test(oracle)) {
-    const creaturesAbilityMatch = oracle.match(/creatures you control have ([^.]+)/i);
+    const creaturesAbilityMatch = oracle.match(/(?<!legendary )creatures you control have ([^.]+)/i);
     if (creaturesAbilityMatch) {
       const abilities = parseAbilitiesFromTail(creaturesAbilityMatch[1] || '');
       if (abilities.length > 0) {
@@ -352,7 +353,7 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   const oracleText = String((perm as any)?.card?.oracle_text || (perm as any)?.oracle_text || '').trim();
   if (!oracleText) return [];
 
-  const oracle = oracleText.toLowerCase();
+  const oracle = sanitizeOracleTextForStaticEffectScan(oracleText).toLowerCase();
   const sourcePermanentId = String(perm.id || '').trim();
   const sourceController = String(perm.controller || '').trim();
   const sourceName = String((perm as any)?.card?.name || (perm as any)?.name || 'Unknown').trim();
@@ -477,6 +478,38 @@ export function parseStaticEffectSpecsFromOraclePermanent(
     }
   }
 
+  const legendaryMatch = oracle.match(/legendary creatures you control get\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/i);
+  if (legendaryMatch) {
+    const buff = parseBuffSegment(legendaryMatch[1]);
+    if (buff) {
+      specs.push(buildSpec(
+        source,
+        'legendary-anthem',
+        { kind: 'creatures_you_control' },
+        {
+          power: buff.power,
+          toughness: buff.toughness,
+          abilities: parseLordAbilitiesFromTail(legendaryMatch[2] || ''),
+        },
+        { kind: 'target_is_legendary_creature' },
+      ));
+    }
+  }
+
+  const legendaryHaveMatch = oracle.match(/legendary creatures you control have\s+([^.]+)/i);
+  if (legendaryHaveMatch) {
+    const abilities = parseAbilitiesFromTail(legendaryHaveMatch[1] || '');
+    if (abilities.length > 0) {
+      specs.push(buildSpec(
+        source,
+        'legendary-ability-grant',
+        { kind: 'creatures_you_control' },
+        { abilities },
+        { kind: 'target_is_legendary_creature' },
+      ));
+    }
+  }
+
   const allCreaturesMatch = oracle.match(/all creatures get (\+\d+\s*\/\s*\+\d+)/i);
   if (allCreaturesMatch) {
     const buff = parseBuffSegment(allCreaturesMatch[1]);
@@ -493,7 +526,7 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   const hasOtherTypeLordPattern = /other\s+[a-z]+\s+creatures?\s+you\s+control\s+get/i.test(oracle);
 
   const monumentMatch = oracle.match(
-    /(?<!nonblack )(?<!non[- ]?human )creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/i,
+    /(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/i,
   );
   if (monumentMatch) {
     const buff = parseBuffSegment(monumentMatch[1]);
@@ -515,7 +548,9 @@ export function parseStaticEffectSpecsFromOraclePermanent(
       && !oracle.includes('creature tokens you control get')
       && !nontokenBuffMatch
       && !hasOtherTypeLordPattern
-      ? oracle.match(/(?<!nonblack )(?<!non[- ]?human )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/i)
+      && !legendaryMatch
+      && !legendaryHaveMatch
+      ? oracle.match(/(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/i)
       : null;
     if (anthemMatch) {
       const buff = parseBuffSegment(anthemMatch[1]);

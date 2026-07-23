@@ -3,6 +3,7 @@ import {
   StaticEffectType,
   type StaticAbility,
 } from './staticAbilitiesShared';
+import { sanitizeOracleTextForStaticEffectScan } from './staticEffectOracleSanitize';
 
 /**
  * Parse static abilities from a card's oracle text.
@@ -13,11 +14,11 @@ export function parseStaticAbilities(
   controllerId: PlayerID
 ): StaticAbility[] {
   const abilities: StaticAbility[] = [];
-  const oracleText = (card.oracle_text || '').toLowerCase();
+  const oracleText = sanitizeOracleTextForStaticEffectScan(card.oracle_text || '').toLowerCase();
   const name = card.name || '';
 
   // Backgrounds grant quoted triggered abilities to commanders — not static keyword grants on themselves.
-  if (/^commander\s+creatures?\s+you\s+own\s+have\s+"/i.test(oracleText.trim())) {
+  if (/^commander\s+creatures?\s+you\s+own\s+have\s+"/i.test(String(card.oracle_text || '').trim())) {
     return abilities;
   }
 

@@ -727,6 +727,116 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
     expect(merged.perPermanent.get('skeleton_ally')?.abilities?.has('deathtouch')).toBe(true);
   });
 
+  it('applies Flowering of the White Tree buffs only to legendary creatures', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'flowering',
+          controller: 'p1',
+          card: {
+            name: 'Flowering of the White Tree',
+            type_line: 'Legendary Enchantment',
+            oracle_text: 'Legendary creatures you control get +2/+1 and have ward {1}.',
+          },
+        },
+        {
+          id: 'myrel',
+          controller: 'p1',
+          card: {
+            name: 'Myrel, Shield of Argive',
+            type_line: 'Legendary Creature — Human Soldier',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'soldier_token',
+          controller: 'p1',
+          isToken: true,
+          card: {
+            name: 'Soldier',
+            type_line: 'Token Creature — Soldier',
+            oracle_text: '',
+          },
+        },
+      ],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('myrel')).toMatchObject({ pDelta: 2, tDelta: 1 });
+    expect(merged.perPermanent.get('myrel')?.abilities?.has('ward')).toBe(true);
+    expect(merged.perPermanent.get('soldier_token')?.pDelta || 0).toBe(0);
+    expect(merged.perPermanent.get('soldier_token')?.tDelta || 0).toBe(0);
+    expect(merged.perPermanent.get('soldier_token')?.abilities?.has('ward')).toBeFalsy();
+  });
+
+  it('does not apply Elspeth emblem text from planeswalker loyalty ability without emblem', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'elspeth',
+          controller: 'p1',
+          card: {
+            name: "Elspeth, Sun's Champion",
+            type_line: 'Legendary Planeswalker — Elspeth',
+            oracle_text: '+1: Create three 1/1 white Soldier creature tokens.\n−3: Destroy all creatures with power 4 or greater.\n−7: You get an emblem with "Creatures you control get +2/+2 and have flying."',
+          },
+        },
+        {
+          id: 'soldier_token',
+          controller: 'p1',
+          isToken: true,
+          card: {
+            name: 'Soldier',
+            type_line: 'Token Creature — Soldier',
+            oracle_text: '',
+          },
+        },
+      ],
+      emblems: [],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('soldier_token')?.pDelta || 0).toBe(0);
+    expect(merged.perPermanent.get('soldier_token')?.tDelta || 0).toBe(0);
+    expect(merged.perPermanent.get('soldier_token')?.abilities?.has('flying')).toBeFalsy();
+  });
+
+  it('applies Elspeth emblem static effects when emblem is present', () => {
+    const state = {
+      battlefield: [
+        {
+          id: 'elspeth',
+          controller: 'p1',
+          card: {
+            name: "Elspeth, Sun's Champion",
+            type_line: 'Legendary Planeswalker — Elspeth',
+            oracle_text: '+1: Create three 1/1 white Soldier creature tokens.\n−3: Destroy all creatures with power 4 or greater.\n−7: You get an emblem with "Creatures you control get +2/+2 and have flying."',
+          },
+        },
+        {
+          id: 'soldier_token',
+          controller: 'p1',
+          isToken: true,
+          card: {
+            name: 'Soldier',
+            type_line: 'Token Creature — Soldier',
+            oracle_text: '',
+          },
+        },
+      ],
+      emblems: [{
+        id: 'elspeth_emblem_1',
+        controller: 'p1',
+        name: "Elspeth, Sun's Champion Emblem",
+        effect: 'Creatures you control get +2/+2 and have flying.',
+      }],
+    };
+
+    const merged = recomputeContinuousEffects(state as any);
+    expect(merged.perPermanent.get('soldier_token')).toMatchObject({ pDelta: 2, tDelta: 2 });
+    expect(merged.perPermanent.get('soldier_token')?.abilities?.has('flying')).toBe(true);
+  });
+
   it('applies nonblack and non-human conditional lord buffs', () => {
     const state = {
       battlefield: [

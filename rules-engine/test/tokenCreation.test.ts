@@ -212,6 +212,19 @@ describe('Token Creation', () => {
       expect(result!.characteristics.abilities).toContain('Flying');
     });
 
+    it('parses training only from an explicit "with training" creation clause', () => {
+      const horn = parseTokenCreationFromText('create a 1/1 white Human Soldier creature token');
+      expect(horn).not.toBeNull();
+      expect(horn!.characteristics.abilities).not.toContain('Training');
+
+      const torensToken = parseTokenCreationFromText(
+        'create a 1/1 green and white Human Soldier creature token with training',
+      );
+      expect(torensToken).not.toBeNull();
+      expect(torensToken!.characteristics.abilities).toContain('Training');
+      expect(torensToken!.characteristics.name).toBe('Human Soldier');
+    });
+
     it('should parse uncommon creature subtypes like Goat', () => {
       const result = parseTokenCreationFromText('create a 0/1 white Goat creature token');
 

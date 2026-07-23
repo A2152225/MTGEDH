@@ -34,6 +34,7 @@ import { getEnergyCount, spendEnergyCounters } from "../state/utils.js";
 import { processEquippedAttackRevealUntilLandPumps, emitEquippedAttackRevealPumpMessages } from "../state/modules/equippedAttackRevealPump.js";
 import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 import { normalizeAttackerSelections, parseGroupedPermanentRef, resolveGroupedPermanentRef } from "./tokenGroupResolve.js";
+import { sanitizeOracleTextForStaticEffectScan } from "../../../rules-engine/src/staticEffectOracleSanitize.js";
 import {
   formatDeclareAttackersMessage,
   formatDeclareBlockersMessage,
@@ -999,7 +1000,7 @@ function hasEffectiveAbility(
   if (battlefield.length > 0) {
     for (const perm of battlefield) {
       if (!perm.card?.oracle_text) continue;
-      const permOracle = perm.card.oracle_text.toLowerCase();
+      const permOracle = sanitizeOracleTextForStaticEffectScan(perm.card.oracle_text).toLowerCase();
       const permController = perm.controller;
       
       // Pattern: "as though they had [ability]" or "as though it had [ability]"
@@ -1120,7 +1121,7 @@ function canPermanentAttack(
     // Check for Assault Formation-style effects on battlefield
     for (const perm of battlefield) {
       if (!perm.card?.oracle_text) continue;
-      const permOracle = perm.card.oracle_text.toLowerCase();
+      const permOracle = sanitizeOracleTextForStaticEffectScan(perm.card.oracle_text).toLowerCase();
       const permController = perm.controller;
       
       // Pattern: "creatures you control can attack as though they didn't have defender"

@@ -4,6 +4,7 @@ import {
   buildTokenImageSpec,
   getTokenImageUrls,
   resolveTokenImageUrls,
+  resolveTokenPrinting,
 } from '../src/services/tokens.js';
 
 describe('token image resolution policy', () => {
@@ -33,5 +34,35 @@ describe('token image resolution policy', () => {
     });
     const resolved = await resolveTokenImageUrls(spec);
     expect(resolved?.normal).toContain('27ba03b0-feac-4d9c-9877-59c5fe18b230');
+  });
+
+  it('matches distinct Human Soldier printings by color and training', async () => {
+    const hornSpec = buildTokenImageSpec({
+      name: 'Human Soldier',
+      power: 1,
+      toughness: 1,
+      colors: ['W'],
+      abilities: [],
+      typeLine: 'Token Creature — Human Soldier',
+    });
+    const torensSpec = buildTokenImageSpec({
+      name: 'Human Soldier',
+      power: 1,
+      toughness: 1,
+      colors: ['G', 'W'],
+      abilities: ['Training'],
+      typeLine: 'Token Creature — Human Soldier',
+    });
+
+    const horn = await resolveTokenPrinting(hornSpec);
+    const torens = await resolveTokenPrinting(torensSpec);
+
+    expect(horn?.matchKind).toBe('exact');
+    expect(torens?.matchKind).toBe('exact');
+    expect(horn?.image_uris?.normal).toBeTruthy();
+    expect(torens?.image_uris?.normal).toBeTruthy();
+    expect(horn?.image_uris?.normal).not.toBe(torens?.image_uris?.normal);
+    expect(String(torens?.printing?.oracle_text || '').toLowerCase()).toContain('training');
+    expect(String(horn?.printing?.oracle_text || '').toLowerCase()).not.toContain('training');
   });
 });

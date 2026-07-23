@@ -29,6 +29,7 @@ import { permanentHasCreatureType } from "../../../../../shared/src/creatureType
 import { isInterveningIfSatisfied } from "./intervening-if.js";
 import { detectKeywords } from "../keyword-detection.js";
 import { normalizeCardNameForOracleText } from "../../utils.js";
+import { hasTrainingKeyword } from "../../../../../rules-engine/src/keywordAbilities/training.js";
 
 // ============================================================================
 // Trigger Doubling (Roaming Throne, Isshin, Teysa Karlov, etc.)
@@ -712,7 +713,7 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
   }
 
   // Training keyword ability
-  if (lowerOracle.includes("training")) {
+  if (hasTrainingKeyword(card)) {
     triggers.push({
       permanentId,
       cardName,

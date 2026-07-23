@@ -119,3 +119,17 @@ export function createTrainingSummary(
     countersAdded: ability.timesTriggered,
   };
 }
+
+/** True when oracle/keywords include the Training keyword, not unrelated "training" substrings. */
+export function hasTrainingKeyword(card: {
+  oracle_text?: string;
+  keywords?: readonly string[];
+} | null | undefined): boolean {
+  const keywords = Array.isArray(card?.keywords) ? card.keywords : [];
+  if (keywords.some((keyword) => /^training$/i.test(String(keyword || '').trim()))) {
+    return true;
+  }
+  const oracle = String(card?.oracle_text || '').trim();
+  if (!oracle) return false;
+  return /\btraining(?:\s*\(|\s*—|\s+whenever\s+this\s+creature\s+attacks\s+with\s+another\s+creature)/i.test(oracle);
+}

@@ -31,7 +31,9 @@ export function isPrintedCardCopyToken(
   if (!isToken) return false;
   if (options?.isCopyToken === true) return true;
   if (String(options?.copiedFromPermanentId || '').trim()) return true;
-  return !isPrototypeTokenCard(card);
+  // Prototype tokens may share a name with a printed card (e.g. Horn of Gondor's
+  // "Human Soldier" tokens). Only explicit copy flags should pull printed oracle text.
+  return false;
 }
 
 export function cardShouldHydrateOracleText(

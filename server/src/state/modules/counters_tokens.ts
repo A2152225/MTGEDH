@@ -7,7 +7,7 @@ import { recalculatePlayerEffects } from "./game-state-effects.js";
 import { evaluateCounterPlacementReplacementEvent, evaluateTokenCreationReplacementEvent } from "./replacement-effects.js";
 import { getDeathTriggers, processLinkedExileReturns } from "./triggered-abilities.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
-import { getTokenImageUrls, buildTokenImageSpec, resolveTokenImageUrls } from "../../services/tokens.js";
+import { getTokenImageUrls, buildTokenImageSpec, resolveTokenPrinting, applyTokenPrintingToCard, lookupExactTokenPrinting } from "../../services/tokens.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { appendEvent } from '../../db/index.js';
 import { ResolutionQueueManager } from "../resolution/index.js";
@@ -1083,6 +1083,7 @@ export function createToken(
     isArtifact: options?.isArtifact,
   });
   const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors, options?.abilities, options?.isArtifact);
+  const syncExactPrinting = lookupExactTokenPrinting(tokenSpec);
   
   const entersTapped = !!options?.entersTapped;
   const initialCountersRaw = options?.withCounters;
@@ -1115,16 +1116,25 @@ export function createToken(
         type_line: typeLine, 
         zone: "battlefield",
         colors: options?.colors || [],
-        image_uris: imageUrls,
+        image_uris: syncExactPrinting?.image_uris || imageUrls,
         oracle_text: options?.abilities?.join('. ') || '',
         keywords: options?.abilities || [],
+        power: String(basePower),
+        toughness: String(baseToughness),
       } as any  // Cast to any to allow keywords field
     };
+    if (syncExactPrinting) {
+      applyTokenPrintingToCard(tokenPerm.card, {
+        image_uris: syncExactPrinting.image_uris,
+        printing: syncExactPrinting,
+        matchKind: 'exact',
+      });
+    }
     state.battlefield.push(tokenPerm);
 
-    if (!imageUrls?.normal && !imageUrls?.small) {
-      void resolveTokenImageUrls(tokenSpec).then((resolved) => {
-        if (resolved) tokenPerm.card.image_uris = resolved;
+    if (!tokenPerm.card.image_uris?.normal && !tokenPerm.card.image_uris?.small) {
+      void resolveTokenPrinting(tokenSpec).then((resolved) => {
+        if (resolved) applyTokenPrintingToCard(tokenPerm.card, resolved);
       });
     }
 

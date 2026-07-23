@@ -1,5 +1,6 @@
 import type { GameState, BattlefieldPermanent, PlayerID } from '../../../shared/src';
 import { cardHasCreatureType } from '../../../shared/src/creatureTypes.js';
+import { sanitizeOracleTextForStaticEffectScan } from '../../../rules-engine/src/staticEffectOracleSanitize.js';
 
 import { getTotalManaFromPool } from '../state/modules/mana-check.js';
 
@@ -171,7 +172,7 @@ function parseAbilities(text: string): string[] {
 }
 
 function stripCommanderGrantedAbilityQuotes(text: string): string {
-  return String(text || '').replace(/commander\s+creatures?\s+you\s+own\s+have\s+"[^"]*"/gi, '');
+  return sanitizeOracleTextForStaticEffectScan(text);
 }
 
 function resolveGrantedAbilities(source: BattlefieldPermanent, text: string): string[] {
@@ -200,6 +201,11 @@ function resolveGrantedAbilities(source: BattlefieldPermanent, text: string): st
 function isCreature(permanent: BattlefieldPermanent): boolean {
   const tl = ((permanent.card as any)?.type_line || '').toLowerCase();
   return /\bcreature\b/.test(tl);
+}
+
+function isLegendaryCreature(permanent: BattlefieldPermanent): boolean {
+  const tl = ((permanent.card as any)?.type_line || '').toLowerCase();
+  return /\blegendary\b/.test(tl) && isCreature(permanent);
 }
 
 function isColor(creature: BattlefieldPermanent, colorWord: string): boolean {
@@ -343,7 +349,7 @@ export function computeContinuousEffects(
   }
 
   for (const source of state.battlefield) {
-    const oracle = ((source.card as any)?.oracle_text || '').toLowerCase();
+    const oracle = sanitizeOracleTextForStaticEffectScan((source.card as any)?.oracle_text || '').toLowerCase();
     if (!oracle) continue;
     const controller = source.controller;
     const skipLegacyStatic = Boolean(
@@ -472,9 +478,27 @@ export function computeContinuousEffects(
       }
     }
 
+    // Legendary creatures you control get +X/+Y (and maybe abilities)
+    const legendaryCtrlBuffMatch = oracle.match(/legendary creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/);
+    if (legendaryCtrlBuffMatch) {
+      const buff = parseBuffSegment(legendaryCtrlBuffMatch[1]);
+      const tail = legendaryCtrlBuffMatch[2] || '';
+      if (buff) {
+        for (const perm of state.battlefield) {
+          if (perm.controller === controller && isLegendaryCreature(perm)) {
+            const agg = perPermanent.get(perm.id)!;
+            agg.pDelta += buff.p;
+            agg.tDelta += buff.t;
+            const abilities = resolveGrantedAbilities(source, tail);
+            for (const a of abilities) agg.abilities.add(a);
+          }
+        }
+      }
+    }
+
     // Creatures you control get +X/+Y (and maybe abilities)
-    const ctrlBuffMatches = !leylineLifeMatch && !tokenBuffMatch && !nontokenBuffMatch && !tokenTurnBuffMatch
-      ? oracle.match(/(?<!nonblack )(?<!non[- ]?human )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/)
+    const ctrlBuffMatches = !leylineLifeMatch && !tokenBuffMatch && !nontokenBuffMatch && !tokenTurnBuffMatch && !legendaryCtrlBuffMatch
+      ? oracle.match(/(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/)
       : null;
     if (ctrlBuffMatches) {
       const buffSeg = ctrlBuffMatches[1];
@@ -561,9 +585,9 @@ export function computeContinuousEffects(
     }
 
     // Creatures you control have <abilities> (but NOT if it matches "other creatures" already handled above)
-    // Only match if the text doesn't say "other creatures"
+    // Only match if the text doesn't say "other creatures" or "legendary creatures"
     if (!otherCtrlHaveMatch && !youAndOtherMatch) {
-      const ctrlHaveMatch = oracle.match(/creatures you control have ([^.]+)/);
+      const ctrlHaveMatch = oracle.match(/(?<!legendary )creatures you control have ([^.]+)/);
       if (ctrlHaveMatch) {
         const abilities = resolveGrantedAbilities(source, ctrlHaveMatch[1]);
         if (abilities.length) {
@@ -713,7 +737,7 @@ export function computeContinuousEffects(
 
     if (!skipLegacyStatic) {
     // Specific pattern: Eldrazi Monument style "creatures you control get +1/+1 and have flying and indestructible"
-    const monumentMatch = oracle.match(/(?<!nonblack )(?<!non[- ]?human )creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/);
+    const monumentMatch = oracle.match(/(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/);
     if (monumentMatch) {
       const buff = parseBuffSegment(monumentMatch[1]);
       const abilities = resolveGrantedAbilities(source, monumentMatch[2]);

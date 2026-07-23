@@ -535,6 +535,87 @@ export type TokenImageSpec = ScryfallTokenImageSpec & {
   typeLine?: string;
 };
 
+export type TokenPrintingMatchKind = 'exact' | 'scryfall' | 'fuzzy' | 'fallback';
+
+export type TokenPrintingResolution = {
+  image_uris?: {
+    small?: string;
+    normal?: string;
+    large?: string;
+    art_crop?: string;
+  };
+  printing?: TokenCard;
+  matchKind?: TokenPrintingMatchKind;
+};
+
+const TOKEN_IMAGE_KEYWORD_HINTS = [
+  'training',
+  'flying',
+  'vigilance',
+  'menace',
+  'deathtouch',
+  'lifelink',
+  'ward',
+  'haste',
+  'reach',
+  'hexproof',
+  'trample',
+  'first strike',
+  'double strike',
+  'prowess',
+  'decayed',
+  'toxic',
+] as const;
+
+function capitalizeKeywordToken(value: string): string {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  if (/^toxic\s+\d+$/i.test(trimmed)) {
+    const match = trimmed.match(/^toxic\s+(\d+)$/i);
+    return match ? `Toxic ${match[1]}` : trimmed;
+  }
+  return trimmed
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+export function extractTokenImageAbilitiesFromCard(card: Record<string, unknown>): string[] {
+  const abilities = new Set<string>();
+  const keywords = Array.isArray(card.keywords) ? card.keywords : [];
+  for (const keyword of keywords) {
+    const normalized = capitalizeKeywordToken(String(keyword || ''));
+    if (normalized) abilities.add(normalized);
+  }
+
+  const oracleText = String(card.oracle_text || '').toLowerCase();
+  for (const hint of TOKEN_IMAGE_KEYWORD_HINTS) {
+    if (!oracleText.includes(hint)) continue;
+    if (hint === 'training' && !/\bwith\s+training\b/i.test(oracleText) && !/^training\b/i.test(oracleText.trim())) {
+      continue;
+    }
+    abilities.add(capitalizeKeywordToken(hint));
+  }
+
+  return Array.from(abilities);
+}
+
+export function buildTokenImageSpecFromCard(card: Record<string, unknown>): TokenImageSpec {
+  const abilities = extractTokenImageAbilitiesFromCard(card);
+  return buildTokenImageSpec({
+    name: String(card.name || 'Token'),
+    power: card.power as string | number | undefined,
+    toughness: card.toughness as string | number | undefined,
+    colors: Array.isArray(card.colors) ? card.colors.map((color) => String(color)) : undefined,
+    abilities: abilities.length > 0 ? abilities : undefined,
+    typeLine: String(card.type_line || ''),
+  });
+}
+
+export function lookupExactTokenPrinting(spec: TokenImageSpec): TokenCard | undefined {
+  return findExactTokenImageInCache(spec);
+}
+
 function normalizeTokenImageColors(colors?: string[]): string[] {
   return (colors || [])
     .map((color) => String(color || '').trim().toUpperCase())
@@ -734,27 +815,57 @@ export function getTokenImageUrls(
  * Full image resolution pipeline:
  * 1) exact local cache  2) Scryfall search  3) fuzzy local cache  4) hardcoded fallback
  */
-export async function resolveTokenImageUrls(
+export async function resolveTokenPrinting(
   spec: TokenImageSpec,
-): Promise<{ small?: string; normal?: string; large?: string; art_crop?: string } | undefined> {
+): Promise<TokenPrintingResolution | undefined> {
   const exact = findExactTokenImageInCache(spec);
   if (exact?.image_uris) {
     debug(2, `[tokens] Exact token image match: ${exact.name}`);
-    return exact.image_uris;
+    return { image_uris: exact.image_uris, printing: exact, matchKind: 'exact' };
   }
 
   const online = await searchScryfallTokenImage(spec);
   if (online?.normal || online?.small) {
     debug(2, `[tokens] Scryfall token image match: ${spec.name}`);
-    return online;
+    return { image_uris: online, matchKind: 'scryfall' };
   }
 
   const fuzzy = findFuzzyTokenImageInCache(spec);
   if (fuzzy?.image_uris) {
-    return fuzzy.image_uris;
+    return { image_uris: fuzzy.image_uris, printing: fuzzy, matchKind: 'fuzzy' };
   }
 
-  return getHardcodedTokenImageFallback(spec);
+  const fallback = getHardcodedTokenImageFallback(spec);
+  if (fallback) {
+    return { image_uris: fallback, matchKind: 'fallback' };
+  }
+
+  return undefined;
+}
+
+export function applyTokenPrintingToCard(
+  card: Record<string, any>,
+  resolution: TokenPrintingResolution,
+): void {
+  if (resolution.image_uris) {
+    card.image_uris = resolution.image_uris;
+  }
+  if (resolution.matchKind !== 'exact' || !resolution.printing) return;
+
+  const printing = resolution.printing;
+  if (printing.oracle_text) card.oracle_text = printing.oracle_text;
+  if (printing.keywords?.length) card.keywords = [...printing.keywords];
+  if (printing.power != null) card.power = printing.power;
+  if (printing.toughness != null) card.toughness = printing.toughness;
+  if (printing.colors?.length) card.colors = [...printing.colors];
+  if (printing.type_line) card.type_line = printing.type_line;
+}
+
+export async function resolveTokenImageUrls(
+  spec: TokenImageSpec,
+): Promise<{ small?: string; normal?: string; large?: string; art_crop?: string } | undefined> {
+  const resolved = await resolveTokenPrinting(spec);
+  return resolved?.image_uris;
 }
 
 export async function enrichTokenCardImages(cards: Array<Record<string, any>>): Promise<void> {
@@ -762,28 +873,20 @@ export async function enrichTokenCardImages(cards: Array<Record<string, any>>): 
     cards.map(async (card) => {
       if (!card || card.image_uris?.normal || card.image_uris?.small) return;
 
-      const oracleText = String(card.oracle_text || '').toLowerCase();
-      const abilities = ['hexproof', 'flying', 'vigilance', 'menace', 'deathtouch', 'lifelink', 'ward', 'haste', 'reach']
-        .filter((keyword) => oracleText.includes(keyword));
-
-      const spec = buildTokenImageSpec({
-        name: String(card.name || 'Token'),
-        power: card.power,
-        toughness: card.toughness,
-        colors: Array.isArray(card.colors) ? card.colors : undefined,
-        abilities: abilities.length > 0 ? abilities : undefined,
-        typeLine: String(card.type_line || ''),
-      });
-
-      const syncExact = findExactTokenImageInCache(spec)?.image_uris;
-      if (syncExact) {
-        card.image_uris = syncExact;
+      const spec = buildTokenImageSpecFromCard(card);
+      const syncExact = lookupExactTokenPrinting(spec);
+      if (syncExact?.image_uris) {
+        applyTokenPrintingToCard(card, {
+          image_uris: syncExact.image_uris,
+          printing: syncExact,
+          matchKind: 'exact',
+        });
         return;
       }
 
-      const resolved = await resolveTokenImageUrls(spec);
+      const resolved = await resolveTokenPrinting(spec);
       if (resolved) {
-        card.image_uris = resolved;
+        applyTokenPrintingToCard(card, resolved);
       }
     }),
   );
