@@ -30,7 +30,11 @@ export function splitIntoClauses(line: string): string[] {
 
   for (let i = 0; i < line.length; i += 1) {
     const ch = line[i];
-    if ((ch === '"' || ch === "'") && !inQuotes) {
+    // Only double quotes delimit quoted oracle phrases (emblems, named abilities).
+    // ASCII apostrophes are possessives/contractions (player's, don't) and must not
+    // suppress sentence splits — otherwise "Exile … player's library. Until …"
+    // collapses into one clause and generic exile swallows the impulse rider.
+    if (ch === '"' && !inQuotes) {
       inQuotes = true;
       quoteChar = ch;
       current += ch;

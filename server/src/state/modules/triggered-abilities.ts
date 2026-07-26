@@ -66,6 +66,7 @@ import {
   detectRoomUnlockDoorTriggers,
 } from './triggers/room.js';
 import { getCurrentGoaders } from './goad-effects.js';
+import { normalizeCardNameForOracleText } from '../utils.js';
 
 function buildCardNameRegexAlternatives(cardName: string): string[] {
   const names = new Set<string>();

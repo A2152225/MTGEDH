@@ -346,6 +346,10 @@ const oracleIrUncategorizedSpellFallbackSource = readFileSync(
   join(serverRoot, 'src/state/modules/oracleIrUncategorizedSpellFallback.ts'),
   'utf8',
 );
+const oracleIrSpellExecutionSource = readFileSync(
+  join(serverRoot, 'src/state/modules/oracleIrSpellExecution.ts'),
+  'utf8',
+);
 const stackResolvePermanentEtbChoiceUtilsSource = readFileSync(
   join(serverRoot, 'src/state/modules/stackResolvePermanentEtbChoiceUtils.ts'),
   'utf8',
@@ -1062,8 +1066,10 @@ describe('oracle IR trigger legacy guardrail', () => {
       || stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx'),
     ).toBe(true);
     expect(
-      oracleIrUncategorizedSpellFallbackSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx')
-      || stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx'),
+      oracleIrSpellExecutionSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx')
+      || stackResolveInstantSorceryLegacyResolutionUtilsSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx')
+      || stackResolveInstantSorceryLegacyBodyUtilsSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx')
+      || oracleIrUncategorizedSpellFallbackSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx'),
     ).toBe(true);
     expect(stackSource.includes('applyInstantSorceryNibelheimAflameEffect(ctx')).toBe(false);
     expect(stackSource.includes('isNibelheimAflameStyleSweep =')).toBe(false);
