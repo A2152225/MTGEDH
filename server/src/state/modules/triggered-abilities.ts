@@ -119,8 +119,10 @@ export {
 export {
   detectLandfallTriggers,
   getLandfallTriggers,
+  isLandfallEtbSubjectPhrase,
   type LandfallTrigger,
 } from "./triggers/landfall.js";
+import { isLandfallEtbSubjectPhrase } from "./triggers/landfall.js";
 export {
   checkEndOfTurnTransforms,
   checkUpkeepTransforms,
@@ -10199,27 +10201,31 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
 
   if (creatureETBMatch && !hasOpponentCreatureRestriction && !triggers.some(t => t.triggerType === 'creature_etb')) {
     const requiredTypePhrase = creatureETBMatch[1].trim();
-    const isNontokenOnly = /\b(?:nontoken|non-token)\b/i.test(requiredTypePhrase);
-    const isTokenOnly = !isNontokenOnly && /\btoken\b/i.test(requiredTypePhrase);
-    // Check if this trigger requires the creature to be controlled by the trigger's controller
-    // Pattern: "you control" or "under your control" in the trigger text
-    const hasControlRestriction = /creature(?:s)?\s+you\s+control|under your control/i.test(oracleText);
-    const effectText = timingTriggerEffect(oracleText, creatureETBMatch, 2);
-    const optionalTrigger = /\byou may\b/i.test(effectText);
-    const t: TriggeredAbility = {
-      permanentId,
-      cardName,
-      triggerType: 'creature_etb',
-      description: effectText,
-      effect: effectText,
-      mandatory: !optionalTrigger,
-      requiresChoice: optionalTrigger,
-      nontokenOnly: isNontokenOnly,
-      controlledOnly: hasControlRestriction,  // Flag for creatures that must be yours (e.g., Aura Shards)
-    };
-    (t as any).requiredTypePhrase = requiredTypePhrase;
-    (t as any).tokenOnly = isTokenOnly;
-    triggers.push(t);
+    // Land / land-subtype subjects belong to landfall detection, not creature_etb.
+    // Otherwise Scute Swarm / Titania dual-classify and can double-fire on land-creatures.
+    if (!isLandfallEtbSubjectPhrase(requiredTypePhrase)) {
+      const isNontokenOnly = /\b(?:nontoken|non-token)\b/i.test(requiredTypePhrase);
+      const isTokenOnly = !isNontokenOnly && /\btoken\b/i.test(requiredTypePhrase);
+      // Check if this trigger requires the creature to be controlled by the trigger's controller
+      // Pattern: "you control" or "under your control" in the trigger text
+      const hasControlRestriction = /creature(?:s)?\s+you\s+control|under your control/i.test(oracleText);
+      const effectText = timingTriggerEffect(oracleText, creatureETBMatch, 2);
+      const optionalTrigger = /\byou may\b/i.test(effectText);
+      const t: TriggeredAbility = {
+        permanentId,
+        cardName,
+        triggerType: 'creature_etb',
+        description: effectText,
+        effect: effectText,
+        mandatory: !optionalTrigger,
+        requiresChoice: optionalTrigger,
+        nontokenOnly: isNontokenOnly,
+        controlledOnly: hasControlRestriction,  // Flag for creatures that must be yours (e.g., Aura Shards)
+      };
+      (t as any).requiredTypePhrase = requiredTypePhrase;
+      (t as any).tokenOnly = isTokenOnly;
+      triggers.push(t);
+    }
   }
   
   // "Whenever an Equipment enters the battlefield under your control" (Puresteel Paladin, Barret, etc.)

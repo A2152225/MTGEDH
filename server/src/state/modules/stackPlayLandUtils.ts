@@ -420,7 +420,7 @@ export function finishPlayLandBattlefieldEntry(
   }
 
   try {
-    const landfallTriggers = getLandfallTriggers(ctx, playerId);
+    const landfallTriggers = getLandfallTriggers(ctx, playerId, newPermanent);
     if (landfallTriggers.length > 0) {
       debug(2, `[playLand] Found ${landfallTriggers.length} landfall trigger(s) for player ${playerId}`);
 

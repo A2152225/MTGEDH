@@ -32,6 +32,65 @@ export interface LandfallTrigger {
   // For triggers that require targeting (Geode Rager - "goad each creature target player controls")
   requiresTarget?: boolean;
   targetType?: 'player' | 'creature' | 'permanent';
+  /** Required land subtype for typed_land_enter (e.g. "forest", "gate"). */
+  requiredLandType?: string;
+  triggerType?: string;
+}
+
+/** Rule 205.3i land types — used so "Whenever a creature you control enters" is not typed landfall. */
+const KNOWN_LAND_SUBTYPES = new Set([
+  'plains',
+  'island',
+  'swamp',
+  'mountain',
+  'forest',
+  'cave',
+  'desert',
+  'gate',
+  'lair',
+  'locus',
+  'mine',
+  'planet',
+  'power-plant',
+  'sphere',
+  'tower',
+  'town',
+  "urza's",
+]);
+
+export function isKnownLandSubtype(raw: string): boolean {
+  return KNOWN_LAND_SUBTYPES.has(String(raw || '').trim().toLowerCase());
+}
+
+/**
+ * True when an ETB subject phrase is landfall territory (generic land or a land subtype),
+ * so it must not also be classified as creature_etb.
+ */
+export function isLandfallEtbSubjectPhrase(rawPhrase: string): boolean {
+  const phrase = String(rawPhrase || '').toLowerCase().trim();
+  if (!phrase) return false;
+  if (phrase === 'land' || /\blands?\b/.test(phrase)) return true;
+  if (isKnownLandSubtype(phrase)) return true;
+  // "basic Forest", "Snow-Covered Mountain", etc.
+  const tokens = phrase.split(/[\s/]+/).map((t) => t.replace(/[^a-z'-]/g, '')).filter(Boolean);
+  return tokens.some((token) => isKnownLandSubtype(token));
+}
+
+function enteringLandMatchesRequiredType(enteringLand: any, requiredLandType?: string): boolean {
+  const required = String(requiredLandType || '').trim().toLowerCase();
+  if (!required) return true;
+  // No entering land provided (detect-only / legacy callers): do not filter out.
+  if (!enteringLand) return true;
+  const typeLine = String(enteringLand?.card?.type_line || enteringLand?.type_line || '').toLowerCase();
+  if (!typeLine) return false;
+  // Power-Plant / Urza's need exact subtype token checks beyond simple includes for short words.
+  if (required === "urza's") {
+    return /\burza'?s\b/.test(typeLine);
+  }
+  if (required === 'power-plant') {
+    return typeLine.includes('power-plant') || typeLine.includes('powerplant');
+  }
+  return new RegExp(`\\b${required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(typeLine);
 }
 
 function escapeRegExp(value: string): string {
@@ -203,12 +262,13 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   }
 
   const typedLandEnterMatch = oracleText.match(
-    /whenever a ([\w]+) you control enters(?: the battlefield)?,?\s*([^.]+)/i,
+    /whenever a ([\w'-]+) you control enters(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (typedLandEnterMatch && !triggers.some((t) => (t as any).triggerType === 'typed_land_enter')) {
     const landType = String(typedLandEnterMatch[1] || '').trim().toLowerCase();
     const effectText = timingTriggerEffect(oracleText, typedLandEnterMatch, 2);
-    if (effectText && landType !== 'land') {
+    // Only real land subtypes (Forest, Gate, Desert, ...). Never "creature", "permanent", etc.
+    if (effectText && landType !== 'land' && isKnownLandSubtype(landType)) {
       triggers.push({
         permanentId,
         cardName,
@@ -217,6 +277,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
         mandatory: !effectText.toLowerCase().includes('you may'),
         requiresChoice: effectText.toLowerCase().includes('you may'),
         triggerType: 'typed_land_enter' as any,
+        requiredLandType: landType,
       } as LandfallTrigger);
     }
   }
@@ -343,10 +404,12 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
  * 
  * @param ctx Game context
  * @param landController The player who played/controls the land that entered
+ * @param enteringLand Optional entering land permanent — used to filter typed subtype landfall
  */
 export function getLandfallTriggers(
   ctx: GameContext,
-  landController: string
+  landController: string,
+  enteringLand?: any,
 ): LandfallTrigger[] {
   const triggers: LandfallTrigger[] = [];
   const battlefield = ctx.state?.battlefield || [];
@@ -359,12 +422,20 @@ export function getLandfallTriggers(
     if (permanent.controller !== landController) continue;
     
     const permTriggers = detectLandfallTriggers(permanent.card, permanent);
-    triggers.push(...permTriggers.map((trigger) => ({
-      ...trigger,
-      sourceId: trigger.permanentId,
-      sourceZone: 'battlefield' as const,
-      sourceCard: permanent.card,
-    })));
+    for (const trigger of permTriggers) {
+      if (
+        (trigger as any).triggerType === 'typed_land_enter'
+        && !enteringLandMatchesRequiredType(enteringLand, (trigger as any).requiredLandType)
+      ) {
+        continue;
+      }
+      triggers.push({
+        ...trigger,
+        sourceId: trigger.permanentId,
+        sourceZone: 'battlefield' as const,
+        sourceCard: permanent.card,
+      });
+    }
   }
 
   const graveyard = getControllerGraveyard(ctx, landController);
@@ -378,6 +449,12 @@ export function getLandfallTriggers(
     };
     const graveyardTriggers = detectLandfallTriggers(card, pseudoPermanent);
     for (const trigger of graveyardTriggers) {
+      if (
+        (trigger as any).triggerType === 'typed_land_enter'
+        && !enteringLandMatchesRequiredType(enteringLand, (trigger as any).requiredLandType)
+      ) {
+        continue;
+      }
       triggers.push({
         ...trigger,
         permanentId: undefined,
