@@ -140,6 +140,116 @@ function parseSpelledOutManaAmount(rawAmount: string): number | undefined {
   return wordToAmount[normalized];
 }
 
+/**
+ * Parse "Spend this mana only to..." clauses into ManaAbility.spendRestriction.
+ * Covers common templates (abilities, creatures, Helga-style MV/{X} creature spells).
+ */
+export function parseManaSpendRestrictionFromOracle(
+  oracleText: string,
+): { restriction: import('../../../../shared/src/types.js').ManaRestrictionType; restrictedTo?: string } | null {
+  const text = String(oracleText || '').toLowerCase();
+  if (!text.includes('spend this mana only')) return null;
+
+  // Helga: creature spells with mana value N or greater OR creature spells with {X} in their mana costs
+  const helgaMatch = text.match(
+    /spend this mana only to cast creature spells with mana value\s+(\d+)\s+or greater(?:\s+or creature spells with \{x\} in their mana costs)?/i,
+  );
+  if (helgaMatch) {
+    return {
+      restriction: 'creature_spells_mv_or_x',
+      restrictedTo: String(helgaMatch[1] || '4'),
+    };
+  }
+
+  if (/spend this mana only to activate abilities/.test(text)) {
+    return { restriction: 'activated_abilities' };
+  }
+
+  if (/spend this mana only to cast creature spells|spend this mana only to cast creatures\b/.test(text)) {
+    return { restriction: 'creatures' };
+  }
+
+  if (/spend this mana only to cast artifact spells|spend this mana only to cast artifacts\b/.test(text)) {
+    return { restriction: 'artifacts' };
+  }
+
+  if (/spend this mana only to cast instant or sorcery|spend this mana only to cast instants and sorceries/.test(text)) {
+    return { restriction: 'instant_sorcery' };
+  }
+
+  if (/spend this mana only to cast colorless/.test(text)) {
+    return { restriction: 'colorless_spells' };
+  }
+
+  if (/spend this mana only to cast legendary/.test(text)) {
+    return { restriction: 'legendary' };
+  }
+
+  if (/spend this mana only to cast multicolored/.test(text)) {
+    return { restriction: 'multicolored' };
+  }
+
+  return null;
+}
+
+function playerControlsCreatureWithPowerAtLeast(
+  gameState: any,
+  playerId: string,
+  minPower: number,
+): boolean {
+  const battlefield = gameState?.battlefield || [];
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.controller !== playerId) continue;
+    const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) continue;
+    if (getEffectivePowerForMana(permanent, gameState) >= minPower) return true;
+  }
+  return false;
+}
+
+/**
+ * Raucous Audience-style upgrades:
+ * "{T}: Add {G}. If you control a creature with power 4 or greater, add {G}{G} instead."
+ */
+export function resolvePowerThresholdInsteadManaAbility(
+  gameState: any,
+  playerId: string,
+  oracleText: string,
+): ManaAbility | null {
+  const match = String(oracleText || '').match(
+    /\{t\}:\s*add\s+(\{[wubrgc]\})\.\s*if you control a creature with power\s+(\d+)\s+or greater,\s*add\s+((?:\{[wubrgc]\})+)\s+instead/i,
+  );
+  if (!match) return null;
+
+  const threshold = Number.parseInt(String(match[2] || '4'), 10) || 4;
+  const upgraded = Boolean(playerControlsCreatureWithPowerAtLeast(gameState, playerId, threshold));
+  const manaBlob = upgraded ? String(match[3] || '') : String(match[1] || '');
+  const symbols = manaBlob.match(/\{([wubrgc])\}/gi) || [];
+  if (symbols.length === 0) return null;
+
+  const colors: string[] = [];
+  for (const sym of symbols) {
+    const color = sym.replace(/[{}]/g, '').toUpperCase();
+    if (!colors.includes(color)) colors.push(color);
+  }
+
+  if (colors.length === 1) {
+    return {
+      id: upgraded ? 'native_power_upgrade' : 'native_power_base',
+      cost: '{T}',
+      produces: colors,
+      amount: symbols.length,
+    };
+  }
+
+  return {
+    id: upgraded ? 'native_power_upgrade_multi' : 'native_power_base_multi',
+    cost: '{T}',
+    produces: colors,
+    producesAllAtOnce: true,
+  };
+}
+
 export function isMoxAmberConditionalManaSource(cardName: string, text: string): boolean {
   const normalizedName = String(cardName || '').trim().toLowerCase();
   const normalizedText = String(text || '').trim().toLowerCase();
@@ -874,8 +984,16 @@ export function getManaAbilitiesForPermanent(
   // ========================================================================
   
   let hasExplicitChoicePattern = false;
+
+  // Raucous Audience-style: "{T}: Add {G}. If you control a creature with power 4+, add {G}{G} instead."
+  // Resolve before fixed-symbol parsing so we keep the upgraded amount, not only the base.
+  const powerInsteadAbility = resolvePowerThresholdInsteadManaAbility(gameState, playerId, nativeOracleText);
+  if (powerInsteadAbility) {
+    abilities.push(powerInsteadAbility);
+    hasExplicitChoicePattern = true;
+  }
   
-  if (isLand && landOracleText) {
+  if (isLand && landOracleText && !powerInsteadAbility) {
     // ========================================================================
     // Check for multi-mana producers (bounce lands like Rakdos Carnarium)
     // Pattern: "{T}: Add {X}{Y}..." where X, Y are mana symbols (same or different)
@@ -1193,7 +1311,12 @@ export function getManaAbilitiesForPermanent(
   
   // Some mana abilities have additional costs before the ':' (e.g. "{T}, Sacrifice this: Add ...").
   // Treat those as valid tap-for-mana abilities too.
-  if (!isLand && (nativeOracleText.includes('{t}:') || nativeOracleText.includes('{t},')) && hasManaProducingTapAbility(nativeOracleText)) {
+  if (
+    !powerInsteadAbility
+    && !isLand
+    && (nativeOracleText.includes('{t}:') || nativeOracleText.includes('{t},'))
+    && hasManaProducingTapAbility(nativeOracleText)
+  ) {
     // IMPORTANT: Skip cards with "add an amount of", "add X mana in any combination"
     // or other variable/scaling patterns - those are handled by getDevotionManaAmount 
     // or getCreatureCountManaAmount functions
@@ -1472,6 +1595,15 @@ export function getManaAbilitiesForPermanent(
       }
     }
   }
+
+  const oracleSpendRestriction = parseManaSpendRestrictionFromOracle(oracleText);
+  if (oracleSpendRestriction) {
+    for (const ability of uniqueAbilities) {
+      if (!ability.spendRestriction) {
+        ability.spendRestriction = oracleSpendRestriction;
+      }
+    }
+  }
   
   return uniqueAbilities;
 }
@@ -1738,11 +1870,12 @@ export function getCreatureCountManaAmount(
         return subTypes.includes(chosenTypeLower);
       }).length;
     }
+    // Oracle: "{2}, {T}: Choose a color. Add an amount of mana of that color equal to
+    // the number of creatures you control of the chosen type." — one color, not a distribution.
     return {
-      color: 'any_combination',
+      color: 'any_one_color',
       amount: Math.max(0, amount),
       activationCost: '{2}',
-      requiresColorChoice: true,
     };
   }
 
@@ -2132,6 +2265,8 @@ export function getCreatureCountManaAmount(
   }
   
   // Check for specific color combination pattern
+  // e.g. "Add X mana in any combination of {U} and/or {R}, where X is Vivi Ornitier's power."
+  // e.g. "Add two mana in any combination of {W} and {U}."
   const specificCombinationMatch = oracleText.match(
     /mana\s+in\s+any\s+combination\s+of\s+(\{[wubrg]\}(?:\s*,?\s*(?:and\/or)?\s*\{[wubrg]\})*)/i
   );
@@ -2141,8 +2276,8 @@ export function getCreatureCountManaAmount(
     const colorMatches = specificCombinationMatch[1].match(/\{([wubrg])\}/gi) || [];
     const availableColors = colorMatches.map(c => c.replace(/[{}]/g, '').toUpperCase());
     
-    // Look for the amount
-    const amountMatch = oracleText.match(/add\s+(\d+|one|two|three)\s+mana/i);
+    // Look for a fixed amount first, then dynamic "Add X ... where X is ..."
+    const amountMatch = oracleText.match(/add\s+(\d+|one|two|three|four|five)\s+mana/i);
     let amount = 1;
     if (amountMatch) {
       const amountWord = amountMatch[1].toLowerCase();
@@ -2150,6 +2285,39 @@ export function getCreatureCountManaAmount(
         'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5
       };
       amount = wordToNumber[amountWord] || parseInt(amountMatch[1], 10) || 1;
+    } else {
+      const whereMatch = oracleText.match(
+        /add\s+x\s+mana[\s\S]*?where\s+x\s+is\s+(.+?)(?:\.|$)/i
+      );
+      if (whereMatch?.[1]) {
+        const condition = whereMatch[1].toLowerCase().trim();
+        const battlefield = gameState?.battlefield || [];
+
+        if (condition.includes('greatest power') && condition.includes('creature')) {
+          amount = 0;
+          for (const p of battlefield) {
+            if (!p || p.controller !== playerId) continue;
+            const typeLine = (p.card?.type_line || '').toLowerCase();
+            if (!typeLine.includes('creature')) continue;
+            const power = getEffectivePowerForMana(p, gameState);
+            if (power > amount) amount = power;
+          }
+        } else if (
+          condition.includes("this creature's power")
+          || condition.includes('its power')
+          || /\w+'s\s+power/.test(condition)
+        ) {
+          // Vivi Ornitier / self-referential power
+          amount = getEffectivePowerForMana(permanent, gameState);
+        } else if (
+          condition.includes("this creature's toughness")
+          || condition.includes('its toughness')
+          || /\w+'s\s+toughness/.test(condition)
+        ) {
+          const toughness = permanent?.baseToughness ?? permanent?.card?.toughness ?? 0;
+          amount = typeof toughness === 'string' ? parseInt(toughness, 10) || 0 : Number(toughness) || 0;
+        }
+      }
     }
     
     return { 
@@ -2200,7 +2368,7 @@ export function getCreatureCountManaAmount(
     let amount = 0;
     
     // "greatest number of creatures you control that have a creature type in common"
-    if (condition.includes('creature type in common') || condition.includes('creature type') && condition.includes('greatest')) {
+    if (condition.includes('creature type in common') || (condition.includes('creature type') && condition.includes('greatest'))) {
       const creatureTypeCounts: Record<string, number> = {};
 
       const addCreatureTypesForPermanent = (perm: any) => {
@@ -2236,6 +2404,35 @@ export function getCreatureCountManaAmount(
       }
       
       debug(2, `[getCreatureCountManaAmount] White Lotus Tile pattern: greatest creature type count = ${amount}`);
+    }
+    // "the greatest power among creatures you control" (rare on any-one-color templates)
+    else if (condition.includes('greatest power') && condition.includes('creature')) {
+      for (const p of battlefield) {
+        if (!p || p.controller !== playerId) continue;
+        const typeLine = (p.card?.type_line || '').toLowerCase();
+        if (!typeLine.includes('creature')) continue;
+        if (condition.includes('entered this turn') && !p.enteredThisTurn) continue;
+        const power = getEffectivePowerForMana(p, gameState);
+        if (power > amount) amount = power;
+      }
+    }
+    // "this creature's power" / "[CardName]'s power"
+    // (Heronblade Elite, Kami of Whispered Hopes, Helga, Redshift, Doc Samson, etc.)
+    else if (
+      condition.includes("this creature's power")
+      || condition.includes('its power')
+      || /\w+'s\s+power/.test(condition)
+    ) {
+      amount = getEffectivePowerForMana(permanent, gameState);
+    }
+    // "this creature's toughness" / "[CardName]'s toughness"
+    else if (
+      condition.includes("this creature's toughness")
+      || condition.includes('its toughness')
+      || /\w+'s\s+toughness/.test(condition)
+    ) {
+      const toughness = permanent?.baseToughness ?? permanent?.card?.toughness ?? 0;
+      amount = typeof toughness === 'string' ? parseInt(toughness, 10) || 0 : Number(toughness) || 0;
     }
     // "the number of creatures you control" 
     else if (condition.includes('creature') && condition.includes('control')) {

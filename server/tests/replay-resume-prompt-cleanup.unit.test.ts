@@ -26,7 +26,8 @@ describe('replay resume prompt cleanup', () => {
     game.replay([]);
 
     expect((game.state as any).pendingScry).toBeUndefined();
-    expect((game.state as any).pendingSpellCasts).toBeUndefined();
+    // Orphaned pendingSpellCasts (card not in hand) are pruned after replay.
+    expect((game.state as any).pendingSpellCasts?.effect_1).toBeUndefined();
     expect(ResolutionQueueManager.getPendingSummary(gameId).hasPending).toBe(false);
     expect((game.state as any).priority).toBe(p1);
 

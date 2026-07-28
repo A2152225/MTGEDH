@@ -167,8 +167,9 @@ import {
   getDevotionManaAmount,
   getExtraManaProduction,
   getManaMultiplier,
+  parseManaSpendRestrictionFromOracle,
 } from "../state/modules/mana-abilities.js";
-import { buildAnyCombinationManaSelectionFields } from "../state/modules/manaColorSelectionStepUtils.js";
+import { buildAnyCombinationManaSelectionFields, buildManaProductionColorSelectionFields, isCombinationOrAnyColorManaField, resolveAllowedColorsForCombinationMana } from "../state/modules/manaColorSelectionStepUtils.js";
 import { continueCastFromGraveyardAbility, queueCounterTargetStepForBattlefieldAbility, resolveManaAbilityActivationShape } from "./interaction.js";
 import {
   advanceDungeonProgress,
@@ -12182,19 +12183,35 @@ async function handleStepResponse(
             (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
             recordAddedMana(poolKey, totalAmount);
             broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
-          } else if (creatureCountMana && (creatureCountMana.amount > 0 || (creatureCountMana as any).requiresColorChoice === true)) {
+          } else if (creatureCountMana && (
+            creatureCountMana.amount > 0
+            || (creatureCountMana as any).requiresColorChoice === true
+            || Boolean((creatureCountMana as any).activationCost)
+          )) {
             const totalAmount = creatureCountMana.amount * effectiveMultiplier;
 
-            if (
-              creatureCountMana.color === 'any_combination' ||
-              creatureCountMana.color === 'any_one_color' ||
-              creatureCountMana.color.startsWith('combination:')
-            ) {
-              const combinationFields = buildAnyCombinationManaSelectionFields({
-                totalAmount,
-                cardName,
-                allowedColors: ['W', 'U', 'B', 'R', 'G'],
-              });
+            if (isCombinationOrAnyColorManaField(creatureCountMana.color)) {
+              const isDevotion = (creatureCountMana as any).dynamicAmountSource === 'devotion';
+              const combinationFields = isDevotion
+                ? buildAnyCombinationManaSelectionFields({
+                    totalAmount: Math.max(1, totalAmount),
+                    cardName,
+                    allowedColors: resolveAllowedColorsForCombinationMana(creatureCountMana.color),
+                  })
+                : buildManaProductionColorSelectionFields({
+                    totalAmount,
+                    cardName,
+                    colorMode: creatureCountMana.color,
+                  });
+
+              if (!combinationFields) {
+                broadcastGame(io, game, gameId);
+                break;
+              }
+
+              const oracleSpendRestriction = parseManaSpendRestrictionFromOracle(
+                String(permanent?.card?.oracle_text || ''),
+              );
               ResolutionQueueManager.addStep(gameId, {
                 type: ResolutionStepType.MANA_COLOR_SELECTION,
                 playerId: pid as PlayerID,
@@ -12211,17 +12228,42 @@ async function handleStepResponse(
                 ...(combinationFields.totalAmount != null ? { totalAmount: combinationFields.totalAmount } : null),
                 ...(combinationFields.availableColors ? { availableColors: combinationFields.availableColors } : null),
                 allowedColors: combinationFields.allowedColors,
+                singleColor: combinationFields.selectionKind === 'any_color',
                 dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
                 manaMultiplier: effectiveMultiplier,
                 tappedPermanentsForCost: requiresTap ? [permanentId] : [],
+                ...(oracleSpendRestriction
+                  ? {
+                      manaRestriction: oracleSpendRestriction.restriction,
+                      manaRestrictedTo: oracleSpendRestriction.restrictedTo,
+                    }
+                  : null),
               } as any);
               broadcastGame(io, game, gameId);
               break;
             }
 
             const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
-            (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
-            recordAddedMana(poolKey, totalAmount);
+            const fixedSpendRestriction = parseManaSpendRestrictionFromOracle(
+              String(permanent?.card?.oracle_text || ''),
+            );
+            if (fixedSpendRestriction) {
+              const { addRestrictedManaToPool } = await import('./util.js');
+              addRestrictedManaToPool(
+                game.state,
+                pid,
+                poolKey as any,
+                totalAmount,
+                fixedSpendRestriction.restriction,
+                fixedSpendRestriction.restrictedTo,
+                permanentId,
+                cardName,
+              );
+              recordAddedMana(poolKey, totalAmount);
+            } else {
+              (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+              recordAddedMana(poolKey, totalAmount);
+            }
             broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
           } else {
             const {
@@ -12455,6 +12497,15 @@ async function handleStepResponse(
             }
           }
 
+          appendCastSpellContinuationEvent(gameId, game, {
+            playerId: pid,
+            cardId,
+            effectId: effectId || undefined,
+            resolvedStepId: String((step as any).id || '').trim(),
+            resolvedStepType: String((step as any).type || ''),
+            cancelled: true,
+          });
+
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
             gameId,
@@ -12638,6 +12689,16 @@ async function handleStepResponse(
           convokeTappedCreatures,
           harmonizeTappedCreatureId,
           sneakReturnedCreatureId,
+        });
+
+        // Persist that this payment prompt was resolved so replay clears it even when
+        // older event logs lack prune-friendly stack evidence.
+        appendCastSpellContinuationEvent(gameId, game, {
+          playerId: pid,
+          cardId,
+          effectId: effectId || undefined,
+          resolvedStepId: String((step as any).id || '').trim(),
+          resolvedStepType: String((step as any).type || ''),
         });
 
         if (castCompleted) {

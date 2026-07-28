@@ -962,6 +962,7 @@ export type ManaRestrictionType =
   | 'chosen_type_creature_spell' // Cavern of Souls, Unclaimed Territory, etc.
   | 'chosen_type_creature_source' // Secluded Courtyard — creature spells + creature-source abilities
   | 'chosen_type_spell'   // Echoing Cavern — any spell of the chosen type
+  | 'creature_spells_mv_or_x' // Helga: creature spells with MV >= N (restrictedTo) or {X} in cost
   | 'specific_card';      // Can only be spent on a specific card or permanent (stored in restrictedTo)
 
 /**

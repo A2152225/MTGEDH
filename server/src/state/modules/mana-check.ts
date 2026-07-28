@@ -12,7 +12,7 @@ import { cardHasCreatureType } from "../creatureTypeNow.js";
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions.js";
 import { getChosenTypeManaSpendRestriction } from "./chosen-creature-type.js";
 import { getActiveAbilityConditions } from "./game-state-effects.js";
-import { getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "./mana-abilities.js";
+import { getMoxAmberAvailableColors, isMoxAmberConditionalManaSource, getCreatureCountManaAmount, getDevotionManaAmount, resolvePowerThresholdInsteadManaAbility, parseManaSpendRestrictionFromOracle } from "./mana-abilities.js";
 import { debug } from "../../utils/debug.js";
 
 /**
@@ -622,6 +622,128 @@ function createSingleColorProduction(colorKey: SimpleManaKey, amount: number = 1
   const pool = createSimpleManaPool();
   pool[colorKey] = amount;
   return pool;
+}
+
+function applyScalingManaToOptimisticPool(
+  pool: Record<string, number>,
+  colorField: string,
+  amount: number,
+): void {
+  if (!Number.isFinite(amount) || amount <= 0) return;
+  const color = String(colorField || '').trim();
+  if (!color) return;
+
+  if (color === 'any_one_color' || color === 'any_combination' || color === 'any') {
+    pool.white = (pool.white || 0) + amount;
+    pool.blue = (pool.blue || 0) + amount;
+    pool.black = (pool.black || 0) + amount;
+    pool.red = (pool.red || 0) + amount;
+    pool.green = (pool.green || 0) + amount;
+    pool.anyColor = (pool.anyColor || 0) + amount;
+    return;
+  }
+
+  if (color.startsWith('combination:')) {
+    const letters = color
+      .slice('combination:'.length)
+      .split(',')
+      .map((part) => part.trim().toUpperCase())
+      .filter(Boolean);
+    const optionLetters = new Set(letters);
+    for (const letter of optionLetters) {
+      const colorKey = manaSymbolToColorKey(letter);
+      if (colorKey) pool[colorKey] = (pool[colorKey] || 0) + amount;
+    }
+    if (optionLetters.size >= 2) {
+      const lettersSorted = Array.from(optionLetters).sort().join('');
+      const markerKey = `choiceColors_${lettersSorted}`;
+      (pool as any)[markerKey] = Number((pool as any)[markerKey] || 0) + amount;
+    }
+    return;
+  }
+
+  const colorKey = manaSymbolToColorKey(color);
+  if (colorKey) {
+    pool[colorKey] = (pool[colorKey] || 0) + amount;
+  }
+}
+
+function buildScalingManaExactOptions(
+  state: any,
+  playerId: PlayerID,
+  permanent: any,
+): ExactManaSourceOption[] {
+  const powerInstead = resolvePowerThresholdInsteadManaAbility(
+    state,
+    playerId,
+    String(permanent?.card?.oracle_text || ''),
+  );
+  if (powerInstead) {
+    const amount = Number(powerInstead.amount || (powerInstead.producesAllAtOnce ? powerInstead.produces.length : 1));
+    if (powerInstead.producesAllAtOnce && powerInstead.produces.length > 1) {
+      const produced = createSimpleManaPool();
+      for (const symbol of powerInstead.produces) {
+        const colorKey = manaSymbolToColorKey(symbol);
+        if (colorKey) produced[colorKey] += 1;
+      }
+      return [{ produced }];
+    }
+    if (powerInstead.produces.length === 1) {
+      const colorKey = manaSymbolToColorKey(powerInstead.produces[0]);
+      if (colorKey) return [{ produced: createSingleColorProduction(colorKey, Math.max(1, amount)) }];
+    }
+  }
+
+  const scaling = getCreatureCountManaAmount(state, permanent, playerId)
+    || getDevotionManaAmount(state, permanent, playerId);
+  if (!scaling || !Number.isFinite(scaling.amount) || scaling.amount <= 0) {
+    return [];
+  }
+
+  const amount = Math.max(0, Number(scaling.amount || 0));
+  const color = String(scaling.color || '').trim();
+  const activationCost = scaling.activationCost
+    ? parseManaCost(String(scaling.activationCost))
+    : undefined;
+  const spendRestriction = parseManaSpendRestrictionFromOracle(String(permanent?.card?.oracle_text || ''))
+    || undefined;
+
+  const wrap = (produced: Record<SimpleManaKey, number>): ExactManaSourceOption => {
+    const option: ExactManaSourceOption = { produced };
+    if (activationCost) option.activationCost = activationCost;
+    if (spendRestriction) {
+      option.spendRestriction = {
+        restriction: spendRestriction.restriction,
+        restrictedTo: spendRestriction.restrictedTo,
+      };
+    }
+    return option;
+  };
+
+  if (color === 'any_one_color' || color === 'any_combination' || color === 'any') {
+    return (['white', 'blue', 'black', 'red', 'green'] as SimpleManaKey[]).map((key) =>
+      wrap(createSingleColorProduction(key, amount)),
+    );
+  }
+
+  if (color.startsWith('combination:')) {
+    const letters = color
+      .slice('combination:'.length)
+      .split(',')
+      .map((part) => part.trim().toUpperCase())
+      .filter(Boolean);
+    const options: ExactManaSourceOption[] = [];
+    for (const letter of letters) {
+      const colorKey = manaSymbolToColorKey(letter);
+      if (!colorKey) continue;
+      options.push(wrap(createSingleColorProduction(colorKey, amount)));
+    }
+    return options;
+  }
+
+  const colorKey = manaSymbolToColorKey(color);
+  if (!colorKey) return [];
+  return [wrap(createSingleColorProduction(colorKey, amount))];
 }
 
 function getPlayerLifeTotal(state: any, playerId: PlayerID): number {
@@ -1340,6 +1462,16 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
       continue;
     }
 
+    const scalingOptions = buildScalingManaExactOptions(state, playerId, permanent);
+    if (scalingOptions.length > 0) {
+      sources.push({
+        id: String(permanent.id || `${cardName}_${sources.length}`),
+        permanentId: String(permanent.id || `${cardName}_${sources.length}`),
+        options: scalingOptions,
+      });
+      continue;
+    }
+
     const manaAbilityWithCostPattern = /\{([0-9]+|[wubrgc])\}(?:,\s*)?\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
     const manaAbilityNoCostPattern = /\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
     const nonTapManaAbilityPattern = /([^:.\n]+):\s*add\s+([^.\n]+)/gi;
@@ -1813,6 +1945,29 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         pool[colorKey] = (pool[colorKey] || 0) + 1;
       }
       continue; // Skip oracle text check for basic lands
+    }
+
+    // Scaling / dynamic / power-threshold-instead mana (Bighorner, Helga, Raucous Audience, etc.)
+    // Handle before regex token counting, which truncates at the first period and undercounts.
+    const powerInstead = resolvePowerThresholdInsteadManaAbility(state, playerId, permanent.card.oracle_text || '');
+    if (powerInstead) {
+      const amount = Number(powerInstead.amount || (powerInstead.producesAllAtOnce ? powerInstead.produces.length : 1));
+      if (powerInstead.producesAllAtOnce && powerInstead.produces.length > 1) {
+        for (const symbol of powerInstead.produces) {
+          const colorKey = manaSymbolToColorKey(symbol);
+          if (colorKey) pool[colorKey] = (pool[colorKey] || 0) + 1;
+        }
+      } else if (powerInstead.produces.length === 1) {
+        applyScalingManaToOptimisticPool(pool, powerInstead.produces[0], Math.max(1, amount));
+      }
+      continue;
+    }
+
+    const scalingMana = getCreatureCountManaAmount(state, permanent, playerId)
+      || getDevotionManaAmount(state, permanent, playerId);
+    if (scalingMana && Number(scalingMana.amount || 0) > 0) {
+      applyScalingManaToOptimisticPool(pool, scalingMana.color, Number(scalingMana.amount || 0));
+      continue;
     }
     
     // Check for mana abilities in oracle text

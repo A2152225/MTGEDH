@@ -106,4 +106,113 @@ describe('effect program zone mutation replay', () => {
     expect((game.state as any).zones[p1].hand.map((entry: any) => entry.id)).toEqual(['gy-1']);
     expect((game.state as any).zones[p1].graveyard).toHaveLength(0);
   });
+
+  it('strips hand ghosts when effectProgramZoneMove BF-enters from snapshot (undo splice miss)', () => {
+    const game = createInitialGameState('t_effect_program_zone_move_dual_zone');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    const card = {
+      id: 'sphere_1',
+      name: "Commander's Sphere",
+      type_line: 'Artifact',
+      mana_cost: '{3}',
+    };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [{ ...card, zone: 'hand' }],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [];
+
+    // Simulate undo/replay where cardId no longer matches the hand entry id prefix,
+    // so source splice misses and only the card snapshot is available.
+    game.applyEvent({
+      type: 'effectProgramZoneMove',
+      playerId: p1,
+      fromPlayerId: p1,
+      cardId: 'sphere_MISSING',
+      fromZone: 'hand',
+      toZone: 'battlefield',
+      permanentId: 'perm_sphere_1',
+      card,
+      effectProgramMutation: true,
+    } as any);
+
+    expect((game.state as any).battlefield.map((perm: any) => perm.card?.id)).toEqual(['sphere_1']);
+    expect((game.state as any).zones[p1].hand).toEqual([]);
+    expect((game.state as any).zones[p1].handCount).toBe(0);
+  });
+
+  it('strips hand ghosts when effectProgramZoneMove enters graveyard from snapshot', () => {
+    const game = createInitialGameState('t_effect_program_zone_move_gy_dual');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    const card = {
+      id: 'delta_gy',
+      name: 'Polluted Delta',
+      type_line: 'Land',
+    };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [{ ...card, zone: 'hand' }],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+
+    game.applyEvent({
+      type: 'effectProgramZoneMove',
+      playerId: p1,
+      fromPlayerId: p1,
+      cardId: 'delta_MISSING',
+      fromZone: 'hand',
+      toZone: 'graveyard',
+      card,
+      effectProgramMutation: true,
+    } as any);
+
+    expect((game.state as any).zones[p1].graveyard.map((entry: any) => entry.id)).toEqual(['delta_gy']);
+    expect((game.state as any).zones[p1].hand).toEqual([]);
+    expect((game.state as any).zones[p1].handCount).toBe(0);
+  });
+
+  it('strips hand ghosts for putCardFromHandOntoBattlefield snapshot fallback', () => {
+    const game = createInitialGameState('t_put_from_hand_dual_zone');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    const card = {
+      id: 'sphere_2',
+      name: "Commander's Sphere",
+      type_line: 'Artifact',
+      mana_cost: '{3}',
+    };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [{ ...card, zone: 'hand' }],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [];
+
+    game.applyEvent({
+      type: 'putCardFromHandOntoBattlefield',
+      playerId: p1,
+      cardId: 'sphere_MISSING',
+      permanentId: 'perm_sphere_2',
+      card,
+    } as any);
+
+    expect((game.state as any).battlefield.map((perm: any) => perm.card?.id)).toEqual(['sphere_2']);
+    expect((game.state as any).zones[p1].hand).toEqual([]);
+    expect((game.state as any).zones[p1].handCount).toBe(0);
+  });
 });

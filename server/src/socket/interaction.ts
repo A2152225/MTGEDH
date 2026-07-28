@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction, resolveClientStyleManaAbilityById } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction, resolveClientStyleManaAbilityById, addRestrictedManaToPool } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket.js";
 import { 
@@ -30,10 +30,14 @@ import {
   detectManaModifiers,
   getCommanderColorIdentity,
   resolvePermanentChosenColorSymbol,
+  parseManaSpendRestrictionFromOracle,
 } from "../state/modules/mana-abilities";
 import {
   buildAnyCombinationManaSelectionFields,
+  buildManaProductionColorSelectionFields,
   hasPendingManaColorSelectionForPermanent,
+  isCombinationOrAnyColorManaField,
+  resolveAllowedColorsForCombinationMana,
 } from "../state/modules/manaColorSelectionStepUtils.js";
 import { canPayManaCost, canPayManaCostWithAvailableSources, getAvailableMana } from "../state/modules/mana-check.js";
 import { cardManaValue, exchangePermanentOracleText, parsePT, parseWordNumber } from "../state/utils";
@@ -5060,7 +5064,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // ========================================================================
       // Handle creature-count-based mana abilities (Priest of Titania, Elvish Archdruid, etc.)
       // ========================================================================
-      else if (creatureCountMana && (creatureCountMana.amount > 0 || (creatureCountMana as any).requiresColorChoice === true)) {
+      else if (creatureCountMana && (
+        creatureCountMana.amount > 0
+        || (creatureCountMana as any).requiresColorChoice === true
+        || Boolean((creatureCountMana as any).activationCost)
+      )) {
         const baseAmount = creatureCountMana.amount;
         const totalAmount = baseAmount * effectiveMultiplier;
         
@@ -5098,17 +5106,39 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           });
         }
         
-        // Handle special 'any_combination' color (like Selvala, Three Tree City)
-        // Also handle 'any_one_color' (like White Lotus Tile)
-        if (creatureCountMana.color === 'any_combination' || 
-            creatureCountMana.color === 'any_one_color' ||
-            creatureCountMana.color.startsWith('combination:')) {
-          const combinationFields = buildAnyCombinationManaSelectionFields({
-            totalAmount,
-            cardName,
-            allowedColors: ['W', 'U', 'B', 'R', 'G'],
-          });
+        // Handle special 'any_combination' color (like Selvala)
+        // 'any_one_color' (Three Tree City, White Lotus Tile)
+        // and restricted combinations (Vivi Ornitier)
+        if (isCombinationOrAnyColorManaField(creatureCountMana.color)) {
+          const isDevotion = (creatureCountMana as any).dynamicAmountSource === 'devotion';
+          const combinationFields = isDevotion
+            ? buildAnyCombinationManaSelectionFields({
+                totalAmount: Math.max(1, totalAmount),
+                cardName,
+                allowedColors: resolveAllowedColorsForCombinationMana(creatureCountMana.color),
+              })
+            : buildManaProductionColorSelectionFields({
+                totalAmount,
+                cardName,
+                colorMode: creatureCountMana.color,
+              });
+
+          if (!combinationFields) {
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${getPlayerName(game, pid)} activated ${cardName} but added no mana (0 creatures of the chosen type).`,
+              ts: Date.now(),
+            });
+            broadcastGame(io, game, gameId);
+            return;
+          }
+
           // Resolution Queue: request a color choice from player
+          const oracleSpendRestriction = parseManaSpendRestrictionFromOracle(
+            String(permanent?.card?.oracle_text || ''),
+          );
           ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.MANA_COLOR_SELECTION,
             playerId: pid as PlayerID,
@@ -5127,6 +5157,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             singleColor: combinationFields.selectionKind === 'any_color',
             dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
             manaMultiplier: effectiveMultiplier,
+            ...(oracleSpendRestriction
+              ? {
+                  manaRestriction: oracleSpendRestriction.restriction,
+                  manaRestrictedTo: oracleSpendRestriction.restrictedTo,
+                }
+              : null),
           } as any);
           
           io.to(gameId).emit("chat", {
@@ -5143,7 +5179,23 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           return; // Exit early - wait for color choice
         } else {
           const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
-          (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+          const fixedSpendRestriction = parseManaSpendRestrictionFromOracle(
+            String(permanent?.card?.oracle_text || ''),
+          );
+          if (fixedSpendRestriction) {
+            addRestrictedManaToPool(
+              game.state,
+              pid,
+              poolKey as any,
+              totalAmount,
+              fixedSpendRestriction.restriction,
+              fixedSpendRestriction.restrictedTo,
+              permanentId,
+              cardName,
+            );
+          } else {
+            (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+          }
           recordAddedMana(poolKey, totalAmount);
           if (isTreasureSource) {
             try {
@@ -13139,19 +13191,39 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
       }
       // Handle creature-count-based mana
-      else if (creatureCountMana && (creatureCountMana.amount > 0 || (creatureCountMana as any).requiresColorChoice === true)) {
+      else if (creatureCountMana && (
+        creatureCountMana.amount > 0
+        || (creatureCountMana as any).requiresColorChoice === true
+        || Boolean((creatureCountMana as any).activationCost)
+      )) {
         const totalAmount = creatureCountMana.amount * effectiveMultiplier;
         
-            if (
-              creatureCountMana.color === 'any_combination' ||
-              creatureCountMana.color === 'any_one_color' ||
-              creatureCountMana.color.startsWith('combination:')
-            ) {
-          const combinationFields = buildAnyCombinationManaSelectionFields({
-            totalAmount,
-            cardName,
-            allowedColors: ['W', 'U', 'B', 'R', 'G'],
-          });
+            if (isCombinationOrAnyColorManaField(creatureCountMana.color)) {
+          const isDevotion = (creatureCountMana as any).dynamicAmountSource === 'devotion';
+          const combinationFields = isDevotion
+            ? buildAnyCombinationManaSelectionFields({
+                totalAmount: Math.max(1, totalAmount),
+                cardName,
+                allowedColors: resolveAllowedColorsForCombinationMana(creatureCountMana.color),
+              })
+            : buildManaProductionColorSelectionFields({
+                totalAmount,
+                cardName,
+                colorMode: creatureCountMana.color,
+              });
+
+          if (!combinationFields) {
+            io.to(gameId).emit("chat", {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: "system",
+              message: `${getPlayerName(game, pid)} activated ${cardName} but added no mana (0 creatures of the chosen type).`,
+              ts: Date.now(),
+            });
+            broadcastGame(io, game, gameId);
+            return;
+          }
+
           // Resolution Queue: request a color choice from player
           const queuedManaChoiceStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.MANA_COLOR_SELECTION,
@@ -13171,6 +13243,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             ...(combinationFields.totalAmount != null ? { totalAmount: combinationFields.totalAmount } : null),
             ...(combinationFields.availableColors ? { availableColors: combinationFields.availableColors } : null),
             allowedColors: combinationFields.allowedColors,
+            singleColor: combinationFields.selectionKind === 'any_color',
             dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
             manaMultiplier: effectiveMultiplier,
             // Activation-cost evidence (for deterministic replay) and deferred costs
@@ -13201,7 +13274,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             from: "system",
             message: (creatureCountMana as any).dynamicAmountSource === 'devotion'
               ? `${getPlayerName(game, pid)} activated ${cardName} and must choose a color for devotion mana.`
-              : `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} mana (choose colors).`,
+              : `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} mana (choose a color).`,
             ts: Date.now(),
           });
           

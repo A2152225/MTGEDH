@@ -15,6 +15,7 @@ import type { PlayerID, GameEvent } from "../types";
 
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
+import { repairReplayCardSourceZones, repairCardIdAwayFromZones, repairAllDualZoneGhosts } from "./stackReplayUtils.js";
 
 import {
   importDeckResolved,
@@ -3604,6 +3605,54 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         } catch {
           // best-effort only
         }
+
+        // Replay: once castSpell is applied, drop any pre-cast payment/target prompts and
+        // pendingSpellCasts for this card so restore/undo does not re-ask for mana.
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const castCardId = String(
+            (typeof spellCardData === 'object' && spellCardData ? (spellCardData as any).id : '')
+            || (e as any).cardId
+            || '',
+          ).trim();
+          const effectIdFromEvent = String((e as any).effectId || '').trim();
+          const pending = (ctx.state as any)?.pendingSpellCasts;
+          if (pending && typeof pending === 'object') {
+            for (const [eid, cast] of Object.entries(pending)) {
+              const castCard = String((cast as any)?.cardId || '').trim();
+              if (
+                (effectIdFromEvent && String(eid) === effectIdFromEvent)
+                || (castCardId && castCard === castCardId)
+              ) {
+                delete pending[eid];
+              }
+            }
+          }
+          if (replayGameId && (castCardId || effectIdFromEvent)) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepEffectId = String(step?.effectId || step?.spellCastContext?.effectId || '').trim();
+              const stepCardId = String(
+                step?.cardId || step?.spellCastContext?.cardId || step?.sourceId || '',
+              ).trim();
+              if (effectIdFromEvent && stepEffectId === effectIdFromEvent) return true;
+              if (!castCardId || stepCardId !== castCardId) return false;
+              const stepType = String(step?.type || '');
+              return (
+                step?.spellPaymentRequired === true
+                || stepType === 'mana_payment_choice'
+                || stepType === 'target_selection'
+                || stepType === 'mode_selection'
+                || stepType === 'additional_cost_payment'
+                || stepType === 'x_value_selection'
+                || stepType === 'mutate_target_selection'
+                || stepType === 'option_choice'
+              );
+            });
+          }
+        } catch {
+          // best-effort only
+        }
         break;
       }
 
@@ -3746,6 +3795,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const z = zones[stepPlayerId] = zones[stepPlayerId] || {};
               z.hand = handSnapshot.map((card: any) => ({ ...card, zone: 'hand' }));
               z.handCount = z.hand.length;
+              // Prompt hand snapshots can predate a sacrifice/fetch. After undo/replay,
+              // strip any restored hand cards that already live in GY/exile/BF.
+              const repaired = repairAllDualZoneGhosts(ctx);
+              if (repaired > 0) {
+                debug(1, `applyEvent(resolveTopOfStackPrompt): scrubbed ${repaired} dual-zone hand ghost(s) for ${stepPlayerId}`);
+              }
               stateMutated = true;
             }
           }
@@ -15733,6 +15788,34 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             card = { ...cardSnapshot };
           }
 
+          // Undo/replay can miss the source splice (id drift) and still enter from
+          // cardSnapshot — strip any remaining ghost with the same card.id first.
+          if (card) {
+            const resolvedCardId = String(card.id || cardId || '').trim();
+            if (resolvedCardId) {
+              if (toZone === 'battlefield') {
+                repairReplayCardSourceZones(ctx, fromPlayerId, resolvedCardId);
+              } else if (toZone === 'graveyard') {
+                repairCardIdAwayFromZones(ctx, fromPlayerId, resolvedCardId, [
+                  'hand',
+                  'exile',
+                  'library',
+                ]);
+              } else if (toZone === 'exile') {
+                repairCardIdAwayFromZones(ctx, fromPlayerId, resolvedCardId, [
+                  'hand',
+                  'library',
+                ]);
+              } else if (toZone === 'hand') {
+                repairCardIdAwayFromZones(ctx, fromPlayerId, resolvedCardId, [
+                  'exile',
+                  'library',
+                  'graveyard',
+                ]);
+              }
+            }
+          }
+
           if (toZone === 'battlefield' && permanentId && card) {
             const battlefield = Array.isArray(ctx.state.battlefield)
               ? ctx.state.battlefield
@@ -15823,6 +15906,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
           if (!card && cardSnapshot) {
             card = { ...cardSnapshot };
+          }
+
+          // Same undo/replay dual-zone guard as effectProgramZoneMove.
+          if (card) {
+            const resolvedCardId = String(card.id || cardId || '').trim();
+            if (resolvedCardId) {
+              repairReplayCardSourceZones(ctx, playerId, resolvedCardId);
+            }
           }
 
           const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : ((ctx.state as any).battlefield = []);

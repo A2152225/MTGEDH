@@ -141,11 +141,6 @@ function sliceEventsForBoundaryPlan(events: PersistedEvent[], plan: UndoBoundary
 
 type BoundaryKind = 'step' | 'phase' | 'turn';
 
-function getPhaseBucket(stateAny: any): string {
-  const phase = String(stateAny?.phase || '').toLowerCase();
-  return phase === 'pre_game' || phase === 'pre-game' || phase === '' ? 'pre_game' : 'live';
-}
-
 function getTurnBoundaryKey(stateAny: any): string {
   const rawTurnNumber = Number((stateAny as any)?.turnNumber);
   if (Number.isFinite(rawTurnNumber) && rawTurnNumber > 0) {
@@ -155,41 +150,30 @@ function getTurnBoundaryKey(stateAny: any): string {
   if (Number.isFinite(rawTurn) && rawTurn > 0) {
     return `turn:${rawTurn}`;
   }
-  return `turn:${getPhaseBucket(stateAny)}`;
-}
-
-function getBoundaryKeys(stateAny: any, kind: BoundaryKind): string[] {
   const phase = String(stateAny?.phase || '').toLowerCase();
-  const step = String(stateAny?.step || '').toUpperCase();
-  const prefixes: string[] = [];
-
-  const rawTurnNumber = Number((stateAny as any)?.turnNumber);
-  if (Number.isFinite(rawTurnNumber) && rawTurnNumber > 0) {
-    prefixes.push(`turn:${rawTurnNumber}`);
+  if (phase === 'pre_game' || phase === 'pre-game' || phase === '') {
+    return 'turn:pre_game';
   }
-
-  const rawTurn = Number((stateAny as any)?.turn);
-  if (Number.isFinite(rawTurn) && rawTurn > 0 && rawTurn !== rawTurnNumber) {
-    prefixes.push(`turn:${rawTurn}`);
-  }
-
-  prefixes.push(`turn:${getPhaseBucket(stateAny)}`);
-
-  const uniquePrefixes = [...new Set(prefixes.filter(Boolean))];
-  if (kind === 'turn') return uniquePrefixes;
-
-  const phaseKeys = uniquePrefixes.map((prefix) => `${prefix}|phase:${phase}`);
-  if (kind === 'phase') return phaseKeys;
-
-  return phaseKeys.map((prefix) => `${prefix}|step:${step}`);
+  // No numeric turn yet — keep a distinct unknown bucket so we do not merge every
+  // live turn into a single `turn:live` key (that made step/phase/turn counts match).
+  return 'turn:unknown';
 }
 
-function getPhaseBoundaryKey(stateAny: any): string {
-  return `${getTurnBoundaryKey(stateAny)}|phase:${String(stateAny?.phase || '').toLowerCase()}`;
-}
+/**
+ * Single canonical key per boundary kind. Previously returned multiple aliases
+ * (`turn:N` plus `turn:live`), and live lookup preferred the alias that spanned
+ * the whole game — collapsing smart-undo counts across scopes.
+ */
+function getBoundaryKey(stateAny: any, kind: BoundaryKind): string {
+  const turnKey = getTurnBoundaryKey(stateAny);
+  if (kind === 'turn') return turnKey;
 
-function getStepBoundaryKey(stateAny: any): string {
-  return `${getPhaseBoundaryKey(stateAny)}|step:${String(stateAny?.step || '').toUpperCase()}`;
+  const phase = String(stateAny?.phase || '').toLowerCase() || 'unknown';
+  const phaseKey = `${turnKey}|phase:${phase}`;
+  if (kind === 'phase') return phaseKey;
+
+  const step = String(stateAny?.step || '').toUpperCase() || 'UNKNOWN';
+  return `${phaseKey}|step:${step}`;
 }
 
 function snapshotBoundaryState(stateAny: any): BoundaryStateSnapshot | undefined {
@@ -249,14 +233,50 @@ function getPersistedEventBoundaryState(event: PersistedEvent): any {
   };
 }
 
-function hasPersistedBoundaryMetadata(events: PersistedEvent[]): boolean {
-  return events.length > 0 && events.every((event) =>
+function eventHasAnyBoundaryMetadata(event: PersistedEvent): boolean {
+  return Boolean(
     event && (
       typeof event.turnNumber !== 'undefined' ||
       typeof event.phase !== 'undefined' ||
       typeof event.step !== 'undefined'
-    )
+    ),
   );
+}
+
+function hasPersistedBoundaryMetadata(events: PersistedEvent[]): boolean {
+  // Prefer the fast metadata path whenever we have enough stamped events.
+  // Requiring *every* row used to fail (and fall back to a slow/fragile probe)
+  // whenever a single append missed stamping — which collapsed smart-undo counts.
+  if (!Array.isArray(events) || events.length === 0) return false;
+  let stamped = 0;
+  for (const event of events) {
+    if (eventHasAnyBoundaryMetadata(event)) stamped += 1;
+  }
+  if (stamped === 0) return false;
+  if (stamped === events.length) return true;
+  // Partial coverage is OK if a meaningful share of the log is stamped
+  // (carry-forward fills gaps while scanning).
+  return stamped >= Math.min(events.length, Math.max(3, Math.ceil(events.length * 0.25)));
+}
+
+function mergeBoundaryStateCarryForward(
+  previous: BoundaryStateSnapshot | undefined,
+  nextRaw: BoundaryStateSnapshot | undefined,
+): BoundaryStateSnapshot | undefined {
+  if (!previous && !nextRaw) return undefined;
+  const merged: BoundaryStateSnapshot = {
+    turnNumber: typeof nextRaw?.turnNumber === 'number' ? nextRaw.turnNumber : previous?.turnNumber,
+    phase: typeof nextRaw?.phase !== 'undefined' ? nextRaw.phase : previous?.phase,
+    step: typeof nextRaw?.step !== 'undefined' ? nextRaw.step : previous?.step,
+  };
+  if (
+    typeof merged.turnNumber === 'undefined' &&
+    typeof merged.phase === 'undefined' &&
+    typeof merged.step === 'undefined'
+  ) {
+    return undefined;
+  }
+  return merged;
 }
 
 function calculateBoundaryUndoCountFromPersistedMetadata(
@@ -270,43 +290,34 @@ function calculateBoundaryUndoCountFromPersistedMetadata(
   }
 
   const currentState = (game?.state || {}) as any;
-  const liveBoundaryKeys = getBoundaryKeys(currentState, boundaryKind);
-  const liveBoundaryKey = liveBoundaryKeys[0];
+  const liveBoundaryKey = getBoundaryKey(currentState, boundaryKind);
   if (!liveBoundaryKey) return { count: 0 };
 
   const boundaryEntryIndices = new Map<string, number>();
   const boundaryStates = new Map<string, BoundaryStateSnapshot | undefined>();
   const boundaryHistory: string[] = [];
-  let previousBoundaryState = snapshotBoundaryState({});
-  let previousBoundaryKeys = getBoundaryKeys({}, boundaryKind);
-  let previousBoundaryKey = previousBoundaryKeys[0];
+  let carriedState = snapshotBoundaryState({});
+  let previousBoundaryKey = getBoundaryKey({}, boundaryKind);
 
-  for (const boundaryKey of previousBoundaryKeys) {
-    boundaryEntryIndices.set(boundaryKey, -1);
-    boundaryStates.set(boundaryKey, previousBoundaryState);
-  }
-  if (previousBoundaryKey) {
-    boundaryHistory.push(previousBoundaryKey);
-  }
+  boundaryEntryIndices.set(previousBoundaryKey, -1);
+  boundaryStates.set(previousBoundaryKey, carriedState);
+  boundaryHistory.push(previousBoundaryKey);
 
   for (let index = 0; index < events.length; index++) {
-    const nextBoundaryState = snapshotBoundaryState(getPersistedEventBoundaryState(events[index]));
-    const nextBoundaryKeys = getBoundaryKeys(getPersistedEventBoundaryState(events[index]), boundaryKind);
-    const nextBoundaryKey = nextBoundaryKeys[0];
+    const rawState = snapshotBoundaryState(getPersistedEventBoundaryState(events[index]));
+    // Carry forward last known turn/phase/step across unstamped rows so a single
+    // missing stamp cannot invent a bogus empty boundary and collapse scopes.
+    carriedState = mergeBoundaryStateCarryForward(carriedState, rawState) || carriedState;
+    const nextBoundaryKey = getBoundaryKey(carriedState || {}, boundaryKind);
     if (nextBoundaryKey !== previousBoundaryKey) {
-      for (const boundaryKey of nextBoundaryKeys) {
-        boundaryEntryIndices.set(boundaryKey, index);
-        boundaryStates.set(boundaryKey, nextBoundaryState);
-      }
-      if (nextBoundaryKey) {
-        boundaryHistory.push(nextBoundaryKey);
-      }
+      boundaryEntryIndices.set(nextBoundaryKey, index);
+      boundaryStates.set(nextBoundaryKey, carriedState);
+      boundaryHistory.push(nextBoundaryKey);
     }
     previousBoundaryKey = nextBoundaryKey;
-    previousBoundaryKeys = nextBoundaryKeys;
   }
 
-  let targetBoundaryKey = liveBoundaryKeys.find((boundaryKey) => boundaryEntryIndices.has(boundaryKey)) || liveBoundaryKey;
+  let targetBoundaryKey = boundaryEntryIndices.has(liveBoundaryKey) ? liveBoundaryKey : previousBoundaryKey;
   let entryIndex = boundaryEntryIndices.get(targetBoundaryKey);
 
   if (entryIndex === undefined) {
@@ -347,8 +358,7 @@ function calculateBoundaryUndoCount(
   }
 
   const currentState = (game?.state || {}) as any;
-  const liveBoundaryKeys = getBoundaryKeys(currentState, boundaryKind);
-  const liveBoundaryKey = liveBoundaryKeys[0];
+  const liveBoundaryKey = getBoundaryKey(currentState, boundaryKind);
   if (!liveBoundaryKey) return { count: 0 };
 
   const replayEvents = transformDbEventsForReplay(events as any);
@@ -356,34 +366,23 @@ function calculateBoundaryUndoCount(
   const boundaryEntryIndices = new Map<string, number>();
   const boundaryStates = new Map<string, BoundaryStateSnapshot | undefined>();
   const boundaryHistory: string[] = [];
-  let previousBoundaryKeys = getBoundaryKeys((scratch as any).state || {}, boundaryKind);
-  let previousBoundaryKey = previousBoundaryKeys[0];
-  for (const boundaryKey of previousBoundaryKeys) {
-    boundaryEntryIndices.set(boundaryKey, -1);
-    boundaryStates.set(boundaryKey, snapshotBoundaryState((scratch as any).state || {}));
-  }
-  if (previousBoundaryKey) {
-    boundaryHistory.push(previousBoundaryKey);
-  }
+  let previousBoundaryKey = getBoundaryKey((scratch as any).state || {}, boundaryKind);
+  boundaryEntryIndices.set(previousBoundaryKey, -1);
+  boundaryStates.set(previousBoundaryKey, snapshotBoundaryState((scratch as any).state || {}));
+  boundaryHistory.push(previousBoundaryKey);
 
   replayOnContext(scratch as any, replayEvents as any, (replayCtx, _event, index) => {
-    const nextBoundaryKeys = getBoundaryKeys((replayCtx as any).state || {}, boundaryKind);
-    const nextBoundaryKey = nextBoundaryKeys[0];
+    const nextBoundaryKey = getBoundaryKey((replayCtx as any).state || {}, boundaryKind);
     const nextBoundaryState = snapshotBoundaryState((replayCtx as any).state || {});
     if (nextBoundaryKey !== previousBoundaryKey) {
-      for (const boundaryKey of nextBoundaryKeys) {
-        boundaryEntryIndices.set(boundaryKey, index);
-        boundaryStates.set(boundaryKey, nextBoundaryState);
-      }
-      if (nextBoundaryKey) {
-        boundaryHistory.push(nextBoundaryKey);
-      }
+      boundaryEntryIndices.set(nextBoundaryKey, index);
+      boundaryStates.set(nextBoundaryKey, nextBoundaryState);
+      boundaryHistory.push(nextBoundaryKey);
     }
     previousBoundaryKey = nextBoundaryKey;
-    previousBoundaryKeys = nextBoundaryKeys;
   });
 
-  let targetBoundaryKey = liveBoundaryKeys.find((boundaryKey) => boundaryEntryIndices.has(boundaryKey)) || liveBoundaryKey;
+  let targetBoundaryKey = boundaryEntryIndices.has(liveBoundaryKey) ? liveBoundaryKey : previousBoundaryKey;
   let entryIndex = boundaryEntryIndices.get(targetBoundaryKey);
 
   if (entryIndex === undefined) {

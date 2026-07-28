@@ -35,6 +35,28 @@ function createMockSocket(
   return { socket, handlers };
 }
 
+/** Append while stamping the live game boundary — mirrors real gameplay appends. */
+function appendAtBoundary(
+  game: any,
+  gameId: string,
+  seq: number,
+  type: string,
+  payload: Record<string, unknown>,
+  boundary: { turnNumber?: number; phase: string; step: string },
+) {
+  if (typeof boundary.turnNumber === 'number' && boundary.turnNumber > 0) {
+    (game.state as any).turnNumber = boundary.turnNumber;
+    (game.state as any).turn = boundary.turnNumber;
+  } else {
+    delete (game.state as any).turnNumber;
+    delete (game.state as any).turn;
+  }
+  (game.state as any).phase = boundary.phase;
+  (game.state as any).step = boundary.step;
+  (game as any).seq = seq;
+  appendEvent(gameId, seq, type, payload);
+}
+
 describe('undo authorization (integration)', () => {
   const gameId = 'test_undo_authorization';
   const wrapperGameId = 'test_undo_authorization_wrapper';
@@ -151,16 +173,22 @@ describe('undo authorization (integration)', () => {
       { id: p1, name: 'P1', spectator: false, life: 40 },
       { id: p2, name: 'P2', spectator: false, life: 40 },
     ];
-    (game.state as any).phase = 'precombatMain';
-    (game.state as any).step = 'MAIN1';
     (game.state as any).turnPlayer = p1;
     (game.state as any).priority = p1;
 
     // Simulate entering the first live turn from pre-game, then taking one action in MAIN1.
-    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
-    appendEvent(wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' });
-    appendEvent(wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
-    appendEvent(wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 });
+    appendAtBoundary(game, wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    appendAtBoundary(game, wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
@@ -189,7 +217,7 @@ describe('undo authorization (integration)', () => {
     expect(req!.payload.boundaryPreview?.summary).toContain('Precombat Main');
   });
 
-  it('smart undo counts use the replayed boundary when restored live state drifts ahead', async () => {
+  it('smart undo counts use persisted boundary metadata when live state matches event stamps', async () => {
     const p1 = 'p1';
     const p2 = 'p2';
 
@@ -201,16 +229,21 @@ describe('undo authorization (integration)', () => {
       { id: p1, name: 'P1', spectator: false, life: 40 },
       { id: p2, name: 'P2', spectator: false, life: 40 },
     ];
-    (game.state as any).turn = 13;
-    (game.state as any).phase = 'combat';
-    (game.state as any).step = 'DECLARE_BLOCKERS';
     (game.state as any).turnPlayer = p1;
     (game.state as any).priority = p1;
 
-    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
-    appendEvent(wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' });
-    appendEvent(wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
-    appendEvent(wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 });
+    appendAtBoundary(game, wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    appendAtBoundary(game, wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
@@ -228,7 +261,7 @@ describe('undo authorization (integration)', () => {
     expect(smartUpdate!.payload.turnCount).toBe(2);
   });
 
-  it('smart undo counts stay bounded when replayed nextStep coexists with a pending library search', async () => {
+  it('smart undo counts stay bounded when nextStep follows a tutor activation in the prior step', async () => {
     const p1 = 'p1';
     const p2 = 'p2';
 
@@ -240,10 +273,6 @@ describe('undo authorization (integration)', () => {
       { id: p1, name: 'P1', spectator: false, life: 40 },
       { id: p2, name: 'P2', spectator: false, life: 40 },
     ];
-    (game.state as any).turn = 1;
-    (game.state as any).turnNumber = 1;
-    (game.state as any).phase = 'combat';
-    (game.state as any).step = 'BEGIN_COMBAT';
     (game.state as any).turnPlayer = p1;
     (game.state as any).priority = p1;
     (game.state as any).manaPool = {
@@ -267,17 +296,29 @@ describe('undo authorization (integration)', () => {
       },
     ];
 
-    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
-    appendEvent(wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' });
-    appendEvent(wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
-    appendEvent(wrapperGameId, 3, 'activateTutorAbility', {
+    appendAtBoundary(game, wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    appendAtBoundary(game, wrapperGameId, 3, 'activateTutorAbility', {
       playerId: p1,
       permanentId: 'atlas_1',
       abilityId: 'atlas_1-ability-1',
       cardName: 'Atlas Relay',
       stackId: 'tutor_stack_1',
+    }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
     });
-    appendEvent(wrapperGameId, 4, 'nextStep', { reason: 'allPlayersPassed' });
+    appendAtBoundary(game, wrapperGameId, 4, 'nextStep', { reason: 'allPlayersPassed' }, {
+      turnNumber: 1,
+      phase: 'combat',
+      step: 'BEGIN_COMBAT',
+    });
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
@@ -308,15 +349,21 @@ describe('undo authorization (integration)', () => {
       { id: p1, name: 'P1', spectator: false, life: 40 },
       { id: p2, name: 'P2', spectator: false, life: 40 },
     ];
-    (game.state as any).phase = 'precombatMain';
-    (game.state as any).step = 'MAIN1';
     (game.state as any).turnPlayer = p1;
     (game.state as any).priority = p1;
 
-    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
-    appendEvent(wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' });
-    appendEvent(wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
-    appendEvent(wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 });
+    appendAtBoundary(game, wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    appendAtBoundary(game, wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
@@ -345,19 +392,31 @@ describe('undo authorization (integration)', () => {
       { id: p1, name: 'P1', spectator: false, life: 40 },
       { id: p2, name: 'P2', spectator: false, life: 40 },
     ];
-    (game.state as any).turn = 1;
-    (game.state as any).turnNumber = 1;
-    (game.state as any).phase = 'combat';
-    (game.state as any).step = 'BEGIN_COMBAT';
     (game.state as any).turnPlayer = p1;
     (game.state as any).priority = p1;
 
-    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
-    appendEvent(wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' });
-    appendEvent(wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
-    appendEvent(wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 });
-    appendEvent(wrapperGameId, 4, 'skipToPhase', { targetPhase: 'combat', targetStep: 'BEGIN_COMBAT' });
-    appendEvent(wrapperGameId, 5, 'setLife', { playerId: p2, life: 38 });
+    appendAtBoundary(game, wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    appendAtBoundary(game, wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    appendAtBoundary(game, wrapperGameId, 4, 'skipToPhase', { targetPhase: 'combat', targetStep: 'BEGIN_COMBAT' }, {
+      turnNumber: 1,
+      phase: 'combat',
+      step: 'BEGIN_COMBAT',
+    });
+    appendAtBoundary(game, wrapperGameId, 5, 'setLife', { playerId: p2, life: 38 }, {
+      turnNumber: 1,
+      phase: 'combat',
+      step: 'BEGIN_COMBAT',
+    });
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
@@ -395,20 +454,40 @@ describe('undo authorization (integration)', () => {
       { id: p1, name: 'P1', spectator: false, life: 40 },
       { id: p2, name: 'P2', spectator: false, life: 40 },
     ];
-    (game.state as any).turn = 1;
-    (game.state as any).turnNumber = 2;
-    (game.state as any).phase = 'precombatMain';
-    (game.state as any).step = 'MAIN1';
     (game.state as any).turnPlayer = p1;
     (game.state as any).priority = p1;
 
-    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
-    appendEvent(wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' });
-    appendEvent(wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
-    appendEvent(wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 });
-    appendEvent(wrapperGameId, 4, 'nextTurn', {});
-    appendEvent(wrapperGameId, 5, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
-    appendEvent(wrapperGameId, 6, 'setLife', { playerId: p2, life: 38 });
+    appendAtBoundary(game, wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' }, { phase: 'pre_game', step: 'PRE_GAME' });
+    appendAtBoundary(game, wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    appendAtBoundary(game, wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 }, {
+      turnNumber: 1,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    appendAtBoundary(game, wrapperGameId, 4, 'nextTurn', {}, {
+      turnNumber: 2,
+      phase: 'beginning',
+      step: 'UNTAP',
+    });
+    // Stale legacy `turn` field should not override turnNumber=2 for boundary keys.
+    (game.state as any).turn = 1;
+    appendAtBoundary(game, wrapperGameId, 5, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' }, {
+      turnNumber: 2,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    (game.state as any).turn = 1;
+    appendAtBoundary(game, wrapperGameId, 6, 'setLife', { playerId: p2, life: 38 }, {
+      turnNumber: 2,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+    });
+    (game.state as any).turn = 1;
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
@@ -453,6 +532,99 @@ describe('undo authorization (integration)', () => {
     expect(persisted.turnNumber).toBe(3);
     expect(persisted.phase).toBe('combat');
     expect(persisted.step).toBe('DECLARE_ATTACKERS');
+  });
+
+  it('persists boundary metadata even when append seq does not match live game.seq', () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(wrapperGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnNumber = 4;
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game as any).seq = 42;
+
+    // Stale/wrong seq used to skip stamping and collapse smart-undo counts.
+    appendEvent(wrapperGameId, 7, 'setLife', { playerId: p1, life: 38 });
+
+    const persisted = [...getEvents(wrapperGameId)].reverse().find((event: any) => event?.type === 'setLife') as any;
+    expect(persisted).toBeTruthy();
+    expect(persisted.turnNumber).toBe(4);
+    expect(persisted.phase).toBe('precombatMain');
+    expect(persisted.step).toBe('MAIN1');
+  });
+
+  it('smart undo counts distinguish step, phase, previous phase, and turn scopes', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(wrapperGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    const stampAndAppend = (
+      seq: number,
+      type: string,
+      boundary: { turnNumber?: number; phase: string; step: string },
+      payload: Record<string, unknown> = {},
+    ) => {
+      if (typeof boundary.turnNumber === 'number') {
+        (game.state as any).turnNumber = boundary.turnNumber;
+        (game.state as any).turn = boundary.turnNumber;
+      } else {
+        delete (game.state as any).turnNumber;
+        delete (game.state as any).turn;
+      }
+      (game.state as any).phase = boundary.phase;
+      (game.state as any).step = boundary.step;
+      (game as any).seq = seq;
+      appendEvent(wrapperGameId, seq, type, payload);
+    };
+
+    stampAndAppend(0, 'join', { phase: 'pre_game', step: 'PRE_GAME' }, { playerId: p1 });
+    stampAndAppend(1, 'join', { phase: 'pre_game', step: 'PRE_GAME' }, { playerId: p2 });
+    stampAndAppend(2, 'skipToPhase', { turnNumber: 1, phase: 'precombatMain', step: 'MAIN1' }, {
+      targetPhase: 'precombatMain',
+      targetStep: 'MAIN1',
+    });
+    stampAndAppend(3, 'setLife', { turnNumber: 1, phase: 'precombatMain', step: 'MAIN1' }, { playerId: p1, life: 39 });
+    stampAndAppend(4, 'nextStep', { turnNumber: 1, phase: 'combat', step: 'BEGIN_COMBAT' }, { reason: 'advance' });
+    stampAndAppend(5, 'setLife', { turnNumber: 1, phase: 'combat', step: 'BEGIN_COMBAT' }, { playerId: p2, life: 38 });
+    stampAndAppend(6, 'nextStep', { turnNumber: 1, phase: 'combat', step: 'DECLARE_ATTACKERS' }, { reason: 'advance' });
+    stampAndAppend(7, 'setLife', { turnNumber: 1, phase: 'combat', step: 'DECLARE_ATTACKERS' }, { playerId: p1, life: 37 });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(wrapperGameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerUndoHandlers(io as any, socket as any);
+
+    await handlers['getSmartUndoCounts']({ gameId: wrapperGameId });
+
+    const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
+    expect(smartUpdate).toBeTruthy();
+    // Current step = DECLARE_ATTACKERS (nextStep + setLife)
+    expect(smartUpdate!.payload.stepCount).toBe(2);
+    // Current phase = combat from BEGIN_COMBAT through DECLARE_ATTACKERS
+    expect(smartUpdate!.payload.phaseCount).toBe(4);
+    // Previous phase = back through MAIN1 as well
+    expect(smartUpdate!.payload.previousPhaseCount).toBe(6);
+    // Current turn = everything after pre_game
+    expect(smartUpdate!.payload.turnCount).toBe(6);
+    expect(smartUpdate!.payload.stepCount).toBeLessThan(smartUpdate!.payload.phaseCount);
+    expect(smartUpdate!.payload.phaseCount).toBeLessThan(smartUpdate!.payload.previousPhaseCount);
+    expect(smartUpdate!.payload.previousPhaseCount).toBe(smartUpdate!.payload.turnCount);
   });
 
   it('smart undo counts can use persisted boundary metadata without replay-specific event semantics', async () => {

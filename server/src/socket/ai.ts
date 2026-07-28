@@ -6072,6 +6072,22 @@ function findCastableSpells(
       // Check additional non-mana costs first to make sure AI can pay them before checking mana payment plan
       const card = candidate.card;
       const castCard = candidate.castCard || card;
+      const cardId = String(card?.id || '').trim();
+      if (cardId) {
+        const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+        const alreadyPresent = battlefield.some((permanent: any) =>
+          permanent
+          && String(permanent.controller || '') === String(playerId)
+          && String(permanent.card?.id || '') === cardId,
+        );
+        if (alreadyPresent) {
+          debug(
+            1,
+            `[AI] findCastableSpells: Skipping ${castCard?.name || cardId} — same card id already on battlefield (stale hand ghost)`,
+          );
+          return false;
+        }
+      }
       if (castCard) {
         const addCost = getEffectiveAdditionalCost(castCard, castCard.oracle_text || '');
         if (addCost && !canAIPayAdditionalCost(game, playerId, candidate, addCost)) {

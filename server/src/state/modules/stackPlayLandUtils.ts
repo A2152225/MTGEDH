@@ -95,11 +95,13 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       (p: any) => p?.card?.id === cardId && p?.controller === playerId
     );
     if (alreadyOnBattlefield) {
+      // Always strip stale hand copies in live play too — otherwise canPlayLand/AI can
+      // keep seeing a ghost land that can never actually be played.
+      const repaired = repairReplayCardSourceZones(state, playerId, cardId);
+      if (repaired.total > 0) {
+        debug(1, `playLand: repaired ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for card ${cardId} already on battlefield`);
+      }
       if ((ctx as any).isReplaying) {
-        const repaired = repairReplayCardSourceZones(state, playerId, cardId);
-        if (repaired.total > 0) {
-          debug(1, `playLand: repaired ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
-        }
         debugEnv('DEBUG_REPLAY_RESTORE', '[replay-restore] playLand replay idempotency hit', {
           playerId,
           cardId,

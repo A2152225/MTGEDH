@@ -40,11 +40,13 @@ export function castSpell(
         (s: any) => s?.card?.id === cardId && s?.controller === playerId,
       );
       if (alreadyOnStack) {
+        // Always strip stale hand/exile/etc. copies. Live AI can otherwise loop forever
+        // paying for a ghost still sitting in hand after the real card is on the stack.
+        const repaired = repairReplayCardSourceZones(ctx, playerId, cardId);
+        if (repaired.total > 0) {
+          debug(1, `castSpell: repaired ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for card ${cardId} already on stack`);
+        }
         if ((ctx as any).isReplaying) {
-          const repaired = repairReplayCardSourceZones(ctx, playerId, cardId);
-          if (repaired.total > 0) {
-            debug(1, `castSpell: repaired ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
-          }
           debugEnv('DEBUG_REPLAY_RESTORE', '[replay-restore] castSpell replay idempotency hit', {
             playerId,
             cardId,
@@ -61,11 +63,12 @@ export function castSpell(
         (p: any) => p?.card?.id === cardId && p?.controller === playerId,
       );
       if (alreadyOnBattlefield) {
+        // Same dual-zone repair for live play (not only replay restore).
+        const repaired = repairReplayCardSourceZones(ctx, playerId, cardId);
+        if (repaired.total > 0) {
+          debug(1, `castSpell: repaired ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for card ${cardId} already on battlefield`);
+        }
         if ((ctx as any).isReplaying) {
-          const repaired = repairReplayCardSourceZones(ctx, playerId, cardId);
-          if (repaired.total > 0) {
-            debug(1, `castSpell: repaired ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
-          }
           debugEnv('DEBUG_REPLAY_RESTORE', '[replay-restore] castSpell replay idempotency hit', {
             playerId,
             cardId,

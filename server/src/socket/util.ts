@@ -18,7 +18,7 @@ import { GameManager } from "../GameManager.js";
 import type { CardCostAdjustment, GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { registerTokenGroupMembers } from "./tokenGroupResolve.js";
-import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource, resolvePermanentChosenColorSymbol } from "../state/modules/mana-abilities.js";
+import { getDevotionManaAmount, getCreatureCountManaAmount, getManaAbilitiesForPermanent, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource, resolvePermanentChosenColorSymbol, parseManaSpendRestrictionFromOracle } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCastableCommanderCandidates, getCastableSpellCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, hasSacrificePrefixActivatedAbility, isPlayerIdleForAutoPass, isTransformBackFace, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { getGrantedCastFromGraveyardKeywordInfo, getGrantedEmbalmInfo, getGrantedFlashbackInfo, getGrantedUnearthInfo, getPrintedUnearthInfo } from "../state/modules/graveyard-permissions.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool, stripReminderTextFromOracle } from "../state/modules/mana-check.js";
@@ -4064,11 +4064,13 @@ export function resolvePaymentManaAbilitySpendRestriction(
 ): { restriction: ManaRestrictionType; restrictedTo?: string } | null {
   const ability = resolveLegacyManaAbilityById(gameState, permanent, playerId, abilityId);
   const spendRestriction = ability?.spendRestriction;
-  if (!spendRestriction?.restriction) return null;
-  return {
-    restriction: spendRestriction.restriction,
-    restrictedTo: spendRestriction.restrictedTo,
-  };
+  if (spendRestriction?.restriction) {
+    return {
+      restriction: spendRestriction.restriction,
+      restrictedTo: spendRestriction.restrictedTo,
+    };
+  }
+  return parseManaSpendRestrictionFromOracle(String(permanent?.card?.oracle_text || ''));
 }
 
 export function restrictedManaSpendRestrictionAllowsPurpose(
@@ -5940,6 +5942,27 @@ export function canUseRestrictedMana(
       if (purpose.creatureType === entry.restrictedTo || purpose.spellType === entry.restrictedTo) return true;
       if (purpose.spellCard && cardHasCreatureType(purpose.spellCard, entry.restrictedTo)) return true;
       return false;
+    case 'creature_spells_mv_or_x': {
+      if (purpose.isCreature !== true) return false;
+      const spellCard = purpose.spellCard;
+      if (!spellCard) return false;
+      const manaCost = String(spellCard.mana_cost || '');
+      if (/\{x\}/i.test(manaCost)) return true;
+      const minMv = Number.parseInt(String(entry.restrictedTo || '4'), 10);
+      const threshold = Number.isFinite(minMv) && minMv > 0 ? minMv : 4;
+      let manaValue = Number(spellCard.cmc);
+      if (!Number.isFinite(manaValue)) {
+        manaValue = 0;
+        const tokens = manaCost.match(/\{([^}]+)\}/g) || [];
+        for (const token of tokens) {
+          const inner = token.replace(/[{}]/g, '');
+          if (/^\d+$/.test(inner)) manaValue += Number.parseInt(inner, 10);
+          else if (/^[wubrgcs]$/i.test(inner)) manaValue += 1;
+          else if (inner.includes('/')) manaValue += 1;
+        }
+      }
+      return manaValue >= threshold;
+    }
     case 'specific_card':
       return entry.restrictedTo === purpose.cardId;
     default:

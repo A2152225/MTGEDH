@@ -30,6 +30,7 @@ import {
 } from "./zone-manipulation.js";
 import { updateCounters } from "./counters_tokens.js";
 import { revertCopyPermanentToOriginal } from "./permanent-copy.js";
+import { repairAllDualZoneGhosts } from "./stackReplayUtils.js";
 
 function clearPreparedStateOnBattlefieldExit(state: any, permanent: any): void {
   if (!permanent) {
@@ -2008,6 +2009,15 @@ export function reconcileZonesConsistency(ctx: GameContext, playerId?: PlayerID)
     } catch (err) {
       debugWarn(1, "reconcileZonesConsistency failed for player", pid, err);
     }
+  }
+
+  try {
+    const repaired = repairAllDualZoneGhosts(ctx);
+    if (repaired > 0) {
+      debug(1, `reconcileZonesConsistency: removed ${repaired} dual-zone ghost card entr${repaired === 1 ? 'y' : 'ies'}`);
+    }
+  } catch (err) {
+    debugWarn(1, "reconcileZonesConsistency dual-zone repair failed", err);
   }
 }
 

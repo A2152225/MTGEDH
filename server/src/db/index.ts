@@ -218,16 +218,13 @@ type EventBoundaryMetadata = {
   step?: string;
 };
 
-function getLiveEventBoundaryMetadata(gameId: string, seq: number): EventBoundaryMetadata {
+function getLiveEventBoundaryMetadata(gameId: string, _seq: number): EventBoundaryMetadata {
   const liveGame = games.get(gameId);
   if (!liveGame) return {};
 
-  const liveSeq = Number((liveGame as any)?.seq);
-  const eventSeq = Number(seq);
-  if (!Number.isFinite(liveSeq) || !Number.isFinite(eventSeq) || liveSeq !== eventSeq) {
-    return {};
-  }
-
+  // Always stamp from the live in-memory game when available. Gating on seq equality
+  // dropped turn/phase/step for many append paths (applyEvent bumps seq first, or
+  // callers pass a stale seq), which made smart-undo step/phase/turn counts collapse.
   const stateAny = ((liveGame as any)?.state || {}) as any;
   const rawTurnNumber = Number(stateAny?.turnNumber ?? stateAny?.turn);
   const turnNumber = Number.isFinite(rawTurnNumber) && rawTurnNumber > 0 ? rawTurnNumber : undefined;

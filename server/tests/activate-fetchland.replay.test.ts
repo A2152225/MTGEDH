@@ -78,6 +78,66 @@ describe('activateFetchland replay semantics', () => {
     expect(Boolean(stack[0]?.searchParams?.entersTapped || false)).toBe(false);
   });
 
+  it('scrubs a same-id hand ghost when fetchland is sacrificed (undo dual-zone)', () => {
+    const game = createInitialGameState('t_activate_fetchland_hand_ghost');
+    const p1 = 'p1' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+
+    const deltaCard = {
+      id: 'delta_card',
+      name: 'Polluted Delta',
+      type_line: 'Land',
+      oracle_text: '{T}, Pay 1 life, Sacrifice Polluted Delta: Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle.',
+    };
+
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).zones = {
+      [p1]: {
+        // Ghost left behind by a prior undo/replay hand snapshot.
+        hand: [{ ...deltaCard, zone: 'hand' }],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'delta_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: { ...deltaCard, zone: 'battlefield' },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateFetchland',
+      playerId: p1,
+      permanentId: 'delta_1',
+      abilityId: 'delta_1-ability-0',
+      cardName: 'Polluted Delta',
+      stackId: 'stack_fetch_delta_ghost',
+      activatedAbilityText: deltaCard.oracle_text,
+      lifePaidForCost: 1,
+      searchParams: {
+        filter: { types: ['land'], subtypes: ['Island', 'Swamp'] },
+        searchDescription: 'Search for a Island or Swamp card',
+        isTrueFetch: true,
+        maxSelections: 1,
+        entersTapped: false,
+      },
+    } as any);
+
+    expect((game.state as any).zones[p1].graveyard.map((card: any) => card.id)).toEqual(['delta_card']);
+    expect((game.state as any).zones[p1].hand).toEqual([]);
+    expect((game.state as any).zones[p1].handCount).toBe(0);
+  });
+
   it('replays a mana-cost fetchland by consuming mana and preserving the multi-search stack payload', () => {
     const game = createInitialGameState('t_activate_fetchland_myriad_landscape_replay');
     const p1 = 'p1' as PlayerID;

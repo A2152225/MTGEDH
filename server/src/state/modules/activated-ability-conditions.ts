@@ -30,7 +30,12 @@ const ACTIVATED_ABILITY_CONDITION_REQUIREMENTS: ActivatedAbilityConditionRequire
     label: 'Metalcraft',
     errorCode: 'METALCRAFT_NOT_ACTIVE',
     getFailureMessage: () => 'Metalcraft is not active.',
-    matches: text => textIncludesAny(text, ['metalcraft', 'three or more artifacts', '3 or more artifacts']),
+    matches: text => {
+      const normalized = normalizeAbilityText(text);
+      if (normalized.includes('metalcraft')) return true;
+      // Activate-only-if gates (not upgrade clauses like "If you control three or more artifacts, ... instead.")
+      return /activate only if[^.]*(?:three|3) or more artifacts/.test(normalized);
+    },
   },
   {
     key: 'threshold',
@@ -62,14 +67,24 @@ const ACTIVATED_ABILITY_CONDITION_REQUIREMENTS: ActivatedAbilityConditionRequire
     label: 'Ferocious',
     errorCode: 'ACTIVATION_CONDITION_NOT_MET',
     getFailureMessage: cardName => `${cardName}'s ferocious ability requires you to control a creature with power 4 or greater.`,
-    matches: text => textIncludesAny(text, ['ferocious', 'creature with power 4 or greater']),
+    matches: text => {
+      const normalized = normalizeAbilityText(text);
+      // Ability word, or explicit activate-only-if. Do NOT match upgrade clauses like
+      // "If you control a creature with power 4 or greater, add {G}{G} instead."
+      if (normalized.includes('ferocious')) return true;
+      return /activate only if[^.]*creature with power 4 or greater/.test(normalized);
+    },
   },
   {
     key: 'formidable',
     label: 'Formidable',
     errorCode: 'ACTIVATION_CONDITION_NOT_MET',
     getFailureMessage: cardName => `${cardName}'s formidable ability requires creatures you control to have total power 8 or greater.`,
-    matches: text => textIncludesAny(text, ['formidable', 'creatures you control have total power 8 or greater']),
+    matches: text => {
+      const normalized = normalizeAbilityText(text);
+      if (normalized.includes('formidable')) return true;
+      return /activate only if[^.]*creatures you control have total power 8 or greater/.test(normalized);
+    },
   },
   {
     key: 'coven',

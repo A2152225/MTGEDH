@@ -14,9 +14,10 @@ describe('pruneObsoleteResolutionQueueAfterReplay', () => {
       step: 'MAIN1',
       phase: 'precombatMain',
       stack: [],
+      zones: { p1: { hand: [] } },
       manaPool: { p1: { white: 0, blue: 1, black: 0, red: 0, green: 1, colorless: 0 } },
       pendingSpellCasts: {
-        stale_cast: { cardId: 'old_spell', playerId: 'p1' },
+        stale_cast: { cardId: 'old_spell', playerId: 'p1', fromZone: 'hand' },
       },
     };
 
@@ -45,6 +46,85 @@ describe('pruneObsoleteResolutionQueueAfterReplay', () => {
     const pending = queue.steps.filter((step) => step.status === ResolutionStepStatus.PENDING);
     expect(pending).toHaveLength(0);
     expect(state.pendingSpellCasts.stale_cast).toBeUndefined();
+  });
+
+  it('removes payment prompts when the spell is already on the stack after castSpell replay', () => {
+    const gameId = 'game_replay_cleanup_completed_cast';
+    const state: any = {
+      players: [{ id: 'p1' }],
+      turnPlayer: 'p1',
+      priority: 'p1',
+      step: 'MAIN1',
+      phase: 'precombatMain',
+      stack: [{
+        id: 'stack_divination_1',
+        type: 'spell',
+        cardId: 'divination_1',
+        card: { id: 'divination_1', name: 'Divination' },
+        controller: 'p1',
+      }],
+      zones: { p1: { hand: [] } },
+      pendingSpellCasts: {
+        cast_divination_1: { cardId: 'divination_1', playerId: 'p1', fromZone: 'hand' },
+      },
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: 'p1' as any,
+      description: 'Pay costs to cast Divination.',
+      mandatory: true,
+      spellPaymentRequired: true,
+      cardId: 'divination_1',
+      effectId: 'cast_divination_1',
+      spellCastContext: { effectId: 'cast_divination_1', cardId: 'divination_1' },
+    } as any);
+
+    pruneObsoleteResolutionQueueAfterReplay(gameId, state);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const pending = queue.steps.filter((step) => step.status === ResolutionStepStatus.PENDING);
+    expect(pending).toHaveLength(0);
+    expect(state.pendingSpellCasts.cast_divination_1).toBeUndefined();
+  });
+
+  it('keeps in-progress cast payment prompts when the card is still in hand', () => {
+    const gameId = 'game_replay_cleanup_in_progress_cast';
+    const state: any = {
+      players: [{ id: 'p1' }],
+      turnPlayer: 'p1',
+      priority: 'p1',
+      step: 'MAIN1',
+      phase: 'precombatMain',
+      stack: [],
+      zones: {
+        p1: {
+          hand: [{ id: 'divination_1', name: 'Divination' }],
+        },
+      },
+      pendingSpellCasts: {
+        cast_divination_1: { cardId: 'divination_1', playerId: 'p1', fromZone: 'hand' },
+      },
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: 'p1' as any,
+      description: 'Pay costs to cast Divination.',
+      mandatory: true,
+      spellPaymentRequired: true,
+      cardId: 'divination_1',
+      effectId: 'cast_divination_1',
+      spellCastContext: { effectId: 'cast_divination_1', cardId: 'divination_1' },
+    } as any);
+
+    pruneObsoleteResolutionQueueAfterReplay(gameId, state);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const pending = queue.steps.filter((step) => step.status === ResolutionStepStatus.PENDING);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].type).toBe(ResolutionStepType.MANA_PAYMENT_CHOICE);
+    expect(state.pendingSpellCasts.cast_divination_1?.cardId).toBe('divination_1');
   });
 
   it('removes replayed battlefield activation payment prompts when the ability is already on the stack', () => {

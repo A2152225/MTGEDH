@@ -12202,6 +12202,28 @@ export function registerGameActions(io: Server, socket: Socket) {
             // Verify the spell was actually added to the stack
             const stackLengthAfter = game.state.stack?.length || 0;
             if (stackLengthAfter <= stackLengthBefore) {
+              const stillInHand = Array.isArray((zones as any)?.hand)
+                && (zones as any).hand.some((entry: any) => entry && String(entry.id || '') === String(cardId));
+              const alreadyOnBattlefield = Array.isArray(game.state.battlefield)
+                && game.state.battlefield.some((permanent: any) =>
+                  permanent
+                  && String(permanent.controller || '') === String(playerId)
+                  && String(permanent.card?.id || '') === String(cardId),
+                );
+              if (alreadyOnBattlefield && !stillInHand) {
+                // castSpell repaired a dual-zone ghost (card already a permanent). Refund mana;
+                // do not emit CAST_FAILED or the AI will thrash retrying a card that is gone.
+                restorePlayerCastSpellPaymentCheckpoint(game, playerId, {
+                  pool: castSpellPaymentCheckpoint.pool,
+                  tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
+                  harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
+                });
+                debugWarn(
+                  1,
+                  `[castSpellFromHand] applyEvent was idempotent for ${cardInHand.name} (${cardId}) — already on battlefield; refunded payment`,
+                );
+                return;
+              }
               // The spell wasn't added to the stack - something went wrong
               debugError(1, `[castSpellFromHand] applyEvent did not add spell to stack. Stack: ${stackLengthBefore} -> ${stackLengthAfter}`);
               abortCastSpellPayment({

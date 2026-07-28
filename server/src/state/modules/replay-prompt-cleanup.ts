@@ -11,6 +11,7 @@ import { maybeResumeDeferredOracleIrStackSpell } from './oracleIrDeferredStackFi
 import { restoreAllPendingEffectProgramRuntimes } from '../effects/effectProgramReplayRestore.js';
 import { resumeOracleIrPendingCompoundStepsFromState } from './oracleIrServerZoneSync.js';
 import { scrubStalePerPlayerOptionalEffectProgramSteps } from './triggerCounterPlacementPromptUtils.js';
+import { pruneObsoleteResolutionQueueAfterReplay } from '../resolution/replayCleanup.js';
 
 /**
  * Legacy / in-flight prompt state that must not survive event replay.
@@ -25,7 +26,8 @@ const REPLAY_TRANSIENT_PROMPT_STATE_KEYS = [
   'pendingBottomOrder',
   'pendingLimDulsVault',
   'pendingDanceWithCalamity',
-  'pendingSpellCasts',
+  // pendingSpellCasts is restored by castSpellContinuation for in-progress casts and
+  // cleared by castSpell / pruneObsoleteResolutionQueueAfterReplay when the cast completes.
   'pendingTargets',
   'pendingBlightAbilityActivations',
   'pendingTriggerOrdering',
@@ -354,6 +356,14 @@ export function finalizeGameStateAfterReplay(ctx: GameContext): void {
   try {
     ResolutionQueueManager.endReplay(gameId);
     clearOptionalPaymentCallbacks(gameId);
+  } catch {
+    // best-effort only
+  }
+
+  // Drop cast/activation payment prompts that were re-queued by continuation events
+  // after their outcomes were already applied (e.g. castSpell with paymentManaDelta).
+  try {
+    pruneObsoleteResolutionQueueAfterReplay(gameId, ctx.state as any);
   } catch {
     // best-effort only
   }

@@ -29,6 +29,7 @@ import { registerLinkedExile } from "./triggers/linked-exile.js";
 import { queueCounterPlacedTriggers, queueCounterRemovedTriggers } from "./triggers/counters.js";
 import { orderTriggersByAPNAP } from "./triggers/ordering.js";
 import { drawCards as drawCardsFromZone } from './zones.js';
+import { repairCardIdAwayFromZones } from './stackReplayUtils.js';
 
 export type UpdateCountersOptions = {
   deferRunSBA?: boolean;
@@ -1697,6 +1698,15 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         controllerId: String(controller),
       });
       (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
+      // Undo/replay can leave a same-id hand ghost after fetch/sacrifice.
+      const sacrificedCardId = String(zoneCard.id || graveyardCard?.id || '').trim();
+      if (sacrificedCardId) {
+        repairCardIdAwayFromZones(ctx, String(owner), sacrificedCardId, [
+          'hand',
+          'exile',
+          'library',
+        ]);
+      }
     }
   }
 
