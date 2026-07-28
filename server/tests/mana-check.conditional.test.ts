@@ -168,6 +168,92 @@ describe('Conditional Mana Sources', () => {
       expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{G}'))).toBe(false);
       expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{1}{U}'))).toBe(false);
     });
+
+    it('does not count Mox Opal without metalcraft (fewer than 3 artifacts)', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'mox_opal_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Mox Opal',
+              type_line: 'Legendary Artifact',
+              oracle_text:
+                'Metalcraft — {T}: Add one mana of any color. Activate only if you control three or more artifacts.',
+            },
+          },
+          {
+            id: 'sol_ring_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Sol Ring',
+              type_line: 'Artifact',
+              oracle_text: '{T}: Add {C}{C}.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const mana = getAvailableMana(state, 'player1');
+      // Only Sol Ring ({C}{C}) — Mox Opal must not inflate any-color availability.
+      expect(getTotalManaFromPool(mana)).toBe(2);
+      expect(canPayManaCost(mana, parseManaCost('{R}'))).toBe(false);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{R}'))).toBe(false);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{2}'))).toBe(true);
+    });
+
+    it('counts Mox Opal when metalcraft is active (3+ artifacts)', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'mox_opal_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Mox Opal',
+              type_line: 'Legendary Artifact',
+              oracle_text:
+                'Metalcraft — {T}: Add one mana of any color. Activate only if you control three or more artifacts.',
+            },
+          },
+          {
+            id: 'sol_ring_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Sol Ring',
+              type_line: 'Artifact',
+              oracle_text: '{T}: Add {C}{C}.',
+            },
+          },
+          {
+            id: 'signet_1',
+            controller: 'player1',
+            tapped: true,
+            card: {
+              name: 'Arcane Signet',
+              type_line: 'Artifact',
+              oracle_text: '{T}: Add one mana of any color in your commander\'s color identity.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const mana = getAvailableMana(state, 'player1');
+      // Sol Ring 2 + Mox Opal 1 any-color
+      expect(getTotalManaFromPool(mana)).toBe(3);
+      expect(canPayManaCost(mana, parseManaCost('{R}'))).toBe(true);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{R}'))).toBe(true);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{2}{R}'))).toBe(true);
+    });
   });
 
   describe('Reflecting Pool', () => {

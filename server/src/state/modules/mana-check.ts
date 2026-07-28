@@ -9,9 +9,23 @@ import type { PlayerID } from "../../../../shared/src";
 import { parseNumberFromText, parseSacrificeCost, type SacrificeType } from "../../../../shared/src/textUtils";
 import { creatureHasHaste } from "../../socket/game-actions.js";
 import { cardHasCreatureType } from "../creatureTypeNow.js";
+import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions.js";
 import { getChosenTypeManaSpendRestriction } from "./chosen-creature-type.js";
+import { getActiveAbilityConditions } from "./game-state-effects.js";
 import { getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "./mana-abilities.js";
 import { debug } from "../../utils/debug.js";
+
+/**
+ * Metalcraft / threshold-style activation restrictions (e.g. Mox Opal) must gate
+ * optimistic mana availability the same way live activation does. Otherwise canAct /
+ * playable-card checks inflate available mana and block auto-pass.
+ */
+function canCountPermanentManaAbilities(state: any, playerId: PlayerID, oracleText: string): boolean {
+  const requirement = detectActivatedAbilityConditionRequirement(String(oracleText || ''));
+  if (!requirement) return true;
+  const activeConditions = getActiveAbilityConditions({ state } as any, String(playerId));
+  return activeConditions[requirement.key] === true;
+}
 
 /**
  * Phyrexian mana can be paid with 2 life instead of the colored mana
@@ -1300,6 +1314,10 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
       if (!hasHaste) continue;
     }
 
+    if (!canCountPermanentManaAbilities(state, playerId, permanent.card.oracle_text || '')) {
+      continue;
+    }
+
     const isBasicLandName = /^(plains|island|swamp|mountain|forest)$/i.test(cardName);
     const isSnowCoveredBasic = /^snow-covered\s+(plains|island|swamp|mountain|forest)$/i.test(cardName);
     if (isBasicLandName || isSnowCoveredBasic) {
@@ -1771,6 +1789,10 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
         // This creature has summoning sickness and no haste - can't tap for mana
         continue;
       }
+    }
+
+    if (!canCountPermanentManaAbilities(state, playerId, permanent.card.oracle_text || '')) {
+      continue;
     }
     
     // Special case: Basic lands (Mountain, Island, etc.)
