@@ -9183,6 +9183,20 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     });
   });
 
+  it('parses Rhystic Study tax without marking unless_pays_mana optional', () => {
+    const ir = parseOracleTextToIR(
+      'you may draw a card unless that player pays {1}.',
+      'Rhystic Study',
+    );
+    const step = ir.abilities[0]?.steps?.[0] as any;
+    expect(step).toMatchObject({
+      kind: 'unless_pays_mana',
+      mana: '{1}',
+    });
+    expect(step.optional).toBeUndefined();
+    expect(step.steps?.[0]).toMatchObject({ kind: 'draw' });
+  });
+
   it('parses target opponent reveals their hand into a direct reveal_hand step', () => {
     const ir = parseOracleTextToIR('Target opponent reveals their hand.', 'Telepathy Probe');
 

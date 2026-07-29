@@ -276,12 +276,17 @@ export function tryParseSimpleActionClause(args: {
         withMeta,
       });
       if (innerStep && innerStep.kind !== 'unknown') {
+        // "You may [effect] unless that player pays {C}" is ability-level optional
+        // (controller may/tax), not a nested may wrapping the tax step. Marking
+        // unless_pays optional caused a second Yes/No before the pay prompt.
+        const nestedSteps = (innerStep as { optional?: boolean }).optional === true
+          ? [{ ...innerStep, optional: undefined } as typeof innerStep]
+          : [innerStep];
         return withMeta({
           kind: 'unless_pays_mana',
           who: parsePlayerSelector(String(unlessThatPlayerPays[2] || 'that player').trim()),
           mana: String(unlessThatPlayerPays[3] || '').trim(),
-          steps: [innerStep],
-          optional: /\byou may\b/i.test(innerClause) || undefined,
+          steps: nestedSteps,
           raw: rawClause,
         });
       }

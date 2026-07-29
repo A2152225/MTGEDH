@@ -511,18 +511,60 @@ function parseOpponentCastSpellType(rawType: string): Pick<DetectedOpponentSpell
   return { spellCondition: 'any', triggerType: 'opponent_casts_any' };
 }
 
+function normalizeOpponentCastTriggerDescription(description: string): string {
+  return String(description || '')
+    .trim()
+    .replace(/\.+$/g, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function opponentCastTriggerSpecificityScore(trigger: DetectedOpponentSpellCastTrigger): number {
+  let score = 0;
+  // Prefer known pay-or types over generic cast detection.
+  if (trigger.triggerType === 'esper_sentinel' || trigger.triggerType === 'rhystic_study' || trigger.triggerType === 'mystic_remora') {
+    score += 100;
+  }
+  if (String(trigger.paymentCost || '').trim()) score += 20;
+  if (String(trigger.benefitIfNotPaid || '').trim() && trigger.benefitIfNotPaid !== 'trigger effect') score += 10;
+  if (trigger.paymentIsVariable) score += 5;
+  return score;
+}
+
 function pushUniqueOpponentCastTrigger(
   triggers: DetectedOpponentSpellCastTrigger[],
   candidate: DetectedOpponentSpellCastTrigger,
 ): void {
-  if (triggers.some((existing) =>
-    existing.description === candidate.description &&
-    existing.spellCondition === candidate.spellCondition &&
-    existing.casterScope === candidate.casterScope
-  )) {
+  const candidateDescription = normalizeOpponentCastTriggerDescription(candidate.description);
+  const candidatePayment = String(candidate.paymentCost || '').trim().toLowerCase();
+  const existingIndex = triggers.findIndex((existing) => {
+    if (existing.spellCondition !== candidate.spellCondition) return false;
+    if (existing.casterScope !== candidate.casterScope) return false;
+
+    const existingDescription = normalizeOpponentCastTriggerDescription(existing.description);
+    if (existingDescription && candidateDescription && existingDescription === candidateDescription) {
+      return true;
+    }
+
+    // Same cast scope/condition with the same unless-pay tax is one trigger even when
+    // description punctuation differs (Rhystic Study known row vs unlessPayPatterns).
+    const existingPayment = String(existing.paymentCost || '').trim().toLowerCase();
+    if (existingPayment && candidatePayment && existingPayment === candidatePayment) {
+      return true;
+    }
+
+    return false;
+  });
+
+  if (existingIndex < 0) {
+    triggers.push(candidate);
     return;
   }
-  triggers.push(candidate);
+
+  // Keep the richer / more specific detection (known type + real benefit text).
+  if (opponentCastTriggerSpecificityScore(candidate) > opponentCastTriggerSpecificityScore(triggers[existingIndex]!)) {
+    triggers[existingIndex] = candidate;
+  }
 }
 
 export function detectOpponentSpellCastTriggers(card: any, permanent: any): DetectedOpponentSpellCastTrigger[] {
@@ -872,7 +914,7 @@ export function getOpponentSpellCastTriggers(
           paymentAmount = isNaN(power) ? 1 : Math.max(0, power);
         } else {
           // Extract numeric value from cost string like "{1}" or "{4}"
-          const costMatch = trigger.paymentCost.match(/\{(\d+)\}/);
+          const costMatch = String(trigger.paymentCost || '').match(/\{(\d+)\}/);
           paymentAmount = costMatch ? parseInt(costMatch[1], 10) : 1;
         }
         

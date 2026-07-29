@@ -5,6 +5,17 @@ import { detectOpponentSpellCastTriggers } from '../src/state/modules/triggers/s
 const permanent = { id: 'P1', controller: 'P1' };
 
 describe('spell cast trigger detection gaps', () => {
+  it('detects Rhystic Study once (known type, not duplicated by generic unless-pay)', () => {
+    const triggers = detectOpponentSpellCastTriggers({
+      name: 'Rhystic Study',
+      oracle_text: 'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.',
+    }, permanent);
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0]?.triggerType).toBe('rhystic_study');
+    expect(triggers[0]?.paymentCost).toBe('{1}');
+    expect(triggers[0]?.benefitIfNotPaid).toBe('draw a card');
+  });
+
   it('detects opponent cast triggers without unless payment', () => {
     const triggers = detectOpponentSpellCastTriggers({
       name: 'Counterbalance',

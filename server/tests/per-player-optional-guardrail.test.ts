@@ -48,6 +48,19 @@ describe('per-player optional guardrails', () => {
     }
   });
 
+  it('does not treat opponent-tax you-may-unless-pays as controller Yes/No', () => {
+    const rhystic =
+      'whenever an opponent casts a spell, you may draw a card unless that player pays {1}';
+    expect(isPerPlayerOptionalEffectText(rhystic)).toBe(false);
+    expect(isControllerOptionalTriggeredAbilityEffectText(rhystic)).toBe(false);
+    expect(isControllerOptionalTriggeredAbilityEffect(rhystic)).toBe(false);
+    expect(
+      isControllerOptionalTriggeredAbilityEffect(
+        'you may draw a card unless that player pays {1}',
+      ),
+    ).toBe(false);
+  });
+
   it('detects per-player optional oracle steps', () => {
     expect(isPerPlayerOptionalOracleStep({
       kind: 'add_counter',

@@ -29,11 +29,15 @@ export function isPerPlayerOptionalEffectText(effectText: string): boolean {
 /**
  * Controller may decline the entire triggered ability (Rule 603.4 optional).
  * Per-player "each player may …" effects are mandatory at trigger time.
+ * Opponent-tax "you may … unless that player pays" is not a controller Yes/No.
  */
 export function isControllerOptionalTriggeredAbilityEffectText(effectText: string): boolean {
   const lower = normalizePerPlayerOptionalText(effectText).toLowerCase();
   if (!lower) return false;
   if (isPerPlayerOptionalEffectText(effectText)) return false;
+  if (/\bunless\b[\s\S]*\b(?:that player|that opponent|its controller|they)\b[\s\S]*\bpays?\b/.test(lower)) {
+    return false;
+  }
   return /\byou may\b/.test(lower);
 }
 

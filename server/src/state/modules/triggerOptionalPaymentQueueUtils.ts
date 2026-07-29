@@ -18,7 +18,31 @@ const OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES = new Set([
   'mystic_remora',
   'esper_sentinel',
   'smothering_tithe',
+  // Generic cast detections that still carry paymentCost (after dedup, or when known
+  // row was missed) must use opponent-may-pay — not a second controller "you may" wrap.
+  'opponent_casts_any',
+  'opponent_casts_noncreature',
+  'opponent_casts_first_noncreature',
+  'any_player_casts_any',
+  'any_player_casts_noncreature',
 ]);
+
+function isOpponentMayPaySpellCastTrigger(item: any): boolean {
+  const triggerType = String(item?.triggerType || '').trim();
+  if (!OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES.has(triggerType)) {
+    return false;
+  }
+  // Named types are always payment prompts; generics need an explicit tax.
+  if (
+    triggerType === 'rhystic_study'
+    || triggerType === 'mystic_remora'
+    || triggerType === 'esper_sentinel'
+    || triggerType === 'smothering_tithe'
+  ) {
+    return true;
+  }
+  return Boolean(String(item?.effectData?.paymentCost || '').trim());
+}
 
 const OPTIONAL_TRIGGER_MANA_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,?\s*([\s\S]+)$/i;
 const ECHO_TRIGGER_MANA_PAYMENT_PATTERN = /^pay (\{[^}]+\}(?:\{[^}]+\})*) or sacrifice(?:\b|$)/i;
@@ -101,8 +125,7 @@ function maybeQueueOpponentMayPaySpellCastTrigger(
   sourceName: string,
   sourceId: string
 ): boolean {
-  const triggerType = String(item?.triggerType || '').trim();
-  if (!OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES.has(triggerType)) {
+  if (!isOpponentMayPaySpellCastTrigger(item)) {
     return false;
   }
 

@@ -2681,4 +2681,28 @@ describe('EffectProgram', () => {
       },
     ]);
   });
+
+  it('does not wrap unless_pays_mana in a may-choice even when marked optional', () => {
+    const program = buildEffectProgramFromOracleIR({
+      controllerId: 'p1',
+      sourceId: 'rhystic_1',
+      sourceName: 'Rhystic Study',
+      abilityIndex: 0,
+      steps: [
+        {
+          kind: 'unless_pays_mana',
+          who: { kind: 'that_player' },
+          mana: '{1}',
+          optional: true,
+          steps: [{ kind: 'draw', amount: 1, who: { kind: 'you' }, raw: 'draw a card' }],
+          raw: 'you may draw a card unless that player pays {1}',
+        } as any,
+      ],
+    });
+
+    expect(program.steps.some((step) => step.id.endsWith(':may-choice'))).toBe(false);
+    expect(program.steps.some((step) => step.kind === 'choice')).toBe(true);
+    const choice = program.steps.find((step) => step.kind === 'choice');
+    expect((choice?.choiceRequest?.payload as any)?.oracleStepKind).toBe('unless_pays_mana');
+  });
 });

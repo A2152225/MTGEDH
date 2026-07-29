@@ -972,6 +972,12 @@ function oracleStepOptionalRequiresChoice(step: OracleEffectStep): boolean {
   if (isPerPlayerOptionalOracleStep(step)) return false;
 
   const kind = String((step as any).kind || '');
+  // unless_pays already queues its own pay/decline choice; a preceding may-choice
+  // duplicates Rhystic Study-style "you may … unless … pays" as two Always Yes prompts.
+  if (kind === 'unless_pays_mana' || kind === 'unless_pays_life') {
+    return false;
+  }
+
   return !(
     kind === 'grant_exile_permission' ||
     kind === 'grant_graveyard_permission' ||

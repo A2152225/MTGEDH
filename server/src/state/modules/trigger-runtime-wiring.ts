@@ -126,6 +126,11 @@ export function isControllerOptionalTriggeredAbilityEffect(effectText: string): 
   if (/\bstarting with you, each player may\b/.test(lower)) return false;
   if (/\bin turn order, each player may\b/.test(lower)) return false;
   if (/\byou and (?:that player|target player) may each\b/.test(lower)) return false;
+  // "You may [effect] unless that player pays {C}" is an opponent-tax prompt, not a
+  // controller Yes/No may (Rhystic Study / Mystic Remora / Esper Sentinel).
+  if (/\bunless\b[\s\S]*\b(?:that player|that opponent|its controller|they)\b[\s\S]*\bpays?\b/.test(lower)) {
+    return false;
+  }
   return /\byou may\b/.test(lower);
 }
 

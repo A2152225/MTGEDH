@@ -54,6 +54,46 @@ function shouldBlockStepAdvance(ctx: GameContext): boolean {
   return pending.pendingTypes.some(type => type !== 'stack_not_empty');
 }
 
+/**
+ * Auto-pass chains (Smart Pass stack drain, AI pass, optional-may drain) can leave the
+ * active player marked as "already passed" for an empty-stack round they never took.
+ * Never advance out of their main phase via automation while they still have actions.
+ * Manual Pass Priority still advances even with floating mana / activatable abilities.
+ */
+function shouldProtectActiveMainPhaseFromAutoAdvance(
+  ctx: GameContext,
+  isAutoPass: boolean | undefined,
+): boolean {
+  if (!isAutoPass) return false;
+
+  const stateAny = ctx.state as any;
+  const turnPlayer = stateAny.turnPlayer as PlayerID | undefined;
+  if (!turnPlayer) return false;
+
+  if (stateAny.autoPassForTurn?.[turnPlayer]) return false;
+
+  const step = String(stateAny.step || '').toUpperCase();
+  const isMainPhase = step === 'MAIN1' || step === 'MAIN2' || step === 'MAIN';
+  if (!isMainPhase) return false;
+
+  const stackLen = Array.isArray(stateAny.stack) ? stateAny.stack.length : 0;
+  if (stackLen > 0) return false;
+
+  try {
+    return !isPlayerIdleForAutoPass(ctx, turnPlayer);
+  } catch {
+    return false;
+  }
+}
+
+function denyEmptyStackAutoAdvance(ctx: GameContext, reason: string): void {
+  const state = ctx.state as any;
+  const turnPlayer = state.turnPlayer as PlayerID;
+  state.priorityPassedBy = new Set<string>();
+  state.priority = turnPlayer;
+  debug(1, `[priority] Blocking auto step-advance (${reason}); priority restored to ${turnPlayer}`);
+}
+
 function turnPlayerHasNotDeclaredAttackers(stateAny: any, turnPlayer: PlayerID): boolean {
   const attackersDeclaredBy: string[] = Array.isArray(stateAny.attackersDeclaredBy) ? stateAny.attackersDeclaredBy : [];
   return !attackersDeclaredBy.includes(turnPlayer);
@@ -142,6 +182,8 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
         if (result.resolved) {
           // Another item was resolved from stack
           resolvedNow = true;
+        } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass)) {
+          denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions after stack resolve');
         } else if (!shouldBlockStepAdvance(ctx)) {
           // Empty stack now - advance step
           advanceStep = true;
@@ -174,7 +216,9 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
       stateAny.priorityPassedBy = new Set<string>(); // Reset tracking
       // Priority stays with the active player (turn player) for the next step
       state.priority = turnPlayer;
-      if (!shouldBlockStepAdvance(ctx)) {
+      if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass)) {
+        denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions');
+      } else if (!shouldBlockStepAdvance(ctx)) {
         advanceStep = true;
       } else {
         debug(1, `[priority] Cannot advance step - pending interactions: ${getPendingInteractions(ctx).pendingTypes.join(', ')}`);
@@ -193,6 +237,8 @@ export function passPriority(ctx: GameContext, playerId: PlayerID, isAutoPass?: 
           if (result.resolved) {
             // Stack was resolved
             resolvedNow = true;
+          } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass)) {
+            denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions after auto-pass chain');
           } else if (!shouldBlockStepAdvance(ctx)) {
             // Empty stack - advance step
             advanceStep = true;
@@ -230,6 +276,9 @@ export function tryAutoPass(ctx: GameContext): { allPassed: boolean; resolved: b
       // Stack was resolved
       return { allPassed: true, resolved: true, advanceStep: false };
     } else if (shouldBlockStepAdvance(ctx)) {
+      return { allPassed: false, resolved: false, advanceStep: false };
+    } else if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, true)) {
+      denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions (tryAutoPass)');
       return { allPassed: false, resolved: false, advanceStep: false };
     } else {
       // Empty stack - should advance step
