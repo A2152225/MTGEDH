@@ -14,6 +14,7 @@ export {
 
 export {
   clearEffectProgramRuntimes,
+  drainPendingOptionalAutoChoices,
   getEffectProgramRuntimeForStep,
   resumeEffectProgramResolution,
   startEffectProgramResolution,

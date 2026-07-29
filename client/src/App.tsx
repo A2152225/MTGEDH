@@ -3871,6 +3871,7 @@ export function App() {
       setMyPendingResolutionCount(pendingForMe);
       if (pendingForMe === 0) {
         setActiveResolutionPrompt(null);
+        dismissResolutionStepUi();
       }
       if (pendingForMe > 0) {
         scheduleResolutionPromptNudge(payload.gameId!);

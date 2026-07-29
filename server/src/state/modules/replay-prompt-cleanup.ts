@@ -12,6 +12,7 @@ import { restoreAllPendingEffectProgramRuntimes } from '../effects/effectProgram
 import { resumeOracleIrPendingCompoundStepsFromState } from './oracleIrServerZoneSync.js';
 import { scrubStalePerPlayerOptionalEffectProgramSteps } from './triggerCounterPlacementPromptUtils.js';
 import { pruneObsoleteResolutionQueueAfterReplay } from '../resolution/replayCleanup.js';
+import { wouldAutoDeclineOptionalTriggeredAbility } from './stackResolveTriggeredAbilityOptionalUtils.js';
 
 /**
  * Legacy / in-flight prompt state that must not survive event replay.
@@ -209,11 +210,44 @@ export function replayApplyResolvedPermanentSpellBattlefieldEntry(ctx: GameConte
  * During event replay, resolveTopOfStack must not re-run live IR/trigger handlers
  * (outcomes are in executeEffect / mutation events), but it must still pop the
  * stack item that was resolved when the event was originally logged.
+ *
+ * Live resolveTopOfStack may also drain consecutive Always-No / no-until optional
+ * triggers in the same call (one event, many pops). Mirror that here so replay
+ * does not leave every historical Aura Shards on the stack after restart.
  */
 export function replayPopTopOfStackDuringEventReplay(ctx: GameContext): void {
   if (!(ctx as any).isReplaying) return;
   replayApplyResolvedPermanentSpellBattlefieldEntry(ctx);
   popStackItem(ctx);
+
+  // Mirror live optional may auto-decline drain after the first pop.
+  let guard = 0;
+  while (guard++ < 256) {
+    const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
+    const top = stack.length > 0 ? stack[stack.length - 1] : null;
+    if (!top || !wouldAutoDeclineOptionalTriggeredAbility(ctx.state, top)) {
+      break;
+    }
+    popStackItem(ctx);
+  }
+}
+
+/**
+ * resolveAllTriggers live-resolves N stack items without emitting per-item
+ * resolveTopOfStack events. On replay, pop `count` items so historical
+ * pushTriggeredAbility events do not accumulate forever.
+ */
+export function replayResolveAllTriggersDuringEventReplay(
+  ctx: GameContext,
+  count: number,
+): void {
+  if (!(ctx as any).isReplaying) return;
+  const toPop = Math.max(0, Math.floor(Number(count) || 0));
+  for (let i = 0; i < toPop; i++) {
+    const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
+    if (stack.length === 0) break;
+    popStackItem(ctx);
+  }
 }
 
 const STACK_PUSH_REPLAY_EVENT_TYPES = new Set([

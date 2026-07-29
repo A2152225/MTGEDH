@@ -13,7 +13,7 @@ import '../src/state/modules/priority.js';
 import { initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
-import { resumeEffectProgramResolution } from '../src/state/effects/index.js';
+import { resumeEffectProgramResolution, drainPendingOptionalAutoChoices } from '../src/state/effects/index.js';
 import {
   buildNoUntilTargetsChangeValue,
   fingerprintArtifactEnchantmentTargets,
@@ -188,6 +188,40 @@ describe('Aura Shards Always No', () => {
 
     expect(pendingOptionalMaySteps(gameId)).toHaveLength(0);
     expect(((game.state as any).stack || []).length).toBe(0);
+  });
+
+  it('clears already-queued Aura Shards prompts when Always No is set later', async () => {
+    const localGameId = `${gameId}_queued_drain`;
+    await resetGame(localGameId);
+    createGameIfNotExists(localGameId, 'commander', 40);
+    const game = ensureGame(localGameId)!;
+    setupAuraShardsGame(game, playerId);
+    (game.state as any).mayAutoPreferences = {};
+
+    // Queue many optional prompts before any preference exists (Resolve All / restart flood).
+    for (let i = 0; i < 8; i++) {
+      pushAuraShardsTrigger(game, playerId, `trigger_queued_${i}`);
+    }
+    let guard = 0;
+    while (((game.state as any).stack || []).length > 0 && guard++ < 20) {
+      const before = ((game.state as any).stack || []).length;
+      game.resolveTopOfStack();
+      if (((game.state as any).stack || []).length >= before) break;
+    }
+
+    const queuedBeforePref = pendingOptionalMaySteps(localGameId);
+    expect(queuedBeforePref.length).toBeGreaterThan(1);
+    expect(((game.state as any).stack || []).length).toBe(0);
+
+    (game.state as any).mayAutoPreferences = {
+      [playerId]: { [prefKey]: 'no' },
+    };
+
+    const drained = drainPendingOptionalAutoChoices(game, localGameId, playerId);
+    expect(drained).toBe(queuedBeforePref.length);
+    expect(pendingOptionalMaySteps(localGameId)).toHaveLength(0);
+
+    await resetGame(localGameId);
   });
 
   it('skips while targets unchanged, then asks again when a new target appears', async () => {

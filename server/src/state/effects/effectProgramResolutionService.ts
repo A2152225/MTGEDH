@@ -94,7 +94,7 @@ function tryAutoResolveOptionalEffectProgramStep(
     stepId: String(step.id || ''),
     playerId,
     selections: [choice],
-    cancelled: false,
+    cancelled: choice === 'no',
     timestamp: Date.now(),
   };
 
@@ -113,6 +113,13 @@ function tryAutoResolveOptionalEffectProgramStep(
   });
 
   if (!resumed.resumed) {
+    // After server restart EP runtimes may be unrestorable. Declining optional
+    // triggered abilities is a no-op (item already left the stack), so treat
+    // completeStep alone as success for auto-no.
+    if (choice === 'no') {
+      debug(2, `[EffectProgram] Auto-no completed without EP resume for ${step.sourceName || 'Ability'} (${playerId})`);
+      return true;
+    }
     debugWarn(1, `[EffectProgram] Auto-${choice} could not resume step ${step.id}:`, resumed.reason || resumed.status);
     return false;
   }
@@ -120,6 +127,54 @@ function tryAutoResolveOptionalEffectProgramStep(
   void persistEffectProgramChoiceResolutionEvent(game, gameId, completedStep, response, choice);
   debug(2, `[EffectProgram] Auto-${choice} for ${step.sourceName || 'Ability'} (${playerId})`);
   return true;
+}
+
+/**
+ * Apply Always Yes/No / no-until preferences to optional may prompts already
+ * sitting in the resolution queue (e.g. after restart with hundreds of Aura
+ * Shards prompts, or Always No clicked while many are pending).
+ */
+export function drainPendingOptionalAutoChoices(
+  game: any,
+  gameId: string,
+  playerId: string,
+): number {
+  if ((game as any)?.isReplaying) return 0;
+  const normalizedPlayerId = String(playerId || '').trim();
+  if (!gameId || !normalizedPlayerId) return 0;
+
+  let drained = 0;
+  let guard = 0;
+
+  // Re-scan each pass: completing one step can change queue ordering / prefs (Yes×N).
+  while (guard++ < 512) {
+    const pending = ResolutionQueueManager.getStepsForPlayer(gameId, normalizedPlayerId as PlayerID)
+      .filter((step) => {
+        if (!isOptionalEffectProgramChoiceStep(step)) return false;
+        return Boolean(resolveOptionalAutoChoice((game as any).state, normalizedPlayerId, step));
+      });
+
+    if (pending.length === 0) break;
+
+    let progressed = false;
+    for (const step of pending) {
+      // Skip steps that were already completed in this pass.
+      if (!ResolutionQueueManager.getStepsForPlayer(gameId, normalizedPlayerId as PlayerID)
+        .some((entry) => entry.id === step.id)) {
+        continue;
+      }
+      if (tryAutoResolveOptionalEffectProgramStep(game, gameId, step)) {
+        drained += 1;
+        progressed = true;
+      }
+    }
+    if (!progressed) break;
+  }
+
+  if (drained > 0) {
+    debug(2, `[EffectProgram] Drained ${drained} pending optional auto-choice step(s) for ${normalizedPlayerId}`);
+  }
+  return drained;
 }
 
 export function startEffectProgramResolution(args: StartEffectProgramResolutionArgs): EffectProgramResolutionResult {

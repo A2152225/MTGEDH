@@ -368,6 +368,7 @@ import {
   consumeReplayedActivatedAbilityStackItems,
   finalizeGameStateAfterReplay,
   replayPopTopOfStackDuringEventReplay,
+  replayResolveAllTriggersDuringEventReplay,
 } from "./replay-prompt-cleanup.js";
 import { applyKeywordPromptResolveOutcome } from "./keywordPromptReplayOutcomes.js";
 import { applyBattlefieldPermanentReplayPatch } from "../effects/battlefieldPermanentReplayPersistence.js";
@@ -3024,11 +3025,26 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "resolveTopOfStack": {
         // Live resolution re-runs IR/triggers and drifts zones; outcomes are in
-        // executeEffect / mutation events. During replay, only pop the resolved item.
+        // executeEffect / mutation events. During replay, only pop the resolved item
+        // (plus any consecutive Always-No optional triggers drained in the same live call).
         if ((ctx as any).isReplaying) {
           replayPopTopOfStackDuringEventReplay(ctx as any);
         } else {
           resolveTopOfStack(ctx as any);
+        }
+        break;
+      }
+
+      case "resolveAllTriggers": {
+        // Live path resolves the whole stack via direct resolveTopOfStack() calls
+        // without per-item events, then logs one resolveAllTriggers { count }.
+        // Without a replay pop, every historical pushTriggeredAbility (e.g. Aura
+        // Shards from the whole game) reappears on the stack after restart.
+        if ((ctx as any).isReplaying) {
+          replayResolveAllTriggersDuringEventReplay(
+            ctx as any,
+            Number((e as any).count ?? 0),
+          );
         }
         break;
       }

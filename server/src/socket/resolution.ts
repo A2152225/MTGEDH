@@ -205,7 +205,7 @@ import {
   maybeMarkPowerUpAbilityUsedFromActivationContext,
 } from "../state/modules/marvelMechanicsHelpers.js";
 import { applyGraveyardPermissionEffectsFromText } from "../state/modules/graveyard-permissions.js";
-import { createEffectProgramChoiceResponse, readEffectProgramQueueMetadata, restoreAllPendingEffectProgramRuntimes, restoreEffectProgramRuntimeForPendingStep, resumeEffectProgramResolution, persistEffectProgramChoiceResolutionEvent } from "../state/effects/index.js";
+import { createEffectProgramChoiceResponse, readEffectProgramQueueMetadata, restoreAllPendingEffectProgramRuntimes, restoreEffectProgramRuntimeForPendingStep, resumeEffectProgramResolution, persistEffectProgramChoiceResolutionEvent, drainPendingOptionalAutoChoices } from "../state/effects/index.js";
 
 type ResolutionPaymentItem = {
   permanentId: string;
@@ -8758,25 +8758,46 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       (game as any).bumpSeq();
     }
 
-    // When Always No / no-until is set, drain matching optional tops already on the stack.
-    if (
-      (value === 'no' || isNoUntilRequest || isNoUntilStored)
-      && Array.isArray(state.stack)
-      && state.stack.length > 0
-    ) {
-      const top = state.stack[state.stack.length - 1];
-      if (wouldAutoDeclineOptionalTriggeredAbility(state, top)) {
-        persistAndResolveTopOfStack(game, gameId, {
-          playerId: pid,
-          effectKey,
-          reason: 'mayAutoPreferenceDrain',
-        });
+    // Drain already-queued optional may prompts (Always No clicked with 200+ Aura Shards
+    // pending) AND matching stack tops. Pref alone only affects future resolveTopOfStack.
+    if (value !== null) {
+      const drainedPending = drainPendingOptionalAutoChoices(game, gameId, pid);
+      if (drainedPending > 0) {
+        debug(2, `[May] Drained ${drainedPending} pending optional prompt(s) after setting "${effectKey}"`);
+      }
+
+      if (Array.isArray(state.stack) && state.stack.length > 0) {
+        const top = state.stack[state.stack.length - 1];
+        if (wouldAutoDeclineOptionalTriggeredAbility(state, top)) {
+          persistAndResolveTopOfStack(game, gameId, {
+            playerId: pid,
+            effectKey,
+            reason: 'mayAutoPreferenceDrain',
+          });
+        }
       }
     }
 
     const io = priorityResolutionHandlerIo;
     if (io) {
       broadcastGame(io, game, gameId);
+      // Tell the client the resolution queue is clear so MayAbilityModal closes.
+      const remaining = ResolutionQueueManager.getStepsForPlayer(gameId, pid as any);
+      if (remaining.length === 0) {
+        emitToPlayer(io, pid, 'noResolutionStep', { gameId });
+      } else {
+        emitToPlayer(io, pid, 'resolutionStepPrompt', {
+          gameId,
+          step: sanitizeStepForClient(gameId, remaining[0]),
+        });
+      }
+      emitToPlayer(io, pid, 'resolutionQueueChanged', {
+        gameId,
+        hasPending: remaining.length > 0,
+        pendingCount: remaining.length,
+        myPendingCount: remaining.length,
+        myNextStepId: remaining[0]?.id,
+      });
     }
   });
 
@@ -36917,8 +36938,8 @@ function playerHasAutoDeclineMayPreference(
 }
 
 /**
- * After declining an optional may (Always No / no-until), continue resolving
- * consecutive auto-declinable optional triggers still on the stack.
+ * After declining an optional may (Always No / no-until), drain matching
+ * pending resolution-queue prompts and consecutive auto-declinable stack tops.
  */
 function maybeDrainAutoDeclinedOptionalStackAfterDecline(
   game: any,
@@ -36941,6 +36962,8 @@ function maybeDrainAutoDeclinedOptionalStackAfterDecline(
   if (!playerHasAutoDeclineMayPreference(state, playerId, sourceName, effectText)) {
     return;
   }
+
+  drainPendingOptionalAutoChoices(game, gameId, playerId);
 
   const stack = Array.isArray(state.stack) ? state.stack : [];
   const top = stack.length > 0 ? stack[stack.length - 1] : null;
