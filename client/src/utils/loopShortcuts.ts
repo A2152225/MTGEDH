@@ -538,6 +538,49 @@ export function canAdvanceLoopShortcutAfterState(options: {
   return true;
 }
 
+/**
+ * While a loop is waiting for the board to quiet, pass priority only when
+ * something is on the stack. Never pass on an empty stack (that advances the phase).
+ * Smart Pass / idle auto-pass often will not drain the stack mid-loop because
+ * casting clears autoPassForTurn and floating mana keeps the player "busy".
+ */
+export function shouldLoopShortcutAutoPassPriority(options: {
+  view: ClientGameView | null | undefined;
+  playerId?: string | null;
+  myPendingResolutionCount?: number;
+  hasActiveResolutionPrompt?: boolean;
+  waitingForCastCardId?: string | null;
+}): boolean {
+  const playerId = String(options.playerId || '').trim();
+  if (!options.view || !playerId) return false;
+  if (Number(options.myPendingResolutionCount || 0) > 0) return false;
+  if (options.hasActiveResolutionPrompt) return false;
+
+  const waitingCardId = String(options.waitingForCastCardId || '').trim();
+  if (waitingCardId) {
+    const hand = Array.isArray(options.view?.zones?.[playerId]?.hand)
+      ? options.view!.zones![playerId].hand
+      : [];
+    if (hand.some((card: any) => String(card?.id || '') === waitingCardId)) {
+      return false;
+    }
+  }
+
+  const stack = Array.isArray(options.view.stack) ? options.view.stack : [];
+  if (stack.length === 0) return false;
+
+  return String(options.view.priority || '') === playerId;
+}
+
+export function buildLoopShortcutStackPassKey(
+  view: ClientGameView | null | undefined,
+  playerId?: string | null,
+): string {
+  const stack = Array.isArray(view?.stack) ? view!.stack : [];
+  const stackIds = stack.map((entry: any) => String(entry?.id || '')).filter(Boolean).join(',');
+  return `${String(playerId || '')}|${String(view?.priority || '')}|${stackIds}`;
+}
+
 export function buildResolutionResponsePayload(
   template: LoopShortcutPromptTemplate,
   step: any,

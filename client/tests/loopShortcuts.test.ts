@@ -12,6 +12,7 @@ import {
   matchesPromptFingerprint,
   sanitizeLoopShortcutItems,
   saveLoopShortcutDraft,
+  shouldLoopShortcutAutoPassPriority,
   upsertSavedLoopShortcut,
 } from '../src/utils/loopShortcuts';
 import type { ClientGameView } from '../../shared/src';
@@ -119,6 +120,40 @@ describe('loopShortcuts', () => {
       waitingForCastCardId: 'summon_1',
       playerId: 'p1',
     })).toBe(true);
+  });
+
+  it('auto-passes only while the stack is non-empty and the player has priority', () => {
+    const view = makeView();
+
+    expect(shouldLoopShortcutAutoPassPriority({
+      view,
+      playerId: 'p1',
+      myPendingResolutionCount: 0,
+    })).toBe(false);
+
+    expect(shouldLoopShortcutAutoPassPriority({
+      view: { ...view, stack: [{ id: 'spell_1' }] as any },
+      playerId: 'p1',
+      myPendingResolutionCount: 0,
+    })).toBe(true);
+
+    expect(shouldLoopShortcutAutoPassPriority({
+      view: { ...view, stack: [{ id: 'spell_1' }] as any, priority: 'p2' },
+      playerId: 'p1',
+      myPendingResolutionCount: 0,
+    })).toBe(false);
+
+    expect(shouldLoopShortcutAutoPassPriority({
+      view: { ...view, stack: [{ id: 'spell_1' }] as any },
+      playerId: 'p1',
+      myPendingResolutionCount: 1,
+    })).toBe(false);
+
+    expect(shouldLoopShortcutAutoPassPriority({
+      view: { ...view, stack: [{ id: 'spell_1' }] as any },
+      playerId: 'p1',
+      hasActiveResolutionPrompt: true,
+    })).toBe(false);
   });
 
   it('strips passPriority emits that would advance the phase', () => {
