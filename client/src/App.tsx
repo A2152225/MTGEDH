@@ -135,11 +135,13 @@ import {
   canAdvanceLoopShortcutAfterState,
   shouldLoopShortcutAutoPassPriority,
   buildLoopShortcutStackPassKey,
+  noteLoopShortcutCastSettleStack,
   isLoopShortcutPhaseAdvanceEmit,
   sanitizeLoopShortcutItems,
   saveLoopShortcutDraft,
   type SavedLoopShortcut,
   type LoopShortcutSequenceItem,
+  type LoopShortcutCastSettleState,
   upsertSavedLoopShortcut,
 } from "./utils/loopShortcuts";
 
@@ -1420,6 +1422,7 @@ export function App() {
     totalIterations: number;
     waitingForState: boolean;
     waitingForCastCardId: string | null;
+    castSettle: LoopShortcutCastSettleState | null;
     waitingPrompt: Extract<LoopShortcutSequenceItem, { kind: 'resolution_response' }> | null;
   }>({
     running: false,
@@ -1428,12 +1431,14 @@ export function App() {
     totalIterations: 0,
     waitingForState: false,
     waitingForCastCardId: null,
+    castSettle: null,
     waitingPrompt: null,
   });
   const loopShortcutLastErrorRef = useRef<string | null>(null);
   const loopShortcutLoadedGameIdRef = useRef<string | null>(null);
   /** Dedupes stack-drain passPriority emits for the same priority/stack snapshot. */
   const loopShortcutStackPassKeyRef = useRef<string | null>(null);
+  const loopShortcutStackPassAtRef = useRef<number>(0);
   /** Step ids the loop already auto-answered — ignore duplicate resolutionStepPrompt emits. */
   const loopAutoAnsweredStepIdsRef = useRef<Set<string>>(new Set());
 
@@ -1444,6 +1449,11 @@ export function App() {
   React.useEffect(() => {
     youRef.current = you;
   }, [you]);
+
+  const priorityRef = useRef<PlayerID | null>(priority);
+  React.useEffect(() => {
+    priorityRef.current = priority;
+  }, [priority]);
 
   React.useEffect(() => {
     loopShortcutItemsRef.current = loopShortcutItems;
@@ -1526,10 +1536,12 @@ export function App() {
       totalIterations: 0,
       waitingForState: false,
       waitingForCastCardId: null,
+      castSettle: null,
       waitingPrompt: null,
     };
     loopAutoAnsweredStepIdsRef.current.clear();
     loopShortcutStackPassKeyRef.current = null;
+    loopShortcutStackPassAtRef.current = 0;
     setIsLoopShortcutRunning(false);
     setLoopShortcutStatusText(message);
   }, []);
@@ -1713,6 +1725,8 @@ export function App() {
     }
 
     loopAutoAnsweredStepIdsRef.current.clear();
+    loopShortcutStackPassKeyRef.current = null;
+    loopShortcutStackPassAtRef.current = 0;
     loopShortcutReplayRef.current = {
       running: true,
       index: 0,
@@ -1720,6 +1734,7 @@ export function App() {
       totalIterations: Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1)),
       waitingForState: false,
       waitingForCastCardId: null,
+      castSettle: null,
       waitingPrompt: null,
     };
     setIsLoopShortcutRunning(true);
@@ -1776,34 +1791,46 @@ export function App() {
   }, []);
 
   React.useEffect(() => {
-    if (!safeView || !loopShortcutReplayRef.current.running || !loopShortcutReplayRef.current.waitingForState) {
+    const replayState = loopShortcutReplayRef.current;
+    if (!safeView || !replayState.running) {
       return;
     }
 
     const playerId = youRef.current;
     const hasActiveResolutionPrompt = Boolean(activeResolutionPrompt || minimizedResolutionStep);
-    const waitingForCastCardId = loopShortcutReplayRef.current.waitingForCastCardId;
+    const waitingForCastCardId = replayState.waitingForCastCardId;
+    replayState.castSettle = noteLoopShortcutCastSettleStack(replayState.castSettle, safeView);
 
-    // Drain Summon / Reflections / Aura Shards stack items without recording passPriority
-    // (empty-stack passes would advance main → combat).
+    // Drain Summon / Reflections / Aura Shards whenever the loop is running — not only
+    // while waitingForState (GY prompt wait still needs stack cleared first).
     if (shouldLoopShortcutAutoPassPriority({
       view: safeView,
       playerId,
+      priorityPlayerId: priority,
       myPendingResolutionCount,
       hasActiveResolutionPrompt,
       waitingForCastCardId,
     })) {
-      const passKey = buildLoopShortcutStackPassKey(safeView, playerId);
-      if (loopShortcutStackPassKeyRef.current !== passKey) {
-        loopShortcutStackPassKeyRef.current = passKey;
-        const emitSocket = originalSocketEmitRef.current;
-        if (emitSocket && safeView.id && playerId) {
-          emitSocket('passPriority', { gameId: safeView.id, by: playerId });
+      const passKey = buildLoopShortcutStackPassKey(safeView, playerId, priority);
+      const now = Date.now();
+      const sameKeyRecently =
+        loopShortcutStackPassKeyRef.current === passKey
+        && (now - loopShortcutStackPassAtRef.current) < 750;
+      if (!sameKeyRecently) {
+        if (safeView.id && playerId) {
+          socket.emit('passPriority', { gameId: safeView.id, by: playerId });
+          loopShortcutStackPassKeyRef.current = passKey;
+          loopShortcutStackPassAtRef.current = now;
+          setPriorityModalOpen(false);
           setLoopShortcutStatusText(
-            `Passing to resolve stack (iteration ${loopShortcutReplayRef.current.iteration + 1} of ${loopShortcutReplayRef.current.totalIterations})...`
+            `Passing to resolve stack (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
           );
         }
       }
+      return;
+    }
+
+    if (!replayState.waitingForState) {
       return;
     }
 
@@ -1813,19 +1840,91 @@ export function App() {
       hasActiveResolutionPrompt,
       waitingForCastCardId,
       playerId,
+      castSettle: replayState.castSettle,
     })) {
       setLoopShortcutStatusText(
-        `Waiting for stack/prompts to clear (iteration ${loopShortcutReplayRef.current.iteration + 1} of ${loopShortcutReplayRef.current.totalIterations})...`
+        `Waiting for stack/prompts to clear (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
       );
       return;
     }
 
     loopShortcutStackPassKeyRef.current = null;
-    loopShortcutReplayRef.current.waitingForState = false;
-    loopShortcutReplayRef.current.waitingForCastCardId = null;
+    loopShortcutStackPassAtRef.current = 0;
+    replayState.waitingForState = false;
+    replayState.waitingForCastCardId = null;
+    replayState.castSettle = null;
     advanceLoopShortcutReplay();
   }, [
     safeView,
+    priority,
+    advanceLoopShortcutReplay,
+    myPendingResolutionCount,
+    activeResolutionPrompt,
+    minimizedResolutionStep,
+  ]);
+
+  // Re-check cast-settle timeout / stack drain while the loop is active.
+  React.useEffect(() => {
+    if (!isLoopShortcutRunning) return;
+    const id = window.setInterval(() => {
+      const replayState = loopShortcutReplayRef.current;
+      if (!replayState.running) return;
+
+      const view = safeViewRef.current;
+      const playerId = youRef.current;
+      if (!view || !playerId) return;
+
+      const hasActiveResolutionPrompt = Boolean(activeResolutionPrompt || minimizedResolutionStep);
+      replayState.castSettle = noteLoopShortcutCastSettleStack(replayState.castSettle, view);
+      const priorityPlayerId = priorityRef.current;
+
+      if (shouldLoopShortcutAutoPassPriority({
+        view,
+        playerId,
+        priorityPlayerId,
+        myPendingResolutionCount,
+        hasActiveResolutionPrompt,
+        waitingForCastCardId: replayState.waitingForCastCardId,
+      })) {
+        const passKey = buildLoopShortcutStackPassKey(view, playerId, priorityPlayerId);
+        const now = Date.now();
+        const sameKeyRecently =
+          loopShortcutStackPassKeyRef.current === passKey
+          && (now - loopShortcutStackPassAtRef.current) < 750;
+        if (!sameKeyRecently && view.id) {
+          socket.emit('passPriority', { gameId: view.id, by: playerId });
+          loopShortcutStackPassKeyRef.current = passKey;
+          loopShortcutStackPassAtRef.current = now;
+          setPriorityModalOpen(false);
+          setLoopShortcutStatusText(
+            `Passing to resolve stack (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
+          );
+        }
+        return;
+      }
+
+      if (!replayState.waitingForState) return;
+      if (!canAdvanceLoopShortcutAfterState({
+        view,
+        myPendingResolutionCount,
+        hasActiveResolutionPrompt,
+        waitingForCastCardId: replayState.waitingForCastCardId,
+        playerId,
+        castSettle: replayState.castSettle,
+      })) {
+        return;
+      }
+
+      loopShortcutStackPassKeyRef.current = null;
+      loopShortcutStackPassAtRef.current = 0;
+      replayState.waitingForState = false;
+      replayState.waitingForCastCardId = null;
+      replayState.castSettle = null;
+      advanceLoopShortcutReplay();
+    }, 400);
+    return () => window.clearInterval(id);
+  }, [
+    isLoopShortcutRunning,
     advanceLoopShortcutReplay,
     myPendingResolutionCount,
     activeResolutionPrompt,
@@ -2819,6 +2918,11 @@ export function App() {
             const paymentCardId = String(step?.cardId || '').trim();
             if (step?.type === 'mana_payment_choice' && (step as any)?.spellPaymentRequired === true && paymentCardId) {
               replayState.waitingForCastCardId = paymentCardId;
+              replayState.castSettle = {
+                cardId: paymentCardId,
+                sawNonEmptyStack: false,
+                startedAt: Date.now(),
+              };
             }
 
             const nextItem = loopShortcutItemsRef.current[replayState.index];

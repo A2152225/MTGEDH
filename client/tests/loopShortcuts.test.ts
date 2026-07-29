@@ -140,6 +140,13 @@ describe('loopShortcuts', () => {
     expect(shouldLoopShortcutAutoPassPriority({
       view: { ...view, stack: [{ id: 'spell_1' }] as any, priority: 'p2' },
       playerId: 'p1',
+      priorityPlayerId: 'p1',
+      myPendingResolutionCount: 0,
+    })).toBe(true);
+
+    expect(shouldLoopShortcutAutoPassPriority({
+      view: { ...view, stack: [{ id: 'spell_1' }] as any, priority: 'p2' },
+      playerId: 'p1',
       myPendingResolutionCount: 0,
     })).toBe(false);
 
@@ -154,6 +161,37 @@ describe('loopShortcuts', () => {
       playerId: 'p1',
       hasActiveResolutionPrompt: true,
     })).toBe(false);
+  });
+
+  it('waits for the post-cast stack to appear before advancing', () => {
+    const view = makeView();
+    view.zones = {
+      p1: { hand: [], handCount: 0 },
+    } as any;
+
+    expect(canAdvanceLoopShortcutAfterState({
+      view,
+      myPendingResolutionCount: 0,
+      waitingForCastCardId: 'summon_1',
+      playerId: 'p1',
+      castSettle: {
+        cardId: 'summon_1',
+        sawNonEmptyStack: false,
+        startedAt: Date.now(),
+      },
+    })).toBe(false);
+
+    expect(canAdvanceLoopShortcutAfterState({
+      view,
+      myPendingResolutionCount: 0,
+      waitingForCastCardId: 'summon_1',
+      playerId: 'p1',
+      castSettle: {
+        cardId: 'summon_1',
+        sawNonEmptyStack: true,
+        startedAt: Date.now(),
+      },
+    })).toBe(true);
   });
 
   it('strips passPriority emits that would advance the phase', () => {

@@ -505,6 +505,12 @@ export function matchesPromptFingerprint(fingerprint: LoopShortcutPromptFingerpr
   return true;
 }
 
+export type LoopShortcutCastSettleState = {
+  cardId: string;
+  sawNonEmptyStack: boolean;
+  startedAt: number;
+};
+
 /**
  * After an emit or auto-answered prompt, wait for a quiet board before the next
  * emit: no pending resolution choices for the player, and an empty stack.
@@ -518,6 +524,9 @@ export function canAdvanceLoopShortcutAfterState(options: {
   hasActiveResolutionPrompt?: boolean;
   waitingForCastCardId?: string | null;
   playerId?: string | null;
+  castSettle?: LoopShortcutCastSettleState | null;
+  /** Max ms to wait for the post-cast stack to appear before allowing advance. */
+  castSettleTimeoutMs?: number;
 }): boolean {
   const stack = Array.isArray(options.view?.stack) ? options.view!.stack : [];
   if (stack.length > 0) return false;
@@ -525,8 +534,8 @@ export function canAdvanceLoopShortcutAfterState(options: {
   if (options.hasActiveResolutionPrompt) return false;
 
   const waitingCardId = String(options.waitingForCastCardId || '').trim();
+  const playerId = String(options.playerId || '').trim();
   if (waitingCardId) {
-    const playerId = String(options.playerId || '').trim();
     const hand = playerId && Array.isArray(options.view?.zones?.[playerId]?.hand)
       ? options.view!.zones![playerId].hand
       : [];
@@ -535,18 +544,29 @@ export function canAdvanceLoopShortcutAfterState(options: {
     if (stillInHand) return false;
   }
 
+  // After a paid cast, the client can briefly see hand empty + stack empty before
+  // the spell (and Reflections copy) lands. Do not advance into the next emit yet.
+  const castSettle = options.castSettle;
+  if (castSettle && !castSettle.sawNonEmptyStack) {
+    const timeoutMs = Math.max(0, Number(options.castSettleTimeoutMs ?? 2500));
+    const elapsed = Date.now() - Number(castSettle.startedAt || 0);
+    if (elapsed < timeoutMs) return false;
+  }
+
   return true;
 }
 
 /**
- * While a loop is waiting for the board to quiet, pass priority only when
- * something is on the stack. Never pass on an empty stack (that advances the phase).
+ * While a loop is running, pass priority only when something is on the stack.
+ * Never pass on an empty stack (that advances the phase).
  * Smart Pass / idle auto-pass often will not drain the stack mid-loop because
  * casting clears autoPassForTurn and floating mana keeps the player "busy".
  */
 export function shouldLoopShortcutAutoPassPriority(options: {
   view: ClientGameView | null | undefined;
   playerId?: string | null;
+  /** Prefer the live socket `priority` field when view.priority is stale. */
+  priorityPlayerId?: string | null;
   myPendingResolutionCount?: number;
   hasActiveResolutionPrompt?: boolean;
   waitingForCastCardId?: string | null;
@@ -569,16 +589,33 @@ export function shouldLoopShortcutAutoPassPriority(options: {
   const stack = Array.isArray(options.view.stack) ? options.view.stack : [];
   if (stack.length === 0) return false;
 
-  return String(options.view.priority || '') === playerId;
+  const priorityHolder = String(
+    options.priorityPlayerId
+    || options.view.priority
+    || '',
+  ).trim();
+  return priorityHolder === playerId;
 }
 
 export function buildLoopShortcutStackPassKey(
   view: ClientGameView | null | undefined,
   playerId?: string | null,
+  priorityPlayerId?: string | null,
 ): string {
   const stack = Array.isArray(view?.stack) ? view!.stack : [];
   const stackIds = stack.map((entry: any) => String(entry?.id || '')).filter(Boolean).join(',');
-  return `${String(playerId || '')}|${String(view?.priority || '')}|${stackIds}`;
+  const priorityHolder = String(priorityPlayerId || view?.priority || '').trim();
+  return `${String(playerId || '')}|${priorityHolder}|${stackIds}`;
+}
+
+export function noteLoopShortcutCastSettleStack(
+  castSettle: LoopShortcutCastSettleState | null | undefined,
+  view: ClientGameView | null | undefined,
+): LoopShortcutCastSettleState | null {
+  if (!castSettle) return null;
+  const stack = Array.isArray(view?.stack) ? view!.stack : [];
+  if (stack.length === 0 || castSettle.sawNonEmptyStack) return castSettle;
+  return { ...castSettle, sawNonEmptyStack: true };
 }
 
 export function buildResolutionResponsePayload(
