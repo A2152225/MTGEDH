@@ -390,6 +390,27 @@ export function createRecordedEmitItem(
   };
 }
 
+/** Priority passes with an empty stack advance the turn; loops must not replay them. */
+export function isLoopShortcutPhaseAdvanceEmit(item: LoopShortcutSequenceItem | null | undefined): boolean {
+  return item?.kind === 'emit' && normalizeText(item.event) === 'passpriority';
+}
+
+export function sanitizeLoopShortcutItems(items: LoopShortcutSequenceItem[]): {
+  items: LoopShortcutSequenceItem[];
+  removedPassPriorityCount: number;
+} {
+  const next: LoopShortcutSequenceItem[] = [];
+  let removedPassPriorityCount = 0;
+  for (const item of items || []) {
+    if (isLoopShortcutPhaseAdvanceEmit(item)) {
+      removedPassPriorityCount += 1;
+      continue;
+    }
+    next.push(item);
+  }
+  return { items: next, removedPassPriorityCount };
+}
+
 export function createRecordedResolutionResponseItem(
   step: any,
   selections: unknown,
@@ -488,17 +509,32 @@ export function matchesPromptFingerprint(fingerprint: LoopShortcutPromptFingerpr
  * After an emit or auto-answered prompt, wait for a quiet board before the next
  * emit: no pending resolution choices for the player, and an empty stack.
  * Prevents Summon-the-School-style loops from firing the next graveyard
- * activation while Aura Shards (etc.) are still resolving.
+ * activation while Aura Shards (etc.) are still resolving, or while a paid
+ * spell is still being pushed onto the stack (empty queue ≠ cast finished).
  */
 export function canAdvanceLoopShortcutAfterState(options: {
   view: ClientGameView | null | undefined;
   myPendingResolutionCount?: number;
   hasActiveResolutionPrompt?: boolean;
+  waitingForCastCardId?: string | null;
+  playerId?: string | null;
 }): boolean {
   const stack = Array.isArray(options.view?.stack) ? options.view!.stack : [];
   if (stack.length > 0) return false;
   if (Number(options.myPendingResolutionCount || 0) > 0) return false;
   if (options.hasActiveResolutionPrompt) return false;
+
+  const waitingCardId = String(options.waitingForCastCardId || '').trim();
+  if (waitingCardId) {
+    const playerId = String(options.playerId || '').trim();
+    const hand = playerId && Array.isArray(options.view?.zones?.[playerId]?.hand)
+      ? options.view!.zones![playerId].hand
+      : [];
+    const stillInHand = hand.some((card: any) => String(card?.id || '') === waitingCardId);
+    // Payment answered but cast applyEvent has not moved the card out of hand yet.
+    if (stillInHand) return false;
+  }
+
   return true;
 }
 

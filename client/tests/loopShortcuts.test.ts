@@ -6,9 +6,11 @@ import {
   createRecordedEmitItem,
   createRecordedResolutionResponseItem,
   deleteSavedLoopShortcut,
+  isLoopShortcutPhaseAdvanceEmit,
   loadLoopShortcutDraft,
   loadSavedLoopShortcuts,
   matchesPromptFingerprint,
+  sanitizeLoopShortcutItems,
   saveLoopShortcutDraft,
   upsertSavedLoopShortcut,
 } from '../src/utils/loopShortcuts';
@@ -86,6 +88,54 @@ describe('loopShortcuts', () => {
       myPendingResolutionCount: 0,
       hasActiveResolutionPrompt: true,
     })).toBe(false);
+  });
+
+  it('waits while a paid spell is still in hand before advancing', () => {
+    const view = makeView();
+    view.zones = {
+      p1: {
+        hand: [{ id: 'summon_1', name: 'Summon the School' }],
+        handCount: 1,
+      },
+    } as any;
+
+    expect(canAdvanceLoopShortcutAfterState({
+      view,
+      myPendingResolutionCount: 0,
+      waitingForCastCardId: 'summon_1',
+      playerId: 'p1',
+    })).toBe(false);
+
+    view.zones = {
+      p1: {
+        hand: [],
+        handCount: 0,
+      },
+    } as any;
+
+    expect(canAdvanceLoopShortcutAfterState({
+      view,
+      myPendingResolutionCount: 0,
+      waitingForCastCardId: 'summon_1',
+      playerId: 'p1',
+    })).toBe(true);
+  });
+
+  it('strips passPriority emits that would advance the phase', () => {
+    const items = [
+      createRecordedEmitItem('requestCastSpell', { cardId: 'summon_1' }, 'game-1'),
+      createRecordedEmitItem('passPriority', { by: 'p1' }, 'game-1'),
+      createRecordedEmitItem('activateGraveyardAbility', { abilityId: 'return-from-graveyard' }, 'game-1'),
+      createRecordedEmitItem('passPriority', {}, 'game-1'),
+    ];
+
+    expect(isLoopShortcutPhaseAdvanceEmit(items[1])).toBe(true);
+    const sanitized = sanitizeLoopShortcutItems(items);
+    expect(sanitized.removedPassPriorityCount).toBe(2);
+    expect(sanitized.items.map((item) => item.kind === 'emit' ? item.event : item.kind)).toEqual([
+      'requestCastSpell',
+      'activateGraveyardAbility',
+    ]);
   });
 
   it('records dynamic target selection templates for tap-creature cost prompts', () => {

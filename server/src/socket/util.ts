@@ -1950,10 +1950,20 @@ function checkAndEmitPlayerElimination(io: Server, game: InMemoryGame, gameId: s
  */
 function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void {
   try {
-    const priority = (game.state as any)?.priority;
-    const currentStep = (game.state as any)?.step;
-    const turnPlayer = (game.state as any)?.turnPlayer;
-    const players = (game.state as any)?.players || [];
+    const stateAny = game.state as any;
+    const paymentResumeLock = stateAny?._paymentResumeCastLock;
+    const completingCasts = stateAny?._completingSpellCastByPlayer;
+    if (
+      (paymentResumeLock && typeof paymentResumeLock === 'object' && String(paymentResumeLock.playerId || '').trim())
+      || (completingCasts && typeof completingCasts === 'object' && Object.keys(completingCasts).length > 0)
+    ) {
+      return;
+    }
+
+    const priority = stateAny?.priority;
+    const currentStep = stateAny?.step;
+    const turnPlayer = stateAny?.turnPlayer;
+    const players = stateAny?.players || [];
     
     // Special case: Kynaios and Tiro style choices
     // These can affect any player (not just the one with priority)
@@ -2047,6 +2057,17 @@ export function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: 
     debug(2, `${ts()} [checkAndTriggerAutoPass] ========== CALLED (ID: ${debugCallId}) ==========`);
     debug(2, `${ts()} [checkAndTriggerAutoPass] Priority: ${priority}, Phase: ${stateAny?.phase}, Step: ${stateAny?.step}`);
     // ========================================================================
+
+    const paymentResumeLock = stateAny?._paymentResumeCastLock;
+    const completingCasts = stateAny?._completingSpellCastByPlayer;
+    if (
+      (paymentResumeLock && typeof paymentResumeLock === 'object' && String(paymentResumeLock.playerId || '').trim())
+      || (completingCasts && typeof completingCasts === 'object' && Object.keys(completingCasts).length > 0)
+    ) {
+      clearScheduledHumanAutoPass(gameId);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] Spell cast completion in progress - returning early (ID: ${debugCallId})`);
+      return;
+    }
     
     if (!priority) {
       clearScheduledHumanAutoPass(gameId);

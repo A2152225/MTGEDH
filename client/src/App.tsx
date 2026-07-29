@@ -133,6 +133,8 @@ import {
   loadSavedLoopShortcuts,
   matchesPromptFingerprint,
   canAdvanceLoopShortcutAfterState,
+  isLoopShortcutPhaseAdvanceEmit,
+  sanitizeLoopShortcutItems,
   saveLoopShortcutDraft,
   type SavedLoopShortcut,
   type LoopShortcutSequenceItem,
@@ -146,7 +148,8 @@ const LOOP_SHORTCUT_RECORDABLE_EVENTS = new Set([
   'castSpellFromHand',
   'completeCastSpell',
   'castCommander',
-  'passPriority',
+  // passPriority is intentionally NOT recorded: replaying it with an empty stack
+  // advances the phase (main → combat). Stack drain is handled by waitingForState.
   'playLand',
 ]);
 
@@ -1413,6 +1416,7 @@ export function App() {
     iteration: number;
     totalIterations: number;
     waitingForState: boolean;
+    waitingForCastCardId: string | null;
     waitingPrompt: Extract<LoopShortcutSequenceItem, { kind: 'resolution_response' }> | null;
   }>({
     running: false,
@@ -1420,6 +1424,7 @@ export function App() {
     iteration: 0,
     totalIterations: 0,
     waitingForState: false,
+    waitingForCastCardId: null,
     waitingPrompt: null,
   });
   const loopShortcutLastErrorRef = useRef<string | null>(null);
@@ -1515,6 +1520,7 @@ export function App() {
       iteration: 0,
       totalIterations: 0,
       waitingForState: false,
+      waitingForCastCardId: null,
       waitingPrompt: null,
     };
     loopAutoAnsweredStepIdsRef.current.clear();
@@ -1547,6 +1553,18 @@ export function App() {
       const nextItem = items[replayState.index];
       if (!nextItem) {
         stopLoopShortcutReplay('Loop replay stopped: no recorded actions remain.');
+        return;
+      }
+
+      // Legacy recordings may include passPriority; never emit it during a loop.
+      // Wait for a quiet board instead so empty-stack passes cannot advance the phase.
+      if (isLoopShortcutPhaseAdvanceEmit(nextItem)) {
+        replayState.index += 1;
+        replayState.waitingForState = true;
+        replayState.waitingPrompt = null;
+        setLoopShortcutStatusText(
+          `Waiting for stack/prompts to clear (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
+        );
         return;
       }
 
@@ -1588,6 +1606,15 @@ export function App() {
 
   const handleStopLoopShortcutRecording = React.useCallback(() => {
     setIsLoopShortcutRecording(false);
+    const sanitized = sanitizeLoopShortcutItems(loopShortcutItemsRef.current);
+    if (sanitized.removedPassPriorityCount > 0) {
+      setLoopShortcutItems(sanitized.items);
+      setLoopShortcutStatusText(
+        `Recorded ${sanitized.items.length} step${sanitized.items.length === 1 ? '' : 's'} ` +
+        `(removed ${sanitized.removedPassPriorityCount} passPriority — those advance the phase).`
+      );
+      return;
+    }
     setLoopShortcutStatusText(
       loopShortcutItemsRef.current.length > 0
         ? `Recorded ${loopShortcutItemsRef.current.length} step${loopShortcutItemsRef.current.length === 1 ? '' : 's'}.`
@@ -1612,16 +1639,26 @@ export function App() {
       item => item.name.trim().toLowerCase() === normalizedName.toLowerCase()
     );
 
+    const sanitized = sanitizeLoopShortcutItems(loopShortcutItemsRef.current);
+    if (sanitized.items.length === 0) return;
+
     const nextSaved = upsertSavedLoopShortcut(localStorage, activeGameId, {
       id: existing?.id || `loop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name: normalizedName,
-      items: loopShortcutItemsRef.current,
+      items: sanitized.items,
       iterationCount: Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1)),
       updatedAt: Date.now(),
     });
 
     setSavedLoopShortcuts(nextSaved);
     setLoopShortcutName(normalizedName);
+    if (sanitized.removedPassPriorityCount > 0) {
+      setLoopShortcutItems(sanitized.items);
+      setLoopShortcutStatusText(
+        `Saved shortcut "${normalizedName}" (removed ${sanitized.removedPassPriorityCount} passPriority).`
+      );
+      return;
+    }
     setLoopShortcutStatusText(`Saved shortcut "${normalizedName}".`);
   }, [loopShortcutIterations, loopShortcutName, savedLoopShortcuts]);
 
@@ -1638,9 +1675,14 @@ export function App() {
     stopLoopShortcutReplay('Idle.');
     setIsLoopShortcutRecording(false);
     setLoopShortcutName(shortcut.name);
-    setLoopShortcutItems(shortcut.items);
+    const sanitized = sanitizeLoopShortcutItems(shortcut.items);
+    setLoopShortcutItems(sanitized.items);
     setLoopShortcutIterations(Math.max(1, Math.min(50, Number(shortcut.iterationCount) || 1)));
-    setLoopShortcutStatusText(`Loaded saved shortcut "${shortcut.name}".`);
+    setLoopShortcutStatusText(
+      sanitized.removedPassPriorityCount > 0
+        ? `Loaded "${shortcut.name}" (removed ${sanitized.removedPassPriorityCount} passPriority).`
+        : `Loaded saved shortcut "${shortcut.name}".`
+    );
   }, [stopLoopShortcutReplay]);
 
   const handleDeleteSavedLoopShortcut = React.useCallback((shortcutId: string) => {
@@ -1655,6 +1697,15 @@ export function App() {
   const handleRunLoopShortcut = React.useCallback(() => {
     if (!safeViewRef.current?.id || loopShortcutItemsRef.current.length === 0) return;
 
+    const sanitized = sanitizeLoopShortcutItems(loopShortcutItemsRef.current);
+    if (sanitized.removedPassPriorityCount > 0) {
+      setLoopShortcutItems(sanitized.items);
+    }
+    if (sanitized.items.length === 0) {
+      setLoopShortcutStatusText('Loop has no runnable steps after removing passPriority.');
+      return;
+    }
+
     loopAutoAnsweredStepIdsRef.current.clear();
     loopShortcutReplayRef.current = {
       running: true,
@@ -1662,12 +1713,15 @@ export function App() {
       iteration: 0,
       totalIterations: Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1)),
       waitingForState: false,
+      waitingForCastCardId: null,
       waitingPrompt: null,
     };
     setIsLoopShortcutRunning(true);
     setLoopShortcutStatusText(
       `Running iteration 1 of ${Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1))}...`
     );
+    // Use sanitized list immediately even before React state flush.
+    loopShortcutItemsRef.current = sanitized.items;
     advanceLoopShortcutReplay();
   }, [advanceLoopShortcutReplay, loopShortcutIterations]);
 
@@ -1724,6 +1778,8 @@ export function App() {
       view: safeView,
       myPendingResolutionCount,
       hasActiveResolutionPrompt: Boolean(activeResolutionPrompt || minimizedResolutionStep),
+      waitingForCastCardId: loopShortcutReplayRef.current.waitingForCastCardId,
+      playerId: youRef.current,
     })) {
       setLoopShortcutStatusText(
         `Waiting for stack/prompts to clear (iteration ${loopShortcutReplayRef.current.iteration + 1} of ${loopShortcutReplayRef.current.totalIterations})...`
@@ -1732,6 +1788,7 @@ export function App() {
     }
 
     loopShortcutReplayRef.current.waitingForState = false;
+    loopShortcutReplayRef.current.waitingForCastCardId = null;
     advanceLoopShortcutReplay();
   }, [
     safeView,
@@ -2724,6 +2781,11 @@ export function App() {
             setActiveResolutionPrompt(null);
             replayState.index += 1;
             replayState.waitingPrompt = null;
+
+            const paymentCardId = String(step?.cardId || '').trim();
+            if (step?.type === 'mana_payment_choice' && (step as any)?.spellPaymentRequired === true && paymentCardId) {
+              replayState.waitingForCastCardId = paymentCardId;
+            }
 
             const nextItem = loopShortcutItemsRef.current[replayState.index];
             if (nextItem?.kind === 'resolution_response') {

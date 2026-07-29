@@ -58,7 +58,8 @@ import { isSpellEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIrSp
 import { queueOptionalPaymentStep, queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { tryQueueMoxDiamondBeforeStackResolve } from "../state/modules/mox-diamond-choice.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
-import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, parseWarpCost, parseKeywordAlternateManaCost, getValidMutateTargets, hasSelfWUBRGAlternateCost, getExternalWUBRGSource, buildCommanderFreeCastPaymentExtras } from "../state/modules/alternate-costs.js";
+import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, parseWarpCost, parseKeywordAlternateManaCost, getValidMutateTargets, hasSelfWUBRGAlternateCost, getExternalWUBRGSource, buildCommanderFreeCastPaymentExtras, getForceOfWillAlternateCost } from "../state/modules/alternate-costs.js";
+import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
 import { calculateSneakOptions, canCastWithSneakAtCurrentTiming, validateSneakReturnedCreature, applySneakReturnedCreatureCost, parseSneakCost } from "../state/modules/sneakCastUtils.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
@@ -1776,11 +1777,26 @@ function clearPlayerCompletingSpellCast(game: any, playerId: string, cardId?: st
   delete stateAny._completingSpellCastByPlayer[playerId];
 }
 
+function getPaymentResumeCastLock(game: any): { playerId: string; cardId: string } | null {
+  const lock = (game?.state as any)?._paymentResumeCastLock;
+  if (!lock || typeof lock !== 'object') return null;
+  const playerId = String((lock as any).playerId || '').trim();
+  const cardId = String((lock as any).cardId || '').trim();
+  if (!playerId || !cardId) return null;
+  return { playerId, cardId };
+}
+
 function canCompleteSpellCastAtCurrentTiming(
   game: any,
   playerId: string,
   allowResolutionMode: boolean,
 ): boolean {
+  // Payment-resume path pins this lock so async yields (imports / broadcasts) cannot
+  // abort an already-authorized cast when priority races to another player.
+  const paymentResumeLock = getPaymentResumeCastLock(game);
+  if (paymentResumeLock && paymentResumeLock.playerId === String(playerId)) {
+    return true;
+  }
   const priority = game?.state?.priority;
   if (priority === playerId) return true;
   if (allowResolutionMode && (priority === null || priority === undefined)) return true;
@@ -8582,8 +8598,6 @@ export function registerGameActions(io: Server, socket: Socket) {
         ? [...(game as any).delayedSpellCopiesThisTurn]
         : [];
 
-      const { isSpellCastingProhibitedByChosenName } = await import('../state/modules/chosen-name-restrictions.js');
-
       // DEBUG: Log incoming parameters to trace targeting loop
       debug(2, `[handleCastSpellFromHand] ======== DEBUG START ========`);
       debug(2, `[handleCastSpellFromHand] cardId: ${cardId}`);
@@ -8887,7 +8901,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       const isForceAltCostRequested = alternateCostId === 'force_of_will';
       const forceAltAlreadyPaid = (cardInHand as any).forceAltCostPaid === true;
       if (isForceAltCostRequested && !forceAltAlreadyPaid) {
-        const { getForceOfWillAlternateCost } = await import('../state/modules/alternate-costs.js');
         const forceInfo = getForceOfWillAlternateCost(
           { state: game.state, bumpSeq: () => {}, rng: Math.random } as any,
           playerId as any,

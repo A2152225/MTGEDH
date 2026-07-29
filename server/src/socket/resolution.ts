@@ -1470,20 +1470,36 @@ async function withTemporaryCastingPriorityForPaymentCompletion(
   action: () => Promise<void>,
 ): Promise<boolean> {
   const game = ensureGame(gameId);
-  const priorPriority = game?.state?.priority;
+  const stateAny = (game?.state as any) || {};
+  const priorPriority = stateAny.priority;
   const grantedTemporaryPriority = Boolean(game && priorPriority !== playerId);
 
+  // Always lock payment-resume casts. Mid-cast broadcasts / autopass can otherwise move
+  // priority to an opponent during async gaps and abort with CAST_TIMING_LOST, then
+  // empty-stack autopass advances the turn (e.g. main → combat during loop shortcuts).
+  stateAny._paymentResumeCastLock = {
+    playerId: String(playerId),
+    cardId: String(cardId),
+    priorPriority: priorPriority ?? null,
+  };
+
   if (grantedTemporaryPriority) {
-    (game.state as any).priority = playerId;
+    stateAny.priority = playerId;
   }
 
   try {
     await action();
   } finally {
-    if (grantedTemporaryPriority && game && (game.state as any).priority === playerId) {
-      if (!didQueuedSpellCastComplete(game, playerId, cardId)) {
-        (game.state as any).priority = priorPriority;
-      }
+    if (stateAny._paymentResumeCastLock?.playerId === String(playerId)
+      && stateAny._paymentResumeCastLock?.cardId === String(cardId)) {
+      delete stateAny._paymentResumeCastLock;
+    }
+
+    if (!didQueuedSpellCastComplete(game, playerId, cardId)) {
+      // Keep priority with the caster. Restoring a raced opponent priority lets AI
+      // autopass the empty stack and skip the rest of the player's main phase.
+      stateAny.priority = playerId;
+      stateAny.priorityPassedBy = new Set<string>();
     }
   }
 
