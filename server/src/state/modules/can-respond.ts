@@ -691,12 +691,28 @@ function getGraveyardPermanentTypesUsedThisTurn(state: any, playerId: PlayerID):
   return usedTypes;
 }
 
+function isSelfReferentialGraveyardCastLine(line: string): boolean {
+  const normalized = normalizeRuleText(line);
+  // Printed self-cast (Gravecrawler, etc.) only applies while the card is in the GY.
+  // Battlefield sources must not mint an open "this card" cast permission for other GY cards.
+  return /\byou may (?:cast|play) (?:this|that) (?:card|permanent|spell|land)s?\b/.test(normalized);
+}
+
+function isSelfReferentialGraveyardQualifier(qualifier: string): boolean {
+  const normalized = normalizeRuleText(qualifier)
+    .replace(/\s+as long as\b[\s\S]*$/i, '')
+    .trim();
+  return /^(?:this|that)\s+(?:card|permanent|spell|land)s?$/i.test(normalized)
+    || /^(?:it|~)$/i.test(normalized);
+}
+
 function isStaticGraveyardPermissionLine(line: string): boolean {
   const normalized = normalizeRuleText(line);
   if (!normalized.includes('graveyard')) return false;
   if (!normalized.includes('you may play') && !normalized.includes('you may cast') && !normalized.includes(' cast ')) return false;
   if (normalized.includes(':')) return false;
   if (/^\s*(when|whenever|at the beginning)\b/.test(normalized)) return false;
+  if (isSelfReferentialGraveyardCastLine(normalized)) return false;
   return true;
 }
 
@@ -706,6 +722,10 @@ function landQualifierMatchesCard(card: any, qualifier: string): boolean {
   const normalized = normalizeRuleText(qualifier)
     .split(/\s+(?:and|or)\s+cast\b/i)[0]
     .trim();
+
+  if (isSelfReferentialGraveyardQualifier(normalized)) {
+    return false;
+  }
 
   if (/\bpermanent cards? of each permanent type\b/.test(normalized)) {
     return true;
@@ -739,6 +759,10 @@ function spellQualifierMatchesCard(card: any, qualifier: string, usedPermanentTy
   if (isLandTypeLine(typeLine)) return false;
 
   let normalized = normalizeRuleText(qualifier).trim();
+
+  if (isSelfReferentialGraveyardQualifier(normalized)) {
+    return false;
+  }
 
   if (/\bhistoric\b/.test(normalized) && !isHistoricCard(card)) {
     return false;

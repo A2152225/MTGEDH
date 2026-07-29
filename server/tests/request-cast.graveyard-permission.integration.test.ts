@@ -3348,6 +3348,99 @@ describe('requestCastSpell graveyard permission windows (integration)', () => {
     expect(castStackItem).toBeDefined();
     expect(String(castStackItem?.castSourceZone || castStackItem?.fromZone || '')).toBe('exile');
   });
+
+  it('does not let battlefield Gravecrawler grant casting unrelated graveyard spells (Overkill / Army of the Damned)', async () => {
+    const game = setupGame();
+    const overkill = {
+      id: 'overkill_1',
+      name: 'Overkill',
+      mana_cost: '{2}{B}',
+      manaCost: '{2}{B}',
+      type_line: 'Sorcery',
+      oracle_text: 'Target creature gets -0/-9999 until end of turn.',
+      image_uris: { small: 'https://example.com/overkill.jpg' },
+    };
+    const army = {
+      id: 'army_1',
+      name: 'Army of the Damned',
+      mana_cost: '{5}{B}{B}',
+      manaCost: '{5}{B}{B}',
+      type_line: 'Sorcery',
+      oracle_text: 'Create thirteen tapped 2/2 black Zombie creature tokens.\nFlashback {7}{B}{B}{B} (You may cast this card from your graveyard for its flashback cost. Then exile it.)',
+      image_uris: { small: 'https://example.com/army.jpg' },
+    };
+    const gravecrawlerInGy = {
+      id: 'gravecrawler_gy_1',
+      name: 'Gravecrawler',
+      mana_cost: '{B}',
+      manaCost: '{B}',
+      type_line: 'Creature — Zombie',
+      oracle_text: "This creature can't block.\nYou may cast this card from your graveyard as long as you control a Zombie.",
+      power: '2',
+      toughness: '1',
+      image_uris: { small: 'https://example.com/gravecrawler.jpg' },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'gravecrawler_bf_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'gravecrawler_bf_card',
+          name: 'Gravecrawler',
+          type_line: 'Creature — Zombie',
+          oracle_text: "This creature can't block.\nYou may cast this card from your graveyard as long as you control a Zombie.",
+        },
+      },
+      {
+        id: 'support_zombie_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'support_zombie_card',
+          name: 'Diregraf Ghoul',
+          type_line: 'Creature — Zombie',
+          oracle_text: '',
+        },
+      },
+    ];
+    (game.state as any).manaPool[playerId] = { white: 0, blue: 0, black: 10, red: 0, green: 0, colorless: 10 };
+    (game.state as any).players[0].manaPool = { white: 0, blue: 0, black: 10, red: 0, green: 0, colorless: 10 };
+    (game.state as any).players[0].graveyard = [overkill, army, gravecrawlerInGy];
+    (game.state as any).zones[playerId].graveyard = [overkill, army, gravecrawlerInGy];
+    (game.state as any).zones[playerId].graveyardCount = 3;
+
+    const staticPermissions = getActiveGraveyardCastingPermissions(game.state as any, playerId as any)
+      .filter((permission) => String(permission.sourceName || '') === 'Gravecrawler');
+    expect(staticPermissions).toHaveLength(0);
+
+    const candidates = getCastableSpellCandidates(
+      { state: game.state, libraries: (game as any).libraries } as any,
+      playerId as any,
+    );
+
+    expect(candidates.some((candidate: any) => candidate?.card?.id === 'overkill_1')).toBe(false);
+    expect(candidates.some((candidate: any) =>
+      candidate?.card?.id === 'army_1' && candidate?.castMethod === 'graveyard_permanent'
+    )).toBe(false);
+    expect(candidates.some((candidate: any) =>
+      candidate?.card?.id === 'army_1' && candidate?.castMethod === 'flashback'
+    )).toBe(true);
+    expect(candidates.some((candidate: any) => candidate?.card?.id === 'gravecrawler_gy_1')).toBe(true);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId, gameId }, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted);
+
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'overkill_1', fromZone: 'graveyard' });
+    expect(emitted.some((entry) => entry.event === 'error' && entry.payload?.code === 'NO_PERMISSION')).toBe(true);
+  });
 });
 
 

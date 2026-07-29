@@ -317,12 +317,20 @@ function normalizeRuleText(value: unknown): string {
   return normalizeText(value).replace(/\s+/g, ' ').trim();
 }
 
+function isSelfReferentialGraveyardCastLine(line: string): boolean {
+  const normalized = normalizeRuleText(line);
+  // Printed self-cast (Gravecrawler, etc.) only applies while the card is in the GY.
+  // Battlefield sources must not mint an open "this card" cast permission for other GY cards.
+  return /\byou may (?:cast|play) (?:this|that) (?:card|permanent|spell|land)s?\b/.test(normalized);
+}
+
 function isStaticGraveyardPermissionLine(line: string): boolean {
   const normalized = normalizeRuleText(line);
   if (!normalized.includes('graveyard')) return false;
   if (!normalized.includes('you may play') && !normalized.includes('you may cast') && !normalized.includes(' cast ')) return false;
   if (normalized.includes(':')) return false;
   if (/^\s*(when|whenever|at the beginning)\b/.test(normalized)) return false;
+  if (isSelfReferentialGraveyardCastLine(normalized)) return false;
   return true;
 }
 
@@ -415,6 +423,11 @@ function getStaticSourceGraveyardCastingPermissions(state: any, playerId: Player
   ) => {
     const normalizedQualifier = String(qualifier || '').trim();
     if (!normalizedQualifier) return;
+    // Self-referential qualifiers are printed self-cast only (bound by cardId elsewhere).
+    if (/^(?:this|that)\s+(?:card|permanent|spell|land)s?$/i.test(normalizeRuleText(normalizedQualifier))
+      || /^(?:it|~)$/i.test(normalizeRuleText(normalizedQualifier))) {
+      return;
+    }
 
     const entry: GraveyardCastingPermission = {
       id: '',
