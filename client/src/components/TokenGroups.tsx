@@ -99,12 +99,16 @@ export function TokenGroups(props: {
   highlightTargets?: ReadonlySet<string>;
   selectedTargets?: ReadonlySet<string>;
   onTokenClick?: (id: string) => void;
+  /** Tap a token permanent for mana (Cryptolith Rite, etc.). */
+  onTapForMana?: (id: string) => void;
+  /** Bulk-tap several tokens from a group for mana (one color/distribution prompt). */
+  onBulkTapForMana?: (ids: string[], count: number) => void;
   // New: Allow collapsible mode for many tokens
   collapsible?: boolean;
   defaultCollapsed?: boolean;
 }) {
   const { tokens, groupMode, attachedToSet, onBulkCounter, highlightTargets, selectedTargets, onTokenClick,
-    collapsible = true, defaultCollapsed = false } = props;
+    onTapForMana, onBulkTapForMana, collapsible = true, defaultCollapsed = false } = props;
   const [expanded, setExpanded] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const [popupOpen, setPopupOpen] = useState(false);
@@ -273,6 +277,8 @@ export function TokenGroups(props: {
               highlightTargets={highlightTargets}
               selectedTargets={selectedTargets}
               onTokenClick={onTokenClick}
+              onTapForMana={onTapForMana}
+              onBulkTapForMana={onBulkTapForMana}
             />
           </div>
         )}
@@ -307,9 +313,15 @@ export function TokenGroups(props: {
         highlightTargets={highlightTargets}
         selectedTargets={selectedTargets}
         onTokenClick={onTokenClick}
+        onTapForMana={onTapForMana}
+        onBulkTapForMana={onBulkTapForMana}
       />
     </div>
   );
+}
+
+function getRealTokenIds(ids: string[]): string[] {
+  return ids.filter((id) => id && !String(id).includes('_virtual_'));
 }
 
 // Extracted content component for reuse
@@ -321,8 +333,21 @@ function TokenGroupsContent(props: {
   highlightTargets?: ReadonlySet<string>;
   selectedTargets?: ReadonlySet<string>;
   onTokenClick?: (id: string) => void;
+  onTapForMana?: (id: string) => void;
+  onBulkTapForMana?: (ids: string[], count: number) => void;
 }) {
-  const { groups, expanded, setExpanded, onBulkCounter, highlightTargets, selectedTargets, onTokenClick } = props;
+  const {
+    groups,
+    expanded,
+    setExpanded,
+    onBulkCounter,
+    highlightTargets,
+    selectedTargets,
+    onTokenClick,
+    onTapForMana,
+    onBulkTapForMana,
+  } = props;
+  const [bulkManaCounts, setBulkManaCounts] = useState<Record<string, number>>({});
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
@@ -416,6 +441,21 @@ function TokenGroupsContent(props: {
                   TAPPED
                 </div>
               )}
+              {!g.tapped && g.summoningSick && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: 4,
+                  left: 4,
+                  background: 'rgba(239,68,68,0.9)',
+                  color: '#fff',
+                  fontWeight: 600,
+                  fontSize: 10,
+                  padding: '1px 6px',
+                  borderRadius: 4,
+                }}>
+                  SICK
+                </div>
+              )}
             </div>
 
             {/* Token info */}
@@ -466,7 +506,123 @@ function TokenGroupsContent(props: {
               </div>
 
               {/* Action buttons */}
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                {(() => {
+                  const realIds = getRealTokenIds(g.ids);
+                  const canTapForMana = Boolean(
+                    (onTapForMana || onBulkTapForMana)
+                    && realIds.length > 0
+                    && !g.tapped
+                    && !g.summoningSick
+                  );
+                  if (!onTapForMana && !onBulkTapForMana) return null;
+                  const maxCount = realIds.length;
+                  const rawCount = bulkManaCounts[g.key];
+                  const selectedCount = Math.max(
+                    1,
+                    Math.min(maxCount, Number.isFinite(rawCount) ? Number(rawCount) : Math.min(maxCount, 1)),
+                  );
+                  return (
+                    <>
+                      {onTapForMana && (
+                        <button
+                          onClick={() => {
+                            if (!canTapForMana) return;
+                            onTapForMana(realIds[0]);
+                          }}
+                          disabled={!canTapForMana}
+                          style={{
+                            background: canTapForMana ? 'rgba(234,179,8,0.2)' : 'rgba(100,100,100,0.2)',
+                            border: '1px solid',
+                            borderColor: canTapForMana ? 'rgba(234,179,8,0.5)' : '#444',
+                            borderRadius: 4,
+                            padding: '2px 6px',
+                            fontSize: 10,
+                            color: canTapForMana ? '#fde68a' : '#666',
+                            cursor: canTapForMana ? 'pointer' : 'not-allowed',
+                          }}
+                          title={
+                            g.tapped
+                              ? 'Already tapped'
+                              : g.summoningSick
+                                ? 'Summoning sickness'
+                                : realIds.length === 0
+                                  ? 'No individual token id available'
+                                  : 'Tap one token for mana'
+                          }
+                        >
+                          💧 1
+                        </button>
+                      )}
+                      {onBulkTapForMana && maxCount > 1 && (
+                        <>
+                          <input
+                            type="number"
+                            min={1}
+                            max={maxCount}
+                            value={selectedCount}
+                            disabled={!canTapForMana}
+                            onChange={(e) => {
+                              const next = Math.max(1, Math.min(maxCount, Number(e.target.value) || 1));
+                              setBulkManaCounts((prev) => ({ ...prev, [g.key]: next }));
+                            }}
+                            style={{
+                              width: 52,
+                              background: '#111827',
+                              border: '1px solid #4b5563',
+                              borderRadius: 4,
+                              color: '#e5e7eb',
+                              fontSize: 10,
+                              padding: '2px 4px',
+                            }}
+                            title={`How many of ${maxCount} to tap for mana`}
+                          />
+                          <button
+                            onClick={() => {
+                              if (!canTapForMana) return;
+                              onBulkTapForMana(realIds, selectedCount);
+                            }}
+                            disabled={!canTapForMana}
+                            style={{
+                              background: canTapForMana ? 'rgba(234,179,8,0.25)' : 'rgba(100,100,100,0.2)',
+                              border: '1px solid',
+                              borderColor: canTapForMana ? 'rgba(234,179,8,0.55)' : '#444',
+                              borderRadius: 4,
+                              padding: '2px 6px',
+                              fontSize: 10,
+                              color: canTapForMana ? '#fde68a' : '#666',
+                              cursor: canTapForMana ? 'pointer' : 'not-allowed',
+                            }}
+                            title={`Tap ${selectedCount} tokens for mana (one color/distribution prompt)`}
+                          >
+                            💧×{selectedCount}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (!canTapForMana) return;
+                              setBulkManaCounts((prev) => ({ ...prev, [g.key]: maxCount }));
+                              onBulkTapForMana(realIds, maxCount);
+                            }}
+                            disabled={!canTapForMana}
+                            style={{
+                              background: canTapForMana ? 'rgba(245,158,11,0.25)' : 'rgba(100,100,100,0.2)',
+                              border: '1px solid',
+                              borderColor: canTapForMana ? 'rgba(245,158,11,0.55)' : '#444',
+                              borderRadius: 4,
+                              padding: '2px 6px',
+                              fontSize: 10,
+                              color: canTapForMana ? '#fcd34d' : '#666',
+                              cursor: canTapForMana ? 'pointer' : 'not-allowed',
+                            }}
+                            title={`Tap all ${maxCount} untapped tokens in this group for mana`}
+                          >
+                            All {maxCount}
+                          </button>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
                 <button 
                   onClick={() => onBulkCounter(g.ids, { '+1/+1': +1 })}
                   style={{
@@ -543,6 +699,8 @@ function TokenGroupsContent(props: {
                 {g.ids.map(id => {
                   const hl = highlightTargets?.has(id) ?? false;
                   const sel = selectedTargets?.has(id) ?? false;
+                  const isRealId = !String(id).includes('_virtual_');
+                  const canTapThis = Boolean(onTapForMana && isRealId && !g.tapped && !g.summoningSick);
                   return (
                     <div
                       key={id}
@@ -564,6 +722,28 @@ function TokenGroupsContent(props: {
                         {id.slice(0, 6)}
                       </span>
                       <span style={{ display: 'inline-flex', gap: 3 }}>
+                        {onTapForMana && (
+                          <button
+                            onClick={() => {
+                              if (!canTapThis) return;
+                              onTapForMana(id);
+                            }}
+                            disabled={!canTapThis}
+                            style={{
+                              background: canTapThis ? 'rgba(234,179,8,0.2)' : 'rgba(100,100,100,0.2)',
+                              border: '1px solid',
+                              borderColor: canTapThis ? 'rgba(234,179,8,0.5)' : '#444',
+                              borderRadius: 3,
+                              padding: '1px 4px',
+                              fontSize: 9,
+                              color: canTapThis ? '#fde68a' : '#666',
+                              cursor: canTapThis ? 'pointer' : 'not-allowed',
+                            }}
+                            title={canTapThis ? 'Tap for mana' : 'Cannot tap for mana'}
+                          >
+                            💧
+                          </button>
+                        )}
                         <button 
                           onClick={() => onBulkCounter([id], { '+1/+1': +1 })}
                           style={{

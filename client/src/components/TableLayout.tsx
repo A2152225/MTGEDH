@@ -1581,6 +1581,21 @@ export function TableLayout(props: {
                               highlightTargets={highlightPermTargets}
                               selectedTargets={selectedPermTargets}
                               onTokenClick={onPermanentClick}
+                              onTapForMana={isYouThis && gameId
+                                ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id })
+                                : undefined}
+                              onBulkTapForMana={isYouThis && gameId
+                                ? (ids, count) => {
+                                    socket.emit('bulkTapPermanentsForMana', {
+                                      gameId,
+                                      permanentIds: ids,
+                                      count,
+                                    });
+                                    window.setTimeout(() => {
+                                      socket.emit('getMyNextResolutionStep', { gameId });
+                                    }, 0);
+                                  }
+                                : undefined}
                               collapsible={true}
                               defaultCollapsed={true}
                             />
