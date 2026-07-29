@@ -8503,11 +8503,9 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       clearHumanAutoPassPauseOnAction(game as any, playerId, 'requestCastSpell');
 
-      const queuedCastStep = findPendingSpellCastStep(gameId, String(playerId), String(cardId));
-      if (queuedCastStep) {
-        debug(2, `[requestCastSpell] Explicitly emitting queued cast step ${queuedCastStep.id} for card ${cardId}`);
-        emitResolutionStepPrompt(socket, gameId, queuedCastStep);
-      }
+      // STEP_ADDED already emits resolutionStepPrompt via the per-socket queue handler.
+      // Avoid a second emit of the same step — it re-opens CastSpellModal during loop replay
+      // after the first prompt was already auto-answered.
       return;
     } catch (err: any) {
       debugError(1, `[requestCastSpell] Error:`, err);

@@ -132,6 +132,7 @@ import {
   loadLoopShortcutDraft,
   loadSavedLoopShortcuts,
   matchesPromptFingerprint,
+  canAdvanceLoopShortcutAfterState,
   saveLoopShortcutDraft,
   type SavedLoopShortcut,
   type LoopShortcutSequenceItem,
@@ -1423,6 +1424,8 @@ export function App() {
   });
   const loopShortcutLastErrorRef = useRef<string | null>(null);
   const loopShortcutLoadedGameIdRef = useRef<string | null>(null);
+  /** Step ids the loop already auto-answered — ignore duplicate resolutionStepPrompt emits. */
+  const loopAutoAnsweredStepIdsRef = useRef<Set<string>>(new Set());
 
   React.useEffect(() => {
     safeViewRef.current = safeView;
@@ -1514,6 +1517,7 @@ export function App() {
       waitingForState: false,
       waitingPrompt: null,
     };
+    loopAutoAnsweredStepIdsRef.current.clear();
     setIsLoopShortcutRunning(false);
     setLoopShortcutStatusText(message);
   }, []);
@@ -1651,6 +1655,7 @@ export function App() {
   const handleRunLoopShortcut = React.useCallback(() => {
     if (!safeViewRef.current?.id || loopShortcutItemsRef.current.length === 0) return;
 
+    loopAutoAnsweredStepIdsRef.current.clear();
     loopShortcutReplayRef.current = {
       running: true,
       index: 0,
@@ -1715,9 +1720,26 @@ export function App() {
       return;
     }
 
+    if (!canAdvanceLoopShortcutAfterState({
+      view: safeView,
+      myPendingResolutionCount,
+      hasActiveResolutionPrompt: Boolean(activeResolutionPrompt || minimizedResolutionStep),
+    })) {
+      setLoopShortcutStatusText(
+        `Waiting for stack/prompts to clear (iteration ${loopShortcutReplayRef.current.iteration + 1} of ${loopShortcutReplayRef.current.totalIterations})...`
+      );
+      return;
+    }
+
     loopShortcutReplayRef.current.waitingForState = false;
     advanceLoopShortcutReplay();
-  }, [safeView, advanceLoopShortcutReplay]);
+  }, [
+    safeView,
+    advanceLoopShortcutReplay,
+    myPendingResolutionCount,
+    activeResolutionPrompt,
+    minimizedResolutionStep,
+  ]);
 
   React.useEffect(() => {
     if (!lastError || lastError === loopShortcutLastErrorRef.current) {
@@ -2625,6 +2647,10 @@ export function App() {
     setGraveyardSelectionModalOpen(false);
     setMinimizedResolutionStep(null);
     setActiveResolutionPrompt(null);
+    // Spell payment modal is opened from mana_payment_choice prompts; always clear it
+    // when the resolution queue is dismissed so loop replay cannot leave it stuck open.
+    setCastSpellModalOpen(false);
+    setSpellToCast(null);
   }, []);
 
   React.useEffect(() => {
@@ -2646,13 +2672,25 @@ export function App() {
       if (payload.gameId !== safeView?.id) return;
       
       const step = payload.step;
-      lastResolutionStepsRef.current.set(String(step.id || ''), step);
+      const stepId = String(step.id || '');
+
+      // requestCastSpell double-emits the same payment step (STEP_ADDED + explicit).
+      // Ignore duplicates the loop already auto-answered so CastSpellModal cannot re-open.
+      if (
+        loopShortcutReplayRef.current.running
+        && stepId
+        && loopAutoAnsweredStepIdsRef.current.has(stepId)
+      ) {
+        return;
+      }
+
+      lastResolutionStepsRef.current.set(stepId, step);
       setMinimizedResolutionStep((prev) =>
-        prev && prev.stepId !== String(step.id || '') ? null : prev
+        prev && prev.stepId !== stepId ? null : prev
       );
       if (!you || !step.playerId || String(step.playerId) === String(you)) {
         setActiveResolutionPrompt({
-          stepId: String(step.id || ''),
+          stepId,
           title: String(step.sourceName || step.description || 'Pending choice').slice(0, 100),
         });
       }
@@ -2671,12 +2709,19 @@ export function App() {
           );
 
           if (response) {
+            if (stepId) {
+              loopAutoAnsweredStepIdsRef.current.add(stepId);
+            }
             originalSocketEmitRef.current?.('submitResolutionResponse', {
               gameId: payload.gameId,
-              stepId: String(step.id),
+              stepId,
               selections: response.selections,
               cancelled: false,
             });
+            // Keep payment / choice UI closed even if a duplicate prompt arrives later.
+            setCastSpellModalOpen(false);
+            setSpellToCast(null);
+            setActiveResolutionPrompt(null);
             replayState.index += 1;
             replayState.waitingPrompt = null;
 

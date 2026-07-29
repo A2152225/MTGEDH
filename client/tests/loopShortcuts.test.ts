@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildResolutionResponsePayload,
+  canAdvanceLoopShortcutAfterState,
   createRecordedEmitItem,
   createRecordedResolutionResponseItem,
   deleteSavedLoopShortcut,
@@ -62,6 +63,31 @@ function makeStorage(): Storage {
 }
 
 describe('loopShortcuts', () => {
+  it('waits for empty stack and no pending prompts before advancing', () => {
+    const view = makeView();
+    expect(canAdvanceLoopShortcutAfterState({
+      view,
+      myPendingResolutionCount: 0,
+      hasActiveResolutionPrompt: false,
+    })).toBe(true);
+
+    expect(canAdvanceLoopShortcutAfterState({
+      view: { ...view, stack: [{ id: 't1' }] as any },
+      myPendingResolutionCount: 0,
+    })).toBe(false);
+
+    expect(canAdvanceLoopShortcutAfterState({
+      view,
+      myPendingResolutionCount: 1,
+    })).toBe(false);
+
+    expect(canAdvanceLoopShortcutAfterState({
+      view,
+      myPendingResolutionCount: 0,
+      hasActiveResolutionPrompt: true,
+    })).toBe(false);
+  });
+
   it('records dynamic target selection templates for tap-creature cost prompts', () => {
     const view = makeView();
     const step = {

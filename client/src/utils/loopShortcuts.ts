@@ -484,6 +484,24 @@ export function matchesPromptFingerprint(fingerprint: LoopShortcutPromptFingerpr
   return true;
 }
 
+/**
+ * After an emit or auto-answered prompt, wait for a quiet board before the next
+ * emit: no pending resolution choices for the player, and an empty stack.
+ * Prevents Summon-the-School-style loops from firing the next graveyard
+ * activation while Aura Shards (etc.) are still resolving.
+ */
+export function canAdvanceLoopShortcutAfterState(options: {
+  view: ClientGameView | null | undefined;
+  myPendingResolutionCount?: number;
+  hasActiveResolutionPrompt?: boolean;
+}): boolean {
+  const stack = Array.isArray(options.view?.stack) ? options.view!.stack : [];
+  if (stack.length > 0) return false;
+  if (Number(options.myPendingResolutionCount || 0) > 0) return false;
+  if (options.hasActiveResolutionPrompt) return false;
+  return true;
+}
+
 export function buildResolutionResponsePayload(
   template: LoopShortcutPromptTemplate,
   step: any,
