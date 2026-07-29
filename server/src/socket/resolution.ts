@@ -74,6 +74,12 @@ import {
   fingerprintArtifactEnchantmentTargets,
   parseNoUntilTargetsChangeFingerprint,
 } from "../../../shared/src/mayAutoPreference.js";
+import {
+  buildOptionalEffectKey,
+  findMayAutoPreferenceEntry,
+} from "../../../shared/src/optionalEffectKey.js";
+import { getSavedMayAbilityTriggerDecision } from "./trigger-shortcuts.js";
+import { wouldAutoDeclineOptionalTriggeredAbility } from "../state/modules/stackResolveTriggeredAbilityOptionalUtils.js";
 import { isShockLand } from "./land-helpers.js";
 import type { GameContext } from "../state/context.js";
 import { handleKynaiosChoiceResponse as handleKynaiosChoiceResponseBatched } from "../state/resolution/handlers/kynaiosChoice.js";
@@ -2997,6 +3003,8 @@ function buildActivatedAbilityValidTargets(
             name: perm.card?.name || 'Creature',
             type: 'permanent',
             controller: perm.controller,
+            typeLine: perm.card?.type_line || '',
+            tapped: perm?.tapped === true,
             imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
           })));
         break;
@@ -8745,6 +8753,31 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     } catch (err) {
       debugWarn(1, '[Resolution] appendEvent(mayAutoPreferenceSet) failed:', err);
     }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    // When Always No / no-until is set, drain matching optional tops already on the stack.
+    if (
+      (value === 'no' || isNoUntilRequest || isNoUntilStored)
+      && Array.isArray(state.stack)
+      && state.stack.length > 0
+    ) {
+      const top = state.stack[state.stack.length - 1];
+      if (wouldAutoDeclineOptionalTriggeredAbility(state, top)) {
+        persistAndResolveTopOfStack(game, gameId, {
+          playerId: pid,
+          effectKey,
+          reason: 'mayAutoPreferenceDrain',
+        });
+      }
+    }
+
+    const io = priorityResolutionHandlerIo;
+    if (io) {
+      broadcastGame(io, game, gameId);
+    }
   });
 
   // Clean up when socket disconnects
@@ -9833,6 +9866,26 @@ async function handleStepResponse(
 
     if (!resolvedDeferredStack && resumed.status === 'completed') {
       maybeResumeDeferredOracleIrStackSpellOnGame(game, gameId);
+    }
+
+    // After declining an optional "you may" with Always No / no-until saved,
+    // drain remaining matching stack tops without Resolve All.
+    if (
+      resumed.status === 'completed'
+      && isOptionalTriggeredEffectProgramStep(step)
+      && step.type === ResolutionStepType.OPTION_CHOICE
+    ) {
+      const choiceId = extractFirstResolutionSelectionId(response.selections) || (response.cancelled ? 'no' : 'no');
+      const declined = response.cancelled || choiceId !== 'yes';
+      if (declined) {
+        maybeDrainAutoDeclinedOptionalStackAfterDecline(
+          game,
+          gameId,
+          response.playerId,
+          String(step.sourceName || 'Ability'),
+          step,
+        );
+      }
     }
     return;
   }
@@ -18761,9 +18814,11 @@ async function handleTargetSelectionResponse(
       }
     }
 
-    // Validate sacrifices still legal.
+    // Validate sacrifices still legal and snapshot power before zone change
+    // (Altar of Dementia: mill equal to sacrificed creature's power).
     const sacrificedNames: string[] = [];
     const sacrificedIds: string[] = [];
+    const sacrificedPermanentSnapshots: any[] = [];
 
     const matchesSacrificeRequirement = (perm: any): boolean => {
       if (!perm) return false;
@@ -18812,6 +18867,25 @@ async function handleTargetSelectionResponse(
         });
         return;
       }
+    }
+
+    for (const chosenId of selections) {
+      const chosenPerm = battlefield.find((p: any) => p && String(p.id) === String(chosenId));
+      if (!chosenPerm) continue;
+      const power = getEffectivePower(chosenPerm);
+      sacrificedPermanentSnapshots.push({
+        id: String(chosenPerm.id || ''),
+        name: String(chosenPerm?.card?.name || 'permanent'),
+        controller: String(chosenPerm.controller || ''),
+        owner: String(chosenPerm.owner || chosenPerm.ownerId || chosenPerm.controller || ''),
+        typeLine: String(chosenPerm?.card?.type_line || '').toLowerCase(),
+        power: Number.isFinite(power) ? power : null,
+        effectivePower: Number.isFinite(power) ? power : undefined,
+        toughness: null,
+        manaValue: null,
+        colors: Array.isArray(chosenPerm?.card?.colors) ? [...chosenPerm.card.colors] : [],
+        card: chosenPerm.card ? { ...chosenPerm.card } : undefined,
+      });
     }
 
     // Perform sacrifices.
@@ -18866,9 +18940,97 @@ async function handleTargetSelectionResponse(
     }
     const allTappedPermanentsForCost = [...prePaidTappedPermanentsForCost, ...tappedPermanentsForCost];
 
-    // Put the ability on the stack.
     const activatedAbilityText = String(stepAny?.activatedAbilityText || '').trim()
       || (manaCost ? `${manaCost}: ${abilityText}` : abilityText);
+
+    // Mirror tap/discard cost paths: after paying the sacrifice cost, prompt for
+    // effect targets (e.g. Altar of Dementia → target player to mill).
+    const targetReqs = parseTargetRequirements(abilityText, {
+      gameState: game.state,
+      controllerId: String(controllerId),
+      sourceName: cardName,
+      sourcePermanent: sourcePerm,
+    });
+    if (targetReqs.needsTargets) {
+      const validTargets = buildActivatedAbilityValidTargets(game, controllerId, targetReqs);
+      const minTargets = Number(targetReqs.minTargets ?? 1);
+      const maxTargets = Number(targetReqs.maxTargets ?? minTargets);
+      if (validTargets.length < minTargets) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'NO_VALID_TARGETS',
+          message: `${cardName}'s ability requires at least ${minTargets} target(s), but only ${validTargets.length} are available.`,
+        });
+        return;
+      }
+
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: controllerId as any,
+        sourceId: permanentId,
+        sourceName: cardName,
+        sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
+        description: abilityText,
+        mandatory: minTargets > 0,
+        validTargets,
+        targetTypes: targetReqs.targetTypes,
+        minTargets,
+        maxTargets,
+        targetDescription: targetReqs.targetDescription || 'target',
+        battlefieldAbilityTargetSelection: true,
+        permanentId,
+        abilityId,
+        cardName,
+        abilityText,
+        activatedAbilityText,
+        tappedPermanentsForCost: allTappedPermanentsForCost,
+        sacrificedPermanentsForCost: sacrificedIds,
+        lastSacrificedPermanents: sacrificedPermanentSnapshots,
+        discardedCardIdsForCost: Array.isArray((stepAny as any)?.discardedCardIdsForCost)
+          ? ((stepAny as any).discardedCardIdsForCost as any[]).map((x: any) => String(x)).filter(Boolean)
+          : undefined,
+        exiledCardIdsFromHandForCost: Array.isArray((stepAny as any)?.exiledCardIdsFromHandForCost)
+          ? ((stepAny as any).exiledCardIdsFromHandForCost as any[]).map((x: any) => String(x)).filter(Boolean)
+          : undefined,
+        lifePaidForCost: Number.isFinite(lifeToPayForCost + prePaidLifeForCost) && (lifeToPayForCost + prePaidLifeForCost) > 0
+          ? (lifeToPayForCost + prePaidLifeForCost)
+          : undefined,
+      } as any);
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          playerId: controllerId,
+          resolvedStepId: String((step as any).id || ''),
+          permanentId,
+          abilityId: abilityId || undefined,
+          cardName,
+          abilityText,
+          activatedAbilityText,
+          tappedPermanents: allTappedPermanentsForCost,
+          sacrificedPermanents: sacrificedIds,
+          lastSacrificedPermanents: sacrificedPermanentSnapshots,
+          lifePaidForCost: Number.isFinite(lifeToPayForCost + prePaidLifeForCost) && (lifeToPayForCost + prePaidLifeForCost) > 0
+            ? (lifeToPayForCost + prePaidLifeForCost)
+            : undefined,
+          queuedResolutionStep,
+        });
+      } catch {
+        // ignore persistence failures
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName} (sacrificed ${sacrificedNames.join(', ') || 'permanents'}) — choose target(s)`,
+        ts: Date.now(),
+      });
+
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    // Put the ability on the stack (no further targets required).
     const stackItem = {
       id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: 'ability' as const,
@@ -18877,6 +19039,8 @@ async function handleTargetSelectionResponse(
       sourceName: cardName,
       description: abilityText,
       activatedAbilityText: activatedAbilityText || undefined,
+      sacrificedPermanents: sacrificedIds,
+      lastSacrificedPermanents: sacrificedPermanentSnapshots,
     } as any;
 
     game.state.stack = game.state.stack || [];
@@ -18900,6 +19064,7 @@ async function handleTargetSelectionResponse(
           activatedAbilityText: activatedAbilityText || undefined,
           tappedPermanents: allTappedPermanentsForCost,
           sacrificedPermanents: sacrificedIds,
+          lastSacrificedPermanents: sacrificedPermanentSnapshots,
           discardedCardIds: Array.isArray((stepAny as any)?.discardedCardIdsForCost)
             ? ((stepAny as any).discardedCardIdsForCost as any[]).map((x: any) => String(x)).filter(Boolean)
             : undefined,
@@ -19448,6 +19613,12 @@ async function handleTargetSelectionResponse(
       copyRetargetMinTargets: minTargets,
       copyRetargetMaxTargets: maxTargets,
       copyRetargetTargetDescription: String(targetStepData.targetDescription || 'target'),
+      sacrificedPermanents: Array.isArray(stepAny?.sacrificedPermanentsForCost)
+        ? stepAny.sacrificedPermanentsForCost.map((id: any) => String(id)).filter(Boolean)
+        : undefined,
+      lastSacrificedPermanents: Array.isArray(stepAny?.lastSacrificedPermanents)
+        ? stepAny.lastSacrificedPermanents.map((entry: any) => ({ ...entry }))
+        : undefined,
     } as any;
 
     if (battlefieldAbilityType === 'equip') {
@@ -19523,6 +19694,12 @@ async function handleTargetSelectionResponse(
             : undefined,
           exiledCardIdsFromHandForCost: Array.isArray(stepAny?.exiledCardIdsFromHandForCost) && stepAny.exiledCardIdsFromHandForCost.length > 0
             ? stepAny.exiledCardIdsFromHandForCost.map((id: any) => String(id))
+            : undefined,
+          sacrificedPermanents: Array.isArray(stepAny?.sacrificedPermanentsForCost) && stepAny.sacrificedPermanentsForCost.length > 0
+            ? stepAny.sacrificedPermanentsForCost.map((id: any) => String(id))
+            : undefined,
+          lastSacrificedPermanents: Array.isArray(stepAny?.lastSacrificedPermanents) && stepAny.lastSacrificedPermanents.length > 0
+            ? stepAny.lastSacrificedPermanents.map((entry: any) => ({ ...entry }))
             : undefined,
           lifePaidForCost: Number(stepAny?.lifePaidForCost || 0) > 0 ? Number(stepAny.lifePaidForCost) : undefined,
           exertedPermanentIdForCost,
@@ -36723,6 +36900,61 @@ function isOptionalTriggeredEffectProgramStep(step: ResolutionStep): boolean {
   );
 }
 
+function playerHasAutoDeclineMayPreference(
+  state: any,
+  playerId: string,
+  sourceName: string,
+  effectText: string,
+): boolean {
+  if (getSavedMayAbilityTriggerDecision(state, playerId, sourceName) === 'no') {
+    return true;
+  }
+  const effectKey = buildOptionalEffectKey(sourceName, effectText);
+  const entry = findMayAutoPreferenceEntry(state?.mayAutoPreferences?.[playerId], effectKey);
+  if (!entry) return false;
+  if (entry.value === 'no') return true;
+  return parseNoUntilTargetsChangeFingerprint(entry.value) !== undefined;
+}
+
+/**
+ * After declining an optional may (Always No / no-until), continue resolving
+ * consecutive auto-declinable optional triggers still on the stack.
+ */
+function maybeDrainAutoDeclinedOptionalStackAfterDecline(
+  game: any,
+  gameId: string,
+  playerId: string,
+  sourceName: string,
+  step: ResolutionStep,
+): void {
+  const state = game?.state as any;
+  if (!state) return;
+
+  const stepData = step as any;
+  const effectText = String(
+    stepData?.effectText
+    || stepData?.fullAbilityText
+    || step.description
+    || ''
+  ).trim();
+
+  if (!playerHasAutoDeclineMayPreference(state, playerId, sourceName, effectText)) {
+    return;
+  }
+
+  const stack = Array.isArray(state.stack) ? state.stack : [];
+  const top = stack.length > 0 ? stack[stack.length - 1] : null;
+  if (!top || !wouldAutoDeclineOptionalTriggeredAbility(state, top)) {
+    return;
+  }
+
+  persistAndResolveTopOfStack(game, gameId, {
+    playerId,
+    sourceName,
+    reason: 'optionalTriggeredAbilityAutoDeclineDrain',
+  });
+}
+
 async function handleOptionalTriggeredAbilityChoiceResponse(
   io: Server,
   game: any,
@@ -36751,6 +36983,9 @@ async function handleOptionalTriggeredAbilityChoiceResponse(
 
   if (!shouldResolve) {
     debug(2, `[Resolution] Declined deferred optional triggered ability for ${sourceName}`);
+    // Always No / no-until / shortcut-no: drain remaining auto-declinable tops
+    // without requiring Resolve All / pass priority for each skipped trigger.
+    maybeDrainAutoDeclinedOptionalStackAfterDecline(game, gameId, playerId, sourceName, step);
     return;
   }
 

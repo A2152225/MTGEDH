@@ -133,6 +133,9 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^that many cards minus one$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^a third of their life, rounded up$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^cards equal to its power$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^cards?\s+equal\s+to\s+the\s+sacrificed\s+creature(?:'|’)?s\s+power$/i.test(trimmed)) {
+    return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' };
+  }
   if (/^for each other creature you control that the spell could target$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^for each other creature you control that ability could target$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^for each other creature that spell could target$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
@@ -524,6 +527,9 @@ export function parseQuantity(raw: string | undefined): OracleQuantity {
   if (/^for each opponent, you$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^crew 3 you$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
   if (/^cards equal to its power$/i.test(trimmed)) return { kind: 'reference_amount', raw: trimmed.toLowerCase() };
+  if (/^cards?\s+equal\s+to\s+the\s+sacrificed\s+creature(?:'|’)?s\s+power$/i.test(trimmed)) {
+    return { kind: 'object_stat', subject: 'the_sacrificed_creature', stat: 'power' };
+  }
   if (/^the same number$/i.test(trimmed)) return { kind: 'reference_amount', raw: 'the same number' };
   if (/^the greatest mana value among creatures you control$/i.test(trimmed)) {
     return { kind: 'reference_amount', raw: trimmed.toLowerCase() };

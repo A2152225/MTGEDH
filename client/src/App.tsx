@@ -115,6 +115,7 @@ import {
 import { prettyPhase, prettyStep, isLandTypeLine } from "./utils/gameDisplayHelpers";
 import { canCreatureAttackNow, canCreatureBlockNow, isCurrentlyCreature } from "./utils/creatureUtils";
 import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
+import { MayAutoPreferencesPanel } from "./components/MayAutoPreferencesPanel";
 import { PriorityModal } from "./components/PriorityModal";
 import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
 import { TriggerShortcutsPanel } from "./components/TriggerShortcutsPanel";
@@ -688,6 +689,18 @@ export function App() {
   // Ignored cards state (for auto-pass and playability checks)
   const [ignoredCards, setIgnoredCards] = useState<IgnoredCard[]>([]);
   const ignoredCardIds = useMemo(() => new Set(ignoredCards.map(c => c.cardId || c.permanentId)), [ignoredCards]);
+
+  const mayAutoPreferenceEntries = useMemo(() => {
+    if (!safeView || !you) return [];
+    const prefs = (safeView as any).mayAutoPreferences?.[you];
+    if (!prefs || typeof prefs !== 'object') return [];
+    return Object.entries(prefs)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([effectKey, value]) => ({
+        effectKey,
+        value: value as 'yes' | 'no' | number | string,
+      }));
+  }, [safeView, you]);
   
   // Join Forces Modal state (Collective Voyage, Minds Aglow, etc.)
   const [joinForcesModalOpen, setJoinForcesModalOpen] = useState(false);
@@ -3661,10 +3674,13 @@ export function App() {
           displayName: t.displayName,
           imageUrl: t.imageUrl,
           controller: t.controller,
+          controllerName: t.controllerName,
           typeLine: t.typeLine,
+          tapped: typeof t.tapped === 'boolean' ? t.tapped : undefined,
           life: t.life,
           zone: t.zone || (t.type === 'stack' || t.description === 'stack' || t.kind === 'stack' ? 'stack' : undefined),
           owner: t.owner,
+          ownerName: t.ownerName,
           card: t.card,
         }));
 
@@ -3679,10 +3695,13 @@ export function App() {
           displayName: t.displayName,
           imageUrl: t.imageUrl,
           controller: t.controller,
+          controllerName: t.controllerName,
           typeLine: t.typeLine,
+          tapped: typeof t.tapped === 'boolean' ? t.tapped : undefined,
           life: t.life,
           zone: t.zone || (t.type === 'stack' || t.description === 'stack' || t.kind === 'stack' ? 'stack' : undefined),
           owner: t.owner,
+          ownerName: t.ownerName,
           card: t.card,
         });
         const targetsPerOpponent = targetsPerOpponentRaw
@@ -9010,6 +9029,30 @@ export function App() {
             socket.emit('clearIgnoredCards' as any, {
               gameId: safeView.id,
             });
+          }}
+        />
+      )}
+
+      {/* May auto preferences (Always No / Always Yes / No until targets change) */}
+      {safeView && you && mayAutoPreferenceEntries.length > 0 && (
+        <MayAutoPreferencesPanel
+          preferences={mayAutoPreferenceEntries}
+          you={you}
+          onClear={(effectKey) => {
+            socket.emit('setMayAutoPreference', {
+              gameId: safeView.id,
+              effectKey,
+              value: null,
+            });
+          }}
+          onClearAll={() => {
+            for (const entry of mayAutoPreferenceEntries) {
+              socket.emit('setMayAutoPreference', {
+                gameId: safeView.id,
+                effectKey: entry.effectKey,
+                value: null,
+              });
+            }
           }}
         />
       )}

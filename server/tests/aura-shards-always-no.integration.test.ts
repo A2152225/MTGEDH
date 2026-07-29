@@ -148,14 +148,9 @@ describe('Aura Shards Always No', () => {
 
     expect((game.state as any).mayAutoPreferences?.[playerId]?.[prefKey]).toBe('no');
 
-    let guard = 0;
-    while (((game.state as any).stack || []).length > 0 && guard++ < 10) {
-      const before = ((game.state as any).stack || []).length;
-      game.resolveTopOfStack();
-      expect(pendingOptionalMaySteps(gameId)).toHaveLength(0);
-      if (((game.state as any).stack || []).length >= before) break;
-    }
-
+    // Single resolve drains all remaining Always-No optional tops
+    game.resolveTopOfStack();
+    expect(pendingOptionalMaySteps(gameId)).toHaveLength(0);
     expect(((game.state as any).stack || []).length).toBe(0);
   });
 
@@ -175,6 +170,26 @@ describe('Aura Shards Always No', () => {
     expect(((game.state as any).stack || []).length).toBe(0);
   });
 
+  it('drains multiple Always-No Aura Shards in one resolveTopOfStack', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId)!;
+    setupAuraShardsGame(game, playerId);
+
+    (game.state as any).mayAutoPreferences = {
+      [playerId]: { [prefKey]: 'no' },
+    };
+
+    pushAuraShardsTrigger(game, playerId, 'trigger_batch_1');
+    pushAuraShardsTrigger(game, playerId, 'trigger_batch_2');
+    pushAuraShardsTrigger(game, playerId, 'trigger_batch_3');
+    pushAuraShardsTrigger(game, playerId, 'trigger_batch_4');
+
+    game.resolveTopOfStack();
+
+    expect(pendingOptionalMaySteps(gameId)).toHaveLength(0);
+    expect(((game.state as any).stack || []).length).toBe(0);
+  });
+
   it('skips while targets unchanged, then asks again when a new target appears', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId)!;
@@ -188,12 +203,6 @@ describe('Aura Shards Always No', () => {
     pushAuraShardsTrigger(game, playerId, 'trigger_same_targets_1');
     pushAuraShardsTrigger(game, playerId, 'trigger_same_targets_2');
     game.resolveTopOfStack();
-    expect(pendingOptionalMaySteps(gameId)).toHaveLength(0);
-
-    // Drain second stacked trigger
-    if (((game.state as any).stack || []).length > 0) {
-      game.resolveTopOfStack();
-    }
     expect(pendingOptionalMaySteps(gameId)).toHaveLength(0);
     expect(((game.state as any).stack || []).length).toBe(0);
 

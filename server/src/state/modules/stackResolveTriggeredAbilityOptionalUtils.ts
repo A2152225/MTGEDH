@@ -13,7 +13,65 @@ import {
   buildOptionalEffectKey,
   findMayAutoPreferenceEntry,
 } from '../../../../shared/src/optionalEffectKey.js';
-import { resolveNoUntilTargetsChangePreference } from '../../../../shared/src/mayAutoPreference.js';
+import {
+  matchesNoUntilTargetsChangePreference,
+  resolveNoUntilTargetsChangePreference,
+} from '../../../../shared/src/mayAutoPreference.js';
+import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
+
+/** Set on ctx when an optional may is consumed via Always No / no-until / shortcut no. */
+export const OPTIONAL_MAY_AUTO_DECLINED_FLAG = '__optionalMayAutoDeclined';
+
+export function markOptionalMayAutoDeclined(ctx: GameContext): void {
+  (ctx as any)[OPTIONAL_MAY_AUTO_DECLINED_FLAG] = true;
+}
+
+export function consumeOptionalMayAutoDeclined(ctx: GameContext): boolean {
+  const flagged = (ctx as any)[OPTIONAL_MAY_AUTO_DECLINED_FLAG] === true;
+  (ctx as any)[OPTIONAL_MAY_AUTO_DECLINED_FLAG] = false;
+  return flagged;
+}
+
+/**
+ * True when resolving this optional trigger would auto-decline without a prompt
+ * (Always No, no-until-targets, or trigger-shortcut always_no). Side-effect free.
+ */
+export function wouldAutoDeclineOptionalTriggeredAbility(state: any, item: any): boolean {
+  if (!item || (item as any).type !== 'triggered_ability') return false;
+  if ((item as any).mandatory !== false) return false;
+  if ((item as any).optionalTriggeredAbilityDecisionApplied === true) return false;
+
+  const triggerController = String((item as any).controller || '').trim();
+  const sourceName = String((item as any).sourceName || 'Unknown').trim();
+  if (!triggerController || !sourceName) return false;
+
+  const effectText = resolveTriggerStackItemEffectText(item, { state });
+  const description = String((item as any).description || '').trim();
+  const effectForOptionalCheck = String(effectText || description || '').trim();
+  if (effectForOptionalCheck && isPerPlayerOptionalEffectText(effectForOptionalCheck)) {
+    return false;
+  }
+  if (effectForOptionalCheck && !isControllerOptionalTriggeredAbilityEffect(effectForOptionalCheck)) {
+    return false;
+  }
+
+  const savedTriggerDecision = getSavedMayAbilityTriggerDecision(state as any, triggerController, sourceName);
+  if (savedTriggerDecision === 'yes') return false;
+  if (savedTriggerDecision === 'no') return true;
+
+  const effectKey = buildOptionalEffectKey(sourceName, effectForOptionalCheck);
+  const mayPrefEntry = findMayAutoPreferenceEntry(
+    state?.mayAutoPreferences?.[triggerController],
+    effectKey,
+  );
+  const mayPref = mayPrefEntry?.value;
+  if (mayPref === 'no') return true;
+  if (mayPref === 'yes') return false;
+  if (matchesNoUntilTargetsChangePreference(state, mayPref, effectForOptionalCheck)) {
+    return true;
+  }
+  return false;
+}
 
 function normalizeOptionalTriggeredAbilityChoice(response: ChoiceResponse | undefined): 'yes' | 'no' {
   if (!response || response.cancelled) {
@@ -238,6 +296,7 @@ export function tryDeferOptionalTriggeredAbilityMayDecision(
   }
   if (savedTriggerDecision === 'no') {
     debug(2, `[resolveTopOfStack] Optional trigger shortcut auto-no for ${options.sourceName} (${options.triggerController})`);
+    markOptionalMayAutoDeclined(ctx);
     options.bumpSeq();
     return true;
   }
@@ -256,6 +315,7 @@ export function tryDeferOptionalTriggeredAbilityMayDecision(
   const mayPref = mayPrefEntry?.value;
   if (mayPref === 'no') {
     debug(2, `[resolveTopOfStack] Optional mayAutoPreference auto-no for ${options.sourceName} (${options.triggerController})`);
+    markOptionalMayAutoDeclined(ctx);
     options.bumpSeq();
     return true;
   }
@@ -268,6 +328,7 @@ export function tryDeferOptionalTriggeredAbilityMayDecision(
   );
   if (noUntilChoice === 'no') {
     debug(2, `[resolveTopOfStack] Optional no-until-targets auto-no for ${options.sourceName} (${options.triggerController})`);
+    markOptionalMayAutoDeclined(ctx);
     options.bumpSeq();
     return true;
   }

@@ -282,6 +282,17 @@ export function resolveOracleQuantity(
       }
     }
 
+    if (/^cards equal to the sacrificed creature(?:'|\u2019)?s power$/i.test(normalized)) {
+      const sacrificed = readSacrificedPermanents(runtime, ctx);
+      const sacrificedEntry = pickSacrificedPermanentEntry(sacrificed);
+      if (sacrificedEntry) {
+        const power = readPermanentPower(sacrificedEntry);
+        if (power !== null) return Math.max(0, power);
+        const snapshotPower = Number((sacrificedEntry as any)?.power);
+        if (Number.isFinite(snapshotPower)) return Math.max(0, snapshotPower);
+      }
+    }
+
     if (/^equal to that card(?:'|\u2019)?s (?:mana value|power|toughness)$/i.test(normalized)) {
       return evaluateWhereExpr(normalized.replace(/^equal to /i, ''));
     }

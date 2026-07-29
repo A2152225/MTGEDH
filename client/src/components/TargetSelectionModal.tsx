@@ -26,13 +26,69 @@ export interface TargetOption {
   imageUrl?: string;
   // For permanents
   controller?: string;
+  controllerName?: string;
   typeLine?: string;
+  tapped?: boolean;
   // For players
   life?: number;
   // For cards
   zone?: string;
   owner?: string;
+  ownerName?: string;
   card?: KnownCardRef | BattlefieldPermanent;
+}
+
+function PermanentTargetCaption({ target }: { target: TargetOption }) {
+  const controllerLabel = target.controllerName || target.controller;
+  const ownerLabel = target.ownerName || target.owner;
+  const showOwner = Boolean(ownerLabel && ownerLabel !== controllerLabel);
+  return (
+    <div
+      style={{
+        padding: '4px 6px',
+        fontSize: 10,
+        pointerEvents: 'none',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+        minHeight: 34,
+      }}
+    >
+      <div
+        style={{
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          fontWeight: 600,
+        }}
+      >
+        {target.displayName || target.name}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 4,
+          alignItems: 'center',
+          color: '#9ca3af',
+          lineHeight: 1.2,
+        }}
+      >
+        {typeof target.tapped === 'boolean' && (
+          <span
+            style={{
+              color: target.tapped ? '#fbbf24' : '#86efac',
+              fontWeight: 600,
+            }}
+          >
+            {target.tapped ? 'Tapped' : 'Untapped'}
+          </span>
+        )}
+        {controllerLabel ? <span>{controllerLabel}</span> : null}
+        {showOwner ? <span style={{ opacity: 0.85 }}>(owned {ownerLabel})</span> : null}
+      </div>
+    </div>
+  );
 }
 
 export interface TargetSelectionModalProps {
@@ -552,13 +608,20 @@ export function TargetSelectionModal({
                           </div>
                         ) : (
                           <>
-                            <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden', pointerEvents: 'none' }}>
+                            <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden', pointerEvents: 'none', position: 'relative' }}>
                               {target.imageUrl ? (
                                 <img
                                   src={target.imageUrl}
                                   alt={target.name}
                                   draggable={false}
-                                  style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover',
+                                    pointerEvents: 'none',
+                                    filter: target.tapped ? 'grayscale(0.2) brightness(0.82)' : undefined,
+                                    opacity: target.tapped ? 0.92 : 1,
+                                  }}
                                 />
                               ) : (
                                 <div
@@ -578,19 +641,25 @@ export function TargetSelectionModal({
                                   {target.name}
                                 </div>
                               )}
+                              {typeof target.tapped === 'boolean' && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    left: 4,
+                                    bottom: 4,
+                                    padding: '1px 5px',
+                                    borderRadius: 4,
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    background: target.tapped ? 'rgba(245, 158, 11, 0.92)' : 'rgba(22, 163, 74, 0.9)',
+                                    color: target.tapped ? '#111' : '#fff',
+                                  }}
+                                >
+                                  {target.tapped ? 'TAPPED' : 'READY'}
+                                </div>
+                              )}
                             </div>
-                            <div
-                              style={{
-                                padding: '4px 6px',
-                                fontSize: 10,
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                pointerEvents: 'none',
-                              }}
-                            >
-                              {target.displayName || target.name}
-                            </div>
+                            <PermanentTargetCaption target={target} />
                           </>
                         )}
                         {isSelected && (
@@ -716,13 +785,20 @@ export function TargetSelectionModal({
                       ) : (
                         // Card/Permanent target display
                         <>
-                          <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden', pointerEvents: 'none' }}>
+                          <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden', pointerEvents: 'none', position: 'relative' }}>
                             {target.imageUrl ? (
                               <img
                                 src={target.imageUrl}
                                 alt={target.name}
                                 draggable={false}
-                                style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'cover',
+                                  pointerEvents: 'none',
+                                  filter: target.tapped ? 'grayscale(0.2) brightness(0.82)' : undefined,
+                                  opacity: target.tapped ? 0.92 : 1,
+                                }}
                               />
                             ) : (
                               <div
@@ -742,19 +818,25 @@ export function TargetSelectionModal({
                                 {target.name}
                               </div>
                             )}
+                            {typeof target.tapped === 'boolean' && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  left: 4,
+                                  bottom: 4,
+                                  padding: '1px 5px',
+                                  borderRadius: 4,
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                  background: target.tapped ? 'rgba(245, 158, 11, 0.92)' : 'rgba(22, 163, 74, 0.9)',
+                                  color: target.tapped ? '#111' : '#fff',
+                                }}
+                              >
+                                {target.tapped ? 'TAPPED' : 'READY'}
+                              </div>
+                            )}
                           </div>
-                          <div
-                            style={{
-                              padding: '4px 6px',
-                              fontSize: 10,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              pointerEvents: 'none',
-                            }}
-                          >
-                            {target.displayName || target.name}
-                          </div>
+                          <PermanentTargetCaption target={target} />
 
                           {selectedMode?.name && (
                             <div

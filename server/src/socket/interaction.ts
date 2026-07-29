@@ -10760,12 +10760,33 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
       }
 
-      const sacrificeTargets = eligiblePermanents.map((p: any) => ({
-        id: p.id,
-        label: p.card?.name || 'Unknown',
-        description: p.card?.type_line || 'Permanent',
-        imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-      }));
+      const playerNameById = new Map<string, string>(
+        (Array.isArray((game.state as any)?.players) ? (game.state as any).players : [])
+          .map((player: any) => [
+            String(player?.id || '').trim(),
+            String(player?.name || player?.id || '').trim(),
+          ] as [string, string])
+          .filter(([id]) => Boolean(id)),
+      );
+      const sacrificeTargets = eligiblePermanents.map((p: any) => {
+        const controllerId = String(p?.controller || '').trim();
+        const ownerId = String(p?.owner || p?.ownerId || controllerId).trim();
+        return {
+          id: p.id,
+          label: p.card?.name || 'Unknown',
+          description: p.card?.type_line || 'Permanent',
+          imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+          type: 'permanent',
+          typeLine: p.card?.type_line || '',
+          controller: controllerId || undefined,
+          controllerName: controllerId
+            ? (playerNameById.get(controllerId) || controllerId)
+            : undefined,
+          owner: ownerId || undefined,
+          ownerName: ownerId ? (playerNameById.get(ownerId) || ownerId) : undefined,
+          tapped: p?.tapped === true,
+        };
+      });
 
       // Unified Resolution Queue prompt
       const existing = ResolutionQueueManager

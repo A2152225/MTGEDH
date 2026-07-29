@@ -342,6 +342,12 @@ export function tryApplyOracleIRToActivatedAbility(
         sourceObjectType: 'ability',
         ...(typeof params.teamworkWasPaid === 'boolean' ? { teamworkWasPaid: params.teamworkWasPaid } : {}),
         ...(typeof params.giftPromised === 'boolean' ? { giftPromised: params.giftPromised } : {}),
+        ...(Array.isArray((params.sourceItem as any)?.lastSacrificedPermanents)
+          && (params.sourceItem as any).lastSacrificedPermanents.length > 0
+          ? {
+              lastSacrificedPermanents: (params.sourceItem as any).lastSacrificedPermanents.map((entry: any) => ({ ...entry })),
+            }
+          : {}),
         ...oracleIrTargetBindingToBaseContext(targetBinding),
         selectorContext: {
           ...oracleIrTargetBindingToBaseContext(targetBinding).selectorContext,
@@ -351,7 +357,7 @@ export function tryApplyOracleIRToActivatedAbility(
         },
         ...(chosenCreatureType ? { chosenCreatureType } : {}),
         ...(chosenColorName ? { chosenColor: chosenColorName } : {}),
-      },
+      } as any,
       {
         ...oracleIrTargetBindingToEventHint(targetBinding),
         sourceObjectType: 'ability',

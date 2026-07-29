@@ -87,3 +87,43 @@ export function resolveNoUntilTargetsChangePreference(
   clearPref();
   return undefined;
 }
+
+/** Peek whether a no-until pref still matches — does not clear stale prefs. */
+export function matchesNoUntilTargetsChangePreference(
+  state: any,
+  autoPref: unknown,
+  effectText: string,
+): boolean {
+  const fingerprint = parseNoUntilTargetsChangeFingerprint(autoPref);
+  if (fingerprint === undefined) return false;
+  if (!supportsNoUntilTargetsChangePreference(effectText)) return false;
+  return fingerprintArtifactEnchantmentTargets(state?.battlefield) === fingerprint;
+}
+
+export function formatMayAutoPreferenceLabel(value: unknown): string {
+  if (value === 'yes') return 'Always Yes';
+  if (value === 'no') return 'Always No';
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return `Yes ×${value} remaining`;
+  }
+  if (parseNoUntilTargetsChangeFingerprint(value) !== undefined) {
+    return 'No until targets change';
+  }
+  return String(value ?? 'Unknown');
+}
+
+/** Split `source:effect` keys for display. */
+export function splitMayAutoPreferenceEffectKey(effectKey: string): {
+  sourceName: string;
+  effectText: string;
+} {
+  const raw = String(effectKey || '').trim();
+  const idx = raw.indexOf(':');
+  if (idx < 0) {
+    return { sourceName: raw || 'Ability', effectText: '' };
+  }
+  return {
+    sourceName: raw.slice(0, idx).trim() || 'Ability',
+    effectText: raw.slice(idx + 1).trim(),
+  };
+}
