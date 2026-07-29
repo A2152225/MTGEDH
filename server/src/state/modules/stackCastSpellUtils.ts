@@ -72,7 +72,14 @@ export function castSpell(
     }
     if (Array.isArray(state.battlefield)) {
       const alreadyOnBattlefield = state.battlefield.some(
-        (p: any) => p?.card?.id === cardId && p?.controller === playerId,
+        (p: any) =>
+          p?.controller === playerId
+          && (
+            String(p?.id || '') === String(cardId)
+            // Tokens, including copied permanent spells, are new objects and must
+            // never make their source card look like it is already on the battlefield.
+            || (p?.isToken !== true && p?.card?.isToken !== true && p?.card?.id === cardId)
+          ),
       );
       if (alreadyOnBattlefield) {
         // Same dual-zone repair for live play (not only replay restore).
@@ -402,6 +409,19 @@ export function castSpell(
 
   state.stack = state.stack || [];
   state.stack.push(stackItem as any);
+
+  // Same-id duplicates are invalid physical-card state. Remove every residual
+  // source-zone copy after the authoritative stack item has been created so a
+  // replay/import ghost cannot be cast a second time.
+  if (card?.id) {
+    const repaired = repairReplayCardSourceZones(ctx, String(playerId), String(card.id));
+    if (repaired.total > 0) {
+      debug(
+        1,
+        `castSpell: removed ${repaired.total} residual source-zone entr${repaired.total === 1 ? 'y' : 'ies'} after casting card ${card.id}`,
+      );
+    }
+  }
 
   if (castSourceZone === 'command' && card?.id) {
     castCommander(ctx, playerId, String(card.id));

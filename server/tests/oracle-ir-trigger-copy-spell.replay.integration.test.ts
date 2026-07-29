@@ -226,4 +226,71 @@ describe('Oracle IR trigger copy_spell replay integration', () => {
     expect(replayCopiedSpell?.copiedBySourceName).toBe('Reflections of Littjara');
     expect(replayCopiedSpell?.isCopy).toBe(true);
   });
+
+  it('resolves a copied permanent spell as a distinct token and leaves no hand ghost', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    seedSpellCopyTriggerGame(game);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', gameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['castSpellFromHand']({
+      gameId,
+      cardId: 'wizard_spell_1',
+      targets: [],
+    });
+
+    expect((game.state as any).zones.p1.hand).toHaveLength(0);
+    expect((game.state as any).stack).toHaveLength(2);
+
+    game.resolveTopOfStack();
+    game.resolveTopOfStack();
+
+    const apprentices = ((game.state as any).battlefield || []).filter(
+      (permanent: any) => permanent?.card?.name === 'Arcane Apprentice',
+    );
+    expect(apprentices).toHaveLength(2);
+
+    const tokenCopy = apprentices.find((permanent: any) => permanent?.isToken === true);
+    const physicalPermanent = apprentices.find((permanent: any) => permanent?.isToken !== true);
+    expect(tokenCopy).toBeDefined();
+    expect(physicalPermanent).toBeDefined();
+    expect(tokenCopy?.id).not.toBe(physicalPermanent?.id);
+    expect(tokenCopy?.card?.id).toBe(tokenCopy?.id);
+    expect(tokenCopy?.card?.copiedFromCardId).toBe('wizard_spell_1');
+    expect(physicalPermanent?.card?.id).toBe('wizard_spell_1');
+    expect((game.state as any).zones.p1.hand).toHaveLength(0);
+  });
+
+  it('scrubs duplicate same-id hand ghosts when the physical spell is cast', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    seedSpellCopyTriggerGame(game);
+    (game.state as any).zones.p1.hand.push({ ...buildWizardSpell() });
+    (game.state as any).zones.p1.handCount = 2;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', gameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['castSpellFromHand']({
+      gameId,
+      cardId: 'wizard_spell_1',
+      targets: [],
+    });
+
+    expect((game.state as any).zones.p1.hand).toHaveLength(0);
+    expect((game.state as any).zones.p1.handCount).toBe(0);
+    expect((game.state as any).stack).toHaveLength(2);
+  });
 });

@@ -39,7 +39,23 @@ function cardAlreadyOnStack(state: any, cardId: string): boolean {
   });
 }
 
-function cardStillInCastSourceZone(state: any, cast: any): boolean {
+type ReplayLibrarySource = Map<string, any[]> | Record<string, any[]> | undefined;
+
+function getAuthoritativeLibraryCards(libraries: ReplayLibrarySource, playerId: string): any[] {
+  if (!libraries || !playerId) return [];
+  if (typeof (libraries as Map<string, any[]>).get === 'function') {
+    const fromMap = (libraries as Map<string, any[]>).get(playerId);
+    return Array.isArray(fromMap) ? fromMap : [];
+  }
+  const fromRecord = (libraries as Record<string, any[]>)[playerId];
+  return Array.isArray(fromRecord) ? fromRecord : [];
+}
+
+function cardStillInCastSourceZone(
+  state: any,
+  cast: any,
+  libraries?: ReplayLibrarySource,
+): boolean {
   const cardId = String(cast?.cardId || '').trim();
   if (!cardId) return false;
 
@@ -55,10 +71,19 @@ function cardStillInCastSourceZone(state: any, cast: any): boolean {
   if (fromZone === 'exile') {
     const exile = Array.isArray(state?.exile) ? state.exile : [];
     if (exile.some((card: any) => String(card?.id || '').trim() === cardId)) return true;
+    if (zoneHasCard(playerZones?.exile)) return true;
   }
   if (fromZone === 'graveyard' && zoneHasCard(playerZones?.graveyard)) return true;
-  if (fromZone === 'library' && zoneHasCard(playerZones?.library)) return true;
-  if (fromZone === 'command' && zoneHasCard(playerZones?.command)) return true;
+  if (fromZone === 'library') {
+    // Authoritative source is game.libraries; zones.library is often empty/omitted.
+    if (zoneHasCard(getAuthoritativeLibraryCards(libraries, playerId))) return true;
+    if (zoneHasCard(playerZones?.library)) return true;
+  }
+  if (fromZone === 'command') {
+    const commandZone = state?.commandZone?.[playerId];
+    if (zoneHasCard(commandZone?.commanderCards)) return true;
+    if (zoneHasCard(playerZones?.command)) return true;
+  }
 
   // Unknown / legacy casts: treat any hand presence as still in progress.
   if (!cast?.fromZone && zoneHasCard(playerZones?.hand)) return true;
@@ -67,11 +92,15 @@ function cardStillInCastSourceZone(state: any, cast: any): boolean {
 }
 
 /** True when a pendingSpellCast still represents an in-progress cast (not yet put on the stack). */
-function pendingCastStillInProgress(state: any, cast: any): boolean {
+function pendingCastStillInProgress(
+  state: any,
+  cast: any,
+  libraries?: ReplayLibrarySource,
+): boolean {
   const cardId = String(cast?.cardId || '').trim();
   if (!cardId) return false;
   if (cardAlreadyOnStack(state, cardId)) return false;
-  return cardStillInCastSourceZone(state, cast);
+  return cardStillInCastSourceZone(state, cast, libraries);
 }
 
 function battlefieldActivationAlreadyOnStack(state: any, step: any): boolean {
@@ -140,18 +169,29 @@ function permanentAlreadyHasAsEntersChoice(permanent: any, stepType: string, sta
 /**
  * After rebuilding in-memory state from persisted events, drop resolution prompts that
  * were already resolved in the event log but would otherwise be re-queued on replay.
+ *
+ * Pass the authoritative `libraries` map when available so library-origin pending casts
+ * (Emperor Mihail II / Future Sight / etc.) are not pruned just because `zones.library`
+ * is empty.
  */
-export function pruneObsoleteResolutionQueueAfterReplay(gameId: string, state: any): void {
+export function pruneObsoleteResolutionQueueAfterReplay(
+  gameId: string,
+  state: any,
+  libraries?: ReplayLibrarySource,
+): void {
   if (!gameId || !state) return;
 
   const queue = ResolutionQueueManager.getQueue(gameId);
   const pendingSpellCasts = (state as any).pendingSpellCasts;
+  const librarySource = libraries
+    ?? (state as any)?.libraries
+    ?? undefined;
 
   // Keep pendingSpellCasts only for casts that are still awaiting payment/targets.
   // Completed casts (card already on the stack) must not keep their pre-cast prompts.
   if (pendingSpellCasts && typeof pendingSpellCasts === 'object') {
     for (const [effectId, cast] of Object.entries(pendingSpellCasts)) {
-      if (!pendingCastStillInProgress(state, cast)) {
+      if (!pendingCastStillInProgress(state, cast, librarySource)) {
         delete pendingSpellCasts[effectId];
       }
     }

@@ -115,6 +115,11 @@ export function repairBattlefieldDualZoneGhosts(ctxOrState: any): number {
   let total = 0;
   const seen = new Set<string>();
   for (const permanent of state.battlefield) {
+    // Tokens are new objects, even when they copy a physical card. Historical
+    // copied-permanent tokens could retain the source card id; using that id to
+    // repair zones would delete the real card from hand/library/graveyard.
+    if (permanent?.isToken === true || permanent?.card?.isToken === true) continue;
+
     const cardId = String(permanent?.card?.id || '').trim();
     const ownerId = String(permanent?.owner || permanent?.controller || '').trim();
     if (!cardId || !ownerId) continue;

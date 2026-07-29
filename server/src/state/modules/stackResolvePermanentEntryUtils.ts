@@ -433,6 +433,11 @@ export function resolvePermanentSpellBattlefieldEntry(
   };
 
   if (copiedPermanentSpellBecomesToken && newPermanent.card) {
+    // A copy of a permanent spell becomes a token with its own object identity.
+    // Retaining the physical source card id makes zone/idempotency checks mistake
+    // the token for the original card (and can leave or scrub a ghost in hand).
+    (newPermanent.card as any).copiedFromCardId = String((effectiveCard as any)?.id || '').trim() || undefined;
+    (newPermanent.card as any).id = newPermId;
     (newPermanent.card as any).isToken = true;
   }
 

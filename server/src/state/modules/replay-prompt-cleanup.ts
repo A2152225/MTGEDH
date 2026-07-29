@@ -449,7 +449,11 @@ export function finalizeGameStateAfterReplay(ctx: GameContext): void {
   // Drop cast/activation payment prompts that were re-queued by continuation events
   // after their outcomes were already applied (e.g. castSpell with paymentManaDelta).
   try {
-    pruneObsoleteResolutionQueueAfterReplay(gameId, ctx.state as any);
+    pruneObsoleteResolutionQueueAfterReplay(
+      gameId,
+      ctx.state as any,
+      (ctx as any).libraries ?? (ctx.state as any)?.libraries,
+    );
   } catch {
     // best-effort only
   }

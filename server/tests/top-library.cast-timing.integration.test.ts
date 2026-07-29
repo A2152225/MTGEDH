@@ -185,6 +185,75 @@ describe('top-library cast timing (integration)', () => {
     expect(paymentStep.cardName).toBe('Mind Stone');
   });
 
+  it('allows Emperor Mihail II to request-cast a Merfolk spell from the top', async () => {
+    const game = setupGame();
+    const topCard = (game as any).libraries.get(playerId)[0];
+    Object.assign(topCard, {
+      name: 'Drowner of Secrets',
+      mana_cost: '{2}{U}',
+      manaCost: '{2}{U}',
+      type_line: 'Creature — Merfolk Wizard',
+      oracle_text: 'Tap an untapped Merfolk you control: Target player mills a card.',
+      colors: ['U'],
+    });
+
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [{
+      id: 'mihail_perm',
+      controller: playerId,
+      owner: playerId,
+      tapped: false,
+      card: {
+        id: 'mihail_card',
+        name: 'Emperor Mihail II',
+        type_line: 'Legendary Creature — Merfolk Noble',
+        oracle_text:
+          'You may look at the top card of your library any time.\n'
+          + 'You may cast Merfolk spells from the top of your library.\n'
+          + 'Whenever you cast a Merfolk spell, you may pay {1}. If you do, create a 1/1 blue Merfolk creature token.',
+      },
+    }];
+    (game.state as any).manaPool[playerId] = {
+      white: 0,
+      blue: 1,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 2,
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({
+      gameId,
+      cardId: 'mind_stone_top',
+      fromZone: 'library',
+    });
+
+    const errors = emitted.filter(entry => entry.event === 'error').map(entry => entry.payload?.code);
+    expect(errors).not.toContain('NO_PERMISSION');
+    expect(errors).not.toContain('CARD_NOT_IN_LIBRARY');
+    expect(errors).not.toContain('SORCERY_TIMING');
+
+    const paymentStep = ResolutionQueueManager.getQueue(gameId).steps.find((step: any) =>
+      step.type === ResolutionStepType.MANA_PAYMENT_CHOICE && step.spellPaymentRequired === true
+    ) as any;
+    expect(paymentStep).toEqual(expect.objectContaining({
+      cardName: 'Drowner of Secrets',
+      manaCost: '{2}{U}',
+      fromZone: 'library',
+    }));
+  });
+
   it('lets durable top-library free-cast permissions bypass mana payment', async () => {
     const game = setupGame();
     (game.state as any).turnNumber = 1;

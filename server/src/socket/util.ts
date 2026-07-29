@@ -1555,7 +1555,7 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
     }
 
     try {
-      pruneObsoleteResolutionQueueAfterReplay(gameId, game.state);
+      pruneObsoleteResolutionQueueAfterReplay(gameId, game.state, (game as any).libraries);
     } catch (err) {
       debugWarn(1, 'ensureGame: prune replayed resolution prompts failed:', { bootId: BOOT_ID, gameId }, err);
     }

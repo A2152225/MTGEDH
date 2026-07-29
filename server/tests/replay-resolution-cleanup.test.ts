@@ -127,6 +127,107 @@ describe('pruneObsoleteResolutionQueueAfterReplay', () => {
     expect(state.pendingSpellCasts.cast_divination_1?.cardId).toBe('divination_1');
   });
 
+  it('keeps library-origin payment prompts when the card remains in the authoritative libraries map', () => {
+    const gameId = 'game_replay_cleanup_library_cast';
+    const topCard = {
+      id: 'drowner_top',
+      name: 'Drowner of Secrets',
+      type_line: 'Creature — Merfolk Wizard',
+      mana_cost: '{2}{U}',
+    };
+    const state: any = {
+      players: [{ id: 'p1' }],
+      turnPlayer: 'p1',
+      priority: 'p1',
+      step: 'MAIN1',
+      phase: 'precombatMain',
+      stack: [],
+      // zones.library is intentionally empty — live games keep cards in game.libraries.
+      zones: {
+        p1: {
+          hand: [],
+          library: [],
+          libraryCount: 1,
+        },
+      },
+      pendingSpellCasts: {
+        cast_drowner_library: {
+          cardId: 'drowner_top',
+          playerId: 'p1',
+          fromZone: 'library',
+        },
+      },
+    };
+    const libraries = new Map<string, any[]>([['p1', [topCard]]]);
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: 'p1' as any,
+      description: 'Pay costs to cast Drowner of Secrets.',
+      mandatory: true,
+      spellPaymentRequired: true,
+      cardId: 'drowner_top',
+      effectId: 'cast_drowner_library',
+      fromZone: 'library',
+      spellCastContext: { effectId: 'cast_drowner_library', cardId: 'drowner_top' },
+    } as any);
+
+    pruneObsoleteResolutionQueueAfterReplay(gameId, state, libraries);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const pending = queue.steps.filter((step) => step.status === ResolutionStepStatus.PENDING);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].type).toBe(ResolutionStepType.MANA_PAYMENT_CHOICE);
+    expect(state.pendingSpellCasts.cast_drowner_library?.cardId).toBe('drowner_top');
+  });
+
+  it('prunes library-origin payment prompts once the spell is already on the stack', () => {
+    const gameId = 'game_replay_cleanup_library_cast_completed';
+    const state: any = {
+      players: [{ id: 'p1' }],
+      turnPlayer: 'p1',
+      priority: 'p1',
+      step: 'MAIN1',
+      phase: 'precombatMain',
+      stack: [{
+        id: 'stack_drowner_1',
+        type: 'spell',
+        cardId: 'drowner_top',
+        card: { id: 'drowner_top', name: 'Drowner of Secrets' },
+        controller: 'p1',
+        fromZone: 'library',
+      }],
+      zones: { p1: { hand: [], library: [] } },
+      pendingSpellCasts: {
+        cast_drowner_library: {
+          cardId: 'drowner_top',
+          playerId: 'p1',
+          fromZone: 'library',
+        },
+      },
+    };
+    const libraries = new Map<string, any[]>([['p1', []]]);
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: 'p1' as any,
+      description: 'Pay costs to cast Drowner of Secrets.',
+      mandatory: true,
+      spellPaymentRequired: true,
+      cardId: 'drowner_top',
+      effectId: 'cast_drowner_library',
+      fromZone: 'library',
+      spellCastContext: { effectId: 'cast_drowner_library', cardId: 'drowner_top' },
+    } as any);
+
+    pruneObsoleteResolutionQueueAfterReplay(gameId, state, libraries);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const pending = queue.steps.filter((step) => step.status === ResolutionStepStatus.PENDING);
+    expect(pending).toHaveLength(0);
+    expect(state.pendingSpellCasts.cast_drowner_library).toBeUndefined();
+  });
+
   it('removes replayed battlefield activation payment prompts when the ability is already on the stack', () => {
     const gameId = 'game_replay_battlefield_activation_cleanup';
     const state: any = {
