@@ -117,7 +117,7 @@ export function CentralStack({
     
     // If still no name, use a fallback
     if (!displayName) {
-      displayName = 'Unknown Permanent';
+      displayName = 'Unknown target';
     }
     
     // Add controller info if available
@@ -427,10 +427,13 @@ export function CentralStack({
                     gap:4,
                     flexWrap:'wrap'
                   }}>
+                    <span style={{ color:'#9ca3af', fontWeight: 600 }}>Targeting</span>
                     <span style={{ color:'#9ca3af' }}>→</span>
                     <span style={{ fontWeight:'500' }}>
                       {it.targetDetails.map((t, i) => {
-                        const targetCard = t.type === 'permanent' ? findTargetCard(t.id) : undefined;
+                        const targetCard = (t.type === 'permanent' || t.type === 'spell' || t.type === 'ability')
+                          ? findTargetCard(t.id)
+                          : undefined;
                         // Access extended target info properties
                         const extendedTarget = t as { id: string; type: string; name?: string; controllerId?: string; controllerName?: string };
                         
@@ -445,6 +448,43 @@ export function CentralStack({
                               }}>
                                 {t.name || t.id}
                               </span>
+                            </span>
+                          );
+                        } else if (t.type === 'spell' || t.type === 'ability') {
+                          const displayText = formatTargetDisplay(
+                            extendedTarget.name,
+                            extendedTarget.controllerId,
+                            extendedTarget.controllerName,
+                            t.id
+                          );
+                          const kindLabel = t.type === 'ability' ? 'ability' : 'spell';
+                          return (
+                            <span
+                              key={t.id}
+                              onMouseEnter={(e) => {
+                                e.stopPropagation();
+                                if (targetCard) {
+                                  showCardPreview(e.currentTarget as HTMLElement, targetCard, { prefer:'right', anchorPadding:8 });
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                e.stopPropagation();
+                                if (targetCard) {
+                                  hideCardPreview(e.currentTarget as HTMLElement);
+                                }
+                              }}
+                              style={{ cursor: targetCard ? 'pointer' : 'default' }}
+                            >
+                              {i > 0 && ', '}
+                              <span style={{
+                                color: '#fbbf24',
+                                fontWeight:'600',
+                                textDecoration: targetCard ? 'underline dotted' : 'none',
+                                textUnderlineOffset: '2px'
+                              }}>
+                                {displayText}
+                              </span>
+                              <span style={{ color: '#9ca3af', marginLeft: 4 }}>({kindLabel} on stack)</span>
                             </span>
                           );
                         } else {
@@ -496,6 +536,7 @@ export function CentralStack({
                     alignItems:'center',
                     gap:4
                   }}>
+                    <span style={{ color:'#9ca3af', fontWeight: 600 }}>Targeting</span>
                     <span style={{ color:'#9ca3af' }}>→</span>
                     <span style={{ fontWeight:'500' }}>
                       {/* Fall back to targets array when targetDetails not available */}

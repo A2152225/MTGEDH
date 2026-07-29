@@ -221,6 +221,52 @@ const STACK_PUSH_REPLAY_EVENT_TYPES = new Set([
   'pushStack',
 ]);
 
+/** Copy as-enters choices from card / Morophon mirror onto the permanent after replay. */
+function hydrateAsEntersChoicesOnBattlefield(state: any): void {
+  if (!state || typeof state !== 'object') return;
+  const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+  const morophonChosenType = (state.morophonChosenType || {}) as Record<string, string>;
+
+  for (const permanent of battlefield) {
+    if (!permanent || typeof permanent !== 'object') continue;
+    const card = permanent.card && typeof permanent.card === 'object' ? permanent.card : null;
+    const permanentId = String(permanent.id || '').trim();
+
+    const creatureType = String(
+      permanent.chosenCreatureType
+      || card?.chosenCreatureType
+      || (permanentId ? morophonChosenType[permanentId] : '')
+      || '',
+    ).trim();
+    if (creatureType) {
+      permanent.chosenCreatureType = creatureType;
+      if (card) card.chosenCreatureType = creatureType;
+      if (permanentId && String(card?.name || '').toLowerCase().includes('morophon')) {
+        morophonChosenType[permanentId] = creatureType;
+        state.morophonChosenType = morophonChosenType;
+      }
+    }
+
+    const color = String(permanent.chosenColor || card?.chosenColor || '').trim();
+    if (color) {
+      permanent.chosenColor = color;
+      if (card) card.chosenColor = color;
+    }
+
+    const cardName = String(permanent.chosenCardName || card?.chosenCardName || '').trim();
+    if (cardName) {
+      permanent.chosenCardName = cardName;
+      if (card) card.chosenCardName = cardName;
+    }
+
+    const chosenPlayer = String(permanent.chosenPlayer || card?.chosenPlayer || '').trim();
+    if (chosenPlayer) {
+      permanent.chosenPlayer = chosenPlayer;
+      if (card) card.chosenPlayer = chosenPlayer;
+    }
+  }
+}
+
 /** Replay-ending events that legitimately leave pending triggered abilities on the stack. */
 const STACK_PRESERVING_REPLAY_END_EVENT_TYPES = new Set([
   'queueTriggerOrderStep',
@@ -352,6 +398,12 @@ export function clearReplayTransientPromptState(state: any): void {
 export function finalizeGameStateAfterReplay(ctx: GameContext): void {
   const gameId = String(ctx?.gameId || '').trim();
   if (!gameId) return;
+
+  try {
+    hydrateAsEntersChoicesOnBattlefield(ctx.state as any);
+  } catch {
+    // best-effort only
+  }
 
   try {
     ResolutionQueueManager.endReplay(gameId);

@@ -213,7 +213,7 @@ export function castSpell(
     // Best-effort metadata only.
   }
 
-  const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string; controllerId?: string; controllerName?: string }> = [];
+  const targetDetails: Array<{ id: string; type: 'permanent' | 'player' | 'spell' | 'ability'; name?: string; controllerId?: string; controllerName?: string }> = [];
   if (targets && targets.length > 0) {
     for (const target of targets) {
       const targetId = typeof target === 'string' ? target : target.id;
@@ -226,22 +226,39 @@ export function castSpell(
           type: 'player',
           name: player?.name || targetId,
         });
-      } else {
-        const perm = (state.battlefield || []).find((p: any) => p.id === targetId);
-        let permName = perm?.card?.name;
-        if (!permName && (perm?.card as any)?.card_faces?.[0]?.name) {
-          permName = (perm.card as any).card_faces[0].name;
-        }
-        const controllerId = perm?.controller;
+        continue;
+      }
+
+      if (targetKind === 'stack' || (!targetKind && Array.isArray(state.stack) && state.stack.some((s: any) => String(s?.id || '') === String(targetId)))) {
+        const stackItem = (state.stack || []).find((s: any) => String(s?.id || '') === String(targetId));
+        const isAbility = stackItem
+          && (stackItem.type === 'ability' || stackItem.type === 'triggered_ability' || stackItem.type === 'activated_ability');
+        const controllerId = stackItem?.controller;
         const controllerPlayer = controllerId ? (state.players || []).find((p: any) => p.id === controllerId) : undefined;
         targetDetails.push({
           id: targetId,
-          type: 'permanent',
-          name: permName,
-          controllerId: controllerId,
+          type: isAbility ? 'ability' : 'spell',
+          name: stackItem?.card?.name || stackItem?.sourceName || stackItem?.description,
+          controllerId,
           controllerName: controllerPlayer?.name,
         });
+        continue;
       }
+
+      const perm = (state.battlefield || []).find((p: any) => p.id === targetId);
+      let permName = perm?.card?.name;
+      if (!permName && (perm?.card as any)?.card_faces?.[0]?.name) {
+        permName = (perm.card as any).card_faces[0].name;
+      }
+      const controllerId = perm?.controller;
+      const controllerPlayer = controllerId ? (state.players || []).find((p: any) => p.id === controllerId) : undefined;
+      targetDetails.push({
+        id: targetId,
+        type: 'permanent',
+        name: permName,
+        controllerId: controllerId,
+        controllerName: controllerPlayer?.name,
+      });
     }
   }
 

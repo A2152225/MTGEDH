@@ -85,6 +85,58 @@ function battlefieldActivationAlreadyOnStack(state: any, step: any): boolean {
   );
 }
 
+function findBattlefieldPermanentForChoiceStep(state: any, step: any): any | undefined {
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  if (battlefield.length === 0) return undefined;
+
+  const permanentId = String(step?.permanentId || step?.sourceId || '').trim();
+  const aliases = (state?.replayPermanentAliases && typeof state.replayPermanentAliases === 'object')
+    ? state.replayPermanentAliases as Record<string, string>
+    : {};
+  const aliasedId = permanentId && typeof aliases[permanentId] === 'string'
+    ? String(aliases[permanentId] || '').trim()
+    : '';
+
+  if (permanentId) {
+    const direct = battlefield.find((entry: any) => {
+      const entryId = String(entry?.id || '').trim();
+      return entryId !== '' && (entryId === permanentId || entryId === aliasedId);
+    });
+    if (direct) return direct;
+  }
+
+  const playerId = String(step?.playerId || '').trim();
+  const cardName = String(step?.cardName || step?.sourceName || '').trim().toLowerCase();
+  if (!playerId || !cardName) return undefined;
+
+  const matches = battlefield.filter((entry: any) =>
+    String(entry?.controller || '').trim() === playerId &&
+    String(entry?.card?.name || '').trim().toLowerCase() === cardName
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function permanentAlreadyHasAsEntersChoice(permanent: any, stepType: string, state: any): boolean {
+  if (!permanent) return false;
+  if (stepType === ResolutionStepType.CREATURE_TYPE_CHOICE) {
+    const morophonChosenType = (state?.morophonChosenType || {}) as Record<string, string>;
+    return Boolean(
+      String(permanent.chosenCreatureType || permanent.card?.chosenCreatureType || '').trim()
+      || String(morophonChosenType[String(permanent.id || '')] || '').trim()
+    );
+  }
+  if (stepType === ResolutionStepType.COLOR_CHOICE) {
+    return Boolean(String(permanent.chosenColor || permanent.card?.chosenColor || '').trim());
+  }
+  if (stepType === ResolutionStepType.CARD_NAME_CHOICE) {
+    return Boolean(String(permanent.chosenCardName || permanent.card?.chosenCardName || '').trim());
+  }
+  if (stepType === ResolutionStepType.PLAYER_CHOICE) {
+    return Boolean(String(permanent.chosenPlayer || permanent.card?.chosenPlayer || '').trim());
+  }
+  return false;
+}
+
 /**
  * After rebuilding in-memory state from persisted events, drop resolution prompts that
  * were already resolved in the event log but would otherwise be re-queued on replay.
@@ -119,6 +171,27 @@ export function pruneObsoleteResolutionQueueAfterReplay(gameId: string, state: a
     if (stepType === ResolutionStepType.MANA_COLOR_SELECTION) {
       ResolutionQueueManager.cancelStep(gameId, String(step.id || ''));
       continue;
+    }
+
+    // As-enters choose-X prompts restored from resolveTopOfStackPrompt must not
+    // survive when the choice event already hydrated the permanent.
+    if (
+      stepType === ResolutionStepType.CREATURE_TYPE_CHOICE
+      || stepType === ResolutionStepType.COLOR_CHOICE
+      || stepType === ResolutionStepType.CARD_NAME_CHOICE
+      || stepType === ResolutionStepType.PLAYER_CHOICE
+    ) {
+      // Spell/behold cast-time type prompts keep castSpellFromHandArgs / spellId.
+      const isPermanentAsEntersPrompt = Boolean(
+        step?.permanentId || step?.sourceId
+      ) && !step?.spellId && !step?.beholdCastCardId && !step?.spellBeholdCastCardId && !step?.castSpellFromHandArgs;
+      if (isPermanentAsEntersPrompt) {
+        const permanent = findBattlefieldPermanentForChoiceStep(state, step);
+        if (permanentAlreadyHasAsEntersChoice(permanent, stepType, state)) {
+          ResolutionQueueManager.cancelStep(gameId, String(step.id || ''));
+          continue;
+        }
+      }
     }
 
     const isBattlefieldTargetStep =

@@ -34,7 +34,7 @@ import { orderTriggersByAPNAP } from "../state/modules/triggers/ordering.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { processPhaseSkipTriggerStops, completePendingPhaseSkipCore, resumePendingPhaseSkip, canResumePendingPhaseSkip, handleSkipToCleanupPhase } from "../state/modules/phaseSkipUtils.js";
-import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
+import { canPermanentBeTargetedByPlayer, categorizeSpellWithoutPrimaryRetirement, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
 import {
   buildBeholdSelectionOptions,
@@ -1675,6 +1675,44 @@ function normalizeRequirementTargetType(rawTargetType: string | undefined): stri
     .replace(/^planeswalkers?$/g, 'planeswalker');
 }
 
+function isRequirementStackSpellTargetType(targetTypeLower: string): boolean {
+  const normalized = String(targetTypeLower || '').trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized === 'spell') return true;
+  return (
+    normalized.endsWith(' spell')
+    || normalized.includes(' spell')
+    || /\b(?:instant|sorcery)\b/.test(normalized) && !normalized.includes('permanent')
+  );
+}
+
+function stackItemMatchesSpellTargetType(stackItem: any, targetTypeLower: string): boolean {
+  if (!stackItem) return false;
+  if (
+    stackItem.type === 'ability'
+    || stackItem.type === 'triggered_ability'
+    || stackItem.type === 'activated_ability'
+    || stackItem.type === 'mana_ability'
+  ) {
+    return false;
+  }
+  if (stackItem.canBeCountered === false || stackItem.cantBeCountered === true) {
+    return false;
+  }
+
+  const typeLine = String(stackItem?.card?.type_line || '').toLowerCase();
+  const normalized = String(targetTypeLower || '').trim().toLowerCase();
+  if (normalized === 'spell') return true;
+  if (normalized.includes('noncreature')) return !typeLine.includes('creature');
+  if (normalized.includes('creature spell') || normalized === 'creature spell') return typeLine.includes('creature');
+  if (normalized.includes('instant or sorcery')) {
+    return typeLine.includes('instant') || typeLine.includes('sorcery');
+  }
+  if (normalized.includes('instant')) return typeLine.includes('instant');
+  if (normalized.includes('sorcery')) return typeLine.includes('sorcery');
+  return true;
+}
+
 function matchesSpellGraveyardCardTargetType(card: any, targetType: string): boolean {
   return matchesSharedGraveyardCardTargetType(card, targetType);
 }
@@ -1736,15 +1774,37 @@ function shouldPreferParsedTargetReqs(
     && targetReqs.targetTypes.some((targetType) => String(targetType || '').toLowerCase().startsWith('graveyard_'));
 }
 
-function buildSpellTargetListFromRequirements(game: any, playerId: string, targetReqs: any): Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> {
+/** Exported for counterspell / stack-target unit tests. */
+export function buildSpellTargetListFromRequirements(game: any, playerId: string, targetReqs: any): Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> {
   const validTargetList: Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> = [];
   const targetControllerConstraint = String(targetReqs?.targetControllerConstraint || 'any').toLowerCase();
 
   for (const rawTargetType of Array.isArray(targetReqs?.targetTypes) ? targetReqs.targetTypes : []) {
     const targetTypeLower = normalizeRequirementTargetType(rawTargetType);
+
+    // Stack spells must be checked before battlefield "noncreature"/"nonland" substring matches.
+    if (isRequirementStackSpellTargetType(targetTypeLower) || targetTypeLower === 'spell') {
+      const stackItems = (game.state.stack || []).filter((entry: any) =>
+        stackItemMatchesSpellTargetType(entry, targetTypeLower)
+      );
+      for (const item of stackItems) {
+        validTargetList.push({
+          id: item.id,
+          kind: 'stack',
+          name: item.card?.name || item.sourceName || 'Unknown Spell',
+          imageUrl: item.card?.image_uris?.small || item.card?.image_uris?.normal,
+          controller: item.controller,
+          isOpponent: item.controller !== playerId,
+          typeLine: item.card?.type_line || 'Spell on the stack',
+        });
+      }
+      continue;
+    }
+
     if (targetTypeLower === 'creature' || targetTypeLower === 'permanent' || targetTypeLower === 'artifact' ||
         targetTypeLower === 'enchantment' || targetTypeLower === 'land' || targetTypeLower === 'planeswalker' ||
-        targetTypeLower.includes('nonland') || targetTypeLower.includes('noncreature')) {
+        targetTypeLower === 'nonland permanent' || targetTypeLower === 'noncreature permanent' ||
+        ((targetTypeLower.includes('nonland') || targetTypeLower.includes('noncreature')) && !targetTypeLower.includes('spell'))) {
       const permanents = (game.state.battlefield || []).filter((permanent: any) => {
         const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
         if (targetControllerConstraint === 'you' && String(permanent?.controller || '') !== playerId) return false;
@@ -1808,22 +1868,6 @@ function buildSpellTargetListFromRequirements(game: any, playerId: string, targe
             typeLine: permanent.card?.type_line,
           });
         }
-      }
-      continue;
-    }
-
-    if (targetTypeLower === 'spell') {
-      const stackItems = (game.state.stack || []).filter((entry: any) => entry?.type !== 'ability' && entry?.type !== 'triggered_ability' && entry?.type !== 'activated_ability');
-      for (const item of stackItems) {
-        validTargetList.push({
-          id: item.id,
-          kind: 'stack',
-          name: item.card?.name || item.sourceName || 'Unknown Spell',
-          imageUrl: item.card?.image_uris?.small || item.card?.image_uris?.normal,
-          controller: item.controller,
-          isOpponent: item.controller !== playerId,
-          typeLine: item.card?.type_line,
-        });
       }
       continue;
     }
@@ -1914,7 +1958,7 @@ function buildSpellTargetSelectionClauses(
   }> = [];
 
   for (const clauseText of clauses) {
-    const spellSpec = categorizeSpell(cardName, clauseText);
+    const spellSpec = categorizeSpellWithoutPrimaryRetirement(cardName, clauseText);
     const targetReqs = parseTargetRequirements(clauseText, {
       xValue,
       gameState: game.state,
@@ -2302,12 +2346,27 @@ function checkCreatureTypeSelectionForNewPermanents(
 ): void {
   const battlefield = game.state?.battlefield || [];
   const queue = ResolutionQueueManager.getQueue(gameId);
+  const morophonChosenType = ((game.state as any)?.morophonChosenType || {}) as Record<string, string>;
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
-    
-    // Skip if already has a chosen creature type
-    if (permanent.chosenCreatureType) continue;
+
+    // Resume/replay may leave the choice on the card or Morophon mirror map only.
+    const existingType = String(
+      permanent.chosenCreatureType
+      || permanent.card?.chosenCreatureType
+      || morophonChosenType[String(permanent.id || '')]
+      || '',
+    ).trim();
+    if (existingType) {
+      if (!permanent.chosenCreatureType) {
+        permanent.chosenCreatureType = existingType;
+      }
+      if (permanent.card && typeof permanent.card === 'object' && !permanent.card.chosenCreatureType) {
+        permanent.card.chosenCreatureType = existingType;
+      }
+      continue;
+    }
     
     // Check if this card requires creature type selection
     const { required, reason } = requiresCreatureTypeSelection(permanent.card);
@@ -2373,9 +2432,17 @@ function checkColorChoiceForNewPermanents(
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
-    
-    // Skip if already has a chosen color
-    if (permanent.chosenColor) continue;
+
+    const existingColor = String(permanent.chosenColor || permanent.card?.chosenColor || '').trim();
+    if (existingColor) {
+      if (!permanent.chosenColor) {
+        permanent.chosenColor = existingColor;
+      }
+      if (permanent.card && typeof permanent.card === 'object' && !permanent.card.chosenColor) {
+        permanent.card.chosenColor = existingColor;
+      }
+      continue;
+    }
     
     // Check if this card requires color choice
     const { required, reason } = requiresColorChoice(permanent.card);
@@ -2428,9 +2495,17 @@ function checkPlayerSelectionForNewPermanents(
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
-    
-    // Skip if already has chosen player
-    if (permanent.chosenPlayer) continue;
+
+    const existingPlayer = String(permanent.chosenPlayer || permanent.card?.chosenPlayer || '').trim();
+    if (existingPlayer) {
+      if (!permanent.chosenPlayer) {
+        permanent.chosenPlayer = existingPlayer;
+      }
+      if (permanent.card && typeof permanent.card === 'object' && !permanent.card.chosenPlayer) {
+        permanent.card.chosenPlayer = existingPlayer;
+      }
+      continue;
+    }
     
     // Detect if this card requires player selection
     const detection = detectETBPlayerSelection(permanent.card);
@@ -6271,7 +6346,7 @@ export async function requestCastSpellForSocket(
 
     // Check if this spell requires targets
     const isAura = spellTypeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
-    const spellSpec = (isInstantOrSorcery && !isAura) ? categorizeSpell(cardName, oracleText) : null;
+    const spellSpec = (isInstantOrSorcery && !isAura) ? categorizeSpellWithoutPrimaryRetirement(cardName, oracleText) : null;
     const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText, {
       xValue: chosenXValue,
       gameState: game.state,
@@ -6916,7 +6991,7 @@ export async function requestCastSpellForSocket(
                 label: t.name,
                 description: t.kind,
                 imageUrl: t.imageUrl,
-                type: t.kind === 'player' ? 'player' : (t.kind === 'stack' ? 'card' : 'permanent'),
+                type: t.kind === 'player' ? 'player' : (t.kind === 'stack' ? 'stack' : 'permanent'),
                 controller: t.controller,
                 typeLine: t.typeLine,
                 life: t.life,
@@ -6978,7 +7053,7 @@ export async function requestCastSpellForSocket(
                 label: t.name,
                 description: t.kind,
                 imageUrl: t.imageUrl,
-                type: isPlayerTarget ? 'player' : (isStackTarget ? 'card' : 'permanent'),
+                type: isPlayerTarget ? 'player' : (isStackTarget ? 'stack' : 'permanent'),
                 controller: t.controller,
                 typeLine: t.typeLine,
                 life: t.life,
@@ -7024,7 +7099,7 @@ export async function requestCastSpellForSocket(
                 label: t.name,
                 description: t.kind,
                 imageUrl: t.imageUrl,
-                type: isPlayerTarget ? 'player' : (isStackTarget ? 'card' : 'permanent'),
+                type: isPlayerTarget ? 'player' : (isStackTarget ? 'stack' : 'permanent'),
                 controller: t.controller,
                 typeLine: t.typeLine,
                 life: t.life,
@@ -10001,7 +10076,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Use comprehensive targeting detection for instants/sorceries
       // This catches ALL spells with "target" in their text, not just specific patterns
-      const spellSpec = (requiresTargetingCheck && !isAura) ? categorizeSpell(cardInHand.name || '', oracleText) : null;
+      const spellSpec = (requiresTargetingCheck && !isAura) ? categorizeSpellWithoutPrimaryRetirement(cardInHand.name || '', oracleText) : null;
       
       // If categorizeSpell didn't find a pattern but the spell has "target" in text,
       // use the comprehensive detection
@@ -12013,7 +12088,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               copyRetargetValidTargets: validTargetList.map((target: any) => ({
                 id: String(target?.id || ''),
                 name: String(target?.name || target?.label || 'Target'),
-                type: target?.kind === 'player' ? 'player' : (target?.kind === 'stack' ? 'card' : 'permanent'),
+                type: target?.kind === 'player' ? 'player' : (target?.kind === 'stack' ? 'stack' : 'permanent'),
                 controller: target?.controller,
                 imageUrl: target?.imageUrl,
                 typeLine: target?.typeLine,
@@ -12583,7 +12658,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
             
             // Build target details for display
-            const targetDetails: Array<{ id: string; type: 'permanent' | 'player'; name?: string; controllerId?: string; controllerName?: string }> = [];
+            const targetDetails: Array<{ id: string; type: 'permanent' | 'player' | 'spell' | 'ability'; name?: string; controllerId?: string; controllerName?: string }> = [];
             if (targets && targets.length > 0) {
               for (const target of targets) {
                 const targetId = typeof target === 'string' ? target : target.id;
@@ -12596,6 +12671,22 @@ export function registerGameActions(io: Server, socket: Socket) {
                     id: targetId,
                     type: 'player',
                     name: player?.name || targetId,
+                  });
+                } else if (
+                  targetKind === 'stack'
+                  || (!targetKind && Array.isArray(game.state.stack) && game.state.stack.some((s: any) => String(s?.id || '') === String(targetId)))
+                ) {
+                  const stackItem = (game.state.stack || []).find((s: any) => String(s?.id || '') === String(targetId));
+                  const isAbility = stackItem
+                    && (stackItem.type === 'ability' || stackItem.type === 'triggered_ability' || stackItem.type === 'activated_ability');
+                  const controllerId = stackItem?.controller;
+                  const controllerPlayer = controllerId ? (game.state.players || []).find((p: any) => p.id === controllerId) : undefined;
+                  targetDetails.push({
+                    id: targetId,
+                    type: isAbility ? 'ability' : 'spell',
+                    name: stackItem?.card?.name || stackItem?.sourceName || stackItem?.description,
+                    controllerId,
+                    controllerName: controllerPlayer?.name,
                   });
                 } else {
                   // Find permanent name and controller

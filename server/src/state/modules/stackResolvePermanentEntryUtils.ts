@@ -376,7 +376,9 @@ export function resolvePermanentSpellBattlefieldEntry(
   const shouldEnterTapped = checkPermanentEntersTapped(state.battlefield || [], controller, effectiveCard);
   
   state.battlefield = state.battlefield || [];
-  const newPermId = String(options.preferredPermanentId || '').trim() || uid("perm");
+  // Prefer the stack item id so live ETB choices and event-log replay share one stable permanent id.
+  const newPermId =
+    String(options.preferredPermanentId || (item as any)?.id || '').trim() || uid("perm");
   
   // Apply counter modifiers (Doubling Season, Vorinclex, etc.) to ETB counters
   // Need to create a temporary permanent to apply modifiers
@@ -493,6 +495,55 @@ export function resolvePermanentSpellBattlefieldEntry(
   // Only set these on permanents created from resolving a stack item.
   (newPermanent as any).enteredFromCast = true;
   (newPermanent.card as any).enteredFromCast = true;
+  // Propagate as-enters choices already chosen on the stack/card (replay restore + spell-time choices).
+  const chosenCreatureType = String(
+    (item as any)?.chosenCreatureType
+    || (effectiveCard as any)?.chosenCreatureType
+    || (item as any)?.card?.chosenCreatureType
+    || '',
+  ).trim();
+  if (chosenCreatureType) {
+    (newPermanent as any).chosenCreatureType = chosenCreatureType;
+    if (newPermanent.card && typeof newPermanent.card === 'object') {
+      (newPermanent.card as any).chosenCreatureType = chosenCreatureType;
+    }
+  }
+  const chosenColor = String(
+    (item as any)?.chosenColor
+    || (effectiveCard as any)?.chosenColor
+    || (item as any)?.card?.chosenColor
+    || '',
+  ).trim();
+  if (chosenColor) {
+    (newPermanent as any).chosenColor = chosenColor;
+    if (newPermanent.card && typeof newPermanent.card === 'object') {
+      (newPermanent.card as any).chosenColor = chosenColor;
+    }
+  }
+  const chosenCardName = String(
+    (item as any)?.chosenCardName
+    || (effectiveCard as any)?.chosenCardName
+    || (item as any)?.card?.chosenCardName
+    || '',
+  ).trim();
+  if (chosenCardName) {
+    (newPermanent as any).chosenCardName = chosenCardName;
+    if (newPermanent.card && typeof newPermanent.card === 'object') {
+      (newPermanent.card as any).chosenCardName = chosenCardName;
+    }
+  }
+  const chosenPlayer = String(
+    (item as any)?.chosenPlayer
+    || (effectiveCard as any)?.chosenPlayer
+    || (item as any)?.card?.chosenPlayer
+    || '',
+  ).trim();
+  if (chosenPlayer) {
+    (newPermanent as any).chosenPlayer = chosenPlayer;
+    if (newPermanent.card && typeof newPermanent.card === 'object') {
+      (newPermanent.card as any).chosenPlayer = chosenPlayer;
+    }
+  }
   if (typeof (item as any).castFromHand === 'boolean') {
     (newPermanent as any).castFromHand = (item as any).castFromHand;
     (newPermanent.card as any).castFromHand = (item as any).castFromHand;

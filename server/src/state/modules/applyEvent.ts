@@ -12167,11 +12167,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               if (!step) return false;
               const stepId = String((step as any)?.id || '').trim();
               if (resolvedStepId && stepId === resolvedStepId) return true;
-              return (
-                String((step as any)?.type || '').trim() === resolvedStepType &&
-                (!playerId || String((step as any)?.playerId || '').trim() === String(playerId || '').trim()) &&
-                (!permId || String((step as any)?.permanentId || (step as any)?.sourceId || '').trim() === String(permId || '').trim())
-              );
+              if (String((step as any)?.type || '').trim() !== resolvedStepType) return false;
+              if (playerId && String((step as any)?.playerId || '').trim() !== String(playerId || '').trim()) return false;
+              const stepPermanentId = String((step as any)?.permanentId || (step as any)?.sourceId || '').trim();
+              if (permId && stepPermanentId && stepPermanentId === String(permId || '').trim()) return true;
+              if (!cardName) return !permId;
+              const stepCardName = String((step as any)?.cardName || (step as any)?.sourceName || '').trim().toLowerCase();
+              return stepCardName !== '' && stepCardName === String(cardName || '').trim().toLowerCase();
             });
           }
 
@@ -12193,6 +12195,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             });
             if (perm) {
               (perm as any).chosenCreatureType = creatureType;
+              if (perm.card && typeof perm.card === 'object') {
+                (perm.card as any).chosenCreatureType = creatureType;
+              }
 
               const permCardName = String((perm as any)?.card?.name || '').toLowerCase();
               if (permCardName.includes('arcane adaptation')) {
@@ -12207,6 +12212,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const stateAny = ctx.state as any;
                 const morophonChosenType = (stateAny.morophonChosenType || {}) as Record<string, string>;
                 morophonChosenType[String((perm as any)?.id || permId)] = String(creatureType);
+                if (permId && String((perm as any)?.id || '') !== String(permId)) {
+                  morophonChosenType[String(permId)] = String(creatureType);
+                }
                 stateAny.morophonChosenType = morophonChosenType;
               }
             }
@@ -15212,11 +15220,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             break;
           }
 
-          const battlefield = ctx.state.battlefield || [];
-          const permanent = battlefield.find((p: any) => p.id === permanentId);
+          const permanent = resolveReplayPermanentByEvent(ctx, {
+            permanentId,
+            playerId,
+            cardName: (e as any).cardName,
+          });
           
-          if (permanent) {
+          if (permanent && color) {
             (permanent as any).chosenColor = color;
+            if (permanent.card && typeof permanent.card === 'object') {
+              (permanent.card as any).chosenColor = color;
+            }
             debug(2, `[applyEvent] Applied color choice: ${permanent.card?.name} -> ${color}`);
           } else {
             debugWarn(2, `[applyEvent] colorChoice: target not found (permanent=${permanentId}, spell=${spellId})`);
@@ -15268,8 +15282,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             cardName,
           });
           
-          if (permanent) {
+          if (permanent && chosenName) {
             (permanent as any).chosenCardName = chosenName;
+            if (permanent.card && typeof permanent.card === 'object') {
+              (permanent.card as any).chosenCardName = chosenName;
+            }
             debug(2, `[applyEvent] Applied card name choice: ${permanent.card?.name} -> ${chosenName}`);
           } else {
             debugWarn(2, `[applyEvent] cardNameChoice: permanent ${permanentId} not found`);
@@ -15302,11 +15319,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             });
           }
 
-          const battlefield = ctx.state.battlefield || [];
-          const permanent = battlefield.find((p: any) => p.id === permanentId);
+          const permanent = resolveReplayPermanentByEvent(ctx, {
+            permanentId,
+            playerId,
+            cardName: (e as any).cardName,
+          });
           
-          if (permanent) {
+          if (permanent && chosenPlayer) {
             (permanent as any).chosenPlayer = chosenPlayer;
+            if (permanent.card && typeof permanent.card === 'object') {
+              (permanent.card as any).chosenPlayer = chosenPlayer;
+            }
             debug(2, `[applyEvent] Applied player choice: ${permanent.card?.name} -> ${chosenPlayer}`);
           } else {
             debugWarn(2, `[applyEvent] playerChoice: permanent ${permanentId} not found`);

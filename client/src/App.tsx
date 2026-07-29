@@ -3653,14 +3653,16 @@ export function App() {
           : (step.validTargets || []);
         const validTargets: TargetOption[] = rawTargets.map((t: any) => ({
           id: t.id,
-          type: (t.type as any) || (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent'),
+          type: (t.type as any)
+            || (t.description === 'stack' || t.kind === 'stack' ? 'stack'
+              : (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent')),
           name: t.label || t.name || 'Unknown',
           displayName: t.displayName,
           imageUrl: t.imageUrl,
           controller: t.controller,
           typeLine: t.typeLine,
           life: t.life,
-          zone: t.zone,
+          zone: t.zone || (t.type === 'stack' || t.description === 'stack' || t.kind === 'stack' ? 'stack' : undefined),
           owner: t.owner,
           card: t.card,
         }));
@@ -3669,14 +3671,16 @@ export function App() {
         const targetsPerOpponentRaw = (step as any).targetsPerOpponent as Record<string, any[]> | undefined;
         const mapTargetOption = (t: any): TargetOption => ({
           id: t.id,
-          type: (t.type as any) || (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent'),
+          type: (t.type as any)
+            || (t.description === 'stack' || t.kind === 'stack' ? 'stack'
+              : (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent')),
           name: t.label || t.name || 'Unknown',
           displayName: t.displayName,
           imageUrl: t.imageUrl,
           controller: t.controller,
           typeLine: t.typeLine,
           life: t.life,
-          zone: t.zone,
+          zone: t.zone || (t.type === 'stack' || t.description === 'stack' || t.kind === 'stack' ? 'stack' : undefined),
           owner: t.owner,
           card: t.card,
         });

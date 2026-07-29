@@ -16,7 +16,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import type { KnownCardRef, BattlefieldPermanent } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
-export type TargetType = 'permanent' | 'player' | 'card';
+export type TargetType = 'permanent' | 'player' | 'card' | 'stack';
 
 export interface TargetOption {
   id: string;
@@ -257,7 +257,11 @@ export function TargetSelectionModal({
       let groupKey: string;
       
       if (groupByController && target.controller) {
-        groupKey = `${target.controller}'s ${target.type === 'permanent' ? 'Permanents' : 'Cards'}`;
+        if (target.type === 'stack') {
+          groupKey = 'Spells & abilities on the stack';
+        } else {
+          groupKey = `${target.controller}'s ${target.type === 'permanent' ? 'Permanents' : 'Cards'}`;
+        }
       } else if (groupByType) {
         switch (target.type) {
           case 'player':
@@ -266,8 +270,15 @@ export function TargetSelectionModal({
           case 'permanent':
             groupKey = 'Permanents';
             break;
+          case 'stack':
+            groupKey = String(target.typeLine || '').toLowerCase().includes('ability')
+              ? 'Abilities on the stack'
+              : 'Spells on the stack';
+            break;
           case 'card':
-            groupKey = target.zone ? `Cards in ${target.zone}` : 'Cards';
+            groupKey = target.zone === 'stack'
+              ? 'Spells on the stack'
+              : (target.zone ? `Cards in ${target.zone}` : 'Cards');
             break;
           default:
             groupKey = 'Other';
