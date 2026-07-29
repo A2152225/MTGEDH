@@ -421,10 +421,14 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
   
   // "You may cast ~ without paying its mana cost" (free cast)
   if (lowerText.includes('without paying its mana cost') || lowerText.includes('without paying the mana cost')) {
+    const isCommanderFree =
+      lowerText.includes('if you control') && lowerText.includes('commander');
     costs.push({
       id: 'free',
       label: 'Free Cast',
-      description: 'Cast without paying mana cost',
+      description: isCommanderFree
+        ? 'Cast for free (you control a commander)'
+        : 'Cast without paying mana cost',
       manaCost: '{0}',
     });
   }
@@ -532,6 +536,7 @@ interface CastSpellModalProps {
   manaCost?: string;
   oracleText?: string;
   forcedAlternateCostId?: string;
+  preferredAlternateCostId?: string;
   extraAlternateCosts?: AlternateCost[];
   availableSources: ManaPaymentSource[];
   battlefieldPermanents?: BattlefieldPermanent[];
@@ -578,6 +583,7 @@ export function CastSpellModal({
   manaCost,
   oracleText,
   forcedAlternateCostId,
+  preferredAlternateCostId,
   extraAlternateCosts,
   availableSources,
   battlefieldPermanents = [],
@@ -602,12 +608,17 @@ export function CastSpellModal({
   const [selectedSneakCreatureId, setSelectedSneakCreatureId] = useState('');
 
   // When the server forces an alternate cost (e.g., Miracle), lock the selection.
+  // Otherwise prefer an eligible free/alternate cost (e.g. Fierce Guardianship with a commander).
   useEffect(() => {
     if (!open) return;
     if (forcedAlternateCostId && forcedAlternateCostId.length > 0) {
       setSelectedCostId(forcedAlternateCostId);
+      return;
     }
-  }, [open, forcedAlternateCostId]);
+    if (preferredAlternateCostId && preferredAlternateCostId.length > 0) {
+      setSelectedCostId(preferredAlternateCostId);
+    }
+  }, [open, forcedAlternateCostId, preferredAlternateCostId]);
 
   useEffect(() => {
     if (!open) return;

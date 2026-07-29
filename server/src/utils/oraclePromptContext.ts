@@ -386,6 +386,9 @@ export function getOracleTextFromResolutionStep(step: unknown): string | undefin
   const s = step as any;
 
   const candidates: Array<string | undefined> = [
+    s?.oracleText,
+    s?.abilityText,
+    s?.effectText,
     s?.spellCastContext?.oracleText,
     s?.spellCastContext?.oracle_text,
     s?.card?.oracle_text,

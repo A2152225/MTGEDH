@@ -187,7 +187,7 @@ import {
   applyDungeonTargetPlayerEffect,
   buildDungeonRoomPromptSteps,
 } from "../state/modules/dungeon-effects.js";
-import { getValidMutateTargets, parseMadnessCost, parseMutateCost } from "../state/modules/alternate-costs.js";
+import { getValidMutateTargets, parseMadnessCost, parseMutateCost, buildCommanderFreeCastPaymentExtras } from "../state/modules/alternate-costs.js";
 import {
   applyPowerUpDiscountsToActivationManaCost,
   maybeMarkPowerUpAbilityUsedFromActivationContext,
@@ -695,15 +695,234 @@ function buildPendingCastPaymentStepCostFields(
   };
 }
 
-function buildSpellPaymentPresentationFields(pendingCast: any): Record<string, unknown> {
+function buildSpellPaymentPresentationFields(
+  pendingCast: any,
+  options?: { game?: any; playerId?: string },
+): Record<string, unknown> {
   const oracleText = String(pendingCast?.oracleText || pendingCast?.card?.oracle_text || '').trim();
   const fields: Record<string, unknown> = {};
   if (oracleText) fields.oracleText = oracleText;
-  if (Array.isArray(pendingCast?.extraAlternateCosts) && pendingCast.extraAlternateCosts.length > 0) {
-    fields.extraAlternateCosts = pendingCast.extraAlternateCosts;
+
+  let extraAlternateCosts = Array.isArray(pendingCast?.extraAlternateCosts)
+    ? [...pendingCast.extraAlternateCosts]
+    : [];
+
+  const game = options?.game;
+  const playerId = String(options?.playerId || pendingCast?.playerId || '').trim();
+  if (game && playerId) {
+    const commanderFreeCtx = {
+      state: game.state,
+      commandZone: (game as any).commandZone ?? game.state?.commandZone ?? {},
+    } as any;
+    const commanderFree = buildCommanderFreeCastPaymentExtras(
+      commanderFreeCtx,
+      playerId as any,
+      pendingCast?.card || { oracle_text: oracleText, name: pendingCast?.cardName },
+    );
+    if (commanderFree) {
+      fields.preferredAlternateCostId =
+        pendingCast?.preferredAlternateCostId
+        || pendingCast?.forcedAlternateCostId
+        || commanderFree.preferredAlternateCostId;
+      const existingIds = new Set(extraAlternateCosts.map((c: any) => String(c?.id || '')));
+      for (const extra of commanderFree.extraAlternateCosts) {
+        if (existingIds.has(extra.id)) {
+          extraAlternateCosts = extraAlternateCosts.map((c: any) =>
+            String(c?.id || '') === extra.id ? { ...c, ...extra } : c
+          );
+        } else {
+          extraAlternateCosts.push(extra);
+          existingIds.add(extra.id);
+        }
+      }
+    }
+  }
+
+  if (pendingCast?.preferredAlternateCostId) {
+    fields.preferredAlternateCostId = pendingCast.preferredAlternateCostId;
+  }
+  if (extraAlternateCosts.length > 0) {
+    fields.extraAlternateCosts = extraAlternateCosts;
   }
   if (pendingCast?.fromZone) fields.fromZone = pendingCast.fromZone;
   return fields;
+}
+
+/** Presentation + payment fields CastSpellModal / App read from mana_payment_choice steps. */
+const MANA_PAYMENT_CLIENT_FIELD_KEYS = [
+  'permanentId',
+  'cardId',
+  'castSpellArgs',
+  'cardName',
+  'activationPaymentChoice',
+  'activationPaymentContext',
+  'confirmLabel',
+  'wardPayment',
+  'wardPaymentType',
+  'wardCost',
+  'wardPermanentId',
+  'wardPermanentName',
+  'wardPermanentController',
+  'wardTriggeredBy',
+  'spellPaymentRequired',
+  'graveyardSpellCastManaPayment',
+  'phyrexianManaChoice',
+  'abilityText',
+  'abilityId',
+  'effectId',
+  'targets',
+  'targetsForCast',
+  'totalManaCost',
+  'manaCost',
+  'genericCost',
+  'phyrexianChoices',
+  'playerLife',
+  'imageUrl',
+  'costAdjustment',
+  'costReduction',
+  'convokeOptions',
+  'harmonizeOptions',
+  'sneakOptions',
+  'forcedAlternateCostId',
+  'preferredAlternateCostId',
+  'oracleText',
+  'extraAlternateCosts',
+  'fromZone',
+  'xValue',
+  'castWithoutPayingManaCost',
+  'lifeToPayForCost',
+  'discardedCardIdsForCost',
+  'exiledCardIdsFromHandForCost',
+  'exiledCardIdsFromGraveyardForCost',
+  'sacrificedPermanentIdsForCost',
+  'title',
+] as const;
+
+function copyDefinedStepFields(step: any, keys: readonly string[]): Record<string, any> {
+  const fields: Record<string, any> = {};
+  if (!step || typeof step !== 'object') return fields;
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(step, key)) continue;
+    const value = (step as any)[key];
+    if (value !== undefined) fields[key] = value;
+  }
+  return fields;
+}
+
+function mergeExtraAlternateCosts(
+  existing: any[] | undefined,
+  incoming: any[] | undefined,
+): any[] | undefined {
+  if (!Array.isArray(incoming) || incoming.length === 0) return existing;
+  if (!Array.isArray(existing) || existing.length === 0) return incoming.slice();
+  const merged = existing.map((c) => ({ ...c }));
+  const byId = new Map(merged.map((c, idx) => [String(c?.id || ''), idx]));
+  for (const extra of incoming) {
+    const id = String(extra?.id || '');
+    if (!id) continue;
+    if (byId.has(id)) {
+      const idx = byId.get(id)!;
+      merged[idx] = { ...merged[idx], ...extra };
+    } else {
+      byId.set(id, merged.length);
+      merged.push(extra);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Ensure spell-payment prompts keep alternate-cost presentation fields when
+ * sanitizing for the client. Hydrates from pendingSpellCasts when the step
+ * was queued without oracleText / extras (e.g. after target selection gaps).
+ */
+function hydrateSpellPaymentPresentationFieldsForClient(
+  gameId: string,
+  step: any,
+  fields: Record<string, any>,
+  resolvedOracleText?: string,
+): void {
+  if (step?.spellPaymentRequired !== true) return;
+
+  if (!fields.oracleText && resolvedOracleText) {
+    fields.oracleText = resolvedOracleText;
+  }
+
+  try {
+    const game = ensureGame(gameId);
+    if (!game?.state) return;
+    const effectId = String(fields.effectId || step.effectId || '').trim();
+    const pending = effectId
+      ? (game.state as any)?.pendingSpellCasts?.[effectId]
+      : null;
+
+    if (pending) {
+      const presentation = buildSpellPaymentPresentationFields(pending, {
+        game,
+        playerId: String(step.playerId || pending.playerId || ''),
+      });
+      if (!fields.oracleText && presentation.oracleText) {
+        fields.oracleText = presentation.oracleText;
+      }
+      fields.extraAlternateCosts = mergeExtraAlternateCosts(
+        fields.extraAlternateCosts,
+        presentation.extraAlternateCosts as any[] | undefined,
+      );
+      if (!fields.preferredAlternateCostId && presentation.preferredAlternateCostId) {
+        fields.preferredAlternateCostId = presentation.preferredAlternateCostId;
+      }
+      if (!fields.fromZone && presentation.fromZone) {
+        fields.fromZone = presentation.fromZone;
+      }
+      if (fields.xValue == null && pending.xValue != null) {
+        fields.xValue = pending.xValue;
+      }
+      if (!fields.forcedAlternateCostId && pending.forcedAlternateCostId) {
+        fields.forcedAlternateCostId = pending.forcedAlternateCostId;
+      }
+      if (!fields.convokeOptions && pending.convokeOptions) {
+        fields.convokeOptions = pending.convokeOptions;
+      }
+      if (!fields.sneakOptions && pending.sneakOptions) {
+        fields.sneakOptions = pending.sneakOptions;
+      }
+      if (!fields.harmonizeOptions && pending.harmonizeOptions) {
+        fields.harmonizeOptions = pending.harmonizeOptions;
+      }
+    }
+
+    // Commander-free can also apply when there is no pendingCast (graveyard queue path).
+    if (!fields.preferredAlternateCostId || !fields.extraAlternateCosts) {
+      const oracleForCommander = String(
+        fields.oracleText
+        || pending?.oracleText
+        || pending?.card?.oracle_text
+        || resolvedOracleText
+        || '',
+      ).trim();
+      if (oracleForCommander) {
+        const commanderFree = buildCommanderFreeCastPaymentExtras(
+          {
+            state: game.state,
+            commandZone: (game as any).commandZone ?? game.state?.commandZone ?? {},
+          } as any,
+          String(step.playerId || '') as any,
+          { oracle_text: oracleForCommander, name: fields.cardName || step.cardName },
+        );
+        if (commanderFree) {
+          if (!fields.preferredAlternateCostId) {
+            fields.preferredAlternateCostId = commanderFree.preferredAlternateCostId;
+          }
+          fields.extraAlternateCosts = mergeExtraAlternateCosts(
+            fields.extraAlternateCosts,
+            commanderFree.extraAlternateCosts,
+          );
+        }
+      }
+    }
+  } catch {
+    // best-effort hydration
+  }
 }
 
 function buildPendingCastPaymentManaCost(pendingCast: any): string {
@@ -8531,6 +8750,15 @@ export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any
     }
   }
 
+  if (step.type === ResolutionStepType.MANA_PAYMENT_CHOICE) {
+    hydrateSpellPaymentPresentationFieldsForClient(
+      gameId,
+      step,
+      typeSpecificFields,
+      oracleText,
+    );
+  }
+
   if (
     step.type === ResolutionStepType.KYNAIOS_CHOICE
     || (
@@ -9080,37 +9308,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       break;
 
     case ResolutionStepType.MANA_PAYMENT_CHOICE:
-      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
-      if ('cardId' in step) fields.cardId = (step as any).cardId;
-      if ('castSpellArgs' in step) fields.castSpellArgs = (step as any).castSpellArgs;
-      if ('cardName' in step) fields.cardName = (step as any).cardName;
-      if ('activationPaymentChoice' in step) fields.activationPaymentChoice = (step as any).activationPaymentChoice;
-      if ('activationPaymentContext' in step) fields.activationPaymentContext = (step as any).activationPaymentContext;
-      if ('confirmLabel' in step) fields.confirmLabel = (step as any).confirmLabel;
-      if ('wardPayment' in step) fields.wardPayment = (step as any).wardPayment;
-      if ('wardPaymentType' in step) fields.wardPaymentType = (step as any).wardPaymentType;
-      if ('wardCost' in step) fields.wardCost = (step as any).wardCost;
-      if ('wardPermanentId' in step) fields.wardPermanentId = (step as any).wardPermanentId;
-      if ('wardPermanentName' in step) fields.wardPermanentName = (step as any).wardPermanentName;
-      if ('wardPermanentController' in step) fields.wardPermanentController = (step as any).wardPermanentController;
-      if ('wardTriggeredBy' in step) fields.wardTriggeredBy = (step as any).wardTriggeredBy;
-      if ('spellPaymentRequired' in step) fields.spellPaymentRequired = (step as any).spellPaymentRequired;
-      if ('phyrexianManaChoice' in step) fields.phyrexianManaChoice = (step as any).phyrexianManaChoice;
-      if ('abilityText' in step) fields.abilityText = (step as any).abilityText;
-      if ('effectId' in step) fields.effectId = (step as any).effectId;
-      if ('targets' in step) fields.targets = (step as any).targets;
-      if ('totalManaCost' in step) fields.totalManaCost = (step as any).totalManaCost;
-      if ('manaCost' in step) fields.manaCost = (step as any).manaCost;
-      if ('genericCost' in step) fields.genericCost = (step as any).genericCost;
-      if ('phyrexianChoices' in step) fields.phyrexianChoices = (step as any).phyrexianChoices;
-      if ('playerLife' in step) fields.playerLife = (step as any).playerLife;
-      if ('imageUrl' in step) fields.imageUrl = (step as any).imageUrl;
-      if ('costAdjustment' in step) fields.costAdjustment = (step as any).costAdjustment;
-      if ('costReduction' in step) fields.costReduction = (step as any).costReduction;
-      if ('convokeOptions' in step) fields.convokeOptions = (step as any).convokeOptions;
-      if ('harmonizeOptions' in step) fields.harmonizeOptions = (step as any).harmonizeOptions;
-      if ('sneakOptions' in step) fields.sneakOptions = (step as any).sneakOptions;
-      if ('forcedAlternateCostId' in step) fields.forcedAlternateCostId = (step as any).forcedAlternateCostId;
+      Object.assign(fields, copyDefinedStepFields(step, MANA_PAYMENT_CLIENT_FIELD_KEYS));
       break;
 
     case ResolutionStepType.MUTATE_TARGET_SELECTION:
@@ -17564,7 +17762,7 @@ async function handleTargetSelectionResponse(
         costReduction: paymentCostFields.costReduction,
         convokeOptions: pendingCast.convokeOptions,
         forcedAlternateCostId: pendingCast.forcedAlternateCostId,
-        ...buildSpellPaymentPresentationFields(pendingCast),
+        ...buildSpellPaymentPresentationFields(pendingCast, { game, playerId: payerId }),
       } as any);
 
       appendCastSpellContinuationEvent(gameId, game, {
@@ -21329,7 +21527,7 @@ async function handleTargetSelectionResponse(
           costReduction: paymentCostFields.costReduction,
           convokeOptions: pendingCast.convokeOptions,
           forcedAlternateCostId: pendingCast.forcedAlternateCostId,
-          ...buildSpellPaymentPresentationFields(pendingCast),
+          ...buildSpellPaymentPresentationFields(pendingCast, { game, playerId: pid }),
         } as any);
 
         appendCastSpellContinuationEvent(gameId, game, {
@@ -30765,7 +30963,7 @@ async function handleOptionChoiceResponse(
           costReduction: paymentCostFields.costReduction,
           convokeOptions: pendingCast.convokeOptions,
           forcedAlternateCostId: pendingCast.forcedAlternateCostId,
-          ...buildSpellPaymentPresentationFields(pendingCast),
+          ...buildSpellPaymentPresentationFields(pendingCast, { game, playerId }),
         } as any);
 
         appendCastSpellContinuationEvent(gameId, game, {
@@ -34405,6 +34603,7 @@ async function handleMutateTargetSelectionResponse(
       costReduction: paymentCostFields.costReduction,
       convokeOptions: pendingCast.convokeOptions,
       forcedAlternateCostId: 'mutate',
+      ...buildSpellPaymentPresentationFields(pendingCast, { game, playerId: pid }),
     } as any);
 
     appendCastSpellContinuationEvent(gameId, game, {

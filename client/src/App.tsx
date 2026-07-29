@@ -2948,6 +2948,7 @@ export function App() {
           convokeOptions: isWardPayment ? undefined : co,
           sneakOptions: isWardPayment ? undefined : so,
           forcedAlternateCostId: isWardPayment ? undefined : ((step as any).forcedAlternateCostId != null ? String((step as any).forcedAlternateCostId) : undefined),
+          preferredAlternateCostId: isWardPayment ? undefined : ((step as any).preferredAlternateCostId != null ? String((step as any).preferredAlternateCostId) : undefined),
           // Track the resolution step id so confirm/cancel responds via the queue.
           paymentStepId: String(step.id),
           title: isWardPayment
@@ -7341,6 +7342,7 @@ export function App() {
         castFromZone={spellToCast?.fromZone}
         oracleText={spellToCast?.oracleText}
         forcedAlternateCostId={spellToCast?.forcedAlternateCostId}
+        preferredAlternateCostId={(spellToCast as any)?.preferredAlternateCostId}
         extraAlternateCosts={spellToCast?.extraAlternateCosts || battlefieldAlternateCosts}
         availableSources={castSpellPaymentSources}
         battlefieldPermanents={you ? ((safeView?.battlefield || []).filter((perm: any) => perm.controller === you) as BattlefieldPermanent[]) : []}

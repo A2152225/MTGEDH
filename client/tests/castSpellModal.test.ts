@@ -119,4 +119,77 @@ describe('resolveEffectiveManaCostForCastStep', () => {
       },
     })).toBe('{2}{U}');
   });
+
+  it('surfaces common keyword alternate costs from oracle text', () => {
+    const costs = parseAlternateCosts(
+      [
+        'Flashback {3}{U}',
+        'Overload {6}{R}',
+        'Surge {1}{R}',
+        'Spectacle {R}',
+        'Mutate {2}{G}{G}',
+        'Dash {1}{R}',
+        'Evoke {1}{U}',
+        'Madness {B}',
+        'Miracle {U}',
+        'Prowl {1}{B}',
+        'Bestow {3}{W}',
+        'Emerge {6}{U}',
+        'Blitz {2}{B}',
+        'Sneak {1}{R}',
+        'Warp {2}{U}',
+        'Disturb {2}{B}',
+      ].join('\n'),
+      '{4}',
+      'Keyword Soup',
+    );
+
+    const ids = costs.map((c) => c.id);
+    for (const id of [
+      'normal',
+      'flashback',
+      'overload',
+      'surge',
+      'spectacle',
+      'mutate',
+      'dash',
+      'evoke',
+      'madness',
+      'miracle',
+      'prowl',
+      'bestow',
+      'emerge',
+      'blitz',
+      'sneak',
+      'warp',
+      'disturb',
+    ]) {
+      expect(ids).toContain(id);
+    }
+  });
+
+  it('offers Free Cast for commander-gated free spells with a clear description', () => {
+    const costs = parseAlternateCosts(
+      'If you control a commander, you may cast this spell without paying its mana cost.\nCounter target noncreature spell.',
+      '{2}{U}',
+      'Fierce Guardianship',
+    );
+    expect(costs.find((c) => c.id === 'free')).toMatchObject({
+      id: 'free',
+      manaCost: '{0}',
+      description: 'Cast for free (you control a commander)',
+    });
+  });
+
+  it('offers Force of Will style alternate cost', () => {
+    const costs = parseAlternateCosts(
+      'You may pay 1 life and exile a blue card from your hand rather than pay this spell\'s mana cost.\nCounter target spell.',
+      '{3}{U}{U}',
+      'Force of Will',
+    );
+    expect(costs.find((c) => c.id === 'force_of_will')).toMatchObject({
+      id: 'force_of_will',
+      manaCost: '{0}',
+    });
+  });
 });

@@ -2623,6 +2623,7 @@ export function continueCastFromGraveyardAbility(params: {
         exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0 ? params.exiledCardIdsFromGraveyardForCost.slice() : undefined,
         sacrificedPermanentIdsForCost: Array.isArray(params.sacrificedPermanentIdsForCost) && params.sacrificedPermanentIdsForCost.length > 0 ? params.sacrificedPermanentIdsForCost.slice() : undefined,
         xValue: Number.isFinite(Number(params.xValue)) ? Math.max(0, Math.floor(Number(params.xValue))) : undefined,
+        oracleText: String((card as any)?.oracle_text || '').trim() || undefined,
         ...(graveyardCastCostAdjustment ? { costAdjustment: graveyardCastCostAdjustment } : {}),
         ...(graveyardCastCostReduction && graveyardCastCostReduction.messages.length > 0
           ? { costReduction: graveyardCastCostReduction }

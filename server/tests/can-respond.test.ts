@@ -800,6 +800,7 @@ describe('canCastAnySpell', () => {
         {
           id: 'commander1',
           controller: 'p1',
+          isCommander: true,
           card: {
             name: 'Atraxa, Praetors\' Voice',
             type_line: 'Legendary Creature — Phyrexian Angel Horror',

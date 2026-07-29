@@ -22,6 +22,7 @@ import type { PlayerID } from "../../../../shared/src";
 import { parseManaCost, canPayManaCostWithAvailableSources } from "./mana-check";
 import { collectStaticEffectSources } from "./static-effect-sources";
 import { spellHasConvokeForCast } from "./casting-modifiers.js";
+import { permanentIsCommanderCard } from "./triggerPermanentUtils.js";
 
 /**
  * Alternate cost types
@@ -154,6 +155,22 @@ export function hasForceOfWillAlternateCost(
 }
 
 /**
+ * True when the player controls at least one commander permanent
+ * (including legendary planeswalker commanders and stolen commanders).
+ */
+export function playerControlsACommander(
+  ctx: GameContext,
+  playerId: PlayerID,
+): boolean {
+  const battlefield = Array.isArray(ctx?.state?.battlefield) ? ctx.state.battlefield : [];
+  return battlefield.some((p: any) =>
+    p
+    && String(p.controller || '') === String(playerId || '')
+    && permanentIsCommanderCard(ctx, p)
+  );
+}
+
+/**
  * Pattern matcher for commander-dependent free spells
  * "If you control a commander, you may cast this spell without paying its mana cost"
  */
@@ -164,9 +181,7 @@ export function hasCommanderFreeAlternateCost(
 ): boolean {
   if (!card) return false;
   
-  const { state } = ctx;
   const oracleText = (card.oracle_text || "").toLowerCase();
-  const cardName = (card.name || "").toLowerCase();
   
   // Check for commander-dependent free cast pattern in oracle text
   const hasCommanderFreePattern = 
@@ -179,14 +194,31 @@ export function hasCommanderFreeAlternateCost(
     return false;
   }
   
-  // Check if player controls their commander on battlefield
-  const battlefield = state.battlefield || [];
-  const hasCommander = battlefield.some((p: any) => 
-    p && p.controller === playerId && 
-    (p.card?.type_line || "").toLowerCase().includes("legendary creature")
-  );
-  
-  return hasCommander;
+  return playerControlsACommander(ctx, playerId);
+}
+
+/**
+ * Payment-modal extras when commander-free alternate cost is currently available.
+ * Uses id `free` so it matches the client Free Cast path.
+ */
+export function buildCommanderFreeCastPaymentExtras(
+  ctx: GameContext,
+  playerId: PlayerID,
+  card: any,
+): {
+  preferredAlternateCostId: 'free';
+  extraAlternateCosts: Array<{ id: string; label: string; description: string; manaCost: string }>;
+} | null {
+  if (!hasCommanderFreeAlternateCost(ctx, playerId, card)) return null;
+  return {
+    preferredAlternateCostId: 'free',
+    extraAlternateCosts: [{
+      id: 'free',
+      label: 'Free Cast',
+      description: 'Cast for free (you control a commander)',
+      manaCost: '{0}',
+    }],
+  };
 }
 
 /**
@@ -632,7 +664,7 @@ export function getAllAlternateCostOptions(
     options.push({
       type: 'commander_free',
       name: 'Commander Free Cast',
-      description: 'Cast for free (you control your commander)',
+      description: 'Cast for free (you control a commander)',
       manaCost: undefined,
     });
   }

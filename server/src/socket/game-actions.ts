@@ -58,7 +58,7 @@ import { isSpellEffectOwnedByOracleIrPrimary } from "../state/modules/oracleIrSp
 import { queueOptionalPaymentStep, queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { tryQueueMoxDiamondBeforeStackResolve } from "../state/modules/mox-diamond-choice.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
-import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, parseWarpCost, parseKeywordAlternateManaCost, getValidMutateTargets, hasSelfWUBRGAlternateCost, getExternalWUBRGSource } from "../state/modules/alternate-costs.js";
+import { hasMutateAlternateCost, parseMadnessCost, parseMutateCost, parseWarpCost, parseKeywordAlternateManaCost, getValidMutateTargets, hasSelfWUBRGAlternateCost, getExternalWUBRGSource, buildCommanderFreeCastPaymentExtras } from "../state/modules/alternate-costs.js";
 import { calculateSneakOptions, canCastWithSneakAtCurrentTiming, validateSneakReturnedCreature, applySneakReturnedCreatureCost, parseSneakCost } from "../state/modules/sneakCastUtils.js";
 import { getCastableSpellCandidates, getCommandZoneCommanderCandidates, getPlayableLandCandidates, type SharedCommanderAvailabilityCandidate, type SharedPlayableLandCandidate, type SharedSpellCastCandidate } from "../state/modules/can-respond.js";
 import { buildCounterRemovalCostOptions } from "../state/modules/counter-removal-costs.js";
@@ -669,7 +669,11 @@ function buildAlternateCostPaymentExtrasForCast(
   paymentMetadata: PendingCastCostMetadata,
   chosenXValue?: number,
   timingContext?: { game?: any; playerId?: string },
-): { oracleText: string; extraAlternateCosts?: Array<{ id: string; label: string; description: string; manaCost: string }> } {
+): {
+  oracleText: string;
+  extraAlternateCosts?: Array<{ id: string; label: string; description: string; manaCost: string }>;
+  preferredAlternateCostId?: string;
+} {
   const normalizedOracleText = String(oracleText || '').trim();
   if (!normalizedOracleText) {
     return { oracleText: undefined as any };
@@ -799,9 +803,35 @@ function buildAlternateCostPaymentExtrasForCast(
     ),
   }));
 
+  let preferredAlternateCostId: string | undefined;
+  if (timingContext?.game && timingContext?.playerId) {
+    const commanderFree = buildCommanderFreeCastPaymentExtras(
+      {
+        state: timingContext.game.state,
+        commandZone: timingContext.game.commandZone ?? timingContext.game.state?.commandZone ?? {},
+      } as any,
+      timingContext.playerId as PlayerID,
+      { oracle_text: normalizedOracleText },
+    );
+    if (commanderFree) {
+      preferredAlternateCostId = commanderFree.preferredAlternateCostId;
+      const existingIds = new Set(extraAlternateCosts.map((c) => c.id));
+      for (const extra of commanderFree.extraAlternateCosts) {
+        if (existingIds.has(extra.id)) {
+          const idx = extraAlternateCosts.findIndex((c) => c.id === extra.id);
+          if (idx >= 0) extraAlternateCosts[idx] = { ...extraAlternateCosts[idx], ...extra };
+        } else {
+          extraAlternateCosts.push(extra);
+          existingIds.add(extra.id);
+        }
+      }
+    }
+  }
+
   return {
     oracleText: normalizedOracleText,
     ...(extraAlternateCosts.length > 0 ? { extraAlternateCosts } : {}),
+    ...(preferredAlternateCostId ? { preferredAlternateCostId } : {}),
   };
 }
 
@@ -7739,6 +7769,7 @@ export async function requestCastSpellForSocket(
         castWithoutPayingManaCost: isFreeCast ? true : undefined,
         oracleText: warpPaymentExtras.oracleText,
         extraAlternateCosts: warpPaymentExtras.extraAlternateCosts,
+        preferredAlternateCostId: warpPaymentExtras.preferredAlternateCostId,
         fromZone: castSourceZone,
       } as any);
 
