@@ -809,9 +809,59 @@ describe('canCastAnySpell', () => {
       manaPool: {
         p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
       },
+      stack: [
+        {
+          id: 'opp_spell',
+          type: 'spell',
+          controller: 'p2',
+          card: {
+            name: 'Sol Ring',
+            type_line: 'Artifact',
+            oracle_text: '{T}: Add {C}{C}.',
+          },
+        },
+      ],
     });
     
     expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should not treat Fierce Guardianship as castable on an empty stack', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'fg',
+              name: 'Fierce Guardianship',
+              type_line: 'Instant',
+              mana_cost: '{2}{U}',
+              oracle_text: 'If you control a commander, you may cast this spell without paying its mana cost.\nCounter target noncreature spell.',
+              colors: ['U'],
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'commander1',
+          controller: 'p1',
+          isCommander: true,
+          card: {
+            name: 'Atraxa, Praetors\' Voice',
+            type_line: 'Legendary Creature — Phyrexian Angel Horror',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      stack: [],
+    });
+
+    expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(false);
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
+    expect(isPlayerIdleForAutoPass(ctx, 'p1' as PlayerID)).toBe(true);
   });
 });
 
@@ -2218,9 +2268,59 @@ describe('canRespond', () => {
       manaPool: {
         p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
       },
+      stack: [
+        {
+          id: 'opp_spell',
+          type: 'spell',
+          controller: 'p2',
+          card: {
+            name: 'Lightning Bolt',
+            type_line: 'Instant',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          },
+        },
+      ],
     });
     
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should not pause for Fierce Guardianship free cast when the stack is empty', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'fg',
+              name: 'Fierce Guardianship',
+              type_line: 'Instant',
+              mana_cost: '{2}{U}',
+              oracle_text: 'If you control a commander, you may cast this spell without paying its mana cost.\nCounter target noncreature spell.',
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'commander1',
+          controller: 'p1',
+          isCommander: true,
+          card: {
+            name: 'Commander',
+            type_line: 'Legendary Creature — Human Wizard',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      stack: [],
+      step: 'MAIN',
+      phase: 'MAIN',
+    });
+
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
+    expect(isPlayerIdleForAutoPass(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
   it('treats emblem-granted WUBRG alternate costs as a response', () => {

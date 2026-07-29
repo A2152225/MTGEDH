@@ -733,7 +733,8 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   }
   
   // Check for standard "target X" patterns
-  const targetMatch = t.match(/target\s+(creature|permanent|artifact|enchantment|land|battle|player|opponent|planeswalker|spell|nonland\s+permanent|noncreature\s+permanent)(?:\s+(you\s+control|an\s+opponent\s+controls))?/i);
+  // Include counterspell subjects: "target noncreature spell", "target creature spell", "target spell"
+  const targetMatch = t.match(/target\s+(creature|permanent|artifact|enchantment|land|battle|player|opponent|planeswalker|spell|nonland\s+permanent|noncreature\s+permanent|noncreature\s+spell|creature\s+spell|instant\s+or\s+sorcery\s+spell|instant\s+spell|sorcery\s+spell)(?:\s+(you\s+control|an\s+opponent\s+controls))?/i);
   if (targetMatch) {
     minTargets = 1;
     maxTargets = 1;

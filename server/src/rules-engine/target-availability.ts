@@ -1,5 +1,5 @@
 import type { PlayerID } from "../../../shared/src/index.js";
-import { categorizeSpell, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "./targeting.js";
+import { categorizeSpell, categorizeSpellWithoutPrimaryRetirement, evaluateTargeting, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements, requiresTargeting } from "./targeting.js";
 import { cardManaValue } from "../state/utils.js";
 
 function getTargetingContext(state: any): { hasBattlefield: boolean; hasPlayers: boolean; hasStack: boolean; hasZones: boolean } {
@@ -112,11 +112,27 @@ export function hasValidTargetsForSpell(
   }
 
   // Prefer the dynamic heuristic spell categorizer (it aligns with our target selector).
-  const spellSpec = categorizeSpell(cardName, oracleText);
+  // Use the non-retired categorizer for castability/auto-pass: IR retirement suppresses
+  // COUNTER_TARGET_* specs for resolution routing, but empty-stack counterspells must still
+  // be treated as uncastable (Fierce Guardianship free cast with commander on board).
+  const spellSpec =
+    categorizeSpellWithoutPrimaryRetirement(cardName, oracleText)
+    || categorizeSpell(cardName, oracleText);
 
   // Counterspells and similar stack-targeting effects must have legal targets on the stack,
   // even when requiresTargeting() misses oracle phrasing like "target instant or sorcery spell".
   if (spellSpec && specNeedsStack(spellSpec)) {
+    const stack = Array.isArray(state?.stack) ? state.stack : [];
+    if (stack.length === 0) {
+      return false;
+    }
+  }
+
+  // Safety net when categorizer is null but oracle clearly targets the stack.
+  if (
+    !spellSpec
+    && /(?:counter\s+target\b[\s\S]{0,40}\b(?:spell|ability)\b|\btarget\s+(?:noncreature\s+|creature\s+)?(?:instant\s+or\s+sorcery\s+)?spell\b|\btarget\s+(?:activated|triggered)\s+ability\b)/i.test(oracleTextRaw)
+  ) {
     const stack = Array.isArray(state?.stack) ? state.stack : [];
     if (stack.length === 0) {
       return false;
