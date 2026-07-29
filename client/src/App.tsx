@@ -1529,6 +1529,10 @@ export function App() {
   }, [createGameModalOpen, refreshSavedDecks]);
 
   const stopLoopShortcutReplay = React.useCallback((message: string) => {
+    const activeGameId = safeViewRef.current?.id;
+    if (activeGameId) {
+      socket.emit('setLoopShortcutStackDrain', { gameId: activeGameId, enabled: false });
+    }
     loopShortcutReplayRef.current = {
       running: false,
       index: 0,
@@ -1548,10 +1552,11 @@ export function App() {
 
   const advanceLoopShortcutReplay = React.useCallback(() => {
     const replayState = loopShortcutReplayRef.current;
-    const emitSocket = originalSocketEmitRef.current;
     const currentView = safeViewRef.current;
 
-    if (!replayState.running || !emitSocket || !currentView?.id) {
+    // Always use the live socket. Do not depend on originalSocketEmitRef — if that
+    // ref is null (effect timing), the loop would sit on "Running…" forever.
+    if (!replayState.running || !currentView?.id) {
       return;
     }
 
@@ -1590,12 +1595,14 @@ export function App() {
         replayState.waitingPrompt = nextItem;
         replayState.waitingForState = false;
         setLoopShortcutStatusText(`Waiting for ${nextItem.label}...`);
+        // Nudge server in case we missed the original resolutionStepPrompt emit.
+        socket.emit('getMyNextResolutionStep', { gameId: currentView.id });
         return;
       }
 
       const payload = JSON.parse(JSON.stringify(nextItem.payload || {}));
       payload.gameId = currentView.id;
-      emitSocket(nextItem.event, payload);
+      socket.emit(nextItem.event, payload);
       replayState.index += 1;
 
       const followingItem = items[replayState.index];
@@ -1603,6 +1610,7 @@ export function App() {
         replayState.waitingPrompt = followingItem;
         replayState.waitingForState = false;
         setLoopShortcutStatusText(`Waiting for ${followingItem.label}...`);
+        socket.emit('getMyNextResolutionStep', { gameId: currentView.id });
         return;
       }
 
@@ -1738,6 +1746,10 @@ export function App() {
       waitingPrompt: null,
     };
     setIsLoopShortcutRunning(true);
+    if (safeViewRef.current?.id) {
+      // Server-side: bypass idle checks while stack is non-empty (survives cast clearing autoPassForTurn).
+      socket.emit('setLoopShortcutStackDrain', { gameId: safeViewRef.current.id, enabled: true });
+    }
     setLoopShortcutStatusText(
       `Running iteration 1 of ${Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1))}...`
     );
@@ -1874,6 +1886,12 @@ export function App() {
       const playerId = youRef.current;
       if (!view || !playerId) return;
 
+      // If we're waiting on a recorded prompt, keep asking the server for it.
+      if (replayState.waitingPrompt) {
+        socket.emit('getMyNextResolutionStep', { gameId: view.id });
+        return;
+      }
+
       const hasActiveResolutionPrompt = Boolean(activeResolutionPrompt || minimizedResolutionStep);
       replayState.castSettle = noteLoopShortcutCastSettleStack(replayState.castSettle, view);
       const priorityPlayerId = priorityRef.current;
@@ -1912,6 +1930,9 @@ export function App() {
         playerId,
         castSettle: replayState.castSettle,
       })) {
+        setLoopShortcutStatusText(
+          `Waiting for stack/prompts to clear (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
+        );
         return;
       }
 
@@ -2902,7 +2923,9 @@ export function App() {
             if (stepId) {
               loopAutoAnsweredStepIdsRef.current.add(stepId);
             }
-            originalSocketEmitRef.current?.('submitResolutionResponse', {
+            // Must use live socket.emit — originalSocketEmitRef can be null and would
+            // silently skip payment, leaving the loop stuck on "Running…".
+            socket.emit('submitResolutionResponse', {
               gameId: payload.gameId,
               stepId,
               selections: response.selections,
@@ -2912,6 +2935,7 @@ export function App() {
             setCastSpellModalOpen(false);
             setSpellToCast(null);
             setActiveResolutionPrompt(null);
+            setMinimizedResolutionStep(null);
             replayState.index += 1;
             replayState.waitingPrompt = null;
 
@@ -2929,10 +2953,11 @@ export function App() {
             if (nextItem?.kind === 'resolution_response') {
               replayState.waitingPrompt = nextItem;
               setLoopShortcutStatusText(`Waiting for ${nextItem.label}...`);
+              socket.emit('getMyNextResolutionStep', { gameId: payload.gameId });
             } else {
               replayState.waitingForState = true;
               setLoopShortcutStatusText(
-                `Running iteration ${replayState.iteration + 1} of ${replayState.totalIterations}...`
+                `Waiting for stack/prompts to clear (iteration ${replayState.iteration + 1} of ${replayState.totalIterations})...`
               );
             }
             return;

@@ -167,6 +167,39 @@ export function registerPriorityHandlers(io: Server, socket: Socket) {
     }
   });
 
+  /**
+   * Loop shortcuts need to drain Summon / Reflections / Aura Shards without
+   * clearing on cast (unlike autoPassForTurn). While enabled, auto-pass bypasses
+   * the "has floating mana / can activate" idle check whenever the stack is non-empty.
+   */
+  socket.on("setLoopShortcutStackDrain", (payload?: { gameId?: unknown; enabled?: unknown }) => {
+    const gameId = payload?.gameId;
+    const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
+    const enabled = !!payload?.enabled;
+    const ctx = gameIdValue ? ensureInRoomAndSeated(gameIdValue) : null;
+    if (!ctx) return;
+
+    const { game, pid } = ctx;
+    const stateAny = game.state as any;
+    if (!stateAny.loopShortcutStackDrain || typeof stateAny.loopShortcutStackDrain !== 'object') {
+      stateAny.loopShortcutStackDrain = {};
+    }
+
+    if (enabled) {
+      stateAny.loopShortcutStackDrain[pid] = true;
+    } else {
+      delete stateAny.loopShortcutStackDrain[pid];
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    if (enabled && stateAny.priority === pid) {
+      rerunAutoPassEvaluation(gameIdValue, game);
+    }
+  });
+
   socket.on("setAutoYesOptional", (payload?: { gameId?: unknown; enabled?: unknown; syncOnly?: unknown }) => {
     const gameId = payload?.gameId;
     const gameIdValue = typeof gameId === 'string' ? gameId : undefined;

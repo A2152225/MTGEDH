@@ -548,7 +548,7 @@ export function canAdvanceLoopShortcutAfterState(options: {
   // the spell (and Reflections copy) lands. Do not advance into the next emit yet.
   const castSettle = options.castSettle;
   if (castSettle && !castSettle.sawNonEmptyStack) {
-    const timeoutMs = Math.max(0, Number(options.castSettleTimeoutMs ?? 2500));
+    const timeoutMs = Math.max(0, Number(options.castSettleTimeoutMs ?? 1200));
     const elapsed = Date.now() - Number(castSettle.startedAt || 0);
     if (elapsed < timeoutMs) return false;
   }
