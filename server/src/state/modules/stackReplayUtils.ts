@@ -69,6 +69,14 @@ export function repairCardIdAwayFromZones(
       ? libraries.get(playerId)
       : (Array.isArray(libraries?.[playerId]) ? libraries[playerId] : undefined);
     library = removeReplayDuplicateCardEntries(libraryCards, cardId);
+    // Cast/resolve can leave the same card.id in zones.library while libraries Map
+    // was already spliced — scrub both so dual-zone ghosts cannot survive.
+    if (Array.isArray(zone.library)) {
+      library += removeReplayDuplicateCardEntries(zone.library, cardId);
+      zone.libraryCount = Array.isArray(libraryCards) ? libraryCards.length : zone.library.length;
+    } else if (Array.isArray(libraryCards)) {
+      zone.libraryCount = libraryCards.length;
+    }
   }
 
   return {

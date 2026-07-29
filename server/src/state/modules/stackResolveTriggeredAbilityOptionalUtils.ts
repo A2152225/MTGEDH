@@ -9,6 +9,11 @@ import { ChoiceEventType, type ChoiceResponse } from '../../../../rules-engine/s
 import { applyGraveyardPermissionEffectsFromText } from './graveyard-permissions.js';
 import { isControllerOptionalTriggeredAbilityEffect } from './trigger-runtime-wiring.js';
 import { isPerPlayerOptionalEffectText } from '../../../../rules-engine/src/oracleIRPerPlayerOptional.js';
+import {
+  buildOptionalEffectKey,
+  findMayAutoPreferenceEntry,
+} from '../../../../shared/src/optionalEffectKey.js';
+import { resolveNoUntilTargetsChangePreference } from '../../../../shared/src/mayAutoPreference.js';
 
 function normalizeOptionalTriggeredAbilityChoice(response: ChoiceResponse | undefined): 'yes' | 'no' {
   if (!response || response.cancelled) {
@@ -236,6 +241,42 @@ export function tryDeferOptionalTriggeredAbilityMayDecision(
     options.bumpSeq();
     return true;
   }
+
+  // Always No / Always Yes via MayAbilityModal (mayAutoPreferences) — decline before
+  // queuing another Effect Program prompt. Checked here so a pending EP snapshot
+  // cannot wipe the preference and re-prompt for each subsequent trigger.
+  const effectKey = buildOptionalEffectKey(
+    options.sourceName,
+    String(options.effectText || options.description || '').trim(),
+  );
+  const mayPrefEntry = findMayAutoPreferenceEntry(
+    state?.mayAutoPreferences?.[options.triggerController],
+    effectKey,
+  );
+  const mayPref = mayPrefEntry?.value;
+  if (mayPref === 'no') {
+    debug(2, `[resolveTopOfStack] Optional mayAutoPreference auto-no for ${options.sourceName} (${options.triggerController})`);
+    options.bumpSeq();
+    return true;
+  }
+  const noUntilChoice = resolveNoUntilTargetsChangePreference(
+    state,
+    options.triggerController,
+    mayPrefEntry?.key || effectKey,
+    mayPref,
+    String(options.effectText || options.description || '').trim(),
+  );
+  if (noUntilChoice === 'no') {
+    debug(2, `[resolveTopOfStack] Optional no-until-targets auto-no for ${options.sourceName} (${options.triggerController})`);
+    options.bumpSeq();
+    return true;
+  }
+  if (mayPref === 'yes') {
+    (item as any).optionalTriggeredAbilityDecisionApplied = true;
+    debug(2, `[resolveTopOfStack] Optional mayAutoPreference auto-yes for ${options.sourceName} (${options.triggerController})`);
+    return false;
+  }
+
   if ((ctx as any).isReplaying) {
     return false;
   }

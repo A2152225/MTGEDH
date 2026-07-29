@@ -256,7 +256,7 @@ export function applyInstantSorceryFracturedIdentityAndFallbackRiders(
     }
   }
 
-  if (options.uncategorizedSpellFallbackApplied <= 0) {
+  if (options.uncategorizedSpellFallbackApplied <= 0 && !options.oracleIrSpellHandled) {
     let tokenCreationResult = parseSpellLegacyTokenCreation(effectiveCard.name, oracleTextLower, controller, state, spellXValue);
     const graveyardTokenInsteadMatch = oracleTextLower.match(/if this spell was cast from a graveyard,\s*create (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) of those tokens instead/i);
     if (tokenCreationResult && wasSpellCastFromGraveyard(item) && graveyardTokenInsteadMatch) {

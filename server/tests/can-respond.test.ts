@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates, isPlayerIdleForAutoPass } from '../src/state/modules/can-respond';
+import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates, isPlayerIdleForAutoPass, hasFlashOrInstant } from '../src/state/modules/can-respond';
 import { buildDurableCommandZonePermission, buildDurableGraveyardPermission, buildDurableLibraryPermission, buildDurablePlayableFromExilePermission } from '../src/state/modules/durable-permissions';
 import { applyPlayableFromGraveyardPermissionFromText, applyTemporaryGraveyardKeywordGrantFromText, clearTemporaryGraveyardKeywordGrants } from '../src/state/modules/graveyard-permissions';
 import type { GameContext } from '../src/state/context';
@@ -863,6 +863,88 @@ describe('canCastAnySpell', () => {
     expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(false);
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
     expect(isPlayerIdleForAutoPass(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+});
+
+describe('Summon the School graveyard return ability', () => {
+  const summonOracle =
+    'Create two 1/1 blue Merfolk Wizard creature tokens.\nTap four untapped Merfolk you control: Return this card from your graveyard to your hand.';
+
+  function fourMerfolk() {
+    return [1, 2, 3, 4].map((n) => ({
+      id: `merfolk_${n}`,
+      controller: 'p1',
+      tapped: false,
+      card: {
+        id: `merfolk_card_${n}`,
+        name: `Merfolk ${n}`,
+        type_line: 'Creature — Merfolk Wizard',
+        oracle_text: '',
+      },
+    }));
+  }
+
+  it('treats the tap-four-Merfolk return as an activatable graveyard ability', () => {
+    const ctx = createTestContext({
+      turnPlayer: 'p1',
+      priority: 'p1',
+      step: 'MAIN1',
+      phase: 'precombatMain',
+      stack: [],
+      battlefield: fourMerfolk(),
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'summon_1',
+              name: 'Summon the School',
+              type_line: 'Kindred Sorcery — Merfolk',
+              oracle_text: summonOracle,
+              mana_cost: '{3}{U}',
+            },
+          ],
+          graveyardCount: 1,
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+    expect(isPlayerIdleForAutoPass(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('does not keep auto-pass blocked when fewer than four Merfolk are available', () => {
+    const ctx = createTestContext({
+      turnPlayer: 'p1',
+      priority: 'p1',
+      step: 'MAIN1',
+      phase: 'precombatMain',
+      stack: [],
+      battlefield: fourMerfolk().slice(0, 3),
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'summon_1',
+              name: 'Summon the School',
+              type_line: 'Kindred Sorcery — Merfolk',
+              oracle_text: summonOracle,
+              mana_cost: '{3}{U}',
+            },
+          ],
+          graveyardCount: 1,
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
   });
 });
 
@@ -2412,6 +2494,74 @@ describe('canRespond', () => {
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('does not treat Flashback as Flash for response-speed casting', () => {
+    expect(hasFlashOrInstant({
+      type_line: 'Sorcery',
+      oracle_text: 'Create thirteen 2/2 black Zombie creature tokens.\nFlashback {7}{B}{B}{B}{B}',
+    })).toBe(false);
+    expect(hasFlashOrInstant({
+      type_line: 'Creature — Human Wizard',
+      oracle_text: 'Flash\nWhen ~ enters, draw a card.',
+    })).toBe(true);
+    expect(hasFlashOrInstant({
+      type_line: 'Instant',
+      oracle_text: 'Destroy target creature.\nFlashback {2}{B}',
+    })).toBe(true);
+
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [
+            {
+              id: 'army_1',
+              name: 'Army of the Damned',
+              type_line: 'Sorcery',
+              mana_cost: '{5}{B}{B}{B}',
+              oracle_text: 'Create thirteen 2/2 black Zombie creature tokens.\nFlashback {7}{B}{B}{B}{B}',
+            },
+            {
+              id: 'overkill_1',
+              name: 'Overkill',
+              type_line: 'Instant',
+              mana_cost: '{2}{B}',
+              oracle_text: "Target creature gets -0/-9999 until end of turn.\nFlashback {4}{B}",
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'critter_1',
+          controller: 'p2',
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 10, red: 0, green: 0, colorless: 1 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      phase: 'beginning',
+      step: 'UPKEEP',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    const responseCandidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, {
+      mode: 'response',
+      conservativeTargets: false,
+    });
+    expect(responseCandidates.map((c) => c.card?.name)).toEqual(['Overkill']);
+    expect(responseCandidates.some((c) => c.card?.name === 'Army of the Damned')).toBe(false);
+
+    const mainCandidates = getCastableSpellCandidates(ctx, 'p1' as PlayerID, {
+      mode: 'main',
+      conservativeTargets: false,
+    });
+    expect(mainCandidates.map((c) => c.card?.name).sort()).toEqual(['Army of the Damned', 'Overkill']);
+  });
+
   it('surfaces graveyard instants that an emblem grants flashback', () => {
     const ctx = createTestContext({
       zones: {
@@ -2428,7 +2578,13 @@ describe('canRespond', () => {
           ],
         },
       },
-      battlefield: [],
+      battlefield: [
+        {
+          id: 'bear_1',
+          controller: 'p2',
+          card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+        },
+      ],
       emblems: [
         {
           id: 'flashback_emblem_1',
@@ -2439,6 +2595,10 @@ describe('canRespond', () => {
       manaPool: {
         p1: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
       },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      stack: [],
+      turnPlayer: 'p1',
+      priority: 'p1',
     });
 
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
@@ -3819,8 +3979,12 @@ describe('canAct', () => {
       life: {
         p1: 20,
       },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      phase: 'precombatMain',
       step: 'MAIN1',
       stack: [],
+      turnPlayer: 'p1',
+      priority: 'p1',
     });
     
     expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);

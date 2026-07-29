@@ -808,8 +808,9 @@ export interface GameState {
    * 'yes'    → always auto-execute
    * 'no'     → always auto-skip
    * number>0 → countdown: auto-execute that many more times, then delete
+   * 'no_until_targets:<fingerprint>' → auto-skip while legal targets unchanged
    */
-  mayAutoPreferences?: Record<PlayerID, Record<string, 'yes' | 'no' | number>>;
+  mayAutoPreferences?: Record<PlayerID, Record<string, 'yes' | 'no' | number | string>>;
   /**
    * Recent structured Oracle automation gaps saved for debugging and follow-up
    * parser/executor improvements. This is capped by the rules engine to avoid

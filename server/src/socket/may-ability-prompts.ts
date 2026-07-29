@@ -2,6 +2,7 @@ import type { Server } from 'socket.io';
 
 import type { PlayerID } from '../../../shared/src/types.js';
 import { buildOptionalEffectKey, findMayAutoPreferenceEntry } from '../../../shared/src/optionalEffectKey.js';
+import { resolveNoUntilTargetsChangePreference } from '../../../shared/src/mayAutoPreference.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../state/resolution/index.js';
 import { debug, debugError } from '../utils/debug.js';
 import { getSavedMayAbilityTriggerDecision } from './trigger-shortcuts.js';
@@ -72,6 +73,7 @@ export function queueMayAbilityStep(
   const playerPrefs = prefs[playerId] ?? {};
   const prefEntry = findMayAutoPreferenceEntry(playerPrefs, effectKey);
   const autoPref = prefEntry?.value;
+  const storageKey = prefEntry?.key || effectKey;
 
   if (autoPref === 'yes') {
     debug(2, `[May] Auto-yes for ${effectKey} (player ${playerId})`);
@@ -85,17 +87,29 @@ export function queueMayAbilityStep(
     return;
   }
 
+  const noUntilChoice = resolveNoUntilTargetsChangePreference(
+    game.state,
+    playerId,
+    storageKey,
+    autoPref,
+    effectText,
+  );
+  if (noUntilChoice === 'no') {
+    debug(2, `[May] Auto-no until targets change for ${effectKey} (player ${playerId})`);
+    onDecline?.().catch(err => debugError(1, `[May] Auto-no callback error:`, err));
+    return;
+  }
+
   if (typeof autoPref === 'number' && autoPref > 0) {
     const state = (game as any).state;
     const remaining = autoPref - 1;
-    const storageKey = prefEntry?.key || effectKey;
     if (remaining <= 0) {
       delete state.mayAutoPreferences[playerId][storageKey];
     } else {
       state.mayAutoPreferences[playerId][storageKey] = remaining;
     }
     debug(2, `[May] Auto-yes countdown for ${effectKey} (player ${playerId}), ${remaining} remaining`);
-    onAccept().catch(err => debugError(1, `[May] Auto-yes callback error:`, err));
+    onAccept().catch(err => debugError(1, `[May] Auto-yes countdown callback error:`, err));
     return;
   }
 

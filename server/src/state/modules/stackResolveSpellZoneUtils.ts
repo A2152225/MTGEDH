@@ -10,6 +10,7 @@ import {
   queueResolvedSpellCopyChoice,
   shouldQueueResolvedSpellCopyChoice,
 } from './stackResolveSpellCopyChoiceUtils.js';
+import { repairCardIdAwayFromZones } from './stackReplayUtils.js';
 
 type ResolvedInstantOrSorceryDestination = 'graveyard' | 'exile' | 'library' | 'ceased';
 
@@ -30,9 +31,21 @@ function persistMoveResolvedInstantOrSorceryEvent(
   if (!cardId) return;
 
   try {
+    // Prefer the live game seq so replay ordering matches surrounding events.
+    // Previously this often persisted as seq=0 during Oracle IR resolution, which
+    // made reconnect/replay miss the graveyard move.
+    if (typeof (ctx as any).bumpSeq === 'function') {
+      (ctx as any).bumpSeq();
+    }
+    const seq = Number(
+      (ctx as any).seq
+      ?? (ctx as any).game?.seq
+      ?? (ctx.state as any)?.seq
+      ?? 0,
+    );
     appendEvent(
       gameId,
-      Number((ctx as any).seq ?? (ctx.state as any)?.seq ?? 0),
+      seq,
       'moveResolvedInstantOrSorcery',
       {
         controller: options.controller,
@@ -42,9 +55,6 @@ function persistMoveResolvedInstantOrSorceryEvent(
         card: { ...options.card },
       },
     );
-    if (typeof (ctx as any).bumpSeq === 'function') {
-      (ctx as any).bumpSeq();
-    }
   } catch (err) {
     debugWarn(1, '[moveResolvedInstantOrSorcery] appendEvent failed:', err);
   }
@@ -314,6 +324,15 @@ export function moveResolvedInstantOrSorceryAfterResolution(
   playerZones.graveyard = playerZones.graveyard || [];
   if (pushCardToPlayerGraveyardWithReplacements(ctx, controller, card, playerZones.graveyard)) {
     playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
+    const resolvedCardId = String(card?.id || '').trim();
+    if (resolvedCardId) {
+      // Cast can leave a same-id ghost in hand/library (zones.library especially).
+      repairCardIdAwayFromZones(ctx, String(controller), resolvedCardId, [
+        'hand',
+        'exile',
+        'library',
+      ]);
+    }
     debug(2, `[moveResolvedInstantOrSorceryAfterResolution] Spell ${card?.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
     persistMoveResolvedInstantOrSorceryEvent(ctx, {
       controller,

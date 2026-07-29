@@ -864,7 +864,7 @@ function getGraveyardAbilityHints(game: InMemoryGame, playerId: PlayerID): Recor
       if (grantedFlashbackInfo.hasIt && grantedFlashbackInfo.cost) {
         const typeLine = String(card.type_line || '').toLowerCase();
         const oracleText = String(card.oracle_text || '').toLowerCase();
-        const isInstantSpeed = typeLine.includes('instant') || oracleText.includes('flash');
+        const isInstantSpeed = typeLine.includes('instant') || /\bflash\b/i.test(oracleText);
         const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
         const parsedCost = parseManaFromString(grantedFlashbackInfo.cost);
         if (canCastNow && hasValidTargetsForSpell(state as any, playerId, card, { conservative: false }) && canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
@@ -911,7 +911,7 @@ function getGraveyardAbilityHints(game: InMemoryGame, playerId: PlayerID): Recor
       if (grantedCastKeywordInfo) {
         const typeLine = String(card.type_line || '').toLowerCase();
         const oracleText = String(card.oracle_text || '').toLowerCase();
-        const isInstantSpeed = typeLine.includes('instant') || oracleText.includes('flash');
+        const isInstantSpeed = typeLine.includes('instant') || /\bflash\b/i.test(oracleText);
         const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
         const parsedCost = parseManaFromString(grantedCastKeywordInfo.cost || '');
         if (

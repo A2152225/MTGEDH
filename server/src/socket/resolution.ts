@@ -68,6 +68,12 @@ import {
   chooseAITargetSelectionsForChoiceStep,
 } from "./ai.js";
 import type { PlayerID } from "../../../shared/src/types.js";
+import {
+  NO_UNTIL_TARGETS_CHANGE_REQUEST,
+  buildNoUntilTargetsChangeValue,
+  fingerprintArtifactEnchantmentTargets,
+  parseNoUntilTargetsChangeFingerprint,
+} from "../../../shared/src/mayAutoPreference.js";
 import { isShockLand } from "./land-helpers.js";
 import type { GameContext } from "../state/context.js";
 import { handleKynaiosChoiceResponse as handleKynaiosChoiceResponseBatched } from "../state/resolution/handlers/kynaiosChoice.js";
@@ -8676,6 +8682,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
    * Store or clear a player's automatic yes/no preference for a specific
    * "you may" effect.  The effectKey is "{sourceName_lower}:{effectText_lower}".
    * Passing value=null removes an existing preference.
+   * value='no_until_targets_change' snapshots current legal artifact/enchantment
+   * targets and auto-skips until that set changes.
    */
   socket.on("setMayAutoPreference", (payload?: {
     gameId?: unknown;
@@ -8691,7 +8699,19 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     const value = payload?.value;
     if (!effectKey || typeof effectKey !== 'string') return;
     const isValidCount = typeof value === 'number' && Number.isInteger(value) && value > 0;
-    if (value !== 'yes' && value !== 'no' && value !== null && !isValidCount) return;
+    const isNoUntilRequest = value === NO_UNTIL_TARGETS_CHANGE_REQUEST;
+    const isNoUntilStored = typeof value === 'string'
+      && parseNoUntilTargetsChangeFingerprint(value) !== undefined;
+    if (
+      value !== 'yes'
+      && value !== 'no'
+      && value !== null
+      && !isValidCount
+      && !isNoUntilRequest
+      && !isNoUntilStored
+    ) {
+      return;
+    }
 
     let game: any;
     try { game = ensureGame(gameId); } catch { return; }
@@ -8704,8 +8724,13 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     if (value === null) {
       delete state.mayAutoPreferences[pid][effectKey];
       debug(2, `[May] ${pid} cleared auto-pref for "${effectKey}"`);
+    } else if (isNoUntilRequest) {
+      const fingerprint = fingerprintArtifactEnchantmentTargets(state.battlefield);
+      const stored = buildNoUntilTargetsChangeValue(fingerprint);
+      state.mayAutoPreferences[pid][effectKey] = stored;
+      debug(2, `[May] ${pid} set auto-pref "${effectKey}" = ${stored}`);
     } else {
-      state.mayAutoPreferences[pid][effectKey] = value as 'yes' | 'no' | number;
+      state.mayAutoPreferences[pid][effectKey] = value as 'yes' | 'no' | number | string;
       debug(2, `[May] ${pid} set auto-pref "${effectKey}" = ${value}`);
     }
 
@@ -8713,7 +8738,9 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       appendEvent(gameId, (game as any).seq ?? 0, 'mayAutoPreferenceSet', {
         playerId: pid,
         effectKey,
-        value: value === null ? null : value,
+        value: value === null
+          ? null
+          : (state.mayAutoPreferences[pid][effectKey] ?? value),
       });
     } catch (err) {
       debugWarn(1, '[Resolution] appendEvent(mayAutoPreferenceSet) failed:', err);

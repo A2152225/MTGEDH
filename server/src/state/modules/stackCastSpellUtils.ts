@@ -11,6 +11,18 @@ import {
   recordGraveyardPermanentTypesCastThisTurn,
 } from './turn-tracking.js';
 
+function removeCardIdFromZonesLibrary(zones: Record<string, any>, playerId: string, cardId: string): boolean {
+  const playerZones = zones?.[playerId];
+  if (!playerZones || !Array.isArray(playerZones.library) || !cardId) return false;
+  const idx = playerZones.library.findIndex((c: any) => c && String(c.id || '') === cardId);
+  if (idx === -1) return false;
+  playerZones.library.splice(idx, 1);
+  if (typeof playerZones.libraryCount === 'number') {
+    playerZones.libraryCount = Math.max(0, playerZones.libraryCount - 1);
+  }
+  return true;
+}
+
 /**
  * Cast a spell from hand onto the stack.
  */
@@ -102,6 +114,7 @@ export function castSpell(
     if (idx !== -1) {
       card = handCards.splice(idx, 1)[0];
       z.handCount = handCards.length;
+      removeCardIdFromZonesLibrary(zones, String(playerId), String(cardOrId));
     } else {
       const removedExileCard = removeCardFromAnyPlayerExile(state, String(cardOrId));
       if (removedExileCard) {
@@ -119,6 +132,7 @@ export function castSpell(
           if (libraryIdx !== -1) {
             card = libraryCards.splice(libraryIdx, 1)[0];
             castFromLibrary = true;
+            removeCardIdFromZonesLibrary(zones, String(playerId), String(cardOrId));
           } else if (explicitSourceZone === 'command' && commandZoneCards) {
             const commandIdx = commandZoneCards.findIndex((c: any) => c && c.id === cardOrId);
             if (commandIdx !== -1) {
@@ -180,6 +194,9 @@ export function castSpell(
         castFromLibrary = true;
       }
     }
+    // Always scrub zones.library ghosts — cast-from-hand removes the Map copy but
+    // historically left the same id in zones.library, which dual-zones the card.
+    removeCardIdFromZonesLibrary(zones, String(playerId), String(card?.id || ''));
 
     if (!castFromLibrary && explicitSourceZone === 'command') {
       castFromCommand = true;

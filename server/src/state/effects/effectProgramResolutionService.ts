@@ -34,6 +34,7 @@ import {
   type EffectProgramOracleIrBridgeConfig,
 } from '../modules/oracleIrEffectProgramBridge.js';
 import { mirrorGraveyardCastingPermissionsToDurable } from '../modules/graveyard-permissions.js';
+import { hydrateOracleIRPlayerZonesFromContext } from '../modules/oracleIrServerZoneSync.js';
 
 interface StoredEffectProgramRuntime {
   readonly runtime: EffectProgramRuntime<GameState>;
@@ -317,12 +318,47 @@ function continueEffectProgramResolution(args: {
   };
 }
 
+/**
+ * Live game fields that can change while an Effect Program prompt is pending
+ * (Always Yes/No, trigger shortcuts, auto-pass yields). EP runtimes snapshot
+ * state at prompt time; writing that snapshot back would wipe these.
+ */
+const EFFECT_PROGRAM_PRESERVE_LIVE_STATE_KEYS = [
+  'mayAutoPreferences',
+  'triggerShortcuts',
+  'autoYesOptional',
+  'yieldToTriggerSourcesForAutoPass',
+] as const;
+
+function mergePreservedLiveEffectProgramState(
+  previousState: any,
+  nextState: GameState,
+): GameState {
+  if (!previousState || typeof previousState !== 'object' || !nextState) {
+    return nextState;
+  }
+
+  let merged: any = nextState;
+  for (const key of EFFECT_PROGRAM_PRESERVE_LIVE_STATE_KEYS) {
+    if (previousState[key] === undefined) {
+      continue;
+    }
+    if (merged === nextState) {
+      merged = { ...(nextState as any) };
+    }
+    merged[key] = previousState[key];
+  }
+  return merged as GameState;
+}
+
 function applyRunResultState(game: any, runResult: EffectProgramRunResult<GameState>): void {
   if (!game || !runResult.state) {
     return;
   }
 
-  (game as any).state = syncEffectProgramStateToGame(game, runResult.state);
+  const previousState = (game as any).state;
+  const synced = syncEffectProgramStateToGame(game, runResult.state);
+  (game as any).state = mergePreservedLiveEffectProgramState(previousState, synced);
   mirrorGraveyardCastingPermissionsToDurable((game as any).state);
   if (typeof (game as any).bumpSeq === 'function') {
     (game as any).bumpSeq();
@@ -330,29 +366,28 @@ function applyRunResultState(game: any, runResult: EffectProgramRunResult<GameSt
 }
 
 function hydrateEffectProgramStateFromGame(game: any, state: GameState): GameState {
-  if (!game || !state || !Array.isArray((state as any).players) || typeof (game as any).libraries?.get !== 'function') {
+  if (!game || !state || !Array.isArray((state as any).players)) {
     return state;
   }
 
-  return {
+  // Player objects often keep stale empty hand/graveyard/exile arrays while the
+  // authoritative copies live on state.zones / game.libraries. Copy those onto
+  // players before Effect Program runs — otherwise syncEffectProgramStateToGame
+  // overwrites zones.graveyard with player.graveyard=[] and cards vanish live.
+  const nextState: GameState = {
     ...state,
-    players: (state.players || []).map(player => {
-      const playerId = String((player as any)?.id || '').trim();
-      if (!playerId) {
-        return player;
-      }
-
-      const library = (game as any).libraries.get(playerId);
-      if (!Array.isArray(library)) {
-        return player;
-      }
-
-      return {
-        ...player,
-        library: library.map(card => ({ ...card })),
-      } as any;
-    }),
+    players: (state.players || []).map((player) => ({ ...player })) as any,
+    zones: { ...((state as any).zones || {}) },
   };
+
+  try {
+    hydrateOracleIRPlayerZonesFromContext(game, nextState);
+  } catch (err) {
+    debugWarn(1, '[EffectProgram] Failed to hydrate player zones from game context:', err);
+    return state;
+  }
+
+  return nextState;
 }
 
 function syncEffectProgramStateToGame(game: any, state: GameState): GameState {

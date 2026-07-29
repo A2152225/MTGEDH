@@ -4990,7 +4990,7 @@ function calculateResponseSpellPriority(
     priority += 45;
   }
 
-  if (typeLine.includes('creature') && (oracleText.includes('flash') || oracleText.includes('reach'))) {
+  if (typeLine.includes('creature') && (/\bflash\b/i.test(oracleText) || oracleText.includes('reach'))) {
     priority += 25;
   }
 

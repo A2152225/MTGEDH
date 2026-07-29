@@ -8,6 +8,7 @@ import {
   buildOptionalEffectKey as buildNormalizedOptionalEffectKey,
   findMayAutoPreferenceEntry,
 } from '../../../../shared/src/optionalEffectKey.js';
+import { resolveNoUntilTargetsChangePreference } from '../../../../shared/src/mayAutoPreference.js';
 
 export function extractOptionalEffectText(step: ResolutionStep): string {
   const stepData = step as any;
@@ -51,18 +52,28 @@ export function resolveOptionalAutoChoice(
   }
 
   const effectKey = buildOptionalEffectKey(step);
+  const effectText = extractOptionalEffectText(step);
   const prefs = state?.mayAutoPreferences?.[playerId] ?? {};
   const prefEntry = findMayAutoPreferenceEntry(prefs, effectKey);
   const autoPref = prefEntry?.value;
+  const storageKey = prefEntry?.key || effectKey;
 
   if (autoPref === 'yes') return 'yes';
   if (autoPref === 'no') return 'no';
+
+  const noUntilChoice = resolveNoUntilTargetsChangePreference(
+    state,
+    playerId,
+    storageKey,
+    autoPref,
+    effectText,
+  );
+  if (noUntilChoice) return noUntilChoice;
 
   if (typeof autoPref === 'number' && autoPref > 0) {
     const remaining = autoPref - 1;
     if (!state.mayAutoPreferences) state.mayAutoPreferences = {};
     if (!state.mayAutoPreferences[playerId]) state.mayAutoPreferences[playerId] = {};
-    const storageKey = prefEntry?.key || effectKey;
     if (remaining <= 0) {
       delete state.mayAutoPreferences[playerId][storageKey];
     } else {

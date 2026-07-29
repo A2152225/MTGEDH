@@ -8229,6 +8229,16 @@ export function App() {
       <MayAbilityModal
         open={resolutionPromptOpen(mayAbilityModalOpen, mayAbilityModalData?.stepId)}
         data={mayAbilityModalData}
+        onMinimize={
+          mayAbilityModalData?.stepId
+            ? () => minimizeResolutionStep(
+                mayAbilityModalData.stepId,
+                mayAbilityModalData.sourceName
+                  ? `${mayAbilityModalData.sourceName}: optional ability`
+                  : 'Optional ability',
+              )
+            : undefined
+        }
         onYes={(stepId) => {
           if (safeView?.id) {
             socket.emit('submitResolutionResponse', {
@@ -8238,6 +8248,7 @@ export function App() {
               cancelled: false,
             });
           }
+          setMinimizedResolutionStep(null);
           setMayAbilityModalOpen(false);
           setMayAbilityModalData(null);
         }}
@@ -8250,6 +8261,7 @@ export function App() {
               cancelled: true,
             });
           }
+          setMinimizedResolutionStep(null);
           setMayAbilityModalOpen(false);
           setMayAbilityModalData(null);
         }}

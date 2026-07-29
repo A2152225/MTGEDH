@@ -2,6 +2,7 @@ export * from "./types.js";
 export * from "./creatureTypes.js";
 export * from "./textUtils.js";
 export * from "./optionalEffectKey.js";
+export * from "./mayAutoPreference.js";
 export * from "./combatLandwalk.js";
 export * from "./counterCombatRestrictions.js";
 export * from "./cardFactory.js";

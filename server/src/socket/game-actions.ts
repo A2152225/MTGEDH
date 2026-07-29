@@ -8976,7 +8976,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      let hasFlash = oracleText.includes("flash");
+      let hasFlash = /\bflash\b/i.test(oracleText);
       const isInstant = typeLine.includes("instant");
       const isInstantOrSorcery = isInstant || typeLine.includes("sorcery");
 

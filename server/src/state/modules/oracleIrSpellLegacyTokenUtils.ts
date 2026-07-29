@@ -36,19 +36,6 @@ export function parseSpellLegacyTokenCreation(
     return null;
   }
 
-  const nameLower = (cardName || '').toLowerCase();
-
-  if (nameLower.includes('summon the school')) {
-    return {
-      count: 2,
-      power: 1,
-      toughness: 1,
-      name: 'Merfolk Wizard',
-      typeLine: 'Token Creature — Merfolk Wizard',
-      colors: ['blue'],
-    };
-  }
-
   const tokenPatterns = [
     /create\s+(a|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+(\d+)\/(\d+)\s+(\w+(?:\s+\w+)*)\s+creature\s+tokens?/i,
     /create\s+(a|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+(\d+)\/(\d+)\s+(\w+)\s+(\w+)\s+creature\s+tokens?/i,

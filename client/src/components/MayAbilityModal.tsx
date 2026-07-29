@@ -11,6 +11,8 @@
  * • Yes / No buttons that submit a Resolution Queue response.
  * • "Always yes" / "Always no" toggles that persist the preference via the
  *   `setMayAutoPreference` socket event so future instances auto-resolve.
+ * • "No until targets change" for destroy-target mays (Aura Shards): skip
+ *   while the legal target set is unchanged, then ask again when it changes.
  * • An "undo preference" link so the player can clear a saved preference
  *   inline without opening a settings panel.
  */
@@ -18,6 +20,10 @@
 import React, { useState } from 'react';
 import { socket } from '../socket';
 import { SHORTCUT_ELIGIBLE_TRIGGERS } from '../../../shared/src/types';
+import {
+  NO_UNTIL_TARGETS_CHANGE_REQUEST,
+  supportsNoUntilTargetsChangePreference,
+} from '../../../shared/src/mayAutoPreference';
 import { ResolutionPromptMinimizeButton } from './ResolutionMinimizedChip';
 
 export interface MayAbilityModalData {
@@ -63,8 +69,12 @@ export function MayAbilityModal({ open, data, onMinimize, onYes, onNo }: MayAbil
   const canPersistTriggerShortcut = data.persistTriggerShortcut === true
     && Boolean(normalizedShortcutCardName)
     && Boolean(SHORTCUT_ELIGIBLE_TRIGGERS[normalizedShortcutCardName]);
+  const canPersistNoUntilTargetsChange = canPersistMayAutoPreference
+    && supportsNoUntilTargetsChangePreference(
+      `${data.effectText || ''} ${data.fullAbilityText || ''}`,
+    );
 
-  const syncAutoPreference = (value: 'yes' | 'no') => {
+  const syncAutoPreference = (value: 'yes' | 'no' | typeof NO_UNTIL_TARGETS_CHANGE_REQUEST) => {
     if (canPersistMayAutoPreference) {
       socket.emit('setMayAutoPreference', {
         gameId: data.gameId,
@@ -73,7 +83,10 @@ export function MayAbilityModal({ open, data, onMinimize, onYes, onNo }: MayAbil
       });
     }
 
-    if (canPersistTriggerShortcut) {
+    if (
+      (value === 'yes' || value === 'no')
+      && canPersistTriggerShortcut
+    ) {
       socket.emit('setTriggerShortcut', {
         gameId: data.gameId,
         cardName: normalizedShortcutCardName,
@@ -82,7 +95,7 @@ export function MayAbilityModal({ open, data, onMinimize, onYes, onNo }: MayAbil
     }
   };
 
-  const handleSetAutoPreference = (value: 'yes' | 'no') => {
+  const handleSetAutoPreference = (value: 'yes' | 'no' | typeof NO_UNTIL_TARGETS_CHANGE_REQUEST) => {
     setSaving(true);
     syncAutoPreference(value);
     if (value === 'yes') {
@@ -293,8 +306,10 @@ export function MayAbilityModal({ open, data, onMinimize, onYes, onNo }: MayAbil
               borderTop: '1px solid rgba(255,255,255,0.08)',
               paddingTop: 12,
               display: 'flex',
+              flexWrap: 'wrap',
               justifyContent: 'center',
-              gap: 16,
+              gap: 12,
+              rowGap: 8,
             }}
           >
             <button
@@ -332,6 +347,28 @@ export function MayAbilityModal({ open, data, onMinimize, onYes, onNo }: MayAbil
             >
               Always No
             </button>
+            {canPersistNoUntilTargetsChange && (
+              <>
+                <span style={{ color: '#555', fontSize: 12 }}>·</span>
+                <button
+                  disabled={saving}
+                  onClick={() => handleSetAutoPreference(NO_UNTIL_TARGETS_CHANGE_REQUEST)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#c8a87c',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    padding: 0,
+                    opacity: saving ? 0.5 : 1,
+                  }}
+                  title="Say No now and keep skipping while the legal artifact/enchantment targets stay the same. Ask again when a target is added or removed."
+                >
+                  No until targets change
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>

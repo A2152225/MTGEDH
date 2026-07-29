@@ -31,7 +31,8 @@ import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan, getCostAdjust
 import { collectStaticEffectSources } from "./static-effect-sources";
 import { creatureHasHaste, getEffectiveAdditionalCost } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
-import { cardManaValue } from "../utils";
+import { cardManaValue, parseWordNumber } from "../utils";
+import { findPermanentsWithCreatureType } from "../../../../shared/src/creatureTypes.js";
 import { getCurrentGoaders } from "./goad-effects.js";
 import { isAbilityActivationProhibitedByChosenName, isSpellCastingProhibitedByChosenName } from "./chosen-name-restrictions.js";
 import { canActivateLoyaltyAtInstantSpeed } from "./triggered-abilities.js";
@@ -1711,15 +1712,15 @@ export function hasFlashOrInstant(card: any): boolean {
   if (!card) return false;
   
   const typeLine = (card.type_line || "").toLowerCase();
-  const oracleText = (card.oracle_text || "").toLowerCase();
+  const oracleText = (card.oracle_text || card.oracleText || "").toLowerCase();
   
   // Check if it's an instant
   if (typeLine.includes("instant")) {
     return true;
   }
   
-  // Check if it has flash keyword
-  if (oracleText.includes("flash")) {
+  // Keyword Flash only — do not match "Flashback" (substring false positive).
+  if (/\bflash\b/i.test(oracleText)) {
     return true;
   }
   
@@ -2467,6 +2468,27 @@ function hasGraveyardActivatedAbility(
       return true;
     }
   }
+
+  // Non-mana tap-creature costs from graveyard (Summon the School, etc.):
+  // "Tap four untapped Merfolk you control: Return this card from your graveyard to your hand."
+  const tapCreatureReturnMatch = String(oracleText).match(
+    /tap\s+(\w+|\d+)\s+untapped\s+(\w+)s?\s+you\s+control\s*:\s*return\s+(?:this\s+card|~|it|[^.]+?)\s+from\s+(?:your\s+)?graveyard/i,
+  );
+  if (tapCreatureReturnMatch) {
+    const tapCount = Math.max(1, parseWordNumber(tapCreatureReturnMatch[1], 1));
+    const creatureType = String(tapCreatureReturnMatch[2] || '').toLowerCase();
+    if (creatureType) {
+      const untapped = findPermanentsWithCreatureType(
+        Array.isArray(state.battlefield) ? state.battlefield : [],
+        String(playerId),
+        creatureType,
+        true,
+      );
+      if (untapped.length >= tapCount) {
+        return true;
+      }
+    }
+  }
   
   return false;
 }
@@ -2523,10 +2545,11 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
           continue;
         }
         
-        // Skip this card if it's also on the battlefield (shouldn't happen, but defensive check)
-        // This ensures abilities like Magma Phoenix's graveyard ability are ONLY activatable from graveyard
-        const isOnBattlefield = battlefield.some((perm: any) => 
-          perm.card?.id === card.id || perm.card?.name === card.name
+        // Skip this card if the same object id is also on the battlefield (defensive).
+        // Match by id only — name matching incorrectly suppresses singleton GY abilities.
+        const cardId = String(card?.id || '').trim();
+        const isOnBattlefield = Boolean(cardId) && battlefield.some((perm: any) =>
+          String(perm?.card?.id || '') === cardId || String(perm?.id || '') === cardId
         );
         
         if (isOnBattlefield) {

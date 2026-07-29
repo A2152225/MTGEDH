@@ -1,3 +1,8 @@
+import {
+  isMayAutoPreferenceStoredValue,
+  type MayAutoPreferenceStored,
+} from './mayAutoPreference.js';
+
 /**
  * Normalized keys for per-effect "you may" auto-preferences.
  * Strips trailing punctuation so "gain 1 life" and "gain 1 life." match.
@@ -15,19 +20,19 @@ export function buildOptionalEffectKey(sourceName: string, effectText: string): 
 }
 
 export function findMayAutoPreferenceEntry(
-  prefs: Record<string, 'yes' | 'no' | number | undefined> | undefined,
+  prefs: Record<string, MayAutoPreferenceStored | undefined> | undefined,
   effectKey: string,
-): { key: string; value: 'yes' | 'no' | number } | undefined {
+): { key: string; value: MayAutoPreferenceStored } | undefined {
   if (!prefs) return undefined;
 
   const direct = prefs[effectKey];
-  if (direct === 'yes' || direct === 'no' || (typeof direct === 'number' && direct > 0)) {
+  if (isMayAutoPreferenceStoredValue(direct)) {
     return { key: effectKey, value: direct };
   }
 
   const normalizedTarget = normalizeOptionalEffectKeyPart(effectKey);
   for (const [key, value] of Object.entries(prefs)) {
-    if (value !== 'yes' && value !== 'no' && !(typeof value === 'number' && value > 0)) {
+    if (!isMayAutoPreferenceStoredValue(value)) {
       continue;
     }
     if (normalizeOptionalEffectKeyPart(key) === normalizedTarget) {

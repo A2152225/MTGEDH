@@ -1653,6 +1653,64 @@ function enforceSorcerySpeedGraveyardAbility(socket: any, game: any, playerId: s
   return true;
 }
 
+/**
+ * Flashback / jump-start / etc. use the card's normal cast timing (CR 702.34a).
+ * "Flashback" must not be treated as the Flash keyword.
+ * Kept local to avoid a can-respond ↔ game-actions ↔ interaction import cycle.
+ */
+function cardHasFlashOrInstantForGraveyardCast(card: any): boolean {
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  if (typeLine.includes('instant')) return true;
+  const oracleText = String(card?.oracle_text || card?.oracleText || '');
+  return /\bflash\b/i.test(oracleText);
+}
+
+function enforceGraveyardSpellCastTiming(params: {
+  game: any;
+  playerId: string;
+  card: any;
+  abilityId: string;
+  emitError: (payload: { code: string; message: string }) => void;
+}): boolean {
+  if (cardHasFlashOrInstantForGraveyardCast(params.card)) {
+    return true;
+  }
+
+  const phase = String((params.game.state as any)?.phase || '');
+  const step = String((params.game.state as any)?.step || '');
+  const isMainPhase = phase.toLowerCase().includes('main') || step.toUpperCase().includes('MAIN');
+  const stack = Array.isArray(params.game.state?.stack) ? params.game.state.stack : [];
+  const activePlayer = (params.game.state as any)?.turnPlayer || (params.game.state as any)?.activePlayer;
+  const abilityLabel = String(params.abilityId || 'graveyard cast');
+  const cardName = String(params.card?.name || 'This spell');
+
+  if (activePlayer !== params.playerId) {
+    params.emitError({
+      code: 'SORCERY_TIMING',
+      message: `${cardName} (${abilityLabel}) can only be cast during your turn.`,
+    });
+    return false;
+  }
+
+  if (!isMainPhase) {
+    params.emitError({
+      code: 'SORCERY_TIMING',
+      message: `${cardName} (${abilityLabel}) can only be cast during a main phase (it doesn't have flash).`,
+    });
+    return false;
+  }
+
+  if (stack.length > 0) {
+    params.emitError({
+      code: 'SORCERY_TIMING',
+      message: `${cardName} (${abilityLabel}) can only be cast when the stack is empty (it doesn't have flash).`,
+    });
+    return false;
+  }
+
+  return true;
+}
+
 function isBattlefieldSorcerySpeedWindow(game: any, playerId: string): boolean {
   const state = game?.state || {};
   if (String(state.turnPlayer || '') !== String(playerId || '')) return false;
@@ -2323,6 +2381,18 @@ export function continueCastFromGraveyardAbility(params: {
   const normalizedAbilityId = String(params.abilityId || '').trim().toLowerCase();
   if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast'].includes(normalizedAbilityId) && activationCost.hasAbility === false) {
     params.emitError({ code: 'ABILITY_NOT_AVAILABLE', message: `${cardName} does not currently have ${normalizedAbilityId}.` });
+    return 'error';
+  }
+  if (
+    ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast', 'harmonize'].includes(normalizedAbilityId)
+    && !enforceGraveyardSpellCastTiming({
+      game: params.game,
+      playerId: String(params.playerId),
+      card,
+      abilityId: normalizedAbilityId,
+      emitError: params.emitError,
+    })
+  ) {
     return 'error';
   }
   const recordedManaCost = String(activationCost.manaCost || '').trim();
@@ -4197,7 +4267,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Check for creature tap costs (Summon the School style: "Tap four untapped Merfolk you control:")
       // Pattern: "Tap X untapped [Type] you control: Return this card from your graveyard to your hand"
-      const tapCreatureCostMatch = oracleText.match(/tap (\w+|\d+) untapped (\w+)(?:s)? you control:\s*return\s+(?:this card|~|it)\s+from\s+(?:your\s+)?graveyard/i);
+      const tapCreatureCostMatch = oracleText.match(/tap (\w+|\d+) untapped (\w+)(?:s)? you control:\s*return\s+(?:this card|~|it|[^.]+?)\s+from\s+(?:your\s+)?graveyard/i);
       if (tapCreatureCostMatch) {
         const countStr = tapCreatureCostMatch[1];
         const creatureType = tapCreatureCostMatch[2].toLowerCase();
