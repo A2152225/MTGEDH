@@ -32,7 +32,7 @@ function getGroupPrototype(game: any, groupId: string): any | null {
   return battlefield.find((perm: any) => String(perm?.id || '') === originalId) || null;
 }
 
-function matchesGroupPrototype(perm: any, prototype: any): boolean {
+function matchesGroupPrototype(perm: any, prototype: any, options?: { ignoreTapState?: boolean }): boolean {
   if (!perm || !prototype) return false;
   if (perm.controller !== prototype.controller) return false;
   if (perm.isToken !== true) return false;
@@ -41,8 +41,10 @@ function matchesGroupPrototype(perm: any, prototype: any): boolean {
   const permName = String(perm.card?.name || '');
   if (prototypeName && permName !== prototypeName) return false;
 
-  if (!!perm.tapped !== !!prototype.tapped) return false;
-  if (!!perm.summoningSickness !== !!prototype.summoningSickness) return false;
+  if (!options?.ignoreTapState) {
+    if (!!perm.tapped !== !!prototype.tapped) return false;
+    if (!!perm.summoningSickness !== !!prototype.summoningSickness) return false;
+  }
 
   const prototypePower = prototype.effectivePower ?? prototype.basePower ?? prototype.card?.power;
   const permPower = perm.effectivePower ?? perm.basePower ?? perm.card?.power;
@@ -58,20 +60,29 @@ export function rebuildTokenGroupMembersFromBattlefield(game: any, groupId: stri
   const battlefield = game?.state?.battlefield || [];
   const groupEntry = battlefield.find((perm: any) => String(perm?.id || '') === groupId);
   if (Array.isArray(groupEntry?.groupedTokenIds) && groupEntry.groupedTokenIds.length > 0) {
-    return groupEntry.groupedTokenIds.map((id: unknown) => String(id)).filter(Boolean);
+    const ids = groupEntry.groupedTokenIds.map((id: unknown) => String(id)).filter(Boolean);
+    registerTokenGroupMembers(game, groupId, ids);
+    return ids;
   }
 
   const prototype = getGroupPrototype(game, groupId);
   if (!prototype) return [];
 
-  return battlefield
+  // Ignore live tap/sick on the prototype: after a partial tap (or post-restart),
+  // the named original id may already be tapped while siblings are still untapped.
+  const members = battlefield
     .filter((perm: any) => {
       if (!perm || perm.isGroupedTokens === true) return false;
       if (String(perm?.id || '').startsWith('group_')) return false;
-      return matchesGroupPrototype(perm, prototype);
+      return matchesGroupPrototype(perm, prototype, { ignoreTapState: true });
     })
     .map((perm: any) => String(perm.id))
     .filter(Boolean);
+
+  if (members.length > 0) {
+    registerTokenGroupMembers(game, groupId, members);
+  }
+  return members;
 }
 
 export function parseGroupedPermanentRef(refId: string): { groupId: string; index?: number } | null {
@@ -132,7 +143,8 @@ export function resolveGroupedPermanentRef(
   if (parsed.index !== undefined && Number.isFinite(parsed.index) && parsed.index >= 0) {
     const indexedMember = members[parsed.index];
     if (indexedMember) {
-      return tryMember(indexedMember);
+      const indexed = tryMember(indexedMember);
+      if (indexed) return indexed;
     }
   }
 
@@ -143,7 +155,8 @@ export function resolveGroupedPermanentRef(
 
   if (!prototype) return null;
   for (const perm of battlefield) {
-    if (!matchesGroupPrototype(perm, prototype)) continue;
+    // Fall back across tap/sick drift between emit grouping and live board.
+    if (!matchesGroupPrototype(perm, prototype, { ignoreTapState: true })) continue;
     const resolved = tryMember(String(perm.id));
     if (resolved) return resolved;
   }

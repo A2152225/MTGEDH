@@ -1109,6 +1109,8 @@ function optimizeBattlefieldTokensForEmit(
         isToken: true,
         id: groupId,
         originalId: group.ids[0],
+        // Client can use real ids when present; server still resolves virtual refs after restart.
+        groupedTokenIds: group.ids.slice(),
       });
     }
   }

@@ -133,4 +133,83 @@ describe('bulkTapPermanentsForMana', () => {
     expect(manaStep.selectionKind).toBe('distribution');
     expect(Number(manaStep.totalAmount || manaStep.amount)).toBe(20);
   });
+
+  it('resolves emit-side virtual group ids after _tokenGroupMembers is cleared (restart)', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const tokenIds = Array.from({ length: 12 }, (_, i) => `merfolk_token_${i}`);
+    const groupId = `group_${tokenIds[0]}`;
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'cryptolith_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'cryptolith_card',
+          name: 'Cryptolith Rite',
+          type_line: 'Enchantment',
+          oracle_text: 'Creatures you control have "{T}: Add one mana of any color."',
+        },
+      },
+      ...tokenIds.map((id) => ({
+        id,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        isToken: true,
+        basePower: 1,
+        baseToughness: 1,
+        card: {
+          id: `${id}_card`,
+          name: 'Merfolk Wizard',
+          type_line: 'Token Creature — Merfolk Wizard',
+          oracle_text: '',
+          power: '1',
+          toughness: '1',
+        },
+      })),
+    ];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+
+    // Simulate post-restart: no in-memory group registry (emit rebuilds via prototype match).
+    delete (game as any)._tokenGroupMembers;
+
+    const virtualIds = tokenIds.map((_, i) => `${groupId}_virtual_${i}`);
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket({ playerId, gameId }, emitted);
+    registerInteractionHandlers(io, socket);
+    registerResolutionHandlers(io, socket);
+
+    await handlers['bulkTapPermanentsForMana']({
+      gameId,
+      permanentIds: virtualIds,
+      count: 8,
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    const tappedTokens = battlefield.filter((p: any) => tokenIds.includes(p.id) && p.tapped === true);
+    expect(tappedTokens).toHaveLength(8);
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId);
+    const manaStep = steps.find((step: any) => step.type === ResolutionStepType.MANA_COLOR_SELECTION) as any;
+    expect(manaStep).toBeDefined();
+    expect(manaStep.selectionKind).toBe('distribution');
+    expect(Number(manaStep.totalAmount || manaStep.amount)).toBe(8);
+  });
 });

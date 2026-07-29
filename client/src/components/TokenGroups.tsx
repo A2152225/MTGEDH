@@ -320,8 +320,13 @@ export function TokenGroups(props: {
   );
 }
 
-function getRealTokenIds(ids: string[]): string[] {
-  return ids.filter((id) => id && !String(id).includes('_virtual_'));
+function getManaTapIds(ids: string[]): string[] {
+  // Include emit-side virtual ids (group_*_virtual_N). Server resolves them to real members.
+  return ids.filter((id) => Boolean(id));
+}
+
+function getGroupManaTapCapacity(ids: string[]): number {
+  return getManaTapIds(ids).length;
 }
 
 // Extracted content component for reuse
@@ -508,15 +513,15 @@ function TokenGroupsContent(props: {
               {/* Action buttons */}
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                 {(() => {
-                  const realIds = getRealTokenIds(g.ids);
+                  const manaTapIds = getManaTapIds(g.ids);
                   const canTapForMana = Boolean(
                     (onTapForMana || onBulkTapForMana)
-                    && realIds.length > 0
+                    && manaTapIds.length > 0
                     && !g.tapped
                     && !g.summoningSick
                   );
                   if (!onTapForMana && !onBulkTapForMana) return null;
-                  const maxCount = realIds.length;
+                  const maxCount = getGroupManaTapCapacity(g.ids);
                   const rawCount = bulkManaCounts[g.key];
                   const selectedCount = Math.max(
                     1,
@@ -528,7 +533,7 @@ function TokenGroupsContent(props: {
                         <button
                           onClick={() => {
                             if (!canTapForMana) return;
-                            onTapForMana(realIds[0]);
+                            onTapForMana(manaTapIds[0]);
                           }}
                           disabled={!canTapForMana}
                           style={{
@@ -546,8 +551,8 @@ function TokenGroupsContent(props: {
                               ? 'Already tapped'
                               : g.summoningSick
                                 ? 'Summoning sickness'
-                                : realIds.length === 0
-                                  ? 'No individual token id available'
+                                : manaTapIds.length === 0
+                                  ? 'No token available'
                                   : 'Tap one token for mana'
                           }
                         >
@@ -580,7 +585,7 @@ function TokenGroupsContent(props: {
                           <button
                             onClick={() => {
                               if (!canTapForMana) return;
-                              onBulkTapForMana(realIds, selectedCount);
+                              onBulkTapForMana(manaTapIds, selectedCount);
                             }}
                             disabled={!canTapForMana}
                             style={{
@@ -601,7 +606,7 @@ function TokenGroupsContent(props: {
                             onClick={() => {
                               if (!canTapForMana) return;
                               setBulkManaCounts((prev) => ({ ...prev, [g.key]: maxCount }));
-                              onBulkTapForMana(realIds, maxCount);
+                              onBulkTapForMana(manaTapIds, maxCount);
                             }}
                             disabled={!canTapForMana}
                             style={{
@@ -699,8 +704,7 @@ function TokenGroupsContent(props: {
                 {g.ids.map(id => {
                   const hl = highlightTargets?.has(id) ?? false;
                   const sel = selectedTargets?.has(id) ?? false;
-                  const isRealId = !String(id).includes('_virtual_');
-                  const canTapThis = Boolean(onTapForMana && isRealId && !g.tapped && !g.summoningSick);
+                  const canTapThis = Boolean(onTapForMana && id && !g.tapped && !g.summoningSick);
                   return (
                     <div
                       key={id}

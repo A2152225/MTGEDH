@@ -16,6 +16,11 @@ import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLi
 import { movePermanentToGraveyard, trackPermanentSacrificedThisTurn } from "../state/modules/counters_tokens.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { queueTapTriggersForTappedPermanents } from "../state/modules/tap-trigger-queue.js";
+import {
+  resolveGroupedPermanentRef,
+  parseGroupedPermanentRef,
+  getTokenGroupMembers,
+} from "./tokenGroupResolve.js";
 import { queueSacrificeTriggers } from "../state/modules/triggers/sacrifice.js";
 import { queueSelfETBTriggersForPermanent, triggerETBEffectsForToken } from "../state/modules/triggerEtbEntryEffects.js";
 import { triggerETBEffectsForPermanent } from "../state/modules/triggerEtbPermanentEffects.js";
@@ -4953,7 +4958,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     "tapPermanent",
     (payload?: { gameId?: unknown; permanentId?: unknown }) => {
       const gameIdRaw = payload?.gameId;
-      const permanentId = payload?.permanentId;
+      let permanentId = payload?.permanentId;
 
       if (!permanentId || typeof permanentId !== 'string') return;
 
@@ -4962,8 +4967,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       const { gameId, game, pid } = ctx;
       const battlefield = getBattlefield(game);
-    
-    const permanent = battlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
+
+    const resolvedPermanentId = resolveGroupedPermanentRef(game, pid as any, permanentId) || permanentId;
+    const permanent = battlefield.find((p: any) => p?.id === resolvedPermanentId && p?.controller === pid);
     if (!permanent) {
       socket.emit("error", {
         code: "PERMANENT_NOT_FOUND",
@@ -4971,6 +4977,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       return;
     }
+    permanentId = String(permanent.id);
     
     if ((permanent as any).tapped) {
       socket.emit("error", {
@@ -5556,19 +5563,37 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (!Array.isArray(permanentIdsRaw) || permanentIdsRaw.length === 0) return;
 
       const requestedCount = Number(payload?.count);
-      const count = Number.isFinite(requestedCount) && requestedCount > 0
-        ? Math.min(Math.floor(requestedCount), permanentIdsRaw.length)
-        : permanentIdsRaw.length;
 
       const ctx = ensureInRoomAndSeated(payload?.gameId);
       if (!ctx) return;
 
       const { gameId, game, pid } = ctx;
       const battlefield = getBattlefield(game);
-      const candidateIds = permanentIdsRaw
+      const candidateRefs = permanentIdsRaw
         .map((id) => String(id || '').trim())
-        .filter(Boolean)
-        .filter((id) => !id.includes('_virtual_'));
+        .filter(Boolean);
+
+      // Prefer an explicit group id when the client sends virtual refs from emit-side grouping.
+      const groupRef = candidateRefs.find((id) => id.startsWith('group_') || id.includes('_virtual_'));
+      const parsedGroup = groupRef ? parseGroupedPermanentRef(groupRef) : null;
+      const groupId = parsedGroup?.groupId || (
+        candidateRefs.length === 1 && String(candidateRefs[0]).startsWith('group_')
+          ? String(candidateRefs[0])
+          : ''
+      );
+
+      const groupMemberCount = groupId ? getTokenGroupMembers(game, groupId).length : 0;
+      const maxCount = groupId
+        ? Math.max(groupMemberCount, candidateRefs.length)
+        : candidateRefs.length;
+      const count = Number.isFinite(requestedCount) && requestedCount > 0
+        ? Math.min(Math.floor(requestedCount), maxCount)
+        : maxCount;
+
+      const usedIds = new Set<string>();
+      const resolveNextId = (ref: string): string | null => {
+        return resolveGroupedPermanentRef(game, pid as any, ref, { usedIds });
+      };
 
       const tappedIds: string[] = [];
       let sampleAbility: ReturnType<typeof getManaAbilitiesForPermanent>[number] | null = null;
@@ -5577,11 +5602,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       let sampleImage: string | undefined;
       let manaMultiplier = 1;
 
-      for (const permanentId of candidateIds) {
-        if (tappedIds.length >= count) break;
-
-        const permanent = battlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
-        if (!permanent || (permanent as any).tapped) continue;
+      const tryTapResolvedId = (resolvedId: string): boolean => {
+        if (!resolvedId || tappedIds.length >= count || usedIds.has(resolvedId)) return false;
+        const permanent = battlefield.find((p: any) => p?.id === resolvedId && p?.controller === pid);
+        if (!permanent || (permanent as any).tapped) return false;
 
         const card = (permanent as any).card;
         const cardName = String(card?.name || 'Unknown');
@@ -5591,7 +5615,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
         if (isCreature && !isLand) {
           if ((permanent as any).summoningSickness && !creatureHasHaste(permanent, battlefield, pid)) {
-            continue;
+            return false;
           }
         }
 
@@ -5600,19 +5624,45 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             const cost = String(ability?.cost || '').toLowerCase().replace(/\s+/g, '');
             return cost === '{t}' || cost === 't';
           });
-        if (manaAbilities.length === 0) continue;
+        if (manaAbilities.length === 0) return false;
 
         const ability = manaAbilities[0];
         if (!sampleAbility) {
           sampleAbility = ability;
           sampleCardName = cardName;
-          samplePermanentId = permanentId;
+          samplePermanentId = resolvedId;
           sampleImage = (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal;
           manaMultiplier = Math.max(1, Number(getManaMultiplier(game.state, permanent, pid) || 1));
         }
 
         (permanent as any).tapped = true;
-        tappedIds.push(permanentId);
+        usedIds.add(resolvedId);
+        tappedIds.push(resolvedId);
+        return true;
+      };
+
+      if (groupId) {
+        for (let i = 0; i < count; i += 1) {
+          const resolved =
+            resolveNextId(`${groupId}_virtual_${i}`)
+            || resolveNextId(groupId);
+          if (!resolved) break;
+          if (!tryTapResolvedId(resolved)) {
+            // Skip unusable members so subsequent virtual indexes can resolve.
+            usedIds.add(resolved);
+          }
+        }
+      } else {
+        for (const ref of candidateRefs) {
+          if (tappedIds.length >= count) break;
+          const resolved = resolveNextId(ref) || (
+            battlefield.some((p: any) => p?.id === ref && p?.controller === pid) ? ref : null
+          );
+          if (!resolved) continue;
+          if (!tryTapResolvedId(resolved)) {
+            usedIds.add(resolved);
+          }
+        }
       }
 
       if (tappedIds.length === 0 || !sampleAbility) {
