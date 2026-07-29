@@ -1,11 +1,11 @@
 /**
  * ManaDistributionModal.tsx
- * 
+ *
  * Modal for distributing mana among multiple colors (e.g., Selvala, Heart of the Wilds)
  * Allows player to choose how to distribute X mana among W, U, B, R, G
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { ResolutionPromptMinimizeButton } from './ResolutionMinimizedChip';
 
 export interface ManaDistributionModalProps {
@@ -38,6 +38,12 @@ const COLOR_SYMBOLS: Record<string, string> = {
   G: '🌿',
 };
 
+function emptyDistribution(colors: string[]): Record<string, number> {
+  const initial: Record<string, number> = {};
+  for (const color of colors) initial[color] = 0;
+  return initial;
+}
+
 export function ManaDistributionModal({
   open,
   cardName,
@@ -50,30 +56,30 @@ export function ManaDistributionModal({
   onConfirm,
   onCancel,
 }: ManaDistributionModalProps) {
-  // State: distribution[color] = amount
-  const [distribution, setDistribution] = useState<Record<string, number>>(() => {
-    const initial: Record<string, number> = {};
-    availableColors.forEach(c => initial[c] = 0);
-    return initial;
-  });
+  const [distribution, setDistribution] = useState<Record<string, number>>(() =>
+    emptyDistribution(availableColors),
+  );
 
-  // Calculate remaining mana
+  // Reset when a new prompt opens (component stays mounted in App).
+  useEffect(() => {
+    if (!open) return;
+    setDistribution(emptyDistribution(availableColors));
+  }, [open, totalAmount, availableColors.join('|')]);
+
   const allocated = useMemo(() => {
     return Object.values(distribution).reduce((sum, val) => sum + val, 0);
   }, [distribution]);
 
   const remaining = totalAmount - allocated;
 
-  // Increment a color
   const increment = useCallback((color: string) => {
     if (remaining > 0) {
-      setDistribution(prev => ({ ...prev, [color]: (prev[color] || 0) + 1 }));
+      setDistribution((prev) => ({ ...prev, [color]: (prev[color] || 0) + 1 }));
     }
   }, [remaining]);
 
-  // Decrement a color
   const decrement = useCallback((color: string) => {
-    setDistribution(prev => {
+    setDistribution((prev) => {
       const current = prev[color] || 0;
       if (current > 0) {
         return { ...prev, [color]: current - 1 };
@@ -82,15 +88,25 @@ export function ManaDistributionModal({
     });
   }, []);
 
-  // Set a specific amount
   const setValue = useCallback((color: string, value: number) => {
-    const val = Math.max(0, Math.min(value, totalAmount));
-    setDistribution(prev => ({ ...prev, [color]: val }));
-  }, [totalAmount]);
+    const otherAllocated = Object.entries(distribution)
+      .filter(([key]) => key !== color)
+      .reduce((sum, [, val]) => sum + (Number(val) || 0), 0);
+    const maxForColor = Math.max(0, totalAmount - otherAllocated);
+    const val = Math.max(0, Math.min(Number(value) || 0, maxForColor));
+    setDistribution((prev) => ({ ...prev, [color]: val }));
+  }, [distribution, totalAmount]);
 
-  // Quick fill all remaining to one color
+  /** Put the entire amount into one color (typical for bulk Cryptolith taps). */
+  const assignAllToColor = useCallback((color: string) => {
+    const next = emptyDistribution(availableColors);
+    next[color] = totalAmount;
+    setDistribution(next);
+  }, [availableColors, totalAmount]);
+
   const fillColor = useCallback((color: string) => {
-    setDistribution(prev => ({ ...prev, [color]: (prev[color] || 0) + remaining }));
+    if (remaining <= 0) return;
+    setDistribution((prev) => ({ ...prev, [color]: (prev[color] || 0) + remaining }));
   }, [remaining]);
 
   const handleConfirm = useCallback(() => {
@@ -139,16 +155,32 @@ export function ManaDistributionModal({
 
         {remaining > 0 && (
           <div style={{ marginBottom: 12, padding: 8, background: '#2a2a3e', borderRadius: 6, fontSize: 13, color: '#ffcc00' }}>
-            ⚠️ You must allocate all {totalAmount} mana before confirming
+            ⚠️ Allocate all {totalAmount} mana (click a color name to put everything there), then Confirm
           </div>
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-          {availableColors.map(color => (
+          {availableColors.map((color) => (
             <div key={color} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ flex: 1, fontSize: 15 }}>
-                {COLOR_SYMBOLS[color]} {COLOR_NAMES[color]}
-              </div>
+              <button
+                type="button"
+                onClick={() => assignAllToColor(color)}
+                style={{
+                  flex: 1,
+                  fontSize: 15,
+                  textAlign: 'left',
+                  background: distribution[color] === totalAmount && totalAmount > 0 ? 'rgba(43,108,176,0.35)' : 'transparent',
+                  border: '1px solid #444',
+                  borderRadius: 4,
+                  color: '#e0e0e0',
+                  padding: '6px 8px',
+                  cursor: 'pointer',
+                }}
+                title={`Put all ${totalAmount} mana into ${COLOR_NAMES[color] || color}`}
+              >
+                {COLOR_SYMBOLS[color]} {COLOR_NAMES[color] || color}
+                {totalAmount > 1 ? ' (all)' : ''}
+              </button>
               <button
                 onClick={() => decrement(color)}
                 disabled={distribution[color] === 0}

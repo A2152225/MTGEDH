@@ -5213,18 +5213,38 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       const rawSelections = response.selections as any;
 
       if (selectionKind === 'distribution') {
-        if (!rawSelections || typeof rawSelections !== 'object' || Array.isArray(rawSelections)) {
+        // Allow a single color name/code as shorthand for "put the entire amount in that color"
+        // (matches AnyColorManaModal click UX when amount > 1).
+        if (typeof rawSelections === 'string') {
+          const poolKeyToCode: Record<string, string> = {
+            white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G', colorless: 'C',
+          };
+          const chosenKey = String(rawSelections);
+          const chosenCode = poolKeyToCode[chosenKey]
+            || (['W', 'U', 'B', 'R', 'G', 'C'].includes(chosenKey.toUpperCase()) ? chosenKey.toUpperCase() : '');
+          const totalAmount = Number(stepAny.totalAmount ?? stepAny.amount ?? 0);
+          const availableColors: string[] = Array.isArray(stepAny.availableColors)
+            ? stepAny.availableColors
+            : (Array.isArray(stepAny.allowedColors) ? stepAny.allowedColors : ['W', 'U', 'B', 'R', 'G']);
+          if (!chosenCode || (availableColors.length > 0 && !availableColors.includes(chosenCode))) {
+            socket.emit("error", { code: "INVALID_COLOR", message: `Invalid color selection (${chosenKey})` });
+            return;
+          }
+          // Normalize onto the response object so handleStepResponse sees a distribution map.
+          (response as any).selections = { [chosenCode]: Math.max(0, totalAmount) };
+        } else if (!rawSelections || typeof rawSelections !== 'object' || Array.isArray(rawSelections)) {
           socket.emit("error", { code: "INVALID_SELECTION", message: "Invalid distribution format" });
           return;
         }
 
+        const distributionSelections = (response as any).selections as Record<string, unknown>;
         const totalAmount = Number(stepAny.totalAmount ?? stepAny.amount ?? 0);
         const availableColors: string[] = Array.isArray(stepAny.availableColors)
           ? stepAny.availableColors
           : (Array.isArray(stepAny.allowedColors) ? stepAny.allowedColors : ['W', 'U', 'B', 'R', 'G']);
 
         let totalDistributed = 0;
-        for (const [color, amountRaw] of Object.entries(rawSelections)) {
+        for (const [color, amountRaw] of Object.entries(distributionSelections)) {
           if (!availableColors.includes(String(color))) {
             socket.emit("error", { code: "INVALID_COLOR", message: `${String(color)} is not an available color for this ability` });
             return;
@@ -9315,6 +9335,29 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('title' in step) fields.title = (step as any).title;
       break;
 
+    case ResolutionStepType.MANA_COLOR_SELECTION:
+      if ('selectionKind' in step) fields.selectionKind = (step as any).selectionKind;
+      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('amount' in step) fields.amount = (step as any).amount;
+      if ('totalAmount' in step) fields.totalAmount = (step as any).totalAmount;
+      if ('allowedColors' in step) fields.allowedColors = (step as any).allowedColors;
+      if ('availableColors' in step) fields.availableColors = (step as any).availableColors;
+      if ('amountByColor' in step) fields.amountByColor = (step as any).amountByColor;
+      if ('dynamicAmountSource' in step) fields.dynamicAmountSource = (step as any).dynamicAmountSource;
+      if ('chosenCreatureType' in step) fields.chosenCreatureType = (step as any).chosenCreatureType;
+      if ('manaMultiplier' in step) fields.manaMultiplier = (step as any).manaMultiplier;
+      if ('manaRestriction' in step) fields.manaRestriction = (step as any).manaRestriction;
+      if ('manaRestrictedTo' in step) fields.manaRestrictedTo = (step as any).manaRestrictedTo;
+      if ('message' in step) fields.message = (step as any).message;
+      if ('singleColor' in step) fields.singleColor = (step as any).singleColor;
+      if ('isStorageCounter' in step) fields.isStorageCounter = (step as any).isStorageCounter;
+      if ('counterType' in step) fields.counterType = (step as any).counterType;
+      if ('removeCounterCount' in step) fields.removeCounterCount = (step as any).removeCounterCount;
+      if ('abilityId' in step) fields.abilityId = (step as any).abilityId;
+      if ('bulkTappedPermanentIds' in step) fields.bulkTappedPermanentIds = (step as any).bulkTappedPermanentIds;
+      break;
+
     case ResolutionStepType.STATION_CREATURE_SELECTION:
       if ('station' in step) fields.station = (step as any).station;
       if ('creatures' in step) fields.creatures = (step as any).creatures;
@@ -11691,7 +11734,22 @@ async function handleStepResponse(
       const addedMana: Record<string, number> = {};
 
       if (selectionKind === 'distribution') {
-        const distribution = response.selections as any;
+        let distribution = response.selections as any;
+        // Same shorthand as validate-before-complete: a single color puts the full amount there.
+        if (typeof distribution === 'string') {
+          const chosenKey = String(distribution);
+          const chosenCode = poolKeyToCode[chosenKey]
+            || (['W', 'U', 'B', 'R', 'G', 'C'].includes(chosenKey.toUpperCase()) ? chosenKey.toUpperCase() : '');
+          const totalAmount = Number(stepData.totalAmount ?? stepData.amount ?? 0);
+          if (!chosenCode) {
+            emitToPlayer(io, pid as any, 'error', {
+              code: 'INVALID_COLOR',
+              message: `Invalid color selection (${chosenKey})`,
+            });
+            break;
+          }
+          distribution = { [chosenCode]: Math.max(0, totalAmount) };
+        }
         if (!distribution || typeof distribution !== 'object' || Array.isArray(distribution)) {
           emitToPlayer(io, pid as any, 'error', {
             code: 'INVALID_SELECTION',
@@ -11770,7 +11828,9 @@ async function handleStepResponse(
         const manaParts: string[] = [];
         for (const [color, amountRaw] of Object.entries(distribution)) {
           const amount = Number(amountRaw || 0);
-          if (amount > 0) manaParts.push(`{${String(color).repeat(amount)}}`);
+          if (amount > 0) {
+            manaParts.push(amount > 8 ? `${amount}{${color}}` : `{${String(color).repeat(amount)}}`);
+          }
         }
 
         io.to(gameId).emit('chat', {

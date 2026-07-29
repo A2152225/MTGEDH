@@ -212,4 +212,122 @@ describe('bulkTapPermanentsForMana', () => {
     expect(manaStep.selectionKind).toBe('distribution');
     expect(Number(manaStep.totalAmount || manaStep.amount)).toBe(8);
   });
+
+  it('sanitizeStepForClient preserves selectionKind so the client opens the distribution UI', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_COLOR_SELECTION,
+      playerId: playerId as any,
+      sourceId: 'tok_0',
+      sourceName: 'Merfolk Wizard',
+      description: 'Choose how to distribute 100 mana',
+      mandatory: true,
+      selectionKind: 'distribution',
+      permanentId: 'tok_0',
+      cardName: 'Merfolk Wizard',
+      amount: 100,
+      totalAmount: 100,
+      availableColors: ['W', 'U', 'B', 'R', 'G'],
+      allowedColors: ['W', 'U', 'B', 'R', 'G'],
+    } as any);
+
+    const { sanitizeStepForClient } = await import('../src/socket/resolution.js');
+    const clientStep = sanitizeStepForClient(gameId, step as any);
+    expect(clientStep.selectionKind).toBe('distribution');
+    expect(clientStep.totalAmount).toBe(100);
+    expect(clientStep.availableColors).toEqual(['W', 'U', 'B', 'R', 'G']);
+  });
+
+  it('applies distribution mana to the pool when the player submits colors', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const tokenIds = Array.from({ length: 5 }, (_, i) => `merfolk_token_${i}`);
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'cryptolith_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'cryptolith_card',
+          name: 'Cryptolith Rite',
+          type_line: 'Enchantment',
+          oracle_text: 'Creatures you control have "{T}: Add one mana of any color."',
+        },
+      },
+      ...tokenIds.map((id) => ({
+        id,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        isToken: true,
+        basePower: 1,
+        baseToughness: 1,
+        card: {
+          id: `${id}_card`,
+          name: 'Merfolk Wizard',
+          type_line: 'Token Creature — Merfolk Wizard',
+          oracle_text: '',
+          power: '1',
+          toughness: '1',
+        },
+      })),
+    ];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket({ playerId, gameId }, emitted);
+    registerInteractionHandlers(io, socket);
+    registerResolutionHandlers(io, socket);
+
+    await handlers['bulkTapPermanentsForMana']({
+      gameId,
+      permanentIds: tokenIds,
+      count: 5,
+    });
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId);
+    const manaStep = steps.find((step: any) => step.type === ResolutionStepType.MANA_COLOR_SELECTION) as any;
+    expect(manaStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: manaStep.id,
+      selections: { U: 3, W: 2 },
+      cancelled: false,
+    });
+
+    const pool = (game.state as any).manaPool[playerId];
+    expect(pool.blue).toBe(3);
+    expect(pool.white).toBe(2);
+    expect(ResolutionQueueManager.getStepsForPlayer(gameId, playerId)).toHaveLength(0);
+  });
 });
