@@ -31,6 +31,20 @@ describe('trigger effect text extraction (server registration)', () => {
     expect(generic?.effect?.toLowerCase()).toContain('each player may put a land');
   });
 
+  it('does not register the Warp reminder text as an end-step trigger', () => {
+    const triggers = detectEndStepTriggers(
+      {
+        name: 'Starfield Vocalist',
+        oracle_text:
+          'If a permanent entering the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.\n'
+          + 'Warp {1}{U} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)',
+      },
+      { id: 'starfield-vocalist', controller: 'p1' },
+    );
+
+    expect(triggers).toEqual([]);
+  });
+
   it('detectAttackTriggers captures if-you-do continuation after attacks', () => {
     const oracle =
       'Whenever this creature attacks, you may put an artifact creature card from your hand onto the battlefield tapped and attacking. If you do, convert it at the beginning of your next upkeep.';

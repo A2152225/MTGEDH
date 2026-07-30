@@ -174,7 +174,9 @@ describe('warp integration', () => {
     game.nextStep();
 
     expect((game.state as any).step).toBe('END');
-    const delayedExileTrigger = ((game.state as any).stack || []).find((item: any) =>
+    const endStepStack = ((game.state as any).stack || []) as any[];
+    expect(endStepStack).toHaveLength(1);
+    const delayedExileTrigger = endStepStack.find((item: any) =>
       item?.delayedAction === 'exile'
       && Array.isArray(item?.delayedPermanentIds)
       && item.delayedPermanentIds.includes(warpedPermanentId),

@@ -20,6 +20,7 @@ import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import { isInterveningIfSatisfied } from "./intervening-if.js";
 import { KNOWN_END_STEP_TRIGGERS } from "./card-data-tables.js";
 import { shouldSkipUntapStepForPlayer } from "../skipUntapStepUtils.js";
+import { stripReminderParentheticals } from "../../../../../rules-engine/src/oracleReminderText.js";
 
 // ============================================================================
 // Type Definitions for Turn Phase Triggers
@@ -81,7 +82,9 @@ function getActivePermanentCardFace(card: any, permanent: any): { cardName: stri
 
   return {
     cardName: String(isTransformCard ? activeFace?.name || card?.name || 'Unknown' : card?.name || 'Unknown'),
-    oracleText: String(isTransformCard ? activeFace?.oracle_text || card?.oracle_text || '' : card?.oracle_text || ''),
+    oracleText: stripReminderParentheticals(
+      String(isTransformCard ? activeFace?.oracle_text || card?.oracle_text || '' : card?.oracle_text || ''),
+    ),
   };
 }
 
