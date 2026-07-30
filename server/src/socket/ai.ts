@@ -4304,6 +4304,7 @@ function scorePermanentTargetForSpell(
 function scorePlayerTargetForSpell(
   game: any,
   playerId: PlayerID,
+  card: any,
   spellSpec: SpellSpec,
   target: TargetRef,
   profile: DeckArchetypeProfile | null,
@@ -4330,6 +4331,25 @@ function scorePlayerTargetForSpell(
 
   if (comboWarning.comboPlayers.includes(player.id)) {
     score += comboWarning.comboThreat === 'imminent' ? 30 : 15;
+  }
+
+  const oracleText = String(card?.oracle_text || card?.oracleText || '').toLowerCase();
+  if (/\btarget (?:player|opponent) sacrifices an? attacking creature\b/.test(oracleText)) {
+    const controlledAttackers = getAIAttackingPermanents(game).filter(
+      (attacker: any) => String(attacker?.controller || '') === String(player.id),
+    );
+    if (controlledAttackers.length === 0) {
+      score -= 1000;
+    } else {
+      const greatestToughness = Math.max(
+        ...controlledAttackers.map((attacker: any) => {
+          const raw = attacker?.baseToughness ?? attacker?.toughness ?? attacker?.card?.toughness ?? 0;
+          const parsed = Number.parseInt(String(raw), 10);
+          return Number.isFinite(parsed) ? parsed : 0;
+        }),
+      );
+      score += 80 + greatestToughness * 5;
+    }
   }
 
   if (spellSpec.op === 'MILL_TARGET_PLAYER' && profile?.primaryArchetypes.includes(SynergyArchetype.GRAVEYARD) && isSelf) {
@@ -4429,7 +4449,7 @@ export function chooseAITargetsForSpell(
     if (target.kind === 'permanent') {
       score = scorePermanentTargetForSpell(game, playerId, card, spellSpec, target, profile, threatAssessment);
     } else if (target.kind === 'player') {
-      score = scorePlayerTargetForSpell(game, playerId, spellSpec, target, profile, threatAssessment);
+      score = scorePlayerTargetForSpell(game, playerId, card, spellSpec, target, profile, threatAssessment);
     } else if (target.kind === 'stack') {
       score = scoreStackTargetChoice(game, playerId, target);
     } else if (target.kind === 'card') {
@@ -4950,6 +4970,56 @@ function getAIPlayerLibraryCards(game: any, playerId: PlayerID): any[] {
 function getAITopLibraryCard(game: any, playerId: PlayerID): any | null {
   const library = getAIPlayerLibraryCards(game, playerId);
   return library[0] ?? null;
+}
+
+function getAIAttackingPermanents(game: any): any[] {
+  const state = game?.state;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const declaredAttackerIds = new Set(
+    (Array.isArray(state?.declaredAttackers) ? state.declaredAttackers : [])
+      .map((entry: any) => String(entry?.creatureId || entry?.attackerId || entry?.id || entry || '').trim())
+      .filter(Boolean),
+  );
+
+  return battlefield.filter((permanent: any) => {
+    const permanentId = String(permanent?.id || '').trim();
+    return Boolean(permanent?.attacking)
+      || Boolean(permanent?.isAttacking)
+      || (permanentId && declaredAttackerIds.has(permanentId));
+  });
+}
+
+export function isAISpellContextuallyUseful(game: any, playerId: PlayerID, card: any): boolean {
+  const oracleText = String(card?.oracle_text || card?.oracleText || '').toLowerCase();
+  const attackingPermanents = getAIAttackingPermanents(game);
+
+  const isCombatDamageFog =
+    /\bprevent all combat damage\b/.test(oracleText)
+    || /\bcreatures? (?:deal|deals) no combat damage\b/.test(oracleText);
+  if (isCombatDamageFog) {
+    const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+    return attackingPermanents.some((attacker: any) => {
+      if (String(attacker?.controller || '') === String(playerId)) return false;
+      if (attacker?.attacking === true || attacker?.isAttacking === true) return true;
+
+      const attackedId = String(attacker?.attacking || attacker?.defendingPlayerId || '').trim();
+      if (!attackedId) return true;
+      if (attackedId === String(playerId)) return true;
+      return battlefield.some(
+        (permanent: any) =>
+          String(permanent?.id || '') === attackedId
+          && String(permanent?.controller || '') === String(playerId),
+      );
+    });
+  }
+
+  if (/\btarget (?:player|opponent) sacrifices an? attacking creature\b/.test(oracleText)) {
+    return attackingPermanents.some(
+      (attacker: any) => String(attacker?.controller || '') !== String(playerId),
+    );
+  }
+
+  return true;
 }
 
 function getAISourceCards(game: any, playerId: PlayerID, sourceZone: AISupportedCardSourceZone): any[] {
@@ -6068,6 +6138,14 @@ function findCastableSpells(
 
   const castable = sharedCandidates
     .filter((candidate) => candidate.payability === 'normal' && candidate.cost)
+    .filter((candidate) => {
+      const castCard = candidate.castCard || candidate.card;
+      const useful = isAISpellContextuallyUseful(game, playerId, castCard);
+      if (!useful) {
+        debug(1, `[AI] findCastableSpells: Skipping ${castCard?.name || candidate.card?.name || 'spell'} because its combat-dependent effect is not currently useful`);
+      }
+      return useful;
+    })
     .filter((candidate) => {
       // Check additional non-mana costs first to make sure AI can pay them before checking mana payment plan
       const card = candidate.card;

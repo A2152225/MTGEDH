@@ -105,6 +105,18 @@ describe('Entrapment Maneuver oracle IR sacrifice validate-before-complete (inte
         },
       },
     ];
+    (game.state as any).stack = [{
+      id: 'spell1',
+      type: 'spell',
+      controller: casterId,
+      targets: [targetPlayerId],
+      card: {
+        id: 'entrapment-card',
+        name: 'Entrapment Maneuver',
+        type_line: 'Instant',
+        oracle_text: "Target player sacrifices an attacking creature of their choice. You create X 1/1 white Soldier creature tokens, where X is that creature's toughness.",
+      },
+    }];
 
     const ctx = game as any;
     ctx.gameId = gameId;
@@ -167,6 +179,7 @@ describe('Entrapment Maneuver oracle IR sacrifice validate-before-complete (inte
 
     const battlefieldAfter = (game.state as any).battlefield as any[];
     expect(battlefieldAfter.some((perm) => String(perm?.id) === creatureId)).toBe(false);
+    expect((game.state as any).stack[0].targets).toEqual([targetPlayerId]);
 
     const soldierTokens = battlefieldAfter.filter(
       (perm) => /soldier/i.test(String(perm?.card?.name || perm?.name || '')) && perm?.controller === casterId,

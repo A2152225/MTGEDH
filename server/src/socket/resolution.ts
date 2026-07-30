@@ -20021,7 +20021,8 @@ async function handleTargetSelectionResponse(
   // The spell/ability on the stack will use these targets when it resolves
   const sourceId = step.sourceId;
   const spellCastContext = targetStepData.spellCastContext;
-  if (!spellCastContext && sourceId && game.state?.stack) {
+  const isOracleIrEffectChoice = Boolean(String((step as any)?.oracleIrChoiceStepJson || '').trim());
+  if (!spellCastContext && !isOracleIrEffectChoice && sourceId && game.state?.stack) {
     const stackItem = game.state.stack.find((item: any) => item.id === sourceId);
     if (stackItem) {
       stackItem.targets = selections;
