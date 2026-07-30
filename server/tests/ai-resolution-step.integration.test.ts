@@ -8,7 +8,7 @@ import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
 import { applyOracleIRStepsOnServer } from '../src/state/modules/oracleIrServerZoneSync.js';
 import { broadcastGame, ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
-import { cleanupGameAI, handleAIPriority, registerAIPlayer } from '../src/socket/ai.js';
+import { cleanupGameAI, handleAIPriority, handleAIResolutionStep, registerAIPlayer } from '../src/socket/ai.js';
 import { AIEngine, AIDecisionType } from '../../rules-engine/src/AIEngine.js';
 
 function createNoopIo() {
@@ -599,7 +599,7 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.selections).toEqual(['scepter_lib']);
   });
 
-  it('routes active player-choice steps through AI priority handling and selects the strongest legal opponent', async () => {
+  it('applies player-choice side effects when the AI continuation selects an opponent', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
@@ -619,6 +619,10 @@ describe('AI resolution-step integration', () => {
       opp1: { hand: [], library: [], exile: [], graveyard: [] },
       opp2: { hand: [], library: [], exile: [], graveyard: [] },
     };
+    (game as any).libraries.set(playerId, [
+      { id: 'draw_1', name: 'Draw One', zone: 'library' },
+      { id: 'draw_2', name: 'Draw Two', zone: 'library' },
+    ]);
     (game.state as any).battlefield = [
       {
         id: 'combo_piece',
@@ -634,6 +638,20 @@ describe('AI resolution-step integration', () => {
           oracle_text: 'Imprint — When Isochron Scepter enters the battlefield, you may exile an instant card with mana value 2 or less from your hand.',
         },
       },
+      {
+        id: 'humble_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: true,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'humble_card',
+          name: 'Humble Defector',
+          type_line: 'Creature — Human Rogue',
+          oracle_text: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
+        },
+      },
     ];
 
     registerAIPlayer(gameId, playerId as any);
@@ -646,6 +664,12 @@ describe('AI resolution-step integration', () => {
       sourceId: 'humble_1',
       sourceName: 'Humble Defector',
       opponentOnly: true,
+      permanentId: 'humble_1',
+      effectData: {
+        type: 'control_change',
+        permanentId: 'humble_1',
+        drawCards: 2,
+      },
       players: [
         { id: 'opp1', name: 'Opponent One', isOpponent: true, isSelf: false },
         { id: 'opp2', name: 'Opponent Two', isOpponent: true, isSelf: false },
@@ -654,12 +678,14 @@ describe('AI resolution-step integration', () => {
 
     ResolutionQueueManager.activateStep(gameId, step.id);
 
-    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+    await handleAIResolutionStep(createNoopIo(), gameId, playerId as any, step);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
     const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
     expect(completed?.response?.selections).toEqual(['opp2']);
+    expect((game.state as any).battlefield.find((entry: any) => entry.id === 'humble_1')?.controller).toBe('opp2');
+    expect((game.state as any).zones[playerId].hand.map((card: any) => card.id)).toEqual(['draw_1', 'draw_2']);
   });
 
   it('routes active color-choice steps through AI priority handling and submits a legal color', async () => {

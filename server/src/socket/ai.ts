@@ -10807,7 +10807,7 @@ async function executeAIDecision(
  * Handle AI Resolution Queue step responses
  * This handles trigger ordering, Kynaios choices, Entrapment Maneuver, and other player interactions
  */
-async function handleAIResolutionStep(
+export async function handleAIResolutionStep(
   io: Server,
   gameId: string,
   playerId: PlayerID,
@@ -10945,7 +10945,14 @@ async function handleAIResolutionStep(
       case 'player_choice': {
         const selectedPlayerId = chooseAIPlayerChoiceId(game, playerId, step);
         const selections = selectedPlayerId ? [selectedPlayerId] : [];
-        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(selections));
+        const response = createResponse(selections, !selectedPlayerId);
+        if (ResolutionQueueManager.completeStep(gameId, step.id, response)) {
+          // Completing the queue entry alone only records the AI's choice. Run the
+          // same effect handler used by human responses so control changes, draws,
+          // and other player-choice consequences are actually applied.
+          const resolutionModule = await import('./resolution.js');
+          await resolutionModule.applyResolutionStepSideEffects(io, game, gameId, step, response);
+        }
         debug(1, `[AI] player_choice: Selected ${selectedPlayerId || 'none'}`);
         break;
       }
